@@ -28,6 +28,8 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0017](0017-mfa-por-papel.md) | MFA obrigatório para administração e moderação, opcional para participantes | Accepted | Tomada de conta ou exigência regulatória |
 | [0018](0018-contrato-openapi-code-first.md) | Contrato OpenAPI code-first, versionado, com `oasdiff` | Accepted | Consumidores externos da API |
 | [0019](0019-implementacao-identidade-sessao-outbox.md) | Identidade, sessões revogáveis, CSRF, rate limit e outbox de e-mail no M1 | Accepted | Mais de uma instância web, provedor de e-mail real ou MFA |
+| [0020](0020-persistencia-da-sessao-de-jogo.md) | Sessão de jogo persistida por snapshot público no Core, estado JSONB versionado e conteúdo pela versão fixada | Proposed | Estado consultado por SQL ou snapshot acima de 32 KiB |
+| [0021](0021-jobs-duraveis-e-leases-no-postgresql.md) | Jobs duráveis em `ops.jobs` com lease, fencing token, retry e `Expired` | Proposed | Idade do job mais antigo acima do alvo ou terceiro uso do protocolo de fila |
 
 ## Regras
 
