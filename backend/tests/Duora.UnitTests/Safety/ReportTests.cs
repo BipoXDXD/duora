@@ -166,7 +166,7 @@ public sealed class ReportTests
         Assert.Equal((ReportState.Triaged, ReportPriority.High), (report.State, report.Priority));
         report.StartReview(ModeratorMaria).Accepted();
         Assert.Equal((ReportState.UnderReview, ModeratorMaria), (report.State, report.AssignedModeratorId));
-        var action = report.TakeAction(Decision(), clock).Accepted();
+        var action = report.TakeAction(Decision(), Limits, clock).Accepted();
         Assert.Equal((ReportState.Actioned, action.Id), (report.State, report.CurrentActionId));
         var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", clock).Accepted();
         report.MarkAppealed(appeal).Accepted();
@@ -289,7 +289,7 @@ public sealed class ReportTests
             ? new ModerationAuthor.Automated()
             : new ModerationAuthor.Human(ModeratorPedro);
 
-        var result = report.TakeAction(Decision(ModerationMeasure.Warning, decisionAuthor), FixedClock.AtStart());
+        var result = report.TakeAction(Decision(ModerationMeasure.Restriction, decisionAuthor), Limits, FixedClock.AtStart());
 
         SafetyAssert.Rejected(SafetyRejection.OnlyAssignedReviewerCanDecide, result);
         Assert.Equal(ReportState.UnderReview, report.State);
@@ -379,7 +379,7 @@ public sealed class ReportTests
     {
         Transition.Triage => report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated()).Rejection,
         Transition.StartReview => report.StartReview(ModeratorMaria).Rejection,
-        Transition.TakeAction => report.TakeAction(Decision(), clock).Rejection,
+        Transition.TakeAction => report.TakeAction(Decision(), Limits, clock).Rejection,
         Transition.Close => report.Close(ModeratorMaria, "Sem violação.", clock).Rejection,
         Transition.MarkAppealed => report.MarkAppealed(
             Appeal.File(SanctionOn(Bruno), Bruno, "Recurso.", clock).Accepted()).Rejection,
@@ -392,6 +392,6 @@ public sealed class ReportTests
     private static (Report Report, ModerationAction Action) ActionedReport(TimeProvider clock)
     {
         var report = ReportIn(ReportState.UnderReview, clock);
-        return (report, report.TakeAction(Decision(), clock).Accepted());
+        return (report, report.TakeAction(Decision(), Limits, clock).Accepted());
     }
 }

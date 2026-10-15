@@ -17,6 +17,9 @@ public enum SafetyRejection
     /// <summary>Classificador não rebaixa denúncia grave; só uma pessoa pode (spec 19.3).</summary>
     AutomatedTriageCannotLowerSevereReport,
     MeasureDurationMismatch,
+
+    /// <summary>Duração acima do teto do autor (<see cref="ModerationLimits"/>).</summary>
+    DurationExceedsLimit,
     ActionNotAppealable,
 }
 
