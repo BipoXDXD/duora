@@ -84,6 +84,33 @@ describe('requestJson: sucesso', () => {
   })
 })
 
+describe('sendCommand', () => {
+  it.each([
+    ['202 sem corpo', () => new Response(null, { status: 202 })],
+    ['202 com texto', () => new Response('aceito', { status: 202, headers: { 'Content-Type': 'text/plain' } })],
+    ['204', () => new Response(null, { status: 204 })],
+  ])('conclui sem ler o corpo em %s', async (_caso, respond) => {
+    const { client, sentRequest } = setup(() => Promise.resolve(respond()))
+
+    await expect(
+      client.sendCommand({ method: 'POST', path: '/api/v1/auth/register', body: { email: 'a@b.test' } }),
+    ).resolves.toBeUndefined()
+    expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBe(CSRF_TOKEN)
+    expect(await sentRequest().json()).toEqual({ email: 'a@b.test' })
+  })
+
+  it('rejeita com ApiProblemError quando o servidor recusa', async () => {
+    const { client } = setup(() =>
+      Promise.resolve(problemResponse({ title: 'Token inválido', code: 'INVALID_TOKEN' }, 400)),
+    )
+
+    const error = await client.sendCommand({ method: 'POST', path: '/api/v1/x' }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiProblemError)
+    expect(error).toMatchObject({ status: 400, problem: { code: 'INVALID_TOKEN' } })
+  })
+})
+
 describe('requestJson: antiforgery', () => {
   it.each(['POST', 'PUT', 'PATCH', 'DELETE'] as const)('anexa o header antiforgery em %s', async (method) => {
     const { client, sentRequest } = setup()
