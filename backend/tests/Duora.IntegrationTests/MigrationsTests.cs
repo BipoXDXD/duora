@@ -21,6 +21,51 @@ public sealed class MigrationsTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task IdentityAndOutboxTablesExist()
+    {
+        var tables = await QueryNamesAsync(
+            """
+            select table_schema || '.' || table_name from information_schema.tables
+            where table_schema in ('identity', 'ops') and table_name <> '__ef_migrations_history'
+            """);
+
+        Assert.Equal(
+            [
+                "identity.consent_records", "identity.login_sessions", "identity.role_claims", "identity.roles",
+                "identity.user_claims", "identity.user_logins", "identity.user_roles", "identity.user_tokens",
+                "identity.users", "ops.outbox_deliveries", "ops.outbox_events",
+            ],
+            tables.Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Nomes físicos em snake_case (spec 10.1), inclusive nas tabelas do Identity, cujo mapeamento padrão é PascalCase.
+    /// A tabela de histórico do EF fica de fora: as colunas dela são do provider.
+    /// </summary>
+    [Fact]
+    public async Task PhysicalNamesAreSnakeCase()
+    {
+        var names = await QueryNamesAsync(
+            """
+            select table_name from information_schema.tables
+             where table_schema in ('identity', 'ops') and table_name <> '__ef_migrations_history'
+            union all
+            select column_name from information_schema.columns
+             where table_schema in ('identity', 'ops') and table_name <> '__ef_migrations_history'
+            union all
+            select constraint_name from information_schema.table_constraints
+             where table_schema in ('identity', 'ops') and table_name <> '__ef_migrations_history'
+               and constraint_type <> 'CHECK'
+            union all
+            select indexname from pg_indexes
+             where schemaname in ('identity', 'ops') and tablename <> '__ef_migrations_history'
+            """);
+
+        Assert.NotEmpty(names);
+        Assert.DoesNotContain(names, name => !System.Text.RegularExpressions.Regex.IsMatch(name, "^[a-z][a-z0-9_]*$"));
+    }
+
+    [Fact]
     public async Task ModelHasNoChangesMissingAMigration()
     {
         await using var dbContext = postgres.CreateDbContext();
@@ -46,5 +91,20 @@ public sealed class MigrationsTests(PostgresFixture postgres)
         var historyTable = await command.ExecuteScalarAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(DBNull.Value, historyTable);
+    }
+
+    private async Task<List<string>> QueryNamesAsync(string sql)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+        var names = new List<string>();
+        while (await reader.ReadAsync(TestContext.Current.CancellationToken))
+        {
+            names.Add(reader.GetString(0));
+        }
+
+        return names;
     }
 }
