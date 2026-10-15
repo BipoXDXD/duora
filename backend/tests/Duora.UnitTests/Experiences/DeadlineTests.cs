@@ -143,7 +143,7 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    public void HandleDeadlineConcludesAWholeRouteStillInAdjustment()
+    public void HandleDeadlineExpiresAWholeRouteWithoutBothConfirmations()
     {
         var session = AtAdjustment(_engine, NewSession(_engine));
         session = Act(_engine, session, Ana, new UnlikelyRoutesAction.ConfirmRoute());
@@ -151,8 +151,13 @@ public sealed class DeadlineTests
 
         var resolved = Assert.IsType<Outcome.Resolved>(_engine.HandleDeadline(session, session.Version));
 
-        Assert.Equal(SessionStatus.Completed, resolved.Session.Status);
-        Assert.Equal(RoutesStage.Conclusion, _engine.ProjectForParticipant(resolved.Session, Ana)!.Stage);
+        Assert.Equal(SessionStatus.Expired, resolved.Session.Status);
+        var view = _engine.ProjectForParticipant(resolved.Session, Ana)!;
+        Assert.Equal(RoutesStage.Adjustment, view.Stage);
+        Assert.Equal(4, view.Route.Count);
+        Assert.Equal(
+            SessionStatus.Expired,
+            Assert.IsType<SessionFinished>(Assert.Single(resolved.Events)).Outcome);
     }
 
     [Fact]
