@@ -1,6 +1,6 @@
 using System.Security.Claims;
 
-namespace Duora.Infrastructure.Identity;
+namespace Duora.Web.Identity;
 
 /// <summary>Claims do principal de sessão. Ficam só no ticket do servidor; o cookie não as carrega.</summary>
 public static class DuoraClaims

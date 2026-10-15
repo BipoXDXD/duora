@@ -68,10 +68,10 @@ USER 1654:1654
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Duora.Web.dll"]
 
-# --- worker: mesma base do web, mesmo hardening --------------------------------------------------------------------
-# O Duora.Infrastructure referencia o framework do ASP.NET Core (Identity, Data Protection; ADR-0019), e o
-# runtimeconfig do worker exige Microsoft.AspNetCore.App: na imagem runtime pura o processo nem inicia.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.13-noble-chiseled-extra@sha256:3ed6558056b54d5c9dfefb7ff473728e022ff2bf1d976cbf8ee07b05ec594374 AS worker
+# --- worker: runtime .NET puro (sem ASP.NET Core), mesmo hardening -----------------------------------------------
+# O runtimeconfig do worker não pode exigir Microsoft.AspNetCore.App (ADR-0019, "Revisão: separação do runtime
+# web"); Duora.ArchitectureTests falha no build se isso mudar, antes de a imagem quebrar no start.
+FROM mcr.microsoft.com/dotnet/runtime:10.0.13-noble-chiseled-extra@sha256:11f4c921d75b7a1f19d4eb5b7069f9e92a9d1b8412a04b3475a664b62a9b88cb AS worker
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="duora-worker" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \

@@ -17,8 +17,9 @@ public sealed class DependencyRulesTests
     private const string Infrastructure = "Duora.Infrastructure";
     private const string Web = "Duora.Web";
     private const string Worker = "Duora.Worker";
+    private const string WebIdentity = "Duora.Web.Identity";
 
-    private static readonly string[] ProductionAssemblies = [Core, Contracts, Infrastructure, Web, Worker];
+    private static readonly string[] ProductionAssemblies = [Core, Contracts, Infrastructure, Web, WebIdentity, Worker];
 
     /// <summary>
     /// Core e Contracts só podem usar a BCL e abstrações do Microsoft.Extensions. Nenhum projeto Duora é permitido
@@ -63,6 +64,7 @@ public sealed class DependencyRulesTests
     [InlineData(Contracts)]
     [InlineData(Infrastructure)]
     [InlineData(Web)]
+    [InlineData(WebIdentity)]
     [InlineData(Worker)]
     public void TypesLiveUnderTheirAssemblyNamespace(string assembly)
     {

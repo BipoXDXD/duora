@@ -9,7 +9,7 @@ namespace Duora.Infrastructure.Identity;
 public sealed record ActiveSession(Guid Id, DateTimeOffset CreatedAt, DateTimeOffset LastSeenAt, string Description);
 
 /// <summary>Dados de uma sessão nova; o ticket já vem protegido.</summary>
-internal sealed record NewLoginSession(
+public sealed record NewLoginSession(
     Guid Id,
     Guid UserId,
     string Key,
@@ -39,7 +39,7 @@ public sealed class LoginSessions
         Lifetime = lifetime;
     }
 
-    internal SessionLifetime Lifetime { get; }
+    public SessionLifetime Lifetime { get; }
 
     public async Task<IReadOnlyList<ActiveSession>> ListActiveAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -106,7 +106,7 @@ public sealed class LoginSessions
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    internal async Task CreateAsync(NewLoginSession session, CancellationToken cancellationToken)
+    public async Task CreateAsync(NewLoginSession session, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand(
             """
@@ -130,7 +130,7 @@ public sealed class LoginSessions
     }
 
     /// <summary>Ticket protegido da sessão ainda válida, já com a expiração ociosa renovada; null se não vale mais.</summary>
-    internal async Task<byte[]?> TouchAsync(string key, CancellationToken cancellationToken)
+    public async Task<byte[]?> TouchAsync(string key, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand(
             """
@@ -153,7 +153,7 @@ public sealed class LoginSessions
         return await command.ExecuteScalarAsync(cancellationToken) as byte[];
     }
 
-    internal async Task ReplaceTicketAsync(string key, byte[] protectedTicket, CancellationToken cancellationToken)
+    public async Task ReplaceTicketAsync(string key, byte[] protectedTicket, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand(
             "update identity.login_sessions set ticket = @ticket where key_hash = @key_hash and revoked_at is null");
@@ -162,7 +162,7 @@ public sealed class LoginSessions
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    internal async Task RevokeByKeyAsync(string key, string reason, CancellationToken cancellationToken)
+    public async Task RevokeByKeyAsync(string key, string reason, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand(
             """
