@@ -96,16 +96,19 @@ def main() -> int:
 
     workdir = Path(tempfile.mkdtemp(prefix="duora-drill-"))
     drill = Drill(args.image, workdir)
+    report: DrillReport | None = None
+    cleaned = True
     try:
         report = drill.run()
     except DrillFailure as error:
         print(f"[drill] FALHOU: {error}", flush=True)
         drill.dump_logs()
-        return 1
     finally:
         if not args.keep:
             drill.teardown()
-            shutil.rmtree(workdir, ignore_errors=True)
+            cleaned = _clean_workdir(workdir, args.image)
+    if report is None or not cleaned:
+        return 1
 
     print(f"[drill] OK: RPO observado {report.rpo_seconds:.1f} s, RTO observado {report.rto_seconds:.1f} s, "
           f"timeline {report.timeline_after_restore}", flush=True)
@@ -388,6 +391,35 @@ class Drill:
         if self._prepared:
             subprocess.run(self._compose + ["--profile", "restore", "down", "--volumes", "--remove-orphans"],
                            check=False, capture_output=True)
+
+
+def _clean_workdir(workdir: Path, image: str) -> bool:
+    leftover = remove_workdir(workdir, image)
+    if leftover:
+        # Segredos sintéticos, mas com dono 999: sobrar em /tmp é falha do drill, não detalhe.
+        print(f"[drill] FALHOU: não consegui apagar {workdir}: {leftover}", flush=True)
+    return not leftover
+
+
+def remove_workdir(workdir: Path, image: str) -> str:
+    """Apaga o diretório temporário do drill; devolve o motivo se algo sobrar (vazio = apagado).
+
+    Os segredos e o state ficam com dono 999 e modo 0400 (como na VPS): o usuário do host não apaga. Um container root
+    da própria imagem remove o conteúdo, só deste diretório (que o mkdtemp criou), antes do rmtree.
+    """
+    try:
+        subprocess.run(["docker", "run", "--rm", "--user", "0", "--network", "none", "--volume", f"{workdir}:/drill",
+                        "--entrypoint", "find", image, "/drill", "-mindepth", "1", "-delete"],
+                       check=False, capture_output=True, timeout=COMMAND_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"[drill] AVISO: limpeza pelo container falhou ({error}); tentando direto", flush=True)
+    try:
+        shutil.rmtree(workdir)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        return str(error)
+    return f"{workdir} ainda existe" if workdir.exists() else ""
 
 
 def _run(command: list[str], *, capture: bool = False) -> str:
