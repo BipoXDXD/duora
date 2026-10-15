@@ -6,7 +6,14 @@ namespace Duora.UnitTests.Events;
 /// <summary>Leva um evento novo a cada estado pelo caminho público, nos instantes em que cada transição vale.</summary>
 internal static class EventStates
 {
-    public static readonly CancellationReason Reason = new("Local indisponível");
+    public static readonly CancellationReason Reason = ValidReason("Local indisponível");
+
+    public static CancellationReason ValidReason(string text)
+    {
+        var parsed = CancellationReason.Parse(text);
+        Assert.True(parsed.IsValid, $"Motivo recusado: {parsed.Refusal}");
+        return parsed.Reason;
+    }
 
     public static Event Draft(int capacity = 10)
     {

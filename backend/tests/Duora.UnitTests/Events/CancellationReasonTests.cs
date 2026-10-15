@@ -5,42 +5,74 @@ namespace Duora.UnitTests.Events;
 public sealed class CancellationReasonTests
 {
     [Fact]
-    public void KeepsTheTrimmedText()
+    public void ParseKeepsTheTrimmedText()
     {
-        var reason = new CancellationReason("  Local indisponível  ");
+        var parsed = CancellationReason.Parse("  Local indisponível  ");
 
-        Assert.Equal("Local indisponível", reason.Text);
+        Assert.True(parsed.IsValid);
+        Assert.Equal("Local indisponível", parsed.Reason.Text);
+        Assert.Null(parsed.Refusal);
     }
 
     [Fact]
-    public void AcceptsTheMaximumLength()
+    public void ParseAcceptsTheMaximumLength()
     {
         var text = new string('a', CancellationReason.MaxLength);
 
-        Assert.Equal(text, new CancellationReason(text).Text);
+        var parsed = CancellationReason.Parse(text);
+
+        Assert.True(parsed.IsValid);
+        Assert.Equal(text, parsed.Reason.Text);
     }
 
     [Fact]
-    public void RejectsTextAboveTheMaximumLength()
+    public void ParseMeasuresTheLengthAfterTrimming()
     {
-        Assert.Throws<ArgumentException>(() => new CancellationReason(new string('a', CancellationReason.MaxLength + 1)));
+        var parsed = CancellationReason.Parse($" {new string('a', CancellationReason.MaxLength)} ");
+
+        Assert.True(parsed.IsValid);
+    }
+
+    [Fact]
+    public void ParseRefusesTextAboveTheMaximumLength()
+    {
+        AssertRefused(CancellationReasonRefusal.TooLong, new string('a', CancellationReason.MaxLength + 1));
     }
 
     [Theory]
+    [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
+    [InlineData("\n")]
+    public void ParseRefusesMissingOrBlankText(string? text)
+    {
+        AssertRefused(CancellationReasonRefusal.Blank, text);
+    }
+
+    [Theory]
     [InlineData("motivo\0oculto")]
     [InlineData("linha\u0007sino")]
-    public void RejectsBlankOrControlCharacters(string text)
+    [InlineData("tab\tseparado")]
+    public void ParseRefusesControlCharacters(string text)
     {
-        Assert.Throws<ArgumentException>(() => new CancellationReason(text));
+        AssertRefused(CancellationReasonRefusal.ControlCharacter, text);
     }
 
     [Fact]
-    public void AcceptsLineBreaksInsideTheText()
+    public void ParseAcceptsLineBreaksInsideTheText()
     {
-        var reason = new CancellationReason("Chuva forte.\nRemarcaremos.");
+        var parsed = CancellationReason.Parse("Chuva forte.\nRemarcaremos.");
 
-        Assert.Equal("Chuva forte.\nRemarcaremos.", reason.Text);
+        Assert.True(parsed.IsValid);
+        Assert.Equal("Chuva forte.\nRemarcaremos.", parsed.Reason.Text);
+    }
+
+    private static void AssertRefused(CancellationReasonRefusal expected, string? text)
+    {
+        var parsed = CancellationReason.Parse(text);
+
+        Assert.False(parsed.IsValid);
+        Assert.Equal(expected, parsed.Refusal);
+        Assert.Null(parsed.Reason);
     }
 }
