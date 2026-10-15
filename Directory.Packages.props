@@ -25,6 +25,8 @@
   </ItemGroup>
 
   <ItemGroup Label="Testes">
+    <!-- Property-based testing: Apache-2.0, sem dependências transitivas; escrito para C# (o FsCheck traz FSharp.Core). -->
+    <PackageVersion Include="CsCheck" Version="4.9.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
