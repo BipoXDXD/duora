@@ -71,6 +71,21 @@ describe('fetchSessions', () => {
     await expect(fetchSessions()).resolves.toEqual([item])
   })
 
+  it.each(['2026-10-14T10:00:00+00:00', '2026-10-14T07:00:00-03:00', '2026-10-14T10:00:00'])(
+    'rejeita instante sem o Z de UTC (spec 8.1): %s',
+    async (instant) => {
+      server.use(
+        http.get(`${API}/me/sessions`, () =>
+          HttpResponse.json({
+            items: [{ id: SESSION_ID, createdAt: instant, lastSeenAt: instant, current: true, description: 'x' }],
+          }),
+        ),
+      )
+
+      await expect(fetchSessions()).rejects.toThrow()
+    },
+  )
+
   it('rejeita data fora do formato RFC 3339 em UTC', async () => {
     server.use(
       http.get(`${API}/me/sessions`, () =>

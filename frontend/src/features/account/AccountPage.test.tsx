@@ -126,6 +126,17 @@ describe('área da conta', () => {
     expect(screen.queryByText('Nenhuma sessão ativa encontrada.')).not.toBeInTheDocument()
   })
 
+  it('instante fora do contrato (+00:00) cai no estado de erro, sem derrubar a página', async () => {
+    useMeEndpoint()
+    useSessionsEndpoint(() => HttpResponse.json({ items: [{ ...CURRENT, createdAt: '2026-10-14T10:00:00+00:00' }] }))
+    renderApp('/conta')
+
+    expect(await screen.findByText('Não foi possível carregar as sessões.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Algo deu errado do nosso lado.')
+    expect(screen.getByText('ana@exemplo.com')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Esta parte do Duora parou de funcionar' })).not.toBeInTheDocument()
+  })
+
   it('sessão que expira durante o uso leva à entrada com o aviso de sessão expirada', async () => {
     let sessionAlive = true
     useMeEndpoint(() => (sessionAlive ? HttpResponse.json(ME) : problem(401, 'UNAUTHENTICATED')))
