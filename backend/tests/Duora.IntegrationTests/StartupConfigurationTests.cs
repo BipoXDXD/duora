@@ -41,6 +41,19 @@ public sealed class StartupConfigurationTests
     }
 
     [Theory]
+    [InlineData("nao-e-uma-rede")]
+    [InlineData("172.30.10.0/99")]
+    public async Task WebDoesNotStartWithAnInvalidProxyNetwork(string network)
+    {
+        await using var app = BuildWeb($"--ReverseProxy:KnownNetworks:0={network}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("ReverseProxy:KnownNetworks", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("   ")]
     public async Task WebDoesNotStartWithoutAPersistentKeyRing(string keysDirectory)

@@ -49,9 +49,12 @@ internal static class DuoraWebApp
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();
+        builder.Services.AddTrustedReverseProxy();
 
         var app = builder.Build();
 
+        // Primeiro: tudo o que vem depois (rate limit por IP, esquema https) precisa do cliente real.
+        app.UseForwardedHeaders();
         app.UseExceptionHandler();
         app.UseStatusCodePages();
         app.Use(PreventCachingOfApiResponses);
