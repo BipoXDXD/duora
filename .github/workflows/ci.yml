@@ -216,6 +216,14 @@ jobs:
             echo "duora-$image: $(docker image inspect --format '{{.Architecture}} user={{.Config.User}}' "duora-$image:ci")"
           done
 
+      # Spec 18.5: backup físico, WAL e restore PITR de ponta a ponta com o compose.prod.yml real e um MinIO só como
+      # dublê S3 (docs/operations/backup-restore.md). Prova também que o postgres não alcança a internet.
+      - name: Drill de restore (pgBackRest + MinIO de teste)
+        run: |
+          python3 scripts/backup/restore_drill.py --image duora-postgres:ci | tee "$RUNNER_TEMP/drill.log"
+          { echo "### Drill de restore (${{ matrix.arch }})"; grep '^\[drill\] OK' "$RUNNER_TEMP/drill.log"; } \
+            >> "$GITHUB_STEP_SUMMARY"
+
       # Spec 17.1: vulnerabilidades das imagens (SO e binários), HIGH e CRITICAL bloqueiam. O socket do Docker só é
       # montado neste passo, só leitura, para o Trivy ler as imagens locais. --ignore-unfixed: achado sem correção
       # publicada não tem bump possível; ele aparece no relatório abaixo e volta a bloquear quando a correção sair.
@@ -284,7 +292,7 @@ jobs:
         run: python3 -m unittest discover -s infra/ansible/roles/docker/files -v
 
       - name: Pyright
-        run: pyright -p scripts/deploy/pyrightconfig.json scripts/deploy infra/ansible/roles/docker/files
+        run: pyright -p scripts/deploy/pyrightconfig.json scripts/deploy scripts/backup infra/ansible/roles/docker/files
 
       - name: ansible-lint e syntax-check
         working-directory: infra/ansible
