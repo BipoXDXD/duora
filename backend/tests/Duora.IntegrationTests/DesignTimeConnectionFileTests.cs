@@ -30,8 +30,8 @@ public sealed class DesignTimeConnectionFileTests(PostgresFixture postgres) : ID
     [Fact]
     public async Task MigratesDatabaseWithConnectionStringFromFile()
     {
-        var connectionString = await postgres.CreateEmptyDatabaseAsync(TestContext.Current.CancellationToken);
-        var file = WriteSecret(connectionString);
+        var database = await postgres.CreateEmptyDatabaseAsync(TestContext.Current.CancellationToken);
+        var file = WriteSecret(database.MigratorConnectionString);
 
         await using var context = CreateFactory(file).CreateDbContext([]);
         await context.Database.MigrateAsync(TestContext.Current.CancellationToken);
