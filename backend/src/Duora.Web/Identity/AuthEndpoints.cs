@@ -86,12 +86,15 @@ internal static class AuthEndpoints
         var validation = new RequestValidation();
         validation.Present("userId", request.UserId, out var userId);
         validation.Token("token", request.Token, out var token);
-        if (!validation.IsValid || token is null)
+        validation.ExistingPassword("password", request.Password, out var password);
+        if (!validation.IsValid || token is null || password is null)
         {
             return ApiProblems.Validation(validation.Errors);
         }
 
-        return await accounts.ConfirmEmailAsync(userId, token, cancellationToken)
+        // Sem login automático: confirmar só muda o estado da conta. Abrir sessão aqui seria um segundo caminho de
+        // SignIn para proteger contra fixation; a SPA leva ao login, que já faz isso.
+        return await accounts.ConfirmEmailAsync(userId, token, password, cancellationToken)
             ? TypedResults.NoContent()
             : InvalidToken();
     }

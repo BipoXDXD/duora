@@ -23,11 +23,12 @@ public sealed class AccountEmails
             $"""
             Olá,
 
-            Para confirmar este endereço de e-mail no Duora, abra o link abaixo:
+            Para confirmar este endereço de e-mail no Duora, abra o link abaixo. Vamos pedir a senha que você
+            escolheu no cadastro.
 
             {ActionLink("/confirmar-email", userId, token)}
 
-            Se você não pediu este cadastro, ignore esta mensagem.
+            Se você não pediu este cadastro, ignore esta mensagem: sem a senha, ninguém confirma a conta.
             """);
 
     public TransactionalEmail PasswordReset(EmailAddress to, Guid userId, string token) =>
