@@ -19,10 +19,17 @@ internal sealed class RoundBuilder
         int user,
         int waitingMinutes = 0,
         int roundsWithoutPair = 0,
+        Preferences? preferences = null) =>
+        WithCandidate(User(user), waitingMinutes, roundsWithoutPair, preferences);
+
+    public RoundBuilder WithCandidate(
+        Guid userId,
+        int waitingMinutes = 0,
+        int roundsWithoutPair = 0,
         Preferences? preferences = null)
     {
         _candidates.Add(new Candidate(
-            User(user),
+            userId,
             RoundStart.AddMinutes(-waitingMinutes),
             roundsWithoutPair,
             preferences ?? Preferences.Unrestricted));
