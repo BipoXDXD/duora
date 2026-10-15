@@ -4,5 +4,9 @@
   "reportUnusedImport": "error",
   "reportUnusedVariable": "error",
   "reportOptionalMemberAccess": "error",
-  "reportMissingTypeStubs": "none"
+  "reportMissingTypeStubs": "none",
+  "extraPaths": [
+    ".",
+    "../../infra/ansible/roles/docker/files"
+  ]
 }

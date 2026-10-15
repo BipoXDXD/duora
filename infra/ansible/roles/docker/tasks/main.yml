@@ -8,24 +8,66 @@
     group: root
     mode: "0755"
 
-- name: Baixar a chave do repositório do Docker
+# A chave só chega a /etc/apt/keyrings depois de validada: baixa e converte num diretório de trabalho do root, valida
+# o arquivo binário final (exatamente uma chave primária, com a impressão digital publicada) e só então copia.
+# O apt confia em todas as chaves do signed_by; por isso a validação não aceita chave extra.
+- name: Criar diretório de trabalho da chave (fora do keyring do apt) e o dos utilitários do Duora
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ docker_key_work_dir }}", mode: "0700" }
+    - { path: /usr/local/lib/duora, mode: "0755" }
+
+- name: Instalar o validador de chave do apt
+  ansible.builtin.copy:
+    src: validate_apt_key.py
+    dest: /usr/local/lib/duora/validate-apt-key
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Baixar a chave do repositório do Docker (temporária)
   ansible.builtin.get_url:
     url: "{{ docker_apt_key_url }}"
-    dest: /etc/apt/keyrings/docker.asc
+    dest: "{{ docker_key_work_dir }}/docker.asc.tmp"
+    owner: root
+    group: root
+    mode: "0600"
+    force: true
+  changed_when: false
+
+- name: Converter a chave para o formato binário (dearmor)
+  ansible.builtin.command:
+    cmd: >-
+      gpg --batch --yes --dearmor
+      --output {{ docker_key_work_dir }}/docker.gpg.tmp {{ docker_key_work_dir }}/docker.asc.tmp
+  changed_when: false
+
+- name: Validar a chave convertida (uma chave primária, impressão digital esperada)
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/lib/duora/validate-apt-key {{ docker_key_work_dir }}/docker.gpg.tmp {{ docker_apt_key_fingerprint }}
+  changed_when: false
+
+- name: Instalar a chave validada no keyring do apt
+  ansible.builtin.copy:
+    src: "{{ docker_key_work_dir }}/docker.gpg.tmp"
+    dest: "{{ docker_apt_keyring }}"
+    remote_src: true
     owner: root
     group: root
     mode: "0644"
 
-- name: Ler a impressão digital da chave baixada
-  ansible.builtin.command:
-    cmd: gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc
-  register: docker_key_info
+- name: Remover os arquivos temporários da chave
+  ansible.builtin.file:
+    path: "{{ docker_key_work_dir }}/{{ item }}"
+    state: absent
+  loop: [docker.asc.tmp, docker.gpg.tmp]
   changed_when: false
-
-- name: Recusar chave com impressão digital diferente da publicada pela Docker
-  ansible.builtin.assert:
-    that: "('fpr:::::::::' ~ docker_apt_key_fingerprint ~ ':') in docker_key_info.stdout"
-    fail_msg: "A chave em {{ docker_apt_key_url }} não é {{ docker_apt_key_fingerprint }}; não instale."
 
 - name: Configurar o repositório do Docker (deb822)
   ansible.builtin.deb822_repository:
@@ -35,7 +77,7 @@
     suites: ["{{ ansible_facts['distribution_release'] }}"]
     components: [stable]
     architectures: ["{{ docker_deb_architectures[ansible_facts['architecture']] }}"]
-    signed_by: /etc/apt/keyrings/docker.asc
+    signed_by: "{{ docker_apt_keyring }}"
     state: present
 
 - name: Instalar Docker Engine e plugins

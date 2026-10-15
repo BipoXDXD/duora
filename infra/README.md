@@ -98,7 +98,7 @@ uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.y
 - `ssh`: drop-in `00-duora.conf` (só chave, sem root, sem senha, `AllowUsers`); recusa aplicar se o operador não
   tiver `authorized_keys`.
 - `firewall`: UFW com IPv6, entrada negada por padrão, SSH com `limit` das origens permitidas, 80/443 TCP e 443 UDP.
-- `docker`: repositório oficial com a chave conferida pela impressão digital, `daemon.json` com `live-restore`,
+- `docker`: repositório oficial; a chave é baixada fora de `/etc/apt/keyrings`, convertida para binário e só instalada se o arquivo final tiver exatamente uma chave primária com a impressão digital publicada (`files/validate_apt_key.py`, com teste; uma chave extra no arquivo também passaria a valer para o apt), `daemon.json` com `live-restore`,
   `no-new-privileges` e logs limitados. Ninguém entra no grupo `docker` (equivale a root).
 - `app_dirs`: `/opt/duora`, `/etc/duora` (0750), `/etc/duora/secrets` (0700), `/var/lib/duora/releases` (0700),
   os comandos em `/usr/local/sbin`, os segredos gerados uma vez e o usuário `duora-deploy`: chave do CI presa a

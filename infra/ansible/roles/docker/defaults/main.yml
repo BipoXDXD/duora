@@ -2,6 +2,8 @@
 # Chave de assinatura do repositório oficial do Docker (docs.docker.com/engine/install/ubuntu).
 docker_apt_key_url: https://download.docker.com/linux/ubuntu/gpg
 docker_apt_key_fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+docker_apt_keyring: /etc/apt/keyrings/docker.gpg
+docker_key_work_dir: /root/.cache/duora
 docker_packages:
   - docker-ce
   - docker-ce-cli
