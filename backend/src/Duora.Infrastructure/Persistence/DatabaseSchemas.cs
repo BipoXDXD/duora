@@ -7,5 +7,7 @@ internal static class DatabaseSchemas
 
     public const string Ops = "ops";
 
+    public const string Profiles = "profiles";
+
     public const string MigrationsHistoryTable = "__ef_migrations_history";
 }
