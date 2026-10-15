@@ -161,7 +161,7 @@ public sealed class Report
             return SafetyResult.Rejected(rejection);
         }
 
-        ClosingReason = SafetyText.RequireBounded(reason, ClosingReasonMaxLength, allowEmpty: false, nameof(reason));
+        ClosingReason = SafetyText.RequireText(reason, ClosingReasonMaxLength, nameof(reason));
         ClosedAt = clock.GetUtcNow();
         State = ReportState.Closed;
         return SafetyResult.Success();

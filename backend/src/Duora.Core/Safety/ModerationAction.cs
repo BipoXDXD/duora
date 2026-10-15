@@ -158,7 +158,7 @@ public sealed class ModerationAction
     }
 
     private static string RequireInternalReason(string reason) =>
-        SafetyText.RequireBounded(reason, ReasonMaxLength, allowEmpty: false, nameof(reason));
+        SafetyText.RequireText(reason, ReasonMaxLength, nameof(reason));
 
     private static void RequireInvariants(ModerationDecision decision)
     {

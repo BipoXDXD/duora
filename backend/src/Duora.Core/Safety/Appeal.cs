@@ -73,7 +73,7 @@ public sealed class Appeal
             throw new SafetyRuleViolationException(SafetyRule.AppealOnlyOwnSanction);
         }
 
-        var validReason = SafetyText.RequireBounded(reason, ReasonMaxLength, allowEmpty: false, nameof(reason));
+        var validReason = SafetyText.RequireText(reason, ReasonMaxLength, nameof(reason));
         if (!action.AcceptsAppeal(existingAppeal))
         {
             return SafetyResult.Rejected<Appeal>(SafetyRejection.ActionNotAppealable);
