@@ -419,6 +419,143 @@
           }
         }
       }
+    },
+    "/api/v1/me/profile": {
+      "get": {
+        "tags": [
+          "Profile"
+        ],
+        "description": "Perfil editável do titular. O header ETag traz a mesma versão do campo version.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Versão atual do perfil, para mandar no If-Match da próxima edição.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Profile"
+        ],
+        "description": "Edição parcial com If-Match obrigatório (o ETag da leitura). Campo ausente fica como está; bio null apaga a descrição. Sem If-Match: 428. Versão desatualizada: 412, sem gravar nada.",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag da última leitura do perfil.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Versão atual do perfil, para mandar no If-Match da próxima edição.",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -575,6 +712,33 @@
         "additionalProperties": false,
         "description": "Conta do titular. `Status`: PendingEmail | PendingEligibility | Active | Restricted | Suspended |\nDeletionPending. `Roles` vem vazio para participante; papéis privilegiados chegam com o MFA (ADR-0017)."
       },
+      "OwnProfileResponse": {
+        "required": [
+          "displayName",
+          "bio",
+          "version"
+        ],
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bio": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec\n8.1); `\"0\"` quando o perfil ainda não foi salvo. Nome e descrição vêm `null` enquanto não preenchidos."
+      },
       "ProblemDetails": {
         "type": "object",
         "properties": {
@@ -725,6 +889,29 @@
           }
         },
         "additionalProperties": false
+      },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bio": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Edição parcial do próprio perfil (API-P02), com `If-Match` obrigatório. Campo ausente fica como está;\n`bio: null` apaga a descrição; `displayName: null` é recusado, porque o nome não se apaga, só se troca.\nCampo desconhecido (inclusive id, dono, versão ou estado) é recusado pelo serializador."
       }
     }
   },
@@ -734,6 +921,9 @@
     },
     {
       "name": "Me"
+    },
+    {
+      "name": "Profile"
     }
   ]
 }

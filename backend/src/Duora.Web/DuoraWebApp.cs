@@ -1,8 +1,10 @@
 using System.Text.Json.Serialization;
 using Duora.Infrastructure;
+using Duora.Infrastructure.Profiles;
 using Duora.Web.Accounts;
 using Duora.Web.Http;
 using Duora.Web.Identity;
+using Duora.Web.Profiles;
 using Duora.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 
@@ -37,10 +39,15 @@ internal static class DuoraWebApp
             options.SerializerOptions.AllowDuplicateProperties = false;
             options.SerializerOptions.MaxDepth = MaxJsonDepth;
         });
-        builder.Services.AddOpenApi();
+        builder.Services.AddOpenApi(options =>
+        {
+            PatchFieldOpenApi.Configure(options);
+            ProfileEndpoints.ConfigureOpenApi(options);
+        });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddInfrastructure(builder.Configuration);
         builder.Services.AddDuoraWebIdentity();
+        builder.Services.AddDuoraProfiles();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
         // Negar por padrão: toda rota exige sessão, e as públicas declaram AllowAnonymous.
@@ -74,6 +81,7 @@ internal static class DuoraWebApp
         var api = app.MapGroup("/api/v1");
         api.MapAuthEndpoints();
         api.MapMeEndpoints();
+        api.MapProfileEndpoints();
 
         return app;
     }

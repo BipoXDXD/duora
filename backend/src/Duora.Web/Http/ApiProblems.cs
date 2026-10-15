@@ -9,10 +9,13 @@ namespace Duora.Web.Http;
 /// </summary>
 internal static class ApiProblems
 {
+    public const string AccountRestricted = "ACCOUNT_RESTRICTED";
     public const string CsrfValidationFailed = "CSRF_VALIDATION_FAILED";
     public const string InvalidCredentials = "INVALID_CREDENTIALS";
     public const string InvalidToken = "INVALID_TOKEN";
     public const string MfaRequired = "MFA_REQUIRED";
+    public const string PreconditionFailed = "PRECONDITION_FAILED";
+    public const string PreconditionRequired = "PRECONDITION_REQUIRED";
     public const string RateLimited = "RATE_LIMITED";
     public const string ValidationFailed = "VALIDATION_FAILED";
 

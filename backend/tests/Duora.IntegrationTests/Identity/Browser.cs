@@ -43,16 +43,30 @@ internal sealed class Browser : IDisposable
     public Task<HttpResponseMessage> DeleteAsync(string path, MutationHeaders? headers = null) =>
         SendAsync(HttpMethod.Delete, path, content: null, headers);
 
+    /// <summary>PATCH com corpo cru e <c>If-Match</c> opcional, mandado sem validação para testar valores malformados.</summary>
+    public Task<HttpResponseMessage> PatchRawJsonAsync(
+        string path,
+        string json,
+        string? ifMatch,
+        MutationHeaders? headers = null) =>
+        SendAsync(HttpMethod.Patch, path, new StringContent(json, Encoding.UTF8, "application/json"), headers, ifMatch);
+
     public void Dispose() => _http.Dispose();
 
     private async Task<HttpResponseMessage> SendAsync(
         HttpMethod method,
         string path,
         HttpContent? content,
-        MutationHeaders? headers)
+        MutationHeaders? headers,
+        string? ifMatch = null)
     {
         headers ??= MutationHeaders.SameOrigin;
         using var request = new HttpRequestMessage(method, new Uri(path, UriKind.Relative)) { Content = content };
+        if (ifMatch is not null)
+        {
+            request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+        }
+
         if (headers.SendCsrfToken && Cookie("XSRF-TOKEN") is { } token)
         {
             request.Headers.Add("X-XSRF-TOKEN", headers.CsrfTokenOverride ?? token);
