@@ -20,7 +20,7 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IAsyncDisposab
         using var registered = await IdentityScenario.RegisterAsync(browser, email);
         using var beforeConfirmation = await IdentityScenario.LoginAsync(browser, email, IdentityScenario.ValidPassword);
         var link = await Scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
-        using var confirmed = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new { userId = link.UserId, token = link.Token });
+        using var confirmed = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new { userId = link.UserId, token = link.Token, password = IdentityScenario.ValidPassword });
         using var afterConfirmation = await IdentityScenario.LoginAsync(browser, email, IdentityScenario.ValidPassword);
 
         Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
@@ -192,7 +192,7 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IAsyncDisposab
         using var registered = await IdentityScenario.RegisterAsync(browser, email);
         var link = await Scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
 
-        using var response = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new { userId = link.UserId, token });
+        using var response = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new { userId = link.UserId, token, password = IdentityScenario.ValidPassword });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(0, await Scenario.ScalarAsync(
@@ -208,8 +208,8 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IAsyncDisposab
         using var registered = await IdentityScenario.RegisterAsync(browser, email);
         var link = await Scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
 
-        using var wrongToken = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new { userId = link.UserId, token = "nope" });
-        using var unknownUser = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new { userId = Guid.NewGuid(), token = link.Token });
+        using var wrongToken = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new { userId = link.UserId, token = "nope", password = IdentityScenario.ValidPassword });
+        using var unknownUser = await browser.PostJsonAsync("/api/v1/auth/confirm-email", new { userId = Guid.NewGuid(), token = link.Token, password = IdentityScenario.ValidPassword });
 
         await ProblemAssert.IsProblemAsync(wrongToken, HttpStatusCode.BadRequest, "INVALID_TOKEN");
         await ProblemAssert.IsProblemAsync(unknownUser, HttpStatusCode.BadRequest, "INVALID_TOKEN");

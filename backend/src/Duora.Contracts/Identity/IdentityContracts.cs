@@ -9,7 +9,7 @@ public sealed record RegisterRequest(
     string? AcceptedTermsVersion,
     string? AcceptedPrivacyVersion);
 
-public sealed record ConfirmEmailRequest(Guid? UserId, string? Token);
+public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 
 public sealed record LoginRequest(string? Email, string? Password);
 
