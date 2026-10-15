@@ -42,24 +42,30 @@ public sealed class ConstellationPrivacyTests
         Assert.Contains($"\"PartnerOptionLabel\":\"{CinnamonCoffee}\"", Serialize(session, Bia), StringComparison.Ordinal);
     }
 
-    public static TheoryData<string, ConstellationAction> FirstAnswers => new()
+    public static TheoryData<ParticipantId, string, ConstellationAction> FirstAnswers => new()
     {
-        { SundayCard, Choose(SundayCard, "picnic") },
-        { SundayCard, Skip(SundayCard) },
-        { IceCreamCard, Choose(IceCreamCard, "popcorn-caramel") },
-        { IceCreamCard, Skip(IceCreamCard) },
+        { Ana, SundayCard, Choose(SundayCard, "picnic") },
+        { Ana, SundayCard, Skip(SundayCard) },
+        { Ana, IceCreamCard, Choose(IceCreamCard, "popcorn-caramel") },
+        { Ana, IceCreamCard, Skip(IceCreamCard) },
+        { Bia, SundayCard, Choose(SundayCard, "movies") },
+        { Bia, SundayCard, Skip(SundayCard) },
+        { Bia, IceCreamCard, Choose(IceCreamCard, "cinnamon-coffee") },
+        { Bia, IceCreamCard, Skip(IceCreamCard) },
     };
 
     [Theory]
     [MemberData(nameof(FirstAnswers))]
-    public void FirstAnswerChangesNothingInThePartnersProjectionButTheVersion(string cardId, ConstellationAction answer)
+    public void FirstAnswerChangesNothingInThePartnersProjectionButTheVersion(
+        ParticipantId firstToAnswer, string cardId, ConstellationAction answer)
     {
         var session = cardId == SundayCard ? NewSession(_engine) : AtThirdCard(_engine, NewSession(_engine));
-        var before = _engine.ProjectForParticipant(session, Bia)!;
+        var partner = firstToAnswer == Ana ? Bia : Ana;
+        var before = _engine.ProjectForParticipant(session, partner)!;
 
-        session = Act(_engine, session, Ana, answer);
+        session = Act(_engine, session, firstToAnswer, answer);
 
-        var after = _engine.ProjectForParticipant(session, Bia)!;
+        var after = _engine.ProjectForParticipant(session, partner)!;
         Assert.Equal(before.ResourceVersion + 1, after.ResourceVersion);
         Assert.Equal(
             JsonSerializer.Serialize(before with { ResourceVersion = 0 }, PlainText),
