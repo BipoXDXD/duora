@@ -174,6 +174,19 @@ de `sam@` e mandaria o link para a variante, o mesmo padrão do incidente do Git
 
 Testes: `LookalikeEmailTests`, `EmailAddressTests`.
 
+### Idioma dos e-mails de conta
+
+Os e-mails de conta saem em pt-BR (padrão) ou en, os idiomas da interface ([ADR-0022](../architecture/adr/0022-i18n-intl-messageformat-catalogo-tipado.md)).
+A SPA manda o idioma ativo no `Accept-Language` de toda requisição; o cadastro (API-A02) e o pedido de reset
+(API-A06) escolhem o idioma por esse header, só pelo idioma primário e só entre `pt` e `en`, e gravam a tag no
+pedido da outbox (`language`). Header ausente, malformado, só com `q=0` ou com outro idioma dá pt-BR, sem erro
+para quem chamou; pedido gravado sem o campo, ou com tag fora da lista, também sai em pt-BR. O idioma é o de quem
+fez a requisição, não uma preferência guardada da conta: o aviso de "alguém tentou se cadastrar" sai no idioma
+de quem tentou. Nenhum texto da requisição entra no e-mail; os links são os mesmos nos dois idiomas, com o token
+no fragmento.
+
+Testes: `EmailLanguageTests`, `LocalizedEmailDispatchTests`, `AccountEmailLanguageTests`, `EmailLanguageTagTests`.
+
 ## Cadastro pendente e pré-sequestro de conta
 
 Ameaça (TM-66), nas duas ordens: (1) o atacante cadastra o e-mail da vítima com a senha dele e espera a vítima
