@@ -12,6 +12,11 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
   </ItemGroup>
 
+  <ItemGroup Label="Build">
+    <!-- Gera docs/api/openapi.json no build do Duora.Web (ADR-0018); não vai para o binário publicado. -->
+    <PackageVersion Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.13" />
+  </ItemGroup>
+
   <ItemGroup Label="Pinos transitivos">
     <!-- O provider Npgsql pede EF Core >= 10.0.4; fixar o mesmo patch do EF Core Design evita duas versões
          do EF Core no grafo (MSB3277) e traz as correções do último patch da linha 10. -->
