@@ -37,6 +37,7 @@ export const ptBR = {
   'validation.invalidValue': 'Confira o valor deste campo.',
 
   'navigation.pageLoaded': 'Página carregada: {title}',
+  'navigation.loadingPage': 'Carregando a página…',
 
   'notFound.title': 'Página não encontrada',
   'notFound.body': 'O endereço não corresponde a nenhuma página do Duora.',

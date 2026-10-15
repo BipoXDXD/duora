@@ -31,17 +31,17 @@ async function confirmWithPassword({ user }: RenderedApp, password: string) {
 const noContent = () => new HttpResponse(null, { status: 204 })
 
 describe('tela de confirmação de e-mail', () => {
-  it('não confirma sozinha ao abrir: espera o clique (scanner de link não confirma)', () => {
+  it('não confirma sozinha ao abrir: espera o clique (scanner de link não confirma)', async () => {
     const received = useConfirmEndpoint(noContent)
-    renderApp(LINK)
+    await renderApp(LINK)
 
     expect(document.title).toBe('Confirmar e-mail · Duora')
     expect(screen.getByRole('button', { name: 'Confirmar e-mail' })).toBeInTheDocument()
     expect(received).toEqual([])
   })
 
-  it('pede a senha do cadastro com label persistente, ajuda e autocomplete de senha atual', () => {
-    renderApp(LINK)
+  it('pede a senha do cadastro com label persistente, ajuda e autocomplete de senha atual', async () => {
+    await renderApp(LINK)
 
     const password = screen.getByLabelText('Senha')
     expect(password).toHaveAttribute('type', 'password')
@@ -52,7 +52,7 @@ describe('tela de confirmação de e-mail', () => {
   it('confirma com userId, token e a senha colada, com CSRF', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     const received = useConfirmEndpoint(noContent)
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await confirmWithPassword(app, PASSWORD)
 
@@ -68,7 +68,7 @@ describe('tela de confirmação de e-mail', () => {
   it('tira userId e token do fragmento ao montar e ainda envia o token certo no POST', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     const received = useConfirmEndpoint(noContent)
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await waitFor(() => {
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirmar-email$/)
@@ -83,7 +83,7 @@ describe('tela de confirmação de e-mail', () => {
 
   it('senha vazia: erro associado, foco no campo e nada enviado', async () => {
     const received = useConfirmEndpoint(noContent)
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await confirmWithPassword(app, '')
 
@@ -95,7 +95,7 @@ describe('tela de confirmação de e-mail', () => {
   })
 
   it('um link com token na query também sai da URL, mesmo recusado', async () => {
-    renderApp(`/confirmar-email?userId=${USER_ID}&token=abc`)
+    await renderApp(`/confirmar-email?userId=${USER_ID}&token=abc`)
 
     await waitFor(() => {
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirmar-email$/)
@@ -105,7 +105,7 @@ describe('tela de confirmação de e-mail', () => {
   it('INVALID_TOKEN (token ruim ou senha errada): mensagem neutra e caminho para cadastrar de novo', async () => {
     useAntiforgeryEndpoint()
     useConfirmEndpoint(() => problem(400, 'INVALID_TOKEN'))
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await confirmWithPassword(app, 'senha errada qualquer')
 
@@ -117,7 +117,7 @@ describe('tela de confirmação de e-mail', () => {
   it('429 mostra o tempo de espera', async () => {
     useAntiforgeryEndpoint()
     useConfirmEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '1' }))
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await confirmWithPassword(app, PASSWORD)
 
@@ -127,7 +127,7 @@ describe('tela de confirmação de e-mail', () => {
   it('erro de rede tem mensagem própria e permite tentar de novo', async () => {
     useAntiforgeryEndpoint()
     useConfirmEndpoint(() => HttpResponse.error())
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await confirmWithPassword(app, PASSWORD)
 
@@ -141,9 +141,9 @@ describe('tela de confirmação de e-mail', () => {
     ['sem token', `/confirmar-email#userId=${USER_ID}`],
     ['userId inválido', '/confirmar-email#userId=123&token=abc'],
     ['formato antigo, na query', `/confirmar-email?userId=${USER_ID}&token=abc`],
-  ])('link malformado (%s) não chama a API', (_caso, path) => {
+  ])('link malformado (%s) não chama a API', async (_caso, path) => {
     const received = useConfirmEndpoint(noContent)
-    renderApp(path)
+    await renderApp(path)
 
     expect(screen.getByRole('alert')).toHaveTextContent('Este link de confirmação é inválido ou expirou.')
     expect(screen.queryByRole('button', { name: 'Confirmar e-mail' })).not.toBeInTheDocument()

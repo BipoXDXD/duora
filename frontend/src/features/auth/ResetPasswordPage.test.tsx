@@ -30,8 +30,8 @@ async function submitPassword({ user }: RenderedApp, password: string) {
 const noContent = () => new HttpResponse(null, { status: 204 })
 
 describe('tela de redefinição de senha', () => {
-  it('usa autocomplete de senha nova', () => {
-    renderApp(LINK)
+  it('usa autocomplete de senha nova', async () => {
+    await renderApp(LINK)
 
     expect(document.title).toBe('Criar senha nova · Duora')
     expect(screen.getByLabelText('Senha nova')).toHaveAttribute('autocomplete', 'new-password')
@@ -42,7 +42,7 @@ describe('tela de redefinição de senha', () => {
     const received = useResetEndpoint(noContent)
     const queryClient = createTestQueryClient()
     queryClient.setQueryData(meQueryKey, { id: USER_ID })
-    const app = renderApp(LINK, queryClient)
+    const app = await renderApp(LINK, queryClient)
 
     await submitPassword(app, 'outra frase longa de senha')
 
@@ -61,7 +61,7 @@ describe('tela de redefinição de senha', () => {
   it('tira userId e token do fragmento ao montar e ainda envia o token certo no POST', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     const received = useResetEndpoint(noContent)
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await waitFor(() => {
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/redefinir-senha$/)
@@ -85,7 +85,7 @@ describe('tela de redefinição de senha', () => {
   ])('senha nova com %i caracteres é aceita no cliente? %s', async (length, valid) => {
     useAntiforgeryEndpoint()
     const received = useResetEndpoint(noContent)
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await submitPassword(app, 'b'.repeat(length))
 
@@ -103,7 +103,7 @@ describe('tela de redefinição de senha', () => {
   it('INVALID_TOKEN explica e oferece pedir um link novo', async () => {
     useAntiforgeryEndpoint()
     useResetEndpoint(() => problem(400, 'INVALID_TOKEN'))
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await submitPassword(app, 'outra frase longa de senha')
 
@@ -114,7 +114,7 @@ describe('tela de redefinição de senha', () => {
   it('429 mostra o tempo de espera', async () => {
     useAntiforgeryEndpoint()
     useResetEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '45' }))
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await submitPassword(app, 'outra frase longa de senha')
 
@@ -125,15 +125,15 @@ describe('tela de redefinição de senha', () => {
   it('erro de rede tem mensagem própria', async () => {
     useAntiforgeryEndpoint()
     useResetEndpoint(() => HttpResponse.error())
-    const app = renderApp(LINK)
+    const app = await renderApp(LINK)
 
     await submitPassword(app, 'outra frase longa de senha')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Confira sua conexão')
   })
 
-  it('link malformado não mostra o formulário', () => {
-    renderApp('/redefinir-senha#userId=nao-e-uuid&token=x')
+  it('link malformado não mostra o formulário', async () => {
+    await renderApp('/redefinir-senha#userId=nao-e-uuid&token=x')
 
     expect(screen.getByRole('alert')).toHaveTextContent('Este link de recuperação é inválido ou expirou.')
     expect(screen.queryByLabelText('Senha nova')).not.toBeInTheDocument()
