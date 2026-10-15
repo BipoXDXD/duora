@@ -156,6 +156,17 @@ class AppRolePrivilegesTests(unittest.TestCase):
         self.assertEqual("sala 2", self.assert_allowed("SELECT name FROM rooms.rooms WHERE name = 'sala 2'"))
         self.assert_allowed("DELETE FROM rooms.rooms WHERE name = 'sala 2'")
 
+    def test_app_cannot_read_server_files_or_run_programs(self) -> None:
+        # Spec 18.3: a aplicação não chega ao backup. Pelo SQL, o único caminho até os certificados do pgBackRest
+        # (/run/secrets) ou a um comando seria ler arquivo ou executar programa no servidor.
+        for sql in [
+            "SELECT pg_read_file('/run/secrets/postgres_superuser_password')",
+            "COPY rooms.rooms (name) FROM '/etc/pgbackrest/pgbackrest.conf'",
+            "COPY rooms.rooms (name) FROM PROGRAM 'pgbackrest info'",
+        ]:
+            with self.subTest(sql=sql):
+                self.assert_denied(sql)
+
     def test_functions_are_executable_by_app_but_not_by_public(self) -> None:
         self.assertEqual("t", self.assert_allowed("SELECT has_function_privilege('duora_app', "
                                                   "'rooms.room_count()', 'EXECUTE')"))
