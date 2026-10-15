@@ -329,12 +329,20 @@ erDiagram
 ### events.events
 
 - **Colunas:** `id`; `title text` (≤ 120); `state text` (`Draft`, `Published`, `CheckInOpen`, `Running`,
-  `Completed`, `Cancelled`); `starts_at`, `check_in_opens_at timestamptz`; `time_zone text` (IANA, para
-  apresentação); `capacity int`; `confirmed_count int`; `next_waitlist_position bigint`;
-  `experience_version_id uuid`; `parameter_set_id uuid`; `cancel_reason text`; `version bigint`.
+  `Completed`, `Cancelled`); `starts_at timestamptz`; `time_zone text` (IANA, para apresentação);
+  `capacity int`; `confirmed_count int`; `next_waitlist_position bigint`; `experience_version_id uuid`;
+  `parameter_set_id uuid`; `cancel_reason text`; `version bigint`.
+- **Horários derivados, sem coluna:** a abertura do check-in (`starts_at` menos a antecedência do conjunto de
+  parâmetros) e o fim do evento vêm de `starts_at` e do `parameter_set_id`, que é imutável (spec 4.3). Guardar
+  esses valores criaria uma segunda fonte para o mesmo fato. O job de abertura seleciona pelo
+  `ix_events_state_starts_at`, e o domínio (`Event.OpenCheckIn`) recusa com `NotDueYet` quem ainda não chegou ao
+  horário.
+- **Contadores:** `confirmed_count` e `next_waitlist_position` são estado do agregado `Event`, mantidos na mesma
+  transação de cada inscrição, retirada, promoção, ausência e conclusão (concurrency.md, C5). Não são recalculados
+  por contagem de `registrations`.
 - **Constraints:** `CHECK (capacity > 0)`; `CHECK (confirmed_count BETWEEN 0 AND capacity)` (capacidade não
-  depende de contagem prévia, spec 10.2); FK `experience_version_id` → `experiences.experience_versions`
-  `RESTRICT`; FK `parameter_set_id` → `ops.parameter_sets` `RESTRICT`.
+  depende de contagem prévia, spec 10.2); `CHECK (next_waitlist_position >= 1)`; FK `experience_version_id` →
+  `experiences.experience_versions` `RESTRICT`; FK `parameter_set_id` → `ops.parameter_sets` `RESTRICT`.
 - **Índices:** FKs; `ix_events_state_starts_at` para a listagem pública (API-E01) e para os jobs de abertura.
 - **Classe:** P1/P0 (dados do evento publicado).
 
