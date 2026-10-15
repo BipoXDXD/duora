@@ -30,7 +30,8 @@ public sealed class PasswordResetTests(PostgresFixture postgres) : IAsyncDisposa
             await ProblemAssert.BodyWithoutTraceIdAsync(forExisting),
             await ProblemAssert.BodyWithoutTraceIdAsync(forUnknown));
         Assert.NotNull(await Scenario.TryReadLatestLinkAsync(account.Email, "PasswordReset"));
-        Assert.Equal(0, await Scenario.CountOutboxEventsAsync(unknown));
+        Assert.Empty(await Scenario.ReadLinksAsync(unknown, "PasswordReset"));
+        Assert.Single(await Scenario.ReadLinksAsync(unknown, "PasswordResetForUnknownAddress"));
     }
 
     [Fact]
