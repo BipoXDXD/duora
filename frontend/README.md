@@ -74,6 +74,8 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
 | `/esqueci-a-senha` e `/redefinir-senha#userId=…&token=…` | Recuperação de senha                                                         |
 | `/conta`                                                 | Área autenticada: conta, sessões, revogação e saída                          |
 
+- `401 MFA_REQUIRED` no login mostra só uma mensagem neutra de que o segundo fator é exigido e ainda não
+  está disponível. O passo de segundo fator entra com o MFA administrativo, na onda 2 do M1.
 - `useMe` (`['me']`) descobre a identidade; dados privados usam chaves sob `['account', userId, …]`.
 - `RequireSession` leva à entrada no 401. Um 401 em qualquer leitura privada reconsulta a identidade.
 - Ao entrar e ao chegar à tela de entrada, todo o cache do `QueryClient` é descartado (T-21). O descarte
