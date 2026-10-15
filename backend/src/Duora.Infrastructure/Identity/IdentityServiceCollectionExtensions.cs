@@ -62,7 +62,7 @@ public static class IdentityServiceCollectionExtensions
         services.Configure<PasswordResetTokenProviderOptions>(o =>
         {
             o.Name = PasswordResetTokenProvider.ProviderName;
-            o.TokenLifespan = TimeSpan.FromHours(1);
+            o.TokenLifespan = TimeSpan.FromMinutes(30);
         });
 
         services.AddAuthentication(DuoraAuthentication.Scheme)

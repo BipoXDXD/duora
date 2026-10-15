@@ -31,7 +31,13 @@ public abstract record LoginOutcome
 }
 
 /// <summary>Conta do titular como aparece em <c>/me</c>.</summary>
-public sealed record AccountSummary(Guid Id, string Email, AccountStatus Status, bool EmailConfirmed);
+public sealed record AccountSummary(
+    Guid Id,
+    string Email,
+    AccountStatus Status,
+    bool EmailConfirmed,
+    bool MfaEnabled,
+    IReadOnlyList<string> Roles);
 
 /// <summary>
 /// Casos de uso da conta sobre o ASP.NET Core Identity (spec 8.2). Toda resposta para quem não é o titular é
@@ -189,7 +195,17 @@ public sealed class AccountService
         _db.Users
             .AsNoTracking()
             .Where(user => user.Id == userId)
-            .Select(user => new AccountSummary(user.Id, user.Email ?? "", user.Status, user.EmailConfirmed))
+            .Select(user => new AccountSummary(
+                user.Id,
+                user.Email ?? "",
+                user.Status,
+                user.EmailConfirmed,
+                user.TwoFactorEnabled,
+                _db.UserRoles
+                    .Where(link => link.UserId == user.Id)
+                    .Join(_db.Roles, link => link.RoleId, role => role.Id, (_, role) => role.Name ?? "")
+                    .OrderBy(name => name)
+                    .ToList()))
             .SingleOrDefaultAsync(cancellationToken);
 
     private async Task<bool> TryCreateAccountAsync(

@@ -21,9 +21,15 @@ public sealed record ResetPasswordRequest(Guid? UserId, string? Token, string? N
 
 /// <summary>
 /// Conta do titular. <c>Status</c>: PendingEmail | PendingEligibility | Active | Restricted | Suspended |
-/// DeletionPending.
+/// DeletionPending. <c>Roles</c> vem vazio para participante; papéis privilegiados chegam com o MFA (ADR-0017).
 /// </summary>
-public sealed record MeResponse(Guid Id, string Email, string Status, bool EmailConfirmed);
+public sealed record MeResponse(
+    Guid Id,
+    string Email,
+    string Status,
+    bool EmailConfirmed,
+    bool MfaEnabled,
+    IReadOnlyList<string> Roles);
 
 public sealed record SessionResponse(Guid Id, DateTime CreatedAt, DateTime LastSeenAt, bool Current, string Description);
 

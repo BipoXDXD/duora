@@ -20,14 +20,31 @@ internal static class AuthEndpoints
         var auth = api.MapGroup("/auth").AllowAnonymous().WithTags("Auth");
 
         auth.MapGet("/csrf", IssueCsrfToken);
-        auth.MapPost("/register", RegisterAsync).RequireRateLimiting(AuthRateLimitPolicies.Register);
-        auth.MapPost("/confirm-email", ConfirmEmailAsync).RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption);
-        auth.MapPost("/login", LoginAsync).RequireRateLimiting(AuthRateLimitPolicies.Login);
-        auth.MapPost("/logout", LogoutAsync);
+        auth.MapPost("/register", RegisterAsync)
+            .RequireRateLimiting(AuthRateLimitPolicies.Register)
+            .ProducesMutationProblems();
+        auth.MapPost("/confirm-email", ConfirmEmailAsync)
+            .RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption)
+            .ProducesMutationProblems();
+        auth.MapPost("/login", LoginAsync)
+            .RequireRateLimiting(AuthRateLimitPolicies.Login)
+            .ProducesMutationProblems()
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
+        auth.MapPost("/logout", LogoutAsync)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
         auth.MapPost("/password-reset-requests", RequestPasswordResetAsync)
-            .RequireRateLimiting(AuthRateLimitPolicies.PasswordResetRequest);
-        auth.MapPost("/password-resets", ResetPasswordAsync).RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption);
+            .RequireRateLimiting(AuthRateLimitPolicies.PasswordResetRequest)
+            .ProducesMutationProblems();
+        auth.MapPost("/password-resets", ResetPasswordAsync)
+            .RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption)
+            .ProducesMutationProblems();
     }
+
+    /// <summary>403 de CSRF e 429 de rate limit, comuns às mutações públicas, documentados no contrato.</summary>
+    private static RouteHandlerBuilder ProducesMutationProblems(this RouteHandlerBuilder route) =>
+        route
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
     private static NoContent IssueCsrfToken(HttpContext context, IAntiforgery antiforgery)
     {
