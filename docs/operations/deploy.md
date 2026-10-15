@@ -173,7 +173,7 @@ password) e recriar web e worker. Registrar no inventário de segredos.
 ## Validar o Caddyfile
 
 ```sh
-docker run --rm -e DUORA_DOMAIN=app.example.com -e DUORA_TLS=ops@example.com \
+docker run --rm -e DUORA_DOMAIN=meetduora.com -e DUORA_TLS=ops@example.com \
   -v "$PWD/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
   caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f \
   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

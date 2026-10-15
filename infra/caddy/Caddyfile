@@ -1,6 +1,6 @@
 # Borda única do Duora (spec 15.3): SPA, /api/* e /hubs/* na mesma origem. Embutido na imagem edge.
 # Variáveis (lidas na carga da configuração):
-#   DUORA_DOMAIN  domínio da aplicação (ex.: app.exemplo.com.br; "localhost" no smoke local)
+#   DUORA_DOMAIN  domínio da aplicação (produção: meetduora.com; "localhost" no smoke local)
 #   DUORA_TLS     e-mail da conta ACME em produção, ou "internal" para a CA local do Caddy (smoke/homologação)
 # Validar: docs/operations/deploy.md ("Validar o Caddyfile").
 #

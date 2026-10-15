@@ -5,7 +5,7 @@
 # Variáveis (todas obrigatórias, sem default silencioso):
 #   DUORA_*_IMAGE       imagem por digest (registry/repo@sha256:...), vinda do manifesto da release
 #   DUORA_SECRETS_DIR   diretório do host com os arquivos de segredo (0700; arquivos 0400 com dono = UID do consumidor)
-#   DUORA_DOMAIN        domínio público; DUORA_TLS: e-mail ACME ou "internal"
+#   DUORA_DOMAIN        domínio público (produção: meetduora.com); DUORA_TLS: e-mail ACME ou "internal"
 #   DUORA_HTTP_PORT / DUORA_HTTPS_PORT   portas publicadas no host (80/443 na VPS)
 name: duora
 

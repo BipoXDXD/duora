@@ -45,7 +45,7 @@ public static class InfrastructureServiceCollectionExtensions
             .Configure(o => o.Value = configuration[PublicOriginOptions.Key] ?? "")
             .Validate(
                 o => PublicOrigin.TryParse(o.Value, out _),
-                $"{PublicOriginOptions.Key} é obrigatória: origem https da SPA, sem caminho (ex.: https://duora.app).")
+                $"{PublicOriginOptions.Key} é obrigatória: origem https da SPA, sem caminho (ex.: https://meetduora.com).")
             .ValidateOnStart();
 
         services.AddSingleton(provider => PublicOriginOptions.Parse(provider.GetRequiredService<IOptions<PublicOriginOptions>>()));
