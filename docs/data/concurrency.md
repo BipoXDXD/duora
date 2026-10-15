@@ -99,6 +99,22 @@ Resultado: envio e pareamento serializam com o bloqueio pelas guardas; o que adq
 bloqueio falha na revalidação. Leitura sem lock que começa depois do commit vê o bloqueio. Leitura em voo antes
 do commit pode concluir: é o limite aceito pela spec 1.2 ("impedir após o bloqueio").
 
+**O que existe no M1** (`BlockService.BlockAsync`, decisões G7 e G8 de 2026-10-15): numa transação com
+`lock_timeout` de 2 s, cria as guardas que faltam (`INSERT ... ON CONFLICT DO NOTHING`, na ordem de UUID), tranca
+as duas guardas em ordem de UUID, insere o bloqueio com `ON CONFLICT (blocker_id, blocked_id) DO NOTHING` e, só
+se a linha é nova, incrementa `security_version` das duas guardas e grava `safety.block_created` em
+`ops.audit_events`; commit. Repetir o bloqueio não muda nada. Alvo inexistente não abre transação nem grava
+nada. Leitura: `CheckInteractionAsync`, bilateral, sem lock. Testes: `BlockConcurrencyTests` (barreira com as
+guardas trancadas por um terceiro, bloqueios cruzados sem deadlock, corrida livre repetida) e
+`InteractionCheckTests`.
+
+**Regra para o M2:** cada módulo que nascer com estado entre duas pessoas (Connections, Messaging, Experiences,
+Matching, outbox de notificações) acrescenta o próprio efeito **dentro da transação do bloqueio**, depois do
+`INSERT` em `safety.blocks` e na ordem global de locks (guarda da relação, depois sala e conversa): conexão
+`Blocked`, conversa fechada, participação encerrada, reservas liberadas, entregas `Pending` canceladas e outbox
+de revogação no hub. Efeito fora dessa transação abriria uma janela em que o bloqueio existe e a interação
+continua.
+
 ### C3. Alterar preferência vs parear
 
 API-P03 contra `BuildRoundPairings`. A atualização tranca a guarda da pessoa (ordem 1), grava com `If-Match`
