@@ -1,11 +1,15 @@
-import { Suspense } from 'react'
+import { Suspense, useState } from 'react'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
+import { I18nProvider } from '@/shared/i18n/I18nProvider'
+import { ChunkLoadError } from '@/shared/ui/chunk-load-error'
 import { AreaErrorBoundary } from '@/shared/ui/error-boundary'
 import { renderWithI18n } from '@/test/render'
 import { lazyPage } from './lazy-page'
+
+const NEW_VERSION_TITLE = 'Há uma versão nova do Duora'
 
 function FakePage(): React.JSX.Element {
   return <h1>Página carregada</h1>
@@ -47,23 +51,9 @@ describe('lazyPage', () => {
 
     renderLazy(Page)
 
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Esta parte do Duora parou de funcionar' }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: NEW_VERSION_TITLE })).toBeInTheDocument()
   })
 
-  it('"Tentar de novo" baixa o módulo outra vez depois de uma falha', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    let networkUp = false
-    const Page = lazyPage(() => (networkUp ? Promise.resolve(FakePage) : Promise.reject(new Error('rede caiu'))))
-    renderLazy(Page)
-    const retry = await screen.findByRole('button', { name: 'Tentar de novo' })
-
-    networkUp = true
-    await userEvent.click(retry)
-
-    expect(await screen.findByRole('heading', { level: 1, name: 'Página carregada' })).toBeInTheDocument()
-  })
   it('depois de pré-carregada, renderiza direto, sem passar pelo fallback', async () => {
     const Page = lazyPage(() => Promise.resolve(FakePage))
     await Page.preload()
@@ -84,15 +74,82 @@ describe('lazyPage', () => {
     expect(load).toHaveBeenCalledTimes(1)
   })
 
-  it('um pré-carregamento que falhou é refeito na próxima tentativa', async () => {
-    let networkUp = false
-    const Page = lazyPage(() => (networkUp ? Promise.resolve(FakePage) : Promise.reject(new Error('rede caiu'))))
-    await expect(Page.preload()).rejects.toThrow('rede caiu')
+  it('download que falha depois de um tempo: mostra o error boundary e não baixa de novo sozinho', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const load = vi.fn(
+      () =>
+        new Promise<React.ComponentType>((_resolve, reject) => {
+          setTimeout(() => {
+            reject(new Error('404 no chunk'))
+          }, 5)
+        }),
+    )
+    const Page = lazyPage(load)
 
-    networkUp = true
-    await Page.preload()
     renderLazy(Page)
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Página carregada' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: NEW_VERSION_TITLE })).toBeInTheDocument()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('a falha gruda: pré-carregar depois dela rejeita com ChunkLoadError sem baixar de novo', async () => {
+    const load = vi.fn(() => Promise.reject(new Error('rede caiu')))
+    const Page = lazyPage(load)
+    await expect(Page.preload()).rejects.toBeInstanceOf(ChunkLoadError)
+
+    await expect(Page.preload()).rejects.toBeInstanceOf(ChunkLoadError)
+
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('renderizar e pré-carregar com o download em voo baixam uma vez só', async () => {
+    let finish: (page: React.ComponentType) => void = () => undefined
+    const load = vi.fn(
+      () =>
+        new Promise<React.ComponentType>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const Page = lazyPage(load)
+    renderLazy(Page)
+
+    const preloaded = Page.preload()
+    finish(FakePage)
+    await preloaded
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Página carregada' })).toBeInTheDocument()
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('a página carregada mantém o estado quando quem a envolve renderiza de novo', async () => {
+    function Counter(): React.JSX.Element {
+      const [count, setCount] = useState(0)
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            setCount(count + 1)
+          }}
+        >{`Cliques: ${String(count)}`}</button>
+      )
+    }
+    const Page = lazyPage(() => Promise.resolve(Counter))
+    const view = renderLazy(Page)
+    await userEvent.click(await screen.findByRole('button', { name: 'Cliques: 0' }))
+
+    view.rerender(
+      <I18nProvider initialLocale="pt-BR">
+        <MemoryRouter>
+          <AreaErrorBoundary>
+            <Suspense fallback={<p>Esperando o módulo</p>}>
+              <Page />
+            </Suspense>
+          </AreaErrorBoundary>
+        </MemoryRouter>
+      </I18nProvider>,
+    )
+
+    expect(screen.getByRole('button', { name: 'Cliques: 1' })).toBeInTheDocument()
   })
 })

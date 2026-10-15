@@ -127,16 +127,20 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
 ## Divisão do bundle por rota
 
 - A página inicial e a de rota inexistente vão no bundle principal; as demais telas são carregadas sob
-  demanda por `lazyPage` (`src/app/lazy-page.tsx`), cada uma num chunk próprio. Tela nova entra em
-  `AppRoutes.tsx` do mesmo jeito.
+  demanda por `routePage`/`lazyPage` (`src/app/AppRoutes.tsx`, `src/app/lazy-page.tsx`), cada uma num chunk
+  próprio. Tela nova entra em `AppRoutes.tsx` do mesmo jeito.
 - Na primeira carga, o `Suspense` do layout mostra `RouteFallback`: uma região `role="status"` que só ganha
-  texto depois de 400 ms, para a carga rápida não piscar. Dentro da SPA a navegação acontece numa transition:
-  a tela anterior fica visível, com o foco onde estava, até a nova chegar.
-- Falha ao baixar um chunk cai no error boundary da área, e "Tentar de novo" baixa o chunk outra vez.
+  texto depois de 400 ms e, depois de aparecer, fica pelo menos 500 ms (`route-fallback-timing.ts`), para não
+  piscar. Dentro da SPA a navegação acontece numa transition: a tela anterior fica visível, com o foco onde
+  estava, até a nova chegar.
+- Chunk que não baixa (quase sempre deploy novo com a aba aberta): a falha gruda, como no `React.lazy`, porque
+  o navegador guarda o módulo que falhou. O listener `vite:preloadError` do `main.tsx` recarrega a página uma
+  vez, com guarda de 60 s em `sessionStorage` (`duora.newVersionReloadAt`). Se ainda falhar, o error boundary da
+  área avisa que há versão nova e oferece "Recarregar a página"; ele não tenta baixar o chunk de novo.
 - A área da conta espera os chunks do guarda e da página juntos, para não mostrar um segundo fallback.
 - Nos testes, `renderApp` é assíncrono e espera o chunk (`await renderApp('/entrar')`); um `render` próprio
   usa `await waitForRouteChunk()`. O E2E `smoke.spec.ts` garante que a página inicial não baixa as telas de
-  formulário.
+  formulário e que um chunk com 404 dá uma recarga só e depois o aviso.
 
 ## Design system
 

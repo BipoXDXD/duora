@@ -90,6 +90,13 @@ que o deploy lê (arquitetura, migration, estado) é capturado.
 
 Os passos 2 e 3 da spec (pausar rodadas e concluir salas) dependem de funcionalidades que ainda não existem.
 
+## Versão nova com a SPA aberta
+
+Quem está com a aba aberta durante um deploy continua na versão antiga até pedir um chunk que já não existe;
+então a SPA recarrega uma vez (guarda de 60 s na sessão da aba) e, se ainda falhar, avisa que há versão nova e
+pede para recarregar. Não há aviso proativo nem compatibilidade entre versões de chunks
+([frontend/README.md](../../frontend/README.md#divisão-do-bundle-por-rota)).
+
 ## Proxy confiável (Forwarded Headers)
 
 O Caddy é o único proxy. Ele fala com o web pela rede `edge`, que tem subnet fixa no `compose.prod.yml`:

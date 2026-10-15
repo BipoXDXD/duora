@@ -1,7 +1,8 @@
 import { act, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderWithI18n } from '@/test/render'
-import { ROUTE_FALLBACK_DELAY_MS, RouteFallback } from './RouteFallback'
+import { RouteFallback } from './RouteFallback'
+import { ROUTE_FALLBACK_DELAY_MS } from './route-fallback-timing'
 
 describe('RouteFallback (carregando a tela)', () => {
   beforeEach(() => {

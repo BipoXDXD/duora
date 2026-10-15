@@ -43,6 +43,9 @@ export const en = {
 
   'errorBoundary.title': 'This part of Duora stopped working',
   'errorBoundary.description': 'Your data is safe. Try loading it again or go back to the home page.',
+  'errorBoundary.newVersionTitle': 'There is a new version of Duora',
+  'errorBoundary.newVersionDescription': 'Reload the page to pick up where you left off.',
+  'errorBoundary.reload': 'Reload the page',
 
   'landing.intro':
     'One-on-one meetups between adults, at events with rounds and cooperative experiences. Interest stays private, and the conversation only continues when it is mutual.',

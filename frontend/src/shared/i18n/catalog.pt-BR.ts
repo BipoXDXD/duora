@@ -44,6 +44,9 @@ export const ptBR = {
 
   'errorBoundary.title': 'Esta parte do Duora parou de funcionar',
   'errorBoundary.description': 'Seus dados não foram afetados. Tente carregar de novo ou volte ao início.',
+  'errorBoundary.newVersionTitle': 'Há uma versão nova do Duora',
+  'errorBoundary.newVersionDescription': 'Recarregue a página para continuar de onde parou.',
+  'errorBoundary.reload': 'Recarregar a página',
 
   'landing.intro':
     'Encontros entre duas pessoas adultas, em eventos com rodadas e experiências cooperativas. O interesse é privado e a conversa só continua quando ele é mútuo.',

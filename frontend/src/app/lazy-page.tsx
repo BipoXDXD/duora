@@ -1,4 +1,5 @@
-import { lazy, type ComponentType, type FunctionComponent, type LazyExoticComponent } from 'react'
+import { lazy, type ComponentType, type FunctionComponent } from 'react'
+import { ChunkLoadError } from '@/shared/ui/chunk-load-error'
 
 export interface LazyPage extends FunctionComponent {
   /** Baixa o módulo sem renderizar; depois dele a tela renderiza direto, sem suspender. */
@@ -6,9 +7,10 @@ export interface LazyPage extends FunctionComponent {
 }
 
 /**
- * Tela carregada sob demanda (spec 13.5), num chunk próprio. Diferente do `React.lazy` puro, uma falha
- * ao baixar o módulo não fica guardada: o próximo render (o "Tentar de novo" do error boundary da área ou
- * uma nova navegação) ou o próximo `preload` baixa de novo, em vez de repetir o erro até recarregar a página.
+ * Tela carregada sob demanda (spec 13.5), num chunk próprio. Render e `preload` compartilham um único
+ * download. Uma falha gruda, como no `React.lazy`: o navegador também guarda o módulo que falhou (WebKit),
+ * então baixar de novo na mesma página não adianta. Ela vira `ChunkLoadError`, e o error boundary da área
+ * oferece recarregar a página.
  */
 export function lazyPage(load: () => Promise<ComponentType>): LazyPage {
   let loaded: ComponentType | undefined
@@ -21,28 +23,18 @@ export function lazyPage(load: () => Promise<ComponentType>): LazyPage {
         return component
       },
       (error: unknown) => {
-        loading = undefined
-        throw error
+        throw new ChunkLoadError(error)
       },
     )
     return loading
   }
 
-  function createLazy(): LazyExoticComponent<ComponentType> {
-    return lazy(async () => {
-      try {
-        return { default: await loadOnce() }
-      } catch (error) {
-        suspending = createLazy()
-        throw error
-      }
-    })
-  }
-
-  let suspending = createLazy()
+  const Suspending = lazy(async () => ({ default: await loadOnce() }))
 
   function LazyPageComponent(): React.JSX.Element {
-    const Page = loaded ?? suspending
+    // Com o módulo já em mãos, a tela entra sem suspender; o React reconcilia o lazy resolvido com o mesmo
+    // componente, então o estado da tela sobrevive à troca.
+    const Page = loaded ?? Suspending
     return <Page />
   }
 
