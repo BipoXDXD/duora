@@ -90,12 +90,13 @@ corepack pnpm test
 corepack pnpm e2e                         # Playwright (antes, uma vez: corepack pnpm e2e:install)
 ```
 
-### Contrato combinado com o backend (a implementar no M1)
+### CSRF entre a SPA e o backend
 
-O antiforgery ainda não existe no backend. Fica combinado o seguinte:
-- o backend emite um cookie legível pelo JavaScript, `XSRF-TOKEN`;
-- o SPA devolve o valor no header `X-XSRF-TOKEN` em toda requisição que altera estado;
-- a origem `https://localhost:5173` é aceita somente no ambiente `Development`.
+Implementado no M1 ([auth.md](../security/auth.md#csrf)):
+- `GET /api/v1/auth/csrf` emite o cookie legível `XSRF-TOKEN`; login e logout emitem um novo;
+- a SPA devolve o valor no header `X-XSRF-TOKEN` em toda requisição que altera estado, inclusive login e logout;
+- a origem `https://localhost:5173` é aceita somente no ambiente `Development`; falha dá `403`
+  `CSRF_VALIDATION_FAILED`.
 
 ## Banco local (Compose)
 
@@ -124,6 +125,21 @@ dotnet user-secrets set --project src/Duora.Web "ConnectionStrings:Duora" \
 ```
 
 Sem essa configuração os dois processos se recusam a subir e dizem o que falta.
+
+## Estado local de desenvolvimento
+
+O `appsettings.Development.json` do Web e do Worker aponta para `.local/` na raiz do repositório, que fica fora
+do controle de versão. Os caminhos são relativos ao diretório de trabalho (o `dotnet run` usa o do shell), então
+rode os dois a partir de `backend/`, como nos comandos deste arquivo.
+
+| Configuração | Valor em Development | Para quê |
+|---|---|---|
+| `Duora:PublicOrigin` | `https://localhost:5173` | Links dos e-mails e origem aceita no CSRF |
+| `DataProtection:KeysDirectory` (Web) | `../.local/dataprotection-keys` | Key ring; apagá-lo derruba as sessões abertas |
+| `Email:PickupDirectory` (Worker) | `../.local/mail` | Cada e-mail de conta vira um `.eml` com o link de confirmação ou de redefinição |
+
+Sem essas chaves os processos não sobem; fora de Development, defina-as por variável de ambiente. Os e-mails só
+saem com o Worker rodando: o Web grava na outbox e o Worker entrega.
 
 ## Migrations
 
