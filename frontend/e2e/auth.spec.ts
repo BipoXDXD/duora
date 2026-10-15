@@ -190,7 +190,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('confirmação com token inválido', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/confirmar-email?userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
+    await page.goto('/confirmar-email#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
     await page.getByRole('button', { name: 'Confirmar e-mail' }).click()
     await expect(page.getByRole('alert')).toContainText('inválido, expirou ou já foi usado')
 
@@ -228,7 +228,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('redefinição com token inválido', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/redefinir-senha?userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
+    await page.goto('/redefinir-senha#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
     await page.getByLabel('Senha nova', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Salvar senha nova' }).click()
     await expect(page.getByRole('alert')).toContainText('Peça um link novo.')
@@ -238,7 +238,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('redefinição com erro de validação', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/redefinir-senha?userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=abc')
+    await page.goto('/redefinir-senha#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=abc')
     await page.getByRole('button', { name: 'Salvar senha nova' }).click()
     await expect(page.getByLabel('Senha nova', { exact: true })).toBeFocused()
 

@@ -16,6 +16,12 @@ test.describe('página inicial', () => {
     await expect(page.getByRole('contentinfo')).toBeVisible()
   })
 
+  test('não manda a URL da SPA no Referer', async ({ page }) => {
+    await page.goto('/')
+
+    await expect(page.locator('meta[name="referrer"]')).toHaveAttribute('content', 'no-referrer')
+  })
+
   test('o link de pular conteúdo é o primeiro foco e leva ao conteúdo principal', async ({ page, browserName }) => {
     // No WebKit, como no Safari padrão, Tab não alcança links; Option+Tab alcança.
     const nextLinkKey = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
