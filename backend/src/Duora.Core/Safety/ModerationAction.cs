@@ -47,7 +47,10 @@ public sealed class ModerationAction
 
     public required ModerationActionId? SupersedesActionId { get; init; }
 
-    /// <summary>Há um nível de recurso: a decisão do recurso não admite outro (proposta; a spec não define).</summary>
+    /// <summary>
+    /// Se a medida é do nível que admite recurso: a decisão de um recurso não admite outro (proposta; a spec não
+    /// define). Se já houve recurso, quem diz é <see cref="AcceptsAppeal"/>.
+    /// </summary>
     public bool IsReviewable => SupersedesActionId is null;
 
     public static SafetyResult<ModerationAction> DecideWithoutReport(
@@ -66,7 +69,9 @@ public sealed class ModerationAction
     /// O que a pessoa sancionada vê. Sem denúncia, denunciante, evidência nem identidade do moderador; diz só se a
     /// decisão foi automatizada, porque isso dá direito a pedir revisão humana.
     /// </summary>
-    public SanctionNoticeView? GetSanctionNotice(Guid requesterId) =>
+    /// <param name="requesterId">Quem pede, vindo da sessão.</param>
+    /// <param name="existingAppeal">O recurso já registrado para esta medida, se houver.</param>
+    public SanctionNoticeView? GetSanctionNotice(Guid requesterId, Appeal? existingAppeal) =>
         requesterId != SubjectUserId
             ? null
             : new SanctionNoticeView(
@@ -78,7 +83,18 @@ public sealed class ModerationAction
                 DecidedAt,
                 EffectiveUntil,
                 DecidedAutomatically: Author is ModerationAuthor.Automated,
-                CanAppeal: IsReviewable);
+                CanAppeal: AcceptsAppeal(existingAppeal));
+
+    /// <summary>Um só recurso por medida, aberto ou decidido, e nunca sobre a decisão de um recurso.</summary>
+    public bool AcceptsAppeal(Appeal? existingAppeal)
+    {
+        if (existingAppeal is not null && existingAppeal.ModerationActionId != Id)
+        {
+            throw new ArgumentException("O recurso informado é de outra medida.", nameof(existingAppeal));
+        }
+
+        return IsReviewable && existingAppeal is null;
+    }
 
     internal static SafetyResult<ModerationAction> Decide(
         CaseParties parties,

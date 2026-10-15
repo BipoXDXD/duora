@@ -168,11 +168,11 @@ public sealed class ReportTests
         Assert.Equal((ReportState.UnderReview, ModeratorMaria), (report.State, report.AssignedModeratorId));
         var action = report.TakeAction(Decision(), Limits, clock).Accepted();
         Assert.Equal((ReportState.Actioned, action.Id), (report.State, report.CurrentActionId));
-        var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", clock).Accepted();
+        var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", existingAppeal: null, clock).Accepted();
         report.MarkAppealed(appeal).Accepted();
         Assert.Equal(ReportState.Appealed, report.State);
         appeal.StartReview(ModeratorPedro).Accepted();
-        var revision = appeal.Uphold(ModeratorPedro, Ruling("Evidência confirmada."), clock).Accepted();
+        var revision = appeal.Uphold(action, ModeratorPedro, Ruling("Evidência confirmada."), clock).Accepted();
         report.ResolveAppeal(revision, clock).Accepted();
 
         Assert.Equal((ReportState.Actioned, revision.Id), (report.State, report.CurrentActionId));
@@ -184,12 +184,12 @@ public sealed class ReportTests
     {
         var clock = FixedClock.AtStart();
         var (report, action) = ActionedReport(clock);
-        var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", clock).Accepted();
+        var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", existingAppeal: null, clock).Accepted();
         report.MarkAppealed(appeal).Accepted();
         appeal.StartReview(ModeratorPedro).Accepted();
         clock.Advance(TimeSpan.FromDays(2));
 
-        var revision = appeal.Overturn(ModeratorPedro, Ruling("Evidência insuficiente."), clock).Accepted();
+        var revision = appeal.Overturn(action, ModeratorPedro, Ruling("Evidência insuficiente."), clock).Accepted();
         report.ResolveAppeal(revision, clock).Accepted();
 
         Assert.Equal((ReportState.Closed, revision.Id), (report.State, report.CurrentActionId));
@@ -334,7 +334,7 @@ public sealed class ReportTests
     {
         var clock = FixedClock.AtStart();
         var report = ReportIn(ReportState.Actioned, clock);
-        var unrelated = Appeal.File(SanctionOn(Bruno), Bruno, "Outro caso.", clock).Accepted();
+        var unrelated = Appeal.File(SanctionOn(Bruno), Bruno, "Outro caso.", existingAppeal: null, clock).Accepted();
 
         Assert.Throws<ArgumentException>(() => report.MarkAppealed(unrelated));
         Assert.Equal(ReportState.Actioned, report.State);
@@ -345,9 +345,7 @@ public sealed class ReportTests
     {
         var clock = FixedClock.AtStart();
         var report = ReportIn(ReportState.Appealed, clock);
-        var foreignRevision = AppealUnderReview(SanctionOn(Bruno), clock)
-            .Overturn(ModeratorPedro, Ruling("Outro caso."), clock)
-            .Accepted();
+        var foreignRevision = Overturned(SanctionOn(Bruno), clock);
 
         Assert.Throws<ArgumentException>(() => report.ResolveAppeal(foreignRevision, clock));
         Assert.Equal(ReportState.Appealed, report.State);
@@ -406,9 +404,9 @@ public sealed class ReportTests
         Transition.TakeAction => report.TakeAction(Decision(), Limits, clock).Rejection,
         Transition.Close => report.Close(ModeratorMaria, "Sem violação.", clock).Rejection,
         Transition.MarkAppealed => report.MarkAppealed(
-            Appeal.File(SanctionOn(Bruno), Bruno, "Recurso.", clock).Accepted()).Rejection,
+            Appeal.File(SanctionOn(Bruno), Bruno, "Recurso.", existingAppeal: null, clock).Accepted()).Rejection,
         Transition.ResolveAppeal => report.ResolveAppeal(
-            AppealUnderReview(SanctionOn(Bruno), clock).Overturn(ModeratorPedro, Ruling("Revisto."), clock).Accepted(),
+            Overturned(SanctionOn(Bruno), clock),
             clock).Rejection,
         _ => throw new ArgumentOutOfRangeException(nameof(transition)),
     };

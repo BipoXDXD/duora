@@ -12,7 +12,10 @@ public static class InteractionPolicy
     /// <param name="blocks">Bloqueios que envolvem o par; os de outros pares são ignorados.</param>
     /// <param name="sanctions">
     /// Histórico de medidas das duas pessoas, com as revisões de recurso, para que uma medida substituída deixe
-    /// de valer.
+    /// de valer. Duas revisões irmãs da mesma medida não existem por construção: há um só recurso por medida
+    /// (<see cref="ModerationAction.AcceptsAppeal"/>; índice único em `appeals(moderation_action_id)`), a revisão
+    /// não admite recurso e `moderation_actions.supersedes_action_id` é único. Por isso a cadeia tem no máximo dois
+    /// elos e "não substituída" basta para achar a medida em vigor.
     /// </param>
     /// <param name="clock">Relógio do instante da checagem.</param>
     public static InteractionVerdict CheckInteraction(

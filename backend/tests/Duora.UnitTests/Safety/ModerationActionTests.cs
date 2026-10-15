@@ -207,7 +207,7 @@ public sealed class ModerationActionTests
     {
         var action = ModerationAction.DecideWithoutReport(Bruno, Decision(), Limits, FixedClock.AtStart()).Accepted();
 
-        var notice = action.GetSanctionNotice(Bruno);
+        var notice = action.GetSanctionNotice(Bruno, existingAppeal: null);
 
         var keys = typeof(SanctionNoticeView).GetProperties().Select(property => property.Name).Order();
         Assert.Equal(
@@ -237,11 +237,11 @@ public sealed class ModerationActionTests
         var clock = FixedClock.AtStart();
         var action = ModerationAction.DecideWithoutReport(
             Bruno, Decision() with { InternalReason = canary }, Limits, clock).Accepted();
-        var revision = AppealUnderReview(action, clock).Overturn(ModeratorPedro, Ruling(canary), clock).Accepted();
+        var revision = Overturned(action, clock, canary);
 
         Assert.Equal(canary, action.InternalReason);
-        Assert.DoesNotContain(canary, action.GetSanctionNotice(Bruno)?.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(canary, revision.GetSanctionNotice(Bruno)?.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(canary, action.GetSanctionNotice(Bruno, existingAppeal: null)?.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(canary, revision.GetSanctionNotice(Bruno, existingAppeal: null)?.ToString(), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -285,7 +285,7 @@ public sealed class ModerationActionTests
             Bruno, Decision(ModerationMeasure.Restriction, new ModerationAuthor.Automated()), Limits, FixedClock.AtStart())
             .Accepted();
 
-        Assert.True(action.GetSanctionNotice(Bruno)?.DecidedAutomatically);
+        Assert.True(action.GetSanctionNotice(Bruno, existingAppeal: null)?.DecidedAutomatically);
     }
 
     [Theory]
@@ -295,6 +295,6 @@ public sealed class ModerationActionTests
     {
         var action = ModerationAction.DecideWithoutReport(Bruno, Decision(), Limits, FixedClock.AtStart()).Accepted();
 
-        Assert.Null(action.GetSanctionNotice(requester == "reporter" ? Alice : ModeratorMaria));
+        Assert.Null(action.GetSanctionNotice(requester == "reporter" ? Alice : ModeratorMaria, existingAppeal: null));
     }
 }
