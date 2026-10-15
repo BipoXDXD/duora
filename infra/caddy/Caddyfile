@@ -1,0 +1,93 @@
+# Borda única do Duora (spec 15.3): SPA, /api/* e /hubs/* na mesma origem. Embutido na imagem edge.
+# Variáveis (lidas na carga da configuração):
+#   DUORA_DOMAIN  domínio da aplicação (ex.: app.exemplo.com.br; "localhost" no smoke local)
+#   DUORA_TLS     e-mail da conta ACME em produção, ou "internal" para a CA local do Caddy (smoke/homologação)
+# Validar: docs/operations/deploy.md ("Validar o Caddyfile").
+#
+# CSP, HSTS e demais cabeçalhos de segurança vivem só aqui; o backend não deve emitir versões concorrentes.
+#
+# Sem trusted_proxies: o Caddy não confia em X-Forwarded-* vindo da internet e envia ao web os que ele mesmo viu.
+# O backend deve confiar só no Caddy (Forwarded Headers, spec 11.3; pendência do backend).
+
+{$DUORA_DOMAIN} {
+	tls {$DUORA_TLS}
+	encode zstd gzip
+
+	# Acesso em JSON no stdout, sem query string, sem cabeçalhos (Cookie, Authorization, Set-Cookie...) e com IP
+	# truncado (spec 19.2). Allowlist: o que não está no registro não vaza.
+	log {
+		output stdout
+		format filter {
+			request>uri regexp \?.*$ ?redacted
+			request>headers delete
+			request>tls delete
+			resp_headers delete
+			request>remote_ip ip_mask 24 48
+			request>client_ip ip_mask 24 48
+			wrap json
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+		# Coerente com o build do Vite: só módulos e CSS próprios, sem inline e sem eval. wss explícito para o hub
+		# (navegadores antigos não estendem 'self' a WebSocket).
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' wss://{hostport}; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+		-Server
+	}
+
+	# Saúde e documentação técnica ficam na rede interna (web:8080), nunca na borda pública.
+	@internal path /health /health/* /openapi /openapi/*
+	handle @internal {
+		respond 404
+	}
+
+	# API: status, cookies e cabeçalhos de cache do backend passam intactos; sem Cache-Control, nada é guardado.
+	handle /api/* {
+		header ?Cache-Control "no-store"
+		reverse_proxy web:8080
+	}
+
+	# SignalR: WebSocket (e fallbacks de streaming) sem buffer e sem timeout de requisição; numa recarga de config,
+	# as conexões abertas duram mais 5 min em vez de reconectarem todas de uma vez.
+	handle /hubs/* {
+		reverse_proxy web:8080 {
+			flush_interval -1
+			stream_close_delay 5m
+		}
+	}
+
+	# Assets com hash no nome: imutáveis; arquivo inexistente é 404, nunca o index.html no lugar de JavaScript.
+	handle /assets/* {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Demais arquivos estáticos (index.html, favicon) sempre revalidados, para uma release nova chegar logo.
+	# Fallback da SPA só para navegação de documento; fetch para caminho inexistente recebe 404.
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+
+		@spaNavigation {
+			not file
+			expression `{http.request.header.Sec-Fetch-Mode} == "navigate" || {http.request.header.Accept}.contains("text/html")`
+		}
+		rewrite @spaNavigation /index.html
+		file_server
+	}
+}
+
+# Saúde do próprio Caddy para o healthcheck do Compose: só no loopback do container, porta não publicada.
+http://127.0.0.1:8081 {
+	bind 127.0.0.1
+	respond /healthz 200
+	respond 404
+}

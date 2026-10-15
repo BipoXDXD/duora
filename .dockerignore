@@ -1,0 +1,31 @@
+# Contexto de build das imagens em infra/images/ (contexto = raiz do repositório).
+# Lista de permissão: tudo fica de fora, salvo o que algum Dockerfile copia. Menos contexto = build mais rápido e
+# nenhum arquivo local (segredos, .env, saídas de build da máquina) indo parar numa camada da imagem.
+*
+
+!global.json
+!nuget.config
+!Directory.Build.props
+!Directory.Packages.props
+!.editorconfig
+!.config/dotnet-tools.json
+
+!backend/src/
+!frontend/
+!infra/caddy/
+!infra/images/
+
+# Saídas e dependências locais: a imagem restaura e compila do zero.
+**/bin/
+**/obj/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+**/*.local
+**/.DS_Store
