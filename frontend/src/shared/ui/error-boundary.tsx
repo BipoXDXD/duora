@@ -2,14 +2,17 @@ import { Component, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { Button } from './button'
+import { ChunkLoadError } from './chunk-load-error'
 import { DocumentTitle } from './document-title'
+import { reloadPage } from './reload-page'
 
 interface AreaErrorBoundaryProps {
   readonly children: ReactNode
 }
 
+/** `chunk`: o código da tela não baixou (versão nova); `render`: a tela falhou ao renderizar. */
 interface AreaErrorBoundaryState {
-  readonly failed: boolean
+  readonly failure: 'none' | 'chunk' | 'render'
 }
 
 /**
@@ -19,20 +22,23 @@ interface AreaErrorBoundaryState {
  * ainda vai definir o que pode sair do navegador.
  */
 export class AreaErrorBoundary extends Component<AreaErrorBoundaryProps, AreaErrorBoundaryState> {
-  override state: AreaErrorBoundaryState = { failed: false }
+  override state: AreaErrorBoundaryState = { failure: 'none' }
 
-  static getDerivedStateFromError(): AreaErrorBoundaryState {
-    return { failed: true }
+  static getDerivedStateFromError(error: unknown): AreaErrorBoundaryState {
+    return { failure: error instanceof ChunkLoadError ? 'chunk' : 'render' }
   }
 
   override render(): ReactNode {
-    if (!this.state.failed) {
+    if (this.state.failure === 'none') {
       return this.props.children
+    }
+    if (this.state.failure === 'chunk') {
+      return <NewVersionFallback />
     }
     return (
       <AreaErrorFallback
         onRetry={() => {
-          this.setState({ failed: false })
+          this.setState({ failure: 'none' })
         }}
       />
     )
@@ -56,6 +62,23 @@ function AreaErrorFallback({ onRetry }: { readonly onRetry: () => void }): React
         >
           {t('common.backHome')}
         </Link>
+      </div>
+    </section>
+  )
+}
+
+/** Remontar a área não adianta: o navegador guarda o módulo que falhou. Só recarregar busca a versão nova. */
+function NewVersionFallback(): React.JSX.Element {
+  const { t } = useI18n()
+  return (
+    <section aria-labelledby="titulo-versao-nova" className="max-w-prose">
+      <DocumentTitle page={t('errorBoundary.newVersionTitle')} />
+      <h1 id="titulo-versao-nova" className="text-3xl font-semibold tracking-tight">
+        {t('errorBoundary.newVersionTitle')}
+      </h1>
+      <p className="mt-4 text-text-muted">{t('errorBoundary.newVersionDescription')}</p>
+      <div className="mt-8">
+        <Button onClick={reloadPage}>{t('errorBoundary.reload')}</Button>
       </div>
     </section>
   )
