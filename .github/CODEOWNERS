@@ -1,0 +1,13 @@
+# Donos do código (spec 14.3). A última regra que casa com o arquivo vence.
+# Este arquivo é área protegida: alterá-lo é mudança de política, em PR próprio.
+
+# Padrão: todo o repositório.
+*                                        @BipoXDXD
+
+# Área protegida (spec 14.3; docs/automation/permissions.md): política dos agentes, automação,
+# workflows e suítes que guardam fronteiras e segurança. Só o responsável técnico aprova.
+/.github/                                @BipoXDXD
+/AGENTS.md                               @BipoXDXD
+/docs/automation/                        @BipoXDXD
+/backend/tests/Duora.ArchitectureTests/  @BipoXDXD
+# Os testes de segurança T-01 a T-28 entram aqui quando a suíte tiver diretório próprio.
