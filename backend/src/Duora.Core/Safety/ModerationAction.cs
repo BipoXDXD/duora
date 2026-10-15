@@ -4,54 +4,42 @@ namespace Duora.Core.Safety;
 /// Medida de moderação (INV-10): guarda versão da política, evidência usada, medida, motivo, autor, instante e se
 /// pode ser revista. É imutável: o recurso cria uma revisão nova que aponta para esta, sem apagá-la.
 /// </summary>
+/// <remarks>
+/// Os campos são <c>required init</c> e o construtor é privado: só as fábricas desta classe criam a medida, já
+/// validada, sem um construtor posicional de dez parâmetros.
+/// </remarks>
 public sealed class ModerationAction
 {
     /// <summary>Em caracteres Unicode; mesmo teto do `reason` em safety.moderation_actions.</summary>
     private const int ReasonMaxLength = 2000;
 
-    private readonly ModerationDecision _terms;
-
-    private ModerationAction(
-        ModerationActionId id,
-        Guid subjectUserId,
-        ReportId? reportId,
-        ModerationDecision terms,
-        DateTimeOffset decidedAt,
-        DateTimeOffset? effectiveUntil,
-        ModerationActionId? supersedesActionId)
+    private ModerationAction()
     {
-        Id = id;
-        SubjectUserId = subjectUserId;
-        ReportId = reportId;
-        _terms = terms;
-        DecidedAt = decidedAt;
-        EffectiveUntil = effectiveUntil;
-        SupersedesActionId = supersedesActionId;
     }
 
-    public ModerationActionId Id { get; }
+    public required ModerationActionId Id { get; init; }
 
-    public Guid SubjectUserId { get; }
+    public required Guid SubjectUserId { get; init; }
 
     /// <summary>Nulo quando a medida nasce de sinal de abuso, sem denúncia.</summary>
-    public ReportId? ReportId { get; }
+    public required ReportId? ReportId { get; init; }
 
-    public ModerationMeasure Measure => _terms.Measure;
+    public required ModerationMeasure Measure { get; init; }
 
-    public PolicyVersion PolicyVersion => _terms.PolicyVersion;
+    public required PolicyVersion PolicyVersion { get; init; }
 
-    public IReadOnlyList<Guid> EvidenceIds => _terms.EvidenceIds;
+    public required IReadOnlyList<Guid> EvidenceIds { get; init; }
 
-    public string Reason => _terms.Reason;
+    public required string Reason { get; init; }
 
-    public ModerationAuthor Author => _terms.Author;
+    public required ModerationAuthor Author { get; init; }
 
-    public DateTimeOffset DecidedAt { get; }
+    public required DateTimeOffset DecidedAt { get; init; }
 
     /// <summary>Fim exclusivo da medida; nulo para advertência, banimento permanente e revisão que reverte.</summary>
-    public DateTimeOffset? EffectiveUntil { get; }
+    public required DateTimeOffset? EffectiveUntil { get; init; }
 
-    public ModerationActionId? SupersedesActionId { get; }
+    public required ModerationActionId? SupersedesActionId { get; init; }
 
     /// <summary>Há um nível de recurso: a decisão do recurso não admite outro (proposta; a spec não define).</summary>
     public bool IsReviewable => SupersedesActionId is null;
@@ -92,21 +80,27 @@ public sealed class ModerationAction
     {
         ArgumentOutOfRangeException.ThrowIfEqual(subjectUserId, Guid.Empty);
         ArgumentNullException.ThrowIfNull(clock);
-        var terms = ValidTerms(decision);
+        RequireInvariants(decision);
         if (!DurationFits(decision))
         {
             return SafetyResult.Rejected<ModerationAction>(SafetyRejection.MeasureDurationMismatch);
         }
 
         var decidedAt = clock.GetUtcNow();
-        return SafetyResult.Success(new ModerationAction(
-            ModerationActionId.New(decidedAt),
-            subjectUserId,
-            reportId,
-            terms,
-            decidedAt,
-            decidedAt + decision.Duration,
-            supersedesActionId: null));
+        return SafetyResult.Success(new ModerationAction
+        {
+            Id = ModerationActionId.New(decidedAt),
+            SubjectUserId = subjectUserId,
+            ReportId = reportId,
+            Measure = decision.Measure,
+            PolicyVersion = decision.PolicyVersion,
+            EvidenceIds = [.. decision.EvidenceIds],
+            Reason = SafetyText.RequireBounded(decision.Reason, ReasonMaxLength, allowEmpty: false, nameof(decision)),
+            Author = decision.Author,
+            DecidedAt = decidedAt,
+            EffectiveUntil = decidedAt + decision.Duration,
+            SupersedesActionId = null,
+        });
     }
 
     internal ModerationAction Revise(
@@ -118,23 +112,23 @@ public sealed class ModerationAction
         DateTimeOffset decidedAt)
     {
         ArgumentNullException.ThrowIfNull(policyVersion);
-        var terms = new ModerationDecision(
-            measure,
-            policyVersion,
-            EvidenceIds,
-            SafetyText.RequireBounded(reason, ReasonMaxLength, allowEmpty: false, nameof(reason)),
-            new ModerationAuthor.Human(reviewerId));
-        return new ModerationAction(
-            ModerationActionId.New(decidedAt),
-            SubjectUserId,
-            ReportId,
-            terms,
-            decidedAt,
-            effectiveUntil,
-            supersedesActionId: Id);
+        return new ModerationAction
+        {
+            Id = ModerationActionId.New(decidedAt),
+            SubjectUserId = SubjectUserId,
+            ReportId = ReportId,
+            Measure = measure,
+            PolicyVersion = policyVersion,
+            EvidenceIds = EvidenceIds,
+            Reason = SafetyText.RequireBounded(reason, ReasonMaxLength, allowEmpty: false, nameof(reason)),
+            Author = new ModerationAuthor.Human(reviewerId),
+            DecidedAt = decidedAt,
+            EffectiveUntil = effectiveUntil,
+            SupersedesActionId = Id,
+        };
     }
 
-    private static ModerationDecision ValidTerms(ModerationDecision decision)
+    private static void RequireInvariants(ModerationDecision decision)
     {
         ArgumentNullException.ThrowIfNull(decision);
         ArgumentNullException.ThrowIfNull(decision.PolicyVersion);
@@ -145,22 +139,6 @@ public sealed class ModerationAction
             throw new ArgumentOutOfRangeException(nameof(decision), decision.Measure, "Medida desconhecida.");
         }
 
-        RequireMeasureRules(decision);
-        if (decision.EvidenceIds.Count == 0 || decision.EvidenceIds.Contains(Guid.Empty))
-        {
-            throw new SafetyRuleViolationException(SafetyRule.DecisionRequiresEvidence);
-        }
-
-        return decision with
-        {
-            EvidenceIds = [.. decision.EvidenceIds],
-            Reason = SafetyText.RequireBounded(decision.Reason, ReasonMaxLength, allowEmpty: false, nameof(decision)),
-            Duration = null,
-        };
-    }
-
-    private static void RequireMeasureRules(ModerationDecision decision)
-    {
         if (decision.Measure == ModerationMeasure.Cleared)
         {
             throw new SafetyRuleViolationException(SafetyRule.ClearedIsOnlyAnAppealOutcome);
@@ -169,6 +147,11 @@ public sealed class ModerationAction
         if (decision.Measure == ModerationMeasure.PermanentBan && decision.Author is not ModerationAuthor.Human)
         {
             throw new SafetyRuleViolationException(SafetyRule.PermanentSanctionRequiresHumanAuthor);
+        }
+
+        if (decision.EvidenceIds.Count == 0 || decision.EvidenceIds.Contains(Guid.Empty))
+        {
+            throw new SafetyRuleViolationException(SafetyRule.DecisionRequiresEvidence);
         }
     }
 
