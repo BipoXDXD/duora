@@ -105,6 +105,8 @@ public sealed partial class TransactionalEmailDispatcher
             (AccountEmailKind.EmailConfirmation, { Length: > 0 } token) => _emails.EmailConfirmation(to, message.UserId, token),
             (AccountEmailKind.PasswordReset, { Length: > 0 } token) => _emails.PasswordReset(to, message.UserId, token),
             (AccountEmailKind.RegistrationAttemptOnExistingAccount, _) => _emails.RegistrationAttemptOnExistingAccount(to),
+            (AccountEmailKind.PendingRegistrationReminder, _) => _emails.PendingRegistrationReminder(to),
+            (AccountEmailKind.PasswordResetForUnknownAddress, _) => _emails.PasswordResetForUnknownAddress(to),
             _ => null,
         };
         return email is not null;

@@ -87,6 +87,10 @@ public static class IdentityServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>(),
             SessionLifetime.Participant));
         services.AddSingleton<ITicketStore, PostgresTicketStore>();
+        services.AddOptions<AccountLifecycleOptions>()
+            .BindConfiguration(AccountLifecycleOptions.Section)
+            .Validate(o => o.IsValid(), "Identity:PendingAccountLifetime precisa ser positivo.")
+            .ValidateOnStart();
         services.AddSingleton<CredentialTiming>();
         services.AddScoped(provider => new AccountService(
             provider.GetRequiredService<DuoraDbContext>(),
@@ -94,6 +98,7 @@ public static class IdentityServiceCollectionExtensions
             provider.GetRequiredService<SignInManager<DuoraUser>>(),
             provider.GetRequiredService<LoginSessions>(),
             provider.GetRequiredService<CredentialTiming>(),
+            provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
             provider.GetRequiredService<TimeProvider>()));
 
         return services;
