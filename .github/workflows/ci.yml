@@ -188,6 +188,7 @@ jobs:
           echo "Runner: $(. /etc/os-release && echo "$PRETTY_NAME"), $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build web, worker e migrator
+        id: build-dotnet
         run: |
           for target in web worker migrator; do
             docker buildx build --file infra/images/dotnet/Dockerfile --target "$target" --platform "$PLATFORM" \
@@ -195,6 +196,7 @@ jobs:
           done
 
       - name: Build edge e postgres
+        id: build-edge-postgres
         run: |
           docker buildx build --file infra/images/edge/Dockerfile --platform "$PLATFORM" \
             --build-arg GIT_COMMIT="$GITHUB_SHA" --tag duora-edge:ci --load .
@@ -227,15 +229,30 @@ jobs:
             echo "::endgroup::"
           done
 
+      # Informativo: nunca decide o resultado do job (por isso continue-on-error), e só faz sentido com as cinco
+      # imagens construídas. Roda mesmo se o passo do Trivy acima falhar, para o relatório sair junto. Sem
+      # --skip-db-update: se o passo anterior não baixou a base, este baixa (o volume duora-trivy-cache a reaproveita).
       - name: Relatório de vulnerabilidades sem correção (não bloqueia)
-        if: ${{ always() }}
+        if: ${{ !cancelled() && steps.build-dotnet.outcome == 'success' && steps.build-edge-postgres.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          COUNT_UNFIXED: |
+            import json, sys
+            try:
+                report = json.loads(sys.stdin.read())
+            except ValueError:
+                print("relatório indisponível")
+                sys.exit(0)
+            print(sum(1 for result in report.get("Results") or []
+                      for vulnerability in result.get("Vulnerabilities") or []
+                      if vulnerability.get("Status") != "fixed"))
         run: |
           {
             echo "### Vulnerabilidades HIGH/CRITICAL sem correção publicada (${{ matrix.arch }})"
             for image in web worker migrator edge postgres; do
               count=$(docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v duora-trivy-cache:/root/.cache \
-                "$TRIVY_IMAGE" image --quiet --skip-db-update --severity HIGH,CRITICAL --format json "duora-$image:ci" \
-                | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sum(1 for r in d.get("Results",[]) for v in (r.get("Vulnerabilities") or []) if v.get("Status")!="fixed"))')
+                "$TRIVY_IMAGE" image --quiet --severity HIGH,CRITICAL --format json "duora-$image:ci" \
+                | python3 -c "$COUNT_UNFIXED")
               echo "- duora-$image: $count"
             done
           } >> "$GITHUB_STEP_SUMMARY"
