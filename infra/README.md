@@ -100,7 +100,7 @@ uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.y
 - `firewall`: UFW com IPv6, entrada negada por padrão, SSH com `limit` das origens permitidas, 80/443 TCP e 443 UDP.
 - `docker`: repositório oficial; a chave é baixada fora de `/etc/apt/keyrings`, convertida para binário e só instalada se o arquivo final tiver exatamente uma chave primária com a impressão digital publicada (`files/validate_apt_key.py`, com teste; uma chave extra no arquivo também passaria a valer para o apt), `daemon.json` com `live-restore`,
   `no-new-privileges` e logs limitados. Ninguém entra no grupo `docker` (equivale a root).
-- `app_dirs`: `/opt/duora`, `/etc/duora` (0750), `/etc/duora/secrets` (0700), `/var/lib/duora/releases` (0700),
+- `app_dirs`: `/opt/duora`, `/etc/duora` (0750), `/etc/duora/secrets` (0700), `/var/lib/duora` (0700),
   os comandos em `/usr/local/sbin`, os segredos gerados uma vez e o usuário `duora-deploy`: chave do CI presa a
   `sudo -n /usr/local/sbin/duora-deploy --manifest -` e sudoers só para esse comando (sem `sudo ALL`).
 

@@ -16,7 +16,7 @@ duora_ssh_allowed_sources: [any]
 duora_install_dir: /opt/duora
 duora_config_dir: /etc/duora
 duora_secrets_dir: /etc/duora/secrets
-duora_state_dir: /var/lib/duora/releases
+duora_state_dir: /var/lib/duora
 
 # Deploy: espaço livre mínimo para imagem nova + anterior (spec 15.1).
 duora_min_free_gib: 10

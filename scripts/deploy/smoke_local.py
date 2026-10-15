@@ -97,7 +97,7 @@ def main() -> int:
 
         state_dir = workdir / "releases"
         compose = ["docker", "compose", "--file", str(COMPOSE_FILE), "--env-file", str(host_env),
-                   "--env-file", str(state_dir / "smoke-1.env")]
+                   "--env-file", str(state_dir / "releases" / "smoke-1.env")]
         exit_code = duora_deploy.main([
             "--manifest", str(manifest), "--compose-file", str(COMPOSE_FILE), "--host-env", str(host_env),
             "--state-dir", str(state_dir), "--accept-missing-backup-check",
