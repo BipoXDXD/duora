@@ -30,11 +30,25 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public ValueTask DisposeAsync() => _container.DisposeAsync();
 
-    internal DuoraDbContext CreateDbContext()
+    internal DuoraDbContext CreateDbContext() => CreateDbContext(ConnectionString);
+
+    internal static DuoraDbContext CreateDbContext(string connectionString)
     {
         var options = new DbContextOptionsBuilder<DuoraDbContext>();
-        options.UseDuoraNpgsql(ConnectionString);
+        options.UseDuoraNpgsql(connectionString);
         return new DuoraDbContext(options.Options);
+    }
+
+    /// <summary>
+    /// Banco novo e migrado, só do teste que o pediu. Para quem consome filas globais (outbox): no banco
+    /// compartilhado, o consumidor pegaria itens gravados por testes que rodam em paralelo.
+    /// </summary>
+    public async Task<string> CreateMigratedDatabaseAsync(CancellationToken cancellationToken)
+    {
+        var connectionString = await CreateEmptyDatabaseAsync(cancellationToken);
+        await using var dbContext = CreateDbContext(connectionString);
+        await dbContext.Database.MigrateAsync(cancellationToken);
+        return connectionString;
     }
 
     /// <summary>Cria um banco vazio, sem migrations, no mesmo servidor e devolve a connection string dele.</summary>
