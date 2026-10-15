@@ -19,13 +19,4 @@ public sealed class DuoraUser : IdentityUser<Guid>
 
     /// <summary>Criação da conta; num cadastro pendente substituído, o instante do cadastro que ficou.</summary>
     public DateTimeOffset CreatedAt { get; private set; }
-
-    /// <summary>E-mail confirmado: a conta passa a depender só da elegibilidade (verificação etária, spec 12.2).</summary>
-    internal void CompleteEmailConfirmation()
-    {
-        if (Status == AccountStatus.PendingEmail)
-        {
-            Status = AccountStatus.PendingEligibility;
-        }
-    }
 }
