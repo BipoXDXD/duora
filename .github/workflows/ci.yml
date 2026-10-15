@@ -173,12 +173,15 @@ jobs:
 
       # Imagem oficial fixada por digest (índice multi-arquitetura) em vez da gitleaks-action:
       # dispensa token e licença e não executa JavaScript de terceiros no job.
+      # --log-opts=HEAD: varre todo o histórico alcançável do commit testado (no PR, o merge commit), não os
+      # outros refs que o fetch-depth 0 traz. Sem isso o padrão é `git log --all`, e um achado na branch de
+      # outro PR derruba o secret-scan de todos.
       - name: Gitleaks (histórico do git)
         run: >-
           docker run --rm
           -v "$GITHUB_WORKSPACE:/repo"
           ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
-          git /repo --redact --verbose --exit-code 1
+          git /repo --log-opts=HEAD --redact --verbose --exit-code 1
 
   # Contrato (spec 17.1, ADR-0018, docs/api/README.md): o OpenAPI e os tipos da SPA gerados batem com o commit,
   # e o PR não traz breaking change sem aprovação explícita.
