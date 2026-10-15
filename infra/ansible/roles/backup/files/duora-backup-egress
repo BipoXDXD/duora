@@ -2,20 +2,38 @@
 # Filtro de saída da rede backup-egress (container backup e job de restore), na chain DOCKER-USER do iptables, que o
 # Docker consulta antes das próprias regras de forward. Gerenciado pelo Ansible (infra/ansible/roles/backup).
 #
-# Permite só DNS (o resolvedor embutido do Docker encaminha a consulta com o IP do container) e HTTPS para os
-# destinos de DUORA_BACKUP_S3_CIDRS (vazio = qualquer destino na 443); o resto sai em DROP. Idempotente: recria a
-# chain própria e insere o desvio uma única vez. A rede é só IPv4 (sem enable_ipv6 no compose.prod.yml).
+# Permite só DNS para os resolvedores upstream e HTTPS para os destinos de DUORA_BACKUP_S3_CIDRS (vazio = qualquer
+# destino na 443); o resto sai em DROP. Idempotente: recria a chain própria e insere o desvio uma única vez. A rede é
+# só IPv4 (sem enable_ipv6 no compose.prod.yml).
+#
+# DNS: o resolvedor embutido do Docker (127.0.0.11 no container) encaminha a consulta ao upstream do host saindo da
+# rede do container, com o IP dele. Por isso a 53 só vale para DUORA_BACKUP_DNS_RESOLVERS ou, se vazio, para os
+# upstream do systemd-resolved (/run/systemd/resolve/resolv.conf), que é a lista que o Docker usa quando o
+# /etc/resolv.conf do host aponta para o stub 127.0.0.53. Sem nenhum resolvedor o script falha.
 set -eu
 
 # shellcheck source=/dev/null  # gerado pelo Ansible no host (templates/backup-egress.env.j2)
 . /etc/duora/backup-egress.env
 : "${DUORA_BACKUP_SUBNET:?defina DUORA_BACKUP_SUBNET em /etc/duora/backup-egress.env}"
 CHAIN=DUORA-BACKUP-EGRESS
+UPSTREAM_RESOLV_CONF=/run/systemd/resolve/resolv.conf
+
+resolvers=${DUORA_BACKUP_DNS_RESOLVERS:-}
+if [ -z "$resolvers" ] && [ -r "$UPSTREAM_RESOLV_CONF" ]; then
+  # Só IPv4 fora do loopback: a rede é IPv4 e um stub local não seria alcançado pelo container.
+  resolvers=$(awk '$1 == "nameserver" && $2 ~ /^[0-9.]+$/ && $2 !~ /^127\./ { print $2 }' "$UPSTREAM_RESOLV_CONF")
+fi
+if [ -z "$resolvers" ]; then
+  echo "duora-backup-egress: nenhum resolvedor DNS (defina duora_backup_dns_resolvers no inventário)" >&2
+  exit 1
+fi
 
 iptables -w -N "$CHAIN" 2>/dev/null || true
 iptables -w -F "$CHAIN"
-iptables -w -A "$CHAIN" -p udp --dport 53 -j RETURN
-iptables -w -A "$CHAIN" -p tcp --dport 53 -j RETURN
+for resolver in $resolvers; do
+  iptables -w -A "$CHAIN" -p udp -d "$resolver" --dport 53 -j RETURN
+  iptables -w -A "$CHAIN" -p tcp -d "$resolver" --dport 53 -j RETURN
+done
 if [ -n "${DUORA_BACKUP_S3_CIDRS:-}" ]; then
   for cidr in $DUORA_BACKUP_S3_CIDRS; do
     iptables -w -A "$CHAIN" -p tcp -d "$cidr" --dport 443 -j RETURN
