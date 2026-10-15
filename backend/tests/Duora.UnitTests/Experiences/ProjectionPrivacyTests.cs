@@ -65,6 +65,42 @@ public sealed class ProjectionPrivacyTests
     }
 
     [Fact]
+    public void NestedObjectsExposeOnlyTheAllowedFields()
+    {
+        var session = AtChoices(_engine, NewSession(_engine));
+        session = Act(_engine, session, Ana, new UnlikelyRoutesAction.ChooseOption("route-stop-1", "lighthouse"));
+
+        using var document = JsonDocument.Parse(Serialize(session, Bia));
+        var root = document.RootElement;
+
+        Assert.Equal(["Options", "Prompt", "StepId"], KeysOf(root.GetProperty("CurrentStop")));
+        Assert.All(root.GetProperty("CurrentStop").GetProperty("Options").EnumerateArray(),
+            option => Assert.Equal(["Label", "OptionId"], KeysOf(option)));
+        var route = root.GetProperty("Route").EnumerateArray().ToList();
+        Assert.Single(route);
+        Assert.All(route, stop => Assert.Equal(["OptionLabel", "Prompt", "StepId"], KeysOf(stop)));
+    }
+
+    [Fact]
+    public void ProjectionDoesNotCarryTheIdsOfAppliedActions()
+    {
+        var session = NewSession(_engine);
+        ActionId[] actionIds =
+        [
+            new(Guid.Parse("0199d700-7f20-7000-8000-0000000000a1")),
+            new(Guid.Parse("0199d700-7f20-7000-8000-0000000000b2")),
+        ];
+        session = Apply(_engine, session, Command(
+            session, Ana, new UnlikelyRoutesAction.Acknowledge(RoutesStage.Introduction), actionIds[0]));
+        session = Apply(_engine, session, Command(
+            session, Bia, new UnlikelyRoutesAction.Acknowledge(RoutesStage.Introduction), actionIds[1]));
+
+        var json = Serialize(session, Ana) + Serialize(session, Bia);
+
+        Assert.All(actionIds, id => Assert.DoesNotContain(id.Value.ToString(), json, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ProjectionDoesNotCarryParticipantIdsSeedOrActionLog()
     {
         var session = AtChoices(_engine, NewSession(_engine, seed: new SessionSeed(1_234_567)));
@@ -99,6 +135,9 @@ public sealed class ProjectionPrivacyTests
 
         Assert.All(BiaClues, clue => Assert.DoesNotContain(clue, anaJson, StringComparison.Ordinal));
     }
+
+    private static string[] KeysOf(JsonElement element) =>
+        [.. element.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal)];
 
     private string Serialize(UnlikelyRoutesSession session, ParticipantId viewer) =>
         JsonSerializer.Serialize(_engine.ProjectForParticipant(session, viewer), PlainText);
