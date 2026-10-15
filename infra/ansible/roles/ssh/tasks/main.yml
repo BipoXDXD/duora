@@ -19,3 +19,10 @@
     mode: "0644"
     validate: /usr/sbin/sshd -t -f %s
   notify: Reiniciar ssh
+
+# O validate acima só confere o drop-in isolado; esta checagem lê a configuração completa (sshd_config + todos os
+# drop-ins) antes do restart. Se falhar, o play para e o handler não roda: o sshd segue com a config anterior.
+- name: Validar a configuração completa do sshd antes de reiniciar
+  ansible.builtin.command:
+    cmd: /usr/sbin/sshd -t
+  changed_when: false
