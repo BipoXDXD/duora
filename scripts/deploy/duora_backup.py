@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Wrapper restrito do pgBackRest do Duora na VPS (spec 18.2 e 18.5).
 
-    duora-backup stanza-create | full | diff | verify | info
+    duora-backup stanza-create | full | diff | verify | info  [--scheduled]
 
 Roda o pgBackRest dentro do container backup (repository host: credenciais do S3, PGDATA só leitura, SQL como
 duora_backup por TCP) por `docker exec`, como root do host, chamado pelos timers systemd e pelo duora-deploy. Só as
@@ -30,7 +30,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Protocol
+from typing import Callable, Iterator, Protocol
 
 DESCRIPTION = "Wrapper restrito do pgBackRest do Duora (spec 18.2)."
 STANZA = "duora"
@@ -46,6 +46,9 @@ MAX_BACKUP_AGE_HOURS = 48
 # Backup e stanza esperam o deploy em curso terminar (mesmo lock do duora-deploy) por até este tempo.
 LOCK_WAIT_SECONDS = 30 * 60
 LOCK_POLL_SECONDS = 5
+# O verify do timer pula durante um deploy (que recria postgres e backup) só se o último verify bom tiver no máximo
+# esta idade: quatro rodadas do timer. Deploy travado ou demorado demais volta a alertar.
+MAX_VERIFY_SKIP_SECONDS = 60 * 60
 BACKUP_TIMEOUT_SECONDS = 6 * 3600
 QUERY_TIMEOUT_SECONDS = 5 * 60
 # Política do filtro de saída (infra/ansible/roles/backup): a subnet da rede backup-egress e a chain que a filtra.
@@ -247,22 +250,53 @@ def _unexpected_type(where: str, key: str, value: object) -> _InfoShapeError:
 # --- Ações ----------------------------------------------------------------------------------------------------------
 
 def run_action(action: str, run: Runner, *, project: str, state_dir: Path, egress_env: Path | None,
-               lock_wait_seconds: int = LOCK_WAIT_SECONDS) -> None:
-    """egress_env None pula a checagem do filtro de saída: só no drill local, que não tem a chain do host."""
+               scheduled: bool = False, lock_wait_seconds: int = LOCK_WAIT_SECONDS,
+               clock: Callable[[], float] = time.time) -> None:
+    """egress_env None pula a checagem do filtro de saída: só no drill local, que não tem a chain do host.
+
+    scheduled: chamado por timer. Só muda o verify, que pula durante um deploy (veja _should_skip_scheduled_verify);
+    full e diff já esperam o lock.
+    """
     if action in _LOCKED_ACTIONS:
         # Um deploy recria o postgres; backup no meio dele falharia. O verify não pega o lock porque o próprio
         # deploy o chama segurando-o.
-        with deploy_lock(state_dir, wait_seconds=lock_wait_seconds):
+        with deploy_lock(state_dir, wait_seconds=lock_wait_seconds), backup_running(state_dir):
             _run_pgbackrest(run, _find_backup(run, project), _PGBACKREST_ARGS[action], BACKUP_TIMEOUT_SECONDS)
         return
     if action == "info":
         _run_pgbackrest(run, _find_backup(run, project), ["info"], QUERY_TIMEOUT_SECONDS)
+        return
+    if scheduled and _should_skip_scheduled_verify(state_dir, clock()):
+        _step("verify pulado: deploy em andamento (lock do duora-deploy) e último verify bom há menos de "
+              f"{MAX_VERIFY_SKIP_SECONDS} s")
         return
     if egress_env is None:
         _step("AVISO: filtro de saída NÃO conferido (--skip-egress-check, só para o drill local)")
     else:
         _check_egress_filter(run, egress_env)
     _verify(run, _find_backup(run, project))
+    _record_verify_success(state_dir, clock())
+
+
+def _should_skip_scheduled_verify(state_dir: Path, now: float) -> bool:
+    """Pula só com deploy em curso E um verify bom recente: o deploy recria postgres e backup e o próprio deploy
+    roda o verify antes de parar serviços. Sem verify bom recente (ou com o marcador ilegível), roda e alerta."""
+    if not deploy_in_progress(state_dir):
+        return False
+    last_success = _read_verify_success(state_dir)
+    return last_success is not None and now - last_success <= MAX_VERIFY_SKIP_SECONDS
+
+
+def _record_verify_success(state_dir: Path, now: float) -> None:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / _VERIFY_OK_FILE).write_text(f"{now}\n", encoding="utf-8")
+
+
+def _read_verify_success(state_dir: Path) -> float | None:
+    try:
+        return float((state_dir / _VERIFY_OK_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def _check_egress_filter(run: Runner, egress_env: Path) -> None:
@@ -350,6 +384,42 @@ def _step(message: str) -> None:
     print(f"[duora-backup] {message}", flush=True)
 
 
+_DEPLOY_LOCK_FILE = ".deploy.lock"
+# Segurado por full, diff e stanza-create junto com o lock do deploy: separa "deploy em curso" de "backup em curso".
+_BACKUP_LOCK_FILE = ".backup.lock"
+_VERIFY_OK_FILE = ".backup-verify-ok"
+
+
+def deploy_in_progress(state_dir: Path) -> bool:
+    """Lock do duora-deploy ocupado por alguém que não é um backup deste wrapper."""
+    return _is_locked(state_dir / _DEPLOY_LOCK_FILE) and not _is_locked(state_dir / _BACKUP_LOCK_FILE)
+
+
+def _is_locked(path: Path) -> bool:
+    if not path.exists():
+        return False
+    # "a": não trunca o arquivo de quem segura o lock. Só sonda: solta na hora.
+    with open(path, "a", encoding="utf-8") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        return False
+
+
+@contextmanager
+def backup_running(state_dir: Path) -> Iterator[None]:
+    """Marca um backup em curso; só é tomado por quem já segura o lock do deploy, então nunca espera."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    with open(state_dir / _BACKUP_LOCK_FILE, "a", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 @contextmanager
 def deploy_lock(state_dir: Path, *, wait_seconds: int) -> Iterator[None]:
     """O mesmo flock do duora-deploy (/var/lib/duora/.deploy.lock): backup e deploy nunca ao mesmo tempo.
@@ -358,7 +428,7 @@ def deploy_lock(state_dir: Path, *, wait_seconds: int) -> Iterator[None]:
     comum para importar. O kernel solta o lock se o processo morrer.
     """
     state_dir.mkdir(parents=True, exist_ok=True)
-    with open(state_dir / ".deploy.lock", "w", encoding="utf-8") as lock_file:
+    with open(state_dir / _DEPLOY_LOCK_FILE, "w", encoding="utf-8") as lock_file:
         deadline = time.monotonic() + wait_seconds
         while True:
             try:
@@ -367,7 +437,7 @@ def deploy_lock(state_dir: Path, *, wait_seconds: int) -> Iterator[None]:
             except BlockingIOError as error:
                 if time.monotonic() >= deadline:
                     raise BackupError(f"deploy ou backup em andamento há mais de {wait_seconds} s "
-                                      f"(lock em {state_dir / '.deploy.lock'})") from error
+                                      f"(lock em {state_dir / _DEPLOY_LOCK_FILE})") from error
                 time.sleep(LOCK_POLL_SECONDS)
         try:
             yield
@@ -392,6 +462,8 @@ def main(argv: list[str] | None = None, *, run: Runner = run_command) -> int:
     parser.add_argument("--compose-project", default=COMPOSE_PROJECT, help="projeto do Compose (drill local)")
     parser.add_argument("--state-dir", type=Path, default=Path("/var/lib/duora"),
                         help="onde fica o lock compartilhado com o duora-deploy")
+    parser.add_argument("--scheduled", action="store_true",
+                        help="chamado pelo timer: o verify pula durante um deploy com verify bom recente")
     parser.add_argument("--egress-env", type=Path, default=EGRESS_ENV,
                         help="política do filtro de saída que o verify confere no iptables")
     parser.add_argument("--skip-egress-check", action="store_true",
@@ -400,7 +472,8 @@ def main(argv: list[str] | None = None, *, run: Runner = run_command) -> int:
 
     egress_env = None if args.skip_egress_check else args.egress_env
     try:
-        run_action(args.action, run, project=args.compose_project, state_dir=args.state_dir, egress_env=egress_env)
+        run_action(args.action, run, project=args.compose_project, state_dir=args.state_dir, egress_env=egress_env,
+                   scheduled=args.scheduled)
     except BackupError as error:
         print(f"[duora-backup] ERRO: {error}", file=sys.stderr)
         return 1

@@ -205,6 +205,12 @@ Ninguém além do root chama o `duora-backup`: o executor de deploy não tem sud
 socket do Docker. Falhas aparecem em `systemctl --failed`, em `journalctl -u 'duora-backup@*'` e, com prioridade
 `crit`, em `journalctl -t duora-backup-alert` (`OnFailure=duora-backup-failed@`).
 
+**Verify do timer durante um deploy.** O timer chama `duora-backup verify --scheduled`. Se o lock do `duora-deploy`
+estiver ocupado por um deploy (não por um backup: `full`/`diff` seguram também `.backup.lock`) **e** houver um verify
+bom há no máximo 1 h (`/var/lib/duora/.backup-verify-ok`), ele pula com uma linha informativa no journal: o deploy
+recria `postgres` e `backup` e roda o próprio verify antes de parar serviços. Sem verify bom recente, com o marcador
+ilegível, durante um backup ou chamado à mão, o verify roda normalmente. Testes: `ScheduledVerifyDuringDeployTests`.
+
 **O verify falha fechado.** O deploy só segue com a prova positiva de backup saudável. Bloqueiam (código 1,
 mensagem clara):
 
