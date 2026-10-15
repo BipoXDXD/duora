@@ -9,14 +9,22 @@ namespace Duora.Core.Safety;
 /// </summary>
 internal static class SafetyText
 {
-    public static string RequireBounded(string value, int maxLength, bool allowEmpty, string paramName)
+    /// <summary>Texto obrigatório: pelo menos um caractere que não seja espaço.</summary>
+    public static string RequireText(string value, int maxLength, string paramName)
     {
         ArgumentNullException.ThrowIfNull(value, paramName);
-        if (!allowEmpty && string.IsNullOrWhiteSpace(value))
+        if (string.IsNullOrWhiteSpace(value))
         {
             throw new ArgumentException("Não pode ser vazio.", paramName);
         }
 
+        return RequireOptionalText(value, maxLength, paramName);
+    }
+
+    /// <summary>Texto que pode ser vazio, com os mesmos limites de tamanho e de caracteres.</summary>
+    public static string RequireOptionalText(string value, int maxLength, string paramName)
+    {
+        ArgumentNullException.ThrowIfNull(value, paramName);
         var length = 0;
         var remaining = value.AsSpan();
         while (!remaining.IsEmpty)

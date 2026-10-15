@@ -41,8 +41,8 @@ public sealed record PolicyVersion
 
     public PolicyVersion(string code, string version)
     {
-        Code = SafetyText.RequireBounded(code, MaxPartLength, allowEmpty: false, nameof(code));
-        Version = SafetyText.RequireBounded(version, MaxPartLength, allowEmpty: false, nameof(version));
+        Code = SafetyText.RequireText(code, MaxPartLength, nameof(code));
+        Version = SafetyText.RequireText(version, MaxPartLength, nameof(version));
     }
 
     public string Code { get; }
@@ -62,7 +62,7 @@ public sealed record SubjectNotice
     public SubjectNotice(string reasonCode, string? text)
     {
         ReasonCode = SafetyText.RequireCatalogCode(reasonCode, ReasonCodeMaxLength, nameof(reasonCode));
-        Text = text is null ? null : SafetyText.RequireBounded(text, TextMaxLength, allowEmpty: false, nameof(text));
+        Text = text is null ? null : SafetyText.RequireText(text, TextMaxLength, nameof(text));
     }
 
     /// <summary>Código da cláusula no catálogo, como `conduta.assedio`.</summary>
