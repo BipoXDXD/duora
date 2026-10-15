@@ -18,3 +18,4 @@
     - role: firewall
     - role: docker
     - role: app_dirs
+    - role: backup

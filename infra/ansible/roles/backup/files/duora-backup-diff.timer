@@ -1,0 +1,12 @@
+# Gerenciado pelo Ansible (infra/ansible/roles/backup). Diferencial diário, menos no dia do full (spec 18.2).
+[Unit]
+Description=Duora: backup diferencial diário do PostgreSQL
+
+[Timer]
+OnCalendar=Mon..Sat *-*-* 03:00:00 UTC
+RandomizedDelaySec=15min
+Persistent=true
+Unit=duora-backup@diff.service
+
+[Install]
+WantedBy=timers.target
