@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Regras e casos de uso. Sem ASP.NET Core, EF Core nem SDK de fornecedor (verificado em Duora.ArchitectureTests). -->
+</Project>

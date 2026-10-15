@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Duora.Infrastructure\Duora.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Duora.Web\Duora.Web.csproj" />
+    <!-- Alias: o Program interno do Worker colidiria com o Program do Web. -->
+    <ProjectReference Include="..\..\src\Duora.Worker\Duora.Worker.csproj" Aliases="worker" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+</Project>
