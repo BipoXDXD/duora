@@ -11,6 +11,12 @@
           "Microsoft.OpenApi": "[2.12.2, 3.0.0)"
         }
       },
+      "Microsoft.Extensions.ApiDescription.Server": {
+        "type": "Direct",
+        "requested": "[10.0.13, )",
+        "resolved": "10.0.13",
+        "contentHash": "jw1nAiGUSFFZB4Hsk9TZHTE4J1mH1FOtZiJvDI5K7hsLet+D9cV/JbGMi7LfX4hCFR2jCRWYiDquBSqei5NsxA=="
+      },
       "Microsoft.EntityFrameworkCore.Abstractions": {
         "type": "Transitive",
         "resolved": "10.0.13",
@@ -35,10 +41,7 @@
         "type": "Project"
       },
       "duora.core": {
-        "type": "Project",
-        "dependencies": {
-          "Duora.Contracts": "[1.0.0, )"
-        }
+        "type": "Project"
       },
       "duora.infrastructure": {
         "type": "Project",
