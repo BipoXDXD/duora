@@ -25,6 +25,7 @@ SECRETS = {
     "postgres_superuser_password": "superuser-synthetic",
     "db_migrator_password": "migrator-synthetic",
     "db_app_password": "app-synthetic",
+    "db_backup_password": "backup-synthetic",
 }
 
 # O que uma migration faz, como duora_migrator. audit_events nasce aqui SEM o REVOKE da convenção: o teste prova que
@@ -62,6 +63,7 @@ class AppRolePrivilegesTests(unittest.TestCase):
               "--env", "POSTGRES_PASSWORD_FILE=/run/secrets/postgres_superuser_password",
               "--env", "DUORA_MIGRATOR_PASSWORD_FILE=/run/secrets/db_migrator_password",
               "--env", "DUORA_APP_PASSWORD_FILE=/run/secrets/db_app_password",
+              "--env", "DUORA_BACKUP_PASSWORD_FILE=/run/secrets/db_backup_password",
               IMAGE])
         cls._wait_ready()
         _run(cls._psql_superuser() + ["--command", MIGRATION_SQL])
@@ -166,6 +168,53 @@ class AppRolePrivilegesTests(unittest.TestCase):
         ]:
             with self.subTest(sql=sql):
                 self.assert_denied(sql)
+
+    def superuser_query(self, sql: str) -> str:
+        result = subprocess.run(self._psql_superuser() + ["--tuples-only", "--no-align", "--command", sql],
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(0, result.returncode, result.stderr)
+        return result.stdout.strip()
+
+    def connect_as_backup(self, *, host: str | None, password: str | None) -> subprocess.CompletedProcess[str]:
+        env = ["--env", f"PGPASSWORD={password}"] if password is not None else []
+        target = ["--host", host] if host is not None else []
+        return subprocess.run(["docker", "exec", *env, self.container, "psql", "--no-psqlrc", "--no-password",
+                               *target, "--username", "duora_backup", "--dbname", "postgres",
+                               "--command", "select 1"], capture_output=True, text=True, check=False)
+
+    def test_no_trust_rule_in_the_active_pg_hba(self) -> None:
+        self.assertEqual("/etc/postgresql/pg_hba.duora.conf", self.superuser_query("show hba_file"))
+        self.assertEqual("0", self.superuser_query(
+            "select count(*) from pg_hba_file_rules where auth_method = 'trust' or error is not null"))
+
+    def test_backup_role_is_not_superuser_and_has_only_backup_privileges(self) -> None:
+        self.assertEqual("f|f|f|f", self.superuser_query(
+            "select rolsuper, rolcreaterole, rolcreatedb, rolreplication from pg_roles "
+            "where rolname = 'duora_backup'"))
+        self.assertEqual("t", self.superuser_query("select pg_has_role('duora_backup', 'pg_read_all_settings', "
+                                                   "'member')"))
+        self.assertEqual("f", self.superuser_query("select has_database_privilege('duora_backup', 'duora', "
+                                                   "'CONNECT')"))
+        self.assertEqual("f", self.superuser_query("select pg_has_role('duora_backup', 'pg_read_server_files', "
+                                                   "'member')"))
+
+    def test_backup_role_without_password_is_refused(self) -> None:
+        result = self.connect_as_backup(host="127.0.0.1", password=None)
+
+        self.assertNotEqual(0, result.returncode)
+
+    def test_backup_role_is_refused_outside_the_backup_container_address(self) -> None:
+        # Senha certa, origem errada (127.0.0.1 não é 172.30.21.10): o pg_hba recusa antes da senha.
+        result = self.connect_as_backup(host="127.0.0.1", password=SECRETS["db_backup_password"])
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("rejects connection", result.stderr)
+
+    def test_backup_role_is_refused_on_the_local_socket(self) -> None:
+        result = self.connect_as_backup(host=None, password=SECRETS["db_backup_password"])
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("rejects connection", result.stderr)
 
     def test_functions_are_executable_by_app_but_not_by_public(self) -> None:
         self.assertEqual("t", self.assert_allowed("SELECT has_function_privilege('duora_app', "

@@ -37,6 +37,10 @@ COPY --chmod=755 infra/images/postgres/initdb/10-duora-roles.sh /docker-entrypoi
 # Idem: inclui postgresql.duora.conf (arquivamento de WAL) no postgresql.conf do PGDATA.
 COPY --chmod=755 infra/images/postgres/initdb/20-duora-config.sh /docker-entrypoint-initdb.d/
 COPY --chmod=644 infra/images/postgres/postgresql.duora.conf /etc/postgresql/postgresql.duora.conf
+COPY --chmod=644 infra/images/postgres/pg_hba.duora.conf /etc/postgresql/pg_hba.duora.conf
+# Nem o pg_hba.conf gerado pelo initdb (usado só pelo servidor temporário da 1a inicialização) tem trust: socket por
+# peer, rede por senha.
+ENV POSTGRES_INITDB_ARGS="--auth-local=peer --auth-host=scram-sha-256"
 COPY --chmod=644 infra/images/postgres/pgbackrest.conf /etc/pgbackrest/pgbackrest.conf
 COPY --chmod=644 infra/images/postgres/pgbackrest-repo.conf /etc/pgbackrest/pgbackrest-repo.conf
 # Rodado pelo duora-deploy depois de cada migração (versionado junto com a imagem da release).

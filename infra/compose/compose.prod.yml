@@ -42,10 +42,12 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
       DUORA_MIGRATOR_PASSWORD_FILE: /run/secrets/db_migrator_password
       DUORA_APP_PASSWORD_FILE: /run/secrets/db_app_password
+      DUORA_BACKUP_PASSWORD_FILE: /run/secrets/db_backup_password
     secrets:
       - postgres_superuser_password
       - db_migrator_password
       - db_app_password
+      - db_backup_password
       # Cliente TLS do pgBackRest: o archive_command envia WAL ao container backup. Nenhuma credencial do S3 aqui.
       - pgbackrest_tls_ca.crt
       - pgbackrest_tls_client.crt
@@ -53,8 +55,6 @@ services:
     volumes:
       # PostgreSQL 18: PGDATA=/var/lib/postgresql/18/docker; o volume monta o pai (spec 15.4).
       - pgdata:/var/lib/postgresql
-      # Socket compartilhado (só leitura) com o backup, que chama pg_backup_start/stop por ele.
-      - pgsocket:/var/run/postgresql
     # Só redes internas, sem saída para fora: data (aplicação e migrador) e pgbackrest (WAL até o backup).
     networks: [data, pgbackrest]
     shm_size: 256m
@@ -81,8 +81,9 @@ services:
 
   # Repository host do pgBackRest (spec 18.2 e 18.3; decidido pelo usuário em 2026-10-15): o único container com
   # saída para o S3 e com as credenciais e a senha de criptografia do repositório. Recebe o WAL do postgres por TLS
-  # (certificado de cliente obrigatório) e faz os backups lendo o PGDATA e o socket só leitura. Mesma imagem do
-  # postgres (mesma versão do pgBackRest); os timers do host chamam "docker exec" aqui via duora-backup.
+  # (certificado de cliente obrigatório) e faz os backups lendo o PGDATA só leitura e falando SQL com o papel
+  # duora_backup por TCP (scram-sha-256, aceito só do IP deste container). Não compartilha o socket do postgres.
+  # Mesma imagem do postgres (mesma versão do pgBackRest); os timers do host chamam "docker exec" via duora-backup.
   backup:
     image: ${DUORA_POSTGRES_IMAGE:?defina DUORA_POSTGRES_IMAGE (digest da release)}
     <<: *hardened
@@ -92,6 +93,9 @@ services:
       PGBACKREST_CONFIG: /etc/pgbackrest/pgbackrest-repo.conf
       # Com PGBACKREST_CONFIG fora do padrão o include padrão não vale: repo.conf e cipher.conf vêm daqui.
       PGBACKREST_CONFIG_INCLUDE_PATH: /etc/pgbackrest/conf.d
+      # libpq do pgBackRest e do psql do verify: banco por TCP, senha do duora_backup em formato .pgpass.
+      PGHOST: postgres
+      PGPASSFILE: /run/secrets/pgbackrest_db_pgpass
     secrets: &backup-repo-secrets
       - source: pgbackrest_repo
         target: /etc/pgbackrest/conf.d/repo.conf
@@ -100,14 +104,18 @@ services:
       - pgbackrest_tls_ca.crt
       - pgbackrest_tls_server.crt
       - pgbackrest_tls_server.key
+      - pgbackrest_db_pgpass
     tmpfs:
       # Locks do pgBackRest.
       - /tmp:size=16m,mode=1777
     volumes:
       - pgdata:/var/lib/postgresql:ro
-      - pgsocket:/var/run/postgresql:ro
-    # pgbackrest: recebe o WAL do postgres. backup-egress: saída só para o S3 (filtro DOCKER-USER no host).
-    networks: [pgbackrest, backup-egress]
+    # pgbackrest: recebe o WAL do postgres, num IP fixo (o único que o pg_hba aceita para duora_backup e o único
+    # endereço em que o servidor TLS escuta). backup-egress: saída só para o S3 (filtro DOCKER-USER no host).
+    networks:
+      pgbackrest:
+        ipv4_address: 172.30.21.10
+      backup-egress: {}
     stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "pgbackrest", "server-ping"]
@@ -283,9 +291,13 @@ networks:
   data:
     internal: true
   egress: {}
-  # internal: WAL do postgres até o backup (TLS com certificado de cliente). Só os dois participam.
+  # internal: WAL do postgres até o backup (TLS com certificado de cliente) e o SQL do duora_backup. Só os dois
+  # participam. Subnet fixa: o IP do backup aparece no pg_hba.duora.conf e no pgbackrest-repo.conf.
   pgbackrest:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.30.21.0/24
   # Saída do backup (e do job de restore) para o repositório S3. O postgres não está aqui. Subnet fixa: é a origem
   # que o filtro DOCKER-USER do host reconhece (infra/ansible/roles/backup); mudar aqui exige mudar lá.
   backup-egress:
@@ -295,7 +307,6 @@ networks:
 
 volumes:
   pgdata:
-  pgsocket:
   dataprotection:
   caddy_data:
   caddy_config:
@@ -307,11 +318,15 @@ secrets:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/db_migrator_password
   db_app_password:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/db_app_password
+  db_backup_password:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/db_backup_password
+  pgbackrest_db_pgpass:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/pgbackrest_db_pgpass
   duora_app_connection:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/duora_app_connection
   duora_migrator_connection:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/duora_migrator_connection
-  # Certificados do pgBackRest gerados por "duora-secrets init-backup-tls" (CA própria, sem a chave da CA no host).
+  # Certificados do pgBackRest gerados por "duora-secrets init-backup" (CA própria, sem a chave da CA no host).
   pgbackrest_tls_ca.crt:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/pgbackrest_tls_ca.crt
   pgbackrest_tls_server.crt:
