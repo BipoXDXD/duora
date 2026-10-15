@@ -161,6 +161,88 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # Valida os Dockerfiles da release na arquitetura nativa de cada runner (spec 2.4: emulação não é prova).
+  # Só build, sem push: registry e publicação dependem da VPS (docs/operations/deploy.md).
+  images:
+    name: images (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      PLATFORM: linux/${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Registrar arquitetura do runner (spec 2.4)
+        run: |
+          echo "uname -m: $(uname -m)"
+          echo "Runner: $(. /etc/os-release && echo "$PRETTY_NAME"), $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build web, worker e migrator
+        run: |
+          for target in web worker migrator; do
+            docker buildx build --file infra/images/dotnet/Dockerfile --target "$target" --platform "$PLATFORM" \
+              --build-arg GIT_COMMIT="$GITHUB_SHA" --tag "duora-$target:ci" --load .
+          done
+
+      - name: Build edge e postgres
+        run: |
+          docker buildx build --file infra/images/edge/Dockerfile --platform "$PLATFORM" \
+            --build-arg GIT_COMMIT="$GITHUB_SHA" --tag duora-edge:ci --load .
+          docker buildx build --file infra/images/postgres/Dockerfile --platform "$PLATFORM" \
+            --tag duora-postgres:ci --load .
+
+      # Executa cada binário nativo na arquitetura do runner, sem subir o ambiente.
+      - name: Verificar as imagens
+        run: |
+          docker run --rm --entrypoint /app/efbundle duora-migrator:ci --help > /dev/null
+          docker run --rm duora-postgres:ci pgbackrest version
+          docker run --rm -e DUORA_DOMAIN=app.example.com -e DUORA_TLS=ops@example.com \
+            --entrypoint caddy duora-edge:ci validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          for image in web worker migrator edge; do
+            echo "duora-$image: $(docker image inspect --format '{{.Architecture}} user={{.Config.User}}' "duora-$image:ci")"
+          done
+
+  # Scripts de operação (deploy e segredos) e Ansible: testes, tipos e lint com versões fixadas.
+  ops:
+    name: ops
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Python 3.12 do próprio Ubuntu 24.04: a mesma versão que roda o duora-deploy na VPS.
+      - name: Ferramentas fixadas
+        run: |
+          python3 --version
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pyright==1.1.408 ansible-core==2.21.5 ansible-lint==26.10.1
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Testes dos scripts de deploy
+        run: python3 -m unittest discover -s scripts/deploy -v
+
+      - name: Pyright
+        run: pyright -p scripts/deploy/pyrightconfig.json scripts/deploy
+
+      - name: ansible-lint e syntax-check
+        working-directory: infra/ansible
+        run: |
+          ansible-galaxy collection install -r requirements.yml
+          ansible-lint
+          ansible-playbook -i inventory/example.yml site.yml --syntax-check
+
   secret-scan:
     name: secret-scan
     runs-on: ubuntu-24.04
