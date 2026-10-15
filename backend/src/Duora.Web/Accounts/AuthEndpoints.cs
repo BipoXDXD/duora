@@ -75,7 +75,13 @@ internal static class AuthEndpoints
             return ApiProblems.TooManyRequests(context, retryAfter);
         }
 
-        await accounts.RegisterAsync(email, password, termsVersion, privacyVersion, cancellationToken);
+        await accounts.RegisterAsync(
+            email,
+            password,
+            termsVersion,
+            privacyVersion,
+            EmailLanguageNegotiation.FromRequest(context.Request),
+            cancellationToken);
         return TypedResults.Accepted((string?)null);
     }
 
@@ -166,7 +172,7 @@ internal static class AuthEndpoints
             return ApiProblems.TooManyRequests(context, retryAfter);
         }
 
-        await accounts.RequestPasswordResetAsync(email, cancellationToken);
+        await accounts.RequestPasswordResetAsync(email, EmailLanguageNegotiation.FromRequest(context.Request), cancellationToken);
         return TypedResults.Accepted((string?)null);
     }
 

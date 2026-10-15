@@ -16,7 +16,7 @@ public sealed class AccountEmailsTests
     {
         var emails = new AccountEmails(Origin);
 
-        var email = emails.EmailConfirmation(Recipient, UserId, "tok-en_1");
+        var email = emails.EmailConfirmation(Recipient, UserId, "tok-en_1", EmailLanguage.BrazilianPortuguese);
 
         Assert.Equal(Recipient, email.To);
         Assert.Contains(
@@ -30,7 +30,7 @@ public sealed class AccountEmailsTests
     {
         var emails = new AccountEmails(Origin);
 
-        var email = emails.PasswordReset(Recipient, UserId, "tok-en_1");
+        var email = emails.PasswordReset(Recipient, UserId, "tok-en_1", EmailLanguage.BrazilianPortuguese);
 
         Assert.Contains(
             "https://duora.example/redefinir-senha#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
@@ -43,7 +43,7 @@ public sealed class AccountEmailsTests
     {
         var emails = new AccountEmails(Origin);
 
-        var link = emails.EmailConfirmation(Recipient, UserId, "tok-en_1").TextBody
+        var link = emails.EmailConfirmation(Recipient, UserId, "tok-en_1", EmailLanguage.BrazilianPortuguese).TextBody
             .Split((char[])['\n', ' '])
             .Single(word => word.StartsWith("https://", StringComparison.Ordinal));
 
@@ -56,7 +56,7 @@ public sealed class AccountEmailsTests
     {
         var emails = new AccountEmails(Origin);
 
-        var email = emails.PasswordReset(Recipient, UserId, "a+b/c=&x");
+        var email = emails.PasswordReset(Recipient, UserId, "a+b/c=&x", EmailLanguage.BrazilianPortuguese);
 
         Assert.Contains("token=a%2Bb%2Fc%3D%26x", email.TextBody, StringComparison.Ordinal);
     }
@@ -66,7 +66,7 @@ public sealed class AccountEmailsTests
     {
         var emails = new AccountEmails(Origin);
 
-        var email = emails.RegistrationAttemptOnExistingAccount(Recipient);
+        var email = emails.RegistrationAttemptOnExistingAccount(Recipient, EmailLanguage.BrazilianPortuguese);
 
         Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
         Assert.Contains("https://duora.example/recuperar-senha", email.TextBody, StringComparison.Ordinal);
@@ -77,7 +77,7 @@ public sealed class AccountEmailsTests
     {
         var emails = new AccountEmails(Origin);
 
-        var email = emails.PendingRegistrationReminder(Recipient);
+        var email = emails.PendingRegistrationReminder(Recipient, EmailLanguage.BrazilianPortuguese);
 
         Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
         Assert.DoesNotContain("confirmar-email", email.TextBody, StringComparison.Ordinal);
@@ -89,7 +89,7 @@ public sealed class AccountEmailsTests
     {
         var emails = new AccountEmails(Origin);
 
-        var email = emails.PasswordResetForUnknownAddress(Recipient);
+        var email = emails.PasswordResetForUnknownAddress(Recipient, EmailLanguage.BrazilianPortuguese);
 
         Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
         Assert.Contains("https://duora.example/cadastro", email.TextBody, StringComparison.Ordinal);

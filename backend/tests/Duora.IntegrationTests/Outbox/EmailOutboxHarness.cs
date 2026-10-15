@@ -75,14 +75,38 @@ internal sealed class EmailOutboxHarness : IAsyncDisposable
         return host.Services.GetRequiredService<TransactionalEmailDispatcher>();
     }
 
-    public async Task<Guid> EnqueueAsync(AccountEmailKind kind, string? token, CancellationToken cancellationToken)
+    public Task<Guid> EnqueueAsync(AccountEmailKind kind, string? token, CancellationToken cancellationToken) =>
+        EnqueueAsync(kind, token, "pt-BR", cancellationToken);
+
+    public async Task<Guid> EnqueueAsync(
+        AccountEmailKind kind,
+        string? token,
+        string? language,
+        CancellationToken cancellationToken)
     {
         await using var dbContext = PostgresFixture.CreateDbContext(ConnectionString);
-        var message = new AccountEmailRequested(kind, "ana@example.com", Guid.CreateVersion7(), token);
+        var message = new AccountEmailRequested(kind, "ana@example.com", Guid.CreateVersion7(), token, language);
         var outboxEvent = AccountEmailOutbox.Create(message, Time.GetUtcNow());
         dbContext.Add(outboxEvent);
         await dbContext.SaveChangesAsync(cancellationToken);
         return outboxEvent.Deliveries.Single().Id;
+    }
+
+    /// <summary>Tira um campo do payload, como um evento gravado antes de o campo existir.</summary>
+    public async Task RemovePayloadFieldAsync(Guid deliveryId, string field, CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            update ops.outbox_events e set payload = e.payload - $2
+            from ops.outbox_deliveries d
+            where d.outbox_event_id = e.id and d.id = $1
+            """,
+            connection);
+        command.Parameters.AddWithValue(deliveryId);
+        command.Parameters.AddWithValue(field);
+        Assert.Equal(1, await command.ExecuteNonQueryAsync(cancellationToken));
     }
 
     public async Task<DeliveryRow> ReadDeliveryAsync(Guid deliveryId, CancellationToken cancellationToken)
