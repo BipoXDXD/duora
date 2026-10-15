@@ -1,4 +1,5 @@
 using Duora.Web;
+using Duora.Web.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Options;
 
@@ -67,6 +68,28 @@ public sealed class StartupConfigurationTests
     }
 
     /// <summary>
+    /// O diretório temporário do teste é só uma pasta, como seria a camada gravável do container se o volume sumisse
+    /// do Compose (T-15). Fora do Linux não há tabela de montagens, e o boot também falha.
+    /// </summary>
+    [Fact]
+    public async Task WebDoesNotStartWithTheKeyRingOutsideAMountedVolume()
+    {
+        await using var app = BuildWeb("--DataProtection:RequireMountedVolume=true");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("DataProtection:KeysDirectory", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("volume persistente", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MountedVolumeIsRequiredUnlessConfigurationTurnsItOff()
+    {
+        Assert.True(new DataProtectionStorageOptions().RequireMountedVolume);
+    }
+
+    /// <summary>
     /// Linha de comando tem a maior precedência: env e user-secrets da máquina não interferem. Porta 0: se a
     /// validação falhar em barrar o boot, o teste não disputa porta com ninguém. O banco nunca é contatado, porque
     /// a validação falha antes; os valores padrão são válidos para que cada teste invalide só o que testa.
@@ -79,6 +102,7 @@ public sealed class StartupConfigurationTests
             "--ConnectionStrings:Duora=Host=127.0.0.1;Port=1;Database=duora;Username=duora;Password=x",
             $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
             $"--DataProtection:KeysDirectory={Path.Combine(Path.GetTempPath(), "duora-keys-unused")}",
+            "--DataProtection:RequireMountedVolume=false",
             invalidSetting,
         ]);
 }

@@ -23,7 +23,7 @@ internal static class BuildTimeOpenApi
         }
 
         // A origem e o diretório do key ring também só passam pela validação: nenhuma chave é criada, porque o
-        // servidor falso não emite cookie nem token.
+        // servidor falso não emite cookie nem token. O build roda fora do container, sem volume para o key ring.
         configuration.AddInMemoryCollection(
         [
             new KeyValuePair<string, string?>("ConnectionStrings:Duora", PlaceholderConnectionString),
@@ -31,6 +31,7 @@ internal static class BuildTimeOpenApi
             new KeyValuePair<string, string?>(
                 "DataProtection:KeysDirectory",
                 Path.Combine(Path.GetTempPath(), "duora-build-time-openapi-keys")),
+            new KeyValuePair<string, string?>("DataProtection:RequireMountedVolume", "false"),
         ]);
     }
 }

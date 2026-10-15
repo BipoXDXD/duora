@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Duora.IntegrationTests;
 
 public sealed class ComposeFileTests
@@ -18,5 +20,32 @@ public sealed class ComposeFileTests
 
         // Tag com variante do Debian e digest: "FROM postgres:18.6-trixie@sha256:...".
         Assert.Contains($"FROM {PostgresFixture.Image}-", dockerfile, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// T-15: o diretório que o web recebe em DataProtection__KeysDirectory é exatamente onde o volume nomeado é
+    /// montado, e só o web monta o key ring (spec 11.2: o worker não emite cookies). O boot também recusa diretório
+    /// que não seja volume; este teste pega a divergência antes do deploy.
+    /// </summary>
+    [Fact]
+    public void ProductionKeyRingDirectoryIsTheNamedVolumeMountedOnlyInTheWeb()
+    {
+        var compose = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "infra", "compose", "compose.prod.yml"));
+
+        var directory = Assert.Single(
+            Regex.Matches(compose, @"^\s+DataProtection__KeysDirectory:\s*(\S+)\s*$", RegexOptions.Multiline)).Groups[1].Value;
+        var mount = Assert.Single(Regex.Matches(compose, @"^\s+-\s*dataprotection:(\S+)\s*$", RegexOptions.Multiline));
+
+        Assert.Equal(directory, mount.Groups[1].Value);
+        Assert.Contains(mount.Value, Between(compose, "\n  web:\n", "\n  worker:\n"), StringComparison.Ordinal);
+        Assert.Contains("\n  dataprotection:\n", Between(compose, "\nvolumes:\n", "\nsecrets:\n"), StringComparison.Ordinal);
+    }
+
+    private static string Between(string text, string start, string end)
+    {
+        var from = text.IndexOf(start, StringComparison.Ordinal);
+        var to = text.IndexOf(end, from + 1, StringComparison.Ordinal);
+        Assert.True(from >= 0 && to > from, $"Trecho entre {start.Trim()} e {end.Trim()} não encontrado.");
+        return text[from..to];
     }
 }
