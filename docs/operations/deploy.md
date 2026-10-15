@@ -223,7 +223,8 @@ checagem na edge.
 
 Exercita o caminho inteiro numa máquina com Docker (portas 80 e 443 livres): registry descartável em
 `127.0.0.1:5050`, cinco imagens publicadas para a arquitetura local, segredos de teste num diretório temporário,
-`duora-deploy` de verdade com `tls internal`, verificações pela borda HTTPS e `down -v` no fim.
+`duora-deploy` de verdade com `tls internal`, verificações pela borda HTTPS, recriação do container web conferindo
+que o key ring do Data Protection sobrevive no volume (T-15) e `down -v` no fim.
 
 ```sh
 python3 scripts/deploy/smoke_local.py --commit "$(git rev-parse HEAD)"

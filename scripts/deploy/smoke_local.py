@@ -8,7 +8,9 @@
 3. Roda o duora-deploy de verdade (pull por digest, migrator, up, readiness), com Caddy em "tls internal".
 4. Confere pela borda HTTPS: SPA, cache, CSP, 404 de assets, fallback só para navegação, /api e /hubs (upgrade
    WebSocket) chegando ao web, /health fechado, logs sem query/cookie, e o endurecimento dos containers.
-5. Derruba tudo com "down -v" e remove o registry (a menos que --keep).
+5. Recria o container web e confere que um token antiforgery emitido antes continua válido: o key ring do Data
+   Protection mora no volume, não na camada do container (T-15).
+6. Derruba tudo com "down -v" e remove o registry (a menos que --keep).
 
 Usa as portas 80 e 443 do host. Só biblioteca padrão; os segredos gerados nunca saem do diretório temporário.
 """
@@ -26,6 +28,7 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -49,6 +52,8 @@ BUILDS = {
     "edge": ("infra/images/edge/Dockerfile", None),
     "postgres": ("infra/images/postgres/Dockerfile", None),
 }
+LOGIN_PATH = "/api/v1/auth/login"
+READY_TIMEOUT_SECONDS = 90
 # Lista do repositório; o smoke confere que nenhuma delas falta no banco.
 MIGRATIONS = sorted(path.name.removesuffix(".cs") for path in
                     (REPO_ROOT / "backend/src/Duora.Infrastructure/Persistence/Migrations").glob("*_*.cs")
@@ -64,6 +69,7 @@ class Response:
     status: int
     headers: dict[str, str]
     body: bytes
+    set_cookies: list[str]
 
 
 def main() -> int:
@@ -240,6 +246,7 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     checks.expect(subnets == [EDGE_SUBNET], f"rede edge na subnet fixa {EDGE_SUBNET} (recebido {subnets})")
 
     check_hardening(compose, checks)
+    check_key_ring_survives_recreation(compose, context, checks)
     return checks.failures
 
 
@@ -261,6 +268,54 @@ def check_hardening(compose: list[str], checks: Checks) -> None:
     checks.expect(not any(bindings.values()), "postgres sem portas publicadas")
 
 
+def check_key_ring_survives_recreation(compose: list[str], context: ssl.SSLContext, checks: Checks) -> None:
+    """T-15: o par antiforgery é protegido pelo Data Protection. Válido depois de recriar o web = chave no volume.
+
+    Login com credencial inexistente: 401 significa que o token passou; 403 seria o token ilegível (chave perdida).
+    O token forjado prova que a checagem distingue os dois casos.
+    """
+    cookies, token = csrf_pair(context)
+    checks.expect(login_status(context, cookies, token) == 401, "token antiforgery válido antes de recriar o web (401)")
+    checks.expect(login_status(context, cookies, "CfDJ8-forjado") == 403, "token antiforgery forjado = 403")
+
+    before = run(compose + ["ps", "--quiet", "web"]).strip()
+    run(compose + ["up", "--detach", "--no-deps", "--force-recreate", "web"])
+    after = run(compose + ["ps", "--quiet", "web"]).strip()
+    checks.expect(bool(after) and after != before, "web recriado (container novo)")
+    wait_ready(compose)
+
+    status = login_status(context, cookies, token)
+    checks.expect(status == 401, f"token emitido antes da recriação continua válido: key ring no volume (status {status})")
+
+
+def csrf_pair(context: ssl.SSLContext) -> tuple[str, str]:
+    response = request(context, "GET", "/api/v1/auth/csrf")
+    pairs = [header.split(";", 1)[0] for header in response.set_cookies]
+    token = next((pair.split("=", 1)[1] for pair in pairs if pair.startswith("XSRF-TOKEN=")), None)
+    if response.status != 204 or token is None:
+        raise SmokeFailure(f"GET /api/v1/auth/csrf sem XSRF-TOKEN (status {response.status})")
+    return "; ".join(pairs), token
+
+
+def login_status(context: ssl.SSLContext, cookies: str, token: str) -> int:
+    body = json.dumps({"email": f"smoke-{uuid.uuid4()}@example.com", "password": "frase que nao existe"})
+    return request(context, "POST", LOGIN_PATH, body.encode(), {
+        "Content-Type": "application/json", "Cookie": cookies, "X-XSRF-TOKEN": token,
+        "Origin": f"https://{DOMAIN}", "Sec-Fetch-Site": "same-origin",
+    }).status
+
+
+def wait_ready(compose: list[str]) -> None:
+    probe = compose + ["exec", "--no-TTY", "edge", "wget", "--quiet", "--spider", "--timeout=5",
+                       "http://web:8080/health/ready"]
+    deadline = time.monotonic() + READY_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if subprocess.run(probe, capture_output=True, check=False).returncode == 0:
+            return
+        time.sleep(2)
+    raise SmokeFailure(f"web recriado não ficou pronto em {READY_TIMEOUT_SECONDS} s")
+
+
 class Checks:
     def __init__(self) -> None:
         self.failures: list[str] = []
@@ -272,11 +327,17 @@ class Checks:
 
 
 def get(context: ssl.SSLContext, path: str, headers: dict[str, str] | None = None) -> Response:
+    return request(context, "GET", path, None, headers)
+
+
+def request(context: ssl.SSLContext, method: str, path: str, body: bytes | None = None,
+            headers: dict[str, str] | None = None) -> Response:
     connection = http.client.HTTPSConnection(DOMAIN, 443, context=context, timeout=10)
     try:
-        connection.request("GET", path, headers=headers or {})
+        connection.request(method, path, body=body, headers=headers or {})
         response = connection.getresponse()
-        return Response(response.status, {k.lower(): v for k, v in response.getheaders()}, response.read())
+        return Response(response.status, {k.lower(): v for k, v in response.getheaders()}, response.read(),
+                        response.headers.get_all("Set-Cookie") or [])
     finally:
         connection.close()
 
