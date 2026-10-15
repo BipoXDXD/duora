@@ -3,20 +3,25 @@ import { LandingPage } from '@/features/landing/LandingPage'
 import { paths } from '@/shared/paths'
 import { AreaErrorBoundary } from '@/shared/ui/error-boundary'
 import { AppLayout } from './AppLayout'
-import { lazyPage } from './lazy-page'
+import { lazyPage, type LazyPage } from './lazy-page'
 import { NotFoundPage } from './NotFoundPage'
+import { withFallbackMinimum } from './route-fallback-timing'
 
 // A página inicial e a de rota inexistente ficam no bundle principal: são a primeira tela e a resposta a
 // qualquer link quebrado. As demais telas vêm em chunks próprios (spec 13.5).
-const RegisterPage = lazyPage(async () => (await import('@/features/auth/RegisterPage')).RegisterPage)
-const CheckEmailPage = lazyPage(async () => (await import('@/features/auth/CheckEmailPage')).CheckEmailPage)
-const ConfirmEmailPage = lazyPage(async () => (await import('@/features/auth/ConfirmEmailPage')).ConfirmEmailPage)
-const LoginPage = lazyPage(async () => (await import('@/features/auth/LoginPage')).LoginPage)
-const ForgotPasswordPage = lazyPage(async () => (await import('@/features/auth/ForgotPasswordPage')).ForgotPasswordPage)
-const ResetPasswordPage = lazyPage(async () => (await import('@/features/auth/ResetPasswordPage')).ResetPasswordPage)
-const AccountPage = lazyPage(async () => (await import('@/features/account/AccountPage')).AccountPage)
+const RegisterPage = routePage(async () => (await import('@/features/auth/RegisterPage')).RegisterPage)
+const CheckEmailPage = routePage(async () => (await import('@/features/auth/CheckEmailPage')).CheckEmailPage)
+const ConfirmEmailPage = routePage(async () => (await import('@/features/auth/ConfirmEmailPage')).ConfirmEmailPage)
+const LoginPage = routePage(async () => (await import('@/features/auth/LoginPage')).LoginPage)
+const ForgotPasswordPage = routePage(
+  async () => (await import('@/features/auth/ForgotPasswordPage')).ForgotPasswordPage,
+)
+const ResetPasswordPage = routePage(async () => (await import('@/features/auth/ResetPasswordPage')).ResetPasswordPage)
+const AccountPage = routePage(async () => (await import('@/features/account/AccountPage')).AccountPage)
 // O guarda espera o chunk da conta: assim, quando GET /me responde, a página entra sem um segundo fallback.
-const RequireSession = lazyPage(async () => {
+// O pré-carregamento é fixo porque hoje o guarda protege só a conta; uma rota protegida nova entra aqui também,
+// senão ela mostra o fallback de novo depois do "Carregando sua conta…".
+const RequireSession = routePage(async () => {
   const [{ RequireSession: guard }] = await Promise.all([
     import('@/features/session/RequireSession'),
     AccountPage.preload(),
@@ -56,4 +61,9 @@ function Area(): React.JSX.Element {
       <Outlet />
     </AreaErrorBoundary>
   )
+}
+
+/** Tela da rota sob demanda; se o aviso de carregamento chegou a aparecer, ele cumpre o tempo mínimo. */
+function routePage(load: () => Promise<React.ComponentType>): LazyPage {
+  return lazyPage(() => withFallbackMinimum(load))
 }
