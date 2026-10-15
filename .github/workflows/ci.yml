@@ -219,6 +219,8 @@ jobs:
       # Spec 18.5: backup físico, WAL e restore PITR de ponta a ponta com o compose.prod.yml real e um MinIO só como
       # dublê S3 (docs/operations/backup-restore.md). Prova também que o postgres não alcança a internet.
       - name: Drill de restore (pgBackRest + MinIO de teste)
+        # bash do Actions roda com -o pipefail: uma falha do drill não some atrás do tee.
+        shell: bash
         run: |
           python3 scripts/backup/restore_drill.py --image duora-postgres:ci | tee "$RUNNER_TEMP/drill.log"
           { echo "### Drill de restore (${{ matrix.arch }})"; grep '^\[drill\] OK' "$RUNNER_TEMP/drill.log"; } \
