@@ -80,6 +80,11 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       # Lê cada arquivo de /run/secrets como uma chave de configuração (ConnectionStrings__Duora).
       SecretsDirectory: /run/secrets
+      # Obrigatórias no boot (docs/security/auth.md): origem da SPA (links de e-mail e CSRF), key ring no volume
+      # persistente e a rede edge como único proxy confiável para X-Forwarded-* (ver networks).
+      Duora__PublicOrigin: https://${DUORA_DOMAIN:?defina DUORA_DOMAIN}
+      DataProtection__KeysDirectory: /home/app/.aspnet/DataProtection-Keys
+      ReverseProxy__KnownNetworks__0: 172.30.10.0/24
     secrets:
       - source: duora_app_connection
         target: ConnectionStrings__Duora
@@ -109,6 +114,10 @@ services:
     environment:
       DOTNET_ENVIRONMENT: Production
       SecretsDirectory: /run/secrets
+      Duora__PublicOrigin: https://${DUORA_DOMAIN:?defina DUORA_DOMAIN}
+      # PROVISÓRIO: ainda não há provedor de e-mail (pendência M3). O adaptador de desenvolvimento grava .eml no
+      # tmpfs, que some no restart: e-mails de conta não chegam a ninguém. Não abrir para participantes reais assim.
+      Email__PickupDirectory: /tmp/duora-mail
     secrets:
       - source: duora_app_connection
         target: ConnectionStrings__Duora

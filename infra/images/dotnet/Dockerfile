@@ -61,15 +61,17 @@ LABEL org.opencontainers.image.title="duora-web" \
 WORKDIR /app
 # Binários do root e só leitura para o usuário da aplicação.
 COPY --from=publish-web /out/ ./
-# Sem PersistKeysTo* configurado, o Data Protection usa $HOME/.aspnet/DataProtection-Keys; o Compose monta o
-# volume aqui. Proteção das chaves em repouso é pendência do backend (spec 11.2, infra/README.md).
+# O key ring fica em DataProtection:KeysDirectory (obrigatório; o Compose aponta para este diretório e monta o
+# volume aqui). Proteção das chaves em repouso é pendência do backend (spec 11.2, infra/README.md).
 COPY --from=publish-web --chown=1654:1654 --chmod=700 /dataprotection-keys /home/app/.aspnet/DataProtection-Keys
 USER 1654:1654
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Duora.Web.dll"]
 
-# --- worker: runtime .NET puro (sem ASP.NET Core), mesmo hardening -----------------------------------------------
-FROM mcr.microsoft.com/dotnet/runtime:10.0.13-noble-chiseled-extra@sha256:11f4c921d75b7a1f19d4eb5b7069f9e92a9d1b8412a04b3475a664b62a9b88cb AS worker
+# --- worker: mesma base do web, mesmo hardening --------------------------------------------------------------------
+# O Duora.Infrastructure referencia o framework do ASP.NET Core (Identity, Data Protection; ADR-0019), e o
+# runtimeconfig do worker exige Microsoft.AspNetCore.App: na imagem runtime pura o processo nem inicia.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.13-noble-chiseled-extra@sha256:3ed6558056b54d5c9dfefb7ff473728e022ff2bf1d976cbf8ee07b05ec594374 AS worker
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="duora-worker" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \
