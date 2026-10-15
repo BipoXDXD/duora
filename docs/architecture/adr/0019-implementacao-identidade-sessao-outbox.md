@@ -39,10 +39,12 @@ Vamos implementar assim:
    Cada requisição autenticada executa um único `UPDATE ... RETURNING` que confere revogação, expiração ociosa
    (30 min), absoluta (12 h) e o security stamp atual da conta, e desliza a ociosa com
    `least(agora + 30 min, absoluta)`. Revogação, logout e troca de senha valem já na requisição seguinte.
-3. **Fixation.** O handler de cookie que já leu o cookie da requisição reaproveita a chave anterior no
-   `SignInAsync` (chama `RenewAsync`, não `StoreAsync`). Por isso o login grava a sessão nova por um segundo
-   esquema de cookie (`Duora.Session.SignIn`), que nunca autentica, com o mesmo cookie e o mesmo formato de
-   ticket. A sessão anterior é revogada antes.
+3. **Fixation.** O handler de cookie que já autenticou a requisição reaproveita a chave anterior no
+   `SignInAsync` (chama `RenewAsync`, não `StoreAsync`). O login grava a sessão nova por um segundo esquema de
+   cookie (`Duora.Session.SignIn`), com o mesmo cookie e o mesmo formato de ticket. Esse handler também lê o
+   cookie da requisição; quem garante que a chave anterior não sobrevive é a ordem: `SignOutAsync` revoga a sessão
+   anterior no banco **antes** do `SignInAsync`. Invariante registrada: nunca chamar SignIn sem esse SignOut
+   antes. Os testes de fixation falham se o SignOut sair (verificado por mutação).
 4. **CSRF.** Toda mutação, inclusive login e logout, exige o token antiforgery no header `X-XSRF-TOKEN`; como
    defesa adicional, `Origin` e `Sec-Fetch-Site`, quando presentes, têm de apontar para a origem pública (e, só
    em Development, `https://localhost:5173`). Qualquer falha é 403 `CSRF_VALIDATION_FAILED`, sem dizer qual

@@ -88,10 +88,12 @@ login, troca de senha (API-A16), conclusão de reset (API-A07 não emite sessão
 e qualquer mudança de papel. Nunca reaproveitar sessão anônima (spec 11.1; TM-03). Depois de login, logout ou
 troca de identidade, o token antiforgery é renovado (spec 8.2).
 
-Implementado no M1 para o login: a sessão anterior é revogada e a nova é gravada pelo esquema
-`Duora.Session.SignIn`, que nunca leu o cookie da requisição. O handler de cookie padrão, depois de autenticar,
-reaproveitaria a chave anterior no `SignInAsync` (chama `RenewAsync`), o que seria fixation (ADR-0019). Login
-e logout já devolvem um `XSRF-TOKEN` novo, ligado à identidade nova.
+Implementado no M1 para o login: `SignOutAsync` revoga a sessão anterior no banco e só **depois** a nova é
+gravada pelo esquema `Duora.Session.SignIn`. O handler de cookie padrão, depois de autenticar, reaproveitaria a
+chave anterior no `SignInAsync` (chama `RenewAsync`); o esquema separado evita isso, mas também lê o cookie da
+requisição, então a garantia está na ordem. Invariante: nunca chamar SignIn sem o SignOut antes; os testes de
+fixation falham se ela for quebrada (ADR-0019). Login e logout já devolvem um `XSRF-TOKEN` novo, ligado à
+identidade nova.
 
 ## Reautenticação e step-up
 

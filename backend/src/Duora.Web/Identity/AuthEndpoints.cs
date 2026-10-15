@@ -190,7 +190,8 @@ internal static class AuthEndpoints
 
     /// <summary>
     /// Encerra a sessão que veio na requisição antes de abrir a nova (session fixation): a chave anterior é revogada
-    /// no banco e a nova é aleatória. O token antiforgery é reemitido para a identidade nova.
+    /// no banco e a nova é aleatória. A ordem é a garantia: o SignOut vem antes do SignIn, sempre (ver
+    /// <see cref="DuoraAuthentication.SignInScheme"/>). O token antiforgery é reemitido para a identidade nova.
     /// </summary>
     private static async Task StartSessionAsync(HttpContext context, IAntiforgery antiforgery, VerifiedAccount account)
     {
