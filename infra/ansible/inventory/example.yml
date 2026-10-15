@@ -9,7 +9,7 @@ all:
           ansible_host: 203.0.113.10
           # Usuário administrativo que o provedor cria, com sudo; a primeira execução entra por ele.
           ansible_user: ubuntu
-          duora_domain: homolog.exemplo.com.br
+          duora_domain: homolog.meetduora.com
           duora_tls: internal
           duora_image_prefix: ghcr.io/bipoxdxd/duora-
           # Chave pública dedicada ao executor de deploy do CI (nunca a chave de um humano).
