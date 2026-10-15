@@ -1,10 +1,12 @@
 using System.Text.Json.Serialization;
 using Duora.Infrastructure;
 using Duora.Infrastructure.Profiles;
+using Duora.Infrastructure.Safety;
 using Duora.Web.Accounts;
 using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Profiles;
+using Duora.Web.Safety;
 using Duora.Web.Security;
 using Microsoft.AspNetCore.Authorization;
 
@@ -48,6 +50,7 @@ internal static class DuoraWebApp
         builder.Services.AddInfrastructure(builder.Configuration);
         builder.Services.AddDuoraWebIdentity();
         builder.Services.AddDuoraProfiles();
+        builder.Services.AddDuoraSafety();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
         // Negar por padrão: toda rota exige sessão, e as públicas declaram AllowAnonymous.
@@ -56,6 +59,7 @@ internal static class DuoraWebApp
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();
+        builder.Services.AddBlockRateLimiting();
         builder.Services.AddTrustedReverseProxy();
 
         var app = builder.Build();
@@ -82,6 +86,7 @@ internal static class DuoraWebApp
         api.MapAuthEndpoints();
         api.MapMeEndpoints();
         api.MapProfileEndpoints();
+        api.MapBlockEndpoints();
 
         return app;
     }
