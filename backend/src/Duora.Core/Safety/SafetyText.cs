@@ -43,6 +43,20 @@ internal static class SafetyText
         return value;
     }
 
+    /// <summary>
+    /// Código de catálogo (categoria, motivo da política): começa por letra minúscula e segue com letras minúsculas,
+    /// dígitos, `.`, `_` ou `-`, sem espaço nem pontuação que vire injeção em log ou URL.
+    /// </summary>
+    public static string RequireCatalogCode(string value, int maxLength, string paramName)
+    {
+        ArgumentNullException.ThrowIfNull(value, paramName);
+        var wellFormed = value.Length > 0
+            && value.Length <= maxLength
+            && char.IsAsciiLetterLower(value[0])
+            && value.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '.' or '_' or '-');
+        return wellFormed ? value : throw new ArgumentException("Código fora do formato do catálogo.", paramName);
+    }
+
     private static bool IsForbiddenControl(Rune rune) =>
         Rune.IsControl(rune) && rune.Value is not ('\n' or '\r' or '\t');
 }

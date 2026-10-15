@@ -36,8 +36,12 @@ internal static class SafetyFixtures
     /// <summary>Restrição automática até uma semana; qualquer medida temporária até 90 dias.</summary>
     public static readonly ModerationLimits Limits = new(maxAutomatedDuration: OneWeek, maxDuration: TimeSpan.FromDays(90));
 
-    public static ReportSubmission Submission(ReportCategory category = ReportCategory.Harassment) =>
-        new(Alice, Bruno, category, new ReportContext.Room(GameSession), ReportNarrative.Parse("Insultos no chat."));
+    /// <summary>Linhas de `safety.report_categories` como o caso de uso as entregaria.</summary>
+    public static readonly ReportCategory Harassment = new(new ReportCategoryCode("harassment"), IsSevere: false);
+    public static readonly ReportCategory MinorSafety = new(new ReportCategoryCode("minor_safety"), IsSevere: true);
+
+    public static ReportSubmission Submission(ReportCategory? category = null) =>
+        new(Alice, Bruno, category ?? Harassment, new ReportContext.Room(GameSession), ReportNarrative.Parse("Insultos no chat."));
 
     public static ModerationDecision Decision(
         ModerationMeasure measure = ModerationMeasure.Suspension,
