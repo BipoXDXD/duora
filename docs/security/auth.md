@@ -159,6 +159,19 @@ Confirmação de e-mail (API-A03) usa o mesmo desenho: link para a SPA, ação p
 e-mail que faz `GET` não confirma), token de uso controlado e resposta idempotente. Além do token, exige a
 **senha** do cadastro (ver abaixo).
 
+## Endereço de e-mail
+
+Ameaça (TM-67): fora do ASCII, endereços diferentes colidem na normalização usada para achar a conta
+(`"ſam@example.com".ToUpperInvariant()` é `SAM@EXAMPLE.COM`). Um reset pedido para a variante acharia a conta
+de `sam@` e mandaria o link para a variante, o mesmo padrão do incidente do GitHub em 2019.
+
+| Regra | Especificação |
+|---|---|
+| Formato aceito | Só ASCII imprimível na parte local e no domínio; domínio internacional entra em punycode (`xn--`). Fora disso, `400` `VALIDATION_FAILED` (`INVALID_EMAIL`), antes de qualquer busca. Escolhido por ser a regra mais simples que elimina a colisão por inteiro; comparar a forma normalizada com a original resolveria o caso do `ſ`, mas dependeria de acertar todas as tabelas de caixa do Unicode. O custo é recusar endereços com parte local internacional (SMTPUTF8), raros e ainda mal suportados pelos provedores |
+| Destinatário | E-mails de conta (link de reset, aviso de conta existente, lembrete de cadastro pendente) vão para o endereço **gravado**, nunca para o digitado. Só o aviso de "não há conta" vai para o digitado, porque não há outro |
+
+Testes: `LookalikeEmailTests`, `EmailAddressTests`.
+
 ## Cadastro pendente e pré-sequestro de conta
 
 Ameaça (TM-66), nas duas ordens: (1) o atacante cadastra o e-mail da vítima com a senha dele e espera a vítima

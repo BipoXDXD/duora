@@ -53,6 +53,27 @@ public sealed class EmailAddressTests
         Assert.Null(address);
     }
 
+    /// <summary>
+    /// Caracteres fora do ASCII podem colidir na normalização ("ſ".ToUpperInvariant() é "S"): um endereço
+    /// diferente acharia a conta de outra pessoa (TM-67).
+    /// </summary>
+    [Theory]
+    [InlineData("ſam@example.com")]
+    [InlineData("sam@examplK.com")]
+    [InlineData("josé@example.com")]
+    [InlineData("ana@café.com")]
+    [InlineData("ana@exa​mple.com")]
+    public void TryParseRejectsNonAsciiAddresses(string value)
+    {
+        Assert.False(EmailAddress.TryParse(value, out _));
+    }
+
+    [Fact]
+    public void TryParseAcceptsInternationalDomainsInPunycode()
+    {
+        Assert.True(EmailAddress.TryParse("ana@xn--caf-dma.com", out _));
+    }
+
     [Fact]
     public void TryParseRejectsLocalPartAbove64Characters()
     {
