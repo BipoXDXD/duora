@@ -255,7 +255,9 @@ jobs:
         run: |
           python3 --version
           python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install --quiet pyright==1.1.408 ansible-core==2.21.5 ansible-lint==26.10.1
+          # Lockfile com hashes (scripts/deploy/requirements-ops.txt): pacote ou dependência transitiva com hash
+          # diferente do versionado aborta a instalação.
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes -r scripts/deploy/requirements-ops.txt
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
 
       - name: Testes dos scripts de deploy
