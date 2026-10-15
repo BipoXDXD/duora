@@ -44,7 +44,7 @@ public sealed class Appeal
 
     public DateTimeOffset? DecidedAt { get; private set; }
 
-    public static Appeal File(ModerationAction action, Guid appellantId, string reason, TimeProvider clock)
+    public static SafetyResult<Appeal> File(ModerationAction action, Guid appellantId, string reason, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(clock);
@@ -53,38 +53,51 @@ public sealed class Appeal
             throw new SafetyRuleViolationException(SafetyRule.AppealOnlyOwnSanction);
         }
 
+        var validReason = SafetyText.RequireBounded(reason, ReasonMaxLength, allowEmpty: false, nameof(reason));
         if (!action.IsReviewable)
         {
-            throw new SafetyRuleViolationException(SafetyRule.ActionNotAppealable);
+            return SafetyResult.Rejected<Appeal>(SafetyRejection.ActionNotAppealable);
         }
 
-        var validReason = SafetyText.RequireBounded(reason, ReasonMaxLength, allowEmpty: false, nameof(reason));
         var now = clock.GetUtcNow();
-        return new Appeal(AppealId.New(now), action, validReason, now);
+        return SafetyResult.Success(new Appeal(AppealId.New(now), action, validReason, now));
     }
 
     /// <summary>Recurso é revisão humana; não repete o autor nem o classificador da decisão original.</summary>
-    public void StartReview(Guid reviewerId)
+    public SafetyResult StartReview(Guid reviewerId)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(reviewerId, Guid.Empty);
-        RequireState(AppealState.Received);
+        if (State != AppealState.Received)
+        {
+            return SafetyResult.Rejected(SafetyRejection.TransitionNotAllowed);
+        }
+
         if (_original.Author.Is(reviewerId) || reviewerId == AppellantId)
         {
-            throw new SafetyRuleViolationException(SafetyRule.ReviewerMustBeIndependent);
+            return SafetyResult.Rejected(SafetyRejection.ReviewerMustBeIndependent);
         }
 
         ReviewerId = reviewerId;
         State = AppealState.UnderReview;
+        return SafetyResult.Success();
     }
 
     /// <summary>Mantém a medida: a revisão repete medida e fim, com o motivo e a política do revisor.</summary>
-    public ModerationAction Uphold(Guid reviewerId, string reason, PolicyVersion policyVersion, TimeProvider clock) =>
+    public SafetyResult<ModerationAction> Uphold(
+        Guid reviewerId,
+        string reason,
+        PolicyVersion policyVersion,
+        TimeProvider clock) =>
         Decide(reviewerId, AppealState.Upheld, _original.Measure, _original.EffectiveUntil, reason, policyVersion, clock);
 
-    public ModerationAction Overturn(Guid reviewerId, string reason, PolicyVersion policyVersion, TimeProvider clock) =>
+    public SafetyResult<ModerationAction> Overturn(
+        Guid reviewerId,
+        string reason,
+        PolicyVersion policyVersion,
+        TimeProvider clock) =>
         Decide(reviewerId, AppealState.Overturned, ModerationMeasure.Cleared, null, reason, policyVersion, clock);
 
-    private ModerationAction Decide(
+    private SafetyResult<ModerationAction> Decide(
         Guid reviewerId,
         AppealState outcome,
         ModerationMeasure measure,
@@ -94,24 +107,20 @@ public sealed class Appeal
         TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(clock);
-        RequireState(AppealState.UnderReview);
+        if (State != AppealState.UnderReview)
+        {
+            return SafetyResult.Rejected<ModerationAction>(SafetyRejection.TransitionNotAllowed);
+        }
+
         if (reviewerId != ReviewerId)
         {
-            throw new SafetyRuleViolationException(SafetyRule.OnlyAssignedReviewerCanDecide);
+            return SafetyResult.Rejected<ModerationAction>(SafetyRejection.OnlyAssignedReviewerCanDecide);
         }
 
         var now = clock.GetUtcNow();
         var revision = _original.Revise(measure, effectiveUntil, reason, policyVersion, reviewerId, now);
         DecidedAt = now;
         State = outcome;
-        return revision;
-    }
-
-    private void RequireState(AppealState expected)
-    {
-        if (State != expected)
-        {
-            throw new SafetyRuleViolationException(SafetyRule.TransitionNotAllowed);
-        }
+        return SafetyResult.Success(revision);
     }
 }
