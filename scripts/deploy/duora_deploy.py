@@ -257,6 +257,12 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
 
     _step("aplicando migrations (job exclusivo)")
     _check(run(compose + ["--profile", "migrate", "run", "--rm", "migrator"]), "migrator")
+    # Default privileges não aceitam exceção: o histórico do EF nasce com DML para o app e perde aqui (script
+    # versionado na imagem do postgres, docs/data/model.md "Permissões de banco").
+    _check(run(compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1",
+                          "--username", "postgres", "--dbname", "duora",
+                          "--file", "/usr/local/share/duora/reconcile-privileges.sql"]),
+           "reconciliação de privilégios")
     _require_migration_head(release, compose, run)
 
     _step("subindo web, worker e edge da release")

@@ -206,6 +206,8 @@ jobs:
         run: |
           docker run --rm --entrypoint /app/efbundle duora-migrator:ci --help > /dev/null
           docker run --rm duora-postgres:ci pgbackrest version
+          DUORA_POSTGRES_IMAGE=duora-postgres:ci python3 -m unittest discover -s scripts/deploy \
+            -p 'test_db_privileges.py' -v
           docker run --rm -e DUORA_DOMAIN=app.example.com -e DUORA_TLS=ops@example.com \
             --entrypoint caddy duora-edge:ci validate --config /etc/caddy/Caddyfile --adapter caddyfile
           for image in web worker migrator edge; do
