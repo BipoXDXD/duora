@@ -1,6 +1,7 @@
 import { ANTIFORGERY_HEADER_NAME } from './antiforgery'
 import { ApiNetworkError, ApiProblemError, ApiResponseError } from './api-errors'
 import { parseProblemDetails } from './problem-details'
+import { parseRetryAfterSeconds } from './retry-after'
 
 /** Assinatura aceita pelo `fetch` do openapi-fetch quando o contrato OpenAPI existir. */
 export type ApiFetch = (request: Request) => Promise<Response>
@@ -26,6 +27,8 @@ export interface ApiClientDependencies {
   readonly fetch: ApiFetch
   readonly origin: string
   readonly readAntiforgeryToken: () => string | null
+  /** Relógio em milissegundos desde a época, para interpretar Retry-After com data. */
+  readonly now: () => number
 }
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
@@ -41,7 +44,7 @@ export function createApiClient(dependencies: ApiClientDependencies): ApiClient 
     assertSameOrigin(request.url, dependencies.origin)
     const response = await fetchOrThrowNetworkError(dependencies.fetch, withSessionPolicy(request, dependencies))
     if (!response.ok) {
-      throw await toResponseError(response)
+      throw await toResponseError(response, dependencies.now())
     }
     return response
   }
@@ -86,15 +89,16 @@ async function fetchOrThrowNetworkError(fetch: ApiFetch, request: Request): Prom
   }
 }
 
-async function toResponseError(response: Response): Promise<Error> {
+async function toResponseError(response: Response, nowMs: number): Promise<Error> {
+  const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'), nowMs)
   if (mediaTypeOf(response) !== 'application/problem+json') {
-    return new ApiResponseError(response.status, 'erro sem Problem Details')
+    return new ApiResponseError(response.status, 'erro sem Problem Details', retryAfterSeconds)
   }
   const raw = await readJsonOrNull(response)
   const problem = parseProblemDetails(raw, response.status)
   return problem === null
-    ? new ApiResponseError(response.status, 'Problem Details inválido')
-    : new ApiProblemError(problem)
+    ? new ApiResponseError(response.status, 'Problem Details inválido', retryAfterSeconds)
+    : new ApiProblemError(problem, retryAfterSeconds)
 }
 
 async function readJsonBody(response: Response): Promise<unknown> {
