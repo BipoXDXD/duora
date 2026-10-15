@@ -214,6 +214,32 @@ jobs:
             echo "duora-$image: $(docker image inspect --format '{{.Architecture}} user={{.Config.User}}' "duora-$image:ci")"
           done
 
+      # Spec 17.1: vulnerabilidades das imagens (SO e binários), HIGH e CRITICAL bloqueiam. O socket do Docker só é
+      # montado neste passo, só leitura, para o Trivy ler as imagens locais. --ignore-unfixed: achado sem correção
+      # publicada não tem bump possível; ele aparece no relatório abaixo e volta a bloquear quando a correção sair.
+      - name: Trivy nas imagens (HIGH e CRITICAL corrigíveis bloqueiam)
+        run: |
+          for image in web worker migrator edge postgres; do
+            echo "::group::duora-$image"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v duora-trivy-cache:/root/.cache \
+              -v "$GITHUB_WORKSPACE/.trivyignore:/trivyignore:ro" "$TRIVY_IMAGE" image \
+              --severity HIGH,CRITICAL --ignore-unfixed --ignorefile /trivyignore --exit-code 1 "duora-$image:ci"
+            echo "::endgroup::"
+          done
+
+      - name: Relatório de vulnerabilidades sem correção (não bloqueia)
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Vulnerabilidades HIGH/CRITICAL sem correção publicada (${{ matrix.arch }})"
+            for image in web worker migrator edge postgres; do
+              count=$(docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v duora-trivy-cache:/root/.cache \
+                "$TRIVY_IMAGE" image --quiet --skip-db-update --severity HIGH,CRITICAL --format json "duora-$image:ci" \
+                | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sum(1 for r in d.get("Results",[]) for v in (r.get("Vulnerabilities") or []) if v.get("Status")!="fixed"))')
+              echo "- duora-$image: $count"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Scripts de operação (deploy e segredos) e Ansible: testes, tipos e lint com versões fixadas.
   ops:
     name: ops

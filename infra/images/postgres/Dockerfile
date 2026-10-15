@@ -15,7 +15,10 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends "pgbackrest=${PGBACKREST_VERSION}" \
  && rm -rf /var/lib/apt/lists/* \
  && pgbackrest version \
- && install -d -m 0755 /usr/local/share/duora
+ && install -d -m 0755 /usr/local/share/duora \
+ # gosu só serve para o entrypoint descer de root para postgres; a imagem roda como 999 (USER abaixo), então ele
+ # nunca é chamado. Fica fora: o binário da imagem oficial traz um Go antigo com 25 CVEs HIGH/CRITICAL.
+ && rm -f /usr/local/bin/gosu
 
 LABEL org.opencontainers.image.title="duora-postgres" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \
