@@ -84,16 +84,15 @@ public sealed class UnlikelyRoutesRules
     }
 
     /// <summary>
-    /// Roteiro completo (etapa de ajuste) é concluído como está quando o prazo vence; qualquer etapa anterior expira
-    /// guardando o que já foi escolhido.
+    /// Prazo vencido sempre expira a sessão, em qualquer etapa e mesmo com o roteiro completo no ajuste: pela
+    /// spec 6.2, só as duas confirmações concluem. O que já foi escolhido fica no estado. Decisão provisória, a
+    /// confirmar na issue #9.
     /// </summary>
     public RulesTransition<UnlikelyRoutesState> ResolveDeadline(UnlikelyRoutesState state)
     {
         ArgumentNullException.ThrowIfNull(state);
 
-        return state.Shared.Stage == RoutesStage.Adjustment
-            ? new RulesTransition<UnlikelyRoutesState>(state.With(Conclude(state.Shared)), IsConcluded: true)
-            : new RulesTransition<UnlikelyRoutesState>(state, IsConcluded: false);
+        return new RulesTransition<UnlikelyRoutesState>(state, IsConcluded: false);
     }
 
     public UnlikelyRoutesView Project(
