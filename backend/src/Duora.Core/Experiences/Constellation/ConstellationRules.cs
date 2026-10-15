@@ -40,11 +40,6 @@ public sealed class ConstellationRules
     {
         ArgumentNullException.ThrowIfNull(state);
 
-        if (state.Shared.Stage != ConstellationStage.Cards)
-        {
-            return RejectionReason.WrongStage;
-        }
-
         var card = CurrentCard(state);
         return action switch
         {
@@ -84,11 +79,6 @@ public sealed class ConstellationRules
     public RulesTransition<ConstellationState> ResolveDeadline(ConstellationState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-
-        if (state.Shared.Stage != ConstellationStage.Cards)
-        {
-            return new RulesTransition<ConstellationState>(state, IsConcluded: false);
-        }
 
         var outcomes = state.Shared.Outcomes.Add(new CardOutcome.Passed(CurrentCard(state)));
         var shared = new ConstellationPublicState(ConstellationStage.Summary, outcomes);
@@ -210,8 +200,19 @@ public sealed class ConstellationRules
             .Add(participants.First, ConstellationPrivateState.Unanswered)
             .Add(participants.Second, ConstellationPrivateState.Unanswered);
 
-    private static ConstellationCard CurrentCard(ConstellationState state) =>
-        state.Control.Content.Cards[state.Shared.Outcomes.Count];
+    /// <summary>
+    /// Cartão aberto. Sessão ativa está sempre em <see cref="ConstellationStage.Cards"/>, e o motor só chama
+    /// <c>Validate</c>, <c>Apply</c> e <c>ResolveDeadline</c> em sessão ativa; sem cartão aberto é estado impossível.
+    /// </summary>
+    private static ConstellationCard CurrentCard(ConstellationState state)
+    {
+        if (state.Shared.Stage != ConstellationStage.Cards)
+        {
+            throw new InvalidOperationException("Não há cartão aberto: a sessão já chegou ao resumo.");
+        }
+
+        return state.Control.Content.Cards[state.Shared.Outcomes.Count];
+    }
 
     private static CardView ToView(ConstellationCard card, int index) => new(
         card.CardId,
