@@ -37,23 +37,23 @@ function useSessionsEndpoint(respond: () => Response = () => HttpResponse.json({
 describe('rota protegida', () => {
   it('sem sessão (401) leva à entrada pedindo para entrar, lembrando de onde veio', async () => {
     useMeEndpoint(() => problem(401, 'UNAUTHENTICATED'))
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Entre para continuar.')
   })
 
-  it('mostra carregando enquanto confirma a identidade', () => {
+  it('mostra carregando enquanto confirma a identidade', async () => {
     useMeEndpoint()
     useSessionsEndpoint()
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(screen.getByRole('status')).toHaveTextContent('Carregando sua conta…')
   })
 
   it('erro de rede na identidade não é tratado como sessão encerrada', async () => {
     useMeEndpoint(() => HttpResponse.error())
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Confira sua conexão')
     expect(screen.getByRole('heading', { level: 1, name: 'Sua conta' })).toBeInTheDocument()
@@ -64,7 +64,7 @@ describe('rota protegida', () => {
     let online = false
     useMeEndpoint(() => (online ? HttpResponse.json(ME) : HttpResponse.error()))
     useSessionsEndpoint()
-    const { user } = renderApp('/conta')
+    const { user } = await renderApp('/conta')
 
     await screen.findByRole('alert')
     online = true
@@ -78,7 +78,7 @@ describe('área da conta', () => {
   it('mostra e-mail, situação e as sessões, marcando a corrente', async () => {
     useMeEndpoint()
     useSessionsEndpoint()
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
     expect(document.title).toBe('Sua conta · Duora')
@@ -93,7 +93,7 @@ describe('área da conta', () => {
   it('mostra instantes no formato do idioma, com o instante UTC preservado no atributo', async () => {
     useMeEndpoint()
     useSessionsEndpoint()
-    renderApp('/conta')
+    await renderApp('/conta')
 
     const items = await screen.findAllByRole('listitem')
     const createdAt = within(items[0] ?? document.body).getByText('14/10/2026, 10:00')
@@ -104,7 +104,7 @@ describe('área da conta', () => {
   it('em inglês, textos, situação e datas seguem o idioma ativo', async () => {
     useMeEndpoint()
     useSessionsEndpoint()
-    renderApp('/conta', createTestQueryClient(), 'en')
+    await renderApp('/conta', createTestQueryClient(), 'en')
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeInTheDocument()
     expect(document.title).toBe('Your account · Duora')
@@ -120,7 +120,7 @@ describe('área da conta', () => {
   it('e-mail pendente avisa que falta confirmar', async () => {
     useMeEndpoint(() => HttpResponse.json({ ...ME, status: 'PendingEmail', emailConfirmed: false }))
     useSessionsEndpoint()
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(await screen.findByText('Aguardando confirmação do e-mail')).toBeInTheDocument()
     expect(screen.getAllByRole('status')[0]).toHaveTextContent('Confirme seu e-mail para continuar.')
@@ -129,7 +129,7 @@ describe('área da conta', () => {
   it('situação desconhecida não quebra a página', async () => {
     useMeEndpoint(() => HttpResponse.json({ ...ME, status: 'EstadoNovo' }))
     useSessionsEndpoint()
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(await screen.findByText('Indisponível no momento')).toBeInTheDocument()
   })
@@ -137,7 +137,7 @@ describe('área da conta', () => {
   it('lista vazia é diferente de erro', async () => {
     useMeEndpoint()
     useSessionsEndpoint(() => HttpResponse.json({ items: [] }))
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(await screen.findByText('Nenhuma sessão ativa encontrada.')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -146,7 +146,7 @@ describe('área da conta', () => {
   it('erro de rede nas sessões não é mostrado como lista vazia', async () => {
     useMeEndpoint()
     useSessionsEndpoint(() => HttpResponse.error())
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(await screen.findByText('Não foi possível carregar as sessões.')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('Confira sua conexão')
@@ -156,7 +156,7 @@ describe('área da conta', () => {
   it('instante fora do contrato (+00:00) cai no estado de erro, sem derrubar a página', async () => {
     useMeEndpoint()
     useSessionsEndpoint(() => HttpResponse.json({ items: [{ ...CURRENT, createdAt: '2026-10-14T10:00:00+00:00' }] }))
-    renderApp('/conta')
+    await renderApp('/conta')
 
     expect(await screen.findByText('Não foi possível carregar as sessões.')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('Algo deu errado do nosso lado.')
@@ -171,7 +171,7 @@ describe('área da conta', () => {
       sessionAlive = false
       return problem(401, 'UNAUTHENTICATED')
     })
-    const { queryClient } = renderApp('/conta')
+    const { queryClient } = await renderApp('/conta')
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Sua sessão expirou.')
@@ -190,7 +190,7 @@ describe('área da conta', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     )
-    const { user, queryClient } = renderApp('/conta')
+    const { user, queryClient } = await renderApp('/conta')
 
     await user.click(await screen.findByRole('button', { name: 'Sair' }))
 
@@ -208,7 +208,7 @@ describe('área da conta', () => {
     useMeEndpoint()
     useSessionsEndpoint()
     server.use(http.post(`${API}/auth/logout`, () => HttpResponse.error()))
-    const { user } = renderApp('/conta')
+    const { user } = await renderApp('/conta')
 
     await user.click(await screen.findByRole('button', { name: 'Sair' }))
 
@@ -227,7 +227,7 @@ describe('área da conta', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     )
-    const { user } = renderApp('/conta')
+    const { user } = await renderApp('/conta')
 
     await user.click(await screen.findByRole('button', { name: 'Encerrar sessão: Firefox no Ubuntu' }))
 
@@ -243,7 +243,7 @@ describe('área da conta', () => {
     useMeEndpoint()
     useSessionsEndpoint()
     server.use(http.delete(`${API}/me/sessions/:id`, () => new HttpResponse(null, { status: 204 })))
-    const { user, queryClient } = renderApp('/conta')
+    const { user, queryClient } = await renderApp('/conta')
 
     await user.click(await screen.findByRole('button', { name: 'Encerrar esta sessão: Safari no macOS' }))
 
@@ -257,7 +257,7 @@ describe('área da conta', () => {
     useMeEndpoint()
     useSessionsEndpoint()
     server.use(http.delete(`${API}/me/sessions/:id`, () => problem(500, 'INTERNAL')))
-    const { user } = renderApp('/conta')
+    const { user } = await renderApp('/conta')
 
     await user.click(await screen.findByRole('button', { name: 'Encerrar sessão: Firefox no Ubuntu' }))
 

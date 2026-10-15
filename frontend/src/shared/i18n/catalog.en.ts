@@ -36,6 +36,7 @@ export const en = {
   'validation.invalidValue': 'Check the value in this field.',
 
   'navigation.pageLoaded': 'Page loaded: {title}',
+  'navigation.loadingPage': 'Loading the page…',
 
   'notFound.title': 'Page not found',
   'notFound.body': "This address doesn't match any page on Duora.",

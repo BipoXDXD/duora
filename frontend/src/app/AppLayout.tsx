@@ -1,7 +1,9 @@
+import { Suspense } from 'react'
 import { Link, Outlet } from 'react-router'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { RouteAnnouncer } from './RouteAnnouncer'
+import { RouteFallback } from './RouteFallback'
 
 const MAIN_CONTENT_ID = 'conteudo-principal'
 
@@ -27,7 +29,11 @@ export function AppLayout(): React.JSX.Element {
         </div>
       </header>
       <main id={MAIN_CONTENT_ID} tabIndex={-1} className="mx-auto w-full max-w-5xl flex-1 px-4 py-12">
-        <Outlet />
+        {/* Fora das áreas, que remontam a cada rota: um Suspense já visível faz a transition da navegação
+            manter a tela anterior em vez de trocá-la pelo fallback. */}
+        <Suspense fallback={<RouteFallback />}>
+          <Outlet />
+        </Suspense>
       </main>
       <RouteAnnouncer mainId={MAIN_CONTENT_ID} />
       <footer className="border-t border-border bg-surface-muted">
