@@ -33,6 +33,7 @@ SUPPORTED_ARCHITECTURES = ("amd64", "arm64")
 MANIFEST_SCHEMA_VERSION = 1
 MAX_MANIFEST_BYTES = 64 * 1024
 RELEASES_DIR = "releases"
+STAGING_DIR = "staging"
 GIB = 1024**3
 READINESS_INTERVAL_SECONDS = 2
 DEFAULT_READINESS_TIMEOUT_SECONDS = 90
@@ -246,9 +247,11 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     """Executa a release. Qualquer falha interrompe; a release corrente só muda depois do smoke de readiness.
 
     Tudo que pode recusar a release (manifesto, imagens, schema do banco, elegibilidade de rollback) roda antes de
-    parar qualquer serviço.
+    parar qualquer serviço. O estado confiável (releases/ e current.json) só muda depois do smoke; até lá a release
+    vive em staging/, que nunca é lido para decidir nada.
     """
-    release_env = _write_release_files(release, paths.state_dir)
+    _require_release_not_rewritten(release, paths.state_dir)
+    release_env = _stage_release_files(release, paths.state_dir)
     compose = _compose_command(paths, release_env)
 
     _step("baixando imagens por digest")
@@ -290,6 +293,7 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     _wait_ready(compose, run, readiness_timeout_seconds, sleep)
     _require_services_running(compose, run)
 
+    _record_release(release, paths.state_dir)
     _mark_current(release, paths.state_dir)
     _step(f"release {release.release_id} implantada")
 
@@ -297,34 +301,61 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
 def _is_rollback(release: Release, head: str, state_dir: Path) -> bool:
     """Decide antes de parar qualquer coisa se o banco aceita a release.
 
-    Banco vazio ou atrás de schema.max: deploy normal. Mesmo abaixo de schema.min o deploy segue, porque o migrador
-    leva o banco até schema.max antes de o app subir. Banco à frente de schema.max: a release não declara suportar
-    esse schema, então só entra como rollback para a release que a corrente declara em previousReleaseId (spec
-    17.2, expand/contract); fora disso, recusa.
+    Banco vazio ou até schema.max: deploy normal. Mesmo abaixo de schema.min o deploy segue, porque o migrador leva o
+    banco até schema.max antes de o app subir (e isso é conferido depois). Banco à frente de schema.max: a release não
+    declara suportar esse schema e só entra como rollback elegível (spec 17.2, expand/contract), decidido apenas pelo
+    estado que este script gravou depois de deploys bem-sucedidos, nunca pelo manifesto recebido:
+      - a release alvo é o previousReleaseId da release corrente registrada;
+      - a release alvo já foi implantada antes, com este mesmo manifesto (releases/<id>.json idêntico);
+      - teto: o banco não passa do schema.max da release corrente registrada.
     """
     if head <= release.latest_migration:
         return False
-    current = _current_release_manifest(state_dir)
-    eligible = current is not None and current.get("previousReleaseId") == release.release_id
-    if not eligible:
+    current = _recorded_manifest(state_dir, _current_release_id(state_dir))
+    if current is None or current.get("previousReleaseId") != release.release_id:
         current_id = current.get("releaseId") if current else None
         raise DeployError(
             f"banco na migration {head}, mais nova que schema.max {release.latest_migration} da release "
             f"{release.release_id}; ela não é a release anterior elegível da corrente ({current_id or 'nenhuma'}). "
             "Nada foi parado.")
+    if _recorded_manifest(state_dir, release.release_id) is None:
+        raise DeployError(f"release {release.release_id} nunca foi implantada aqui: não é rollback elegível. "
+                          "Nada foi parado.")
+    ceiling = current["schema"]["max"]
+    if head > ceiling:
+        raise DeployError(f"banco na migration {head}, além do schema.max {ceiling} da release corrente; estado "
+                          "desconhecido, rollback recusado. Nada foi parado.")
     return True
 
 
-def _current_release_manifest(state_dir: Path) -> dict | None:
+def _current_release_id(state_dir: Path) -> str | None:
     current_file = state_dir / "current.json"
     if not current_file.exists():
         return None
-    current_id = json.loads(current_file.read_text(encoding="utf-8")).get("releaseId")
-    manifest_file = state_dir / RELEASES_DIR / f"{current_id}.json"
-    if not isinstance(current_id, str) or not manifest_file.exists():
+    release_id = json.loads(current_file.read_text(encoding="utf-8")).get("releaseId")
+    return release_id if isinstance(release_id, str) and _RELEASE_ID.fullmatch(release_id) else None
+
+
+def _recorded_manifest(state_dir: Path, release_id: str | None) -> dict | None:
+    """Manifesto gravado em releases/ depois de um deploy bem-sucedido (o id já passou pela allowlist)."""
+    if release_id is None:
+        return None
+    manifest_file = state_dir / RELEASES_DIR / f"{release_id}.json"
+    if not manifest_file.exists():
         return None
     data = json.loads(manifest_file.read_text(encoding="utf-8"))
     return data if isinstance(data, dict) else None
+
+
+def _require_release_not_rewritten(release: Release, state_dir: Path) -> None:
+    # Releases são imutáveis: o mesmo releaseId com outro conteúdo mudaria o que a elegibilidade de rollback lê.
+    recorded = _recorded_manifest(state_dir, release.release_id)
+    if recorded is not None and _canonical(recorded) != _canonical(release.raw):
+        raise DeployError(f"release {release.release_id} já registrada com outro conteúdo; gere um releaseId novo")
+
+
+def _canonical(manifest: dict) -> str:
+    return json.dumps(manifest, sort_keys=True, separators=(",", ":"))
 
 
 def _compose_command(paths: Paths, release_env: Path) -> list[str]:
@@ -336,9 +367,10 @@ def _compose_command(paths: Paths, release_env: Path) -> list[str]:
     ]
 
 
-def _write_release_files(release: Release, state_dir: Path) -> Path:
-    # Em releases/: um releaseId "current" ou "previous" nunca colide com o estado na raiz.
-    releases = state_dir / RELEASES_DIR
+def _stage_release_files(release: Release, state_dir: Path) -> Path:
+    # Em subdiretório: um releaseId "current" ou "previous" nunca colide com o estado na raiz. staging/ é rascunho:
+    # nada nele decide elegibilidade.
+    releases = state_dir / STAGING_DIR
     releases.mkdir(parents=True, exist_ok=True)
     lines = [f"DUORA_{name.upper()}_IMAGE={reference}" for name, reference in release.images.items()]
     lines.append(f"DUORA_RELEASE_ID={release.release_id}")
@@ -399,6 +431,15 @@ def _require_services_running(compose: list[str], run: Runner) -> None:
     for service in services:
         if states.get(service) != "running":
             raise DeployError(f"serviço {service} em estado {states.get(service, 'ausente')}, esperado running")
+
+
+def _record_release(release: Release, state_dir: Path) -> None:
+    """Promove os arquivos da release de staging/ para releases/, só depois do smoke."""
+    recorded = state_dir / RELEASES_DIR
+    recorded.mkdir(parents=True, exist_ok=True)
+    for suffix in (".env", ".json"):
+        staged = state_dir / STAGING_DIR / f"{release.release_id}{suffix}"
+        staged.replace(recorded / f"{release.release_id}{suffix}")
 
 
 def _mark_current(release: Release, state_dir: Path) -> None:
