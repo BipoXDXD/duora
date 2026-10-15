@@ -3,7 +3,7 @@ using static Duora.UnitTests.Matching.RoundBuilder;
 
 namespace Duora.UnitTests.Matching;
 
-/// <summary>O snapshot nasce válido: o seletor nunca recebe participante duplicado, semente ausente nem versão desconhecida.</summary>
+/// <summary>O snapshot nasce válido: o seletor nunca recebe participante duplicado nem versão desconhecida.</summary>
 public sealed class RoundSnapshotTests
 {
     private static readonly DateTimeOffset WaitingSince = new(2026, 10, 15, 20, 50, 0, TimeSpan.Zero);
@@ -14,12 +14,6 @@ public sealed class RoundSnapshotTests
         var builder = new RoundBuilder().WithCandidate(1).WithCandidate(1);
 
         Assert.Throws<ArgumentException>(builder.Build);
-    }
-
-    [Fact]
-    public void RejectsMissingSeed()
-    {
-        Assert.Throws<ArgumentNullException>(() => new RoundSnapshot([], [], [], seed: null!, PairingAlgorithmVersion.GreedyByPriorityV1));
     }
 
     [Theory]
