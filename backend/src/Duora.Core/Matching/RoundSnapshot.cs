@@ -11,13 +11,13 @@ public sealed class RoundSnapshot
     public RoundSnapshot(
         IEnumerable<Candidate> candidates,
         IEnumerable<UserPair> blockedPairs,
-        IEnumerable<UserPair> priorEncounters,
+        IEnumerable<UserPair> priorPairings,
         RoundSeed seed,
         PairingAlgorithmVersion algorithmVersion)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(blockedPairs);
-        ArgumentNullException.ThrowIfNull(priorEncounters);
+        ArgumentNullException.ThrowIfNull(priorPairings);
         if (!Enum.IsDefined(algorithmVersion))
         {
             throw new ArgumentOutOfRangeException(nameof(algorithmVersion), algorithmVersion, "Versão de algoritmo desconhecida.");
@@ -25,7 +25,7 @@ public sealed class RoundSnapshot
 
         Candidates = RequireDistinct(candidates.ToArray()).AsReadOnly();
         BlockedPairs = blockedPairs.ToFrozenSet();
-        PriorEncounters = priorEncounters.ToFrozenSet();
+        PriorPairings = priorPairings.ToFrozenSet();
         Seed = seed;
         AlgorithmVersion = algorithmVersion;
     }
@@ -35,8 +35,8 @@ public sealed class RoundSnapshot
     /// <summary>Pares com bloqueio em qualquer direção; pode citar contas fora da rodada.</summary>
     public IReadOnlySet<UserPair> BlockedPairs { get; }
 
-    /// <summary>Pares que já se encontraram neste evento (spec 4.3: não repetir o par no evento).</summary>
-    public IReadOnlySet<UserPair> PriorEncounters { get; }
+    /// <summary>Pares já formados em rodadas anteriores deste evento (spec 4.3: não repetir o par no evento).</summary>
+    public IReadOnlySet<UserPair> PriorPairings { get; }
 
     public RoundSeed Seed { get; }
 

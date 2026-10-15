@@ -3,7 +3,7 @@ namespace Duora.Core.Matching;
 /// <summary>
 /// Duas contas distintas sem direção, normalizadas como <c>user_low &lt; user_high</c> (spec 10.3). Representa o
 /// par selecionado e também as restrições sem direção que o seletor recebe: bloqueio (que tem efeito bilateral) e
-/// encontro anterior no evento.
+/// par já formado no evento.
 /// </summary>
 public sealed record UserPair
 {

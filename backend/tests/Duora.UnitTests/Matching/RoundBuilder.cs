@@ -9,7 +9,7 @@ internal sealed class RoundBuilder
 
     private readonly List<Candidate> _candidates = [];
     private readonly List<UserPair> _blockedPairs = [];
-    private readonly List<UserPair> _priorEncounters = [];
+    private readonly List<UserPair> _priorPairings = [];
     private long _seed = 1;
 
     /// <summary>Conta sintética com UUID previsível; a ordem numérica de <paramref name="number"/> é a ordem do UUID.</summary>
@@ -42,9 +42,9 @@ internal sealed class RoundBuilder
         return this;
     }
 
-    public RoundBuilder WithPriorEncounter(int first, int second)
+    public RoundBuilder WithPriorPairing(int first, int second)
     {
-        _priorEncounters.Add(UserPair.Of(User(first), User(second)));
+        _priorPairings.Add(UserPair.Of(User(first), User(second)));
         return this;
     }
 
@@ -55,5 +55,5 @@ internal sealed class RoundBuilder
     }
 
     public RoundSnapshot Build() =>
-        new(_candidates, _blockedPairs, _priorEncounters, new RoundSeed(_seed), PairingAlgorithmVersion.GreedyByPriorityV1);
+        new(_candidates, _blockedPairs, _priorPairings, new RoundSeed(_seed), PairingAlgorithmVersion.GreedyByPriorityV1);
 }
