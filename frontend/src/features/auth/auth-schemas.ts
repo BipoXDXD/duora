@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { messages } from '@/shared/messages'
+import type { ValidationKey } from './validation-message'
 
 /**
  * Política de senha do contrato do M1: só comprimento, sem regras de composição (NIST 800-63B).
@@ -8,7 +8,7 @@ import { messages } from '@/shared/messages'
 export const PASSWORD_MIN_LENGTH = 12
 export const PASSWORD_MAX_LENGTH = 128
 // RFC 5321: o caminho de envio aceita no máximo 254 caracteres num endereço.
-const EMAIL_MAX_LENGTH = 254
+export const EMAIL_MAX_LENGTH = 254
 
 /** Versões dos documentos legais que a pessoa aceita no cadastro, enviadas ao servidor. */
 export const LEGAL_DOCUMENT_VERSIONS = {
@@ -17,22 +17,23 @@ export const LEGAL_DOCUMENT_VERSIONS = {
 } as const
 
 // Validação de formato só para orientar; o servidor decide (spec 2.2, React Hook Form + Zod).
+// A mensagem de cada regra é a chave do catálogo; a tela a traduz (validation-message.ts).
 export const emailSchema = z
   .string()
   .trim()
-  .min(1, messages.validation.emailRequired)
-  .max(EMAIL_MAX_LENGTH, messages.validation.emailTooLong)
-  .pipe(z.email(messages.validation.emailInvalid))
+  .min(1, 'validation.emailRequired' satisfies ValidationKey)
+  .max(EMAIL_MAX_LENGTH, 'validation.emailTooLong' satisfies ValidationKey)
+  .pipe(z.email('validation.emailInvalid' satisfies ValidationKey))
 
 /** Senha nova (cadastro e redefinição): nunca é aparada, espaços contam. */
 export const newPasswordSchema = z
   .string()
-  .min(1, messages.validation.passwordRequired)
-  .min(PASSWORD_MIN_LENGTH, messages.validation.passwordTooShort(PASSWORD_MIN_LENGTH))
-  .max(PASSWORD_MAX_LENGTH, messages.validation.passwordTooLong(PASSWORD_MAX_LENGTH))
+  .min(1, 'validation.passwordRequired' satisfies ValidationKey)
+  .min(PASSWORD_MIN_LENGTH, 'validation.passwordTooShort' satisfies ValidationKey)
+  .max(PASSWORD_MAX_LENGTH, 'validation.passwordTooLong' satisfies ValidationKey)
 
 /** Senha atual na entrada: só exige preenchimento, para não travar contas de políticas antigas. */
-export const currentPasswordSchema = z.string().min(1, messages.validation.passwordRequired)
+export const currentPasswordSchema = z.string().min(1, 'validation.passwordRequired' satisfies ValidationKey)
 
 /**
  * Parâmetros dos links de e-mail, no fragmento (`#userId=…&token=…`): o fragmento não vai ao

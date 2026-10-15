@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router'
-import { messages } from '@/shared/messages'
+import { useI18n } from '@/shared/i18n/i18n-context'
 
 interface RouteAnnouncerProps {
   /** Id do `<main>`, onde o foco cai quando a página nova ainda não tem h1. */
@@ -14,6 +14,7 @@ interface RouteAnnouncerProps {
  */
 export function RouteAnnouncer({ mainId }: RouteAnnouncerProps): React.JSX.Element {
   const { pathname } = useLocation()
+  const { t } = useI18n()
   const previousPathname = useRef(pathname)
   const regionRef = useRef<HTMLParagraphElement>(null)
 
@@ -24,8 +25,10 @@ export function RouteAnnouncer({ mainId }: RouteAnnouncerProps): React.JSX.Eleme
     previousPathname.current = pathname
     focusPageStart(mainId)
     if (regionRef.current !== null) {
-      regionRef.current.textContent = messages.navigation.pageLoaded(document.title)
+      regionRef.current.textContent = t('navigation.pageLoaded', { title: document.title })
     }
+    // Só a troca de rota anuncia: trocar o idioma não é navegação, então `t` fica fora das dependências.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, mainId])
 
   // aria-live sem role=status: a região não concorre com os avisos de cada tela.

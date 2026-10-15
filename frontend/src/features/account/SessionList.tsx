@@ -2,11 +2,9 @@ import { useId } from 'react'
 import type { AccountSession } from '@/features/session/session-api'
 import { useRevokeSession, useSessions } from '@/features/session/session-hooks'
 import { classifyRequestFailure } from '@/shared/api'
-import { messages } from '@/shared/messages'
+import { useI18n } from '@/shared/i18n/i18n-context'
 import { RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
-
-const dateTimeFormat = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 
 interface SessionListProps {
   readonly userId: string
@@ -17,14 +15,15 @@ export function SessionList({ userId }: SessionListProps): React.JSX.Element {
   const headingId = useId()
   const sessions = useSessions(userId)
   const revoke = useRevokeSession(userId)
+  const { t } = useI18n()
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-4">
       <div>
         <h2 id={headingId} className="text-xl font-semibold">
-          {messages.sessions.title}
+          {t('sessions.title')}
         </h2>
-        <p className="mt-1 text-text-muted">{messages.sessions.intro}</p>
+        <p className="mt-1 text-text-muted">{t('sessions.intro')}</p>
       </div>
       {revoke.isError ? <RequestFailureAlert failure={classifyRequestFailure(revoke.error)} /> : null}
       <SessionListBody
@@ -53,13 +52,14 @@ interface SessionListBodyProps {
 }
 
 function SessionListBody({ sessions, failure, revokingId, onRetry, onRevoke }: SessionListBodyProps) {
+  const { t } = useI18n()
   if (sessions === undefined && failure !== null) {
     return (
       <div className="flex flex-col items-start gap-4">
-        <p className="text-text-muted">{messages.sessions.loadError}</p>
+        <p className="text-text-muted">{t('sessions.loadError')}</p>
         <RequestFailureAlert failure={classifyRequestFailure(failure)} />
         <Button variant="secondary" onClick={onRetry}>
-          {messages.common.retry}
+          {t('common.retry')}
         </Button>
       </div>
     )
@@ -67,12 +67,12 @@ function SessionListBody({ sessions, failure, revokingId, onRetry, onRevoke }: S
   if (sessions === undefined) {
     return (
       <p role="status" className="text-text-muted">
-        {messages.sessions.loading}
+        {t('sessions.loading')}
       </p>
     )
   }
   if (sessions.length === 0) {
-    return <p className="text-text-muted">{messages.sessions.empty}</p>
+    return <p className="text-text-muted">{t('sessions.empty')}</p>
   }
   return (
     <ul className="flex flex-col gap-3">
@@ -97,7 +97,10 @@ interface SessionItemProps {
 }
 
 function SessionItem({ session, revoking, onRevoke }: SessionItemProps): React.JSX.Element {
-  const revokeLabel = session.current ? messages.sessions.revokeCurrent : messages.sessions.revoke
+  const { t, formatDateTime } = useI18n()
+  const actionLabel = revoking
+    ? t('sessions.revoking')
+    : t(session.current ? 'sessions.revokeCurrent' : 'sessions.revoke')
   return (
     <li className="flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-col gap-1">
@@ -105,28 +108,26 @@ function SessionItem({ session, revoking, onRevoke }: SessionItemProps): React.J
           {session.description}
           {session.current ? (
             <span className="ml-2 rounded-md bg-surface-muted px-2 py-1 text-sm font-semibold text-text">
-              {messages.sessions.current}
+              {t('sessions.current')}
             </span>
           ) : null}
         </p>
         <p className="text-sm text-text-muted">
-          {messages.sessions.createdAt}: <time dateTime={session.createdAt}>{formatInstant(session.createdAt)}</time>
+          {t('sessions.createdAt')}:{' '}
+          <time dateTime={session.createdAt}>{formatDateTime(new Date(session.createdAt))}</time>
           {' · '}
-          {messages.sessions.lastSeenAt}: <time dateTime={session.lastSeenAt}>{formatInstant(session.lastSeenAt)}</time>
+          {t('sessions.lastSeenAt')}:{' '}
+          <time dateTime={session.lastSeenAt}>{formatDateTime(new Date(session.lastSeenAt))}</time>
         </p>
       </div>
       <Button
         variant="secondary"
         aria-disabled={revoking}
-        aria-label={`${revoking ? messages.sessions.revoking : revokeLabel}: ${session.description}`}
+        aria-label={t('sessions.actionFor', { action: actionLabel, session: session.description })}
         onClick={onRevoke}
       >
-        {revoking ? messages.sessions.revoking : revokeLabel}
+        {actionLabel}
       </Button>
     </li>
   )
-}
-
-function formatInstant(instant: string): string {
-  return dateTimeFormat.format(new Date(instant))
 }

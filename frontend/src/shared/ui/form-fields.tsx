@@ -1,5 +1,5 @@
 import { useId, useState, type ComponentProps } from 'react'
-import { messages } from '@/shared/messages'
+import { useI18n } from '@/shared/i18n/i18n-context'
 import { Input } from './input'
 import { Label } from './label'
 
@@ -78,6 +78,7 @@ type PasswordFieldProps = FieldTextProps &
 export function PasswordField({ label, hint, error, ...inputProps }: PasswordFieldProps): React.JSX.Element {
   const { inputId, hintId, errorId, inputAria } = useFieldIds(hint, error)
   const [visible, setVisible] = useState(false)
+  const { t } = useI18n()
   return (
     <div className="flex flex-col gap-2">
       <Label htmlFor={inputId}>{label}</Label>
@@ -94,7 +95,7 @@ export function PasswordField({ label, hint, error, ...inputProps }: PasswordFie
         />
         <button
           type="button"
-          aria-label={messages.field.showPasswordName}
+          aria-label={t('field.showPasswordName')}
           aria-pressed={visible}
           aria-controls={inputId}
           onClick={() => {
@@ -102,7 +103,7 @@ export function PasswordField({ label, hint, error, ...inputProps }: PasswordFie
           }}
           className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border border-border bg-surface px-3 font-semibold text-action hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
         >
-          {messages.field.showPassword}
+          {t('field.showPassword')}
         </button>
       </div>
       <FieldError id={errorId} text={error} />

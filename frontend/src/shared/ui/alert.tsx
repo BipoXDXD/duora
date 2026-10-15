@@ -1,22 +1,25 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { cn } from 'cn'
 import type { RequestFailure } from '@/shared/api'
-import { messages } from '@/shared/messages'
+import type { PlainMessageKey } from '@/shared/i18n/catalog'
+import { useI18n } from '@/shared/i18n/i18n-context'
+import type { Translate } from '@/shared/i18n/translator'
+import { retryWait } from './retry-wait'
 
 type AlertVariant = 'error' | 'info' | 'success'
 
 interface AlertStyle {
   readonly role: 'alert' | 'status'
-  readonly title: string
+  readonly title: PlainMessageKey
   readonly className: string
 }
 
 // Erro interrompe o leitor de tela (role=alert); aviso e sucesso esperam a vez (role=status).
 // A variante nunca depende só da cor: cada uma tem título em texto e borda de acento.
 const ALERT_STYLES: Readonly<Record<AlertVariant, AlertStyle>> = {
-  error: { role: 'alert', title: messages.common.errorTitle, className: 'border-danger' },
-  info: { role: 'status', title: messages.common.noticeTitle, className: 'border-action' },
-  success: { role: 'status', title: messages.common.successTitle, className: 'border-action' },
+  error: { role: 'alert', title: 'common.errorTitle', className: 'border-danger' },
+  info: { role: 'status', title: 'common.noticeTitle', className: 'border-action' },
+  success: { role: 'status', title: 'common.successTitle', className: 'border-action' },
 }
 
 interface AlertProps {
@@ -32,6 +35,7 @@ interface AlertProps {
 
 export function Alert({ variant, children, className, focusOnMount = false }: AlertProps): React.JSX.Element {
   const style = ALERT_STYLES[variant]
+  const { t } = useI18n()
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (focusOnMount) {
@@ -45,7 +49,7 @@ export function Alert({ variant, children, className, focusOnMount = false }: Al
       role={style.role}
       className={cn('rounded-md border-l-4 bg-surface-muted px-4 py-3 text-text', style.className, className)}
     >
-      <p className="font-semibold">{style.title}</p>
+      <p className="font-semibold">{t(style.title)}</p>
       <div className="mt-1">{children}</div>
     </div>
   )
@@ -53,24 +57,27 @@ export function Alert({ variant, children, className, focusOnMount = false }: Al
 
 interface RequestFailureAlertProps {
   readonly failure: RequestFailure
-  /** Mensagem por `code` do Problem Details que esta tela sabe explicar. */
-  readonly problemMessages?: Readonly<Partial<Record<string, string>>>
+  /** Chave da mensagem por `code` do Problem Details que esta tela sabe explicar. */
+  readonly problemMessages?: ProblemMessages
 }
+
+type ProblemMessages = Readonly<Partial<Record<string, PlainMessageKey>>>
 
 /** Mensagem de falha de uma requisição: rede, limite de uso, code conhecido ou genérica. */
 export function RequestFailureAlert({ failure, problemMessages = {} }: RequestFailureAlertProps): React.JSX.Element {
-  return <Alert variant="error">{describeFailure(failure, problemMessages)}</Alert>
+  const { t } = useI18n()
+  return <Alert variant="error">{describeFailure(t, failure, problemMessages)}</Alert>
 }
 
-function describeFailure(failure: RequestFailure, problemMessages: Readonly<Partial<Record<string, string>>>): string {
+function describeFailure(t: Translate, failure: RequestFailure, problemMessages: ProblemMessages): string {
   switch (failure.kind) {
     case 'network':
-      return messages.common.networkError
+      return t('common.networkError')
     case 'rate-limited':
-      return messages.common.rateLimited(failure.retryAfterSeconds)
+      return t('common.rateLimited', retryWait(failure.retryAfterSeconds))
     case 'problem':
-      return (failure.code === null ? undefined : problemMessages[failure.code]) ?? messages.common.unexpectedError
+      return t((failure.code === null ? undefined : problemMessages[failure.code]) ?? 'common.unexpectedError')
     case 'unexpected':
-      return messages.common.unexpectedError
+      return t('common.unexpectedError')
   }
 }

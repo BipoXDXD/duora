@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
+import { renderWithI18n } from '@/test/render'
 import { describe, expect, it, vi } from 'vitest'
 import { AreaErrorBoundary } from './error-boundary'
 
@@ -16,7 +17,7 @@ function Exploding({ shouldThrow }: { readonly shouldThrow: () => boolean }): Re
 function renderBoundary(shouldThrow: () => boolean) {
   // O React registra o erro capturado no console; aqui isso é esperado e só polui a saída.
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
-  return render(
+  return renderWithI18n(
     <MemoryRouter>
       <AreaErrorBoundary>
         <Exploding shouldThrow={shouldThrow} />
