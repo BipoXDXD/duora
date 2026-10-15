@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Wrapper restrito do pgBackRest do Duora na VPS (spec 18.2 e 18.5).
 
-    duora-backup stanza-create | full | diff | verify | info  [--scheduled]
+    duora-backup stanza-create | full | diff | verify | verify-repo | info  [--scheduled]
 
 Roda o pgBackRest dentro do container backup (repository host: credenciais do S3, PGDATA só leitura, SQL como
 duora_backup por TCP) por `docker exec`, como root do host, chamado pelos timers systemd e pelo duora-deploy. Só as
@@ -14,6 +14,11 @@ repositório.
 velho que o RPO, se o arquivamento estiver falhando, se o repositório não tiver backup válido ou se o último backup
 estiver velho demais.
 
+`verify-repo` (timer diário) roda o `pgbackrest verify` nativo, que confere checksum e tamanho de cada arquivo do
+repositório, e falha se faltar WAL na cadeia a partir do backup mais novo. O pgbackrest verify não falha com lacuna
+de WAL (só lista as faixas contínuas no log DETAIL); quem decide é este wrapper. Lacuna acontece, por exemplo, quando
+o archive-push-queue-max descarta a fila: o arquivamento volta a dar sucesso e o verify de 15 min não vê o buraco.
+
 Instalado pelo Ansible como /usr/local/sbin/duora-backup (root, 0755). Só biblioteca padrão do Python 3.12.
 Manual: docs/operations/backup-restore.md.
 """
@@ -24,6 +29,7 @@ import argparse
 import fcntl
 import ipaddress
 import json
+import re
 import subprocess
 import sys
 import time
@@ -60,8 +66,9 @@ _PGBACKREST_ARGS = {
     "full": ["backup", "--type=full"],
     "diff": ["backup", "--type=diff"],
 }
-ACTIONS = (*_PGBACKREST_ARGS, "verify", "info")
-_LOCKED_ACTIONS = frozenset(_PGBACKREST_ARGS)
+ACTIONS = (*_PGBACKREST_ARGS, "verify", "verify-repo", "info")
+# Esperam o deploy terminar e marcam backup em curso (o verify de 15 min continua rodando durante eles).
+_LOCKED_ACTIONS = frozenset((*_PGBACKREST_ARGS, "verify-repo"))
 
 # Epoch do último sucesso, da última falha e do relógio do banco: idades medidas no mesmo relógio.
 ARCHIVER_QUERY = ("select extract(epoch from last_archived_time), extract(epoch from last_failed_time), "
@@ -144,6 +151,106 @@ def _repository_problems(info_text: str, now: float) -> list[str]:
     return problems
 
 
+# --- Integridade do repositório e continuidade do WAL (decisão pura) ------------------------------------------------
+
+# Linhas do `pgbackrest verify --verbose --log-level-console=detail` (pgBackRest 2.59).
+_WAL_RANGE = re.compile(r"archiveId: (?P<archive>\S+), wal start: (?P<start>[0-9A-F]{24}), "
+                        r"wal stop: (?P<stop>[0-9A-F]{24})$", re.MULTILINE)
+_COUNTERS = re.compile(r"missing: (\d+), checksum invalid: (\d+), size invalid: (\d+), other: (\d+)")
+_STANZA_STATUS = re.compile(r"stanza: (?P<name>\S+)\n\s+status: (?P<status>\S+)")
+_BACKUP_STATUS = re.compile(r"backup: (?P<label>[^,\s]+), status: (?P<status>[^,\s]+)")
+# wal_segment_size padrão do initdb (16 MiB): 256 segmentos por "log" de 4 GiB. Outro tamanho cai em formato
+# inesperado (fail closed) em vez de produzir lacunas falsas.
+_SEGMENTS_PER_LOG = 0x100
+
+
+@dataclass(frozen=True)
+class _WalRange:
+    timeline: int
+    start: int
+    stop: int
+    start_name: str
+    stop_name: str
+
+
+def repository_verify_problems(verify_text: str, info_text: str) -> list[str]:
+    """Lista o que impede considerar o repositório íntegro e a cadeia de WAL contínua; vazia = íntegro.
+
+    Lacuna só conta a partir do início do backup mais novo: antes dele ela não tem ação (o próximo full já foi
+    feito) e some quando o expire alcançá-la.
+    """
+    try:
+        repository = _parse_info(info_text)
+    except _InfoShapeError as error:
+        return [f"pgbackrest info: {error}"]
+    if not repository.backups:
+        return ["nenhum backup no repositório"]
+    newest = max(repository.backups, key=lambda entry: entry.stopped_at)
+    problems = _verify_summary_problems(verify_text, newest.label)
+    try:
+        ranges = _wal_ranges(verify_text, newest.database_id)
+        backup_start, backup_stop = _segment(newest.wal_start), _segment(newest.wal_stop)
+    except _InfoShapeError as error:
+        return problems + [str(error)]
+    if not ranges:
+        return problems + ["pgbackrest verify não listou WAL do banco do backup mais novo "
+                           f"(archiveId *-{newest.database_id})"]
+    if not any(r.timeline == backup_start[0] and r.start <= backup_start[1] and r.stop >= backup_stop[1]
+               for r in ranges):
+        problems.append(f"WAL do backup mais novo ({newest.label}, {newest.wal_start} a {newest.wal_stop}) "
+                        "ausente no repositório")
+    return problems + _gap_problems(ranges, backup_start)
+
+
+def _verify_summary_problems(text: str, newest_label: str) -> list[str]:
+    problems = []
+    stanza = _STANZA_STATUS.search(text)
+    if stanza is None or stanza["name"] != STANZA:
+        problems.append(f"pgbackrest verify: saída sem o resumo da stanza {STANZA}")
+    elif stanza["status"] != "ok":
+        problems.append(f"pgbackrest verify: stanza {STANZA} com status {stanza['status']}")
+    counters = _COUNTERS.findall(text)
+    if not counters:
+        problems.append("pgbackrest verify: saída sem os contadores de arquivos")
+    elif any(int(value) for line in counters for value in line):
+        problems.append("pgbackrest verify encontrou arquivos inválidos ou ausentes no repositório")
+    statuses = {match["label"]: match["status"] for match in _BACKUP_STATUS.finditer(text)}
+    if statuses.get(newest_label) != "valid":
+        problems.append(f"pgbackrest verify: backup mais novo {newest_label} não está valid "
+                        f"({statuses.get(newest_label, 'ausente')})")
+    return problems
+
+
+def _wal_ranges(text: str, database_id: int) -> list[_WalRange]:
+    ranges = []
+    for match in _WAL_RANGE.finditer(text):
+        if match["archive"].rsplit("-", 1)[-1] != str(database_id):
+            continue
+        (timeline, start), (_, stop) = _segment(match["start"]), _segment(match["stop"])
+        ranges.append(_WalRange(timeline, start, stop, match["start"], match["stop"]))
+    return ranges
+
+
+def _segment(name: str) -> tuple[int, int]:
+    """(timeline, posição contínua do segmento) a partir do nome de 24 dígitos hexadecimais."""
+    if not re.fullmatch(r"[0-9A-F]{24}", name) or int(name[16:], 16) >= _SEGMENTS_PER_LOG:
+        raise _InfoShapeError(f"segmento de WAL fora do formato esperado (16 MiB): {name!r}")
+    return int(name[:8], 16), int(name[8:16], 16) * _SEGMENTS_PER_LOG + int(name[16:], 16)
+
+
+def _gap_problems(ranges: list[_WalRange], backup_start: tuple[int, int]) -> list[str]:
+    backup_timeline, backup_position = backup_start
+    problems = []
+    for timeline in sorted({r.timeline for r in ranges if r.timeline >= backup_timeline}):
+        on_timeline = sorted((r for r in ranges if r.timeline == timeline), key=lambda r: r.start)
+        for previous, current in zip(on_timeline, on_timeline[1:]):
+            if current.start != previous.stop + 1 and current.start > backup_position:
+                problems.append(f"lacuna de WAL na timeline {timeline}: faltam os segmentos depois de "
+                                f"{previous.stop_name} até antes de {current.start_name}; sem PITR nesse trecho, "
+                                "rode um full (sudo duora-backup full)")
+    return problems
+
+
 class _InfoShapeError(Exception):
     """Saída do `pgbackrest info --output=json` fora do formato que o verify sabe avaliar."""
 
@@ -153,6 +260,9 @@ class _BackupEntry:
     label: str
     stopped_at: float
     has_error: bool
+    wal_start: str
+    wal_stop: str
+    database_id: int
 
 
 @dataclass(frozen=True)
@@ -190,9 +300,13 @@ def _parse_info(text: str) -> _RepositoryStatus:
 
 def _parse_backup(entry: dict) -> _BackupEntry:
     timestamp = _object_field(entry, "timestamp", "backup")
+    archive = _object_field(entry, "archive", "backup")
     return _BackupEntry(label=_str_field(entry, "label", "backup"),
                         stopped_at=float(_int_field(timestamp, "stop", "backup.timestamp")),
-                        has_error=_bool_field(entry, "error", "backup"))
+                        has_error=_bool_field(entry, "error", "backup"),
+                        wal_start=_str_field(archive, "start", "backup.archive"),
+                        wal_stop=_str_field(archive, "stop", "backup.archive"),
+                        database_id=_int_field(_object_field(entry, "database", "backup"), "id", "backup.database"))
 
 
 def _entry(value: object, where: str) -> dict:
@@ -261,7 +375,11 @@ def run_action(action: str, run: Runner, *, project: str, state_dir: Path, egres
         # Um deploy recria o postgres; backup no meio dele falharia. O verify não pega o lock porque o próprio
         # deploy o chama segurando-o.
         with deploy_lock(state_dir, wait_seconds=lock_wait_seconds), backup_running(state_dir):
-            _run_pgbackrest(run, _find_backup(run, project), _PGBACKREST_ARGS[action], BACKUP_TIMEOUT_SECONDS)
+            container = _find_backup(run, project)
+            if action == "verify-repo":
+                _verify_repository(run, container)
+            else:
+                _run_pgbackrest(run, container, _PGBACKREST_ARGS[action], BACKUP_TIMEOUT_SECONDS)
         return
     if action == "info":
         _run_pgbackrest(run, _find_backup(run, project), ["info"], QUERY_TIMEOUT_SECONDS)
@@ -351,6 +469,17 @@ def _verify(run: Runner, container: str) -> None:
     if problems:
         raise BackupError("backup/WAL não saudável:\n  - " + "\n  - ".join(problems))
     _step("backup e WAL saudáveis")
+
+
+def _verify_repository(run: Runner, container: str) -> None:
+    info = _run_pgbackrest(run, container, ["info", "--output=json"], QUERY_TIMEOUT_SECONDS, capture=True)
+    # Lê o repositório inteiro: no limite do tempo de um backup, não da consulta.
+    verify = _run_pgbackrest(run, container, ["verify", "--verbose", "--log-level-console=detail"],
+                             BACKUP_TIMEOUT_SECONDS, capture=True)
+    problems = repository_verify_problems(verify.stdout, info.stdout)
+    if problems:
+        raise BackupError("repositório ou cadeia de WAL com problema:\n  - " + "\n  - ".join(problems))
+    _step("repositório íntegro e WAL contínuo desde o backup mais novo")
 
 
 def _find_backup(run: Runner, project: str) -> str:
