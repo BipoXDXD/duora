@@ -38,8 +38,14 @@ public sealed class Event
 
     public EventCancellation? Cancellation { get; private set; }
 
-    /// <summary>Inscrições com vaga (<c>Confirmed</c> e <c>CheckedIn</c>); nunca passa de <see cref="Capacity"/>.</summary>
-    public int ConfirmedCount => _registrations.SeatsTaken;
+    /// <summary>
+    /// Inscrições com vaga (<c>Confirmed</c> e <c>CheckedIn</c>); nunca passa de <see cref="Capacity"/>. É estado
+    /// gravado (<c>confirmed_count</c>), mantido a cada inscrição, retirada, promoção, ausência e conclusão.
+    /// </summary>
+    public int ConfirmedCount => _registrations.ConfirmedCount;
+
+    /// <summary>Posição da próxima pessoa que entrar na espera (<c>next_waitlist_position</c>); só cresce.</summary>
+    public long NextWaitlistPosition => _registrations.NextWaitlistPosition;
 
     /// <summary>Todas as inscrições, em ordem de chegada.</summary>
     public IReadOnlyList<Registration> Registrations => _registrations.All;
@@ -112,7 +118,7 @@ public sealed class Event
         var outcome = AdvanceWhenDue(EventState.CheckInOpen, EventState.Running, Schedule.StartsAt, now);
         if (outcome.IsAccepted)
         {
-            MarkRegistrations(RegistrationState.Confirmed, registration => registration.MarkNoShow());
+            _registrations.MarkNoShows();
         }
 
         return outcome;
@@ -124,7 +130,7 @@ public sealed class Event
         var outcome = AdvanceWhenDue(EventState.Running, EventState.Completed, Schedule.EndsAt, now);
         if (outcome.IsAccepted)
         {
-            MarkRegistrations(RegistrationState.CheckedIn, registration => registration.Complete());
+            _registrations.CompleteCheckedIn();
         }
 
         return outcome;
@@ -206,7 +212,7 @@ public sealed class Event
             return Outcome<WithdrawalRefusal>.Refused(WithdrawalRefusal.RegistrationNotActive);
         }
 
-        registration.Withdraw(now);
+        _registrations.Withdraw(registration, now);
         return Outcome<WithdrawalRefusal>.Accepted(PromoteFromWaitlist(now));
     }
 
@@ -297,13 +303,5 @@ public sealed class Event
 
         State = to;
         return Outcome<EventTransitionRefusal>.Accepted();
-    }
-
-    private void MarkRegistrations(RegistrationState current, Action<Registration> transition)
-    {
-        foreach (var registration in _registrations.All.Where(registration => registration.State == current))
-        {
-            transition(registration);
-        }
     }
 }
