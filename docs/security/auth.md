@@ -277,6 +277,11 @@ remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests`,
 | Reautenticação (A13) | Sessão | Mesmo lockout da conta | `401` |
 | MFA (A11, A12, A14, A15), troca de senha (A16) | Sessão | 10 / hora | `429` + `Retry-After` |
 | Revogar sessão (A10) | Sessão | 30 / hora | `429` + `Retry-After` |
+| Bloquear (API-S01) | Conta (id da sessão; vale para todas as sessões e IPs da conta) | 30 / hora (`RateLimiting:BlockPerAccount`, decisão G6) | `429` + `Retry-After` |
+
+O limite do bloqueio fica no handler, depois da autenticação (o middleware de rate limit roda antes dela e não
+conhece a conta), e também é em memória: nenhuma quota crítica depende dele (spec 11.5). Testes:
+`BlockRateLimitTests`.
 
 Valores calibrados pelo uso real e versionados; nunca bloquear permanentemente uma conta por falhas de terceiros
 (TM-09). Trade-off aceito ([ADR-0019](../architecture/adr/0019-implementacao-identidade-sessao-outbox.md)):

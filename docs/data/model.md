@@ -626,15 +626,19 @@ erDiagram
 
 - **Colunas:** `user_id uuid`; `security_version bigint` (incrementada por bloqueio, sanção, mudança de
   preferência que afete elegibilidade).
-- **Constraints:** PK e FK `user_id` `CASCADE`; linha criada junto com a conta.
+- **Constraints:** PK e FK `user_id` `CASCADE`; `CHECK (security_version >= 0)`. A linha **não** nasce com a
+  conta (decisão G7, para o cadastro do Identity não depender do Safety): a migration `SafetyBlocks` dá guarda a
+  toda conta existente e o primeiro bloqueio cria as que faltam com `ON CONFLICT DO NOTHING`. Quem precisar
+  trancar a guarda de uma pessoa no M2 usa o mesmo upsert antes do `FOR UPDATE`.
 - **Uso:** linha-lock por pessoa, sempre em ordem de UUID ([concurrency.md](concurrency.md#ordem-global-de-locks)).
 - **Classe:** P1.
 
 ### safety.blocks
 
 - **Colunas:** `id`; `blocker_id`; `blocked_id`; `created_at`.
-- **Constraints:** `UNIQUE (blocker_id, blocked_id)`; `CHECK (blocker_id <> blocked_id)` (spec 10.3); FKs
-  `RESTRICT`. Desbloqueio apaga a linha e grava auditoria.
+- **Constraints:** `UNIQUE (blocker_id, blocked_id)` (`ux_blocks_pair`); `CHECK (blocker_id <> blocked_id)`
+  (`ck_blocks_not_self`, spec 10.3); FKs `RESTRICT`. Desbloqueio (API-S02, fatia futura) apaga a linha e grava
+  auditoria.
 - **Índices:** `ix_blocks_blocked_id` (consulta bilateral "existe bloqueio entre A e B").
 - **Classe:** P3 (o bloqueado nunca sabe quem bloqueou).
 
