@@ -6,6 +6,8 @@
   <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+    <!-- Segredos como arquivos (Compose secrets); o Worker não tem o shared framework do ASP.NET Core. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.KeyPerFile" />
     <!-- Só para o dotnet-ef gerar migrations; não vai para quem referencia este projeto. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
   </ItemGroup>

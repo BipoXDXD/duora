@@ -8,6 +8,7 @@ internal static class WorkerHost
     public static HostApplicationBuilder CreateBuilder(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
+        builder.Configuration.AddSecretFiles();
 
         builder.ConfigureContainer(new DefaultServiceProviderFactory(new ServiceProviderOptions
         {
