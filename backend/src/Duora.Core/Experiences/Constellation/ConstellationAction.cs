@@ -18,6 +18,9 @@ public abstract record ConstellationAction : IGameAction
     /// </summary>
     public sealed record ChooseOption(string CardId, string OptionId) : ConstellationAction(ChooseOptionType);
 
-    /// <summary>Pula o cartão: nada é revelado sobre ele, para nenhuma das duas pessoas.</summary>
+    /// <summary>
+    /// Pula o cartão: ele passa sem mostrar a escolha de ninguém. Com duas pessoas, quem escolheu deduz que a outra
+    /// pulou; a saída só não diz isso explicitamente.
+    /// </summary>
     public sealed record SkipCard(string CardId) : ConstellationAction(SkipCardType);
 }

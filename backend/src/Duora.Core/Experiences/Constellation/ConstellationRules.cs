@@ -132,12 +132,12 @@ public sealed class ConstellationRules
         Descriptor,
         "Constelação de Escolhas: vocês respondem aos mesmos cartões leves e descobrem o que têm em comum. Tudo é "
         + "texto e botões; o prazo é um horário absoluto e nenhuma ação depende de arrastar, de cor ou de tempo de "
-        + "reação. Pular é sempre permitido e não é revelado a ninguém.",
+        + "reação. Pular é sempre permitido.",
         [
             new StageInstruction("cards",
                 "Cada cartão traz uma pergunta e opções em lista. Escolha uma opção e ative \"Confirmar\", ou ative "
                 + "\"Pular\". Sua resposta fica privada até as duas pessoas confirmarem uma opção; então as duas "
-                + "escolhas aparecem juntas, em texto. Se alguém pular, o cartão passa sem revelar nada. Comentar "
+                + "escolhas aparecem juntas, em texto. Se alguém pular, o cartão passa sem mostrar nenhuma escolha. Comentar "
                 + "o cartão no chat da sala é opcional."),
             new StageInstruction("summary",
                 "O resumo lista em texto só os cartões revelados e os que passaram sem revelação. Não há nota, "
@@ -148,7 +148,8 @@ public sealed class ConstellationRules
                 "Opções em botões de rádio: setas para mudar, Espaço para marcar e Enter em \"Confirmar\".",
                 [InputMethod.Button, InputMethod.Keyboard]),
             new ActionInstruction(ConstellationAction.SkipCardType,
-                "Botão \"Pular\": chegue com Tab e ative com Enter ou Espaço. Ninguém fica sabendo quem pulou.",
+                "Botão \"Pular\": chegue com Tab e ative com Enter ou Espaço. Se alguém pular, o cartão passa sem mostrar "
+                + "nenhuma escolha; o resumo não indica quem pulou.",
                 [InputMethod.Button, InputMethod.Keyboard]),
         ]);
 
