@@ -235,8 +235,11 @@ jobs:
       - name: Testes dos scripts de deploy
         run: python3 -m unittest discover -s scripts/deploy -v
 
+      - name: Testes do validador da chave do apt (role docker)
+        run: python3 -m unittest discover -s infra/ansible/roles/docker/files -v
+
       - name: Pyright
-        run: pyright -p scripts/deploy/pyrightconfig.json scripts/deploy
+        run: pyright -p scripts/deploy/pyrightconfig.json scripts/deploy infra/ansible/roles/docker/files
 
       - name: ansible-lint e syntax-check
         working-directory: infra/ansible
