@@ -30,8 +30,11 @@ def info_json(*, status_code: int = 0, backups: list[dict] | None = None, archiv
     }])
 
 
-def backup_entry(*, stop: float, kind: str = "full", error: bool = False) -> dict:
-    return {"label": f"label-{int(stop)}", "type": kind, "error": error,
+def backup_entry(*, stop: float, kind: str = "full", error: bool = False,
+                 wal_start: str = "000000010000000000000002", wal_stop: str = "000000010000000000000002",
+                 label: str | None = None) -> dict:
+    return {"label": label or f"label-{int(stop)}", "type": kind, "error": error,
+            "archive": {"start": wal_start, "stop": wal_stop}, "database": {"id": 1, "repo-key": 1},
             "timestamp": {"start": int(stop) - 60, "stop": int(stop)}}
 
 
@@ -158,11 +161,12 @@ class FakeRunner:
     """Responde como Docker e pgBackRest responderiam; falha no comando que contém fail_on."""
 
     def __init__(self, *, containers: str = CONTAINER_ID + "\n", fail_on: str | None = None,
-                 info: str | None = None, archiver_line: str | None = None) -> None:
+                 info: str | None = None, archiver_line: str | None = None, verify: str = "") -> None:
         self.commands: list[list[str]] = []
         self._containers = containers
         self._fail_on = fail_on
         self._info = info if info is not None else info_json()
+        self._verify = verify
         self._archiver_line = archiver_line if archiver_line is not None else f"{NOW - 5}||{NOW}\n"
 
     # capture e timeout_seconds não mudam a resposta do dublê, mas ficam na assinatura para ela casar com o
@@ -179,6 +183,8 @@ class FakeRunner:
             return subprocess.CompletedProcess(command, 0, self._info, "")
         if "pg_stat_archiver" in joined:
             return subprocess.CompletedProcess(command, 0, self._archiver_line, "")
+        if "verify" in command and "pgbackrest" in command:
+            return subprocess.CompletedProcess(command, 0, self._verify, "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
     def pgbackrest_calls(self) -> list[list[str]]:
@@ -504,6 +510,203 @@ class ScheduledVerifyDuringDeployTests(unittest.TestCase):
                                 "--egress-env", str(self.egress_env)], run=FakeRunner())
 
         self.assertEqual(0, code)
+
+
+def verify_output(ranges: list[tuple[str, str, str]], *, status: str = "ok", backup_label: str = "NEWEST",
+                  backup_status: str = "valid", counters: str = "missing: 0, checksum invalid: 0, size invalid: 0, other: 0",
+                  ) -> str:
+    """Saída de `pgbackrest verify --verbose --log-level-console=detail` (pgBackRest 2.59.3, capturada no drill)."""
+    lines = ["2026-10-15 22:46:45.000 P00   INFO: verify command begin 2.59.3: --stanza=duora"]
+    lines += [f"2026-10-15 22:46:45.891 P00 DETAIL: archiveId: {archive}, wal start: {start}, wal stop: {stop}"
+              for archive, start, stop in ranges]
+    lines += ["2026-10-15 22:46:45.891 P00   INFO: stanza: duora",
+              f"                                    status: {status}",
+              "                                      archiveId: 18-1, total WAL checked: 4, total valid WAL: 4",
+              f"                                        {counters}",
+              f"                                      backup: {backup_label}, status: {backup_status}, "
+              "total files checked: 1268, total valid files: 1268",
+              f"                                        {counters}",
+              "2026-10-15 22:46:45.891 P00   INFO: verify command end: completed successfully (476ms)"]
+    return "\n".join(lines) + "\n"
+
+
+def wal(timeline: int, log: int, segment: int) -> str:
+    return f"{timeline:08X}{log:08X}{segment:08X}"
+
+
+def newest_backup_info(*, wal_start: str = wal(1, 0, 2), wal_stop: str = wal(1, 0, 2)) -> str:
+    return info_json(backups=[backup_entry(stop=NOW - 100 * HOUR, label="OLDER", wal_start=wal(1, 0, 1),
+                                           wal_stop=wal(1, 0, 1)),
+                              backup_entry(stop=NOW - HOUR, label="NEWEST", wal_start=wal_start, wal_stop=wal_stop)])
+
+
+class RepositoryVerifyTests(unittest.TestCase):
+    """verify-repo: o pgbackrest verify não falha com lacuna de WAL (só lista as faixas); a decisão é daqui."""
+
+    def problems(self, verify_text: str, info_text: str | None = None) -> list[str]:
+        return backup.repository_verify_problems(verify_text, info_text or newest_backup_info())
+
+    def test_contiguous_chain_is_healthy(self) -> None:
+        self.assertEqual([], self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 9))])))
+
+    def test_gap_after_the_newest_backup_is_a_problem(self) -> None:
+        # Caso real do drill: segmento 3 apagado do repositório; o pgbackrest verify sai com 0.
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 2)),
+                                                ("18-1", wal(1, 0, 4), wal(1, 0, 4))]))
+
+        self.assertEqual([f"lacuna de WAL na timeline 1: faltam os segmentos depois de {wal(1, 0, 2)} até antes "
+                          f"de {wal(1, 0, 4)}; sem PITR nesse trecho, rode um full (sudo duora-backup full)"], problems)
+
+    def test_gap_older_than_the_newest_backup_is_not_actionable(self) -> None:
+        info = newest_backup_info(wal_start=wal(1, 0, 6), wal_stop=wal(1, 0, 6))
+
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 2)),
+                                                ("18-1", wal(1, 0, 4), wal(1, 0, 9))]), info)
+
+        self.assertEqual([], problems)
+
+    def test_gap_starting_right_at_the_newest_backup_is_a_problem(self) -> None:
+        info = newest_backup_info(wal_start=wal(1, 0, 4), wal_stop=wal(1, 0, 4))
+
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 4), wal(1, 0, 4)),
+                                                ("18-1", wal(1, 0, 6), wal(1, 0, 9))]), info)
+
+        self.assertEqual(1, len(problems))
+
+    def test_next_log_file_is_contiguous(self) -> None:
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 0xFF)),
+                                                ("18-1", wal(1, 1, 0), wal(1, 1, 3))]))
+
+        self.assertEqual([], problems)
+
+    def test_new_timeline_after_a_restore_is_not_a_gap(self) -> None:
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 4)),
+                                                ("18-1", wal(2, 0, 3), wal(2, 0, 7))]))
+
+        self.assertEqual([], problems)
+
+    def test_gap_on_a_newer_timeline_is_a_problem(self) -> None:
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 4)),
+                                                ("18-1", wal(2, 0, 3), wal(2, 0, 4)),
+                                                ("18-1", wal(2, 0, 6), wal(2, 0, 7))]))
+
+        self.assertEqual(1, len(problems))
+        self.assertIn("timeline 2", problems[0])
+
+    def test_gap_on_a_timeline_older_than_the_newest_backup_is_ignored(self) -> None:
+        info = newest_backup_info(wal_start=wal(2, 0, 5), wal_stop=wal(2, 0, 5))
+
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 2)),
+                                                ("18-1", wal(1, 0, 7), wal(1, 0, 8)),
+                                                ("18-1", wal(2, 0, 3), wal(2, 0, 9))]), info)
+
+        self.assertEqual([], problems)
+
+    def test_ranges_of_another_database_are_ignored(self) -> None:
+        problems = self.problems(verify_output([("17-2", wal(1, 0, 1), wal(1, 0, 2)),
+                                                ("17-2", wal(1, 0, 8), wal(1, 0, 9)),
+                                                ("18-1", wal(1, 0, 1), wal(1, 0, 9))]))
+
+        self.assertEqual([], problems)
+
+    def test_no_wal_listed_for_the_current_database_is_a_problem(self) -> None:
+        problems = self.problems(verify_output([("17-2", wal(1, 0, 1), wal(1, 0, 9))]))
+
+        self.assertIn("pgbackrest verify não listou WAL do banco do backup mais novo (archiveId *-1)", problems)
+
+    def test_wal_of_the_newest_backup_missing_is_a_problem(self) -> None:
+        info = newest_backup_info(wal_start=wal(1, 0, 2), wal_stop=wal(1, 0, 3))
+
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 3), wal(1, 0, 9))]), info)
+
+        self.assertIn(f"WAL do backup mais novo (NEWEST, {wal(1, 0, 2)} a {wal(1, 0, 3)}) ausente no repositório",
+                      problems)
+
+    def test_invalid_files_are_a_problem(self) -> None:
+        for counters in ("missing: 1, checksum invalid: 0, size invalid: 0, other: 0",
+                         "missing: 0, checksum invalid: 2, size invalid: 0, other: 0",
+                         "missing: 0, checksum invalid: 0, size invalid: 3, other: 0",
+                         "missing: 0, checksum invalid: 0, size invalid: 0, other: 4"):
+            with self.subTest(counters=counters):
+                text = verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 9))], counters=counters)
+
+                self.assertIn("pgbackrest verify encontrou arquivos inválidos ou ausentes no repositório",
+                              self.problems(text))
+
+    def test_stanza_status_not_ok_is_a_problem(self) -> None:
+        text = verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 9))], status="error")
+
+        self.assertIn("pgbackrest verify: stanza duora com status error", self.problems(text))
+
+    def test_newest_backup_not_valid_is_a_problem(self) -> None:
+        text = verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 9))], backup_status="invalid")
+
+        self.assertIn("pgbackrest verify: backup mais novo NEWEST não está valid (invalid)", self.problems(text))
+
+    def test_unrecognized_output_is_a_problem(self) -> None:
+        for label, text in {"vazia": "", "lixo": "garbage\n",
+                            "sem contadores": verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 9))],
+                                                            counters="")}.items():
+            with self.subTest(output=label):
+                self.assertNotEqual([], self.problems(text))
+
+    def test_segment_beyond_16_mib_layout_is_a_problem(self) -> None:
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 0x100))]))
+
+        self.assertTrue(any("segmento de WAL fora do formato" in problem for problem in problems))
+
+    def test_unusable_info_is_a_problem(self) -> None:
+        problems = self.problems(verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 9))]), "not json")
+
+        self.assertEqual(1, len(problems))
+        self.assertIn("JSON", problems[0])
+
+
+class VerifyRepositoryActionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state_dir = Path(self._tmp.name)
+        self.healthy = verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 9))])
+
+    def run_action(self, runner: FakeRunner, lock_wait_seconds: int = backup.LOCK_WAIT_SECONDS) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            backup.run_action("verify-repo", runner, project="duora", state_dir=self.state_dir,
+                              egress_env=None, lock_wait_seconds=lock_wait_seconds)
+
+    def test_runs_info_then_native_verify_with_the_wal_ranges(self) -> None:
+        runner = FakeRunner(info=newest_backup_info(), verify=self.healthy)
+
+        self.run_action(runner)
+
+        self.assertEqual([["pgbackrest", "--stanza=duora", "info", "--output=json"],
+                          ["pgbackrest", "--stanza=duora", "verify", "--verbose", "--log-level-console=detail"]],
+                         runner.pgbackrest_calls())
+
+    def test_gap_fails_the_action(self) -> None:
+        runner = FakeRunner(info=newest_backup_info(), verify=verify_output([("18-1", wal(1, 0, 1), wal(1, 0, 2)),
+                                                                             ("18-1", wal(1, 0, 4), wal(1, 0, 4))]))
+
+        with self.assertRaisesRegex(backup.BackupError, "lacuna de WAL"):
+            self.run_action(runner)
+
+    def test_failed_native_verify_fails_the_action(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "verify --verbose"):
+            self.run_action(FakeRunner(info=newest_backup_info(), verify=self.healthy, fail_on=" verify "))
+
+    def test_waits_for_the_deploy_lock(self) -> None:
+        with backup.deploy_lock(self.state_dir, wait_seconds=0):
+            with self.assertRaisesRegex(backup.BackupError, "deploy ou backup em andamento"):
+                self.run_action(FakeRunner(info=newest_backup_info(), verify=self.healthy), lock_wait_seconds=0)
+
+    def test_daily_timer_runs_verify_repo(self) -> None:
+        role = Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup"
+        timer = (role / "files" / "duora-backup-verify-repo.timer").read_text(encoding="utf-8")
+        tasks = (role / "tasks" / "main.yml").read_text(encoding="utf-8")
+
+        self.assertIn("Unit=duora-backup@verify-repo.service", timer)
+        self.assertIn("OnCalendar=*-*-* 05:00:00 UTC", timer)
+        self.assertEqual(2, tasks.count("duora-backup-verify-repo.timer"))
 
 
 def _without(entry: dict, *path: str) -> dict:

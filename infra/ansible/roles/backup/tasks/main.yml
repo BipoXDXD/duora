@@ -49,6 +49,7 @@
     - duora-backup-full.timer
     - duora-backup-diff.timer
     - duora-backup-verify.timer
+    - duora-backup-verify-repo.timer
     - duora-backup-egress.service
   notify:
     - Recarregar systemd
@@ -63,7 +64,7 @@
     enabled: true
     state: started
 
-- name: Ligar os timers de full semanal, diferencial diário e verify a cada 15 min
+- name: Ligar os timers de full semanal, diferencial diário, verify a cada 15 min e verify do repositório diário
   ansible.builtin.systemd_service:
     name: "{{ item }}"
     enabled: true
@@ -72,3 +73,4 @@
     - duora-backup-full.timer
     - duora-backup-diff.timer
     - duora-backup-verify.timer
+    - duora-backup-verify-repo.timer
