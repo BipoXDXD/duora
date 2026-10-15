@@ -45,6 +45,9 @@ Thumbs.db
 livros-pdf/
 plano-duora.md
 
+# --- Estado local de desenvolvimento (e-mails gravados, key ring de Data Protection) ---
+.local/
+
 # --- Segredos e configuração local ---
 .env
 .env.*
