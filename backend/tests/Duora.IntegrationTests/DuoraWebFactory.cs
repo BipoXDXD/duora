@@ -11,10 +11,14 @@ namespace Duora.IntegrationTests;
 public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? logs = null)
     : WebApplicationFactory<Program>
 {
+    /// <summary>Mesma origem do cliente de teste (https://localhost), como a SPA servida pelo próprio domínio.</summary>
+    public const string PublicOrigin = "https://localhost";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Duora", connectionString);
+        builder.UseSetting("Duora:PublicOrigin", PublicOrigin);
         if (logs is not null)
         {
             builder.ConfigureLogging(logging => logging.AddProvider(logs));

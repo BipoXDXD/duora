@@ -1,0 +1,132 @@
+extern alias worker;
+
+using Duora.Core.Notifications;
+using Duora.Infrastructure.Email;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
+using Npgsql;
+using worker::Duora.Worker;
+
+namespace Duora.IntegrationTests.Outbox;
+
+/// <summary>
+/// Banco migrado só deste teste, diretório de e-mail temporário e relógio falso compartilhado pelos workers
+/// que o teste sobe. Cada worker é o host real do <see cref="WorkerHost"/>, não iniciado: o teste chama o
+/// dispatcher diretamente para controlar a ordem dos passos.
+/// </summary>
+internal sealed class EmailOutboxHarness : IAsyncDisposable
+{
+    public const string PublicOrigin = "https://duora.test";
+
+    private readonly List<IHost> _hosts = [];
+
+    private EmailOutboxHarness(string connectionString, DirectoryInfo mailDirectory)
+    {
+        ConnectionString = connectionString;
+        MailDirectory = mailDirectory;
+    }
+
+    public string ConnectionString { get; }
+
+    public DirectoryInfo MailDirectory { get; }
+
+    // Parte do instante real só para as chaves de Data Protection e afins não ficarem "no futuro"; os testes
+    // dependem apenas dos avanços explícitos.
+    public FakeTimeProvider Time { get; } = new(DateTimeOffset.UtcNow);
+
+    public static async Task<EmailOutboxHarness> CreateAsync(PostgresFixture postgres, CancellationToken cancellationToken)
+    {
+        var connectionString = await postgres.CreateMigratedDatabaseAsync(cancellationToken);
+        return new EmailOutboxHarness(connectionString, Directory.CreateTempSubdirectory("duora-mail-"));
+    }
+
+    public TransactionalEmailDispatcher StartWorker(
+        string[]? extraArgs = null,
+        Func<ITransactionalEmailSender, ITransactionalEmailSender>? decorateSender = null,
+        ILoggerProvider? logs = null)
+    {
+        string[] args =
+        [
+            "--environment", "Testing",
+            $"--ConnectionStrings:Duora={ConnectionString}",
+            $"--Duora:PublicOrigin={PublicOrigin}",
+            $"--Email:PickupDirectory={MailDirectory.FullName}",
+            .. extraArgs ?? [],
+        ];
+        var builder = WorkerHost.CreateBuilder(args);
+        builder.Services.AddSingleton<TimeProvider>(Time);
+        if (decorateSender is not null)
+        {
+            builder.Services.AddSingleton(provider => decorateSender(new PickupDirectoryEmailSender(
+                provider.GetRequiredService<IOptions<PickupDirectoryOptions>>(),
+                provider.GetRequiredService<ILogger<PickupDirectoryEmailSender>>())));
+        }
+
+        if (logs is not null)
+        {
+            builder.Logging.AddProvider(logs);
+        }
+
+        var host = builder.Build();
+        _hosts.Add(host);
+        return host.Services.GetRequiredService<TransactionalEmailDispatcher>();
+    }
+
+    public async Task<Guid> EnqueueAsync(AccountEmailKind kind, string? token, CancellationToken cancellationToken)
+    {
+        await using var dbContext = PostgresFixture.CreateDbContext(ConnectionString);
+        var message = new AccountEmailRequested(kind, "ana@example.com", Guid.CreateVersion7(), token);
+        var outboxEvent = AccountEmailOutbox.Create(message, Time.GetUtcNow());
+        dbContext.Add(outboxEvent);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return outboxEvent.Deliveries.Single().Id;
+    }
+
+    public async Task<DeliveryRow> ReadDeliveryAsync(Guid deliveryId, CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            select d.status, d.attempts, d.fencing_token, d.available_at, d.last_error, e.payload::text
+            from ops.outbox_deliveries d
+            join ops.outbox_events e on e.id = d.outbox_event_id
+            where d.id = $1
+            """,
+            connection);
+        command.Parameters.AddWithValue(deliveryId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        Assert.True(await reader.ReadAsync(cancellationToken), $"Entrega {deliveryId} não existe.");
+        return new DeliveryRow(
+            reader.GetString(0),
+            reader.GetInt32(1),
+            reader.GetInt64(2),
+            reader.GetFieldValue<DateTimeOffset>(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.GetString(5));
+    }
+
+    public string[] MailFiles() => Directory.GetFiles(MailDirectory.FullName, "*.eml");
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var host in _hosts)
+        {
+            host.Dispose();
+        }
+
+        await Task.Yield();
+        MailDirectory.Delete(recursive: true);
+    }
+}
+
+internal sealed record DeliveryRow(
+    string Status,
+    int Attempts,
+    long FencingToken,
+    DateTimeOffset AvailableAt,
+    string? LastError,
+    string Payload);

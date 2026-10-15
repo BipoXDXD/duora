@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure;
 
 namespace Duora.Infrastructure.Persistence;
 
@@ -6,7 +8,11 @@ namespace Duora.Infrastructure.Persistence;
 internal static class NpgsqlConfiguration
 {
     public static DbContextOptionsBuilder UseDuoraNpgsql(this DbContextOptionsBuilder builder, string connectionString) =>
-        builder.UseNpgsql(
-            connectionString,
-            npgsql => npgsql.MigrationsHistoryTable(DatabaseSchemas.MigrationsHistoryTable, DatabaseSchemas.Ops));
+        builder.UseNpgsql(connectionString, Configure);
+
+    public static DbContextOptionsBuilder UseDuoraNpgsql(this DbContextOptionsBuilder builder, NpgsqlDataSource dataSource) =>
+        builder.UseNpgsql(dataSource, Configure);
+
+    private static void Configure(NpgsqlDbContextOptionsBuilder npgsql) =>
+        npgsql.MigrationsHistoryTable(DatabaseSchemas.MigrationsHistoryTable, DatabaseSchemas.Ops);
 }
