@@ -40,6 +40,19 @@ public sealed class StartupConfigurationTests
         Assert.Contains("Duora:PublicOrigin", exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task WebDoesNotStartWithoutAPersistentKeyRing(string keysDirectory)
+    {
+        await using var app = BuildWeb($"--DataProtection:KeysDirectory={keysDirectory}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("DataProtection:KeysDirectory", exception.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Linha de comando tem a maior precedência: env e user-secrets da máquina não interferem. Porta 0: se a
     /// validação falhar em barrar o boot, o teste não disputa porta com ninguém. O banco nunca é contatado, porque
@@ -52,6 +65,7 @@ public sealed class StartupConfigurationTests
             "--urls=http://127.0.0.1:0",
             "--ConnectionStrings:Duora=Host=127.0.0.1;Port=1;Database=duora;Username=duora;Password=x",
             $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
+            $"--DataProtection:KeysDirectory={Path.Combine(Path.GetTempPath(), "duora-keys-unused")}",
             invalidSetting,
         ]);
 }
