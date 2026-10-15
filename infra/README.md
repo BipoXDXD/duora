@@ -9,10 +9,11 @@ deploy, manifesto e runbooks: [docs/operations/deploy.md](../docs/operations/dep
 | `compose/compose.prod.yml` | Produção e homologação: postgres, web, worker, edge e o job migrator |
 | `images/dotnet/Dockerfile` | Alvos `web`, `worker` e `migrator` a partir do mesmo build |
 | `images/edge/Dockerfile` | Caddy com a SPA e o Caddyfile embutidos |
-| `images/postgres/` | PostgreSQL 18.6 + pgBackRest 2.59.3 e o script de papéis da 1a inicialização |
+| `images/postgres/` | PostgreSQL 18.6 + pgBackRest 2.59.3, configuração de WAL e do pgBackRest (lado postgres e lado repositório) e os scripts da 1a inicialização |
 | `caddy/Caddyfile` | Borda: TLS, SPA, `/api`, `/hubs`, cabeçalhos de segurança e logs |
-| `ansible/` | Configuração do host (roles `base`, `ssh`, `firewall`, `docker`, `app_dirs`) |
-| `../scripts/deploy/` | `duora-deploy`, `duora-secrets` e o smoke local (Python 3.12, só biblioteca padrão) |
+| `ansible/` | Configuração do host (roles `base`, `ssh`, `firewall`, `docker`, `app_dirs`, `backup`) |
+| `../scripts/deploy/` | `duora-deploy`, `duora-secrets`, `duora-backup` e o smoke local (Python 3.12, só biblioteca padrão) |
+| `../scripts/backup/` | Drill de restore PITR com MinIO de teste ([backup-restore.md](../docs/operations/backup-restore.md)) |
 
 Sem OpenTofu por enquanto: provedor e arquitetura da VPS não foram escolhidos (spec 2.3, "não inventar provider").
 
@@ -44,16 +45,22 @@ digest do índice multiarquitetura; atualizar as duas juntas.
 
 ## Compose de produção
 
-- **Redes**: `edge` (Caddy + web), `data` (`internal: true`: postgres, web, worker, migrator) e `egress` (worker,
-  para storage, e-mail e verificação). O postgres não tem `ports`; só o edge publica 80, 443 e 443/udp.
+- **Redes**: `edge` (Caddy + web), `data` (`internal: true`: postgres, web, worker, migrator), `egress` (worker,
+  para storage, e-mail e verificação), `pgbackrest` (`internal: true`: postgres e backup) e `backup-egress`
+  (`172.30.20.0/24`: só o backup e o job de restore, com saída filtrada no host). O postgres só está em redes
+  `internal` e não tem `ports`; só o edge publica 80, 443 e 443/udp.
+- **Backup** ([backup-restore.md](../docs/operations/backup-restore.md)): o container `backup` (mesma imagem do
+  postgres) é o repository host do pgBackRest e o único com as credenciais do S3 e a senha de cifra; recebe o WAL do
+  postgres por TLS com certificado de cliente e lê PGDATA e socket só leitura. O job `restore` (profile `restore`)
+  monta o PGDATA gravável.
 - **Volumes nomeados**: `pgdata` em `/var/lib/postgresql` (layout do PG 18), `dataprotection`,
   `caddy_data`/`caddy_config`. O dono e o modo 0700 vêm da imagem na primeira montagem.
 - **Endurecimento** (web, worker, edge, migrator): `read_only` + `tmpfs` em `/tmp`, `cap_drop: [ALL]`,
   `no-new-privileges`, usuário numérico não-root, limites de memória, CPU e PIDs (spec 15.1: web 1,5 GiB,
   worker 1 GiB, postgres 2,5 GiB, Caddy 128 MiB), logs com rotação (driver `local`, 5 × 10 MB).
 - **PostgreSQL** roda direto como 999, também com `cap_drop: [ALL]`: o diretório do volume já é do usuário postgres
-  na imagem, então o entrypoint não precisa de root para preparar o PGDATA. Ele não é `read_only` (PGDATA, socket e,
-  no futuro, spool do pgBackRest).
+  na imagem, então o entrypoint não precisa de root para preparar o PGDATA. Ele não é `read_only` (PGDATA, socket e
+  spool do pgBackRest). O `backup` tem o mesmo endurecimento de web e worker (`read_only`, `tmpfs` em `/tmp`).
 - **Segredos** por Compose secrets (arquivos do host em `DUORA_SECRETS_DIR`). Fora do Swarm o Compose ignora
   `uid`/`gid`/`mode`, então cada arquivo fica 0400 com dono = UID do único container que o lê (`duora-secrets`).
   Web e worker leem `/run/secrets` com o provider KeyPerFile (`SecretsDirectory=/run/secrets`, nome do arquivo
@@ -105,6 +112,10 @@ uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.y
 - `firewall`: UFW com IPv6, entrada negada por padrão, SSH com `limit` das origens permitidas, 80/443 TCP e 443 UDP.
 - `docker`: repositório oficial; a chave é baixada fora de `/etc/apt/keyrings`, convertida para binário e só instalada se o arquivo final tiver exatamente uma chave primária com a impressão digital publicada (`files/validate_apt_key.py`, com teste; uma chave extra no arquivo também passaria a valer para o apt), `daemon.json` com `live-restore`,
   `no-new-privileges` e logs limitados. Ninguém entra no grupo `docker` (equivale a root).
+- `backup`: certificados do pgBackRest (`duora-secrets init-backup-tls`), `/usr/local/sbin/duora-backup`, timers
+  systemd (full domingo 03:00 UTC, diferencial seg–sáb 03:00 UTC, `verify` a cada 15 min) e o filtro de saída
+  `duora-backup-egress` (chain `DOCKER-USER` para `172.30.20.0/24`: só DNS e HTTPS, HTTPS restrito a
+  `duora_backup_s3_cidrs` quando o provedor existir).
 - `app_dirs`: `/opt/duora`, `/etc/duora` (0750), `/etc/duora/secrets` (0700), `/var/lib/duora` (0700),
   os comandos em `/usr/local/sbin`, os segredos gerados uma vez e o usuário `duora-deploy`: chave do CI presa a
   `sudo -n /usr/local/sbin/duora-deploy --manifest -` e sudoers só para esse comando (sem `sudo ALL`).
@@ -129,13 +140,13 @@ cada mudança de rede (spec 15.2), não a leitura das regras.
 | Papéis separados de migrador e aplicação | Spec 17.3; o app não altera schema | Rotação de senha manual em dois arquivos |
 | Histórico do EF fechado ao app por reconciliação pós-migração | Vale desde a 1a migração e a cada deploy, sem tocar no backend nem copiar o DDL do EF para o initdb | Janela de segundos entre a migração e o `REVOKE` em que o app antigo ainda teria DML no histórico |
 | Deploy e segredos em Python 3.12 (biblioteca padrão) | Já vem no Ubuntu 24.04 (o Ansible também exige), valida JSON sem `jq`, tem testes e checagem de tipos | Um interpretador a mais no caminho do deploy (o do sistema, atualizado pelo Ubuntu) |
+| Backup por repository host `backup` (pgBackRest TLS), decidido pelo usuário em 2026-10-15 | O postgres fica só em redes `internal`, sem credencial do S3 nem senha de cifra; a saída para o repositório é de um único container filtrado no host | Um container a mais e CA/certificados próprios para rotacionar (825 dias) |
 | Smoke por `/health/ready` de dentro do edge | Saúde nunca exposta na borda; usa o `wget` que o Alpine já tem | O smoke depende do edge estar de pé |
 
 ## Pendências
 
-- **pgBackRest completo**: stanza, repositório externo criptografado, `archive_command`, agenda (full semanal,
-  diferencial diário, WAL contínuo), timer do host, verificação de backup/WAL no `duora-deploy` e teste de restore
-  (spec 18). O postgres precisará de saída para o repositório: hoje ele está só na rede `internal`.
+- **Backup**: provedor S3, cópia protegida contra exclusão, alertas fora da VPS e prova no host real
+  ([backup-restore.md](../docs/operations/backup-restore.md#pendências-que-dependem-da-vps-ou-do-fornecedor)).
 - **Registry (GHCR ou outro), push e manifesto pelo CI**: publicar as imagens multiarquitetura, gerar SBOM,
   assinatura/proveniência e o manifesto; dar ao host só leitura no registry; job de deploy com a chave dedicada.
 - **OpenTelemetry Collector** local e destino externo de monitoramento, com orçamento de 256 MiB (spec 19).
