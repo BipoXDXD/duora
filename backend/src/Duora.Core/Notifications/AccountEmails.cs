@@ -60,6 +60,10 @@ public sealed class AccountEmails
             Se não foi você, nenhuma ação é necessária.
             """);
 
+    /// <summary>
+    /// Credenciais no fragmento, nunca na query: o fragmento não vai ao servidor, ao log do proxy nem ao
+    /// <c>Referer</c> (auth.md, TM-19). A SPA lê o fragmento e envia userId e token no corpo do POST.
+    /// </summary>
     private Uri ActionLink(string path, Guid userId, string token) =>
-        _publicOrigin.Resolve($"{path}?userId={userId:D}&token={Uri.EscapeDataString(token)}");
+        _publicOrigin.Resolve($"{path}#userId={userId:D}&token={Uri.EscapeDataString(token)}");
 }
