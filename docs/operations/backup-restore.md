@@ -31,7 +31,7 @@ comprometido (spec 15.2). Opções avaliadas:
 
 | Opção | Prós | Contras |
 |---|---|---|
-| **(a) Repository host via `pgbackrest server` (escolhida)** | O postgres fica só em redes `internal`, sem nenhuma rota para fora; credenciais do S3 e senha de cifra saem do processo do banco (um postgres comprometido não lê nem apaga o backup); o filtro de saída só precisa cuidar de um container sem SQL exposto | Um container a mais; CA e certificados próprios para gerar, guardar e rotacionar (825 dias); o restore usa um job separado |
+| **(a) Repository host via `pgbackrest server` (escolhida)** | O postgres fica só em redes `internal`, sem nenhuma rota para fora; credenciais do S3 e senha de cifra saem do processo do banco (um postgres comprometido não as lê nem fala direto com o S3); o filtro de saída só precisa cuidar de um container sem SQL exposto | Um container a mais; CA e certificados próprios para gerar, guardar e rotacionar (825 dias); o restore usa um job separado. **Não protege contra exclusão:** com o certificado de cliente, um postgres comprometido lista e apaga o repositório pelo servidor TLS (abaixo) |
 | (b) Archive no postgres + filtro `DOCKER-USER` por IP do endpoint | Topologia mais simples | O banco continua com saída (mesmo filtrada) e com credencial que apaga o repositório; endpoint S3 resolve para IPs que mudam (CDN), então a allowlist por IP é frágil |
 
 Variante adotada dentro de (a): o `backup` lê o PGDATA **só leitura** e faz os backups localmente, em vez de um
@@ -63,6 +63,80 @@ O papel `duora_backup` (`initdb/10-duora-roles.sh`) não é superusuário, não 
 O servidor TLS do pgBackRest escuta só em `172.30.21.10:8432`: pela rede `backup-egress` a porta nem abre. Ele exige
 certificado de cliente assinado pela CA própria, e `tls-server-auth=duora-postgres=duora` aceita só o certificado do
 postgres e só para a stanza `duora`.
+
+**O que a topologia protege e o que não protege.** Ela protege a saída (o postgres não tem rota para fora) e a
+credencial do S3 e a senha de cifra (só o `backup` as tem). Ela **não** protege o repositório contra exclusão:
+`tls-server-auth` restringe a stanza, não as operações, e com o certificado de cliente o postgres roda `repo-ls`,
+`repo-rm --recurse` e `expire` no repositório pelo servidor TLS. Um postgres comprometido apaga backups e WAL. A
+proteção contra exclusão é o versionamento + Object Lock do bucket, **pré-requisito de produção** (próxima seção). O
+drill prova as duas coisas: o `repo-ls` e o `repo-rm --recurse` vindos do postgres funcionam, e o restore lê as
+versões anteriores à exclusão.
+
+### Proteção contra exclusão: versionamento + Object Lock (pré-requisito de produção)
+
+Decidido pelo usuário em 2026-10-15 ([ADR-0023](../architecture/adr/0023-topologia-do-backup-repository-host-e-object-lock.md),
+spec 18.3, "resiliência a comprometimento"). Nenhum deploy de produção acontece sem isto: o `duora-backup verify`
+(timer e deploy) **falha fechado** se o bucket não provar versionamento + Object Lock.
+
+Requisitos do bucket (qualquer provedor S3 compatível que suporte Object Lock):
+
+| Requisito | Valor | Por quê |
+|---|---|---|
+| Versionamento | `Enabled` | Uma exclusão (do `expire` ou de um atacante) vira delete marker; a versão anterior continua lá |
+| Object Lock | habilitado na criação do bucket (a maioria dos provedores não deixa ligar depois) | Nem a credencial do `backup` nem um atacante com ela apagam uma versão antes do prazo |
+| Retenção padrão | `COMPLIANCE`, **≥ 21 dias** (o verify aceita `GOVERNANCE`, mas a política abaixo nega o bypass) | Cobre a janela máxima de retenção do repositório (21 dias, seção de retenção) |
+| Lifecycle | expirar **versões não correntes** depois de 21 dias + margem (sugestão: 30 dias) e remover delete markers órfãos | Sem isso as versões apagadas pelo `expire` ficam para sempre e o custo cresce sem limite |
+
+O `expire` do pgBackRest continua funcionando: num bucket versionado, apagar sem `versionId` só cria um delete
+marker, o que o Object Lock permite. Custo: as versões não correntes ficam até o lifecycle removê-las, então o
+espaço pode chegar perto do dobro da conta da seção de retenção.
+
+Política mínima da credencial do `backup` (sintaxe AWS IAM; adaptar ao provedor), só no prefixo `duora/` do bucket
+dedicado:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::BUCKET",
+     "Condition": {"StringLike": {"s3:prefix": ["duora/*", "duora"]}}},
+    {"Effect": "Allow", "Action": ["s3:GetBucketVersioning", "s3:GetBucketObjectLockConfiguration"],
+     "Resource": "arn:aws:s3:::BUCKET"},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+     "Resource": "arn:aws:s3:::BUCKET/duora/*"},
+    {"Effect": "Allow", "Action": ["s3:ListBucketVersions", "s3:GetObjectVersion"],
+     "Resource": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/duora/*"]},
+    {"Effect": "Deny",
+     "Action": ["s3:DeleteObjectVersion", "s3:BypassGovernanceRetention", "s3:PutObjectRetention",
+                "s3:PutObjectLegalHold", "s3:PutBucketVersioning", "s3:PutBucketObjectLockConfiguration",
+                "s3:PutLifecycleConfiguration", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:DeleteBucket"],
+     "Resource": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/*"]}
+  ]
+}
+```
+
+- `GetBucketVersioning` e `GetBucketObjectLockConfiguration`: o verify consulta os dois a cada execução.
+- `ListBucketVersions` e `GetObjectVersion`: o restore lê versões antigas com `--repo-target-time`.
+- Negado: apagar versão, contornar ou mudar retenção, mudar versionamento, lock, lifecycle ou a política do bucket.
+  Essas operações ficam só com uma credencial administrativa **fora da VPS** (cofre do responsável).
+
+Como o verify confere: lê o `repo.conf` montado no `backup`, assina (AWS Signature V4) um `GET ?versioning` e um
+`GET ?object-lock` e os envia de dentro do próprio container por `openssl s_client` (mesma rede, DNS, CA e filtro de
+saída do pgBackRest, com verificação de certificado e de nome). Bloqueiam: versionamento diferente de `Enabled`,
+Object Lock ausente (`404 ObjectLockConfigurationNotFoundError`) ou desligado, sem retenção padrão, retenção menor
+que 21 dias, resposta HTTP diferente de 200 (por exemplo 403 por falta de permissão) ou resposta ilegível. Testes:
+`BucketProtectionTests`, `BucketProtectionActionTests` e o vetor de assinatura da documentação AWS em
+`SignedRequestTests`.
+
+**Recuperação depois de uma exclusão maliciosa** (passo 3 do restore, com o repositório apagado):
+
+1. Restaurar o banco lendo o repositório como estava antes do ataque:
+   `--repo=1 --repo-target-time="<instante UTC antes da exclusão>"` no comando do job `restore` (abaixo). O
+   `archive-get` da recuperação usa o mesmo instante.
+2. Com a credencial administrativa, fora da VPS, remover os delete markers posteriores ao ataque (só eles; nunca
+   versões). O repositório volta ao estado anterior e o banco restaurado volta a arquivar nele.
+3. Trocar certificados TLS e a credencial S3 (o postgres que apagou estava comprometido) e rodar
+   `sudo duora-backup verify` e `sudo duora-backup verify-repo`.
 
 Testes: `test_db_privileges.py` (sem `trust` no `pg_hba` ativo, `duora_backup` sem superusuário e sem acesso ao banco
 `duora`, recusado sem senha, recusado de `127.0.0.1` mesmo com a senha certa e recusado no socket, além dos privilégios
@@ -111,8 +185,9 @@ O postgres não depende desse filtro: ele não está em rede nenhuma com saída.
 
 ### Segredos do repositório (operador, uma vez)
 
-O provedor ainda não foi escolhido; nada aqui presume um. Num bucket dedicado, crie uma credencial com permissão
-só no prefixo `duora/` (listar, ler, gravar e apagar: o `expire` do pgBackRest apaga). Em `/etc/duora/secrets/`:
+O provedor ainda não foi escolhido; nada aqui presume um. Num bucket dedicado com versionamento e Object Lock (seção
+anterior), crie uma credencial com a política mínima acima, só no prefixo `duora/` (o `expire` do pgBackRest apaga, o
+que no bucket versionado vira delete marker). Em `/etc/duora/secrets/`:
 
 ```ini
 # pgbackrest_repo.conf (0400, dono 999)
@@ -296,11 +371,19 @@ python3 scripts/backup/restore_drill.py --image duora-postgres:drill
      postgres;
    - o postgres não enxerga credencial do repositório;
    - `duora_backup` autentica do backup com a senha e falha sem ela.
-2. `stanza-create` e full pelo `duora-backup`; escrita das linhas `before`; marca o ponto; escrita das `after`.
+2. Bucket do dublê criado com versionamento e Object Lock `COMPLIANCE` de 21 dias (sem isso o verify recusa);
+   `stanza-create` e full pelo `duora-backup`; escrita das linhas `before`; marca o ponto; escrita das `after`.
 3. **RPO natural**: tempo entre o commit das `after` e o WAL delas confirmado no repositório, só com
    `archive_timeout` (sem troca forçada).
-4. `duora-backup verify`; destrói containers e volume; restore PITR pelo job `restore`; promoção.
-5. Confere `before` = 100 e `after` = 0, timeline ≥ 2, e `duora-backup verify` de novo.
+4. `duora-backup verify` (inclui o versionamento e o Object Lock do bucket).
+5. **Postgres comprometido**: com o próprio certificado de cliente, o postgres lista (`repo-ls`) e apaga
+   (`repo-rm --recurse archive` e `backup`) o repositório. O drill **exige** que isso funcione: documenta o poder que
+   a topologia não tira. Se um dia falhar, esta página e o ADR-0023 precisam ser revistos.
+6. Destrói containers e volume; restore PITR pelo job `restore` lendo as versões anteriores à exclusão
+   (`--repo-target-time`); promoção. Confere `before` = 100 e `after` = 0 e timeline ≥ 2.
+7. Desfaz a exclusão (no dublê, `mc undo --action DELETE`; na produção, remoção dos delete markers com a credencial
+   administrativa) e roda `duora-backup verify` e `duora-backup verify-repo`.
+8. Apaga um segmento de WAL no meio da cadeia e exige que o `verify-repo` acuse a lacuna.
 
 **RTO observado** = da destruição até os dados conferidos. Saída em JSON (`--report arquivo.json`); `--keep`
 mantém o ambiente. Sem `--keep`, o drill apaga o diretório temporário dele (segredos sintéticos com dono 999) por um
@@ -311,9 +394,12 @@ container root da própria imagem e **falha** se algo sobrar. O CI roda o drill 
 | 2026-10-15 | Docker Desktop, Apple Silicon (arm64), banco quase vazio | 55,3 s | 31,2 s | Prova do caminho, não do volume real: o RTO de produção depende do tamanho do banco e da banda até o S3 |
 | 2026-10-15 | Idem, com prova de isolamento | 55,6 s | 13,4 s | O RPO natural fica perto do `archive_timeout` (60 s), dentro da meta de 5 min |
 | 2026-10-15 | Idem, sem `trust`, sem socket compartilhado, `duora_backup` sem superusuário | 55,6 s | 13,1 s | Backup, check e restore com o papel mínimo |
+| 2026-10-15 | Idem, bucket com versionamento + Object Lock, repositório apagado pelo postgres | 56,0 s | 13,6 s | Restore pelas versões anteriores à exclusão (`--repo-target-time`); `verify-repo` acusou o segmento apagado |
 
 Limites do drill: o MinIO roda na mesma máquina (sem latência de rede real); o filtro `DOCKER-USER` não é exercido
-(Docker Desktop não tem a chain do host); dados sintéticos.
+(Docker Desktop não tem a chain do host); dados sintéticos. O MinIO continua listando como "diretório" um prefixo que
+só tem delete markers, então lá um `stanza-create` depois da exclusão recusa ("archive directory not empty"); por isso
+o drill desfaz a exclusão em vez de recriar a stanza, que é também o procedimento recomendado.
 
 ## Alertas (spec 19.1)
 
@@ -329,10 +415,9 @@ Limites do drill: o MinIO roda na mesma máquina (sem latência de rede real); o
 
 - **Provedor S3**: escolher (com região e jurisdição compatíveis com a spec 12), criar bucket e credencial restrita
   ao prefixo, preencher `pgbackrest_repo.conf` e os CIDRs do endpoint em `duora_backup_s3_cidrs`.
-- **Cópia protegida contra exclusão** (spec 18.3, "resiliência a comprometimento"): a credencial do `backup`
-  precisa apagar para o `expire` funcionar. Falta uma segunda cópia com retenção administrada fora da VPS (bucket de
-  outra conta com replicação, ou versionamento com lifecycle maior que 21 dias). Object lock no bucket operacional
-  conflita com o `expire` e exigiria adaptar a política.
+- **Proteção contra exclusão** (spec 18.3, ADR-0023): **pré-requisito de produção**, decidido (versionamento +
+  Object Lock `COMPLIANCE` ≥ 21 dias, lifecycle de versões não correntes, credencial sem `DeleteObjectVersion`).
+  Falta criar o bucket assim no provedor escolhido; o verify já recusa um bucket sem isso.
 - **Prova no host real**: rodar o playbook, conferir a chain `DUORA-BACKUP-EGRESS` (`iptables -S DOCKER-USER`), uma
   conexão de dentro do `backup` a um destino fora da allowlist falhando, restore completo com o volume real e o RTO
   cronometrado (spec 18.5), e o ensaio mensal de perda de VPS.

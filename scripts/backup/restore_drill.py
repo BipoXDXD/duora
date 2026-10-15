@@ -14,13 +14,19 @@ backup (scripts/backup/compose.drill.yml; nunca produção), e então:
   3. grava linhas "before", marca o ponto de recuperação e grava linhas "after";
   4. mede o RPO natural: tempo entre o commit das linhas "after" e o WAL delas confirmado no repositório, só com
      archive_timeout (sem troca forçada);
-  5. duora-backup verify;
-  6. destrói os containers postgres e backup e o volume do banco;
-  7. restore PITR até o ponto marcado (job restore), sobe backup e postgres e espera a promoção;
-  8. confere que as linhas "before" existem, as "after" não, e que a timeline avançou;
-  9. duora-backup verify de novo: o banco restaurado volta a arquivar.
+  5. duora-backup verify (inclui versionamento + Object Lock do bucket);
+  6. ataque de um postgres comprometido: com o próprio certificado de cliente ele lista (repo-ls) e apaga
+     (repo-rm --recurse) o repositório inteiro pelo servidor TLS do backup. A topologia não impede isso; o que salva
+     é o versionamento + Object Lock do bucket (ADR-0023);
+  7. destrói os containers postgres e backup e o volume do banco;
+  8. restore PITR até o ponto marcado lendo o repositório como era antes da exclusão (--repo-target-time), sobe
+     backup e postgres e espera a promoção;
+  9. confere que as linhas "before" existem, as "after" não, e que a timeline avançou;
+ 10. o operador desfaz a exclusão com credencial administrativa fora da VPS (remove os delete markers; aqui, mc undo
+     no dublê) e o duora-backup verify volta a passar, com o banco restaurado arquivando na timeline nova;
+ 11. duora-backup verify-repo passa e, com um segmento de WAL apagado no meio da cadeia, falha.
 
-RTO observado = da destruição do volume até os dados conferidos (passos 6 a 8). Dados sintéticos; tudo é
+RTO observado = da destruição do volume até os dados conferidos (passos 7 a 9). Dados sintéticos; tudo é
 derrubado no fim (--keep mantém para inspeção). Só biblioteca padrão; precisa de docker e openssl.
 """
 
@@ -73,6 +79,7 @@ class DrillFailure(Exception):
 class DrillReport:
     image: str
     target_time: str = ""
+    repo_target_time: str = ""
     rpo_seconds: float = 0.0
     rto_seconds: float = 0.0
     timeline_after_restore: int = 0
@@ -136,15 +143,20 @@ class Drill:
         target = self._phase("escrita before/after e ponto de recuperação", self._write_rows)
         self._phase("RPO natural (archive_timeout)", lambda: self._measure_rpo(target))
         self._phase("duora-backup verify", lambda: self._duora_backup("verify"))
+        repo_target_time = self._phase("postgres comprometido apaga o repositório", self._attack_repository)
 
         started = time.monotonic()
         self._phase("destruição dos containers e do volume", self._destroy)
-        self._phase("restore PITR (job restore)", lambda: self._restore(target.recovery_time))
+        self._phase("restore PITR das versões anteriores à exclusão (job restore)",
+                    lambda: self._restore(target.recovery_time, repo_target_time))
         self._phase("subida e promoção", self._start_restored)
         self._phase("conferência dos dados", self._verify_restored_data)
         self.report.rto_seconds = round(time.monotonic() - started, 1)
 
+        self._phase("operador desfaz a exclusão (delete markers)", self._undo_attack)
         self._phase("duora-backup verify pós-restore", lambda: self._duora_backup("verify"))
+        self._phase("duora-backup verify-repo", lambda: self._duora_backup("verify-repo"))
+        self._phase("verify-repo detecta lacuna de WAL", self._check_wal_gap_detection)
         return self.report
 
     def _phase[T](self, name: str, action: Callable[[], T]) -> T:
@@ -337,6 +349,42 @@ class Drill:
             time.sleep(1)
         raise DrillFailure(f"segmento {segment} não foi arquivado em {ARCHIVE_WAIT_SECONDS} s")
 
+    # --- Ataque ao repositório -------------------------------------------------------------------------------------
+
+    def _attack_repository(self) -> str:
+        """O certificado de cliente do postgres não se limita ao archive-push: lista e apaga o repositório.
+
+        tls-server-auth (pgbackrest-repo.conf) restringe a stanza, não as operações. Se este passo começar a falhar
+        porque o pgBackRest passou a recusar, a documentação (backup-restore.md, ADR-0023) precisa ser revista: ela
+        afirma que um postgres comprometido apaga o repositório e que só o Object Lock protege.
+        """
+        listing = _run(self._compose + ["exec", "--no-TTY", "postgres", "pgbackrest", "--stanza=duora",
+                                        "--log-level-console=off", "repo-ls"], capture=True).split()
+        self.report.isolation["postgres lista o repositório (repo-ls)"] = listing == ["archive", "backup"]
+        if listing != ["archive", "backup"]:
+            raise DrillFailure(f"repo-ls a partir do postgres devolveu {listing}; esperado ['archive', 'backup']")
+        # Instante do repositório antes da exclusão, com folga para os dois lados (milissegundos são truncados).
+        time.sleep(TARGET_MARGIN_SECONDS)
+        repo_target_time = time.strftime("%Y-%m-%d %H:%M:%S+00", time.gmtime())
+        time.sleep(TARGET_MARGIN_SECONDS)
+        for path in ("archive", "backup"):
+            _run(self._compose + ["exec", "--no-TTY", "postgres", "pgbackrest", "--stanza=duora",
+                                  "repo-rm", "--recurse", path], capture=True)
+        info = json.loads(_run(self._compose + ["exec", "--no-TTY", "backup", "pgbackrest", "--stanza=duora",
+                                                "--log-level-console=off", "info", "--output=json"], capture=True))
+        deleted = info[0]["status"]["code"] != 0
+        self.report.isolation["postgres apaga o repositório (repo-rm --recurse)"] = deleted
+        if not deleted:
+            raise DrillFailure(f"repositório ainda íntegro depois do repo-rm do postgres: {info[0]['status']}")
+        self.report.repo_target_time = repo_target_time
+        return repo_target_time
+
+    def _undo_attack(self) -> None:
+        # Na produção: remover os delete markers posteriores ao ataque com a credencial administrativa do bucket (a do
+        # backup não tem s3:DeleteObjectVersion). --action DELETE: só desfaz exclusões, nunca o WAL novo.
+        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "undo", "--recursive", "--force", "--action", "DELETE",
+                              f"local/{BUCKET}/duora/"], capture=True)
+
     # --- Desastre e restore -----------------------------------------------------------------------------------------
 
     def _destroy(self) -> None:
@@ -344,8 +392,10 @@ class Drill:
         _run(self._compose + ["rm", "--stop", "--force", "postgres", "backup"])
         _run(["docker", "volume", "rm", f"{PROJECT}_pgdata"])
 
-    def _restore(self, recovery_time: str) -> None:
+    def _restore(self, recovery_time: str, repo_target_time: str) -> None:
+        # --repo-target-time lê as versões do bucket como estavam antes da exclusão (pgBackRest 2.50+, S3 versionado).
         _run(self._compose + ["--profile", "restore", "run", "--rm", "--no-deps", "restore",
+                              "--repo=1", f"--repo-target-time={repo_target_time}",
                               "--type=time", f"--target={recovery_time}", "--target-action=promote", "restore"])
 
     def _start_restored(self) -> None:
@@ -368,6 +418,29 @@ class Drill:
         if timeline < 2:
             raise DrillFailure(f"timeline {timeline} depois do PITR; esperado nova timeline (>= 2)")
         self.report.timeline_after_restore = timeline
+
+    def _check_wal_gap_detection(self) -> None:
+        """Apaga um segmento no meio da cadeia (depois do full novo) e exige que o verify-repo falhe."""
+        for _ in range(3):  # cada check troca o segmento e espera ele chegar ao repositório
+            self._duora_backup("verify")
+        listing = _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "ls", "--recursive",
+                                        f"local/{BUCKET}/duora/archive/duora/"], capture=True)
+        timeline = f"{self.report.timeline_after_restore:08X}"
+        segments = sorted(name for name in (line.split()[-1] for line in listing.splitlines())
+                          if name.endswith(".zst") and name.split("/")[-1].startswith(timeline))
+        if len(segments) < 3:
+            raise DrillFailure(f"esperado ao menos 3 segmentos na timeline {timeline} do repositório: {segments}")
+        # O penúltimo: depois do início do full novo (as três trocas acima vêm depois dele) e antes do último.
+        victim = segments[-2]
+        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "rm", f"local/{BUCKET}/duora/archive/duora/{victim}"],
+             capture=True)
+        result = subprocess.run([sys.executable, str(BACKUP_SCRIPT), "verify-repo", "--compose-project", PROJECT,
+                                 "--state-dir", str(self._state_dir), "--skip-egress-check"],
+                                capture_output=True, text=True, check=False, timeout=COMMAND_TIMEOUT_SECONDS)
+        detected = result.returncode != 0 and "lacuna de WAL" in result.stderr
+        self.report.isolation[f"verify-repo detecta lacuna ({victim.split('/')[-1][:24]} apagado)"] = detected
+        if not detected:
+            raise DrillFailure(f"verify-repo não acusou a lacuna de WAL: código {result.returncode}\n{result.stderr}")
 
     # --- Infra ------------------------------------------------------------------------------------------------------
 
