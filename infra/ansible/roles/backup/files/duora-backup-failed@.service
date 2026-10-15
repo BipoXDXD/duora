@@ -1,0 +1,9 @@
+# Gerenciado pelo Ansible (infra/ansible/roles/backup). Disparado por OnFailure= de duora-backup@.service.
+# Registra a falha com prioridade crit no journal (identificador duora-backup-alert). É aqui que o destino de alerta
+# externo (spec 19.1, pendência) vai se ligar; até lá a falha aparece em "systemctl --failed" e no journal.
+[Unit]
+Description=Duora: alerta de falha em %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/logger --priority daemon.crit --tag duora-backup-alert "falhou: %i (journalctl -u %i)"
