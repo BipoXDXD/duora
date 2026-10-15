@@ -257,6 +257,11 @@ erDiagram
   regiões **a definir**); `bio text` (≤ 500); `updated_at`; `version bigint` (`ETag` de API-P01/P02).
 - **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos e de `age_band`.
 - **Classe:** P2 (perfil exibido a contextos legítimos, spec 12.1).
+- **Implementado (migração `Profiles`):** `user_id`, `display_name text null` (1 a 40), `bio text null` (1 a 500),
+  `version bigint` (`CHECK version >= 1`; a linha só nasce na primeira gravação, e o perfil sem linha é lido como
+  versão 0) e `updated_at`, com `CHECK` de tamanho por `char_length` e FK `RESTRICT`. O texto é gravado em NFC,
+  sem Cc, Cf, Zl, Zp nem surrogate solto (`ProfileText`). `age_band` e `region_code` **ainda não existem**: a origem
+  da faixa (issue #9 item 7, D12) e a tabela de regiões estão por decidir.
 
 ### profiles.preferences
 

@@ -1,4 +1,5 @@
 import { useId, useState, type ComponentProps } from 'react'
+import { cn } from 'cn'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { Input } from './input'
 import { Label } from './label'
@@ -63,6 +64,37 @@ export function TextField({ label, hint, error, ...inputProps }: TextFieldProps)
       <Label htmlFor={inputId}>{label}</Label>
       <FieldHint id={hintId} text={hint} />
       <Input id={inputId} {...inputAria} {...inputProps} />
+      <FieldError id={errorId} text={error} />
+    </div>
+  )
+}
+
+type TextAreaFieldProps = FieldTextProps & Omit<ComponentProps<'textarea'>, 'id' | 'aria-invalid' | 'aria-describedby'>
+
+/** Texto de várias linhas, com o mesmo label, ajuda e erro do TextField (A11Y-01). */
+export function TextAreaField({
+  label,
+  hint,
+  error,
+  className,
+  ...textareaProps
+}: TextAreaFieldProps): React.JSX.Element {
+  const { inputId, hintId, errorId, inputAria } = useFieldIds(hint, error)
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={inputId}>{label}</Label>
+      <FieldHint id={hintId} text={hint} />
+      <textarea
+        id={inputId}
+        className={cn(
+          'min-h-32 w-full min-w-0 rounded-md border border-border bg-surface px-3 py-2 text-base text-text',
+          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
+          'aria-invalid:border-2 aria-invalid:border-danger',
+          className,
+        )}
+        {...inputAria}
+        {...textareaProps}
+      />
       <FieldError id={errorId} text={error} />
     </div>
   )

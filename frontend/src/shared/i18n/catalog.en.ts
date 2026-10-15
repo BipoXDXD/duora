@@ -134,6 +134,38 @@ export const en = {
   'account.statusLabel.DeletionPending': 'Deletion requested',
   'account.statusLabel.Unknown': 'Unavailable right now',
 
+  'account.editProfile': 'Edit profile',
+
+  'profile.title': 'Your profile',
+  'profile.intro':
+    'Your display name and description are shown to the people you play with. Do not include contact details, addresses or sensitive information.',
+  'profile.loading': 'Loading your profile…',
+  'profile.loadError': 'We could not load your profile.',
+  'profile.displayName': 'Display name',
+  'profile.displayNameHint': 'How other people will see you. Up to {max} characters.',
+  'profile.bio': 'Short description',
+  'profile.bioHint': 'Optional. Up to {max} characters.',
+  'profile.save': 'Save profile',
+  'profile.saving': 'Saving…',
+  'profile.saved': 'Profile saved.',
+  'profile.conflict':
+    'Your profile was changed in another tab or device after you opened this page. Reload the current version; what you typed stays in the form.',
+  'profile.reload': 'Reload current version',
+  'profile.reloading': 'Reloading…',
+  'profile.reloaded':
+    'Current version loaded. Check what is saved and save again to apply your changes on top of it, or discard them.',
+  'profile.savedDisplayName': 'Saved name',
+  'profile.savedBio': 'Saved description',
+  'profile.emptyValue': '(empty)',
+  'profile.discardChanges': 'Discard my changes',
+  'profile.restricted': 'Your account status does not allow profile changes right now.',
+  'profile.validationFailed': 'Check the profile fields and try again.',
+  'profile.backToAccount': 'Back to your account',
+  'profile.error.displayNameRequired': 'Enter a display name.',
+  'profile.error.displayNameTooLong': 'The name can have at most {max} characters.',
+  'profile.error.bioTooLong': 'The description can have at most {max} characters.',
+  'profile.error.invalidCharacters': 'Remove control or invisible characters from this field.',
+
   'sessions.title': 'Active sessions',
   'sessions.intro': "Devices and browsers signed in to your account. End any you don't recognize.",
   'sessions.loading': 'Loading sessions…',

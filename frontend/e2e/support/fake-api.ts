@@ -33,6 +33,14 @@ interface FakeUser {
   passwordResetToken: string | null
 }
 
+interface FakeProfile {
+  displayName: string | null
+  bio: string | null
+  version: number
+}
+
+const PROFILE_FIELDS: readonly string[] = ['displayName', 'bio']
+
 interface FakeSession {
   readonly id: string
   readonly userId: string
@@ -67,6 +75,7 @@ export class FakeDuoraApi {
   readonly #sessions: FakeSession[] = []
   readonly #overrides = new Map<string, { readonly override: Override; remaining: number }>()
   readonly #emails: { readonly kind: EmailKind; readonly link: EmailLink }[] = []
+  readonly #profiles = new Map<string, FakeProfile>()
   #currentSessionId: string | null = null
   #antiforgeryToken: string | null = null
 
@@ -100,6 +109,17 @@ export class FakeDuoraApi {
    */
   failNext({ method, path, times = 1 }: FailureTarget, override: Override): void {
     this.#overrides.set(`${method} ${path}`, { override, remaining: times })
+  }
+
+  /** Outra aba ou aparelho grava o perfil da conta por fora da página em teste: a versão sobe. */
+  changeProfileElsewhere(email: string, change: Partial<Omit<FakeProfile, 'version'>>): void {
+    const user = this.#users.get(email)
+    if (user === undefined) {
+      throw new Error(`Conta ${email} não existe na API falsa.`)
+    }
+    const profile = this.#profileOf(user.id)
+    Object.assign(profile, change)
+    profile.version += 1
   }
 
   /** Link do último e-mail do tipo pedido, como chegaria na caixa de entrada. */
@@ -144,6 +164,10 @@ export class FakeDuoraApi {
       await route.fulfill(problem(403, 'CSRF_VALIDATION_FAILED'))
       return
     }
+    if (key === 'PATCH /me/profile') {
+      await route.fulfill(this.#updateProfile(request.postData(), request.headers()['if-match'] ?? null))
+      return
+    }
     const body = parseBody(key, request.postData())
     if (body === null) {
       await route.fulfill(problem(400, 'VALIDATION_FAILED'))
@@ -176,6 +200,8 @@ export class FakeDuoraApi {
         return this.#me()
       case 'GET /me/sessions':
         return this.#listSessions()
+      case 'GET /me/profile':
+        return this.#readProfile()
       case 'DELETE /me/sessions/:id':
         return this.#revokeSession(decodeURIComponent(path.slice('/me/sessions/'.length)))
       default:
@@ -271,6 +297,55 @@ export class FakeDuoraApi {
     })
   }
 
+  #profileOf(userId: string): FakeProfile {
+    const existing = this.#profiles.get(userId)
+    if (existing !== undefined) {
+      return existing
+    }
+    const created: FakeProfile = { displayName: null, bio: null, version: 0 }
+    this.#profiles.set(userId, created)
+    return created
+  }
+
+  #readProfile(): Fulfillment {
+    const user = this.#currentUser()
+    return user === null ? problem(401, 'UNAUTHENTICATED') : profileResponse(this.#profileOf(user.id))
+  }
+
+  /**
+   * PATCH com a regra do servidor: If-Match obrigatório (428), versão desatualizada é 412 sem gravar, só os campos
+   * do contrato, com texto ou null; displayName null é recusado.
+   */
+  #updateProfile(raw: string | null, ifMatch: string | null): Fulfillment {
+    const user = this.#currentUser()
+    if (user === null) {
+      return problem(401, 'UNAUTHENTICATED')
+    }
+    if (ifMatch === null || ifMatch === '*') {
+      return problem(428, 'PRECONDITION_REQUIRED')
+    }
+    const body = parseJson(raw)
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return problem(400, 'VALIDATION_FAILED')
+    }
+    const entries = Object.entries(body)
+    const valid =
+      entries.every(
+        ([name, value]) => PROFILE_FIELDS.includes(name) && (typeof value === 'string' || value === null),
+      ) && !entries.some(([name, value]) => name === 'displayName' && value === null)
+    if (!valid) {
+      return problem(400, 'VALIDATION_FAILED')
+    }
+    const profile = this.#profileOf(user.id)
+    if (ifMatch !== `"${String(profile.version)}"`) {
+      return problem(412, 'PRECONDITION_FAILED')
+    }
+    const changes: Partial<FakeProfile> = Object.fromEntries(entries)
+    Object.assign(profile, changes)
+    profile.version += 1
+    return profileResponse(profile)
+  }
+
   #listSessions(): Fulfillment {
     const user = this.#currentUser()
     if (user === null) {
@@ -307,6 +382,13 @@ interface Fulfillment {
   readonly contentType?: string
   readonly body?: string
   readonly headers?: Record<string, string>
+}
+
+function profileResponse(profile: FakeProfile): Fulfillment {
+  return {
+    ...json({ displayName: profile.displayName, bio: profile.bio, version: String(profile.version) }),
+    headers: { ETag: `"${String(profile.version)}"` },
+  }
 }
 
 function json(body: unknown): Fulfillment {

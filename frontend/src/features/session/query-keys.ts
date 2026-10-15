@@ -5,3 +5,7 @@ export const meQueryKey = ['me'] as const
 export function sessionsQueryKey(userId: string): readonly ['account', string, 'sessions'] {
   return ['account', userId, 'sessions']
 }
+
+export function profileQueryKey(userId: string): readonly ['account', string, 'profile'] {
+  return ['account', userId, 'profile']
+}
