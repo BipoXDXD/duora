@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- DTOs e contratos de transporte. Não referencia Core nem Infrastructure: contrato não carrega entidade. -->
+</Project>

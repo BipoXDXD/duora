@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Duora.Contracts/Duora.Contracts.csproj" />
+    <Project Path="src/Duora.Core/Duora.Core.csproj" />
+    <Project Path="src/Duora.Infrastructure/Duora.Infrastructure.csproj" />
+    <Project Path="src/Duora.Web/Duora.Web.csproj" />
+    <Project Path="src/Duora.Worker/Duora.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Duora.ArchitectureTests/Duora.ArchitectureTests.csproj" />
+    <Project Path="tests/Duora.IntegrationTests/Duora.IntegrationTests.csproj" />
+    <Project Path="tests/Duora.UnitTests/Duora.UnitTests.csproj" />
+  </Folder>
+</Solution>
