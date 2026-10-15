@@ -25,6 +25,9 @@ public sealed class EmailLanguageTests(PostgresFixture postgres) : IAsyncDisposa
     [InlineData("en;q=0", "pt-BR")]
     [InlineData("*", "pt-BR")]
     [InlineData(";;;=,=", "pt-BR")]
+    [InlineData("en;q=2", "pt-BR")]
+    [InlineData("en-US;q=1.5", "pt-BR")]
+    [InlineData("pt-BR;q=7,en;q=0.1", "en")]
     [InlineData("en\u0001US", "pt-BR")]
     [InlineData(null, "pt-BR")]
     public async Task RegistrationRecordsTheNegotiatedLanguage(string? acceptLanguage, string expected)

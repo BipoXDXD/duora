@@ -14,8 +14,10 @@ internal static class EmailLanguageNegotiation
     {
         ArgumentNullException.ThrowIfNull(request);
         RequestHeaders headers = request.GetTypedHeaders();
-        // O parser do ASP.NET Core devolve lista vazia para header malformado, sem exceção. OrderByDescending é
-        // estável: em qualidades iguais, vale a ordem do header.
+        // O parser do ASP.NET Core não lança, mas é leniente: um header malformado pode virar lista vazia ou gerar
+        // tokens espúrios (em "en;q=2" o "2" vira um token próprio, e o "en" se perde). Por isso todo token passa
+        // pela allowlist e o que não casa é descartado; no pior caso o resultado é o padrão, nunca um idioma
+        // fora da lista. OrderByDescending é estável: em qualidades iguais, vale a ordem do header.
         return headers.AcceptLanguage
             .Where(range => range.Quality is not 0)
             .OrderByDescending(range => range.Quality ?? 1)
