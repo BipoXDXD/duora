@@ -390,6 +390,122 @@ class EgressFilterCheckTests(unittest.TestCase):
         self.assertEqual([], self.iptables_checks(runner))
 
 
+class ScheduledVerifyDuringDeployTests(unittest.TestCase):
+    """O verify do timer não alerta durante um deploy (que recria postgres e backup), sem esconder falha real."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state_dir = Path(self._tmp.name)
+        self.egress_env = write_egress_env(self.state_dir)
+        self.now = NOW
+
+    def verify(self, runner: FakeRunner, *, scheduled: bool = True) -> str:
+        with contextlib.redirect_stdout(io.StringIO()) as stdout:
+            backup.run_action("verify", runner, project="duora", state_dir=self.state_dir,
+                              egress_env=self.egress_env, scheduled=scheduled, clock=lambda: self.now)
+        return stdout.getvalue()
+
+    def record_success(self, ago: float) -> None:
+        self.now = NOW - ago
+        self.verify(FakeRunner(), scheduled=False)
+        self.now = NOW
+
+    def test_skips_while_a_deploy_holds_the_lock_after_a_recent_success(self) -> None:
+        self.record_success(ago=15 * 60)
+        runner = FakeRunner(fail_on="docker")
+
+        with backup.deploy_lock(self.state_dir, wait_seconds=0):
+            output = self.verify(runner)
+
+        self.assertEqual([], runner.commands)
+        self.assertIn("deploy em andamento", output)
+
+    def test_runs_during_a_deploy_when_there_is_no_previous_success(self) -> None:
+        with backup.deploy_lock(self.state_dir, wait_seconds=0):
+            with self.assertRaises(backup.BackupError):
+                self.verify(FakeRunner(fail_on=" check"))
+
+    def test_runs_during_a_deploy_when_the_last_success_is_too_old(self) -> None:
+        self.record_success(ago=backup.MAX_VERIFY_SKIP_SECONDS + 1)
+
+        with backup.deploy_lock(self.state_dir, wait_seconds=0):
+            with self.assertRaises(backup.BackupError):
+                self.verify(FakeRunner(fail_on=" check"))
+
+    def test_skip_at_the_age_limit_is_still_allowed(self) -> None:
+        self.record_success(ago=backup.MAX_VERIFY_SKIP_SECONDS)
+        runner = FakeRunner()
+
+        with backup.deploy_lock(self.state_dir, wait_seconds=0):
+            self.verify(runner)
+
+        self.assertEqual([], runner.commands)
+
+    def test_runs_while_a_backup_holds_the_lock(self) -> None:
+        # Um full pode levar horas: o WAL continua conferido a cada 15 min durante ele.
+        self.record_success(ago=60)
+        with backup.deploy_lock(self.state_dir, wait_seconds=0), backup.backup_running(self.state_dir):
+            with self.assertRaises(backup.BackupError):
+                self.verify(FakeRunner(fail_on=" check"))
+
+    def test_backup_actions_mark_the_backup_as_running(self) -> None:
+        seen: list[bool] = []
+
+        def runner(command: list[str], *, capture: bool = False,
+                   timeout_seconds: int = 0) -> subprocess.CompletedProcess[str]:
+            if "pgbackrest" in command:
+                seen.append(backup.deploy_in_progress(self.state_dir))
+            return FakeRunner()(command, capture=capture, timeout_seconds=timeout_seconds)
+
+        backup.run_action("full", runner, project="duora", state_dir=self.state_dir, egress_env=self.egress_env)
+
+        self.assertEqual([False], seen)
+
+    def test_manual_verify_ignores_the_deploy_lock(self) -> None:
+        self.record_success(ago=60)
+        runner = FakeRunner(fail_on=" check")
+
+        with backup.deploy_lock(self.state_dir, wait_seconds=0):
+            with self.assertRaises(backup.BackupError):
+                self.verify(runner, scheduled=False)
+
+    def test_without_deploy_runs_normally(self) -> None:
+        self.record_success(ago=60)
+
+        with self.assertRaises(backup.BackupError):
+            self.verify(FakeRunner(fail_on=" check"))
+
+    def test_failed_verify_does_not_refresh_the_last_success(self) -> None:
+        self.record_success(ago=backup.MAX_VERIFY_SKIP_SECONDS + 1)
+        with self.assertRaises(backup.BackupError):
+            self.verify(FakeRunner(fail_on=" check"), scheduled=False)
+
+        with backup.deploy_lock(self.state_dir, wait_seconds=0):
+            with self.assertRaises(backup.BackupError):
+                self.verify(FakeRunner(fail_on=" check"))
+
+    def test_corrupt_success_marker_does_not_allow_skipping(self) -> None:
+        (self.state_dir / ".backup-verify-ok").write_text("ontem", encoding="utf-8")
+
+        with backup.deploy_lock(self.state_dir, wait_seconds=0):
+            with self.assertRaises(backup.BackupError):
+                self.verify(FakeRunner(fail_on=" check"))
+
+    def test_timer_unit_runs_the_scheduled_variant(self) -> None:
+        unit = (Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup" / "files"
+                / "duora-backup@.service").read_text(encoding="utf-8")
+
+        self.assertIn("ExecStart=/usr/local/sbin/duora-backup %i --scheduled", unit)
+
+    def test_cli_accepts_scheduled(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = backup.main(["verify", "--scheduled", "--state-dir", str(self.state_dir),
+                                "--egress-env", str(self.egress_env)], run=FakeRunner())
+
+        self.assertEqual(0, code)
+
+
 def _without(entry: dict, *path: str) -> dict:
     """Cópia de um backup do info sem o campo indicado (ex.: "timestamp", "stop")."""
     copy = json.loads(json.dumps(entry))
