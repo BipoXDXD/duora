@@ -135,7 +135,9 @@ Um termo, um significado. A coluna "No código" dá o nome usado em tipos, tabel
 | Lista de espera | `Waitlisted` | Fila ordenada de inscrições sem vaga, promovidas de forma transacional e determinística |
 | Check-in | `CheckIn` | Confirmação de presença dentro da janela antes da rodada |
 | Rodada | `Round` | Intervalo do evento em que pares são formados e jogam |
-| Par | `Pairing` | Duas contas selecionadas numa rodada, com o par normalizado (`user_low < user_high`); guarda a reserva do par, e a sala nasce do convite desse par |
+| Candidato | `Candidate` | Participante que passou pelos filtros individuais da rodada (elegibilidade, check-in, sem sanção nem sala ocupada) e concorre a um par; leva só a espera, as rodadas sem par e as preferências |
+| Par de contas | `UserPair` | Duas contas distintas sem direção, normalizadas (`user_low < user_high`), sem estado próprio. Usado pela seleção para o par escolhido, para bloqueios e para pares já formados no evento. Não é persistido; não confundir com `Pairing` |
+| Par | `Pairing` | Registro persistido de duas contas selecionadas numa rodada, com o par normalizado (`user_low < user_high`); guarda a reserva do par, e a sala nasce do convite desse par |
 | Reserva | `pairing_participants` com `released_at` nulo | Ocupação de uma pessoa por um par ainda não liberado; no máximo uma ativa por pessoa (INV-02) |
 | Convite | `Invitation` | Chamada para uma sala, com prazo absoluto; exige duas aceitações |
 | Sala | `/rooms/{roomId}`, com `roomId` = `gameSessionId` | Encontro de um par numa rodada, com chat de sala e experiência. É a sessão de jogo vista pela API, não uma entidade própria ([ADR-0016](../architecture/adr/0016-sala-e-sessao-de-jogo.md)) |
