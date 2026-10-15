@@ -26,7 +26,7 @@ describe('tela de recuperação de senha', () => {
   it('pede o link com CSRF e responde de forma neutra', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     const received = useResetRequestEndpoint(() => new HttpResponse(null, { status: 202 }))
-    const app = renderApp('/esqueci-a-senha')
+    const app = await renderApp('/esqueci-a-senha')
 
     expect(screen.getByLabelText('E-mail')).toHaveAttribute('autocomplete', 'email')
     await submitEmail(app, 'ana@exemplo.com')
@@ -40,7 +40,7 @@ describe('tela de recuperação de senha', () => {
 
   it('e-mail vazio: erro associado, foco no campo e nada enviado', async () => {
     const received = useResetRequestEndpoint(() => new HttpResponse(null, { status: 202 }))
-    const app = renderApp('/esqueci-a-senha')
+    const app = await renderApp('/esqueci-a-senha')
 
     await submitEmail(app, '')
 
@@ -53,7 +53,7 @@ describe('tela de recuperação de senha', () => {
   it('429 mostra o tempo de espera', async () => {
     useAntiforgeryEndpoint()
     useResetRequestEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '600' }))
-    const app = renderApp('/esqueci-a-senha')
+    const app = await renderApp('/esqueci-a-senha')
 
     await submitEmail(app, 'ana@exemplo.com')
 
@@ -64,7 +64,7 @@ describe('tela de recuperação de senha', () => {
   it('erro de rede tem mensagem própria', async () => {
     useAntiforgeryEndpoint()
     useResetRequestEndpoint(() => HttpResponse.error())
-    const app = renderApp('/esqueci-a-senha')
+    const app = await renderApp('/esqueci-a-senha')
 
     await submitEmail(app, 'ana@exemplo.com')
 

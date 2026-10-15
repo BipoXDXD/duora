@@ -2,16 +2,19 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LOCALE_STORAGE_KEY } from '@/shared/i18n/locale-preference'
+import { waitForRouteChunk } from '@/test/render'
 import { App } from './App'
 
 function useBrowserLanguages(languages: readonly string[]): void {
   vi.spyOn(navigator, 'languages', 'get').mockReturnValue(languages)
 }
 
-function renderAppAt(path: string) {
+async function renderAppAt(path: string) {
   window.history.pushState({}, '', path)
   const user = userEvent.setup()
-  return { user, ...render(<App />) }
+  const view = render(<App />)
+  await waitForRouteChunk()
+  return { user, ...view }
 }
 
 function languageGroup(): HTMLElement {
@@ -28,35 +31,35 @@ afterEach(() => {
 })
 
 describe('idioma inicial', () => {
-  it('segue o navegador quando ele prefere inglês', () => {
+  it('segue o navegador quando ele prefere inglês', async () => {
     useBrowserLanguages(['en-US', 'pt-BR'])
-    renderAppAt('/')
+    await renderAppAt('/')
 
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Create account' })).toBeInTheDocument()
     expect(document.documentElement.lang).toBe('en')
   })
 
-  it('idioma não suportado cai para pt-BR', () => {
+  it('idioma não suportado cai para pt-BR', async () => {
     useBrowserLanguages(['fr-FR', 'de-DE'])
-    renderAppAt('/')
+    await renderAppAt('/')
 
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Criar conta' })).toBeInTheDocument()
     expect(document.documentElement.lang).toBe('pt-BR')
   })
 
-  it('a escolha guardada vence o idioma do navegador', () => {
+  it('a escolha guardada vence o idioma do navegador', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en')
     useBrowserLanguages(['pt-BR'])
-    renderAppAt('/entrar')
+    await renderAppAt('/entrar')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Sign in' })).toBeInTheDocument()
     expect(document.title).toBe('Sign in · Duora')
   })
 
-  it('valor guardado fora da lista é ignorado', () => {
+  it('valor guardado fora da lista é ignorado', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, '<script>')
     useBrowserLanguages(['pt-BR'])
-    renderAppAt('/')
+    await renderAppAt('/')
 
     expect(document.documentElement.lang).toBe('pt-BR')
   })
@@ -65,7 +68,7 @@ describe('idioma inicial', () => {
 describe('seletor de idioma', () => {
   it('trocar para inglês atualiza textos, título, lang e guarda a escolha', async () => {
     useBrowserLanguages(['pt-BR'])
-    const { user } = renderAppAt('/entrar')
+    const { user } = await renderAppAt('/entrar')
     expect(document.title).toBe('Entrar · Duora')
 
     await user.click(within(languageGroup()).getByRole('button', { name: 'English' }))
@@ -79,7 +82,7 @@ describe('seletor de idioma', () => {
 
   it('é um grupo rotulado no idioma ativo, que marca o idioma atual com aria-pressed', async () => {
     useBrowserLanguages(['pt-BR'])
-    const { user } = renderAppAt('/')
+    const { user } = await renderAppAt('/')
 
     expect(languageGroup()).toHaveAccessibleName('Idioma')
     const portuguese = within(languageGroup()).getByRole('button', { name: 'Português' })
@@ -97,7 +100,7 @@ describe('seletor de idioma', () => {
 
   it('funciona só com teclado', async () => {
     useBrowserLanguages(['pt-BR'])
-    const { user } = renderAppAt('/')
+    const { user } = await renderAppAt('/')
     const english = within(languageGroup()).getByRole('button', { name: 'English' })
 
     while (document.activeElement !== english) {
@@ -111,7 +114,7 @@ describe('seletor de idioma', () => {
 
   it('volta para português e guarda a nova escolha', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en')
-    const { user } = renderAppAt('/')
+    const { user } = await renderAppAt('/')
 
     await user.click(within(languageGroup()).getByRole('button', { name: 'Português' }))
 
@@ -125,7 +128,7 @@ describe('seletor de idioma', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('bloqueado', 'SecurityError')
     })
-    const { user } = renderAppAt('/')
+    const { user } = await renderAppAt('/')
 
     await user.click(within(languageGroup()).getByRole('button', { name: 'English' }))
 
@@ -135,7 +138,7 @@ describe('seletor de idioma', () => {
 
   it('erro de validação já exibido muda de idioma junto com a interface', async () => {
     useBrowserLanguages(['pt-BR'])
-    const { user } = renderAppAt('/entrar')
+    const { user } = await renderAppAt('/entrar')
     await user.click(screen.getByRole('button', { name: 'Entrar' }))
     expect(await screen.findByText('Informe seu e-mail.')).toBeInTheDocument()
 

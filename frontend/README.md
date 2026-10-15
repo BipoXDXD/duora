@@ -124,6 +124,20 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
   `referrer: no-referrer`.
 - Cada área de rotas tem seu error boundary; a troca de rota move o foco para o h1 e anuncia o título.
 
+## Divisão do bundle por rota
+
+- A página inicial e a de rota inexistente vão no bundle principal; as demais telas são carregadas sob
+  demanda por `lazyPage` (`src/app/lazy-page.tsx`), cada uma num chunk próprio. Tela nova entra em
+  `AppRoutes.tsx` do mesmo jeito.
+- Na primeira carga, o `Suspense` do layout mostra `RouteFallback`: uma região `role="status"` que só ganha
+  texto depois de 400 ms, para a carga rápida não piscar. Dentro da SPA a navegação acontece numa transition:
+  a tela anterior fica visível, com o foco onde estava, até a nova chegar.
+- Falha ao baixar um chunk cai no error boundary da área, e "Tentar de novo" baixa o chunk outra vez.
+- A área da conta espera os chunks do guarda e da página juntos, para não mostrar um segundo fallback.
+- Nos testes, `renderApp` é assíncrono e espera o chunk (`await renderApp('/entrar')`); um `render` próprio
+  usa `await waitForRouteChunk()`. O E2E `smoke.spec.ts` garante que a página inicial não baixa as telas de
+  formulário.
+
 ## Design system
 
 Tokens semânticos em OKLCH no `@theme` de `src/index.css` (`surface`, `surface-muted`, `text`,

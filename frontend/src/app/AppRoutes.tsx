@@ -1,17 +1,28 @@
 import { Outlet, Route, Routes, useLocation } from 'react-router'
-import { AccountPage } from '@/features/account/AccountPage'
-import { CheckEmailPage } from '@/features/auth/CheckEmailPage'
-import { ConfirmEmailPage } from '@/features/auth/ConfirmEmailPage'
-import { ForgotPasswordPage } from '@/features/auth/ForgotPasswordPage'
-import { LoginPage } from '@/features/auth/LoginPage'
-import { RegisterPage } from '@/features/auth/RegisterPage'
-import { ResetPasswordPage } from '@/features/auth/ResetPasswordPage'
 import { LandingPage } from '@/features/landing/LandingPage'
-import { RequireSession } from '@/features/session/RequireSession'
 import { paths } from '@/shared/paths'
 import { AreaErrorBoundary } from '@/shared/ui/error-boundary'
 import { AppLayout } from './AppLayout'
+import { lazyPage } from './lazy-page'
 import { NotFoundPage } from './NotFoundPage'
+
+// A página inicial e a de rota inexistente ficam no bundle principal: são a primeira tela e a resposta a
+// qualquer link quebrado. As demais telas vêm em chunks próprios (spec 13.5).
+const RegisterPage = lazyPage(async () => (await import('@/features/auth/RegisterPage')).RegisterPage)
+const CheckEmailPage = lazyPage(async () => (await import('@/features/auth/CheckEmailPage')).CheckEmailPage)
+const ConfirmEmailPage = lazyPage(async () => (await import('@/features/auth/ConfirmEmailPage')).ConfirmEmailPage)
+const LoginPage = lazyPage(async () => (await import('@/features/auth/LoginPage')).LoginPage)
+const ForgotPasswordPage = lazyPage(async () => (await import('@/features/auth/ForgotPasswordPage')).ForgotPasswordPage)
+const ResetPasswordPage = lazyPage(async () => (await import('@/features/auth/ResetPasswordPage')).ResetPasswordPage)
+const AccountPage = lazyPage(async () => (await import('@/features/account/AccountPage')).AccountPage)
+// O guarda espera o chunk da conta: assim, quando GET /me responde, a página entra sem um segundo fallback.
+const RequireSession = lazyPage(async () => {
+  const [{ RequireSession: guard }] = await Promise.all([
+    import('@/features/session/RequireSession'),
+    AccountPage.preload(),
+  ])
+  return guard
+})
 
 export function AppRoutes(): React.JSX.Element {
   return (

@@ -1,6 +1,6 @@
 import type { ReactElement, ReactNode } from 'react'
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
-import { render, type RenderResult } from '@testing-library/react'
+import { render, screen, waitFor, type RenderResult } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router'
 import { AppRoutes } from '@/app/AppRoutes'
@@ -44,11 +44,15 @@ export interface RenderedApp extends RenderResult {
   readonly queryClient: QueryClient
 }
 
-export function renderApp(
+/**
+ * Monta a SPA na rota pedida e espera o chunk da tela chegar (as telas são carregadas sob demanda),
+ * para o teste começar pela tela já renderizada.
+ */
+export async function renderApp(
   entry: string | RouteEntry,
   queryClient: QueryClient = createTestQueryClient(),
   locale: Locale = TEST_LOCALE,
-): RenderedApp {
+): Promise<RenderedApp> {
   const user = userEvent.setup()
   const view = render(
     <I18nProvider initialLocale={locale}>
@@ -60,7 +64,17 @@ export function renderApp(
       </QueryClientProvider>
     </I18nProvider>,
   )
+  await waitForRouteChunk()
   return { ...view, user, queryClient }
+}
+
+/** Espera o fallback de rota sair: o chunk da tela chegou e ela já está renderizada. */
+export async function waitForRouteChunk(): Promise<void> {
+  await waitFor(() => {
+    if (screen.queryByTestId('carregando-rota') !== null) {
+      throw new Error('a tela da rota ainda está carregando')
+    }
+  })
 }
 
 export function TestProviders({
