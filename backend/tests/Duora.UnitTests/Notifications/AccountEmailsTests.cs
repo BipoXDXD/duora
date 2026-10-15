@@ -72,6 +72,29 @@ public sealed class AccountEmailsTests
         Assert.Contains("https://duora.example/recuperar-senha", email.TextBody, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PendingRegistrationReminderAsksToRegisterAgainWithoutAnyLinkToConfirm()
+    {
+        var emails = new AccountEmails(Origin);
+
+        var email = emails.PendingRegistrationReminder(Recipient);
+
+        Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("confirmar-email", email.TextBody, StringComparison.Ordinal);
+        Assert.Contains("https://duora.example/cadastro", email.TextBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResetRequestForUnknownAddressCarriesNoToken()
+    {
+        var emails = new AccountEmails(Origin);
+
+        var email = emails.PasswordResetForUnknownAddress(Recipient);
+
+        Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
+        Assert.Contains("https://duora.example/cadastro", email.TextBody, StringComparison.Ordinal);
+    }
+
     private static EmailAddress ParseEmail(string value) =>
         EmailAddress.TryParse(value, out var address) ? address : throw new InvalidOperationException(value);
 }

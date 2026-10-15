@@ -10,6 +10,8 @@ internal enum AccountEmailKind
     EmailConfirmation,
     PasswordReset,
     RegistrationAttemptOnExistingAccount,
+    PendingRegistrationReminder,
+    PasswordResetForUnknownAddress,
 }
 
 /// <summary>
@@ -40,7 +42,9 @@ internal static class AccountEmailOutbox
     {
         AccountEmailKind.EmailConfirmation => TimeSpan.FromHours(12),
         AccountEmailKind.PasswordReset => TimeSpan.FromMinutes(15),
-        AccountEmailKind.RegistrationAttemptOnExistingAccount => TimeSpan.FromHours(24),
+        AccountEmailKind.RegistrationAttemptOnExistingAccount
+            or AccountEmailKind.PendingRegistrationReminder
+            or AccountEmailKind.PasswordResetForUnknownAddress => TimeSpan.FromHours(24),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Tipo de e-mail desconhecido."),
     };
 

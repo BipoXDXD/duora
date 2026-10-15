@@ -6,7 +6,10 @@ internal enum LegalDocument
     Privacy,
 }
 
-/// <summary>Aceite de uma versão de documento legal no cadastro (spec 10.2, <c>consent_records</c>).</summary>
+/// <summary>
+/// Aceite de uma versão de documento legal no cadastro (spec 10.2, <c>consent_records</c>). Mapeada para o schema;
+/// gravada por SQL no cadastro, junto com o upsert da conta.
+/// </summary>
 internal sealed class ConsentRecord
 {
     private ConsentRecord()
@@ -22,17 +25,4 @@ internal sealed class ConsentRecord
     public string Version { get; private set; } = "";
 
     public DateTimeOffset AcceptedAt { get; private set; }
-
-    public static ConsentRecord Accept(Guid userId, LegalDocument document, string version, DateTimeOffset now)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(version);
-        return new ConsentRecord
-        {
-            Id = Guid.CreateVersion7(now),
-            UserId = userId,
-            Document = document,
-            Version = version,
-            AcceptedAt = now,
-        };
-    }
 }

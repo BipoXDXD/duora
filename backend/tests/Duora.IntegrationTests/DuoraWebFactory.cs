@@ -25,6 +25,9 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
 
     public string EnvironmentName { get; init; } = "Testing";
 
+    /// <summary>Troca pontual de serviços (contadores, interceptadores); nunca de banco ou de regra.</summary>
+    public Action<IServiceCollection>? TestServices { get; init; }
+
     /// <summary>Configuração extra, aplicada por último (vence user-secrets em Development).</summary>
     public IReadOnlyDictionary<string, string?> Settings { get; init; } = new Dictionary<string, string?>();
 
@@ -45,6 +48,11 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
         if (Time is not null)
         {
             builder.ConfigureTestServices(services => services.AddSingleton(Time));
+        }
+
+        if (TestServices is not null)
+        {
+            builder.ConfigureTestServices(TestServices);
         }
 
         if (logs is not null)
