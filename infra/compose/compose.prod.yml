@@ -1,0 +1,213 @@
+# Produção e homologação na VPS (spec 15): Caddy, web, worker, PostgreSQL e o job migrador.
+# Não use à mão em produção: o deploy é feito por scripts/deploy/duora-deploy (docs/operations/deploy.md), que
+# passa os digests da release e a configuração do host por --env-file.
+#
+# Variáveis (todas obrigatórias, sem default silencioso):
+#   DUORA_*_IMAGE       imagem por digest (registry/repo@sha256:...), vinda do manifesto da release
+#   DUORA_SECRETS_DIR   diretório do host com os arquivos de segredo (0700; arquivos 0400 com dono = UID do consumidor)
+#   DUORA_DOMAIN        domínio público; DUORA_TLS: e-mail ACME ou "internal"
+#   DUORA_HTTP_PORT / DUORA_HTTPS_PORT   portas publicadas no host (80/443 na VPS)
+name: duora
+
+x-logging: &logging
+  # Driver local com rotação: uma falha em laço não enche o disco com log (spec 19.2).
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# Endurecimento comum aos processos da aplicação (spec 15.4).
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging: *logging
+
+services:
+  postgres:
+    image: ${DUORA_POSTGRES_IMAGE:?defina DUORA_POSTGRES_IMAGE (digest da release)}
+    # Roda direto como o usuário postgres da imagem: o diretório do volume já é dele (modo 1777 na imagem), então o
+    # entrypoint não precisa de root nem de capabilities para preparar o PGDATA.
+    user: "999:999"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - max_connections=100
+      - -c
+      - idle_in_transaction_session_timeout=60s
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+      DUORA_MIGRATOR_PASSWORD_FILE: /run/secrets/db_migrator_password
+      DUORA_APP_PASSWORD_FILE: /run/secrets/db_app_password
+    secrets:
+      - postgres_superuser_password
+      - db_migrator_password
+      - db_app_password
+    volumes:
+      # PostgreSQL 18: PGDATA=/var/lib/postgresql/18/docker; o volume monta o pai (spec 15.4).
+      - pgdata:/var/lib/postgresql
+    networks: [data]
+    shm_size: 256m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    # SIGINT da imagem = fast shutdown; tempo para o checkpoint final antes do SIGKILL.
+    stop_grace_period: 60s
+    logging: *logging
+    healthcheck:
+      # -h 127.0.0.1: o servidor temporário da inicialização só ouve no socket; pelo TCP o banco só fica pronto
+      # depois que os scripts de initdb terminaram.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2560M
+          cpus: "2"
+          pids: 256
+
+  web:
+    image: ${DUORA_WEB_IMAGE:?defina DUORA_WEB_IMAGE (digest da release)}
+    <<: *hardened
+    user: "1654:1654"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Lê cada arquivo de /run/secrets como uma chave de configuração (ConnectionStrings__Duora).
+      SecretsDirectory: /run/secrets
+    secrets:
+      - source: duora_app_connection
+        target: ConnectionStrings__Duora
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - dataprotection:/home/app/.aspnet/DataProtection-Keys
+    # edge: recebe o proxy do Caddy (e sai para o object storage); data: fala com o banco.
+    networks: [edge, data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 30s
+    # Sem healthcheck de container: a imagem chiseled não tem shell nem cliente HTTP, e o Docker não reinicia
+    # container "unhealthy" fora do Swarm. O deploy verifica /health/ready pela rede interna.
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+          cpus: "2"
+          pids: 512
+
+  worker:
+    image: ${DUORA_WORKER_IMAGE:?defina DUORA_WORKER_IMAGE (digest da release)}
+    <<: *hardened
+    user: "1654:1654"
+    environment:
+      DOTNET_ENVIRONMENT: Production
+      SecretsDirectory: /run/secrets
+    secrets:
+      - source: duora_app_connection
+        target: ConnectionStrings__Duora
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    # data: banco; egress: saída para storage, e-mail e verificação etária. Sem porta e sem endpoint público.
+    networks: [data, egress]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: "1"
+          pids: 256
+
+  edge:
+    image: ${DUORA_EDGE_IMAGE:?defina DUORA_EDGE_IMAGE (digest da release)}
+    <<: *hardened
+    user: "10001:10001"
+    # Usuário sem privilégio abre 80/443 sem capability (no-new-privileges impede a capability de arquivo).
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    environment:
+      DUORA_DOMAIN: ${DUORA_DOMAIN:?defina DUORA_DOMAIN}
+      DUORA_TLS: ${DUORA_TLS:?defina DUORA_TLS (e-mail ACME ou internal)}
+    # Única superfície publicada no host (spec 15.2). 443/udp: HTTP/3.
+    ports:
+      - "${DUORA_HTTP_PORT:?defina DUORA_HTTP_PORT}:80"
+      - "${DUORA_HTTPS_PORT:?defina DUORA_HTTPS_PORT}:443"
+      - "${DUORA_HTTPS_PORT:?defina DUORA_HTTPS_PORT}:443/udp"
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    volumes:
+      # Certificados e conta ACME persistem entre recriações (spec 15.3).
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      web:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8081/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+          pids: 128
+
+  # Job exclusivo de migração: só roda com "--profile migrate run --rm migrator", chamado pelo deploy.
+  migrator:
+    image: ${DUORA_MIGRATOR_IMAGE:?defina DUORA_MIGRATOR_IMAGE (digest da release)}
+    profiles: [migrate]
+    <<: *hardened
+    restart: "no"
+    user: "1654:1654"
+    secrets:
+      - duora_migrator_connection
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    networks: [data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+          pids: 128
+
+networks:
+  edge: {}
+  # internal: sem rota para fora. O banco só existe aqui.
+  data:
+    internal: true
+  egress: {}
+
+volumes:
+  pgdata:
+  dataprotection:
+  caddy_data:
+  caddy_config:
+
+secrets:
+  postgres_superuser_password:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/postgres_superuser_password
+  db_migrator_password:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/db_migrator_password
+  db_app_password:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/db_app_password
+  duora_app_connection:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/duora_app_connection
+  duora_migrator_connection:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/duora_migrator_connection
