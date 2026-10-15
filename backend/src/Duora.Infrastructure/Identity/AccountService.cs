@@ -149,9 +149,13 @@ public sealed class AccountService
     /// Confirma o e-mail só com o link (posse do e-mail) e a senha do cadastro pendente (conhecimento da senha).
     /// Assim um link gerado por outra pessoa, que chegou à caixa da vítima, não confirma a conta dela com a senha
     /// de outra pessoa (TM-66). Senha errada e token inválido dão o mesmo resultado, e toda tentativa custa um hash.
-    /// Depois de <see cref="AccountLifecycleOptions.MaxConfirmationFailures"/> falhas numa conta pendente, o stamp
-    /// muda e o link deixa de valer: a pessoa cadastra de novo.
     /// </summary>
+    /// <remarks>
+    /// Confirmar troca o security stamp: o link morre na hora e nunca serve de oráculo de senha depois da
+    /// confirmação. Uma conta pendente não tem sessão (não faz login), então a troca não derruba ninguém. A gravação
+    /// é condicionada ao stamp verificado: um recadastro concorrente (que troca o stamp) faz a confirmação falhar
+    /// como token inválido, sem exceção de concorrência.
+    /// </remarks>
     public async Task<bool> ConfirmEmailAsync(
         Guid userId,
         string linkToken,
@@ -165,9 +169,11 @@ public sealed class AccountService
             return false;
         }
 
+        var verifiedStamp = user.SecurityStamp ?? "";
         var passwordMatches = user.PasswordHash is { } hash
             && _users.PasswordHasher.VerifyHashedPassword(user, hash, password) != PasswordVerificationResult.Failed;
-        var tokenIsValid = !IsExpiredPendingRegistration(user)
+        var tokenIsValid = !user.EmailConfirmed
+            && !IsExpiredPendingRegistration(user)
             && TryDecodeLinkToken(linkToken, out var token)
             && await _users.VerifyUserTokenAsync(
                 user,
@@ -176,19 +182,11 @@ public sealed class AccountService
                 token);
         if (!passwordMatches || !tokenIsValid)
         {
-            await CountConfirmationFailureAsync(user);
+            await CountConfirmationFailureAsync(user.Id, cancellationToken);
             return false;
         }
 
-        if (!user.EmailConfirmed)
-        {
-            user.EmailConfirmed = true;
-            user.CompleteEmailConfirmation();
-            await _users.ResetAccessFailedCountAsync(user);
-        }
-
-        await _db.SaveChangesAsync(cancellationToken);
-        return true;
+        return await MarkEmailConfirmedAsync(user.Id, verifiedStamp, cancellationToken);
     }
 
     /// <summary>
@@ -337,7 +335,7 @@ public sealed class AccountService
     {
         var normalizedEmail = _users.NormalizeEmail(email.Value);
         var newUserId = Guid.CreateVersion7(now);
-        var securityStamp = Convert.ToHexString(RandomNumberGenerator.GetBytes(SecurityStampBytes));
+        var securityStamp = NewSecurityStamp();
         var concurrencyStamp = Guid.NewGuid().ToString("D");
         var pendingEmail = nameof(AccountStatus.PendingEmail);
 
@@ -394,23 +392,48 @@ public sealed class AccountService
     }
 
     /// <summary>
-    /// Usa o contador de falhas do Identity, que numa conta pendente não serve a mais nada (ela não faz login) e é
-    /// zerado na confirmação. Conta já confirmada não conta aqui: o lockout dela é o do login.
+    /// Pendente vira confirmada (estado <c>PendingEligibility</c>, spec 4.2) só se o stamp ainda for o verificado;
+    /// o stamp novo invalida o link. Falso quando outro comando mudou a conta no meio.
     /// </summary>
-    private async Task CountConfirmationFailureAsync(DuoraUser user)
+    private async Task<bool> MarkEmailConfirmedAsync(Guid userId, string verifiedStamp, CancellationToken cancellationToken)
     {
-        if (user.EmailConfirmed)
-        {
-            return;
-        }
-
-        await _users.AccessFailedAsync(user);
-        if (await _users.GetAccessFailedCountAsync(user) >= _lifecycle.MaxConfirmationFailures)
-        {
-            await _users.UpdateSecurityStampAsync(user);
-            await _users.ResetAccessFailedCountAsync(user);
-        }
+        var pendingEmail = nameof(AccountStatus.PendingEmail);
+        var pendingEligibility = nameof(AccountStatus.PendingEligibility);
+        var updated = await _db.Database.ExecuteSqlAsync(
+            $"""
+            update identity.users
+            set email_confirmed = true,
+                status = case when status = {pendingEmail} then {pendingEligibility} else status end,
+                access_failed_count = 0,
+                security_stamp = {NewSecurityStamp()},
+                concurrency_stamp = {Guid.NewGuid().ToString("D")}
+            where id = {userId} and security_stamp = {verifiedStamp} and not email_confirmed
+            """,
+            cancellationToken);
+        return updated == 1;
     }
+
+    /// <summary>
+    /// Conta a falha num único UPDATE atômico (sem ler e gravar de volta, que tentativas paralelas furariam) e, na
+    /// falha que atinge o teto, troca o stamp no mesmo comando: o link morre e a pessoa cadastra de novo. Usa o
+    /// contador do Identity, que numa conta pendente não serve a mais nada; conta confirmada não conta aqui (o
+    /// lockout dela é o do login).
+    /// </summary>
+    private async Task CountConfirmationFailureAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var ceiling = _lifecycle.MaxConfirmationFailures;
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            update identity.users
+            set access_failed_count = case when access_failed_count + 1 >= {ceiling} then 0 else access_failed_count + 1 end,
+                security_stamp = case when access_failed_count + 1 >= {ceiling} then {NewSecurityStamp()} else security_stamp end,
+                concurrency_stamp = {Guid.NewGuid().ToString("D")}
+            where id = {userId} and not email_confirmed
+            """,
+            cancellationToken);
+    }
+
+    private static string NewSecurityStamp() => Convert.ToHexString(RandomNumberGenerator.GetBytes(SecurityStampBytes));
 
     private bool IsExpiredPendingRegistration(DuoraUser user) =>
         !user.EmailConfirmed && user.CreatedAt + _lifecycle.PendingAccountLifetime <= _time.GetUtcNow();

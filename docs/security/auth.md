@@ -156,7 +156,7 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 | Política de senha | Comprimento mínimo de 12 caracteres e máximo de 128 **(hipótese)**, sem regras de composição forçada; colar e gerenciador de senhas permitidos (A11Y-01); verificação contra senhas vazadas fica como evolução, se houver serviço aprovado |
 
 Confirmação de e-mail (API-A03) usa o mesmo desenho: link para a SPA, ação por `POST` explícito (scanner de
-e-mail que faz `GET` não confirma), token de uso controlado e resposta idempotente. Além do token, exige a
+e-mail que faz `GET` não confirma), token de uso único (confirmar troca o security stamp, então o mesmo link depois dá `INVALID_TOKEN`). Além do token, exige a
 **senha** do cadastro (ver abaixo).
 
 ## Endereço de e-mail
@@ -181,7 +181,8 @@ do atacante chega à caixa da vítima, que clica achando que é o dela.
 | Regra | Especificação |
 |---|---|
 | Confirmação (API-A03) | `POST {userId, token, password}`. Só confirma se o token for válido **e** a senha bater com a do cadastro pendente: quem confirma prova posse do e-mail e conhecimento da senha, e um link gerado por outra pessoa é inofensivo. Senha errada, token inválido, conta inexistente e pendente vencido dão o mesmo `400` `INVALID_TOKEN`, com o mesmo corpo, e todo caminho custa um hash. Sem login automático: confirmar só muda o estado da conta, e a SPA leva ao login, que é o único caminho que abre sessão (e o único a proteger contra fixation) |
-| Teto de tentativas | Cada falha numa conta pendente conta no contador do Identity (que essa conta não usa para mais nada); na 5.ª falha (`Identity:MaxConfirmationFailures`, **hipótese**) o security stamp muda e o link deixa de valer; a pessoa cadastra de novo. Rate limit por IP: 20 a cada 10 min |
+| Teto de tentativas | Cada falha numa conta pendente soma no contador do Identity (que essa conta não usa para mais nada) num único `UPDATE` atômico, que na 5.ª falha (`Identity:MaxConfirmationFailures`, **hipótese**) troca o security stamp no mesmo comando: o link deixa de valer e a pessoa cadastra de novo. Tentativas em paralelo não furam o teto. Rate limit por IP: 20 a cada 10 min |
+| Uso único e corrida | Confirmar grava só se o stamp ainda for o verificado e troca o stamp: o link morre na hora, e depois da confirmação nenhuma senha (certa ou errada) muda a resposta, então o link não vira oráculo de senha. A conta pendente não tem sessão, então a troca do stamp não derruba ninguém. Recadastro concorrente faz a confirmação falhar como `INVALID_TOKEN`, sem `500` |
 | Cadastro sobre conta pendente | Substitui o pendente: senha, aceites, e-mail digitado, data e security stamp novos. O stamp novo invalida todo link de confirmação anterior. Um único `INSERT ... ON CONFLICT (normalized_email) DO UPDATE` na mesma transação dos aceites e da outbox, o que também serializa cadastros simultâneos |
 | Cadastro sobre conta confirmada | Nada muda na conta; o titular recebe um aviso pela outbox |
 | Prazo do pendente | `Identity:PendingAccountLifetime`, **72 h (hipótese)**, contado do último cadastro. Vencido, a confirmação é recusada (`400` `INVALID_TOKEN`); login de conta não confirmada já falha sempre. Um cadastro novo substitui o pendente vencido. **Pendente:** job de limpeza dos pendentes vencidos |
@@ -275,7 +276,7 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 |---|---|---|---|---|---|---|---|
 | API-A01 | `GET /auth/csrf` | Pública | — | — | — → `204` + cookie `XSRF-TOKEN` | — | — |
 | API-A02 | `POST /auth/register` | Pública | Sim | — | `email` (≤ 254), `password` (12–128), `acceptedTermsVersion`, `acceptedPrivacyVersion` (1–32, `[A-Za-z0-9._-]`) → `202` sem corpo, igual exista ou não a conta | `400` `VALIDATION_FAILED` (com `errors`) ou `INVALID_REQUEST`; `403` `CSRF_VALIDATION_FAILED`; `429` `RATE_LIMITED` | Pendente |
-| API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token`, `password` (até 128) → `204` (idempotente; não abre sessão) | `400` `INVALID_TOKEN` (token inválido ou senha errada, sem distinguir); `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
+| API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token`, `password` (até 128) → `204` (uso único; não abre sessão) | `400` `INVALID_TOKEN` (token inválido ou senha errada, sem distinguir); `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
 | API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo. `twoFactorCode`/`recoveryCode` chegam com o MFA | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | Pendente |
 | API-A05 | `POST /auth/logout` | Pública (sem sessão também responde `204`) | Sim | — | — → `204` + `XSRF-TOKEN` novo; revoga a sessão no servidor | `403` | Pendente |
 | API-A06 | `POST /auth/password-reset-requests` | Pública | Sim | — | `email` → `202` sem corpo | `400`; `403`; `429` por IP e por e-mail | Pendente |
