@@ -70,6 +70,34 @@ public sealed class AppealTests
         Assert.Equal(AppealState.Received, appeal.State);
     }
 
+    [Theory]
+    [InlineData("reporter")]
+    [InlineData("target")]
+    public void APartyToTheOriginalReportCannotReviewTheAppeal(string party)
+    {
+        var clock = FixedClock.AtStart();
+        var report = ReportIn(ReportState.UnderReview, clock);
+        var action = report.TakeAction(Decision(), Limits, clock).Accepted();
+        var appeal = Appeal.File(action, Bruno, "Injusto.", clock).Accepted();
+
+        var result = appeal.StartReview(party == "reporter" ? Alice : Bruno);
+
+        SafetyAssert.Rejected(SafetyRejection.ReviewerMustBeIndependent, result);
+        Assert.Equal(AppealState.Received, appeal.State);
+    }
+
+    [Fact]
+    public void TheMeasureCarriesThePartiesOfItsReport()
+    {
+        var clock = FixedClock.AtStart();
+        var report = ReportIn(ReportState.UnderReview, clock);
+
+        var action = report.TakeAction(Decision(), Limits, clock).Accepted();
+
+        Assert.Equal(new CaseParties(Bruno, Alice), action.Parties);
+        Assert.Equal(new CaseParties(Bruno, null), SanctionOn(Bruno).Parties);
+    }
+
     [Fact]
     public void TheAppellantCannotReviewTheirOwnAppeal()
     {

@@ -19,7 +19,10 @@ public sealed class ModerationAction
 
     public required ModerationActionId Id { get; init; }
 
-    public required Guid SubjectUserId { get; init; }
+    /// <summary>Quem sofre a medida e quem denunciou, para que nenhum dos dois revise o recurso.</summary>
+    public required CaseParties Parties { get; init; }
+
+    public Guid SubjectUserId => Parties.SubjectUserId;
 
     /// <summary>Nulo quando a medida nasce de sinal de abuso, sem denúncia.</summary>
     public required ReportId? ReportId { get; init; }
@@ -52,7 +55,7 @@ public sealed class ModerationAction
         ModerationDecision decision,
         ModerationLimits limits,
         TimeProvider clock) =>
-        Decide(subjectUserId, reportId: null, decision, limits, clock);
+        Decide(new CaseParties(subjectUserId, reporterId: null), reportId: null, decision, limits, clock);
 
     public bool RestrictsInteractionAt(DateTimeOffset instant) =>
         Measure is ModerationMeasure.Restriction or ModerationMeasure.Suspension or ModerationMeasure.PermanentBan
@@ -78,13 +81,13 @@ public sealed class ModerationAction
                 CanAppeal: IsReviewable);
 
     internal static SafetyResult<ModerationAction> Decide(
-        Guid subjectUserId,
+        CaseParties parties,
         ReportId? reportId,
         ModerationDecision decision,
         ModerationLimits limits,
         TimeProvider clock)
     {
-        ArgumentOutOfRangeException.ThrowIfEqual(subjectUserId, Guid.Empty);
+        ArgumentNullException.ThrowIfNull(parties);
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(clock);
         RequireInvariants(decision);
@@ -97,7 +100,7 @@ public sealed class ModerationAction
         return SafetyResult.Success(new ModerationAction
         {
             Id = ModerationActionId.New(decidedAt),
-            SubjectUserId = subjectUserId,
+            Parties = parties,
             ReportId = reportId,
             Measure = decision.Measure,
             PolicyVersion = decision.PolicyVersion,
@@ -124,7 +127,7 @@ public sealed class ModerationAction
         return new ModerationAction
         {
             Id = ModerationActionId.New(decidedAt),
-            SubjectUserId = SubjectUserId,
+            Parties = Parties,
             ReportId = ReportId,
             Measure = measure,
             PolicyVersion = ruling.PolicyVersion,

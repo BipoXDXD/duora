@@ -267,6 +267,30 @@ public sealed class ReportTests
     }
 
     [Theory]
+    [InlineData("reporter", ReportCategory.Harassment)]
+    [InlineData("target", ReportCategory.Harassment)]
+    [InlineData("reporter", ReportCategory.MinorSafety)]
+    [InlineData("target", ReportCategory.MinorSafety)]
+    public void APartyToTheReportCannotTriageIt(string party, ReportCategory category)
+    {
+        var report = Report.Submit(Submission(category), FixedClock.AtStart()).Accepted();
+        var priorityBefore = report.Priority;
+
+        var result = report.Triage(ReportPriority.Normal, new ModerationAuthor.Human(party == "reporter" ? Alice : Bruno));
+
+        SafetyAssert.Rejected(SafetyRejection.ReviewerMustBeIndependent, result);
+        Assert.Equal((ReportState.Received, priorityBefore), (report.State, report.Priority));
+    }
+
+    [Fact]
+    public void TheReportExposesItsPartiesForIndependenceChecks()
+    {
+        var report = ReportIn(ReportState.Received);
+
+        Assert.Equal(new CaseParties(Bruno, Alice), report.Parties);
+    }
+
+    [Theory]
     [InlineData("reporter")]
     [InlineData("target")]
     public void APartyToTheReportCannotReviewIt(string party)
