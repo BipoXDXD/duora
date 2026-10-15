@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
+import { renderWithI18n } from '@/test/render'
 import { describe, expect, it } from 'vitest'
 import { Alert, RequestFailureAlert } from './alert'
 
 describe('Alert', () => {
   it('erro é anunciado como alert, com título em texto além da cor', () => {
-    render(<Alert variant="error">E-mail ou senha incorretos.</Alert>)
+    renderWithI18n(<Alert variant="error">E-mail ou senha incorretos.</Alert>)
 
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('Não deu certo')
@@ -12,14 +13,14 @@ describe('Alert', () => {
   })
 
   it('aviso é anunciado como status, sem interromper', () => {
-    render(<Alert variant="info">Sua sessão expirou.</Alert>)
+    renderWithI18n(<Alert variant="info">Sua sessão expirou.</Alert>)
 
     expect(screen.getByRole('status')).toHaveTextContent('AvisoSua sessão expirou.')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('sucesso é anunciado como status', () => {
-    render(<Alert variant="success">Senha alterada.</Alert>)
+    renderWithI18n(<Alert variant="success">Senha alterada.</Alert>)
 
     expect(screen.getByRole('status')).toHaveTextContent('ProntoSenha alterada.')
   })
@@ -27,7 +28,7 @@ describe('Alert', () => {
 
 describe('Alert com focusOnMount', () => {
   it('recebe o foco ao aparecer, sem entrar na ordem de tabulação', () => {
-    render(
+    renderWithI18n(
       <Alert variant="success" focusOnMount>
         Senha alterada.
       </Alert>,
@@ -39,7 +40,7 @@ describe('Alert com focusOnMount', () => {
   })
 
   it('sem a opção, não rouba o foco', () => {
-    render(<Alert variant="info">Aviso.</Alert>)
+    renderWithI18n(<Alert variant="info">Aviso.</Alert>)
 
     expect(screen.getByRole('status')).not.toHaveFocus()
     expect(screen.getByRole('status')).not.toHaveAttribute('tabindex')
@@ -48,26 +49,26 @@ describe('Alert com focusOnMount', () => {
 
 describe('RequestFailureAlert', () => {
   it('mostra a mensagem de rede, distinta das demais', () => {
-    render(<RequestFailureAlert failure={{ kind: 'network' }} />)
+    renderWithI18n(<RequestFailureAlert failure={{ kind: 'network' }} />)
 
     expect(screen.getByRole('alert')).toHaveTextContent('Não foi possível falar com o Duora.')
   })
 
   it('mostra o tempo de espera do limite de uso', () => {
-    render(<RequestFailureAlert failure={{ kind: 'rate-limited', retryAfterSeconds: 120 }} />)
+    renderWithI18n(<RequestFailureAlert failure={{ kind: 'rate-limited', retryAfterSeconds: 120 }} />)
 
     expect(screen.getByRole('alert')).toHaveTextContent('espere 2 minutos antes de tentar de novo')
   })
 
   it('traduz o code conhecido pela tabela da tela', () => {
-    render(
+    renderWithI18n(
       <RequestFailureAlert
         failure={{ kind: 'problem', status: 400, code: 'INVALID_TOKEN' }}
-        problemMessages={{ INVALID_TOKEN: 'Link inválido.' }}
+        problemMessages={{ INVALID_TOKEN: 'confirmEmail.invalidToken' }}
       />,
     )
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Link inválido.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Link inválido ou senha incorreta.')
   })
 
   it.each([
@@ -75,7 +76,9 @@ describe('RequestFailureAlert', () => {
     ['problem sem code', { kind: 'problem', status: 500, code: null }],
     ['falha inesperada', { kind: 'unexpected' }],
   ] as const)('usa a mensagem genérica para %s', (_caso, failure) => {
-    render(<RequestFailureAlert failure={failure} problemMessages={{ INVALID_TOKEN: 'Link inválido.' }} />)
+    renderWithI18n(
+      <RequestFailureAlert failure={failure} problemMessages={{ INVALID_TOKEN: 'confirmEmail.invalidToken' }} />,
+    )
 
     expect(screen.getByRole('alert')).toHaveTextContent('Algo deu errado do nosso lado.')
   })

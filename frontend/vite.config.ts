@@ -26,6 +26,8 @@ export default defineConfig(({ command, mode, isPreview }) => {
       include: ['src/**/*.test.{ts,tsx}', 'config/**/*.test.ts'],
       setupFiles: ['./src/test/setup.ts'],
       restoreMocks: true,
+      // Fuso fixo: datas exibidas no fuso de quem usa (spec 13.6) ficam iguais em qualquer máquina.
+      env: { TZ: 'UTC' },
       css: { include: [/index\.css/] },
     },
   }

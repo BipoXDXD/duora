@@ -3,17 +3,20 @@ import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { classifyRequestFailure } from '@/shared/api'
-import { messages } from '@/shared/messages'
+import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { requestPasswordReset } from './auth-api'
 import { emailSchema } from './auth-schemas'
+import { useValidationMessage } from './validation-message'
 
 const forgotPasswordSchema = z.object({ email: emailSchema })
 
 export function ForgotPasswordPage(): React.JSX.Element {
+  const { t } = useI18n()
+  const fieldError = useValidationMessage()
   const form = useForm<z.input<typeof forgotPasswordSchema>, unknown, z.output<typeof forgotPasswordSchema>>({
     resolver: zodResolver(forgotPasswordSchema),
     defaultValues: { email: '' },
@@ -28,19 +31,19 @@ export function ForgotPasswordPage(): React.JSX.Element {
   if (resetRequest.isSuccess) {
     // Resposta neutra (API-A06): a mesma mensagem exista ou não a conta.
     return (
-      <Page title={messages.forgotPassword.title}>
+      <Page title={t('forgotPassword.title')}>
         <Alert variant="success" focusOnMount>
-          {messages.forgotPassword.sent}
+          {t('forgotPassword.sent')}
         </Alert>
         <p>
-          <TextLink to={paths.login}>{messages.forgotPassword.signInLink}</TextLink>
+          <TextLink to={paths.login}>{t('forgotPassword.signInLink')}</TextLink>
         </p>
       </Page>
     )
   }
 
   return (
-    <Page title={messages.forgotPassword.title} intro={messages.forgotPassword.intro}>
+    <Page title={t('forgotPassword.title')} intro={t('forgotPassword.intro')}>
       {resetRequest.isError ? <RequestFailureAlert failure={classifyRequestFailure(resetRequest.error)} /> : null}
       <form
         noValidate
@@ -52,21 +55,21 @@ export function ForgotPasswordPage(): React.JSX.Element {
         }}
       >
         <TextField
-          label={messages.forgotPassword.email}
+          label={t('forgotPassword.email')}
           type="email"
           inputMode="email"
           autoComplete="email"
-          error={form.formState.errors.email?.message}
+          error={fieldError(form.formState.errors.email?.message)}
           {...form.register('email')}
         />
         <SubmitButton
           pending={resetRequest.isPending}
-          label={messages.forgotPassword.submit}
-          pendingLabel={messages.forgotPassword.submitting}
+          label={t('forgotPassword.submit')}
+          pendingLabel={t('forgotPassword.submitting')}
         />
       </form>
       <p>
-        <TextLink to={paths.login}>{messages.forgotPassword.signInLink}</TextLink>
+        <TextLink to={paths.login}>{t('forgotPassword.signInLink')}</TextLink>
       </p>
     </Page>
   )

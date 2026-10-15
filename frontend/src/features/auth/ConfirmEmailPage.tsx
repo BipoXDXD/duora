@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { classifyRequestFailure, type RequestFailure } from '@/shared/api'
-import { messages } from '@/shared/messages'
+import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { PasswordField } from '@/shared/ui/form-fields'
@@ -11,8 +11,9 @@ import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { confirmEmail } from './auth-api'
 import { currentPasswordSchema, type EmailLink } from './auth-schemas'
 import { useEmailLinkFromUrl } from './use-email-link'
+import { useValidationMessage } from './validation-message'
 
-const PROBLEM_MESSAGES = { INVALID_TOKEN: messages.confirmEmail.invalidToken }
+const PROBLEM_MESSAGES = { INVALID_TOKEN: 'confirmEmail.invalidToken' } as const
 
 const confirmEmailSchema = z.object({ password: currentPasswordSchema })
 
@@ -23,14 +24,15 @@ const confirmEmailSchema = z.object({ password: currentPasswordSchema })
  */
 export function ConfirmEmailPage(): React.JSX.Element {
   const link = useEmailLinkFromUrl()
+  const { t } = useI18n()
 
   return (
-    <Page title={messages.confirmEmail.title}>
+    <Page title={t('confirmEmail.title')}>
       {link === null ? (
         <>
-          <Alert variant="error">{messages.confirmEmail.invalidLink}</Alert>
+          <Alert variant="error">{t('confirmEmail.invalidLink')}</Alert>
           <p>
-            <TextLink to={paths.login}>{messages.confirmEmail.signInLink}</TextLink>
+            <TextLink to={paths.login}>{t('confirmEmail.signInLink')}</TextLink>
           </p>
         </>
       ) : (
@@ -41,6 +43,8 @@ export function ConfirmEmailPage(): React.JSX.Element {
 }
 
 function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Element {
+  const { t } = useI18n()
+  const fieldError = useValidationMessage()
   const form = useForm<z.input<typeof confirmEmailSchema>, unknown, z.output<typeof confirmEmailSchema>>({
     resolver: zodResolver(confirmEmailSchema),
     defaultValues: { password: '' },
@@ -56,10 +60,10 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
     return (
       <>
         <Alert variant="success" focusOnMount>
-          {messages.confirmEmail.success}
+          {t('confirmEmail.success')}
         </Alert>
         <p>
-          <TextLink to={paths.login}>{messages.confirmEmail.signInLink}</TextLink>
+          <TextLink to={paths.login}>{t('confirmEmail.signInLink')}</TextLink>
         </p>
       </>
     )
@@ -70,10 +74,10 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
       {failure === null ? null : <RequestFailureAlert failure={failure} problemMessages={PROBLEM_MESSAGES} />}
       {isInvalidToken(failure) ? (
         <p>
-          <TextLink to={paths.register}>{messages.confirmEmail.registerAgain}</TextLink>
+          <TextLink to={paths.register}>{t('confirmEmail.registerAgain')}</TextLink>
         </p>
       ) : null}
-      <p className="text-text-muted">{messages.confirmEmail.intro}</p>
+      <p className="text-text-muted">{t('confirmEmail.intro')}</p>
       <form
         noValidate
         method="post"
@@ -84,16 +88,16 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
         }}
       >
         <PasswordField
-          label={messages.confirmEmail.password}
-          hint={messages.confirmEmail.passwordHint}
+          label={t('confirmEmail.password')}
+          hint={t('confirmEmail.passwordHint')}
           autoComplete="current-password"
-          error={form.formState.errors.password?.message}
+          error={fieldError(form.formState.errors.password?.message)}
           {...form.register('password')}
         />
         <SubmitButton
           pending={confirmation.isPending}
-          label={messages.confirmEmail.submit}
-          pendingLabel={messages.confirmEmail.submitting}
+          label={t('confirmEmail.submit')}
+          pendingLabel={t('confirmEmail.submitting')}
         />
       </form>
     </>

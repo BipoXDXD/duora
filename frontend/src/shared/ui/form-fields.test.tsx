@@ -1,11 +1,12 @@
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderWithI18n } from '@/test/render'
 import { describe, expect, it } from 'vitest'
 import { CheckboxField, PasswordField, TextField } from './form-fields'
 
 describe('TextField', () => {
   it('associa o label persistente ao campo', () => {
-    render(<TextField label="E-mail" name="email" type="email" autoComplete="email" />)
+    renderWithI18n(<TextField label="E-mail" name="email" type="email" autoComplete="email" />)
 
     const input = screen.getByLabelText('E-mail')
     expect(input).toHaveAttribute('type', 'email')
@@ -14,7 +15,7 @@ describe('TextField', () => {
   })
 
   it('descreve o campo pela ajuda quando não há erro', () => {
-    render(<TextField label="E-mail" hint="Use um e-mail só seu." />)
+    renderWithI18n(<TextField label="E-mail" hint="Use um e-mail só seu." />)
 
     const input = screen.getByLabelText('E-mail')
     expect(input).toHaveAccessibleDescription('Use um e-mail só seu.')
@@ -22,7 +23,7 @@ describe('TextField', () => {
   })
 
   it('marca o campo inválido e associa o erro em texto pela descrição', () => {
-    render(<TextField label="E-mail" hint="Use um e-mail só seu." error="Informe seu e-mail." />)
+    renderWithI18n(<TextField label="E-mail" hint="Use um e-mail só seu." error="Informe seu e-mail." />)
 
     const input = screen.getByLabelText('E-mail')
     expect(input).toHaveAttribute('aria-invalid', 'true')
@@ -31,7 +32,7 @@ describe('TextField', () => {
   })
 
   it('permite colar no campo', async () => {
-    render(<TextField label="E-mail" />)
+    renderWithI18n(<TextField label="E-mail" />)
     const input = screen.getByLabelText('E-mail')
 
     input.focus()
@@ -43,7 +44,7 @@ describe('TextField', () => {
 
 describe('PasswordField', () => {
   it('começa oculto, com o autocomplete pedido', () => {
-    render(<PasswordField label="Senha" autoComplete="current-password" />)
+    renderWithI18n(<PasswordField label="Senha" autoComplete="current-password" />)
 
     const input = screen.getByLabelText('Senha')
     expect(input).toHaveAttribute('type', 'password')
@@ -51,7 +52,7 @@ describe('PasswordField', () => {
   })
 
   it('o botão mostrar senha é um toggle acessível que revela e oculta', async () => {
-    render(<PasswordField label="Senha" autoComplete="new-password" />)
+    renderWithI18n(<PasswordField label="Senha" autoComplete="new-password" />)
     const toggle = screen.getByRole('button', { name: 'Mostrar senha' })
     const input = screen.getByLabelText('Senha')
 
@@ -68,7 +69,7 @@ describe('PasswordField', () => {
 
   it('o toggle não submete o formulário', async () => {
     let submitted = false
-    render(
+    renderWithI18n(
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -85,7 +86,7 @@ describe('PasswordField', () => {
   })
 
   it('permite colar a senha', async () => {
-    render(<PasswordField label="Senha" />)
+    renderWithI18n(<PasswordField label="Senha" />)
     const input = screen.getByLabelText('Senha')
 
     input.focus()
@@ -95,7 +96,7 @@ describe('PasswordField', () => {
   })
 
   it('associa o erro ao campo de senha', () => {
-    render(<PasswordField label="Senha" error="Informe sua senha." />)
+    renderWithI18n(<PasswordField label="Senha" error="Informe sua senha." />)
 
     const input = screen.getByLabelText('Senha')
     expect(input).toHaveAttribute('aria-invalid', 'true')
@@ -105,7 +106,7 @@ describe('PasswordField', () => {
 
 describe('CheckboxField', () => {
   it('é uma caixa de seleção com label clicável', async () => {
-    render(<CheckboxField label="Aceito os termos" />)
+    renderWithI18n(<CheckboxField label="Aceito os termos" />)
     const checkbox = screen.getByRole('checkbox', { name: 'Aceito os termos' })
 
     await userEvent.click(screen.getByText('Aceito os termos'))
@@ -114,7 +115,7 @@ describe('CheckboxField', () => {
   })
 
   it('associa o erro à caixa de seleção', () => {
-    render(<CheckboxField label="Aceito os termos" error="Aceite os termos." />)
+    renderWithI18n(<CheckboxField label="Aceito os termos" error="Aceite os termos." />)
 
     const checkbox = screen.getByRole('checkbox', { name: 'Aceito os termos' })
     expect(checkbox).toHaveAttribute('aria-invalid', 'true')

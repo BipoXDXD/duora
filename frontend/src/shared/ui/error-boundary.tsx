@@ -1,6 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { messages } from '@/shared/messages'
+import { useI18n } from '@/shared/i18n/i18n-context'
 import { Button } from './button'
 import { DocumentTitle } from './document-title'
 
@@ -40,20 +40,21 @@ export class AreaErrorBoundary extends Component<AreaErrorBoundaryProps, AreaErr
 }
 
 function AreaErrorFallback({ onRetry }: { readonly onRetry: () => void }): React.JSX.Element {
+  const { t } = useI18n()
   return (
     <section aria-labelledby="titulo-erro-area" className="max-w-prose">
-      <DocumentTitle page={messages.errorBoundary.title} />
+      <DocumentTitle page={t('errorBoundary.title')} />
       <h1 id="titulo-erro-area" className="text-3xl font-semibold tracking-tight">
-        {messages.errorBoundary.title}
+        {t('errorBoundary.title')}
       </h1>
-      <p className="mt-4 text-text-muted">{messages.errorBoundary.description}</p>
+      <p className="mt-4 text-text-muted">{t('errorBoundary.description')}</p>
       <div className="mt-8 flex flex-wrap items-center gap-4">
-        <Button onClick={onRetry}>{messages.common.retry}</Button>
+        <Button onClick={onRetry}>{t('common.retry')}</Button>
         <Link
           to="/"
           className="inline-flex min-h-11 items-center font-semibold text-action underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
         >
-          {messages.common.backHome}
+          {t('common.backHome')}
         </Link>
       </div>
     </section>

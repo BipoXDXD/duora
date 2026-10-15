@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { classifyRequestFailure, type RequestFailure } from '@/shared/api'
-import { messages } from '@/shared/messages'
+import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { PasswordField } from '@/shared/ui/form-fields'
@@ -11,21 +11,23 @@ import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { resetPassword } from './auth-api'
 import { newPasswordSchema, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, type EmailLink } from './auth-schemas'
 import { useEmailLinkFromUrl } from './use-email-link'
+import { useValidationMessage } from './validation-message'
 
 const resetPasswordSchema = z.object({ newPassword: newPasswordSchema })
 
-const PROBLEM_MESSAGES = { INVALID_TOKEN: messages.resetPassword.invalidToken }
+const PROBLEM_MESSAGES = { INVALID_TOKEN: 'resetPassword.invalidToken' } as const
 
 export function ResetPasswordPage(): React.JSX.Element {
   const link = useEmailLinkFromUrl()
+  const { t } = useI18n()
 
   return (
-    <Page title={messages.resetPassword.title}>
+    <Page title={t('resetPassword.title')}>
       {link === null ? (
         <>
-          <Alert variant="error">{messages.resetPassword.invalidLink}</Alert>
+          <Alert variant="error">{t('resetPassword.invalidLink')}</Alert>
           <p>
-            <TextLink to={paths.forgotPassword}>{messages.resetPassword.requestNewLink}</TextLink>
+            <TextLink to={paths.forgotPassword}>{t('resetPassword.requestNewLink')}</TextLink>
           </p>
         </>
       ) : (
@@ -37,6 +39,8 @@ export function ResetPasswordPage(): React.JSX.Element {
 
 function ResetPasswordForm({ link }: { readonly link: EmailLink }): React.JSX.Element {
   const queryClient = useQueryClient()
+  const { t } = useI18n()
+  const fieldError = useValidationMessage()
   const form = useForm<z.input<typeof resetPasswordSchema>, unknown, z.output<typeof resetPasswordSchema>>({
     resolver: zodResolver(resetPasswordSchema),
     defaultValues: { newPassword: '' },
@@ -58,10 +62,10 @@ function ResetPasswordForm({ link }: { readonly link: EmailLink }): React.JSX.El
     return (
       <>
         <Alert variant="success" focusOnMount>
-          {messages.resetPassword.success}
+          {t('resetPassword.success')}
         </Alert>
         <p>
-          <TextLink to={paths.login}>{messages.resetPassword.signInLink}</TextLink>
+          <TextLink to={paths.login}>{t('resetPassword.signInLink')}</TextLink>
         </p>
       </>
     )
@@ -73,7 +77,7 @@ function ResetPasswordForm({ link }: { readonly link: EmailLink }): React.JSX.El
       {failure === null ? null : <RequestFailureAlert failure={failure} problemMessages={PROBLEM_MESSAGES} />}
       {isInvalidToken(failure) ? (
         <p>
-          <TextLink to={paths.forgotPassword}>{messages.resetPassword.requestNewLink}</TextLink>
+          <TextLink to={paths.forgotPassword}>{t('resetPassword.requestNewLink')}</TextLink>
         </p>
       ) : null}
       <form
@@ -86,16 +90,16 @@ function ResetPasswordForm({ link }: { readonly link: EmailLink }): React.JSX.El
         }}
       >
         <PasswordField
-          label={messages.resetPassword.newPassword}
-          hint={messages.register.passwordHint(PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH)}
+          label={t('resetPassword.newPassword')}
+          hint={t('register.passwordHint', { min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH })}
           autoComplete="new-password"
-          error={form.formState.errors.newPassword?.message}
+          error={fieldError(form.formState.errors.newPassword?.message)}
           {...form.register('newPassword')}
         />
         <SubmitButton
           pending={reset.isPending}
-          label={messages.resetPassword.submit}
-          pendingLabel={messages.resetPassword.submitting}
+          label={t('resetPassword.submit')}
+          pendingLabel={t('resetPassword.submitting')}
         />
       </form>
     </>

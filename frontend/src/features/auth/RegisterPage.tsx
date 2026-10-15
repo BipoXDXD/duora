@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router'
 import { z } from 'zod'
 import { classifyRequestFailure } from '@/shared/api'
-import { messages } from '@/shared/messages'
+import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { RequestFailureAlert } from '@/shared/ui/alert'
 import { CheckboxField, PasswordField, TextField } from '@/shared/ui/form-fields'
@@ -17,12 +17,13 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from './auth-schemas'
+import { useValidationMessage, type ValidationKey } from './validation-message'
 
 const registerSchema = z.object({
   email: emailSchema,
   password: newPasswordSchema,
-  acceptTerms: z.boolean().refine((accepted) => accepted, messages.validation.termsRequired),
-  acceptPrivacy: z.boolean().refine((accepted) => accepted, messages.validation.privacyRequired),
+  acceptTerms: z.boolean().refine((accepted) => accepted, 'validation.termsRequired' satisfies ValidationKey),
+  acceptPrivacy: z.boolean().refine((accepted) => accepted, 'validation.privacyRequired' satisfies ValidationKey),
 })
 
 type RegisterForm = z.output<typeof registerSchema>
@@ -38,6 +39,8 @@ function submitRegistration({ email, password }: RegisterForm): Promise<void> {
 
 export function RegisterPage(): React.JSX.Element {
   const navigate = useNavigate()
+  const { t } = useI18n()
+  const fieldError = useValidationMessage()
   const form = useForm<z.input<typeof registerSchema>, unknown, RegisterForm>({
     resolver: zodResolver(registerSchema),
     defaultValues: { email: '', password: '', acceptTerms: false, acceptPrivacy: false },
@@ -54,7 +57,7 @@ export function RegisterPage(): React.JSX.Element {
   const { errors } = form.formState
 
   return (
-    <Page title={messages.register.title} intro={messages.register.intro}>
+    <Page title={t('register.title')} intro={t('register.intro')}>
       {registration.isError ? <RequestFailureAlert failure={classifyRequestFailure(registration.error)} /> : null}
       <form
         noValidate
@@ -66,41 +69,41 @@ export function RegisterPage(): React.JSX.Element {
         }}
       >
         <TextField
-          label={messages.register.email}
+          label={t('register.email')}
           type="email"
           inputMode="email"
           autoComplete="email"
-          error={errors.email?.message}
+          error={fieldError(errors.email?.message)}
           {...form.register('email')}
         />
         <PasswordField
-          label={messages.register.password}
-          hint={messages.register.passwordHint(PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH)}
+          label={t('register.password')}
+          hint={t('register.passwordHint', { min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH })}
           autoComplete="new-password"
-          error={errors.password?.message}
+          error={fieldError(errors.password?.message)}
           {...form.register('password')}
         />
         <fieldset className="flex flex-col gap-2">
-          <legend className="sr-only">{messages.register.legalLegend}</legend>
+          <legend className="sr-only">{t('register.legalLegend')}</legend>
           <CheckboxField
-            label={messages.register.acceptTerms(LEGAL_DOCUMENT_VERSIONS.terms)}
-            error={errors.acceptTerms?.message}
+            label={t('register.acceptTerms', { version: LEGAL_DOCUMENT_VERSIONS.terms })}
+            error={fieldError(errors.acceptTerms?.message)}
             {...form.register('acceptTerms')}
           />
           <CheckboxField
-            label={messages.register.acceptPrivacy(LEGAL_DOCUMENT_VERSIONS.privacy)}
-            error={errors.acceptPrivacy?.message}
+            label={t('register.acceptPrivacy', { version: LEGAL_DOCUMENT_VERSIONS.privacy })}
+            error={fieldError(errors.acceptPrivacy?.message)}
             {...form.register('acceptPrivacy')}
           />
         </fieldset>
         <SubmitButton
           pending={registration.isPending}
-          label={messages.register.submit}
-          pendingLabel={messages.register.submitting}
+          label={t('register.submit')}
+          pendingLabel={t('register.submitting')}
         />
       </form>
       <p className="text-text-muted">
-        {messages.register.haveAccount} <TextLink to={paths.login}>{messages.register.signInLink}</TextLink>
+        {t('register.haveAccount')} <TextLink to={paths.login}>{t('register.signInLink')}</TextLink>
       </p>
     </Page>
   )
