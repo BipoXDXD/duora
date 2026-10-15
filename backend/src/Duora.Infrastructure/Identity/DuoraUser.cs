@@ -5,7 +5,8 @@ namespace Duora.Infrastructure.Identity;
 
 /// <summary>
 /// Conta do Identity com o estado do produto (spec 4.2). O nome de usuário é o próprio e-mail: não há apelido de
-/// login, e a unicidade do e-mail normalizado é garantida por índice único.
+/// login, e a unicidade do e-mail normalizado é garantida por índice único. A conta nasce por upsert em SQL no
+/// <see cref="AccountService.RegisterAsync"/>, que precisa substituir um cadastro pendente no mesmo comando.
 /// </summary>
 public sealed class DuoraUser : IdentityUser<Guid>
 {
@@ -16,17 +17,8 @@ public sealed class DuoraUser : IdentityUser<Guid>
 
     public AccountStatus Status { get; private set; }
 
+    /// <summary>Criação da conta; num cadastro pendente substituído, o instante do cadastro que ficou.</summary>
     public DateTimeOffset CreatedAt { get; private set; }
-
-    internal static DuoraUser Register(EmailAddress email, DateTimeOffset now) =>
-        new()
-        {
-            Id = Guid.CreateVersion7(now),
-            UserName = email.Value,
-            Email = email.Value,
-            Status = AccountStatus.PendingEmail,
-            CreatedAt = now,
-        };
 
     /// <summary>E-mail confirmado: a conta passa a depender só da elegibilidade (verificação etária, spec 12.2).</summary>
     internal void CompleteEmailConfirmation()

@@ -74,6 +74,34 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
             ?? throw new InvalidOperationException($"Nenhum e-mail {kind} na outbox para {email}.");
     }
 
+    /// <summary>Todos os e-mails do tipo pedido para o endereço, do mais antigo ao mais novo.</summary>
+    public async Task<IReadOnlyList<AccountLink>> ReadLinksAsync(string email, string kind)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            select payload::text from ops.outbox_events
+            where payload->>'to' = $1 and payload->>'kind' = $2
+            order by occurred_at, id
+            """,
+            connection);
+        command.Parameters.AddWithValue(email);
+        command.Parameters.AddWithValue(kind);
+        var links = new List<AccountLink>();
+        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+        while (await reader.ReadAsync(TestContext.Current.CancellationToken))
+        {
+            using var json = JsonDocument.Parse(reader.GetString(0));
+            var root = json.RootElement;
+            links.Add(new AccountLink(
+                root.GetProperty("userId").GetGuid(),
+                root.TryGetProperty("token", out var token) ? token.GetString() ?? "" : ""));
+        }
+
+        return links;
+    }
+
     public async Task<AccountLink?> TryReadLatestLinkAsync(string email, string kind)
     {
         await using var connection = new NpgsqlConnection(postgres.ConnectionString);
