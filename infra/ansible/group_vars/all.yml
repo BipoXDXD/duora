@@ -25,3 +25,6 @@ duora_min_free_gib: 10
 duora_backup_egress_subnet: 172.30.20.0/24
 # CIDRs do endpoint S3 liberados na 443. Vazio = qualquer destino na 443 até o provedor ser escolhido.
 duora_backup_s3_cidrs: []
+# Resolvedores DNS (IPv4) liberados na 53 para a rede backup-egress. Vazio = os upstream do systemd-resolved do host
+# (/run/systemd/resolve/resolv.conf), que é para onde o DNS embutido do Docker encaminha; o filtro falha sem nenhum.
+duora_backup_dns_resolvers: []
