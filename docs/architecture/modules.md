@@ -18,6 +18,9 @@ flowchart LR
     Worker --> Infra
     Worker --> Contracts
     Infra --> Core
+    Web --> WebIdentity["Duora.Web.Identity<br/>cookie, ticket store, SignInManager, Data Protection"]
+    WebIdentity --> Infra
+    WebIdentity --> Core
 ```
 
 | Regra (spec 3.3) | Verificação |
@@ -27,6 +30,7 @@ flowchart LR
 | Contracts não carrega entidades persistidas | `Duora.ArchitectureTests`: Contracts sem referência a Core, EF Core, Npgsql ou ASP.NET Core |
 | Endpoints chamam casos de uso; não contêm algoritmo de pareamento nem regra de bloqueio | Revisão de PR; teste de namespace a implementar no M1 |
 | Sem interface para cada classe nem `GenericRepository<T>` sobre o EF Core | Revisão de PR |
+| Só o Web usa o runtime do ASP.NET Core: Infrastructure, Worker, Core e Contracts não referenciam o framework `Microsoft.AspNetCore.App`, só o Web referencia o `Duora.Web.Identity`, e o `runtimeconfig` do Worker exige só `Microsoft.NETCore.App` ([ADR-0019](adr/0019-implementacao-identidade-sessao-outbox.md#revisão-separação-do-runtime-web)) | `Duora.ArchitectureTests.RuntimeSeparationTests` |
 
 ## Módulos
 

@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Duora.Core.Identity;
 
-namespace Duora.Web.Identity;
+namespace Duora.Web.Accounts;
 
 /// <summary>
 /// Validação de fronteira dos DTOs de conta: converte para os tipos do domínio ou acumula erros com códigos

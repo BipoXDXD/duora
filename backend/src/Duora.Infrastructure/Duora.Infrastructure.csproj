@@ -1,18 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- Sem o framework compartilhado do ASP.NET Core: o Worker depende deste projeto e roda no runtime .NET puro.
+       O que exige o runtime web (cookie, ticket store, SignInManager, Data Protection) fica no Duora.Web.Identity
+       (ADR-0019, "Revisão: separação do runtime web"; verificado em Duora.ArchitectureTests). -->
   <ItemGroup>
     <ProjectReference Include="..\Duora.Core\Duora.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Identity, cookies, Data Protection e antiforgery vêm do framework compartilhado do ASP.NET Core: o
-         adaptador de identidade (ticket store, SignInManager) mora aqui, ao lado do DbContext. O worker herda a
-         referência e roda no mesmo runtime do web. -->
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <!-- Pacote NuGet, não o framework compartilhado: traz IdentityDbContext, UserManager e PasswordHasher. -->
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+    <!-- Segredos como arquivos (Compose secrets); o Worker não tem o shared framework do ASP.NET Core. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.KeyPerFile" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <!-- Só para o dotnet-ef gerar migrations; não vai para quem referencia este projeto. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
   </ItemGroup>

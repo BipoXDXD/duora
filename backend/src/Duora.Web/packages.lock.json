@@ -51,6 +51,13 @@
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )"
         }
       },
+      "duora.web.identity": {
+        "type": "Project",
+        "dependencies": {
+          "Duora.Core": "[1.0.0, )",
+          "Duora.Infrastructure": "[1.0.0, )"
+        }
+      },
       "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
         "type": "CentralTransitive",
         "requested": "[10.0.13, )",

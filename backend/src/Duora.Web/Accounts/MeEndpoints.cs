@@ -1,8 +1,9 @@
 using Duora.Contracts.Identity;
 using Duora.Infrastructure.Identity;
+using Duora.Web.Identity;
 using Microsoft.AspNetCore.Http.HttpResults;
 
-namespace Duora.Web.Identity;
+namespace Duora.Web.Accounts;
 
 /// <summary>Conta e sessões do titular (API-A08 a API-A10). Exigem sessão pela política padrão de autorização.</summary>
 internal static class MeEndpoints
