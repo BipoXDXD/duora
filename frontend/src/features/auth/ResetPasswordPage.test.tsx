@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { meQueryKey } from '@/features/session/query-keys'
@@ -54,6 +54,25 @@ describe('tela de redefinição de senha', () => {
       },
     ])
     expect(queryClient.getQueryCache().getAll()).toEqual([])
+  })
+
+  it('tira userId e token da URL ao montar e ainda envia o token certo no POST', async () => {
+    const antiforgery = useAntiforgeryEndpoint()
+    const received = useResetEndpoint(noContent)
+    const app = renderApp(LINK)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/redefinir-senha$/)
+    })
+    await submitPassword(app, 'outra frase longa de senha')
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Senha alterada.')
+    expect(received).toEqual([
+      {
+        body: { userId: USER_ID, token: 'reset-token', newPassword: 'outra frase longa de senha' },
+        token: antiforgery.latestToken(),
+      },
+    ])
   })
 
   it.each([
