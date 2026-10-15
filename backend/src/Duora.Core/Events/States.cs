@@ -22,6 +22,17 @@ public enum RegistrationState
     Completed,
 }
 
+/// <summary>Estados da rodada (spec 4.2).</summary>
+public enum RoundState
+{
+    Scheduled = 1,
+    Preparing,
+    Inviting,
+    Running,
+    Closed,
+    Cancelled,
+}
+
 /// <summary>Estado editorial da versão de experiência, como o catálogo informa na publicação do evento.</summary>
 public enum ExperienceVersionStatus
 {

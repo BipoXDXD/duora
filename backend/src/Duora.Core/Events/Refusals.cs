@@ -69,3 +69,22 @@ public enum CheckInRefusal
     /// <summary>A conta não está elegível agora (INV-01, revalidada no check-in).</summary>
     ParticipantIneligible,
 }
+
+/// <summary>Por que uma transição de rodada foi recusada.</summary>
+public enum RoundRefusal
+{
+    /// <summary>A rodada mudou desde a leitura: outro processo já a transicionou.</summary>
+    VersionConflict = 1,
+
+    /// <summary>A transição não sai do estado atual.</summary>
+    InvalidState,
+
+    /// <summary>O horário que libera a transição ainda não chegou.</summary>
+    NotDueYet,
+
+    /// <summary>Passou o limite de início; resta cancelar a rodada.</summary>
+    StartWindowElapsed,
+
+    /// <summary>A janela da rodada terminou; resta encerrá-la.</summary>
+    WindowElapsed,
+}
