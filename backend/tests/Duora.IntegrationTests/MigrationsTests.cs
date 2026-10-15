@@ -8,7 +8,8 @@ public sealed class MigrationsTests(PostgresFixture postgres)
     [Fact]
     public async Task BaselineIsRecordedInOpsMigrationHistory()
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        // Como migrador: o app não tem privilégio algum no histórico (reconcile-privileges.sql).
+        await using var connection = new NpgsqlConnection(postgres.MigratorConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         // As colunas da tabela de histórico são do EF ("MigrationId"); renomeá-las exigiria API interna do provider.
         await using var command = new NpgsqlCommand(
@@ -77,14 +78,14 @@ public sealed class MigrationsTests(PostgresFixture postgres)
     public async Task WebDoesNotMigrateOnStartup()
     {
         var emptyDatabase = await postgres.CreateEmptyDatabaseAsync(TestContext.Current.CancellationToken);
-        await using (var factory = new DuoraWebFactory(emptyDatabase))
+        await using (var factory = new DuoraWebFactory(emptyDatabase.AppConnectionString))
         {
             using var client = factory.CreateClient();
             var response = await client.GetAsync(new Uri("/health/ready", UriKind.Relative), TestContext.Current.CancellationToken);
             response.EnsureSuccessStatusCode();
         }
 
-        await using var connection = new NpgsqlConnection(emptyDatabase);
+        await using var connection = new NpgsqlConnection(emptyDatabase.AppConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand("select to_regclass('ops.__ef_migrations_history')::text", connection);
 
@@ -93,9 +94,10 @@ public sealed class MigrationsTests(PostgresFixture postgres)
         Assert.Equal(DBNull.Value, historyTable);
     }
 
+    /// <summary>Como migrador, dono das tabelas: o information_schema esconde o que o usuário conectado não acessa.</summary>
     private async Task<List<string>> QueryNamesAsync(string sql)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(postgres.MigratorConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
