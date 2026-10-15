@@ -68,7 +68,7 @@ function useProfileBackend(initial: StoredProfile = { displayName: null, bio: nu
 describe('perfil: leitura', () => {
   it('mostra carregando e depois os valores salvos nos campos', async () => {
     useProfileBackend({ displayName: 'Ana', bio: 'Gosto de jogos.', version: 3 })
-    renderApp('/conta/perfil')
+    await renderApp('/conta/perfil')
 
     expect(await screen.findByText('Carregando seu perfil…')).toBeInTheDocument()
     expect(await screen.findByLabelText('Nome de exibição')).toHaveValue('Ana')
@@ -86,7 +86,7 @@ describe('perfil: leitura', () => {
           : HttpResponse.json({ displayName: 'Ana', bio: null, version: '1' }, { headers: { ETag: '"1"' } }),
       ),
     )
-    const { user } = renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
 
     expect(await screen.findByText('Não foi possível carregar seu perfil.')).toBeInTheDocument()
     failing = false
@@ -97,7 +97,7 @@ describe('perfil: leitura', () => {
 
   it('a conta tem o link para editar o perfil', async () => {
     useProfileBackend()
-    const { user } = renderApp('/conta')
+    const { user } = await renderApp('/conta')
 
     await user.click(await screen.findByRole('link', { name: 'Editar perfil' }))
 
@@ -108,7 +108,7 @@ describe('perfil: leitura', () => {
 describe('perfil: edição', () => {
   it('salva com o ETag lido e usa a versão nova no envio seguinte', async () => {
     const backend = useProfileBackend()
-    const { user } = renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
 
     await user.type(await screen.findByLabelText('Nome de exibição'), 'Ana')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
@@ -128,7 +128,7 @@ describe('perfil: edição', () => {
 
   it('valida no navegador antes de enviar', async () => {
     const backend = useProfileBackend()
-    const { user } = renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
 
     await screen.findByLabelText('Nome de exibição')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
@@ -140,7 +140,7 @@ describe('perfil: edição', () => {
 
   it('uma releitura em segundo plano não troca a versão sobre a qual a edição foi feita', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    const { user, queryClient } = renderApp('/conta/perfil')
+    const { user, queryClient } = await renderApp('/conta/perfil')
     await screen.findByLabelText('Nome de exibição')
 
     backend.changeElsewhere({ displayName: 'Outra aba' })
@@ -155,7 +155,7 @@ describe('perfil: edição', () => {
 describe('perfil: conflito (412, T-19)', () => {
   it('avisa, mantém o que foi digitado, recarrega a versão atual e reaplica sobre ela', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: 'Oi', version: 1 })
-    const { user } = renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
     const name = await screen.findByLabelText('Nome de exibição')
 
     backend.changeElsewhere({ bio: 'Escrito na outra aba' })
@@ -178,7 +178,7 @@ describe('perfil: conflito (412, T-19)', () => {
 
   it('reaplicar manda só o campo editado e não desfaz o que a outra aba mudou', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: 'Oi', version: 1 })
-    const { user } = renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
     const name = await screen.findByLabelText('Nome de exibição')
 
     backend.changeElsewhere({ bio: 'Escrito na outra aba' })
@@ -196,7 +196,7 @@ describe('perfil: conflito (412, T-19)', () => {
 
   it('descartar troca o rascunho pela versão salva', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    const { user } = renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
     const name = await screen.findByLabelText('Nome de exibição')
 
     backend.changeElsewhere({ displayName: 'Ana da outra aba' })
@@ -214,7 +214,7 @@ describe('perfil: outras falhas', () => {
   it('conta restrita recebe a explicação, não um erro genérico', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
     server.use(http.patch(`${API}/me/profile`, () => problem(403, 'ACCOUNT_RESTRICTED')))
-    const { user } = renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
 
     await screen.findByLabelText('Nome de exibição')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
@@ -225,7 +225,7 @@ describe('perfil: outras falhas', () => {
   it('falha de rede ao salvar mostra o erro de conexão', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
     server.use(http.patch(`${API}/me/profile`, () => HttpResponse.error()))
-    const { user } = renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
 
     await screen.findByLabelText('Nome de exibição')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
