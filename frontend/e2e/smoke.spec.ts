@@ -5,6 +5,10 @@ import { expect, test } from '@playwright/test'
 // Ao atualizar o axe, confira a lista de tags antes de ampliar ou reduzir a cobertura.
 const WCAG_22_A_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
 
+// Os chunks das telas levam o nome do módulo (LoginPage-<hash>.js); a página inicial não pode puxá-los.
+const FORM_SCREEN_CHUNK =
+  /\/(Register|CheckEmail|ConfirmEmail|Login|ForgotPassword|ResetPassword|Account)Page-|\/RequireSession-/
+
 test.describe('página inicial', () => {
   test('abre com título, landmarks e nome do produto', async ({ page }) => {
     await page.goto('/')
@@ -42,6 +46,23 @@ test.describe('página inicial', () => {
     const results = await new AxeBuilder({ page }).withTags(WCAG_22_A_AA_TAGS).analyze()
 
     expect(results.violations).toEqual([])
+  })
+
+  test('baixa só o código da página inicial; as telas de formulário vêm sob demanda (spec 13.5)', async ({ page }) => {
+    const scripts: string[] = []
+    page.on('request', (request) => {
+      if (request.resourceType() === 'script') {
+        scripts.push(new URL(request.url()).pathname)
+      }
+    })
+    await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1, name: 'Duora' })).toBeVisible()
+
+    expect(scripts.filter((path) => FORM_SCREEN_CHUNK.test(path))).toEqual([])
+
+    await page.getByRole('main').getByRole('link', { name: 'Entrar' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeFocused()
+    expect(scripts.some((path) => path.includes('/LoginPage-'))).toBe(true)
   })
 
   test('rota inexistente também passa no axe', async ({ page }) => {
