@@ -63,10 +63,18 @@ internal static class SafetyFixtures
 
     public static Appeal AppealUnderReview(ModerationAction action, TimeProvider clock)
     {
-        var appeal = Appeal.File(action, action.SubjectUserId, "Foi um mal-entendido.", clock).Accepted();
+        var appeal = Appeal.File(action, action.SubjectUserId, "Foi um mal-entendido.", existingAppeal: null, clock).Accepted();
         appeal.StartReview(ModeratorPedro).Accepted();
         return appeal;
     }
+
+    /// <summary>Recurso revisto por Pedro que mantém a medida; devolve a revisão.</summary>
+    public static ModerationAction Upheld(ModerationAction original, TimeProvider clock, string reason = "Mantida.") =>
+        AppealUnderReview(original, clock).Uphold(original, ModeratorPedro, Ruling(reason), clock).Accepted();
+
+    /// <summary>Recurso revisto por Pedro que reverte a medida; devolve a revisão.</summary>
+    public static ModerationAction Overturned(ModerationAction original, TimeProvider clock, string reason = "Revertida.") =>
+        AppealUnderReview(original, clock).Overturn(original, ModeratorPedro, Ruling(reason), clock).Accepted();
 
     /// <summary>Leva uma denúncia de Alice contra Bruno até o estado pedido pelo caminho válido.</summary>
     public static Report ReportIn(ReportState state, TimeProvider? clock = null)
@@ -102,7 +110,7 @@ internal static class SafetyFixtures
             return report;
         }
 
-        report.MarkAppealed(Appeal.File(action, Bruno, "Foi um mal-entendido.", clock).Accepted()).Accepted();
+        report.MarkAppealed(Appeal.File(action, Bruno, "Foi um mal-entendido.", existingAppeal: null, clock).Accepted()).Accepted();
         return report;
     }
 

@@ -670,6 +670,7 @@ erDiagram
   `version bigint`.
 - **Constraints:** FKs `RESTRICT` (`report_id`, `subject_user_id`, `policy_version_id`); FK
   `author_user_id` `SET NULL`; FK `supersedes_action_id` → `moderation_actions` `RESTRICT`;
+  `UNIQUE (supersedes_action_id)` (uma medida tem no máximo uma revisão; sem revisões irmãs);
   `CHECK (measure <> 'PermanentBan' OR author_kind = 'Human')` (spec 12.3);
   `CHECK ((author_kind = 'Human') = (author_user_id IS NOT NULL))` até a anonimização do autor.
 - **Índices:** um por FK; `ix_moderation_actions_subject_user_id`.
@@ -680,9 +681,10 @@ erDiagram
 - **Colunas:** `id`; `moderation_action_id`; `appellant_id`; `reason text` (≤ 2000); `state text`
   (`Received`, `UnderReview`, `Upheld`, `Overturned`); `reviewer_id uuid`; `decided_at timestamptz`;
   `version bigint`.
-- **Constraints:** FKs `RESTRICT`; índice único parcial `(moderation_action_id)` onde `state IN ('Received',
-  'UnderReview')` (um recurso aberto por medida). A independência (revisor ≠ autor da medida) atravessa
-  tabelas: regra do caso de uso, testada (TM-34).
+- **Constraints:** FKs `RESTRICT`; índice único **não parcial** `ux_appeals_moderation_action_id` em
+  `(moderation_action_id)`: um só recurso por medida, aberto ou decidido (um nível de recurso; a decisão do recurso
+  também não admite outro). A independência (revisor fora das partes do caso e diferente do autor da medida)
+  atravessa tabelas: regra do domínio (`Appeal.StartReview`), testada (TM-34).
 - **Índices:** `ix_appeals_appellant_id`, `ix_appeals_reviewer_id`.
 - **Classe:** P3.
 
