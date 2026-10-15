@@ -73,8 +73,13 @@ do `duora_app`) e o drill (abaixo).
 O role Ansible `backup` instala `duora-backup-egress.service`, que cria a chain `DUORA-BACKUP-EGRESS` e a liga em
 `DOCKER-USER` para a subnet fixa `172.30.20.0/24` (a mesma do `compose.prod.yml`; mudar nos dois juntos):
 
-- permite DNS (53/udp e 53/tcp): o resolvedor embutido do Docker encaminha a consulta com o IP do container, então
-  **o acesso ao repositório depende de DNS**; sem resolução de nome o backup e o archive param (e o verify alerta);
+- permite DNS (53/udp e 53/tcp) **só para os resolvedores upstream**: o resolvedor embutido do Docker encaminha a
+  consulta com o IP do container, então **o acesso ao repositório depende de DNS**; sem resolução de nome o backup e
+  o archive param (e o verify alerta). Os destinos vêm de `duora_backup_dns_resolvers` (inventário) ou, com a lista
+  vazia (padrão), dos upstream do systemd-resolved em `/run/systemd/resolve/resolv.conf`, que é a lista para a qual o
+  Docker encaminha. Sem nenhum resolvedor o filtro falha. Se o provedor trocar o resolvedor (DHCP), reaplique com
+  `sudo systemctl restart duora-backup-egress`. Fixar `dns:` no serviço `backup` foi descartado: obrigaria escolher um
+  resolvedor de terceiro e manter o mesmo IP no compose e no inventário;
 - permite HTTPS (443/tcp) só para `duora_backup_s3_cidrs` (inventário). **Enquanto o provedor não for escolhido a
   lista é vazia, o que libera a 443 para qualquer destino**;
 - descarta o resto. O serviço é `PartOf=docker.service`: reaplica a cada restart do Docker. A rede é só IPv4.
