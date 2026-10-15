@@ -23,6 +23,20 @@ public sealed class WorkerHostTests
         Assert.Contains("ConnectionStrings:Duora", exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("--Duora:PublicOrigin=", "Duora:PublicOrigin")]
+    [InlineData("--Email:PickupDirectory=", "Email:PickupDirectory")]
+    [InlineData("--Outbox:SendTimeout=00:05:00", "Outbox")]
+    public async Task WorkerDoesNotStartWithInvalidEmailSettings(string invalidSetting, string expectedKey)
+    {
+        using var host = BuildHost(new CanaryConnectionString().Value, logs: null, invalidSetting);
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains(expectedKey, exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task HeartbeatLogsUnreachableDatabaseWithCauseAndKeepsRunning()
     {
@@ -30,9 +44,9 @@ public sealed class WorkerHostTests
         using var host = BuildHost(new CanaryConnectionString().Value, logs);
         await host.StartAsync(TestContext.Current.CancellationToken);
 
-        var warning = await logs.FirstWarning.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        var warning = await logs.FirstWarningFrom(typeof(HeartbeatService).FullName ?? throw new InvalidOperationException())
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
-        Assert.Equal(typeof(HeartbeatService).FullName, warning.Category);
         Assert.NotNull(warning.Exception);
         Assert.False(host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
         await host.StopAsync(TestContext.Current.CancellationToken);
@@ -52,11 +66,17 @@ public sealed class WorkerHostTests
         Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(connection.Password, StringComparison.Ordinal));
     }
 
-    private static IHost BuildHost(string connectionString, CapturingLoggerProvider? logs)
+    private static IHost BuildHost(string connectionString, CapturingLoggerProvider? logs, params string[] overrides)
     {
         // Linha de comando tem a maior precedência: nada da máquina (env, user-secrets) interfere.
         var builder = WorkerHost.CreateBuilder(
-            ["--environment", "Testing", $"--ConnectionStrings:Duora={connectionString}"]);
+        [
+            "--environment", "Testing",
+            $"--ConnectionStrings:Duora={connectionString}",
+            "--Duora:PublicOrigin=https://duora.test",
+            $"--Email:PickupDirectory={Path.Combine(Path.GetTempPath(), "duora-mail-unused")}",
+            .. overrides,
+        ]);
         if (logs is not null)
         {
             builder.Logging.AddProvider(logs);

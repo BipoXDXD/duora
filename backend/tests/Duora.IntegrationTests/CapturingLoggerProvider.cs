@@ -11,11 +11,15 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
     private readonly ConcurrentQueue<CapturedLog> _entries = new();
     private readonly TaskCompletionSource<CapturedLog> _firstWarning =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<CapturedLog>> _firstWarningByCategory = new();
 
     public IReadOnlyCollection<CapturedLog> Entries => _entries;
 
     /// <summary>Completa no primeiro log de nível Warning ou acima.</summary>
     public Task<CapturedLog> FirstWarning => _firstWarning.Task;
+
+    /// <summary>Completa no primeiro log de nível Warning ou acima da categoria indicada.</summary>
+    public Task<CapturedLog> FirstWarningFrom(string category) => WarningSource(category).Task;
 
     public ILogger CreateLogger(string categoryName) => new CapturingLogger(categoryName, this);
 
@@ -29,8 +33,12 @@ public sealed class CapturingLoggerProvider : ILoggerProvider
         if (entry.Level >= LogLevel.Warning)
         {
             _firstWarning.TrySetResult(entry);
+            WarningSource(entry.Category).TrySetResult(entry);
         }
     }
+
+    private TaskCompletionSource<CapturedLog> WarningSource(string category) =>
+        _firstWarningByCategory.GetOrAdd(category, _ => new(TaskCreationOptions.RunContinuationsAsynchronously));
 
     private sealed class CapturingLogger(string category, CapturingLoggerProvider provider) : ILogger
     {
