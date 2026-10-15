@@ -40,6 +40,14 @@ internal sealed class Browser : IDisposable
     public Task<HttpResponseMessage> PostRawJsonAsync(string path, string json, MutationHeaders? headers = null) =>
         SendAsync(HttpMethod.Post, path, new StringContent(json, Encoding.UTF8, "application/json"), headers);
 
+    /// <summary>PUT sem corpo, ou com JSON cru quando o teste quer mandar campos que a rota não aceita.</summary>
+    public Task<HttpResponseMessage> PutAsync(string path, string? rawJson = null, MutationHeaders? headers = null) =>
+        SendAsync(
+            HttpMethod.Put,
+            path,
+            rawJson is null ? null : new StringContent(rawJson, Encoding.UTF8, "application/json"),
+            headers);
+
     public Task<HttpResponseMessage> DeleteAsync(string path, MutationHeaders? headers = null) =>
         SendAsync(HttpMethod.Delete, path, content: null, headers);
 

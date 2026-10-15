@@ -1,5 +1,6 @@
 using Duora.Core;
 using Duora.Core.Notifications;
+using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,6 +31,10 @@ public static class InfrastructureServiceCollectionExtensions
             NpgsqlDataSource.Create(provider.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString));
         services.AddDbContext<DuoraDbContext>((provider, options) =>
             options.UseDuoraNpgsql(provider.GetRequiredService<NpgsqlDataSource>()));
+
+        services.AddScoped(provider => new AuditTrail(
+            provider.GetRequiredService<DuoraDbContext>(),
+            provider.GetRequiredService<TimeProvider>()));
 
         services.AddSingleton(provider =>
             new DatabaseProbe(provider.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString));

@@ -53,6 +53,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             },
             ["DELETE /api/v1/me/sessions/{sessionId:guid}"] = null,
             ["PATCH /api/v1/me/profile"] = new { displayName = "Sem token" },
+            ["PUT /api/v1/me/blocks/{targetUserId:guid}"] = null,
         };
         string[] emails = [account.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
@@ -62,12 +63,15 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
         {
             var name = $"{method} {pattern}";
             Assert.True(bodies.TryGetValue(name, out var body), $"Sem corpo de exemplo para {name}: acrescente-o aqui.");
-            var path = pattern.Replace("{sessionId:guid}", sessionId.ToString(), StringComparison.Ordinal);
+            var path = pattern
+                .Replace("{sessionId:guid}", sessionId.ToString(), StringComparison.Ordinal)
+                .Replace("{targetUserId:guid}", pendingLink.UserId.ToString(), StringComparison.Ordinal);
             var headers = new MutationHeaders(SendCsrfToken: false);
             using var response = method switch
             {
                 "DELETE" => await browser.DeleteAsync(path, headers),
                 "PATCH" => await browser.PatchRawJsonAsync(path, JsonSerializer.Serialize(body, JsonSerializerOptions.Web), "\"0\"", headers),
+                "PUT" => await browser.PutAsync(path, headers: headers),
                 _ => await browser.PostJsonAsync(path, body, headers),
             };
 
@@ -104,6 +108,8 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                 (select count(*) from identity.login_sessions s join identity.users u on u.id = s.user_id
                    where u.email = any($1) and s.revoked_at is null),
                 (select count(*) from profiles.profiles p join identity.users u on u.id = p.user_id
+                   where u.email = any($1)),
+                (select count(*) from safety.blocks b join identity.users u on u.id = b.blocker_id
                    where u.email = any($1)))
             """,
             connection);

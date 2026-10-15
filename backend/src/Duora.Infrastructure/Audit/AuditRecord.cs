@@ -25,6 +25,12 @@ internal sealed record AuditAction
     public string Code { get; }
 }
 
+/// <summary>Tipos de alvo usados em <see cref="AuditRecord.TargetType"/>.</summary>
+internal static class AuditTargetTypes
+{
+    public const string User = "user";
+}
+
 /// <summary>
 /// Um fato de auditoria: ator, ação e alvo. Sem texto livre, senha, ticket nem corpo de conversa (spec 10.2); o
 /// alvo é um id, e o tipo do alvo segue o formato de catálogo.

@@ -9,14 +9,17 @@ namespace Duora.Web.Http;
 /// </summary>
 internal static class ApiProblems
 {
+    public const string AccountNotEligible = "ACCOUNT_NOT_ELIGIBLE";
     public const string AccountRestricted = "ACCOUNT_RESTRICTED";
     public const string CsrfValidationFailed = "CSRF_VALIDATION_FAILED";
     public const string InvalidCredentials = "INVALID_CREDENTIALS";
+    public const string InvalidRequest = "INVALID_REQUEST";
     public const string InvalidToken = "INVALID_TOKEN";
     public const string MfaRequired = "MFA_REQUIRED";
     public const string PreconditionFailed = "PRECONDITION_FAILED";
     public const string PreconditionRequired = "PRECONDITION_REQUIRED";
     public const string RateLimited = "RATE_LIMITED";
+    public const string SelfBlock = "SELF_BLOCK";
     public const string ValidationFailed = "VALIDATION_FAILED";
 
     public static ProblemHttpResult Problem(int status, string code, string title) =>
@@ -53,7 +56,7 @@ internal static class ApiProblems
 
         var code = problem.Status switch
         {
-            StatusCodes.Status400BadRequest => "INVALID_REQUEST",
+            StatusCodes.Status400BadRequest => InvalidRequest,
             StatusCodes.Status401Unauthorized => "UNAUTHENTICATED",
             StatusCodes.Status403Forbidden => "FORBIDDEN",
             StatusCodes.Status404NotFound => "NOT_FOUND",
