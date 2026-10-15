@@ -72,7 +72,7 @@ public sealed class Appeal
             return SafetyResult.Rejected(SafetyRejection.TransitionNotAllowed);
         }
 
-        if (_original.Author.Is(reviewerId) || reviewerId == AppellantId)
+        if (_original.Author.Is(reviewerId) || _original.Parties.Includes(reviewerId))
         {
             return SafetyResult.Rejected(SafetyRejection.ReviewerMustBeIndependent);
         }
