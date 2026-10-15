@@ -1,9 +1,11 @@
 # Gerenciado pelo Ansible (infra/ansible/roles/backup). Uma ação do duora-backup por instância:
-# duora-backup@full, duora-backup@diff, duora-backup@verify. Falha fica em "systemctl --failed" e no journal.
+# duora-backup@full, duora-backup@diff, duora-backup@verify. Saída diferente de 0 (inclusive erro inesperado ou
+# resposta que o verify não sabe avaliar) deixa a unit em failed e dispara duora-backup-failed@.
 [Unit]
 Description=Duora: pgBackRest %i (duora-backup)
 After=docker.service
 Requires=docker.service
+OnFailure=duora-backup-failed@%n.service
 
 [Service]
 Type=oneshot

@@ -1,7 +1,10 @@
 """Testes do wrapper de backup. Rodar da raiz: python3 -m unittest discover -s scripts/deploy -v"""
 
+import contextlib
+import io
 import json
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -284,6 +287,102 @@ class ActionTests(unittest.TestCase):
         # O deploy chama o verify segurando o lock; pegá-lo aqui travaria o próprio deploy.
         with backup.deploy_lock(self.state_dir, wait_seconds=0):
             backup.run_action("verify", FakeRunner(), project="duora", state_dir=self.state_dir, lock_wait_seconds=0)
+
+
+def _without(entry: dict, *path: str) -> dict:
+    """Cópia de um backup do info sem o campo indicado (ex.: "timestamp", "stop")."""
+    copy = json.loads(json.dumps(entry))
+    target = copy
+    for key in path[:-1]:
+        target = target[key]
+    del target[path[-1]]
+    return copy
+
+
+class FailClosedVerifyTests(unittest.TestCase):
+    """O verify decide se o deploy segue: tudo que não prova backup saudável BLOQUEIA (BackupError)."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state_dir = Path(self._tmp.name)
+
+    def assert_blocks(self, runner: FakeRunner) -> None:
+        with self.assertRaises(backup.BackupError):
+            backup.run_action("verify", runner, project="duora", state_dir=self.state_dir)
+
+    def test_unusable_info_output_blocks(self) -> None:
+        healthy = backup_entry(stop=NOW - HOUR)
+        cases = {
+            "vazia": "",
+            "só espaços": "   \n",
+            "não é JSON": "not json",
+            "JSON truncado": info_json()[:-5],
+            "objeto em vez de lista": json.dumps({"name": "duora"}),
+            "lista de não-objetos": "[1, 2]",
+            "stanza ausente (lista vazia)": "[]",
+            "duas stanzas": json.dumps(json.loads(info_json()) * 2),
+            "sem campo status": json.dumps([{k: v for k, v in json.loads(info_json())[0].items() if k != "status"}]),
+            "status não é objeto": json.dumps([{**json.loads(info_json())[0], "status": "ok"}]),
+            "status.code como texto": json.dumps([{**json.loads(info_json())[0],
+                                                   "status": {"code": "0", "message": "ok"}}]),
+            "sem campo backup": json.dumps([{k: v for k, v in json.loads(info_json())[0].items() if k != "backup"}]),
+            "backup não é lista": json.dumps([{**json.loads(info_json())[0], "backup": {"x": 1}}]),
+            "backup sem timestamp": info_json(backups=[_without(healthy, "timestamp")]),
+            "backup sem timestamp.stop": info_json(backups=[_without(healthy, "timestamp", "stop")]),
+            "timestamp.stop como texto": info_json(backups=[{**healthy, "timestamp": {"start": 1, "stop": "agora"}}]),
+            "backup sem campo error": info_json(backups=[_without(healthy, "error")]),
+            "sem campo archive": json.dumps([{k: v for k, v in json.loads(info_json())[0].items() if k != "archive"}]),
+            "nenhum backup": info_json(backups=[]),
+        }
+        for label, info in cases.items():
+            with self.subTest(info=label):
+                self.assert_blocks(FakeRunner(info=info))
+
+    def test_unusable_archiver_output_blocks(self) -> None:
+        cases = {
+            "vazia": "",
+            "lixo": "garbage",
+            "colunas a mais": f"{NOW}||{NOW}|x",
+            "número inválido": f"ontem||{NOW}",
+            "relógio do banco ausente": f"{NOW}||",
+            "nunca arquivou": f"||{NOW}",
+            "archive mais velho que o limite": f"{NOW - 301}||{NOW}",
+            "falha depois do último sucesso": f"{NOW - 30}|{NOW - 10}|{NOW}",
+        }
+        for label, line in cases.items():
+            with self.subTest(archiver=label):
+                self.assert_blocks(FakeRunner(archiver_line=line))
+
+    def test_non_zero_exit_of_any_step_blocks(self) -> None:
+        for step in ("docker ps", " check", "--output=json", "pg_stat_archiver"):
+            with self.subTest(step=step):
+                self.assert_blocks(FakeRunner(fail_on=step))
+
+    def test_timeout_of_a_command_is_a_backup_error(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "excedeu 1 s"):
+            backup.run_command([sys.executable, "-c", "import time; time.sleep(5)"], timeout_seconds=1)
+
+    def test_missing_executable_is_a_backup_error(self) -> None:
+        with self.assertRaises(backup.BackupError):
+            backup.run_command(["/nonexistent/duora-no-such-binary"])
+
+    def test_unexpected_exception_makes_the_cli_fail(self) -> None:
+        def exploding_runner(command: list[str], *, capture: bool = False,
+                             timeout_seconds: int = 0) -> subprocess.CompletedProcess[str]:
+            raise RuntimeError("inesperado")
+
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            code = backup.main(["verify", "--state-dir", str(self.state_dir)], run=exploding_runner)
+
+        self.assertEqual(1, code)
+        self.assertIn("inesperado", stderr.getvalue())
+
+    def test_healthy_verify_makes_the_cli_succeed(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = backup.main(["verify", "--state-dir", str(self.state_dir)], run=FakeRunner())
+
+        self.assertEqual(0, code)
 
 
 class CliTests(unittest.TestCase):

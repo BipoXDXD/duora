@@ -323,6 +323,41 @@ class DeployTests(unittest.TestCase):
         self.assertFalse(runner.ran("run --rm migrator"))
         self.assertFalse((self.paths.state_dir / "current.json").exists())
 
+    def test_missing_backup_command_stops_deploy_before_stopping_anything(self) -> None:
+        fake = FakeRunner()
+
+        def runner(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+            if command[0].endswith("duora-backup"):
+                raise FileNotFoundError(command[0])
+            return fake(command, capture=capture)
+
+        with self.assertRaises(FileNotFoundError):
+            deploy.deploy(self.release, self.paths, runner, readiness_timeout_seconds=5, sleep=lambda _: None)
+        self.assertFalse(fake.ran("stop worker"))
+
+    def test_main_reports_failure_when_backup_command_cannot_run(self) -> None:
+        manifest = self.paths.state_dir.parent / "manifest.json"
+        release = valid_manifest()
+        release["architecture"] = deploy.docker_architecture(platform.machine())
+        manifest.write_text(json.dumps(release), encoding="utf-8")
+        self.paths.host_env.write_text(f"DUORA_IMAGE_PREFIX={PREFIX}\nDUORA_MIN_FREE_GIB=0\n"
+                                       f"DUORA_DISK_CHECK_PATH={self.paths.state_dir.parent}\n", encoding="utf-8")
+
+        def failing_command(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+            raise FileNotFoundError(command[0])
+
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            original = deploy.run_command
+            deploy.run_command = failing_command
+            try:
+                code = deploy.main(["--manifest", str(manifest), "--host-env", str(self.paths.host_env),
+                                    "--state-dir", str(self.paths.state_dir),
+                                    "--compose-file", str(self.paths.compose_file)])
+            finally:
+                deploy.run_command = original
+
+        self.assertEqual(1, code)
+
     def test_backup_check_skipped_only_when_explicitly_accepted(self) -> None:
         runner = FakeRunner()
 

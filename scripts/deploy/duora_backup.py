@@ -107,35 +107,133 @@ def _archiving_problems(archiver: ArchiverStatus) -> list[str]:
 
 
 def _repository_problems(info_text: str, now: float) -> list[str]:
+    # Fail closed: qualquer coisa fora do formato esperado (vazio, JSON inválido, campo ausente ou de outro tipo) é
+    # problema, nunca "saudável por omissão".
     try:
-        stanzas = json.loads(info_text)
-    except json.JSONDecodeError as error:
-        return [f"pgbackrest info não devolveu JSON válido: {error}"]
-    names = [stanza.get("name") for stanza in stanzas] if isinstance(stanzas, list) else []
-    if names != [STANZA] or not isinstance(stanzas[0], dict):
-        return [f"pgbackrest info: esperado só a stanza {STANZA}, recebido {names}"]
-    stanza = stanzas[0]
+        repository = _parse_info(info_text)
+    except _InfoShapeError as error:
+        return [f"pgbackrest info: {error}"]
 
     problems = []
-    status = stanza.get("status") or {}
-    if status.get("code") != 0:
-        problems.append(f"pgbackrest info: stanza {STANZA} com status {status.get('code')} "
-                        f"({status.get('message')})")
-    if not any(isinstance(entry, dict) and entry.get("max") for entry in stanza.get("archive") or []):
+    if repository.status_code != 0:
+        problems.append(f"pgbackrest info: stanza {STANZA} com status {repository.status_code} "
+                        f"({repository.status_message})")
+    if not repository.has_archived_wal:
         problems.append("nenhum WAL no repositório (pgbackrest info sem archive.max)")
-    backups = [entry for entry in stanza.get("backup") or [] if isinstance(entry, dict)]
-    if not backups:
+    if not repository.backups:
         problems.append("nenhum backup no repositório")
         return problems
 
-    newest = max(backups, key=lambda entry: entry["timestamp"]["stop"])
-    age_hours = (now - newest["timestamp"]["stop"]) / 3600
+    newest = max(repository.backups, key=lambda entry: entry.stopped_at)
+    age_hours = (now - newest.stopped_at) / 3600
     if age_hours > MAX_BACKUP_AGE_HOURS:
         problems.append(f"último backup terminou há {age_hours:.1f} h (limite {MAX_BACKUP_AGE_HOURS} h)")
-    if newest.get("error"):
-        problems.append(f"último backup ({newest.get('label')}) registrou erro de página; rode um full e "
-                        "investigue o volume")
+    if newest.has_error:
+        problems.append(f"último backup ({newest.label}) registrou erro de página; rode um full e investigue o volume")
     return problems
+
+
+class _InfoShapeError(Exception):
+    """Saída do `pgbackrest info --output=json` fora do formato que o verify sabe avaliar."""
+
+
+@dataclass(frozen=True)
+class _BackupEntry:
+    label: str
+    stopped_at: float
+    has_error: bool
+
+
+@dataclass(frozen=True)
+class _RepositoryStatus:
+    status_code: int
+    status_message: str
+    has_archived_wal: bool
+    backups: list[_BackupEntry]
+
+
+def _parse_info(text: str) -> _RepositoryStatus:
+    """Converte o JSON do info no que o verify avalia, exigindo cada campo com o tipo certo."""
+    try:
+        stanzas = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise _InfoShapeError(f"saída não é JSON válido ({error})") from error
+    if not isinstance(stanzas, list) or not all(isinstance(stanza, dict) for stanza in stanzas):
+        raise _InfoShapeError("esperado uma lista de stanzas (objetos JSON)")
+    names = [stanza.get("name") for stanza in stanzas]
+    if names != [STANZA]:
+        raise _InfoShapeError(f"esperado só a stanza {STANZA}, recebido {names}")
+    stanza = stanzas[0]
+
+    status = _object_field(stanza, "status", "stanza")
+    archive = _list_field(stanza, "archive", "stanza")
+    backups = _list_field(stanza, "backup", "stanza")
+    return _RepositoryStatus(
+        status_code=_int_field(status, "code", "status"),
+        status_message=_str_field(status, "message", "status"),
+        has_archived_wal=any(isinstance(_entry(entry, "archive").get("max"), str) and entry["max"]
+                             for entry in archive),
+        backups=[_parse_backup(_entry(entry, "backup")) for entry in backups],
+    )
+
+
+def _parse_backup(entry: dict) -> _BackupEntry:
+    timestamp = _object_field(entry, "timestamp", "backup")
+    return _BackupEntry(label=_str_field(entry, "label", "backup"),
+                        stopped_at=float(_int_field(timestamp, "stop", "backup.timestamp")),
+                        has_error=_bool_field(entry, "error", "backup"))
+
+
+def _entry(value: object, where: str) -> dict:
+    if not isinstance(value, dict):
+        raise _InfoShapeError(f"item de {where} não é objeto: {value!r}")
+    return value
+
+
+def _object_field(mapping: dict, key: str, where: str) -> dict:
+    value = _present(mapping, key, where)
+    if not isinstance(value, dict):
+        raise _unexpected_type(where, key, value)
+    return value
+
+
+def _list_field(mapping: dict, key: str, where: str) -> list:
+    value = _present(mapping, key, where)
+    if not isinstance(value, list):
+        raise _unexpected_type(where, key, value)
+    return value
+
+
+def _int_field(mapping: dict, key: str, where: str) -> int:
+    value = _present(mapping, key, where)
+    # bool é subclasse de int em Python: um true no lugar de um número também é formato inesperado.
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise _unexpected_type(where, key, value)
+    return value
+
+
+def _str_field(mapping: dict, key: str, where: str) -> str:
+    value = _present(mapping, key, where)
+    if not isinstance(value, str):
+        raise _unexpected_type(where, key, value)
+    return value
+
+
+def _bool_field(mapping: dict, key: str, where: str) -> bool:
+    value = _present(mapping, key, where)
+    if not isinstance(value, bool):
+        raise _unexpected_type(where, key, value)
+    return value
+
+
+def _present(mapping: dict, key: str, where: str) -> object:
+    if key not in mapping:
+        raise _InfoShapeError(f"campo {where}.{key} ausente")
+    return mapping[key]
+
+
+def _unexpected_type(where: str, key: str, value: object) -> _InfoShapeError:
+    return _InfoShapeError(f"campo {where}.{key} com tipo inesperado: {value!r}")
 
 
 # --- Ações ----------------------------------------------------------------------------------------------------------
@@ -232,9 +330,11 @@ def run_command(command: list[str], *, capture: bool = False,
         return subprocess.run(command, text=True, check=False, capture_output=capture, timeout=timeout_seconds)
     except subprocess.TimeoutExpired as error:
         raise BackupError(f"comando excedeu {timeout_seconds} s: {' '.join(command[:6])} ...") from error
+    except OSError as error:
+        raise BackupError(f"não foi possível executar {command[0]}: {error}") from error
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, run: Runner = run_command) -> int:
     parser = argparse.ArgumentParser(prog="duora-backup", description=DESCRIPTION)
     parser.add_argument("action", choices=ACTIONS)
     parser.add_argument("--compose-project", default=COMPOSE_PROJECT, help="projeto do Compose (drill local)")
@@ -243,12 +343,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        run_action(args.action, run_command, project=args.compose_project, state_dir=args.state_dir)
+        run_action(args.action, run, project=args.compose_project, state_dir=args.state_dir)
     except BackupError as error:
         print(f"[duora-backup] ERRO: {error}", file=sys.stderr)
         return 1
     except OSError as error:
         print(f"[duora-backup] ERRO de sistema: {error}", file=sys.stderr)
+        return 1
+    except Exception as error:
+        # Fail closed: "não consegui verificar" nunca é sucesso. A saída 1 bloqueia o deploy e marca a unit do timer
+        # como failed; o tipo e a mensagem vão para o operador.
+        print(f"[duora-backup] ERRO inesperado ({type(error).__name__}): {error}", file=sys.stderr)
         return 1
     return 0
 
