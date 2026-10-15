@@ -2,6 +2,7 @@ using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using Duora.Core.Identity;
+using Duora.Core.Notifications;
 using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -84,6 +85,7 @@ public sealed class AccountService
         string password,
         string termsVersion,
         string privacyVersion,
+        EmailLanguage language,
         CancellationToken cancellationToken)
     {
         var now = _time.GetUtcNow();
@@ -98,11 +100,11 @@ public sealed class AccountService
         var token = await _users.GenerateEmailConfirmationTokenAsync(user);
         if (registration.EmailConfirmed)
         {
-            Enqueue(AccountEmailKind.RegistrationAttemptOnExistingAccount, StoredAddress(user), user.Id, token: null);
+            Enqueue(AccountEmailKind.RegistrationAttemptOnExistingAccount, StoredAddress(user), user.Id, token: null, language);
         }
         else
         {
-            Enqueue(AccountEmailKind.EmailConfirmation, StoredAddress(user), user.Id, token);
+            Enqueue(AccountEmailKind.EmailConfirmation, StoredAddress(user), user.Id, token, language);
         }
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -159,19 +161,32 @@ public sealed class AccountService
     /// confirma o e-mail e o cadastro pendente pode ser de outra pessoa (TM-66); endereço sem conta recebe um
     /// aviso de que não há conta. O excesso de e-mails é contido pelo rate limit por endereço.
     /// </summary>
-    public async Task RequestPasswordResetAsync(EmailAddress email, CancellationToken cancellationToken)
+    public async Task RequestPasswordResetAsync(
+        EmailAddress email,
+        EmailLanguage language,
+        CancellationToken cancellationToken)
     {
         var user = await _users.FindByEmailAsync(email.Value);
         switch (user)
         {
             case null:
-                Enqueue(AccountEmailKind.PasswordResetForUnknownAddress, email.Value, Guid.CreateVersion7(_time.GetUtcNow()), token: null);
+                Enqueue(
+                    AccountEmailKind.PasswordResetForUnknownAddress,
+                    email.Value,
+                    Guid.CreateVersion7(_time.GetUtcNow()),
+                    token: null,
+                    language);
                 break;
             case { EmailConfirmed: true }:
-                Enqueue(AccountEmailKind.PasswordReset, StoredAddress(user), user.Id, await _users.GeneratePasswordResetTokenAsync(user));
+                Enqueue(
+                    AccountEmailKind.PasswordReset,
+                    StoredAddress(user),
+                    user.Id,
+                    await _users.GeneratePasswordResetTokenAsync(user),
+                    language);
                 break;
             default:
-                Enqueue(AccountEmailKind.PendingRegistrationReminder, StoredAddress(user), user.Id, token: null);
+                Enqueue(AccountEmailKind.PendingRegistrationReminder, StoredAddress(user), user.Id, token: null, language);
                 break;
         }
 
@@ -345,10 +360,11 @@ public sealed class AccountService
     private static string StoredAddress(DuoraUser user) =>
         user.Email ?? throw new InvalidOperationException("Conta sem e-mail gravado.");
 
-    private void Enqueue(AccountEmailKind kind, string recipient, Guid userId, string? token)
+    private void Enqueue(AccountEmailKind kind, string recipient, Guid userId, string? token, EmailLanguage language)
     {
         var linkToken = token is null ? null : Base64Url.EncodeToString(Encoding.UTF8.GetBytes(token));
-        _db.Add(AccountEmailOutbox.Create(new AccountEmailRequested(kind, recipient, userId, linkToken), _time.GetUtcNow()));
+        var message = new AccountEmailRequested(kind, recipient, userId, linkToken, EmailLanguageTag.Format(language));
+        _db.Add(AccountEmailOutbox.Create(message, _time.GetUtcNow()));
     }
 
     /// <summary>O token do Identity tem '+', '/' e '='; no link ele vai como base64url dos seus bytes UTF-8.</summary>
