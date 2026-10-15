@@ -20,10 +20,23 @@ public static class PairSelector
 {
     private const int Unpaired = -1;
 
+    /// <summary>
+    /// Executa a versão pedida pelo snapshot. Cada braço declara a versão que de fato rodou; versão sem implementação
+    /// falha alto em vez de devolver um resultado rotulado com uma versão que não executou.
+    /// </summary>
     public static PairSelection Select(RoundSnapshot round)
     {
         ArgumentNullException.ThrowIfNull(round);
 
+        return round.AlgorithmVersion switch
+        {
+            PairingAlgorithmVersion.GreedyByPriorityV1 => SelectGreedyByPriority(round),
+            _ => throw new InvalidOperationException($"Versão de algoritmo sem implementação: {round.AlgorithmVersion}."),
+        };
+    }
+
+    private static PairSelection SelectGreedyByPriority(RoundSnapshot round)
+    {
         var ranked = RankByPriority(round);
         var options = ViableOptionsByRank(round, ranked);
         var partnerOf = PairGreedily(options);
@@ -32,7 +45,7 @@ public static class PairSelector
             PairsOf(ranked, partnerOf),
             [.. UnpairedRanks(partnerOf).Select(rank => ranked[rank].UserId)],
             TallyUnpaired(options, partnerOf),
-            round.AlgorithmVersion);
+            PairingAlgorithmVersion.GreedyByPriorityV1);
     }
 
     private static Candidate[] RankByPriority(RoundSnapshot round)
