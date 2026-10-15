@@ -632,6 +632,9 @@ erDiagram
   categorias graves. `CHECK (code ~ '^[a-z][a-z0-9._-]{0,63}$')`, o mesmo formato de `ReportCategoryCode`.
 - `policy_versions`: `id`, `code text`, `version text`, `published_at`, `document_sha256 bytea`;
   `UNIQUE (code, version)`. Toda medida aponta a versão da política (INV-10).
+- `policy_clauses`: `policy_version_id` FK `RESTRICT`, `code text` (formato de `SubjectNotice.ReasonCode`, como
+  `conduta.assedio`), `summary text`; PK `(policy_version_id, code)`. É o catálogo de motivos que o aviso à pessoa
+  sancionada cita.
 - **Classe:** P0.
 
 ### safety.reports
@@ -666,14 +669,22 @@ erDiagram
 ### safety.moderation_actions
 
 - **Colunas:** `id`; `report_id uuid` (anulável: medida por sinal de abuso sem denúncia); `subject_user_id`;
-  `measure text` (`Warning`, `Restriction`, `Suspension`, `PermanentBan`; por tabela de referência se a
-  política crescer); `policy_version_id`; `reason text` (≤ 2000); `author_kind text` (`Human`, `System`);
-  `author_user_id uuid`; `decided_at`, `effective_until timestamptz`; `supersedes_action_id uuid`;
-  `version bigint`.
+  `measure text` (`Warning`, `Restriction`, `Suspension`, `PermanentBan`, `Cleared`; `Cleared` só existe como
+  revisão que reverte uma medida em recurso; por tabela de referência se a política crescer); `policy_version_id`;
+  `internal_reason text` (≤ 2000; auditoria, nunca exibido à pessoa); `notice_reason_code text` e `notice_text text`
+  (≤ 500, anulável), o aviso que a pessoa sancionada lê; `author_kind text` (`Human`, `Automated`; o termo segue
+  o domínio, `ModerationAuthor.Automated`, em vez do antigo `System`); `author_user_id uuid`; `decided_at`,
+  `effective_until timestamptz`; `supersedes_action_id uuid`; `version bigint`.
 - **Constraints:** FKs `RESTRICT` (`report_id`, `subject_user_id`, `policy_version_id`); FK
   `author_user_id` `SET NULL`; FK `supersedes_action_id` → `moderation_actions` `RESTRICT`;
   `UNIQUE (supersedes_action_id)` (uma medida tem no máximo uma revisão; sem revisões irmãs);
-  `CHECK (measure <> 'PermanentBan' OR author_kind = 'Human')` (spec 12.3);
+  FK `(policy_version_id, notice_reason_code)` → `policy_clauses` `RESTRICT` (o código do aviso é uma cláusula da
+  versão aplicada);
+  `CHECK (author_kind = 'Human' OR measure = 'Restriction')` (o sistema só aplica restrição de contenção; spec
+  12.3, TM-34);
+  `CHECK (measure <> 'Cleared' OR supersedes_action_id IS NOT NULL)`;
+  `CHECK (effective_until IS NULL OR effective_until <= decided_at + interval '365 days')` (teto absoluto de
+  `ModerationLimits`; o teto do parameter set e o da automação ficam no domínio, porque mudam com a versão);
   `CHECK ((author_kind = 'Human') = (author_user_id IS NOT NULL))` até a anonimização do autor.
 - **Índices:** um por FK; `ix_moderation_actions_subject_user_id`.
 - **Classe:** P3.
