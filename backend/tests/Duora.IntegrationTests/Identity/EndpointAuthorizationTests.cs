@@ -79,6 +79,7 @@ public sealed class EndpointAuthorizationTests(PostgresFixture postgres) : IAsyn
             "GET" => browser.GetAsync(path),
             "DELETE" => browser.DeleteAsync(path),
             "POST" => browser.PostJsonAsync(path, new { }),
+            "PATCH" => browser.PatchRawJsonAsync(path, "{}", ifMatch: "\"0\""),
             var method => throw new InvalidOperationException($"Método {method} sem caso no teste."),
         };
     }

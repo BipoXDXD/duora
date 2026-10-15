@@ -22,19 +22,19 @@ public sealed class MigrationsTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task IdentityAndOutboxTablesExist()
+    public async Task ModuleTablesExist()
     {
         var tables = await QueryNamesAsync(
             """
             select table_schema || '.' || table_name from information_schema.tables
-            where table_schema in ('identity', 'ops') and table_name <> '__ef_migrations_history'
+            where table_schema in ('identity', 'ops', 'profiles') and table_name <> '__ef_migrations_history'
             """);
 
         Assert.Equal(
             [
                 "identity.consent_records", "identity.login_sessions", "identity.role_claims", "identity.roles",
                 "identity.user_claims", "identity.user_logins", "identity.user_roles", "identity.user_tokens",
-                "identity.users", "ops.outbox_deliveries", "ops.outbox_events",
+                "identity.users", "ops.outbox_deliveries", "ops.outbox_events", "profiles.profiles",
             ],
             tables.Order(StringComparer.Ordinal));
     }
@@ -49,17 +49,17 @@ public sealed class MigrationsTests(PostgresFixture postgres)
         var names = await QueryNamesAsync(
             """
             select table_name from information_schema.tables
-             where table_schema in ('identity', 'ops') and table_name <> '__ef_migrations_history'
+             where table_schema in ('identity', 'ops', 'profiles') and table_name <> '__ef_migrations_history'
             union all
             select column_name from information_schema.columns
-             where table_schema in ('identity', 'ops') and table_name <> '__ef_migrations_history'
+             where table_schema in ('identity', 'ops', 'profiles') and table_name <> '__ef_migrations_history'
             union all
             select constraint_name from information_schema.table_constraints
-             where table_schema in ('identity', 'ops') and table_name <> '__ef_migrations_history'
+             where table_schema in ('identity', 'ops', 'profiles') and table_name <> '__ef_migrations_history'
                and constraint_type <> 'CHECK'
             union all
             select indexname from pg_indexes
-             where schemaname in ('identity', 'ops') and tablename <> '__ef_migrations_history'
+             where schemaname in ('identity', 'ops', 'profiles') and tablename <> '__ef_migrations_history'
             """);
 
         Assert.NotEmpty(names);

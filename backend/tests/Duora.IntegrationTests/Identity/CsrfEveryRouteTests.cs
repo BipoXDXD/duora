@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -51,6 +52,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                 newPassword = "uma frase nova e longa",
             },
             ["DELETE /api/v1/me/sessions/{sessionId:guid}"] = null,
+            ["PATCH /api/v1/me/profile"] = new { displayName = "Sem token" },
         };
         string[] emails = [account.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
@@ -62,9 +64,12 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             Assert.True(bodies.TryGetValue(name, out var body), $"Sem corpo de exemplo para {name}: acrescente-o aqui.");
             var path = pattern.Replace("{sessionId:guid}", sessionId.ToString(), StringComparison.Ordinal);
             var headers = new MutationHeaders(SendCsrfToken: false);
-            using var response = method == "DELETE"
-                ? await browser.DeleteAsync(path, headers)
-                : await browser.PostJsonAsync(path, body, headers);
+            using var response = method switch
+            {
+                "DELETE" => await browser.DeleteAsync(path, headers),
+                "PATCH" => await browser.PatchRawJsonAsync(path, JsonSerializer.Serialize(body, JsonSerializerOptions.Web), "\"0\"", headers),
+                _ => await browser.PostJsonAsync(path, body, headers),
+            };
 
             Assert.True(response.StatusCode == HttpStatusCode.Forbidden, $"{name} respondeu {(int)response.StatusCode}.");
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "CSRF_VALIDATION_FAILED");
@@ -83,7 +88,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             .Where(route => route.Method is not ("GET" or "HEAD" or "OPTIONS")),
     ];
 
-    /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails e sessões ativas.</summary>
+    /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails, sessões ativas e perfis.</summary>
     private async Task<string> SnapshotAsync(string[] emails)
     {
         await using var connection = new NpgsqlConnection(postgres.ConnectionString);
@@ -97,7 +102,9 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                    from identity.users where email = any($1)),
                 (select count(*) from ops.outbox_events where payload->>'to' = any($1)),
                 (select count(*) from identity.login_sessions s join identity.users u on u.id = s.user_id
-                   where u.email = any($1) and s.revoked_at is null))
+                   where u.email = any($1) and s.revoked_at is null),
+                (select count(*) from profiles.profiles p join identity.users u on u.id = p.user_id
+                   where u.email = any($1)))
             """,
             connection);
         command.Parameters.AddWithValue(emails);
