@@ -50,12 +50,14 @@ class AppRolePrivilegesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._secrets_dir = tempfile.TemporaryDirectory(prefix="duora-pg-test-")
+        # mkdtemp cria 0700 do usuário do teste; o postgres do container (uid 999) precisa atravessar o diretório.
+        Path(cls._secrets_dir.name).chmod(0o755)
         for name, value in SECRETS.items():
             path = Path(cls._secrets_dir.name) / name
             path.write_text(value, encoding="utf-8")
             path.chmod(0o644)  # dados sintéticos; o container (uid 999) precisa ler
         cls.container = f"duora-pg-privileges-{uuid.uuid4().hex[:8]}"
-        _run(["docker", "run", "--detach", "--rm", "--name", cls.container, "--user", "999:999",
+        _run(["docker", "run", "--detach", "--name", cls.container, "--user", "999:999",
               "--volume", f"{cls._secrets_dir.name}:/run/secrets:ro",
               "--env", "POSTGRES_PASSWORD_FILE=/run/secrets/postgres_superuser_password",
               "--env", "DUORA_MIGRATOR_PASSWORD_FILE=/run/secrets/db_migrator_password",
@@ -80,7 +82,9 @@ class AppRolePrivilegesTests(unittest.TestCase):
             if probe.returncode == 0:
                 return
             time.sleep(1)
-        raise AssertionError("PostgreSQL não ficou pronto")
+        logs = subprocess.run(["docker", "logs", "--tail", "30", cls.container], capture_output=True, text=True,
+                              check=False)
+        raise AssertionError(f"PostgreSQL não ficou pronto:\n{logs.stdout}{logs.stderr}")
 
     @classmethod
     def _psql_superuser(cls) -> list[str]:
