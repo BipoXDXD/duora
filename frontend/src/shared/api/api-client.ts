@@ -19,6 +19,8 @@ export interface JsonRequest {
 export interface ApiClient {
   /** Executa a requisição e devolve o corpo JSON ainda não validado (ou undefined em 204). */
   requestJson(request: JsonRequest): Promise<unknown>
+  /** Executa um comando cujo sucesso não traz dado (202/204) e descarta o corpo da resposta. */
+  sendCommand(request: JsonRequest): Promise<void>
   /** Mesmas garantias, no formato de `fetch`, para plugar num cliente gerado. */
   readonly fetch: ApiFetch
 }
@@ -49,20 +51,21 @@ export function createApiClient(dependencies: ApiClientDependencies): ApiClient 
     return response
   }
 
+  const toRequest = ({ method, path, body, signal }: JsonRequest): Request =>
+    new Request(resolveSameOriginUrl(path, dependencies.origin), {
+      method,
+      ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
+      ...(signal === undefined ? {} : { signal }),
+    })
+
   return {
     fetch: send,
-    async requestJson({ method, path, body, signal }) {
-      const url = resolveSameOriginUrl(path, dependencies.origin)
-      const response = await send(
-        new Request(url, {
-          method,
-          ...(body === undefined
-            ? {}
-            : { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
-          ...(signal === undefined ? {} : { signal }),
-        }),
-      )
-      return readJsonBody(response)
+    async requestJson(request) {
+      return readJsonBody(await send(toRequest(request)))
+    },
+    async sendCommand(request) {
+      const response = await send(toRequest(request))
+      await response.body?.cancel()
     },
   }
 }
