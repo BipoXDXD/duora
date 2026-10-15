@@ -48,8 +48,8 @@ Schemas lógicos (spec 10.1): `identity`, `profiles`, `events`, `experiences`, `
 | Operations | Configurações, feature flags, comandos operacionais, outbox, jobs, idempotência, webhooks e auditoria | `ops`: `outbox_events`, `outbox_deliveries`, `jobs`, `idempotency_records`, `webhook_receipts`; `audit_events` (nota 4) | `PauseMatching`, `EnterMaintenanceMode` | Expor shell ou SQL genérico ao painel |
 | Privacy | Exportação, exclusão, retenção e reconciliação | `privacy`: `export_requests`, `deletion_requests`, `retention_holds`, `deletion_tombstones` | `RequestExport`, `RequestDeletion`, `ApplyRetention` | Apagar registros sob preservação aprovada sem avaliação |
 
-Notas de propriedade (notas 1 a 4: lacunas da spec, a confirmar em ADR ou na primeira migração do módulo;
-nota 5: já decidida):
+Notas de propriedade (notas 1 a 4: lacunas da spec, a confirmar em ADR ou na primeira migração do módulo,
+com proposta em [model.md](../data/model.md#decisões-de-modelagem-propostas), D1 a D5; nota 5: já decidida):
 
 1. A spec não lista schema `matching`; o exemplo de DDL da 10.3 cria `events.pairing_participants`. Até
    decisão contrária, as tabelas do Matching ficam no schema `events`, com dono lógico Matching.
@@ -86,4 +86,4 @@ Todo caso de uso coordenado adquire locks nesta ordem; quem descobre recurso for
 5. Sala/conversa, em ordem estável.
 
 Nenhuma chamada a e-mail, storage, IA ou webhook de terceiro acontece enquanto os locks de negócio estão
-mantidos. O detalhamento de concorrência fica em `docs/data/concurrency.md` (a escrever, spec 21.2).
+mantidos. O protocolo de cada cenário está em [concurrency.md](../data/concurrency.md).
