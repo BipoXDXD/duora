@@ -226,12 +226,15 @@ class ActionTests(unittest.TestCase):
         self.assertIn("label=com.docker.compose.project=duora", lookup)
         self.assertIn("label=com.docker.compose.service=backup", lookup)
 
-    def test_archiver_is_read_through_the_backup_container_socket(self) -> None:
+    def test_archiver_is_read_by_the_backup_role_over_tcp(self) -> None:
         runner = FakeRunner()
 
         self.run_action("verify", runner)
 
-        self.assertEqual(["docker", "exec", CONTAINER_ID, "psql"], runner.commands[-1][:4])
+        psql = runner.commands[-1]
+        self.assertEqual(["docker", "exec", CONTAINER_ID, "psql"], psql[:4])
+        self.assertEqual(["--host", "postgres", "--username", "duora_backup", "--dbname", "postgres",
+                          "--no-password"], psql[psql.index("--host"):psql.index("--host") + 7])
 
     def test_missing_backup_container_is_an_error(self) -> None:
         with self.assertRaisesRegex(backup.BackupError, "nenhum container backup"):

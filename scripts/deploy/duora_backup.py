@@ -3,8 +3,9 @@
 
     duora-backup stanza-create | full | diff | verify | info
 
-Roda o pgBackRest dentro do container backup (repository host: credenciais do S3, PGDATA e socket do postgres só
-leitura) por `docker exec`, como root do host, chamado pelos timers systemd e pelo duora-deploy. Só as ações acima existem;
+Roda o pgBackRest dentro do container backup (repository host: credenciais do S3, PGDATA só leitura, SQL como
+duora_backup por TCP) por `docker exec`, como root do host, chamado pelos timers systemd e pelo duora-deploy. Só as
+ações acima existem;
 nenhum argumento é repassado ao pgBackRest. A aplicação não recebe o socket do Docker nem as credenciais do
 repositório.
 
@@ -34,6 +35,8 @@ STANZA = "duora"
 COMPOSE_PROJECT = "duora"
 # Repository host: único container com o pgBackRest do repositório (S3, cifra) e o socket do banco só leitura.
 BACKUP_SERVICE = "backup"
+BACKUP_DB_HOST = "postgres"
+BACKUP_DB_ROLE = "duora_backup"  # papel sem superuser (infra/images/postgres/initdb/10-duora-roles.sh)
 # RPO proposto de 5 min (spec 18.1): WAL confirmado no repositório há mais tempo que isso é alerta.
 MAX_ARCHIVE_AGE_SECONDS = 300
 # Diferencial diário: um dia perdido ainda passa; dois seguidos alertam (o restore ficaria mais longo, RTO).
@@ -256,10 +259,11 @@ def run_action(action: str, run: Runner, *, project: str, state_dir: Path,
 def _verify(run: Runner, container: str) -> None:
     _run_pgbackrest(run, container, ["check"], QUERY_TIMEOUT_SECONDS)
     info = _run_pgbackrest(run, container, ["info", "--output=json"], QUERY_TIMEOUT_SECONDS, capture=True)
-    # Pelo socket do postgres montado no backup (autenticação local da imagem).
+    # Com o mesmo papel e a mesma senha (.pgpass) do pgBackRest, por TCP; --no-password: sem senha, falha em vez de
+    # pedir no terminal. pg_stat_archiver é legível por qualquer papel.
     archiver = _check(run(["docker", "exec", container, "psql", "--no-psqlrc", "--quiet", "--tuples-only",
-                           "--no-align", "--username", "postgres", "--dbname", "postgres",
-                           "--command", ARCHIVER_QUERY], capture=True),
+                           "--no-align", "--host", BACKUP_DB_HOST, "--username", BACKUP_DB_ROLE,
+                           "--dbname", "postgres", "--no-password", "--command", ARCHIVER_QUERY], capture=True),
                       "leitura de pg_stat_archiver")
     problems = backup_health_problems(info.stdout, parse_archiver_status(archiver.stdout))
     if problems:
