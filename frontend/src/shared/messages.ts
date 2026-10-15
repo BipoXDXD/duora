@@ -55,6 +55,10 @@ export const messages = {
     title: 'Esta parte do Duora parou de funcionar',
     description: 'Seus dados não foram afetados. Tente carregar de novo ou volte ao início.',
   },
+  landing: {
+    register: 'Criar conta',
+    signIn: 'Entrar',
+  },
   register: {
     title: 'Criar conta',
     intro: 'Use um e-mail que só você acessa. Enviaremos um link para confirmar o endereço.',
@@ -62,6 +66,7 @@ export const messages = {
     password: 'Senha',
     passwordHint: (min: number, max: number) =>
       `Entre ${String(min)} e ${String(max)} caracteres. Uma frase longa é mais fácil de lembrar.`,
+    legalLegend: 'Termos e privacidade',
     acceptTerms: (version: string) => `Li e aceito os Termos de uso (versão ${version}).`,
     acceptPrivacy: (version: string) => `Li a Política de privacidade (versão ${version}).`,
     submit: 'Criar conta',
@@ -97,6 +102,7 @@ export const messages = {
     sessionExpired: 'Sua sessão expirou. Entre de novo para continuar.',
     signInRequired: 'Entre para continuar.',
     signedOut: 'Você saiu da sua conta.',
+    otherPaths: 'Outras opções',
     forgotPasswordLink: 'Esqueci minha senha',
     noAccount: 'Ainda não tem conta?',
     registerLink: 'Criar conta',

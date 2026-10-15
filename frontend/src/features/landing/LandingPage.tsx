@@ -1,3 +1,7 @@
+import { Link } from 'react-router'
+import { messages } from '@/shared/messages'
+import { paths } from '@/shared/paths'
+import { Button } from '@/shared/ui/button'
 import { DocumentTitle } from '@/shared/ui/document-title'
 
 export function LandingPage(): React.JSX.Element {
@@ -11,9 +15,14 @@ export function LandingPage(): React.JSX.Element {
         Encontros entre duas pessoas adultas, em eventos com rodadas e experiências cooperativas. O interesse é privado
         e a conversa só continua quando ele é mútuo.
       </p>
-      <p className="mt-8 rounded-md bg-surface-muted px-4 py-3 text-sm text-text-muted">
-        Em construção: cadastro e eventos ainda não estão disponíveis.
-      </p>
+      <div className="mt-8 flex flex-wrap gap-4">
+        <Button asChild>
+          <Link to={paths.register}>{messages.landing.register}</Link>
+        </Button>
+        <Button asChild variant="secondary">
+          <Link to={paths.login}>{messages.landing.signIn}</Link>
+        </Button>
+      </div>
     </section>
   )
 }
