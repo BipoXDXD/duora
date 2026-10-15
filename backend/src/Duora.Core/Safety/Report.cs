@@ -128,7 +128,10 @@ public sealed class Report
     }
 
     /// <summary>A decisão é do moderador atribuído; a automação só prepara a proposta.</summary>
-    public SafetyResult<ModerationAction> TakeAction(ModerationDecision decision, TimeProvider clock)
+    public SafetyResult<ModerationAction> TakeAction(
+        ModerationDecision decision,
+        ModerationLimits limits,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(decision);
         if (RejectionToDecide(decision.Author) is { } rejection)
@@ -136,7 +139,7 @@ public sealed class Report
             return SafetyResult.Rejected<ModerationAction>(rejection);
         }
 
-        var decided = ModerationAction.Decide(TargetUserId, Id, decision, clock);
+        var decided = ModerationAction.Decide(TargetUserId, Id, decision, limits, clock);
         if (decided.IsSuccess)
         {
             CurrentActionId = decided.Value.Id;

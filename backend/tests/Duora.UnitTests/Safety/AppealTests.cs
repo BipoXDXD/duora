@@ -82,9 +82,9 @@ public sealed class AppealTests
     public void AnyHumanCanReviewAnAutomatedDecision()
     {
         var clock = FixedClock.AtStart();
-        var warning = ModerationAction.DecideWithoutReport(
-            Bruno, Decision(ModerationMeasure.Warning, new ModerationAuthor.Automated()), clock).Accepted();
-        var appeal = Appeal.File(warning, Bruno, "Injusto.", clock).Accepted();
+        var restriction = ModerationAction.DecideWithoutReport(
+            Bruno, Decision(ModerationMeasure.Restriction, new ModerationAuthor.Automated()), Limits, clock).Accepted();
+        var appeal = Appeal.File(restriction, Bruno, "Injusto.", clock).Accepted();
 
         appeal.StartReview(ModeratorMaria).Accepted();
 

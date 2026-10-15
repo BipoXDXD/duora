@@ -47,8 +47,9 @@ public sealed class ModerationAction
     public static SafetyResult<ModerationAction> DecideWithoutReport(
         Guid subjectUserId,
         ModerationDecision decision,
+        ModerationLimits limits,
         TimeProvider clock) =>
-        Decide(subjectUserId, reportId: null, decision, clock);
+        Decide(subjectUserId, reportId: null, decision, limits, clock);
 
     public bool RestrictsInteractionAt(DateTimeOffset instant) =>
         Measure is ModerationMeasure.Restriction or ModerationMeasure.Suspension or ModerationMeasure.PermanentBan
@@ -76,14 +77,16 @@ public sealed class ModerationAction
         Guid subjectUserId,
         ReportId? reportId,
         ModerationDecision decision,
+        ModerationLimits limits,
         TimeProvider clock)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(subjectUserId, Guid.Empty);
+        ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(clock);
         RequireInvariants(decision);
-        if (!DurationFits(decision))
+        if (DurationRejection(decision, limits) is { } rejection)
         {
-            return SafetyResult.Rejected<ModerationAction>(SafetyRejection.MeasureDurationMismatch);
+            return SafetyResult.Rejected<ModerationAction>(rejection);
         }
 
         var decidedAt = clock.GetUtcNow();
@@ -144,9 +147,9 @@ public sealed class ModerationAction
             throw new SafetyRuleViolationException(SafetyRule.ClearedIsOnlyAnAppealOutcome);
         }
 
-        if (decision.Measure == ModerationMeasure.PermanentBan && decision.Author is not ModerationAuthor.Human)
+        if (decision.Author is ModerationAuthor.Automated && decision.Measure != ModerationMeasure.Restriction)
         {
-            throw new SafetyRuleViolationException(SafetyRule.PermanentSanctionRequiresHumanAuthor);
+            throw new SafetyRuleViolationException(SafetyRule.MeasureRequiresHumanAuthor);
         }
 
         if (decision.EvidenceIds.Count == 0 || decision.EvidenceIds.Contains(Guid.Empty))
@@ -155,9 +158,16 @@ public sealed class ModerationAction
         }
     }
 
-    private static bool DurationFits(ModerationDecision decision)
+    /// <summary>Compara com o teto antes de somar ao instante, para nenhuma duração causar overflow.</summary>
+    private static SafetyRejection? DurationRejection(ModerationDecision decision, ModerationLimits limits)
     {
         var isTemporary = decision.Measure is ModerationMeasure.Restriction or ModerationMeasure.Suspension;
-        return isTemporary ? decision.Duration > TimeSpan.Zero : decision.Duration is null;
+        var shapeFits = isTemporary ? decision.Duration > TimeSpan.Zero : decision.Duration is null;
+        if (!shapeFits)
+        {
+            return SafetyRejection.MeasureDurationMismatch;
+        }
+
+        return decision.Duration > limits.MaxDurationFor(decision.Author) ? SafetyRejection.DurationExceedsLimit : null;
     }
 }

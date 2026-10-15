@@ -9,8 +9,11 @@ public enum SafetyRule
     /// <summary>O repositório só entrega bloqueios do próprio autor; outro pedido é defeito.</summary>
     OnlyBlockerCanLift,
 
-    /// <summary>Sanção permanente só com autor humano; o sistema apenas prepara a proposta (spec 12.3).</summary>
-    PermanentSanctionRequiresHumanAuthor,
+    /// <summary>
+    /// O sistema só aplica restrição de contenção; advertência, suspensão e banimento exigem pessoa, e a automação
+    /// apenas prepara a proposta (spec 12.3, TM-34).
+    /// </summary>
+    MeasureRequiresHumanAuthor,
     DecisionRequiresEvidence,
     ClearedIsOnlyAnAppealOutcome,
 

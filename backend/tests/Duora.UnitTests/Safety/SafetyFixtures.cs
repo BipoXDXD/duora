@@ -31,6 +31,9 @@ internal static class SafetyFixtures
 
     public static readonly TimeSpan OneWeek = TimeSpan.FromDays(7);
 
+    /// <summary>Restrição automática até uma semana; qualquer medida temporária até 90 dias.</summary>
+    public static readonly ModerationLimits Limits = new(maxAutomatedDuration: OneWeek, maxDuration: TimeSpan.FromDays(90));
+
     public static ReportSubmission Submission(ReportCategory category = ReportCategory.Harassment) =>
         new(Alice, Bruno, category, new ReportContext.Room(GameSession), ReportNarrative.Parse("Insultos no chat."));
 
@@ -50,7 +53,7 @@ internal static class SafetyFixtures
         Guid subject,
         ModerationMeasure measure = ModerationMeasure.Suspension,
         TimeProvider? clock = null) =>
-        ModerationAction.DecideWithoutReport(subject, Decision(measure), clock ?? FixedClock.AtStart()).Accepted();
+        ModerationAction.DecideWithoutReport(subject, Decision(measure), Limits, clock ?? FixedClock.AtStart()).Accepted();
 
     public static Appeal AppealUnderReview(ModerationAction action, TimeProvider clock)
     {
@@ -87,7 +90,7 @@ internal static class SafetyFixtures
             return report;
         }
 
-        var action = report.TakeAction(Decision(), clock).Accepted();
+        var action = report.TakeAction(Decision(), Limits, clock).Accepted();
         if (state == ReportState.Actioned)
         {
             return report;
