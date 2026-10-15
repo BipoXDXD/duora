@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
-import { renderApp } from '@/test/render'
+import { createTestQueryClient, renderApp } from '@/test/render'
 
 const ME = {
   id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
@@ -88,6 +88,33 @@ describe('área da conta', () => {
     expect(within(items[0] ?? document.body).getByText('Esta sessão')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Encerrar esta sessão: Safari no macOS' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Encerrar sessão: Firefox no Ubuntu' })).toBeInTheDocument()
+  })
+
+  it('mostra instantes no formato do idioma, com o instante UTC preservado no atributo', async () => {
+    useMeEndpoint()
+    useSessionsEndpoint()
+    renderApp('/conta')
+
+    const items = await screen.findAllByRole('listitem')
+    const createdAt = within(items[0] ?? document.body).getByText('14/10/2026, 10:00')
+    expect(createdAt.tagName).toBe('TIME')
+    expect(createdAt).toHaveAttribute('datetime', CURRENT.createdAt)
+  })
+
+  it('em inglês, textos, situação e datas seguem o idioma ativo', async () => {
+    useMeEndpoint()
+    useSessionsEndpoint()
+    renderApp('/conta', createTestQueryClient(), 'en')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeInTheDocument()
+    expect(document.title).toBe('Your account · Duora')
+    expect(screen.getByText('Active')).toBeInTheDocument()
+    const items = await screen.findAllByRole('listitem')
+    expect(within(items[0] ?? document.body).getByText('This session')).toBeInTheDocument()
+    expect(within(items[0] ?? document.body).getByText('10/14/26, 10:00 AM')).toBeInTheDocument()
+    expect(within(items[0] ?? document.body).getByText('10/15/26, 9:30 AM')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'End this session: Safari no macOS' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'End session: Firefox no Ubuntu' })).toBeInTheDocument()
   })
 
   it('e-mail pendente avisa que falta confirmar', async () => {

@@ -1,11 +1,12 @@
-import { render, screen, within } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
+import { renderWithI18n } from '@/test/render'
 import { AppRoutes } from './AppRoutes'
 
 function renderAt(path: string) {
-  return render(
+  return renderWithI18n(
     <MemoryRouter initialEntries={[path]}>
       <AppRoutes />
     </MemoryRouter>,
