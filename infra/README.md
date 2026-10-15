@@ -94,6 +94,7 @@ uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.y
 ```
 
 - `base`: pacotes, UTC, `unattended-upgrades` com reinício automático às 04:30 UTC (`duora_unattended_reboot`).
+  `/proc` com `hidepid=invisible`: quem não é root não vê processos (e linhas de comando) de outros usuários.
   O repositório do Docker fica fora das atualizações automáticas: atualizar o daemon é mudança planejada.
 - `ssh`: drop-in `00-duora.conf` (só chave, sem root, sem senha, `AllowUsers`); recusa aplicar se o operador não
   tiver `authorized_keys`.
@@ -137,8 +138,7 @@ cada mudança de rede (spec 15.2), não a leitura das regras.
   (idempotência ainda não provada em host real), varredura externa de portas, certificado ACME real, homologação.
 - **Backend** (fora deste PR): Data Protection com chaves protegidas em repouso e nome de aplicação estável
   (spec 11.2; hoje persiste no volume em `$HOME/.aspnet/DataProtection-Keys`, sem criptografia); Forwarded Headers
-  confiando só no Caddy (spec 11.3); recusa de boot com schema fora de `min..max`; o `DesignTimeDbContextFactory`
-  ler a connection string de arquivo, para o migrador não passá-la em `--connection` (fica visível na lista de
-  processos do host enquanto o job roda).
+  confiando só no Caddy (spec 11.3; subnet da rede `edge` em `docs/operations/deploy.md`); recusa de boot com
+  schema fora de `min..max`.
 - **Dependabot** para as imagens em `infra/images/*` (área protegida, PR próprio).
 - **Rebuild periódico** das imagens para pegar correções das bases, mesmo sem mudança de código.
