@@ -67,12 +67,12 @@ public sealed class Round
     public Outcome<RoundRefusal> BeginInviting(long expectedVersion, DateTimeOffset now) =>
         Advance(expectedVersion, RoundState.Preparing, RoundState.Inviting, StartTimingRefusal(now), []);
 
-    /// <summary>As salas aceitas estão em jogo, até o fim da janela.</summary>
-    public Outcome<RoundRefusal> BeginRunning(long expectedVersion, DateTimeOffset now)
-    {
-        RoundRefusal? timing = now >= EndsAt ? RoundRefusal.WindowElapsed : null;
-        return Advance(expectedVersion, RoundState.Inviting, RoundState.Running, timing, []);
-    }
+    /// <summary>
+    /// As salas aceitas entram em jogo, ainda antes do limite de início: depois dele o jogo não cabe mais até o início
+    /// + 9 min (spec 4.3). É a mesma regra que <see cref="Resume"/> aplica depois de um reinício.
+    /// </summary>
+    public Outcome<RoundRefusal> BeginRunning(long expectedVersion, DateTimeOffset now) =>
+        Advance(expectedVersion, RoundState.Inviting, RoundState.Running, StartTimingRefusal(now), []);
 
     /// <summary>Encerra a rodada no fim da janela e pede a liberação das reservas que sobraram.</summary>
     public Outcome<RoundRefusal> Close(long expectedVersion, DateTimeOffset now)

@@ -84,7 +84,4 @@ public enum RoundRefusal
 
     /// <summary>Passou o limite de início; resta cancelar a rodada.</summary>
     StartWindowElapsed,
-
-    /// <summary>A janela da rodada terminou; resta encerrá-la.</summary>
-    WindowElapsed,
 }
