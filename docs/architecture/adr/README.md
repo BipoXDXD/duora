@@ -27,6 +27,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0016](0016-sala-e-sessao-de-jogo.md) | Sala é a `game_session` de um par numa rodada | Accepted | Sala sem sessão ou com várias sessões |
 | [0017](0017-mfa-por-papel.md) | MFA obrigatório para administração e moderação, opcional para participantes | Accepted | Tomada de conta ou exigência regulatória |
 | [0018](0018-contrato-openapi-code-first.md) | Contrato OpenAPI code-first, versionado, com `oasdiff` | Accepted | Consumidores externos da API |
+| [0019](0019-implementacao-identidade-sessao-outbox.md) | Identidade, sessões revogáveis, CSRF, rate limit e outbox de e-mail no M1 | Accepted | Mais de uma instância web, provedor de e-mail real ou MFA |
 
 ## Regras
 
