@@ -1042,3 +1042,10 @@ imagem real):
 - **Convenção para tabela append-only** (`ops.audit_events` e futuras): a migration que cria a tabela termina com
   `REVOKE UPDATE, DELETE, TRUNCATE ON <tabela> FROM duora_app;` (em `migrationBuilder.Sql`). Revisão de migration
   confere a linha; o teste de privilégios cobre o mecanismo.
+- **Testes de integração com os papéis reais:** o `PostgresFixture` monta no PostgreSQL do Testcontainers o mesmo
+  `initdb/10-duora-roles.sh` e o mesmo `reconcile-privileges.sql` da imagem, aplica as migrations como
+  `duora_migrator` e conecta a suíte como `duora_app`. `AppRolePrivilegesTests` enumera todas as tabelas de todos
+  os schemas e compara os privilégios de `duora_app` com a allowlist de
+  `backend/tests/Duora.IntegrationTests/Database/AppRoleTableAccess.cs` (`ReadWrite`, `AppendOnly` ou `None`).
+  **Toda migration que cria tabela acrescenta a linha dela nessa allowlist no mesmo PR**; sem a linha, o teste
+  falha.

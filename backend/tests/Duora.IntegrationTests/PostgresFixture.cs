@@ -1,3 +1,4 @@
+using DotNet.Testcontainers.Configurations;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -9,23 +10,68 @@ namespace Duora.IntegrationTests;
 
 /// <summary>
 /// Um PostgreSQL descartável por execução da suíte, na mesma versão fixada no Compose de desenvolvimento
-/// (garantido por <see cref="ComposeFileTests"/>). As migrations são aplicadas aqui, como fará o job migrador;
-/// a aplicação nunca migra no startup.
+/// (garantido por <see cref="ComposeFileTests"/>), com os papéis da imagem de produção: o mesmo script de initdb de
+/// <c>infra/images/postgres</c> cria <c>duora_migrator</c>, <c>duora_app</c>, o banco <c>duora</c> e os default
+/// privileges. As migrations rodam como <c>duora_migrator</c>, como fará o job migrador, seguidas de
+/// <c>reconcile-privileges.sql</c>, como faz o deploy; a aplicação nunca migra no startup e os testes conectam como
+/// <c>duora_app</c>.
 /// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
     public const string Image = "postgres:18.6";
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image).Build();
+    /// <summary>Banco criado pelo initdb da imagem.</summary>
+    public const string DatabaseName = "duora";
 
-    public string ConnectionString => _container.GetConnectionString();
+    // Mesmos caminhos da imagem derivada (infra/images/postgres/Dockerfile).
+    private const string InitdbScriptTarget = "/docker-entrypoint-initdb.d/10-duora-roles.sh";
+    private const string ReconcileScriptTarget = "/usr/local/share/duora/reconcile-privileges.sql";
+    private const string MigratorPasswordTarget = "/run/secrets/db_migrator_password";
+    private const string AppPasswordTarget = "/run/secrets/db_app_password";
+
+    // Cópia do banco recém-criado pelo initdb, antes das migrations: os bancos avulsos nascem dela com os mesmos
+    // default privileges, sem repetir o SQL do initdb. Ninguém conecta nela (CREATE DATABASE ... TEMPLATE exige).
+    private const string PristineTemplate = "duora_pristine";
+
+    private const UnixFileModes Executable = UnixFileModes.UserRead | UnixFileModes.UserWrite |
+        UnixFileModes.UserExecute | UnixFileModes.GroupRead | UnixFileModes.GroupExecute | UnixFileModes.OtherRead |
+        UnixFileModes.OtherExecute;
+
+    // Senhas sintéticas e descartáveis, novas a cada execução; nunca ficam no repositório.
+    private readonly string _migratorPassword = Guid.NewGuid().ToString("N");
+    private readonly string _appPassword = Guid.NewGuid().ToString("N");
+
+    private readonly PostgreSqlContainer _container;
+
+    public PostgresFixture()
+    {
+        var images = Path.Combine(RepositoryRoot.Find(), "infra", "images", "postgres");
+        _container = new PostgreSqlBuilder(Image)
+            .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "initdb", "10-duora-roles.sh")),
+                InitdbScriptTarget, fileMode: Executable)
+            .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "reconcile-privileges.sql")),
+                ReconcileScriptTarget)
+            .WithResourceMapping(System.Text.Encoding.UTF8.GetBytes(_migratorPassword), MigratorPasswordTarget)
+            .WithResourceMapping(System.Text.Encoding.UTF8.GetBytes(_appPassword), AppPasswordTarget)
+            .WithEnvironment("DUORA_MIGRATOR_PASSWORD_FILE", MigratorPasswordTarget)
+            .WithEnvironment("DUORA_APP_PASSWORD_FILE", AppPasswordTarget)
+            .Build();
+    }
+
+    /// <summary>Conexão da aplicação (<c>duora_app</c>) no banco compartilhado e migrado.</summary>
+    public string ConnectionString => ConnectAs("duora_app", _appPassword, DatabaseName);
+
+    /// <summary>Conexão do migrador, dono das tabelas: para inspecionar o catálogo sem o filtro de privilégios do
+    /// <c>information_schema</c> e para ler o histórico de migrations, que o app não enxerga.</summary>
+    public string MigratorConnectionString => ConnectAs("duora_migrator", _migratorPassword, DatabaseName);
 
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync(TestContext.Current.CancellationToken);
-
-        await using var dbContext = CreateDbContext();
-        await dbContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
+        await ExecuteAsSuperuserAsync(
+            $"create database {PristineTemplate} template {DatabaseName} owner duora_migrator",
+            TestContext.Current.CancellationToken);
+        await MigrateAsync(DatabaseName, TestContext.Current.CancellationToken);
     }
 
     public ValueTask DisposeAsync() => _container.DisposeAsync();
@@ -40,27 +86,70 @@ public sealed class PostgresFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Banco novo e migrado, só do teste que o pediu. Para quem consome filas globais (outbox): no banco
-    /// compartilhado, o consumidor pegaria itens gravados por testes que rodam em paralelo.
+    /// Banco novo e migrado, só do teste que o pediu, e a conexão da aplicação nele. Para quem consome filas globais
+    /// (outbox): no banco compartilhado, o consumidor pegaria itens gravados por testes que rodam em paralelo.
     /// </summary>
     public async Task<string> CreateMigratedDatabaseAsync(CancellationToken cancellationToken)
     {
-        var connectionString = await CreateEmptyDatabaseAsync(cancellationToken);
-        await using var dbContext = CreateDbContext(connectionString);
-        await dbContext.Database.MigrateAsync(cancellationToken);
-        return connectionString;
+        var database = await CreateEmptyDatabaseAsync(cancellationToken);
+        await MigrateAsync(database.Name, cancellationToken);
+        return database.AppConnectionString;
     }
 
-    /// <summary>Cria um banco vazio, sem migrations, no mesmo servidor e devolve a connection string dele.</summary>
-    public async Task<string> CreateEmptyDatabaseAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Cria um banco vazio, sem migrations, no mesmo servidor, com os papéis e default privileges do initdb.
+    /// </summary>
+    public async Task<ScratchDatabase> CreateEmptyDatabaseAsync(CancellationToken cancellationToken)
     {
         var name = $"empty_{Guid.NewGuid():N}";
-        await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.OpenAsync(cancellationToken);
-        // Identificador gerado aqui (prefixo + hex), não vem de fora; CREATE DATABASE não aceita parâmetro.
-        await using var command = new NpgsqlCommand($"create database {name}", connection);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        // Identificador gerado aqui (prefixo + hex), não vem de fora; CREATE DATABASE e GRANT não aceitam parâmetro.
+        // O ACL do banco não vem do template; repete o do initdb, e
+        // AppRolePrivilegesTests.ScratchDatabasesGetTheSameDatabaseAclAsTheMainOne pega a divergência.
+        await ExecuteAsSuperuserAsync(
+            $"create database {name} template {PristineTemplate} owner duora_migrator", cancellationToken);
+        await ExecuteAsSuperuserAsync(
+            $"revoke all on database {name} from public; grant connect on database {name} to duora_app",
+            cancellationToken);
 
-        return new NpgsqlConnectionStringBuilder(ConnectionString) { Database = name }.ConnectionString;
+        return new ScratchDatabase(
+            name,
+            ConnectAs("duora_app", _appPassword, name),
+            ConnectAs("duora_migrator", _migratorPassword, name));
     }
+
+    private async Task MigrateAsync(string database, CancellationToken cancellationToken)
+    {
+        await using (var dbContext = CreateDbContext(ConnectAs("duora_migrator", _migratorPassword, database)))
+        {
+            await dbContext.Database.MigrateAsync(cancellationToken);
+        }
+
+        var reconcile = await _container.ExecAsync(
+            ["psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1", "--username", "postgres", "--dbname", database,
+                "--file", ReconcileScriptTarget],
+            cancellationToken);
+        if (reconcile.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"reconcile-privileges.sql falhou em {database}: {reconcile.Stderr}");
+        }
+    }
+
+    private async Task ExecuteAsSuperuserAsync(string sql, CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(_container.GetConnectionString());
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private string ConnectAs(string role, string password, string database) =>
+        new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Username = role,
+            Password = password,
+            Database = database,
+        }.ConnectionString;
 }
+
+/// <summary>Banco avulso de um teste: a aplicação conecta como <c>duora_app</c>; quem migra, como <c>duora_migrator</c>.</summary>
+public sealed record ScratchDatabase(string Name, string AppConnectionString, string MigratorConnectionString);
