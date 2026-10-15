@@ -82,6 +82,7 @@ class Paths:
     compose_file: Path
     host_env: Path
     state_dir: Path
+    backup_command: Path = Path("/usr/local/sbin/duora-backup")
 
 
 class Runner(Protocol):
@@ -242,12 +243,13 @@ def require_free_space(*, free_bytes: int, minimum_gib: int) -> None:
 # --- Deploy ---------------------------------------------------------------------------------------------------------
 
 def deploy(release: Release, paths: Paths, run: Runner, *,
+           verify_backup: bool = True,
            readiness_timeout_seconds: int = DEFAULT_READINESS_TIMEOUT_SECONDS,
            sleep: Callable[[float], None] = time.sleep) -> None:
     """Executa a release. Qualquer falha interrompe; a release corrente só muda depois do smoke de readiness.
 
-    Tudo que pode recusar a release (manifesto, imagens, schema do banco, elegibilidade de rollback) roda antes de
-    parar qualquer serviço. O estado confiável (releases/ e current.json) só muda depois do smoke; até lá a release
+    Tudo que pode recusar a release (manifesto, imagens, backup/WAL, schema do banco, elegibilidade de rollback) roda
+    antes de parar qualquer serviço. O estado confiável (releases/ e current.json) só muda depois do smoke; até lá a release
     vive em staging/, que nunca é lido para decidir nada.
     """
     _require_release_not_rewritten(release, paths.state_dir)
@@ -258,8 +260,17 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     _check(run(compose + ["--profile", "migrate", "pull", "--quiet"]), "pull das imagens")
     _require_image_architectures(release, run)
 
-    _step("garantindo o PostgreSQL saudável")
-    _check(run(compose + ["up", "--detach", "--wait", "postgres"]), "subida do postgres")
+    # backup: repository host do pgBackRest (mesma imagem), recebe o WAL do postgres e faz os backups.
+    _step("garantindo o PostgreSQL e o backup saudáveis")
+    _check(run(compose + ["up", "--detach", "--wait", "postgres", "backup"]), "subida do postgres e do backup")
+
+    # Spec 17.3, passo 1: estado de backup/WAL desconhecido ou ruim interrompe. Roda com o postgres desta release já
+    # de pé, então prova o arquivamento com a configuração que vai ficar no ar.
+    if verify_backup:
+        _step("verificando backup e WAL (duora-backup verify)")
+        _check(run([str(paths.backup_command), "verify"]), "verificação de backup/WAL")
+    else:
+        _step("AVISO: backup/WAL não verificado (--accept-missing-backup-check)")
 
     head = _read_migration_head(compose, run)
     rollback = _is_rollback(release, head, paths.state_dir)
@@ -458,8 +469,8 @@ def _mark_current(release: Release, state_dir: Path) -> None:
 
 def _check(result: subprocess.CompletedProcess[str], what: str) -> subprocess.CompletedProcess[str]:
     if result.returncode != 0:
-        # Comando não capturado já escreveu stdout e stderr no terminal do operador. Capturado (inspect, psql,
-        # ps), o erro vem do Docker ou do psql; nenhum deles imprime segredo.
+        # Comando não capturado (inclusive o duora-backup) já escreveu stdout e stderr no terminal do operador.
+        # Capturado (inspect, psql, ps), o erro vem do Docker ou do psql; nenhum deles imprime segredo.
         detail = "\n".join((result.stderr or "").strip().splitlines()[-5:]) or "veja a saída acima"
         raise DeployError(f"{what} falhou (código {result.returncode}): {detail}")
     return result
@@ -488,16 +499,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host-env", type=Path, default=Path("/etc/duora/duora.env"))
     parser.add_argument("--state-dir", type=Path, default=Path("/var/lib/duora"))
     parser.add_argument("--accept-missing-backup-check", action="store_true",
-                        help="segue sem verificar backup/WAL (só homologação ou smoke, enquanto o pgBackRest "
-                             "não está configurado)")
+                        help="segue sem verificar backup/WAL: só o primeiro deploy (antes da stanza existir), "
+                             "homologação ou smoke. Fora do sudoers do executor de deploy")
     args = parser.parse_args(argv)
 
     try:
         with deploy_lock(args.state_dir):
             host = parse_host_config(args.host_env.read_text(encoding="utf-8"))
             release = parse_manifest(read_manifest(args.manifest), image_prefix=host.image_prefix)
-            preflight(release, host, accept_missing_backup_check=args.accept_missing_backup_check)
-            deploy(release, Paths(args.compose_file, args.host_env, args.state_dir), run_command)
+            preflight(release, host)
+            deploy(release, Paths(args.compose_file, args.host_env, args.state_dir), run_command,
+                   verify_backup=not args.accept_missing_backup_check)
     except DeployError as error:
         print(f"[duora-deploy] ERRO: {error}", file=sys.stderr)
         return 1
@@ -539,16 +551,11 @@ def read_manifest(source: str) -> str:
         raise DeployError(f"manifesto não é UTF-8 válido (byte {error.start})") from error
 
 
-def preflight(release: Release, host: HostConfig, *, accept_missing_backup_check: bool) -> None:
+def preflight(release: Release, host: HostConfig) -> None:
     host_arch = docker_architecture(platform.machine())
     if host_arch != release.architecture:
         raise DeployError(f"release para {release.architecture}, host é {host_arch}")
     require_free_space(free_bytes=shutil.disk_usage(host.disk_check_path).free, minimum_gib=host.min_free_gib)
-    # Spec 17.3, passo 1: estado de backup/WAL desconhecido interrompe. A verificação real chega com o pgBackRest.
-    if not accept_missing_backup_check:
-        raise DeployError("verificação de backup/WAL ainda não implementada (pgBackRest pendente); "
-                          "produção não segue sem ela")
-    _step("AVISO: backup/WAL não verificado (--accept-missing-backup-check)")
     if os.geteuid() != 0:
         _step("AVISO: rodando sem root; o usuário precisa de acesso ao Docker")
 

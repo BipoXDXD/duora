@@ -83,6 +83,14 @@ def main() -> int:
 
         secrets_dir = workdir / "secrets"
         duora_secrets.init_secrets(secrets_dir, change_owner=False)
+        duora_secrets.init_backup_tls(secrets_dir, change_owner=False)
+        # Repositório placeholder: o smoke não testa backup (deploy com --accept-missing-backup-check); o drill
+        # scripts/backup/restore_drill.py testa. Sem destino válido o archive falha e o WAL fica no pg_wal.
+        for name, content in (("pgbackrest_repo.conf", "[global]\nrepo1-s3-endpoint=s3.invalid\n"
+                                                        "repo1-s3-bucket=smoke\nrepo1-s3-region=us-east-1\n"
+                                                        "repo1-s3-key=smoke\nrepo1-s3-key-secret=smoke\n"),
+                              ("pgbackrest_cipher.conf", "[global]\nrepo1-cipher-pass=smoke-synthetic\n")):
+            (secrets_dir / name).write_text(content, encoding="utf-8")
         host_env.write_text("\n".join([
             f"DUORA_IMAGE_PREFIX={IMAGE_PREFIX}",
             "DUORA_MIN_FREE_GIB=5",
@@ -236,7 +244,8 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
 
 
 def check_hardening(compose: list[str], checks: Checks) -> None:
-    for service, user in (("web", "1654:1654"), ("worker", "1654:1654"), ("edge", "10001:10001")):
+    for service, user in (("web", "1654:1654"), ("worker", "1654:1654"), ("edge", "10001:10001"),
+                          ("backup", "999:999")):
         container = run(compose + ["ps", "--quiet", service]).strip()
         info = json.loads(run(["docker", "inspect", container]))[0]["HostConfig"]
         config = json.loads(run(["docker", "inspect", container]))[0]["Config"]
