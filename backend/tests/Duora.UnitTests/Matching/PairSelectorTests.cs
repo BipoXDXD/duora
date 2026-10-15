@@ -7,6 +7,16 @@ public sealed class PairSelectorTests
 {
     private const string Intent = "intencao";
 
+    private static readonly Guid[] UuidV7Ids =
+    [
+        Guid.Parse("019a0e5c-3f21-7a4b-9c3d-5e6f7a8b9c0d"),
+        Guid.Parse("019a0e5c-3f22-7b1e-8d2a-1f3e5a7c9b2e"),
+        Guid.Parse("019a0e5d-a401-7c9f-b3e4-6a7b8c9d0e1f"),
+        Guid.Parse("019a0e61-07be-7d02-a5f6-2b4c6d8e0a13"),
+        Guid.Parse("019a0e6a-c9d4-7e38-94a1-7c0b3e5f2d46"),
+        Guid.Parse("019a0e73-5512-7f6d-bb07-d8e2f4a6c193"),
+    ];
+
     [Fact]
     public void EmptyRoundSelectsNothing()
     {
@@ -233,6 +243,31 @@ public sealed class PairSelectorTests
         var selection = PairSelector.Select(round);
 
         Assert.Equal([UserPair.Of(User(2), User(4)), UserPair.Of(User(1), User(3))], selection.Pairs);
+    }
+
+    /// <summary>
+    /// Golden master com UUIDv7 reais, que variam nos 16 bytes: os ids de <c>User(n)</c> zeram os 8 bytes iniciais e
+    /// não pegariam uma troca de endianness nem a perda da metade alta na chave de desempate. Com a semente 20261015, a
+    /// implementação independente em Python dá a ordem de desempate 2, 5, 3, 0, 1, 4 (índices de <see cref="UuidV7Ids"/>).
+    /// </summary>
+    [Fact]
+    public void SameSeedReproducesThePinnedTieBreakForFullWidthUuids()
+    {
+        var builder = new RoundBuilder().WithSeed(20261015);
+        foreach (var userId in UuidV7Ids)
+        {
+            builder.WithCandidate(userId);
+        }
+
+        var selection = PairSelector.Select(builder.Build());
+
+        Assert.Equal(
+            [
+                UserPair.Of(UuidV7Ids[2], UuidV7Ids[5]),
+                UserPair.Of(UuidV7Ids[0], UuidV7Ids[3]),
+                UserPair.Of(UuidV7Ids[1], UuidV7Ids[4]),
+            ],
+            selection.Pairs);
     }
 
     [Fact]
