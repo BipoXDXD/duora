@@ -334,15 +334,13 @@
         "type": "Project"
       },
       "duora.core": {
-        "type": "Project",
-        "dependencies": {
-          "Duora.Contracts": "[1.0.0, )"
-        }
+        "type": "Project"
       },
       "duora.infrastructure": {
         "type": "Project",
         "dependencies": {
           "Duora.Core": "[1.0.0, )",
+          "Microsoft.Extensions.Configuration.KeyPerFile": "[10.0.13, )",
           "Microsoft.Extensions.Diagnostics.HealthChecks": "[10.0.13, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )"
         }
@@ -369,6 +367,16 @@
           "Microsoft.Extensions.Caching.Memory": "10.0.13",
           "Microsoft.Extensions.Configuration.Abstractions": "10.0.13",
           "Microsoft.Extensions.Logging": "10.0.13"
+        }
+      },
+      "Microsoft.Extensions.Configuration.KeyPerFile": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.13, )",
+        "resolved": "10.0.13",
+        "contentHash": "CgedDGEAutW8qNmhJPagMS1uwbaXZ5eR+OMaPmaFSADGS2A/5d8sozOpvIOSjtZatVxjj+TDglkGZBd0REuirw==",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration": "10.0.13",
+          "Microsoft.Extensions.FileProviders.Physical": "10.0.13"
         }
       },
       "Microsoft.Extensions.Diagnostics.HealthChecks": {

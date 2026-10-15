@@ -8,6 +8,7 @@ internal static class DuoraWebApp
     public static WebApplication Build(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+        builder.Configuration.AddSecretFiles();
         BuildTimeOpenApi.UsePlaceholderConfigurationWhenGenerating(builder.Configuration);
 
         builder.Host.UseDefaultServiceProvider(options =>
