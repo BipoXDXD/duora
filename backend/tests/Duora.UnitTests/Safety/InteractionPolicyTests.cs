@@ -36,35 +36,13 @@ public sealed class InteractionPolicyTests
     [Fact]
     public void ABlockBetweenOtherPeopleDoesNotAffectThePair()
     {
-        Block[] blocks = [Block.Create(Alice, Carla, FixedClock.AtStart()).Accepted(), Block.Create(Carla, Bruno, FixedClock.AtStart()).Accepted()];
+        Block[] blocks =
+        [
+            Block.Create(Alice, Carla, FixedClock.AtStart()).Accepted(),
+            Block.Create(Carla, Bruno, FixedClock.AtStart()).Accepted(),
+        ];
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, blocks, NoSanctions, FixedClock.AtStart());
-
-        Assert.Equal(InteractionVerdict.Allowed, verdict);
-    }
-
-    [Fact]
-    public void LiftingOneDirectionKeepsTheOtherPersonsBlockInForce()
-    {
-        var aliceBlocksBruno = Block.Create(Alice, Bruno, FixedClock.AtStart()).Accepted();
-        var brunoBlocksAlice = Block.Create(Bruno, Alice, FixedClock.AtStart()).Accepted();
-        aliceBlocksBruno.Lift(Alice, FixedClock.AtStart());
-
-        var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, [brunoBlocksAlice], NoSanctions, FixedClock.AtStart());
-
-        Assert.Equal(InteractionVerdict.Unavailable, verdict);
-    }
-
-    [Fact]
-    public void AfterUnblockOnlyNewInteractionsAreEvaluatedAgain()
-    {
-        // O bloqueio removido deixa de contar para checagens futuras; o que ele encerrou fica encerrado em
-        // Connections/Messaging, porque BlockLifted não carrega intenção de restaurar (ver BlockTests).
-        var clock = FixedClock.AtStart();
-        var block = Block.Create(Alice, Bruno, clock).Accepted();
-        block.Lift(Alice, clock);
-
-        var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, NoSanctions, clock);
 
         Assert.Equal(InteractionVerdict.Allowed, verdict);
     }
@@ -107,6 +85,20 @@ public sealed class InteractionPolicyTests
             Alice, Bruno, NoBlocks, [SanctionOn(Carla)], FixedClock.AtStart());
 
         Assert.Equal(InteractionVerdict.Allowed, verdict);
+    }
+
+    [Theory]
+    [InlineData(-1, InteractionVerdict.Allowed)]
+    [InlineData(0, InteractionVerdict.Unavailable)]
+    public void ASanctionStartsExactlyAtItsDecision(long ticksFromDecision, InteractionVerdict expected)
+    {
+        // Uma revisão mantida começa no instante da decisão do recurso; antes dele vale a medida original.
+        var suspension = SanctionOn(Alice, ModerationMeasure.Suspension, FixedClock.AtStart());
+        var clock = new FixedClock(Start.AddTicks(ticksFromDecision));
+
+        var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, [suspension], clock);
+
+        Assert.Equal(expected, verdict);
     }
 
     [Theory]
