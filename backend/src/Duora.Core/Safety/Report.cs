@@ -200,7 +200,7 @@ public sealed class Report
         CurrentActionId = revision.Id;
         if (revision.Measure == ModerationMeasure.Cleared)
         {
-            ClosingReason = revision.Reason;
+            ClosingReason = revision.InternalReason;
             ClosedAt = clock.GetUtcNow();
             State = ReportState.Closed;
             return SafetyResult.Success();

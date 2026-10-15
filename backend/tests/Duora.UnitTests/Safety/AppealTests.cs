@@ -99,7 +99,7 @@ public sealed class AppealTests
         var appeal = AppealUnderReview(original, clock);
         clock.Advance(TimeSpan.FromDays(1));
 
-        var revision = appeal.Uphold(ModeratorPedro, "Evidência confirmada.", RevisedPolicy, clock).Accepted();
+        var revision = appeal.Uphold(ModeratorPedro, Ruling("Evidência confirmada."), clock).Accepted();
 
         Assert.Equal(AppealState.Upheld, appeal.State);
         Assert.Equal(Start.AddDays(1), appeal.DecidedAt);
@@ -110,7 +110,7 @@ public sealed class AppealTests
         Assert.Equal(Bruno, revision.SubjectUserId);
         Assert.Equal(RevisedPolicy, revision.PolicyVersion);
         Assert.Equal(original.EvidenceIds, revision.EvidenceIds);
-        Assert.Equal("Evidência confirmada.", revision.Reason);
+        Assert.Equal("Evidência confirmada.", revision.InternalReason);
         Assert.Equal(new ModerationAuthor.Human(ModeratorPedro), revision.Author);
         Assert.Equal(Start.AddDays(1), revision.DecidedAt);
         Assert.False(revision.IsReviewable);
@@ -124,7 +124,7 @@ public sealed class AppealTests
         var original = SanctionOn(Bruno, clock: clock);
         var appeal = AppealUnderReview(original, clock);
 
-        var revision = appeal.Overturn(ModeratorPedro, "Evidência insuficiente.", RevisedPolicy, clock).Accepted();
+        var revision = appeal.Overturn(ModeratorPedro, Ruling("Evidência insuficiente."), clock).Accepted();
 
         Assert.Equal(AppealState.Overturned, appeal.State);
         Assert.Equal(original.Id, revision.SupersedesActionId);
@@ -143,8 +143,8 @@ public sealed class AppealTests
         var appeal = AppealUnderReview(SanctionOn(Bruno), clock);
 
         var result = uphold
-            ? appeal.Uphold(Carla, "Mantida.", RevisedPolicy, clock)
-            : appeal.Overturn(Carla, "Revertida.", RevisedPolicy, clock);
+            ? appeal.Uphold(Carla, Ruling("Mantida."), clock)
+            : appeal.Overturn(Carla, Ruling("Revertida."), clock);
 
         SafetyAssert.Rejected(SafetyRejection.OnlyAssignedReviewerCanDecide, result);
         Assert.Equal(AppealState.UnderReview, appeal.State);
@@ -175,8 +175,8 @@ public sealed class AppealTests
         var appeal = AppealIn(state);
 
         var result = uphold
-            ? appeal.Uphold(ModeratorPedro, "Mantida.", RevisedPolicy, clock)
-            : appeal.Overturn(ModeratorPedro, "Revertida.", RevisedPolicy, clock);
+            ? appeal.Uphold(ModeratorPedro, Ruling("Mantida."), clock)
+            : appeal.Overturn(ModeratorPedro, Ruling("Revertida."), clock);
 
         SafetyAssert.Rejected(SafetyRejection.TransitionNotAllowed, result);
         Assert.Equal(state, appeal.State);
@@ -194,7 +194,7 @@ public sealed class AppealTests
     {
         Assert.Equal(ModerationMeasure.Suspension, original.Measure);
         Assert.Equal(Policy, original.PolicyVersion);
-        Assert.Equal("Assédio reiterado na sala.", original.Reason);
+        Assert.Equal("Assédio reiterado na sala.", original.InternalReason);
         Assert.Equal(new ModerationAuthor.Human(ModeratorMaria), original.Author);
         Assert.Equal(Start, original.DecidedAt);
         Assert.Equal(Start + OneWeek, original.EffectiveUntil);
@@ -203,7 +203,7 @@ public sealed class AppealTests
 
     private static ModerationAction UpheldRevision(TimeProvider clock) =>
         AppealUnderReview(SanctionOn(Bruno, clock: clock), clock)
-            .Uphold(ModeratorPedro, "Mantida.", RevisedPolicy, clock)
+            .Uphold(ModeratorPedro, Ruling("Mantida."), clock)
             .Accepted();
 
     private static Appeal AppealIn(AppealState state)
@@ -217,11 +217,11 @@ public sealed class AppealTests
         var appeal = AppealUnderReview(SanctionOn(Bruno), clock);
         if (state == AppealState.Upheld)
         {
-            appeal.Uphold(ModeratorPedro, "Mantida.", RevisedPolicy, clock).Accepted();
+            appeal.Uphold(ModeratorPedro, Ruling("Mantida."), clock).Accepted();
         }
         else if (state == AppealState.Overturned)
         {
-            appeal.Overturn(ModeratorPedro, "Revertida.", RevisedPolicy, clock).Accepted();
+            appeal.Overturn(ModeratorPedro, Ruling("Revertida."), clock).Accepted();
         }
 
         return appeal;

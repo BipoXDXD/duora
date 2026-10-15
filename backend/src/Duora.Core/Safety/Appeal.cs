@@ -83,27 +83,18 @@ public sealed class Appeal
     }
 
     /// <summary>Mantém a medida: a revisão repete medida e fim, com o motivo e a política do revisor.</summary>
-    public SafetyResult<ModerationAction> Uphold(
-        Guid reviewerId,
-        string reason,
-        PolicyVersion policyVersion,
-        TimeProvider clock) =>
-        Decide(reviewerId, AppealState.Upheld, _original.Measure, _original.EffectiveUntil, reason, policyVersion, clock);
+    public SafetyResult<ModerationAction> Uphold(Guid reviewerId, AppealRuling ruling, TimeProvider clock) =>
+        Decide(reviewerId, AppealState.Upheld, _original.Measure, _original.EffectiveUntil, ruling, clock);
 
-    public SafetyResult<ModerationAction> Overturn(
-        Guid reviewerId,
-        string reason,
-        PolicyVersion policyVersion,
-        TimeProvider clock) =>
-        Decide(reviewerId, AppealState.Overturned, ModerationMeasure.Cleared, null, reason, policyVersion, clock);
+    public SafetyResult<ModerationAction> Overturn(Guid reviewerId, AppealRuling ruling, TimeProvider clock) =>
+        Decide(reviewerId, AppealState.Overturned, ModerationMeasure.Cleared, effectiveUntil: null, ruling, clock);
 
     private SafetyResult<ModerationAction> Decide(
         Guid reviewerId,
         AppealState outcome,
         ModerationMeasure measure,
         DateTimeOffset? effectiveUntil,
-        string reason,
-        PolicyVersion policyVersion,
+        AppealRuling ruling,
         TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(clock);
@@ -118,7 +109,7 @@ public sealed class Appeal
         }
 
         var now = clock.GetUtcNow();
-        var revision = _original.Revise(measure, effectiveUntil, reason, policyVersion, reviewerId, now);
+        var revision = _original.Revise(measure, effectiveUntil, ruling, reviewerId, now);
         DecidedAt = now;
         State = outcome;
         return SafetyResult.Success(revision);

@@ -172,7 +172,7 @@ public sealed class ReportTests
         report.MarkAppealed(appeal).Accepted();
         Assert.Equal(ReportState.Appealed, report.State);
         appeal.StartReview(ModeratorPedro).Accepted();
-        var revision = appeal.Uphold(ModeratorPedro, "Evidência confirmada.", RevisedPolicy, clock).Accepted();
+        var revision = appeal.Uphold(ModeratorPedro, Ruling("Evidência confirmada."), clock).Accepted();
         report.ResolveAppeal(revision, clock).Accepted();
 
         Assert.Equal((ReportState.Actioned, revision.Id), (report.State, report.CurrentActionId));
@@ -189,7 +189,7 @@ public sealed class ReportTests
         appeal.StartReview(ModeratorPedro).Accepted();
         clock.Advance(TimeSpan.FromDays(2));
 
-        var revision = appeal.Overturn(ModeratorPedro, "Evidência insuficiente.", RevisedPolicy, clock).Accepted();
+        var revision = appeal.Overturn(ModeratorPedro, Ruling("Evidência insuficiente."), clock).Accepted();
         report.ResolveAppeal(revision, clock).Accepted();
 
         Assert.Equal((ReportState.Closed, revision.Id), (report.State, report.CurrentActionId));
@@ -322,7 +322,7 @@ public sealed class ReportTests
         var clock = FixedClock.AtStart();
         var report = ReportIn(ReportState.Appealed, clock);
         var foreignRevision = AppealUnderReview(SanctionOn(Bruno), clock)
-            .Overturn(ModeratorPedro, "Outro caso.", RevisedPolicy, clock)
+            .Overturn(ModeratorPedro, Ruling("Outro caso."), clock)
             .Accepted();
 
         Assert.Throws<ArgumentException>(() => report.ResolveAppeal(foreignRevision, clock));
@@ -384,7 +384,7 @@ public sealed class ReportTests
         Transition.MarkAppealed => report.MarkAppealed(
             Appeal.File(SanctionOn(Bruno), Bruno, "Recurso.", clock).Accepted()).Rejection,
         Transition.ResolveAppeal => report.ResolveAppeal(
-            AppealUnderReview(SanctionOn(Bruno), clock).Overturn(ModeratorPedro, "Revisto.", RevisedPolicy, clock).Accepted(),
+            AppealUnderReview(SanctionOn(Bruno), clock).Overturn(ModeratorPedro, Ruling("Revisto."), clock).Accepted(),
             clock).Rejection,
         _ => throw new ArgumentOutOfRangeException(nameof(transition)),
     };
