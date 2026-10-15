@@ -16,5 +16,5 @@ public sealed record ReportNarrative
     public string Text { get; }
 
     public static ReportNarrative Parse(string? text) =>
-        text is null ? Empty : new(SafetyText.RequireBounded(text, MaxLength, allowEmpty: true, nameof(text)));
+        text is null ? Empty : new(SafetyText.RequireOptionalText(text, MaxLength, nameof(text)));
 }
