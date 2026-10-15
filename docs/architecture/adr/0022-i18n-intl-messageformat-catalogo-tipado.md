@@ -1,6 +1,6 @@
 # ADR-0022: Interface em PT-BR e EN com intl-messageformat e catálogo tipado próprio
 
-- **Status:** Proposed (2026-10-15)
+- **Status:** Accepted (2026-10-15), decidido pelo usuário em 2026-10-15
 - **Origem:** spec 13.6 (textos centralizados, `Intl`, fuso), 13.4 e 13.7; decisão do responsável técnico de
   oferecer a interface em PT-BR (padrão) e EN
 - **Revisar quando:** entrar um terceiro idioma, o catálogo passar de algumas centenas de chaves ou houver
