@@ -93,7 +93,9 @@ public sealed class ConstellationRules
 
         var state = session.State;
         var isAnswering = session.Status == SessionStatus.Active && state.Shared.Stage == ConstellationStage.Cards;
-        var ownAnswer = isAnswering ? state.PrivateByParticipant[viewer].Answer : null;
+        // Sem filtrar por isAnswering: as regras apagam as respostas ao fechar o cartão e no prazo, e um estado que
+        // as mantivesse por engano precisa aparecer (para a própria pessoa) em vez de ficar escondido aqui.
+        var ownAnswer = state.PrivateByParticipant[viewer].Answer;
         var partner = state.Control.Participants.PartnerOf(viewer);
 
         return new ConstellationView(
@@ -110,7 +112,7 @@ public sealed class ConstellationRules
             state.Control.Content.Cards.Count,
             isAnswering ? ToView(CurrentCard(state), state.Shared.Outcomes.Count) : null,
             ownAnswer is null ? null : ToView(ownAnswer),
-            ownAnswer is not null,
+            isAnswering && ownAnswer is not null,
             [.. state.Shared.Outcomes.OfType<CardOutcome.Revealed>().Select(revealed => ToView(revealed, viewer, partner))],
             [.. state.Shared.Outcomes.OfType<CardOutcome.Passed>().Select(passed => ToView(passed))],
             isAnswering && ownAnswer is null
