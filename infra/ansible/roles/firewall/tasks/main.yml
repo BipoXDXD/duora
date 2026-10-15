@@ -1,0 +1,45 @@
+---
+# UFW governa o tráfego para processos do host (sshd). Portas publicadas pelo Docker passam pela tabela nat antes
+# das chains do UFW e o ignoram (D-INF-02): por isso o compose.prod.yml publica só 80/443 do edge, o firewall do
+# provedor repete a política e a prova é uma varredura externa (infra/README.md, "Docker e UFW").
+
+- name: Aplicar as regras também a IPv6 (spec 15.2)
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: "^IPV6="
+    line: "IPV6=yes"
+  notify: Recarregar ufw
+
+- name: Negar entrada por padrão
+  community.general.ufw:
+    default: deny
+    direction: incoming
+
+- name: Permitir saída (fornecedores, DNS, NTP, registry e ACME; spec 15.2)
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+
+- name: Permitir SSH só das origens administrativas, com limite de taxa
+  community.general.ufw:
+    rule: limit
+    port: "22"
+    proto: tcp
+    from_ip: "{{ item }}"
+    comment: duora ssh
+  loop: "{{ duora_ssh_allowed_sources }}"
+
+- name: Permitir HTTP (redirecionamento e ACME) e HTTPS (TCP e HTTP/3)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: duora edge
+  loop:
+    - { port: "80", proto: tcp }
+    - { port: "443", proto: tcp }
+    - { port: "443", proto: udp }
+
+- name: Ligar o UFW (depois das regras, para não derrubar a sessão SSH)
+  community.general.ufw:
+    state: enabled

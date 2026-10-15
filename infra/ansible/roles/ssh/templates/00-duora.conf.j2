@@ -1,0 +1,18 @@
+# Gerenciado pelo Ansible (infra/ansible/roles/ssh). Spec 15.2: SSH só por chave, sem root e sem senha.
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PermitEmptyPasswords no
+AllowUsers {{ duora_admin_user }} {{ duora_deploy_user }}
+MaxAuthTries 3
+LoginGraceTime 30
+X11Forwarding no
+
+# O executor de deploy só roda o comando forçado do authorized_keys: sem túnel, agente ou terminal.
+Match User {{ duora_deploy_user }}
+    AllowTcpForwarding no
+    AllowAgentForwarding no
+    PermitTTY no
+    X11Forwarding no

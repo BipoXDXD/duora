@@ -1,0 +1,82 @@
+---
+- name: Exigir a configuração do host no inventário
+  ansible.builtin.assert:
+    that:
+      - duora_domain | default('') | length > 0
+      - duora_tls | default('') | length > 0
+      - duora_image_prefix | default('') | length > 0
+      - duora_deploy_public_key | default('') is match('^ssh-(ed25519|rsa) ')
+    fail_msg: Defina duora_domain, duora_tls, duora_image_prefix e duora_deploy_public_key no inventário.
+
+- name: Criar diretórios do Duora com permissões mínimas
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ duora_install_dir }}", mode: "0755" }
+    - { path: "{{ duora_config_dir }}", mode: "0750" }
+    # Segredos: só root lê o diretório; cada arquivo 0400 com dono = UID do container (duora-secrets).
+    - { path: "{{ duora_secrets_dir }}", mode: "0700" }
+    - { path: "{{ duora_state_dir | dirname }}", mode: "0700" }
+    - { path: "{{ duora_state_dir }}", mode: "0700" }
+
+- name: Instalar o compose de produção desta versão do repositório
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../compose/compose.prod.yml"
+    dest: "{{ duora_install_dir }}/compose.prod.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Instalar os comandos de operação (root, sem escrita para mais ninguém)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../scripts/deploy/{{ item.src }}"
+    dest: "/usr/local/sbin/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - { src: duora_deploy.py, dest: duora-deploy }
+    - { src: duora_secrets.py, dest: duora-secrets }
+
+- name: Escrever a configuração não sensível do host (lida pelo Compose e pelo duora-deploy)
+  ansible.builtin.template:
+    src: duora.env.j2
+    dest: "{{ duora_config_dir }}/duora.env"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Gerar os segredos uma única vez (nunca sobrescreve; spec 15.5)
+  ansible.builtin.command:
+    cmd: "/usr/local/sbin/duora-secrets init {{ duora_secrets_dir }}"
+    creates: "{{ duora_secrets_dir }}/duora_app_connection"
+
+- name: Criar o usuário de deploy sem senha e sem grupos privilegiados
+  ansible.builtin.user:
+    name: "{{ duora_deploy_user }}"
+    shell: /bin/sh
+    password: "!"
+    groups: []
+    create_home: true
+
+- name: Autorizar só a chave do CI, presa ao comando de deploy
+  ansible.posix.authorized_key:
+    user: "{{ duora_deploy_user }}"
+    key: "{{ duora_deploy_public_key }}"
+    key_options: 'command="sudo -n /usr/local/sbin/duora-deploy --manifest -",restrict'
+    exclusive: true
+
+- name: Permitir ao usuário de deploy um único comando como root (sem sudo ALL; spec 15.5)
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/duora-deploy
+    owner: root
+    group: root
+    mode: "0440"
+    content: |
+      # Gerenciado pelo Ansible. O manifesto chega pelo stdin do SSH e é validado pelo próprio comando.
+      {{ duora_deploy_user }} ALL=(root) NOPASSWD: /usr/local/sbin/duora-deploy --manifest -
+    validate: /usr/sbin/visudo -cf %s
