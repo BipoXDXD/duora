@@ -147,6 +147,21 @@ Nesse caso o migrador não roda e o schema fica como está, o que só é seguro 
 expand/contract (spec 17.4). Qualquer outro caso é recusado antes de parar o worker, e nenhuma flag relaxa isso. O migrador não desfaz migrations e nunca roda `Down`;
 restaurar backup para desfazer deploy é decisão humana.
 
+O schema não é a única coisa que o rollback precisa ler: payloads da outbox gravados pela release nova também.
+Campo novo em payload segue expand/contract ([model.md](../data/model.md#convenções)), com o leitor tolerante num
+deploy e a gravação do campo no seguinte. **Restrição conhecida:** o campo `language` do pedido de e-mail de conta
+(`identity.account-email-requested`, PR #22) entrou junto com a gravação. Um worker anterior a essa release lê o
+payload com `UnmappedMemberHandling.Disallow` e encerra como `Failed` (`InvalidPayload`), sem retry, toda entrega que
+tenha o campo. Não faça rollback para release anterior ao PR #22 enquanto houver entregas `transactional-email` em
+`Pending` ou `InFlight`; se o rollback for necessário, drene a outbox antes (deixe o worker atual esvaziar a fila) e
+confira:
+
+```sql
+select count(*) from ops.outbox_deliveries d
+join ops.outbox_events e on e.id = d.outbox_event_id
+where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight') and e.payload ? 'language';
+```
+
 ### Falha no meio do deploy
 
 | Onde falhou | Estado | O que fazer |
