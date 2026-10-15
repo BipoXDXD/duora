@@ -25,6 +25,10 @@ updates:
     groups:
       npm-patches:
         update-types: [patch]
+    ignore:
+      # A major de @types/node acompanha a do Node do projeto (24) e só sobe junto com ele.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Atualiza o SHA fixado e o comentário de versão das actions.
   - package-ecosystem: github-actions
