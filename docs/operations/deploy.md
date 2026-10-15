@@ -69,8 +69,9 @@ Ordem da spec 17.3; qualquer falha interrompe com código 1 e mensagem acionáve
 4. `pull` de todas as imagens por digest e conferência da arquitetura de cada uma.
 5. Garante o PostgreSQL saudável (`up --wait postgres`).
 6. Para o worker (passo 4 da spec: sem novos leases durante a migração).
-7. Roda o migrador como job exclusivo (`--profile migrate run --rm migrator`) e confere que a última migration do
-   banco é a última do manifesto.
+7. Roda o migrador como job exclusivo (`--profile migrate run --rm migrator`), aplica
+   `reconcile-privileges.sql` (tira do `duora_app` todo acesso ao histórico do EF) e confere que a última migration
+   do banco é a última do manifesto.
 8. Sobe web, worker e edge da release (`up --wait --no-deps`).
 9. Smoke: `GET http://web:8080/health/ready` de dentro do edge (rede interna), por até 90 s; depois confere que
    web, worker e edge estão `running` (pega restart em laço).
@@ -120,7 +121,8 @@ migrador não desfaz migrations e nunca roda `Down`; restaurar backup para desfa
 1. `ansible-playbook` (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração e
    segredos (`duora-secrets init /etc/duora/secrets`, que nunca sobrescreve).
 2. O primeiro deploy cria os volumes; o PostgreSQL roda `10-duora-roles.sh` uma única vez e cria
-   `duora_migrator` (dono do banco `duora`) e `duora_app` (só DML via default privileges).
+   `duora_migrator` (dono do banco `duora`) e `duora_app` (só DML via default privileges; regras completas e
+   convenção de tabela append-only em [model.md](../data/model.md#permissões-de-banco-spec-107)).
 
 ### Rotação de senha do banco
 

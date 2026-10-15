@@ -211,6 +211,14 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     checks.expect(canary not in edge_logs, "log do Caddy sem query string, cookie nem Authorization")
     checks.expect('"uri":"/api/v1?redacted"' in edge_logs, "log do Caddy registra a rota sem a query")
 
+    history_update = subprocess.run(
+        compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "--host", "127.0.0.1", "--username",
+                   "duora_app", "--dbname", "duora", "--command",
+                   'UPDATE ops.__ef_migrations_history SET "ProductVersion" = \'x\''],
+        capture_output=True, text=True, check=False)
+    checks.expect(history_update.returncode != 0 and "permission denied" in history_update.stderr,
+                  "duora_app não altera o histórico real de migrations")
+
     check_hardening(compose, checks)
     return checks.failures
 

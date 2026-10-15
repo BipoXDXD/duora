@@ -1029,3 +1029,15 @@ erDiagram
 
 Credencial própria para o worker (mesmo conjunto de permissões, identidade distinta nos logs do banco) é
 desejável; decidir na fatia do worker.
+
+**Como isso é aplicado** (`infra/images/postgres/`, testado em `scripts/deploy/test_db_privileges.py` contra a
+imagem real):
+
+- `duora_migrator` é dono do banco; os default privileges dele dão a `duora_app` `USAGE` nos schemas (sem
+  `CREATE`), DML nas tabelas, `USAGE, SELECT` nas sequences e `EXECUTE` nas funções (revogado de `PUBLIC`). O app
+  não tem `TEMPORARY` nem `CREATE` no banco.
+- `ops.__ef_migrations_history`: o app não tem privilégio algum. Default privileges não aceitam exceção, então o
+  deploy roda `reconcile-privileges.sql` como `postgres` logo depois de cada migração.
+- **Convenção para tabela append-only** (`ops.audit_events` e futuras): a migration que cria a tabela termina com
+  `REVOKE UPDATE, DELETE, TRUNCATE ON <tabela> FROM duora_app;` (em `migrationBuilder.Sql`). Revisão de migration
+  confere a linha; o teste de privilégios cobre o mecanismo.
