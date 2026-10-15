@@ -4,25 +4,39 @@ using static Duora.UnitTests.Experiences.UnlikelyRoutesFixture;
 
 namespace Duora.UnitTests.Experiences;
 
-/// <summary>INV-09 e catálogo versionado e imutável (spec 6.1, 6.3).</summary>
+/// <summary>
+/// INV-09 no domínio: a sessão guarda a versão de conteúdo com que nasceu e projeta o conteúdo dessa versão. A T-09
+/// completa (outra versão publicada no catálogo persistido durante a partida) é teste de integração do M2.
+/// </summary>
 public sealed class ContentVersioningTests
 {
     private readonly UnlikelyRoutesEngine _engine = Engine(ClockAtRoundStart());
 
     [Fact]
-    public void SessionKeepsItsContentVersionAfterANewVersionIsPublished()
+    public void SessionKeepsTheContentVersionItWasCreatedWithAcrossActions()
     {
-        var catalog = new ContentCatalog<UnlikelyRoutesContent>().Publish(ContentV1());
-        var session = NewSession(_engine, catalog.Latest);
+        var session = NewSession(_engine, Content(contentVersion: 1, title: "Um passeio por Vila Inventada"));
 
-        catalog = catalog.Publish(Content(contentVersion: 2, title: "Um passeio por Vila Revisada"));
-        session = Act(_engine, session, Ana, new UnlikelyRoutesAction.Acknowledge(RoutesStage.Introduction));
+        session = AtChoices(_engine, session);
 
         var view = _engine.ProjectForParticipant(session, Ana)!;
-        Assert.Equal(2, catalog.Latest.ContentVersion);
         Assert.Equal(1, session.Experience.ContentVersion);
         Assert.Equal(1, view.ContentVersion);
         Assert.Equal("Um passeio por Vila Inventada", view.Title);
+    }
+
+    [Fact]
+    public void SessionsOfDifferentContentVersionsProjectTheirOwnContent()
+    {
+        var older = NewSession(_engine, Content(contentVersion: 1, title: "Um passeio por Vila Inventada"));
+        var newer = NewSession(_engine, Content(contentVersion: 2, title: "Um passeio por Vila Revisada"));
+
+        older = Act(_engine, older, Ana, new UnlikelyRoutesAction.Acknowledge(RoutesStage.Introduction));
+
+        var olderView = _engine.ProjectForParticipant(older, Ana)!;
+        var newerView = _engine.ProjectForParticipant(newer, Ana)!;
+        Assert.Equal((1, "Um passeio por Vila Inventada"), (olderView.ContentVersion, olderView.Title));
+        Assert.Equal((2, "Um passeio por Vila Revisada"), (newerView.ContentVersion, newerView.Title));
     }
 
     [Fact]
@@ -33,56 +47,6 @@ public sealed class ContentVersioningTests
         Assert.Equal(
             new ExperienceVersion(new ExperienceId("unlikely-routes"), rulesVersion: 1, contentVersion: 3, schemaVersion: 1),
             session.Experience);
-    }
-
-    [Fact]
-    public void CatalogFindsEachPublishedVersion()
-    {
-        var catalog = new ContentCatalog<UnlikelyRoutesContent>()
-            .Publish(ContentV1())
-            .Publish(Content(contentVersion: 2, title: "Segunda"));
-
-        Assert.Equal("Um passeio por Vila Inventada", catalog.Find(1)!.Title);
-        Assert.Equal("Segunda", catalog.Find(2)!.Title);
-        Assert.Null(catalog.Find(3));
-    }
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(3)]
-    public void PublishedVersionCannotBeReplacedOrPrecededLater(int contentVersion)
-    {
-        var catalog = new ContentCatalog<UnlikelyRoutesContent>()
-            .Publish(ContentV1())
-            .Publish(Content(contentVersion: 3, title: "Terceira"));
-
-        Assert.Throws<ArgumentException>(() => catalog.Publish(Content(contentVersion, "Outra")));
-    }
-
-    [Fact]
-    public void PublishingReturnsANewCatalogAndLeavesTheOriginalUntouched()
-    {
-        var original = new ContentCatalog<UnlikelyRoutesContent>().Publish(ContentV1());
-
-        original.Publish(Content(contentVersion: 2, title: "Segunda"));
-
-        Assert.Equal(1, original.Latest.ContentVersion);
-    }
-
-    [Fact]
-    public void CatalogHoldsASingleExperience()
-    {
-        var catalog = new ContentCatalog<IExperienceContent>().Publish(ContentV1());
-
-        Assert.Throws<ArgumentException>(
-            () => catalog.Publish(new ForeignContent(new ExperienceId("choice-constellation"), 2)));
-    }
-
-    [Fact]
-    public void EmptyCatalogHasNoLatestVersion()
-    {
-        Assert.Throws<InvalidOperationException>(() => new ContentCatalog<UnlikelyRoutesContent>().Latest);
     }
 
     [Fact]
