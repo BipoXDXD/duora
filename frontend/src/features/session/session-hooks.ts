@@ -7,7 +7,7 @@ import {
 } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { isUnauthorized, renewAntiforgeryToken } from '@/shared/api'
+import { apiClient, isUnauthorized, refreshAntiforgeryToken } from '@/shared/api'
 import { paths } from '@/shared/paths'
 import type { LoginNotice, LoginState } from './login-state'
 import { meQueryKey, sessionsQueryKey } from './query-keys'
@@ -66,7 +66,7 @@ export function useDiscardCachedIdentity(): void {
 
 async function renewAntiforgeryTokenAfterIdentityChange(): Promise<void> {
   try {
-    await renewAntiforgeryToken()
+    await refreshAntiforgeryToken(apiClient)
   } catch {
     // Sem rede, o token fica para depois: toda mutação pede um token novo antes de ser enviada
     // (sendMutation), então nenhuma sai com o token da identidade anterior.
