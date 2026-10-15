@@ -188,7 +188,11 @@ dias), e o restore os reaplica antes de reabrir (passo 6).
 
 **Quebra da cadeia:** se o repositório ficar fora do ar e o WAL pendente passar de `archive-push-queue-max` (4 GiB),
 o pgBackRest descarta a fila para o PostgreSQL não parar por disco cheio. Sem PITR depois desse ponto até o próximo
-full: rode `sudo duora-backup full` assim que o destino voltar. O verify a cada 15 min alerta muito antes.
+full: rode `sudo duora-backup full` assim que o destino voltar. O verify a cada 15 min alerta enquanto o
+arquivamento falha, mas **não vê a lacuna depois que ele volta** (o `pg_stat_archiver` só mostra o último sucesso).
+Quem pega a lacuna é o `verify-repo` diário (abaixo): o `pgbackrest verify` nativo lista as faixas contínuas de WAL
+no repositório, e o wrapper falha se houver buraco depois do início do backup mais novo. Lacuna anterior ao backup
+mais novo não alerta: o full que a resolve já existe, e o `expire` a remove com o tempo.
 
 ## Operação
 
@@ -199,6 +203,7 @@ full: rode `sudo duora-backup full` assim que o destino voltar. O verify a cada 
 | `stanza-create` | operador, uma vez | Cria a stanza `duora` no repositório |
 | `full` / `diff` | timers `duora-backup-full.timer` / `duora-backup-diff.timer` | Backup; espera um deploy em curso terminar (mesmo lock, até 30 min) |
 | `verify` | `duora-backup-verify.timer` (15 min) e `duora-deploy` | filtro de saída aplicado no iptables, `pgbackrest check` (troca o segmento e espera ele chegar ao repositório), `info` sem erro, último WAL confirmado há ≤ 300 s (RPO), arquivamento não falhando, último backup há ≤ 48 h. **Falha fechado** (abaixo) |
+| `verify-repo` | `duora-backup-verify-repo.timer` (diário, 05:00) | `pgbackrest verify` nativo: checksum e tamanho de cada arquivo do repositório, stanza `ok`, backup mais novo `valid`, WAL do backup mais novo presente e **nenhuma lacuna de WAL** desde o início dele (`RepositoryVerifyTests`). Espera o deploy terminar (mesmo lock) |
 | `info` | operador | `pgbackrest info` |
 
 Ninguém além do root chama o `duora-backup`: o executor de deploy não tem sudo para ele, e nenhum container tem o
@@ -314,6 +319,7 @@ Limites do drill: o MinIO roda na mesma máquina (sem latência de rede real); o
 | Sinal | Hoje | Falta |
 |---|---|---|
 | WAL atrasado ou arquivamento falhando | `duora-backup verify` a cada 15 min falha (unit em `failed`) | Destino de alerta fora da VPS (OTel Collector ou monitor externo lendo o estado das units) |
+| Lacuna na cadeia de WAL ou arquivo corrompido no repositório | `duora-backup verify-repo` diário falha (unit em `failed`, registro `crit`) | Idem |
 | Backup full/diff falhou | Unit `duora-backup@full`/`@diff` em `failed` e registro `crit` em `duora-backup-alert` | Idem |
 | Fila de WAL no pg_wal | Aviso do pgBackRest no log do postgres | Métrica do tamanho do `pg_wal` com alerta antes de 4 GiB |
 | Certificado TLS perto de vencer | — | Checagem de validade (825 dias) no verify ou no monitor |
