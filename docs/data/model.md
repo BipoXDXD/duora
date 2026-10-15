@@ -626,8 +626,10 @@ erDiagram
 
 ### safety.report_categories e safety.policy_versions
 
-- `report_categories`: `code text` PK, `label text`, `active boolean`. Tabela de referência porque a política
-  muda (*SQL Antipatterns*, cap. 11).
+- `report_categories`: `code text` PK, `label text`, `active boolean`, `is_severe boolean NOT NULL DEFAULT false`.
+  Tabela de referência porque a política muda (*SQL Antipatterns*, cap. 11). `is_severe` marca a denúncia grave
+  (spec 19.3): ela chega com prioridade urgente e a triagem automatizada não a rebaixa; o código não tem lista de
+  categorias graves. `CHECK (code ~ '^[a-z][a-z0-9._-]{0,63}$')`, o mesmo formato de `ReportCategoryCode`.
 - `policy_versions`: `id`, `code text`, `version text`, `published_at`, `document_sha256 bytea`;
   `UNIQUE (code, version)`. Toda medida aponta a versão da política (INV-10).
 - **Classe:** P0.

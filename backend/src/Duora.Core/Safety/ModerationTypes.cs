@@ -61,7 +61,7 @@ public sealed record SubjectNotice
 
     public SubjectNotice(string reasonCode, string? text)
     {
-        ReasonCode = RequireCatalogCode(reasonCode);
+        ReasonCode = SafetyText.RequireCatalogCode(reasonCode, ReasonCodeMaxLength, nameof(reasonCode));
         Text = text is null ? null : SafetyText.RequireBounded(text, TextMaxLength, allowEmpty: false, nameof(text));
     }
 
@@ -69,17 +69,6 @@ public sealed record SubjectNotice
     public string ReasonCode { get; }
 
     public string? Text { get; }
-
-    private static string RequireCatalogCode(string code)
-    {
-        ArgumentNullException.ThrowIfNull(code);
-        var wellFormed = code.Length is > 0 and <= ReasonCodeMaxLength
-            && char.IsAsciiLetterLower(code[0])
-            && code.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '.' or '_' or '-');
-        return wellFormed
-            ? code
-            : throw new ArgumentException("Código de motivo fora do formato do catálogo.", nameof(code));
-    }
 }
 
 /// <summary>

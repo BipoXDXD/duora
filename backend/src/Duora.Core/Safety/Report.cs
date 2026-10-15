@@ -19,7 +19,7 @@ public sealed class Report
         Narrative = submission.Narrative;
         SubmittedAt = submittedAt;
         State = ReportState.Received;
-        Priority = IsSevere(submission.Category) ? ReportPriority.Urgent : ReportPriority.Normal;
+        Priority = submission.Category.IsSevere ? ReportPriority.Urgent : ReportPriority.Normal;
     }
 
     /// <summary>É o protocolo que a pessoa usa para acompanhar a denúncia.</summary>
@@ -60,10 +60,7 @@ public sealed class Report
         ArgumentOutOfRangeException.ThrowIfEqual(submission.TargetUserId, Guid.Empty);
         ArgumentNullException.ThrowIfNull(submission.Context);
         ArgumentNullException.ThrowIfNull(submission.Narrative);
-        if (!Enum.IsDefined(submission.Category))
-        {
-            throw new ArgumentOutOfRangeException(nameof(submission), submission.Category, "Categoria desconhecida.");
-        }
+        ArgumentNullException.ThrowIfNull(submission.Category);
 
         if (submission.ReporterId == submission.TargetUserId)
         {
@@ -106,7 +103,7 @@ public sealed class Report
             return SafetyResult.Rejected(SafetyRejection.ReviewerMustBeIndependent);
         }
 
-        if (IsSevere(Category) && priority < ReportPriority.Urgent && author is ModerationAuthor.Automated)
+        if (Category.IsSevere && priority < ReportPriority.Urgent && author is ModerationAuthor.Automated)
         {
             return SafetyResult.Rejected(SafetyRejection.AutomatedTriageCannotLowerSevereReport);
         }
@@ -219,10 +216,7 @@ public sealed class Report
 
     /// <summary>Só quem denunciou vê o protocolo; para qualquer outra pessoa, a denúncia não existe.</summary>
     public ReportStatusView? GetReportStatus(Guid requesterId) =>
-        requesterId != ReporterId ? null : new ReportStatusView(Id, Category, StatusForReporter(), SubmittedAt);
-
-    private static bool IsSevere(ReportCategory category) =>
-        category is ReportCategory.ThreatOfViolence or ReportCategory.MinorSafety;
+        requesterId != ReporterId ? null : new ReportStatusView(Id, Category.Code, StatusForReporter(), SubmittedAt);
 
     private ReportStatusForReporter StatusForReporter() => State switch
     {

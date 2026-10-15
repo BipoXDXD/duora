@@ -5,7 +5,7 @@ namespace Duora.Core.Safety;
 /// </summary>
 public sealed record ReportStatusView(
     ReportId Protocol,
-    ReportCategory Category,
+    ReportCategoryCode Category,
     ReportStatusForReporter Status,
     DateTimeOffset SubmittedAt);
 

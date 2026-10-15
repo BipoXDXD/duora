@@ -1,22 +1,5 @@
 namespace Duora.Core.Safety;
 
-/// <summary>
-/// Conjunto fechado de categorias. A spec não as enumera; esta lista é proposta até a política de moderação
-/// ser escrita. <see cref="ThreatOfViolence"/> e <see cref="MinorSafety"/> são graves (spec 19.3).
-/// </summary>
-public enum ReportCategory
-{
-    Harassment,
-    HateSpeech,
-    UnwantedSexualContent,
-    ThreatOfViolence,
-    MinorSafety,
-    ScamOrFraud,
-    Impersonation,
-    Spam,
-    Other,
-}
-
 public enum ReportPriority
 {
     Normal,
