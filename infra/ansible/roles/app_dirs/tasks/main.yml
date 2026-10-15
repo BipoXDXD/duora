@@ -20,7 +20,7 @@
     - { path: "{{ duora_config_dir }}", mode: "0750" }
     # Segredos: só root lê o diretório; cada arquivo 0400 com dono = UID do container (duora-secrets).
     - { path: "{{ duora_secrets_dir }}", mode: "0700" }
-    - { path: "{{ duora_state_dir | dirname }}", mode: "0700" }
+    # Estado do deploy: current.json, previous.json, .deploy.lock e releases/<id>.{env,json}.
     - { path: "{{ duora_state_dir }}", mode: "0700" }
 
 - name: Instalar o compose de produção desta versão do repositório

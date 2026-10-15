@@ -12,6 +12,7 @@ deploy. Só usa a biblioteca padrão do Python 3.12 (Ubuntu 24.04). Manual: docs
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import platform
@@ -20,16 +21,18 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Iterator, Protocol
 
 DESCRIPTION = "Comando restrito de deploy do Duora na VPS (spec 15.5 e 17.3)."
 IMAGE_NAMES = ("web", "worker", "edge", "migrator", "postgres")
 SUPPORTED_ARCHITECTURES = ("amd64", "arm64")
 MANIFEST_SCHEMA_VERSION = 1
 MAX_MANIFEST_BYTES = 64 * 1024
+RELEASES_DIR = "releases"
 GIB = 1024**3
 READINESS_INTERVAL_SECONDS = 2
 DEFAULT_READINESS_TIMEOUT_SECONDS = 90
@@ -81,7 +84,7 @@ class Paths:
 
 
 class Runner(Protocol):
-    def __call__(self, command: list[str]) -> subprocess.CompletedProcess[str]: ...
+    def __call__(self, command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]: ...
 
 
 # --- Manifesto ------------------------------------------------------------------------------------------------------
@@ -240,8 +243,12 @@ def require_free_space(*, free_bytes: int, minimum_gib: int) -> None:
 def deploy(release: Release, paths: Paths, run: Runner, *,
            readiness_timeout_seconds: int = DEFAULT_READINESS_TIMEOUT_SECONDS,
            sleep: Callable[[float], None] = time.sleep) -> None:
-    """Executa a release. Qualquer falha interrompe; a release corrente só muda depois do smoke de readiness."""
-    release_env = _write_release_env(release, paths.state_dir)
+    """Executa a release. Qualquer falha interrompe; a release corrente só muda depois do smoke de readiness.
+
+    Tudo que pode recusar a release (manifesto, imagens, schema do banco, elegibilidade de rollback) roda antes de
+    parar qualquer serviço.
+    """
+    release_env = _write_release_files(release, paths.state_dir)
     compose = _compose_command(paths, release_env)
 
     _step("baixando imagens por digest")
@@ -251,19 +258,30 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     _step("garantindo o PostgreSQL saudável")
     _check(run(compose + ["up", "--detach", "--wait", "postgres"]), "subida do postgres")
 
-    # Spec 17.3, passo 4: o worker para de adquirir jobs antes da migração; jobs retomam pelo estado persistido.
-    _step("pausando o worker")
-    _check(run(compose + ["stop", "worker"]), "parada do worker")
+    head = _read_migration_head(compose, run)
+    rollback = _is_rollback(release, head, paths.state_dir)
 
-    _step("aplicando migrations (job exclusivo)")
-    _check(run(compose + ["--profile", "migrate", "run", "--rm", "migrator"]), "migrator")
-    # Default privileges não aceitam exceção: o histórico do EF nasce com DML para o app e perde aqui (script
-    # versionado na imagem do postgres, docs/data/model.md "Permissões de banco").
-    _check(run(compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1",
-                          "--username", "postgres", "--dbname", "duora",
-                          "--file", "/usr/local/share/duora/reconcile-privileges.sql"]),
-           "reconciliação de privilégios")
-    _require_migration_head(release, compose, run)
+    if rollback:
+        # Rollback de aplicação: o banco já está à frente (expand/contract garante que a release anterior aceita o
+        # schema). O migrador não roda: ele não desfaz migrations e nunca roda Down (spec 17.4).
+        _step(f"rollback para {release.release_id}: banco em {head}, migrador não roda")
+    else:
+        # Spec 17.3, passo 4: o worker para de adquirir jobs antes da migração; jobs retomam pelo estado persistido.
+        _step("pausando o worker")
+        _check(run(compose + ["stop", "worker"]), "parada do worker")
+
+        _step("aplicando migrations (job exclusivo)")
+        _check(run(compose + ["--profile", "migrate", "run", "--rm", "migrator"]), "migrator")
+        # Default privileges não aceitam exceção: o histórico do EF nasce com DML para o app e perde aqui (script
+        # versionado na imagem do postgres, docs/data/model.md "Permissões de banco").
+        _check(run(compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1",
+                              "--username", "postgres", "--dbname", "duora",
+                              "--file", "/usr/local/share/duora/reconcile-privileges.sql"]),
+               "reconciliação de privilégios")
+        migrated_head = _read_migration_head(compose, run)
+        if migrated_head != release.latest_migration:
+            raise DeployError(f"banco na migration {migrated_head or '(nenhuma)'} depois do migrador, "
+                              f"release espera {release.latest_migration}")
 
     _step("subindo web, worker e edge da release")
     _check(run(compose + ["up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"]), "subida da aplicação")
@@ -276,6 +294,39 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     _step(f"release {release.release_id} implantada")
 
 
+def _is_rollback(release: Release, head: str, state_dir: Path) -> bool:
+    """Decide antes de parar qualquer coisa se o banco aceita a release.
+
+    Banco vazio ou atrás de schema.max: deploy normal. Mesmo abaixo de schema.min o deploy segue, porque o migrador
+    leva o banco até schema.max antes de o app subir. Banco à frente de schema.max: a release não declara suportar
+    esse schema, então só entra como rollback para a release que a corrente declara em previousReleaseId (spec
+    17.2, expand/contract); fora disso, recusa.
+    """
+    if head <= release.latest_migration:
+        return False
+    current = _current_release_manifest(state_dir)
+    eligible = current is not None and current.get("previousReleaseId") == release.release_id
+    if not eligible:
+        current_id = current.get("releaseId") if current else None
+        raise DeployError(
+            f"banco na migration {head}, mais nova que schema.max {release.latest_migration} da release "
+            f"{release.release_id}; ela não é a release anterior elegível da corrente ({current_id or 'nenhuma'}). "
+            "Nada foi parado.")
+    return True
+
+
+def _current_release_manifest(state_dir: Path) -> dict | None:
+    current_file = state_dir / "current.json"
+    if not current_file.exists():
+        return None
+    current_id = json.loads(current_file.read_text(encoding="utf-8")).get("releaseId")
+    manifest_file = state_dir / RELEASES_DIR / f"{current_id}.json"
+    if not isinstance(current_id, str) or not manifest_file.exists():
+        return None
+    data = json.loads(manifest_file.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else None
+
+
 def _compose_command(paths: Paths, release_env: Path) -> list[str]:
     return [
         "docker", "compose",
@@ -285,35 +336,44 @@ def _compose_command(paths: Paths, release_env: Path) -> list[str]:
     ]
 
 
-def _write_release_env(release: Release, state_dir: Path) -> Path:
-    state_dir.mkdir(parents=True, exist_ok=True)
+def _write_release_files(release: Release, state_dir: Path) -> Path:
+    # Em releases/: um releaseId "current" ou "previous" nunca colide com o estado na raiz.
+    releases = state_dir / RELEASES_DIR
+    releases.mkdir(parents=True, exist_ok=True)
     lines = [f"DUORA_{name.upper()}_IMAGE={reference}" for name, reference in release.images.items()]
     lines.append(f"DUORA_RELEASE_ID={release.release_id}")
-    release_env = state_dir / f"{release.release_id}.env"
+    release_env = releases / f"{release.release_id}.env"
     release_env.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    (state_dir / f"{release.release_id}.json").write_text(
+    (releases / f"{release.release_id}.json").write_text(
         json.dumps(release.raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return release_env
 
 
 def _require_image_architectures(release: Release, run: Runner) -> None:
     for name, reference in release.images.items():
-        result = _check(run(["docker", "image", "inspect", "--format", "{{.Architecture}}", reference]),
+        result = _check(run(["docker", "image", "inspect", "--format", "{{.Architecture}}", reference],
+                            capture=True),
                         f"inspeção da imagem {name}")
         actual = result.stdout.strip()
         if actual != release.architecture:
             raise DeployError(f"imagem {name} com arquitetura {actual}, manifesto pede {release.architecture}")
 
 
-def _require_migration_head(release: Release, compose: list[str], run: Runner) -> None:
-    query = 'select "MigrationId" from ops.__ef_migrations_history order by "MigrationId" desc limit 1'
+def _read_migration_head(compose: list[str], run: Runner) -> str:
+    """Última migration aplicada, ou "" com o banco ainda sem histórico (primeiro deploy)."""
+    exists = _query(compose, run, "select to_regclass('ops.__ef_migrations_history') is not null")
+    if exists != "t":
+        return ""
+    return _query(compose, run, 'select coalesce(max("MigrationId"), \'\') from ops.__ef_migrations_history')
+
+
+def _query(compose: list[str], run: Runner, sql: str) -> str:
     result = _check(
         run(compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "--quiet", "--tuples-only",
-                       "--no-align", "--username", "postgres", "--dbname", "duora", "--command", query]),
+                       "--no-align", "--username", "postgres", "--dbname", "duora", "--command", sql],
+            capture=True),
         "leitura do histórico de migrations")
-    head = result.stdout.strip()
-    if head != release.latest_migration:
-        raise DeployError(f"banco na migration {head or '(nenhuma)'}, release espera {release.latest_migration}")
+    return result.stdout.strip()
 
 
 def _wait_ready(compose: list[str], run: Runner, timeout_seconds: int, sleep: Callable[[float], None]) -> None:
@@ -332,7 +392,8 @@ def _wait_ready(compose: list[str], run: Runner, timeout_seconds: int, sleep: Ca
 def _require_services_running(compose: list[str], run: Runner) -> None:
     # "up --wait" aceita um container que caiu logo depois de subir; um restart em laço aparece aqui.
     services = ("web", "worker", "edge")
-    result = _check(run(compose + ["ps", "--all", "--format", "{{.Service}}={{.State}}", *services]),
+    result = _check(run(compose + ["ps", "--all", "--format", "{{.Service}}={{.State}}", *services],
+                        capture=True),
                     "estado dos serviços")
     states = dict(line.split("=", 1) for line in result.stdout.split() if "=" in line)
     for service in services:
@@ -356,8 +417,10 @@ def _mark_current(release: Release, state_dir: Path) -> None:
 
 def _check(result: subprocess.CompletedProcess[str], what: str) -> subprocess.CompletedProcess[str]:
     if result.returncode != 0:
-        detail = (result.stderr or "").strip().splitlines()[-1:] or ["veja a saída acima"]
-        raise DeployError(f"{what} falhou (código {result.returncode}): {detail[0]}")
+        # Comando não capturado já escreveu stdout e stderr no terminal do operador. Capturado (inspect, psql,
+        # ps), o erro vem do Docker ou do psql; nenhum deles imprime segredo.
+        detail = "\n".join((result.stderr or "").strip().splitlines()[-5:]) or "veja a saída acima"
+        raise DeployError(f"{what} falhou (código {result.returncode}): {detail}")
     return result
 
 
@@ -365,11 +428,11 @@ def _step(message: str) -> None:
     print(f"[duora-deploy] {message}", flush=True)
 
 
-def run_command(command: list[str]) -> subprocess.CompletedProcess[str]:
-    # stdout capturado (o deploy lê arquitetura, migration e estado); stderr, com o progresso e os erros do docker,
-    # vai direto ao operador.
+def run_command(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    # Só se captura o que o deploy lê (arquitetura, migration, estado). O resto, inclusive a saída do migrador,
+    # vai direto ao operador: "run --rm" apaga o container e os logs dele junto.
     try:
-        return subprocess.run(command, text=True, check=False, stdout=subprocess.PIPE,
+        return subprocess.run(command, text=True, check=False, capture_output=capture,
                               timeout=COMMAND_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as error:
         raise DeployError(f"comando excedeu {COMMAND_TIMEOUT_SECONDS} s: {' '.join(command[:6])} ...") from error
@@ -382,17 +445,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", required=True, help="caminho do manifesto, ou - para ler do stdin")
     parser.add_argument("--compose-file", type=Path, default=Path("/opt/duora/compose.prod.yml"))
     parser.add_argument("--host-env", type=Path, default=Path("/etc/duora/duora.env"))
-    parser.add_argument("--state-dir", type=Path, default=Path("/var/lib/duora/releases"))
+    parser.add_argument("--state-dir", type=Path, default=Path("/var/lib/duora"))
     parser.add_argument("--accept-missing-backup-check", action="store_true",
                         help="segue sem verificar backup/WAL (só homologação ou smoke, enquanto o pgBackRest "
                              "não está configurado)")
     args = parser.parse_args(argv)
 
     try:
-        host = parse_host_config(args.host_env.read_text(encoding="utf-8"))
-        release = parse_manifest(_read_manifest(args.manifest), image_prefix=host.image_prefix)
-        preflight(release, host, accept_missing_backup_check=args.accept_missing_backup_check)
-        deploy(release, Paths(args.compose_file, args.host_env, args.state_dir), run_command)
+        with deploy_lock(args.state_dir):
+            host = parse_host_config(args.host_env.read_text(encoding="utf-8"))
+            release = parse_manifest(read_manifest(args.manifest), image_prefix=host.image_prefix)
+            preflight(release, host, accept_missing_backup_check=args.accept_missing_backup_check)
+            deploy(release, Paths(args.compose_file, args.host_env, args.state_dir), run_command)
     except DeployError as error:
         print(f"[duora-deploy] ERRO: {error}", file=sys.stderr)
         return 1
@@ -402,7 +466,25 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _read_manifest(source: str) -> str:
+@contextmanager
+def deploy_lock(state_dir: Path) -> Iterator[None]:
+    """Um deploy por vez (spec 17.3, passo 5): dois migradores ou dois "up" concorrentes deixam estado misto.
+
+    flock é solto pelo kernel quando o processo morre, então um deploy interrompido não trava os próximos.
+    """
+    state_dir.mkdir(parents=True, exist_ok=True)
+    with open(state_dir / ".deploy.lock", "w", encoding="utf-8") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise DeployError(f"outro deploy em andamento (lock em {state_dir / '.deploy.lock'})") from error
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def read_manifest(source: str) -> str:
     if source == "-":
         data = sys.stdin.buffer.read(MAX_MANIFEST_BYTES + 1)
     else:
@@ -410,7 +492,10 @@ def _read_manifest(source: str) -> str:
             data = manifest_file.read(MAX_MANIFEST_BYTES + 1)
     if len(data) > MAX_MANIFEST_BYTES:
         raise DeployError(f"manifesto maior que {MAX_MANIFEST_BYTES} bytes")
-    return data.decode("utf-8")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise DeployError(f"manifesto não é UTF-8 válido (byte {error.start})") from error
 
 
 def preflight(release: Release, host: HostConfig, *, accept_missing_backup_check: bool) -> None:

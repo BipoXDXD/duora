@@ -1,8 +1,11 @@
 """Testes do comando de deploy. Rodar da raiz: python3 -m unittest discover -s scripts/deploy -v"""
 
+import contextlib
+import io
 import json
 import platform
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -216,28 +219,42 @@ class HostConfigTests(unittest.TestCase):
 
 
 class FakeRunner:
-    """Registra os comandos e responde como o Docker responderia; falha no comando indicado."""
+    """Registra os comandos e responde como o Docker responderia; falha no comando indicado.
+
+    O banco começa em pre_head (None = sem histórico, banco vazio) e, depois da primeira leitura, responde
+    migration_head, como se o migrador tivesse rodado.
+    """
 
     def __init__(self, architecture: str = "arm64", fail_on: str | None = None,
-                 migration_head: str = "20261015175752_Baseline", ready_after: int = 1,
+                 pre_head: str | None = None, migration_head: str = "20261015175752_Baseline",
+                 ready_after: int = 1,
                  service_states: str = "web=running\nworker=running\nedge=running\n") -> None:
         self.commands: list[list[str]] = []
+        self.captured: list[bool] = []
         self._architecture = architecture
         self._fail_on = fail_on
+        self._pre_head = pre_head
         self._migration_head = migration_head
+        self._head_reads = 0
         self._ready_after = ready_after
         self._readiness_calls = 0
         self._service_states = service_states
 
-    def __call__(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+    def __call__(self, command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
         self.commands.append(command)
+        self.captured.append(capture)
         joined = " ".join(command)
         if self._fail_on is not None and self._fail_on in joined:
             return subprocess.CompletedProcess(command, 1, "", "falha simulada")
         if command[:3] == ["docker", "image", "inspect"]:
             return subprocess.CompletedProcess(command, 0, self._architecture + "\n", "")
-        if "psql" in command:
-            return subprocess.CompletedProcess(command, 0, self._migration_head + "\n", "")
+        if "to_regclass" in joined:
+            self._head_reads += 1
+            exists = self._head_reads > 1 or self._pre_head is not None
+            return subprocess.CompletedProcess(command, 0, "t\n" if exists else "f\n", "")
+        if 'max("MigrationId")' in joined:
+            head = self._pre_head if self._head_reads == 1 else self._migration_head
+            return subprocess.CompletedProcess(command, 0, (head or "") + "\n", "")
         if "ps" in command and "--format" in command:
             return subprocess.CompletedProcess(command, 0, self._service_states, "")
         if "/health/ready" in joined:
@@ -281,10 +298,10 @@ class DeployTests(unittest.TestCase):
         order = [runner.index_of(step) for step in [
             "pull",
             "up --detach --wait postgres",
+            "to_regclass",
             "stop worker",
             "run --rm migrator",
             "reconcile-privileges.sql",
-            "ops.__ef_migrations_history",
             "up --detach --wait --no-deps web worker edge",
             "/health/ready",
         ]]
@@ -296,7 +313,7 @@ class DeployTests(unittest.TestCase):
         self.run_deploy(runner)
 
         pull = runner.commands[runner.index_of("pull")]
-        release_env = self.paths.state_dir / "2026.10.15-1.env"
+        release_env = self.paths.state_dir / "releases" / "2026.10.15-1.env"
         self.assertIn(str(self.paths.host_env), pull)
         self.assertIn(str(release_env), pull)
         self.assertIn(f"DUORA_WEB_IMAGE={PREFIX}web@{DIGEST}", release_env.read_text().splitlines())
@@ -365,6 +382,135 @@ class DeployTests(unittest.TestCase):
 
         current = json.loads((self.paths.state_dir / "current.json").read_text())
         self.assertEqual("anterior", current["releaseId"])
+
+
+    def test_only_commands_whose_output_is_read_are_captured(self) -> None:
+        runner = FakeRunner()
+
+        self.run_deploy(runner)
+
+        for command, captured in zip(runner.commands, runner.captured):
+            reads_output = (command[:3] == ["docker", "image", "inspect"]
+                            or ("psql" in command and "--command" in command)
+                            or ("ps" in command and "--format" in command))
+            with self.subTest(command=" ".join(command)):
+                self.assertEqual(reads_output, captured)
+
+    def test_release_named_like_state_file_does_not_overwrite_current_state(self) -> None:
+        self.write_current("anterior", previous=None)
+        manifest = valid_manifest()
+        manifest["releaseId"] = "current"
+        self.release = parse(manifest)
+        runner = FakeRunner(fail_on="run --rm migrator")
+
+        with self.assertRaises(deploy.DeployError):
+            self.run_deploy(runner)
+
+        current = json.loads((self.paths.state_dir / "current.json").read_text())
+        self.assertEqual("anterior", current["releaseId"])
+
+    def test_forward_deploy_on_database_at_older_migration_runs_migrator(self) -> None:
+        runner = FakeRunner(pre_head="20261001000000_Older")
+
+        self.run_deploy(runner)
+
+        self.assertTrue(runner.ran("run --rm migrator"))
+
+    def test_eligible_rollback_skips_migrator_and_keeps_newer_schema(self) -> None:
+        self.write_current("2026.10.16-1", previous="2026.10.15-1")
+        runner = FakeRunner(pre_head="20261020000000_Newer", migration_head="20261020000000_Newer")
+
+        self.run_deploy(runner)
+
+        self.assertFalse(runner.ran("run --rm migrator"))
+        self.assertTrue(runner.ran("up --detach --wait --no-deps web worker edge"))
+        current = json.loads((self.paths.state_dir / "current.json").read_text())
+        self.assertEqual("2026.10.15-1", current["releaseId"])
+
+    def test_rollback_to_release_not_declared_previous_is_refused_before_stopping_anything(self) -> None:
+        self.write_current("2026.10.16-1", previous="2026.10.14-9")
+        runner = FakeRunner(pre_head="20261020000000_Newer")
+
+        with self.assertRaisesRegex(deploy.DeployError, "elegível"):
+            self.run_deploy(runner)
+
+        self.assertFalse(runner.ran("stop worker"))
+        self.assertFalse(runner.ran("run --rm migrator"))
+        self.assertFalse(runner.ran("up --detach --wait --no-deps"))
+
+    def test_database_ahead_without_current_release_is_refused_before_stopping_anything(self) -> None:
+        runner = FakeRunner(pre_head="20261020000000_Newer")
+
+        with self.assertRaisesRegex(deploy.DeployError, "elegível"):
+            self.run_deploy(runner)
+
+        self.assertFalse(runner.ran("stop worker"))
+
+    def write_current(self, release_id: str, *, previous: str | None) -> None:
+        releases = self.paths.state_dir / "releases"
+        releases.mkdir(parents=True, exist_ok=True)
+        manifest = valid_manifest()
+        manifest["releaseId"] = release_id
+        manifest["previousReleaseId"] = previous
+        (releases / f"{release_id}.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (self.paths.state_dir / "current.json").write_text(json.dumps({"releaseId": release_id}), encoding="utf-8")
+
+
+class ManifestInputTests(unittest.TestCase):
+    def test_manifest_with_invalid_utf8_is_a_deploy_error(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.json"
+            path.write_bytes(b'{"releaseId": "\xff\xfe"}')
+
+            with self.assertRaisesRegex(deploy.DeployError, "UTF-8"):
+                deploy.read_manifest(str(path))
+
+
+class DeployLockTests(unittest.TestCase):
+    def start_holder(self, state_dir: str) -> subprocess.Popen[str]:
+        holder = subprocess.Popen(
+            [sys.executable, "-c", HOLD_LOCK_SCRIPT, str(Path(deploy.__file__).parent), state_dir],
+            stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        assert holder.stdout is not None
+        self.assertEqual("locked", holder.stdout.readline().strip())
+        return holder
+
+    def test_second_process_cannot_take_the_lock(self) -> None:
+        with TemporaryDirectory() as tmp:
+            holder = self.start_holder(tmp)
+
+            with self.assertRaisesRegex(deploy.DeployError, "outro deploy"):
+                with deploy.deploy_lock(Path(tmp)):
+                    pass
+
+            holder.kill()
+            holder.wait()
+            with deploy.deploy_lock(Path(tmp)):
+                pass
+
+    def test_main_refuses_while_another_deploy_holds_the_lock(self) -> None:
+        with TemporaryDirectory() as tmp:
+            self.start_holder(tmp)
+            errors = io.StringIO()
+
+            with contextlib.redirect_stderr(errors):
+                code = deploy.main(["--manifest", "-", "--state-dir", tmp, "--host-env", str(Path(tmp) / "x")])
+
+            self.assertEqual(1, code)
+            self.assertIn("outro deploy", errors.getvalue())
+
+
+HOLD_LOCK_SCRIPT = """
+import sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import duora_deploy
+with duora_deploy.deploy_lock(Path(sys.argv[2])):
+    print("locked", flush=True)
+    time.sleep(60)
+"""
 
 
 if __name__ == "__main__":
