@@ -1,0 +1,959 @@
+# Catálogo de fontes técnicas do Duora (spec 21.2 e 25.1).
+#
+# Uma entrada por ficha D-* da seção 25 da spec (77 fichas). Campos:
+#   id          ID da ficha na spec
+#   topico      tópico consultado (título da ficha)
+#   urls        páginas da ficha, na ordem da spec
+#   versao      versão/commit da documentação consultada; "página atual" quando o site não tem seletor
+#   consultado  data de consulta (AAAA-MM-DD)
+#   download    status da cópia local: ok | parcial | fonte alternativa
+#   requisitos  IDs da spec sustentados (INV, A11Y, ADR, seção ou gate)
+#   testes      testes de aceite (T-*) que dependem da ficha; vazio quando a ficha só sustenta construção
+#   responsavel dono da ficha
+#
+# Requisitos e testes vêm da matriz de cobertura (spec 25.18). Fichas que não aparecem nela
+# usam as seções da spec que as citam. Atualize esta entrada no mesmo PR que muda o comportamento,
+# a versão ou o fornecedor sustentado pela ficha (spec 25.19).
+#
+# Cópia local da documentação (fora do repositório): ~/.claude/knowledge-docs/<id em minúsculas>/
+
+fontes:
+  - id: D-ENV-01
+    topico: "macOS 27 e suporte .NET"
+    urls:
+      - "https://www.apple.com/br/os/macos/"
+      - "https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md"
+      - "https://learn.microsoft.com/en-us/dotnet/core/install/macos"
+    versao: "macOS 27 Golden Gate; matriz de SOs do .NET 10 (branch main)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.4", "2.5", "gate M0"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-ENV-02
+    topico: "Docker e testes no Mac"
+    urls:
+      - "https://docs.docker.com/desktop/setup/install/mac-install/"
+      - "https://dotnet.testcontainers.org/#system-requirements"
+      - "https://dotnet.testcontainers.org/custom_configuration/"
+    versao: "Docker Desktop e Testcontainers for .NET: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.4", "2.5", "gate M0"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-ENV-03
+    topico: "HTTPS e segredos locais"
+    urls:
+      - "https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-dev-certs"
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets?view=aspnetcore-10.0"
+      - "https://vite.dev/config/server-options"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0); Vite: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.5", "gate M0"]
+    testes: [T-13]
+    responsavel: "a designar"
+
+  - id: D-NET-01
+    topico: "Suporte e SDK reproduzível"
+    urls:
+      - "https://dotnet.microsoft.com/en-us/platform/support/policy/dotnet-core"
+      - "https://learn.microsoft.com/en-us/dotnet/core/tools/global-json"
+    versao: ".NET 10 LTS; SDK 10.0.400 em global.json"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1", "2.5", "17.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-NET-02
+    topico: "Linguagem C#"
+    urls:
+      - "https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/"
+      - "https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-14"
+    versao: "C# 14"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-NET-03
+    topico: "HTTP e validação ASP.NET Core"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/validation?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/error-handling?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1", "8.1", "8.6"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-NET-04
+    topico: "Composição, configuração e relógio"
+    urls:
+      - "https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection"
+      - "https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration"
+      - "https://learn.microsoft.com/en-us/dotnet/standard/datetime/timeprovider-overview"
+    versao: ".NET 10"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["10.5", "10.6", "15.4", "20.1"]
+    testes: [T-18]
+    responsavel: "a designar"
+
+  - id: D-NET-05
+    topico: "Worker e encerramento cooperativo"
+    urls:
+      - "https://learn.microsoft.com/en-us/dotnet/core/extensions/workers"
+      - "https://learn.microsoft.com/en-us/dotnet/core/extensions/scoped-service"
+    versao: ".NET 10"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["5.2", "10.6"]
+    testes: [T-08, T-17, T-18]
+    responsavel: "a designar"
+
+  - id: D-NET-06
+    topico: "Integrações HTTP resilientes"
+    urls:
+      - "https://learn.microsoft.com/en-us/dotnet/core/extensions/httpclient-factory"
+      - "https://learn.microsoft.com/en-us/dotnet/core/resilience/http-resilience"
+    versao: ".NET 10"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["10.6", "16"]
+    testes: [T-08, T-16, T-17, T-18, T-26]
+    responsavel: "a designar"
+
+  - id: D-NET-07
+    topico: "Dependências .NET"
+    urls:
+      - "https://learn.microsoft.com/en-us/nuget/consume-packages/central-package-management"
+      - "https://learn.microsoft.com/en-us/nuget/consume-packages/package-references-in-project-files#locking-dependencies"
+    versao: "NuGet: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.3", "2.5", "17.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-AUTH-01
+    topico: "Identity, cookie e MFA"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-api-authorization?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/authentication/cookie?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/authentication/mfa?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["11.1", "8.2"]
+    testes: [T-13, T-14, T-15, T-21]
+    responsavel: "a designar"
+
+  - id: D-AUTH-02
+    topico: "Ticket persistente e Data Protection"
+    urls:
+      - "https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.authentication.cookies.iticketstore?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["11.1", "11.2", "19.2"]
+    testes: [T-13, T-14, T-15, T-21]
+    responsavel: "a designar"
+
+  - id: D-AUTH-03
+    topico: "Autorização por operação e recurso"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/authorization/policies?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/authorization/resourcebased?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["INV-03", "INV-05", "11.4"]
+    testes: [T-01, T-03, T-05, T-20, T-26, T-27]
+    responsavel: "a designar"
+
+  - id: D-AUTH-04
+    topico: "Proxy confiável e limites"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["11.3", "11.5"]
+    testes: [T-13]
+    responsavel: "a designar"
+
+  - id: D-AUTH-05
+    topico: "CSRF e origens"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/anti-request-forgery?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/cors?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["11.3"]
+    testes: [T-13]
+    responsavel: "a designar"
+
+  - id: D-EF-01
+    topico: "DbContext e consultas"
+    urls:
+      - "https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-10.0/whatsnew"
+      - "https://learn.microsoft.com/en-us/ef/core/dbcontext-configuration/"
+      - "https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying"
+    versao: "EF Core 10"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1", "10.5"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-EF-02
+    topico: "Provider PostgreSQL"
+    urls:
+      - "https://www.npgsql.org/efcore/release-notes/10.0.html"
+      - "https://www.npgsql.org/efcore/mapping/json.html"
+      - "https://www.npgsql.org/doc/types/datetime.html"
+    versao: "Npgsql EF Core 10"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1", "10.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-EF-03
+    topico: "Atomicidade e concorrência"
+    urls:
+      - "https://learn.microsoft.com/en-us/ef/core/saving/transactions"
+      - "https://learn.microsoft.com/en-us/ef/core/saving/concurrency"
+      - "https://www.npgsql.org/doc/basic-usage.html"
+    versao: "EF Core 10; Npgsql: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["8.7", "10", "10.6"]
+    testes: [T-02, T-04, T-06, T-08, T-17, T-18, T-19, T-28]
+    responsavel: "a designar"
+
+  - id: D-EF-04
+    topico: "Migrações e execução resiliente"
+    urls:
+      - "https://learn.microsoft.com/en-us/ef/core/managing-schemas/migrations/applying"
+      - "https://learn.microsoft.com/en-us/ef/core/miscellaneous/connection-resiliency"
+    versao: "EF Core 10"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["8.7", "10", "17"]
+    testes: [T-02, T-04, T-06, T-19, T-22, T-28]
+    responsavel: "a designar"
+
+  - id: D-PG-01
+    topico: "Servidor e ciclo de suporte"
+    urls:
+      - "https://www.postgresql.org/docs/18/"
+      - "https://www.postgresql.org/support/versioning/"
+    versao: "PostgreSQL 18 (/docs/18/); política de versões"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-PG-02
+    topico: "Integridade relacional"
+    urls:
+      - "https://www.postgresql.org/docs/18/ddl-constraints.html"
+      - "https://www.postgresql.org/docs/18/indexes-partial.html"
+    versao: "PostgreSQL 18 (/docs/18/)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["8.7", "10.3"]
+    testes: [T-02, T-04, T-06, T-19, T-28]
+    responsavel: "a designar"
+
+  - id: D-PG-03
+    topico: "Locks, isolamento e filas"
+    urls:
+      - "https://www.postgresql.org/docs/18/explicit-locking.html"
+      - "https://www.postgresql.org/docs/18/transaction-iso.html"
+      - "https://www.postgresql.org/docs/18/sql-select.html"
+    versao: "PostgreSQL 18 (/docs/18/)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["8.7", "10.4", "10.6", "5.2"]
+    testes: [T-02, T-04, T-06, T-08, T-17, T-18, T-19, T-28]
+    responsavel: "a designar"
+
+  - id: D-PG-04
+    topico: "Diagnóstico e manutenção"
+    urls:
+      - "https://www.postgresql.org/docs/18/using-explain.html"
+      - "https://www.postgresql.org/docs/18/pgstatstatements.html"
+      - "https://www.postgresql.org/docs/18/routine-vacuuming.html"
+    versao: "PostgreSQL 18 (/docs/18/)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["10.7", "19", "20.4"]
+    testes: [T-24]
+    responsavel: "a designar"
+
+  - id: D-PG-05
+    topico: "Recursos e acesso ao banco"
+    urls:
+      - "https://www.postgresql.org/docs/18/runtime-config-resource.html"
+      - "https://www.postgresql.org/docs/18/client-authentication.html"
+    versao: "PostgreSQL 18 (/docs/18/); inclui subpáginas 20.1 e 20.5 como complemento"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["10.7", "19", "20.4"]
+    testes: [T-24]
+    responsavel: "a designar"
+
+  - id: D-RT-01
+    topico: "Hub autenticado e limites"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/signalr/authn-and-authz?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/signalr/configuration?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["9"]
+    testes: [T-07, T-14, T-21]
+    responsavel: "a designar"
+
+  - id: D-RT-02
+    topico: "Clientes e reconexão"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/signalr/javascript-client?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/signalr/dotnet-client?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["9", "19", "20.4"]
+    testes: [T-07, T-14, T-21, T-24]
+    responsavel: "a designar"
+
+  - id: D-RT-03
+    topico: "Segurança e escala de SignalR"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/signalr/security?view=aspnetcore-10.0"
+      - "https://learn.microsoft.com/en-us/aspnet/core/signalr/scale?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["9", "11"]
+    testes: [T-07, T-13, T-14, T-21]
+    responsavel: "a designar"
+
+  - id: D-API-01
+    topico: "Contrato OpenAPI"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/openapi/overview?view=aspnetcore-10.0"
+      - "https://spec.openapis.org/oas/"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0); OpenAPI Specification (índice de versões)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["8", "17.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-API-02
+    topico: "Semântica HTTP e erros"
+    urls:
+      - "https://www.rfc-editor.org/rfc/rfc9110.html"
+      - "https://www.rfc-editor.org/rfc/rfc9457.html"
+      - "https://www.rfc-editor.org/rfc/rfc9111.html"
+    versao: "RFC 9110, RFC 9457, RFC 9111"
+    consultado: 2026-10-15
+    download: "parcial"
+    requisitos: ["8"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-API-03
+    topico: "Tipos e cliente da SPA"
+    urls:
+      - "https://openapi-ts.dev/introduction"
+      - "https://openapi-ts.dev/openapi-fetch/"
+    versao: "openapi-typescript e openapi-fetch: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "8"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-FE-01
+    topico: "React"
+    urls:
+      - "https://react.dev/learn"
+    versao: "React 19 (react.dev: página atual do site; conferir com a versão do lockfile)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-FE-02
+    topico: "TypeScript"
+    urls:
+      - "https://www.typescriptlang.org/docs/handbook/intro.html"
+      - "https://www.typescriptlang.org/tsconfig/"
+    versao: "TypeScript: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "17.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-FE-03
+    topico: "Build e dependências frontend"
+    urls:
+      - "https://vite.dev/guide/"
+      - "https://pnpm.io/cli/install"
+      - "https://nodejs.org/en/about/previous-releases"
+    versao: "Node.js 24 LTS; Vite e pnpm: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "2.5", "17.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-FE-04
+    topico: "Rotas e dados remotos"
+    urls:
+      - "https://reactrouter.com/start/declarative/installation"
+      - "https://tanstack.com/query/latest/docs/framework/react/overview"
+    versao: "React Router e TanStack Query: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "9", "13.5"]
+    testes: [T-07, T-14, T-21]
+    responsavel: "a designar"
+
+  - id: D-FE-05
+    topico: "Formulários"
+    urls:
+      - "https://react-hook-form.com/get-started"
+      - "https://zod.dev/"
+    versao: "React Hook Form e Zod: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-FE-06
+    topico: "Tokens e componentes"
+    urls:
+      - "https://tailwindcss.com/docs/installation/using-vite"
+      - "https://ui.shadcn.com/docs"
+    versao: "Tailwind CSS 4; shadcn/ui: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "13.3"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-FE-07
+    topico: "Lint e formatação"
+    urls:
+      - "https://eslint.org/docs/latest/"
+      - "https://typescript-eslint.io/getting-started/"
+      - "https://prettier.io/docs/"
+    versao: "ESLint, typescript-eslint e Prettier: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "17.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-DES-01
+    topico: "Plataforma web"
+    urls:
+      - "https://developer.mozilla.org/en-US/docs/Web/HTML"
+      - "https://developer.mozilla.org/en-US/docs/Web/CSS"
+      - "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl"
+    versao: "MDN (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.7", "A11Y-01..A11Y-08"]
+    testes: [T-23]
+    responsavel: "a designar"
+
+  - id: D-DES-02
+    topico: "Critérios de acessibilidade"
+    urls:
+      - "https://www.w3.org/TR/WCAG22/"
+      - "https://www.w3.org/WAI/WCAG22/quickref/"
+      - "https://www.w3.org/WAI/WCAG22/Understanding/"
+    versao: "WCAG 2.2 (W3C Recommendation)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.4", "13.7", "A11Y-01..A11Y-08"]
+    testes: [T-23]
+    responsavel: "a designar"
+
+  - id: D-DES-03
+    topico: "Interação acessível"
+    urls:
+      - "https://www.w3.org/WAI/ARIA/apg/patterns/"
+      - "https://www.w3.org/WAI/ARIA/apg/practices/read-me-first/"
+    versao: "WAI-ARIA APG (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.4", "13.7", "A11Y-01..A11Y-08"]
+    testes: [T-23]
+    responsavel: "a designar"
+
+  - id: D-DES-04
+    topico: "Catálogo de componentes"
+    urls:
+      - "https://storybook.js.org/docs"
+    versao: "Storybook: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "13.3", "13.7"]
+    testes: [T-23]
+    responsavel: "a designar"
+
+  - id: D-DES-05
+    topico: "Desempenho de interface"
+    urls:
+      - "https://web.dev/articles/vitals"
+    versao: "web.dev Web Vitals (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.5", "19", "20.4"]
+    testes: [T-24]
+    responsavel: "a designar"
+
+  - id: D-DES-06
+    topico: "Guias práticos WAI"
+    urls:
+      - "https://www.w3.org/WAI/tutorials/"
+      - "https://www.w3.org/WAI/tutorials/forms/"
+      - "https://www.w3.org/WAI/tutorials/images/"
+    versao: "WAI Tutorials (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.7", "A11Y-01..A11Y-08"]
+    testes: [T-23]
+    responsavel: "a designar"
+
+  - id: D-DES-07
+    topico: "Avaliação de acessibilidade"
+    urls:
+      - "https://www.w3.org/WAI/test-evaluate/"
+      - "https://www.w3.org/WAI/test-evaluate/conformance/wcag-em/"
+    versao: "WAI Evaluation e WCAG-EM"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.7", "A11Y-01..A11Y-08"]
+    testes: [T-23]
+    responsavel: "a designar"
+
+  - id: D-DES-08
+    topico: "Leitor de tela no Mac"
+    urls:
+      - "https://support.apple.com/guide/voiceover/welcome/mac"
+    versao: "VoiceOver User Guide para macOS 27"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.7", "A11Y-01..A11Y-08"]
+    testes: [T-23]
+    responsavel: "a designar"
+
+  - id: D-TEST-01
+    topico: "Backend e integração"
+    urls:
+      - "https://xunit.net/docs/getting-started/v3/getting-started"
+      - "https://dotnet.testcontainers.org/modules/postgres/"
+      - "https://learn.microsoft.com/en-us/aspnet/core/test/integration-tests?view=aspnetcore-10.0"
+    versao: "xUnit v3; Testcontainers for .NET; ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1", "20.1", "20.3"]
+    testes: [T-02, T-03, T-04, T-06, T-13, T-19, T-28]
+    responsavel: "a designar"
+
+  - id: D-TEST-02
+    topico: "Testes de frontend"
+    urls:
+      - "https://vitest.dev/guide/"
+      - "https://testing-library.com/docs/react-testing-library/intro/"
+      - "https://mswjs.io/docs/"
+    versao: "Vitest, Testing Library e MSW: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "20.1"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-TEST-03
+    topico: "Jornadas E2E"
+    urls:
+      - "https://playwright.dev/docs/intro"
+      - "https://playwright.dev/docs/test-projects"
+    versao: "Playwright: página atual do site; conferir com a versão do lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.2", "13.4", "20.1"]
+    testes: [T-05, T-21, T-23]
+    responsavel: "a designar"
+
+  - id: D-TEST-04
+    topico: "Carga HTTP"
+    urls:
+      - "https://grafana.com/docs/k6/latest/"
+    versao: "k6 (docs latest)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["19", "20.1", "20.4"]
+    testes: [T-24]
+    responsavel: "a designar"
+
+  - id: D-TEST-05
+    topico: "Automação de acessibilidade"
+    urls:
+      - "https://playwright.dev/docs/accessibility-testing"
+      - "https://github.com/dequelabs/axe-core"
+    versao: "Playwright + axe-core (branch develop); fixar versão do axe no lockfile"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.7", "A11Y-01..A11Y-08"]
+    testes: [T-23]
+    responsavel: "a designar"
+
+  - id: D-INF-01
+    topico: "Sistema e suporte da VPS"
+    urls:
+      - "https://ubuntu.com/server/docs/"
+      - "https://ubuntu.com/about/release-cycle"
+      - "https://docs.docker.com/engine/install/ubuntu/"
+    versao: "Ubuntu Server 24.04 LTS; Docker Engine para Ubuntu"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.4", "15", "19.3", "gate M0"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-INF-02
+    topico: "Compose, portas e segredos"
+    urls:
+      - "https://docs.docker.com/compose/how-tos/production/"
+      - "https://docs.docker.com/engine/network/packet-filtering-firewalls/"
+      - "https://docs.docker.com/compose/how-tos/use-secrets/"
+    versao: "Docker Compose: página atual"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["15"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-INF-03
+    topico: "Caddy e HTTPS"
+    urls:
+      - "https://caddyserver.com/docs/caddyfile/directives/reverse_proxy"
+      - "https://caddyserver.com/docs/automatic-https"
+      - "https://caddyserver.com/docs/caddyfile/patterns"
+    versao: "Caddy 2"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["15.3"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-INF-04
+    topico: "Imagem PostgreSQL"
+    urls:
+      - "https://github.com/docker-library/docs/blob/master/postgres/README.md"
+    versao: "README da imagem oficial postgres (branch master); layout da major 18"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["15", "15.4", "18"]
+    testes: [T-11, T-25]
+    responsavel: "a designar"
+
+  - id: D-INF-05
+    topico: "Configuração idempotente"
+    urls:
+      - "https://docs.ansible.com/projects/ansible/latest/getting_started/index.html"
+    versao: "ansible/ansible-documentation@8f66c43ba551 (fonte rST; site respondeu HTTP 429)"
+    consultado: 2026-10-15
+    download: "fonte alternativa"
+    requisitos: ["15.5"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-INF-06
+    topico: "Imagens .NET e recursos"
+    urls:
+      - "https://learn.microsoft.com/en-us/dotnet/core/docker/container-images"
+      - "https://docs.docker.com/engine/containers/resource_constraints/"
+    versao: ".NET 10 container images; Docker resource constraints"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.4", "15", "gate M0"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-INF-07
+    topico: "SSH e atualizações Ubuntu"
+    urls:
+      - "https://ubuntu.com/server/docs/how-to/security/openssh-server/"
+      - "https://ubuntu.com/server/docs/how-to/software/automatic-updates/"
+    versao: "Ubuntu Server 24.04 LTS"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["15", "19.3"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-BKP-01
+    topico: "pgBackRest"
+    urls:
+      - "https://pgbackrest.org/user-guide.html"
+      - "https://pgbackrest.org/configuration.html"
+      - "https://pgbackrest.org/command.html"
+    versao: "pgBackRest 2.59.3"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["18", "19.3"]
+    testes: [T-11, T-25]
+    responsavel: "a designar"
+
+  - id: D-BKP-02
+    topico: "PITR e evolução de PostgreSQL"
+    urls:
+      - "https://www.postgresql.org/docs/18/continuous-archiving.html"
+      - "https://www.postgresql.org/docs/18/upgrading.html"
+    versao: "PostgreSQL 18 (/docs/18/)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["17", "18", "19.3"]
+    testes: [T-11, T-22, T-25]
+    responsavel: "a designar"
+
+  - id: D-CI-01
+    topico: "Workflows, promoção e registry"
+    urls:
+      - "https://docs.github.com/en/actions/reference/security/secure-use"
+      - "https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments"
+      - "https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry"
+    versao: "GitHub Docs (página atual); recursos variam por plano"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["14", "17"]
+    testes: [T-12, T-22]
+    responsavel: "a designar"
+
+  - id: D-CI-02
+    topico: "Atualizações e scans"
+    urls:
+      - "https://docs.github.com/en/code-security/dependabot"
+      - "https://trivy.dev/latest/docs/"
+      - "https://github.com/gitleaks/gitleaks"
+    versao: "GitHub Docs, Trivy (latest) e Gitleaks (README)"
+    consultado: 2026-10-15
+    download: "parcial"
+    requisitos: ["2.3", "14", "17.1"]
+    testes: [T-12]
+    responsavel: "a designar"
+
+  - id: D-CI-03
+    topico: "Arquiteturas e integridade da release"
+    urls:
+      - "https://docs.docker.com/build/building/multi-platform/"
+      - "https://docs.github.com/en/actions/concepts/security/artifact-attestations"
+      - "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets"
+    versao: "Docker Build e GitHub Docs (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.4", "14", "17", "gate M0"]
+    testes: [T-12, T-22]
+    responsavel: "a designar"
+
+  - id: D-OBS-01
+    topico: "OpenTelemetry"
+    urls:
+      - "https://opentelemetry.io/docs/languages/dotnet/"
+      - "https://opentelemetry.io/docs/collector/"
+    versao: "OpenTelemetry .NET e Collector (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1", "11.2", "19", "19.2", "19.3"]
+    testes: [T-15]
+    responsavel: "a designar"
+
+  - id: D-OBS-02
+    topico: "Logs e saúde"
+    urls:
+      - "https://learn.microsoft.com/en-us/dotnet/core/extensions/logging"
+      - "https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-10.0"
+    versao: ".NET 10; ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["11.2", "19.2", "19.3"]
+    testes: [T-15]
+    responsavel: "a designar"
+
+  - id: D-SEC-01
+    topico: "Requisitos e ameaças de APIs"
+    urls:
+      - "https://owasp.org/projects/asvs"
+      - "https://api-security.owasp.org/editions/2023/en/0x11-t10/"
+    versao: "OWASP ASVS 5.0.0 (tag v5.0.0_release); OWASP API Security Top 10 2023"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["INV-03", "INV-05", "11.4"]
+    testes: [T-01, T-03, T-05, T-20, T-26, T-27]
+    responsavel: "a designar"
+
+  - id: D-SEC-02
+    topico: "Prompt injection em agentes"
+    urls:
+      - "https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html"
+    versao: "OWASP Cheat Sheet Series (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["14", "14.3", "INV-12"]
+    testes: [T-12]
+    responsavel: "a designar"
+
+  - id: D-SEC-03
+    topico: "Autorização e sessões"
+    urls:
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html"
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"
+    versao: "OWASP Cheat Sheet Series (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["11", "INV-03", "INV-05"]
+    testes: [T-01, T-03, T-05, T-13, T-14, T-20, T-21, T-26, T-27]
+    responsavel: "a designar"
+
+  - id: D-SEC-04
+    topico: "Uploads e chamadas externas"
+    urls:
+      - "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html"
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+    versao: "OWASP Cheat Sheet Series (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["16", "11.4"]
+    testes: [T-16, T-17, T-26]
+    responsavel: "a designar"
+
+  - id: D-SEC-05
+    topico: "CSP, segredos e logs"
+    urls:
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html"
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html"
+      - "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html"
+    versao: "OWASP Cheat Sheet Series (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["11.2", "11.4", "19.2"]
+    testes: [T-15]
+    responsavel: "a designar"
+
+  - id: D-SEC-06
+    topico: "Modelagem de ameaças"
+    urls:
+      - "https://owasp.org/www-community/Threat_Modeling"
+    versao: "OWASP Community (página atual)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["14"]
+    testes: [T-12]
+    responsavel: "a designar"
+
+  - id: D-PRIV-01
+    topico: "Proteção de dados e registros"
+    urls:
+      - "https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm"
+      - "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12965.htm"
+    versao: "Lei 13.709/2018 e Lei 12.965/2014, texto compilado consultado na data"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["12", "18.4"]
+    testes: [T-01, T-10, T-11]
+    responsavel: "a designar"
+
+  - id: D-PRIV-02
+    topico: "Proteção etária"
+    urls:
+      - "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15211.htm"
+      - "https://www.gov.br/anpd/pt-br/assuntos/eca-digital"
+    versao: "Lei 15.211/2025 (com Art. 41-A incluído pela Lei 15.352/2026); página da ANPD"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["12", "12.2", "18.4"]
+    testes: [T-01, T-10, T-11]
+    responsavel: "a designar"
+
+  - id: D-OPT-01
+    topico: "Provisionamento por API"
+    urls:
+      - "https://opentofu.org/docs/"
+    versao: "OpenTofu 1.13.x (só a página de entrada)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.3", "15.5"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-OPT-02
+    topico: "Configuração criptografada"
+    urls:
+      - "https://github.com/getsops/sops"
+      - "https://age-encryption.org/"
+    versao: "SOPS v3.13.3 (README); age (README)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["15.4"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-OPT-03
+    topico: "Mutação, DAST e SAST"
+    urls:
+      - "https://stryker-mutator.io/docs/stryker-net/introduction/"
+      - "https://www.zaproxy.org/docs/"
+      - "https://codeql.github.com/docs/"
+    versao: "Stryker.NET, ZAP e CodeQL (páginas de entrada)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["14", "17.1", "20.3"]
+    testes: [T-12]
+    responsavel: "a designar"
+
+  - id: D-OPT-04
+    topico: "Ferramenta de design"
+    urls:
+      - "https://help.figma.com/"
+    versao: "Figma Help Center (índice)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["13.3"]
+    testes: []
+    responsavel: "a designar"
+
+  - id: D-OPT-05
+    topico: "Identidade federada"
+    urls:
+      - "https://learn.microsoft.com/en-us/aspnet/core/security/authentication/configure-oidc-web-authentication?view=aspnetcore-10.0"
+    versao: "ASP.NET Core 10 (view=aspnetcore-10.0)"
+    consultado: 2026-10-15
+    download: "ok"
+    requisitos: ["2.1", "ADR-005"]
+    testes: []
+    responsavel: "a designar"

@@ -1,0 +1,154 @@
+# Ambiente de desenvolvimento
+
+Contrato do ambiente local (spec 2.4 e 2.5). Atualize este arquivo quando mudar ferramenta, arquitetura ou imagem.
+
+## Versões verificadas
+
+Inventário da máquina de desenvolvimento em 2026-10-15, lido com os comandos de diagnóstico da spec 2.5.
+
+| Item | Versão encontrada | Fixada em |
+|---|---|---|
+| Sistema | macOS 27.0.1 (build 26A434), `arm64` nativo (sem Rosetta) | — |
+| .NET SDK | 10.0.400 | `global.json` (`rollForward: latestPatch`) |
+| Runtime .NET / ASP.NET Core | 10.0.12 | vem com o SDK |
+| dotnet-ef | 10.0.13 | `.config/dotnet-tools.json` |
+| Docker Engine (Docker Desktop) | 29.8.2, runtime `linux/arm64`, contexto `desktop-linux` | — |
+| Docker Compose | 5.5.1 | — |
+| PostgreSQL (container) | 18.6 | `infra/compose/compose.dev.yml` e `PostgresFixture.cs` |
+| Node.js | 24.21.0 | `frontend/package.json` (`engines.node`: `>=24.0.0 <25`) |
+| Corepack | 0.36.0 | vem com o Node.js |
+| pnpm | 12.11.2 via `corepack pnpm` (sem pnpm global) | `frontend/package.json` (`packageManager`) |
+
+O CI roda em Ubuntu 24.04; o inventário do runner fica registrado no workflow quando ele existir.
+
+## Diagnóstico
+
+```sh
+scripts/doctor.sh
+```
+
+Só lê o ambiente. Termina com código 1 e diz o que fazer quando falta um pré-requisito (SDK compatível com o
+`global.json`, `dotnet-ef` restaurado, Docker com runtime Linux, Compose, Node.js 24 e o pnpm do Corepack na versão
+do `packageManager` quando `frontend/` existe).
+
+## Primeira vez
+
+```sh
+dotnet tool restore                       # dotnet-ef na versão do manifesto
+cd backend
+dotnet restore --locked-mode              # falha se algum packages.lock.json divergir
+```
+
+O `nuget.config` da raiz limpa as fontes herdadas da máquina e mapeia todo pacote para nuget.org; fonte nova
+exige mudar esse arquivo em revisão.
+
+Depois de adicionar ou atualizar pacote em `Directory.Packages.props`, rode `dotnet restore` sem `--locked-mode`
+para regenerar os lockfiles e versione-os junto.
+
+## Build e testes
+
+Todos os comandos a partir de `backend/`:
+
+```sh
+dotnet build Duora.slnx                   # avisos são erros (TreatWarningsAsErrors)
+dotnet format Duora.slnx --verify-no-changes
+dotnet test --solution Duora.slnx         # unit, arquitetura e integração
+```
+
+Os testes rodam na Microsoft Testing Platform (`global.json` → `test.runner`). Para um projeto só:
+`dotnet test --project tests/Duora.UnitTests`.
+
+A integração usa Testcontainers: o Docker precisa estar rodando, e cada execução sobe um PostgreSQL 18.6
+descartável. Ela não usa o banco do Compose abaixo.
+
+## HTTPS local
+
+O Web tem dois perfis em `launchSettings.json`: `https` (`https://localhost:5001` e `http://localhost:5080`) e
+`http` (só 5080). O Vite usa `https://localhost:5001` como padrão de `DUORA_API_ORIGIN`.
+
+```sh
+dotnet dev-certs https --trust            # uma vez por máquina; pede confirmação no Keychain
+cd backend && dotnet run --project src/Duora.Web --launch-profile https
+```
+
+Em 2026-10-15 o certificado de desenvolvimento desta máquina existia, mas **não era confiável**: o
+`dotnet dev-certs https --check --trust` saiu com código 7. Até rodar `--trust`, o navegador e o proxy do Vite
+recusam o 5001.
+
+## Frontend
+
+O pnpm vem do Corepack, na versão de `packageManager`; se `corepack pnpm` não funcionar, rode
+`corepack enable pnpm`. Os comandos abaixo rodam a partir de `frontend/`:
+
+```sh
+corepack pnpm install --frozen-lockfile   # falha se o pnpm-lock.yaml divergir
+corepack pnpm cert:dev                    # exporta ~/.aspnet/https/duora-spa.{pem,key} (dotnet dev-certs --format Pem)
+corepack pnpm dev                         # Vite em https://localhost:5173, com proxy de /api e /hubs para o Web
+corepack pnpm typecheck
+corepack pnpm lint
+corepack pnpm test
+corepack pnpm e2e                         # Playwright (antes, uma vez: corepack pnpm e2e:install)
+```
+
+### Contrato combinado com o backend (a implementar no M1)
+
+O antiforgery ainda não existe no backend. Fica combinado o seguinte:
+- o backend emite um cookie legível pelo JavaScript, `XSRF-TOKEN`;
+- o SPA devolve o valor no header `X-XSRF-TOKEN` em toda requisição que altera estado;
+- a origem `https://localhost:5173` é aceita somente no ambiente `Development`.
+
+## Banco local (Compose)
+
+A porta padrão é `55432`, porque a 5432 costuma estar ocupada por um PostgreSQL instalado no host. Ela só
+escuta em `127.0.0.1`.
+
+```sh
+export DUORA_DB_PASSWORD='escolha-uma-senha-local'
+docker compose -f infra/compose/compose.dev.yml up -d --wait     # sobe e espera o healthcheck
+docker compose -f infra/compose/compose.dev.yml down             # para (mantém o volume)
+docker compose -f infra/compose/compose.dev.yml down -v          # para e apaga os dados
+```
+
+`DUORA_DB_PORT` muda a porta. O volume nomeado monta `/var/lib/postgresql`, e a imagem 18 grava em
+`/var/lib/postgresql/18/docker` (spec 15.4). Upgrade de major é um procedimento à parte, não troca de tag.
+
+## Connection string da aplicação
+
+Web e Worker compartilham o mesmo `UserSecretsId`, então um comando configura os dois. Os user-secrets só
+valem no ambiente `Development` (o padrão do `dotnet run` pelos `launchSettings.json`) e não são um cofre.
+
+```sh
+cd backend
+dotnet user-secrets set --project src/Duora.Web "ConnectionStrings:Duora" \
+  "Host=127.0.0.1;Port=55432;Database=duora;Username=duora;Password=$DUORA_DB_PASSWORD"
+```
+
+Sem essa configuração os dois processos se recusam a subir e dizem o que falta.
+
+## Migrations
+
+A aplicação nunca migra no startup (spec 2.1). Em desenvolvimento:
+
+```sh
+cd backend
+dotnet ef migrations add <Nome> --project src/Duora.Infrastructure --startup-project src/Duora.Infrastructure \
+  --output-dir Persistence/Migrations
+dotnet ef database update --project src/Duora.Infrastructure --startup-project src/Duora.Infrastructure \
+  --connection "Host=127.0.0.1;Port=55432;Database=duora;Username=duora;Password=$DUORA_DB_PASSWORD"
+```
+
+O histórico fica em `ops.__ef_migrations_history`.
+
+## Executar
+
+```sh
+cd backend
+dotnet run --project src/Duora.Web        # perfil https: https://localhost:5001 e http://localhost:5080
+dotnet run --project src/Duora.Worker
+```
+
+| Endpoint | Função |
+|---|---|
+| `GET /health/live` | Processo responde. Não consulta dependências. |
+| `GET /health/ready` | Inclui o banco: 503 quando ele recusa a conexão ou não responde em 3 s. |
+| `GET /openapi/v1.json` | Documento OpenAPI, só em `Development`. |
