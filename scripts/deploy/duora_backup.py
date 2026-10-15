@@ -9,9 +9,10 @@ ações acima existem;
 nenhum argumento é repassado ao pgBackRest. A aplicação não recebe o socket do Docker nem as credenciais do
 repositório.
 
-`verify` prova o arquivamento agora (pgbackrest check troca o segmento e espera ele chegar ao repositório) e
-falha se o último WAL confirmado for mais velho que o RPO, se o arquivamento estiver falhando, se o repositório
-não tiver backup válido ou se o último backup estiver velho demais.
+`verify` confere que o filtro de saída da rede backup-egress está aplicado no host, prova o arquivamento agora
+(pgbackrest check troca o segmento e espera ele chegar ao repositório) e falha se o último WAL confirmado for mais
+velho que o RPO, se o arquivamento estiver falhando, se o repositório não tiver backup válido ou se o último backup
+estiver velho demais.
 
 Instalado pelo Ansible como /usr/local/sbin/duora-backup (root, 0755). Só biblioteca padrão do Python 3.12.
 Manual: docs/operations/backup-restore.md.
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import ipaddress
 import json
 import subprocess
 import sys
@@ -46,6 +48,9 @@ LOCK_WAIT_SECONDS = 30 * 60
 LOCK_POLL_SECONDS = 5
 BACKUP_TIMEOUT_SECONDS = 6 * 3600
 QUERY_TIMEOUT_SECONDS = 5 * 60
+# Política do filtro de saída (infra/ansible/roles/backup): a subnet da rede backup-egress e a chain que a filtra.
+EGRESS_ENV = Path("/etc/duora/backup-egress.env")
+EGRESS_CHAIN = "DUORA-BACKUP-EGRESS"
 
 _PGBACKREST_ARGS = {
     "stanza-create": ["stanza-create"],
@@ -241,19 +246,62 @@ def _unexpected_type(where: str, key: str, value: object) -> _InfoShapeError:
 
 # --- Ações ----------------------------------------------------------------------------------------------------------
 
-def run_action(action: str, run: Runner, *, project: str, state_dir: Path,
+def run_action(action: str, run: Runner, *, project: str, state_dir: Path, egress_env: Path | None,
                lock_wait_seconds: int = LOCK_WAIT_SECONDS) -> None:
+    """egress_env None pula a checagem do filtro de saída: só no drill local, que não tem a chain do host."""
     if action in _LOCKED_ACTIONS:
         # Um deploy recria o postgres; backup no meio dele falharia. O verify não pega o lock porque o próprio
         # deploy o chama segurando-o.
         with deploy_lock(state_dir, wait_seconds=lock_wait_seconds):
             _run_pgbackrest(run, _find_backup(run, project), _PGBACKREST_ARGS[action], BACKUP_TIMEOUT_SECONDS)
         return
-    container = _find_backup(run, project)
     if action == "info":
-        _run_pgbackrest(run, container, ["info"], QUERY_TIMEOUT_SECONDS)
+        _run_pgbackrest(run, _find_backup(run, project), ["info"], QUERY_TIMEOUT_SECONDS)
         return
-    _verify(run, container)
+    if egress_env is None:
+        _step("AVISO: filtro de saída NÃO conferido (--skip-egress-check, só para o drill local)")
+    else:
+        _check_egress_filter(run, egress_env)
+    _verify(run, _find_backup(run, project))
+
+
+def _check_egress_filter(run: Runner, egress_env: Path) -> None:
+    """Fail closed: sem prova de que o desvio para a chain e o DROP final estão no iptables, o backup não é saudável.
+
+    O filtro é aplicado por duora-backup-egress.service; sem ele o container backup sai para qualquer destino.
+    """
+    subnet = read_egress_subnet(egress_env)
+    for rule in egress_filter_rules(subnet):
+        result = run(["iptables", "-w", "-C", *rule], capture=True)
+        if result.returncode != 0:
+            raise BackupError(f"filtro de saída do backup ausente: regra '{' '.join(rule)}' não está no iptables "
+                              "(sudo systemctl restart duora-backup-egress; journalctl -u duora-backup-egress)")
+
+
+def egress_filter_rules(subnet: str) -> list[list[str]]:
+    """Regras que provam o filtro: o Docker desvia o forward para DOCKER-USER, que desvia a subnet para a chain, que
+    termina em DROP (infra/ansible/roles/backup/files/duora-backup-egress)."""
+    return [
+        ["FORWARD", "-j", "DOCKER-USER"],
+        ["DOCKER-USER", "-s", subnet, "!", "-d", subnet, "-j", EGRESS_CHAIN],
+        [EGRESS_CHAIN, "-j", "DROP"],
+    ]
+
+
+def read_egress_subnet(egress_env: Path) -> str:
+    """DUORA_BACKUP_SUBNET do env file gerado pelo Ansible, já validada como rede IPv4."""
+    try:
+        lines = egress_env.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise BackupError(f"política do filtro de saída ilegível ({egress_env}): {error}") from error
+    values = dict(line.split("=", 1) for line in lines if "=" in line and not line.lstrip().startswith("#"))
+    raw = values.get("DUORA_BACKUP_SUBNET")
+    if raw is None:
+        raise BackupError(f"DUORA_BACKUP_SUBNET ausente em {egress_env}")
+    try:
+        return str(ipaddress.IPv4Network(raw.strip()))
+    except ValueError as error:
+        raise BackupError(f"DUORA_BACKUP_SUBNET inválida em {egress_env}: {raw!r}") from error
 
 
 def _verify(run: Runner, container: str) -> None:
@@ -344,10 +392,15 @@ def main(argv: list[str] | None = None, *, run: Runner = run_command) -> int:
     parser.add_argument("--compose-project", default=COMPOSE_PROJECT, help="projeto do Compose (drill local)")
     parser.add_argument("--state-dir", type=Path, default=Path("/var/lib/duora"),
                         help="onde fica o lock compartilhado com o duora-deploy")
+    parser.add_argument("--egress-env", type=Path, default=EGRESS_ENV,
+                        help="política do filtro de saída que o verify confere no iptables")
+    parser.add_argument("--skip-egress-check", action="store_true",
+                        help="não confere o filtro de saída: só no drill local (Docker Desktop não tem a DOCKER-USER)")
     args = parser.parse_args(argv)
 
+    egress_env = None if args.skip_egress_check else args.egress_env
     try:
-        run_action(args.action, run, project=args.compose_project, state_dir=args.state_dir)
+        run_action(args.action, run, project=args.compose_project, state_dir=args.state_dir, egress_env=egress_env)
     except BackupError as error:
         print(f"[duora-backup] ERRO: {error}", file=sys.stderr)
         return 1

@@ -185,14 +185,25 @@ class FakeRunner:
         return [command[command.index("pgbackrest"):] for command in self.commands if "pgbackrest" in command]
 
 
+EGRESS_SUBNET = "172.30.20.0/24"
+
+
+def write_egress_env(directory: Path, content: str = f"DUORA_BACKUP_SUBNET={EGRESS_SUBNET}\n") -> Path:
+    """/etc/duora/backup-egress.env como o template do Ansible gera."""
+    env_file = directory / "backup-egress.env"
+    env_file.write_text("# Gerenciado pelo Ansible\n" + content + "DUORA_BACKUP_S3_CIDRS=\n", encoding="utf-8")
+    return env_file
+
+
 class ActionTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.state_dir = Path(self._tmp.name)
+        self.egress_env = write_egress_env(self.state_dir)
 
     def run_action(self, action: str, runner: FakeRunner) -> None:
-        backup.run_action(action, runner, project="duora", state_dir=self.state_dir)
+        backup.run_action(action, runner, project="duora", state_dir=self.state_dir, egress_env=self.egress_env)
 
     def test_full_runs_full_backup_in_the_postgres_container(self) -> None:
         runner = FakeRunner()
@@ -283,13 +294,100 @@ class ActionTests(unittest.TestCase):
         with backup.deploy_lock(self.state_dir, wait_seconds=0):
             with self.assertRaisesRegex(backup.BackupError, "deploy ou backup em andamento"):
                 backup.run_action("full", FakeRunner(), project="duora", state_dir=self.state_dir,
-                                  lock_wait_seconds=0)
+                                  egress_env=self.egress_env, lock_wait_seconds=0)
         self.assertTrue(lock_file.exists())
 
     def test_verify_does_not_take_the_deploy_lock(self) -> None:
         # O deploy chama o verify segurando o lock; pegá-lo aqui travaria o próprio deploy.
         with backup.deploy_lock(self.state_dir, wait_seconds=0):
-            backup.run_action("verify", FakeRunner(), project="duora", state_dir=self.state_dir, lock_wait_seconds=0)
+            backup.run_action("verify", FakeRunner(), project="duora", state_dir=self.state_dir,
+                              egress_env=self.egress_env, lock_wait_seconds=0)
+
+
+class EgressFilterCheckTests(unittest.TestCase):
+    """O verify só aprova o backup com o filtro de saída da rede backup-egress aplicado no host (fail closed)."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state_dir = Path(self._tmp.name)
+
+    def verify(self, runner: FakeRunner, egress_env: Path | None) -> None:
+        backup.run_action("verify", runner, project="duora", state_dir=self.state_dir, egress_env=egress_env)
+
+    def iptables_checks(self, runner: FakeRunner) -> list[list[str]]:
+        return [command for command in runner.commands if command[0] == "iptables"]
+
+    def test_verify_checks_the_docker_user_jump_and_the_final_drop(self) -> None:
+        runner = FakeRunner()
+
+        self.verify(runner, write_egress_env(self.state_dir))
+
+        self.assertEqual([
+            ["iptables", "-w", "-C", "FORWARD", "-j", "DOCKER-USER"],
+            ["iptables", "-w", "-C", "DOCKER-USER", "-s", EGRESS_SUBNET, "!", "-d", EGRESS_SUBNET,
+             "-j", "DUORA-BACKUP-EGRESS"],
+            ["iptables", "-w", "-C", "DUORA-BACKUP-EGRESS", "-j", "DROP"],
+        ], self.iptables_checks(runner))
+
+    def test_filter_is_checked_before_touching_the_repository(self) -> None:
+        runner = FakeRunner()
+
+        self.verify(runner, write_egress_env(self.state_dir))
+
+        self.assertEqual("iptables", runner.commands[0][0])
+
+    def test_each_missing_rule_blocks_before_pgbackrest(self) -> None:
+        for rule in ("FORWARD", "DOCKER-USER -s", "DUORA-BACKUP-EGRESS -j DROP"):
+            with self.subTest(rule=rule):
+                runner = FakeRunner(fail_on=f"-C {rule}")
+
+                with self.assertRaisesRegex(backup.BackupError, "filtro de saída"):
+                    self.verify(runner, write_egress_env(self.state_dir))
+                self.assertEqual([], runner.pgbackrest_calls())
+
+    def test_missing_policy_file_blocks(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "política do filtro de saída ilegível"):
+            self.verify(FakeRunner(), self.state_dir / "nao-existe.env")
+
+    def test_policy_without_subnet_blocks(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "DUORA_BACKUP_SUBNET"):
+            self.verify(FakeRunner(), write_egress_env(self.state_dir, content=""))
+
+    def test_policy_with_invalid_subnet_blocks(self) -> None:
+        for subnet in ("", "172.30.20.0/33", "172.30.20.1/24", "qualquer", "172.30.20.0/24 -j ACCEPT"):
+            with self.subTest(subnet=subnet):
+                env_file = write_egress_env(self.state_dir, content=f"DUORA_BACKUP_SUBNET={subnet}\n")
+
+                with self.assertRaisesRegex(backup.BackupError, "DUORA_BACKUP_SUBNET"):
+                    self.verify(FakeRunner(), env_file)
+
+    def test_skipping_the_check_runs_no_iptables(self) -> None:
+        runner = FakeRunner()
+
+        with contextlib.redirect_stdout(io.StringIO()) as stdout:
+            self.verify(runner, None)
+
+        self.assertEqual([], self.iptables_checks(runner))
+        self.assertIn("filtro de saída NÃO conferido", stdout.getvalue())
+
+    def test_cli_checks_the_filter_by_default(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            code = backup.main(["verify", "--state-dir", str(self.state_dir),
+                                "--egress-env", str(write_egress_env(self.state_dir))],
+                               run=FakeRunner(fail_on="-C DOCKER-USER"))
+
+        self.assertEqual(1, code)
+        self.assertIn("filtro de saída", stderr.getvalue())
+
+    def test_cli_skip_flag_is_only_for_the_local_drill(self) -> None:
+        runner = FakeRunner()
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = backup.main(["verify", "--state-dir", str(self.state_dir), "--skip-egress-check"], run=runner)
+
+        self.assertEqual(0, code)
+        self.assertEqual([], self.iptables_checks(runner))
 
 
 def _without(entry: dict, *path: str) -> dict:
@@ -309,10 +407,12 @@ class FailClosedVerifyTests(unittest.TestCase):
         self._tmp = TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.state_dir = Path(self._tmp.name)
+        self.egress_env = write_egress_env(self.state_dir)
 
     def assert_blocks(self, runner: FakeRunner) -> None:
         with self.assertRaises(backup.BackupError):
-            backup.run_action("verify", runner, project="duora", state_dir=self.state_dir)
+            backup.run_action("verify", runner, project="duora", state_dir=self.state_dir,
+                              egress_env=self.egress_env)
 
     def test_unusable_info_output_blocks(self) -> None:
         healthy = backup_entry(stop=NOW - HOUR)
@@ -358,7 +458,7 @@ class FailClosedVerifyTests(unittest.TestCase):
                 self.assert_blocks(FakeRunner(archiver_line=line))
 
     def test_non_zero_exit_of_any_step_blocks(self) -> None:
-        for step in ("docker ps", " check", "--output=json", "pg_stat_archiver"):
+        for step in ("iptables", "docker ps", " check", "--output=json", "pg_stat_archiver"):
             with self.subTest(step=step):
                 self.assert_blocks(FakeRunner(fail_on=step))
 
@@ -376,14 +476,16 @@ class FailClosedVerifyTests(unittest.TestCase):
             raise RuntimeError("inesperado")
 
         with contextlib.redirect_stderr(io.StringIO()) as stderr:
-            code = backup.main(["verify", "--state-dir", str(self.state_dir)], run=exploding_runner)
+            code = backup.main(["verify", "--state-dir", str(self.state_dir), "--egress-env", str(self.egress_env)],
+                               run=exploding_runner)
 
         self.assertEqual(1, code)
         self.assertIn("inesperado", stderr.getvalue())
 
     def test_healthy_verify_makes_the_cli_succeed(self) -> None:
         with contextlib.redirect_stdout(io.StringIO()):
-            code = backup.main(["verify", "--state-dir", str(self.state_dir)], run=FakeRunner())
+            code = backup.main(["verify", "--state-dir", str(self.state_dir), "--egress-env", str(self.egress_env)],
+                               run=FakeRunner())
 
         self.assertEqual(0, code)
 
