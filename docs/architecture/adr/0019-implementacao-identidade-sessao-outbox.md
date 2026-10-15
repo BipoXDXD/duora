@@ -69,7 +69,10 @@ Vamos implementar assim:
    do token.
 8. **Data Protection.** Nome de aplicação estável e key ring no diretório de `DataProtection:KeysDirectory`,
    obrigatório no boot. Só o web usa Data Protection.
-9. **Cadastro pendente (pré-sequestro, TM-66).** O cadastro é um upsert atômico no e-mail normalizado: conta
+9. **Cadastro pendente (pré-sequestro, TM-66).** A confirmação exige o token **e** a senha do cadastro
+   pendente (mesmo `INVALID_TOKEN` para as duas falhas; 5 falhas invalidam o link), então um link gerado por
+   outra pessoa não confirma nada, em qualquer ordem de cadastros. A confirmação não abre sessão: o login continua
+   sendo o único caminho de SignIn. O cadastro é um upsert atômico no e-mail normalizado: conta
    pendente é substituída (senha, aceites, stamp e data), conta confirmada fica intacta. O pendente expira em
    72 h; reset de senha não serve a conta pendente nem confirma o e-mail. O nome de usuário segue o e-mail por
    `CHECK`, e só o índice do e-mail é único, porque o upsert arbitra um índice só.

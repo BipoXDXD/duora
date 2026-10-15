@@ -156,25 +156,28 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 | Política de senha | Comprimento mínimo de 12 caracteres e máximo de 128 **(hipótese)**, sem regras de composição forçada; colar e gerenciador de senhas permitidos (A11Y-01); verificação contra senhas vazadas fica como evolução, se houver serviço aprovado |
 
 Confirmação de e-mail (API-A03) usa o mesmo desenho: link para a SPA, ação por `POST` explícito (scanner de
-e-mail que faz `GET` não confirma), token de uso controlado e resposta idempotente.
+e-mail que faz `GET` não confirma), token de uso controlado e resposta idempotente. Além do token, exige a
+**senha** do cadastro (ver abaixo).
 
 ## Cadastro pendente e pré-sequestro de conta
 
-Ameaça (TM-66): o atacante cadastra o e-mail da vítima com a senha dele e deixa a conta `PendingEmail`. Se o
-cadastro da vítima só reenviasse o link, ela confirmaria uma conta com a senha do atacante.
+Ameaça (TM-66), nas duas ordens: (1) o atacante cadastra o e-mail da vítima com a senha dele e espera a vítima
+confirmar; (2) a vítima cadastra, o atacante cadastra depois (a senha dele substitui a dela) e o link do cadastro
+do atacante chega à caixa da vítima, que clica achando que é o dela.
 
 | Regra | Especificação |
 |---|---|
+| Confirmação (API-A03) | `POST {userId, token, password}`. Só confirma se o token for válido **e** a senha bater com a do cadastro pendente: quem confirma prova posse do e-mail e conhecimento da senha, e um link gerado por outra pessoa é inofensivo. Senha errada, token inválido, conta inexistente e pendente vencido dão o mesmo `400` `INVALID_TOKEN`, com o mesmo corpo, e todo caminho custa um hash. Sem login automático: confirmar só muda o estado da conta, e a SPA leva ao login, que é o único caminho que abre sessão (e o único a proteger contra fixation) |
+| Teto de tentativas | Cada falha numa conta pendente conta no contador do Identity (que essa conta não usa para mais nada); na 5.ª falha (`Identity:MaxConfirmationFailures`, **hipótese**) o security stamp muda e o link deixa de valer; a pessoa cadastra de novo. Rate limit por IP: 20 a cada 10 min |
 | Cadastro sobre conta pendente | Substitui o pendente: senha, aceites, e-mail digitado, data e security stamp novos. O stamp novo invalida todo link de confirmação anterior. Um único `INSERT ... ON CONFLICT (normalized_email) DO UPDATE` na mesma transação dos aceites e da outbox, o que também serializa cadastros simultâneos |
 | Cadastro sobre conta confirmada | Nada muda na conta; o titular recebe um aviso pela outbox |
 | Prazo do pendente | `Identity:PendingAccountLifetime`, **72 h (hipótese)**, contado do último cadastro. Vencido, a confirmação é recusada (`400` `INVALID_TOKEN`); login de conta não confirmada já falha sempre. Um cadastro novo substitui o pendente vencido. **Pendente:** job de limpeza dos pendentes vencidos |
 | Nome de usuário | É o próprio e-mail; `CHECK (normalized_user_name IS NOT DISTINCT FROM normalized_email)` deixa a unicidade só no índice do e-mail, o único que o upsert arbitra |
 
-Risco residual aceito: a vítima pode clicar num link de confirmação que ela não pediu. Isso não dá acesso ao
-atacante quando o último cadastro é o da vítima, porque cada cadastro troca o stamp e invalida os links
-anteriores. Se o último cadastro for o do atacante e a vítima confirmar o link dele, a conta fica com a senha do
-atacante: o e-mail é neutro e diz para ignorá-lo se a pessoa não pediu o cadastro, mas a mitigação depende do
-usuário. Testes: `AccountTakeoverTests`.
+Risco residual: quem conhece o e-mail de outra pessoa pode atrasar o cadastro dela, sobrescrevendo o pendente
+ou esgotando as tentativas de confirmação (o link morre e ela cadastra de novo). Isso é negação de serviço,
+contida pelo rate limit por e-mail e por IP, e não dá acesso: a vítima nunca confirma uma conta com senha que
+ela não conhece, porque a confirmação pede a senha. Testes: `AccountTakeoverTests`.
 
 ## Revogação
 
@@ -259,7 +262,7 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 |---|---|---|---|---|---|---|---|
 | API-A01 | `GET /auth/csrf` | Pública | — | — | — → `204` + cookie `XSRF-TOKEN` | — | — |
 | API-A02 | `POST /auth/register` | Pública | Sim | — | `email` (≤ 254), `password` (12–128), `acceptedTermsVersion`, `acceptedPrivacyVersion` (1–32, `[A-Za-z0-9._-]`) → `202` sem corpo, igual exista ou não a conta | `400` `VALIDATION_FAILED` (com `errors`) ou `INVALID_REQUEST`; `403` `CSRF_VALIDATION_FAILED`; `429` `RATE_LIMITED` | Pendente |
-| API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token` → `204` (idempotente) | `400` `INVALID_TOKEN`; `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
+| API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token`, `password` (até 128) → `204` (idempotente; não abre sessão) | `400` `INVALID_TOKEN` (token inválido ou senha errada, sem distinguir); `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
 | API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo. `twoFactorCode`/`recoveryCode` chegam com o MFA | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | Pendente |
 | API-A05 | `POST /auth/logout` | Pública (sem sessão também responde `204`) | Sim | — | — → `204` + `XSRF-TOKEN` novo; revoga a sessão no servidor | `403` | Pendente |
 | API-A06 | `POST /auth/password-reset-requests` | Pública | Sim | — | `email` → `202` sem corpo | `400`; `403`; `429` por IP e por e-mail | Pendente |
@@ -336,3 +339,5 @@ sem artefato do CI (spec 25.19).
   - Enumeração por tempo (TM-06): cadastro e pedido de reset fazem o mesmo trabalho em todos os casos (o reset
     passa a mandar um e-mail também para endereço sem conta); login com falha custa sempre um hash e respeita um
     piso de latência.
+  - API-A03 passa a exigir `password` (`{userId, token, password}`), fechando a ordem inversa do pré-sequestro
+    (vítima cadastra, atacante cadastra, vítima clica no link do atacante); 5 falhas invalidam o link.
