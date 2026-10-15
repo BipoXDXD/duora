@@ -1,0 +1,18 @@
+---
+# Inventário de EXEMPLO. Copie para fora do git (ex.: ~/duora-ops/inventory.yml) e preencha; o real é sensível
+# (spec 15.5). 203.0.113.10 é um endereço de documentação (RFC 5737), não um host real.
+all:
+  children:
+    duora_vps:
+      hosts:
+        duora-homolog:
+          ansible_host: 203.0.113.10
+          # Usuário administrativo que o provedor cria, com sudo; a primeira execução entra por ele.
+          ansible_user: ubuntu
+          duora_domain: homolog.exemplo.com.br
+          duora_tls: internal
+          duora_image_prefix: ghcr.io/bipoxdxd/duora-
+          # Chave pública dedicada ao executor de deploy do CI (nunca a chave de um humano).
+          duora_deploy_public_key: "ssh-ed25519 AAAA...substitua... duora-ci-deploy"
+          # Restrinja à rede administrativa quando ela existir (spec 15.2).
+          duora_ssh_allowed_sources: [any]

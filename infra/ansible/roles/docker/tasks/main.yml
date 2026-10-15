@@ -1,0 +1,71 @@
+---
+# Docker Engine + plugin Compose do repositório oficial (D-INF-01), não o docker.io da distribuição.
+- name: Criar diretório de chaves do apt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Baixar a chave do repositório do Docker
+  ansible.builtin.get_url:
+    url: "{{ docker_apt_key_url }}"
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ler a impressão digital da chave baixada
+  ansible.builtin.command:
+    cmd: gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc
+  register: docker_key_info
+  changed_when: false
+
+- name: Recusar chave com impressão digital diferente da publicada pela Docker
+  ansible.builtin.assert:
+    that: "('fpr:::::::::' ~ docker_apt_key_fingerprint ~ ':') in docker_key_info.stdout"
+    fail_msg: "A chave em {{ docker_apt_key_url }} não é {{ docker_apt_key_fingerprint }}; não instale."
+
+- name: Configurar o repositório do Docker (deb822)
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: https://download.docker.com/linux/ubuntu
+    suites: ["{{ ansible_facts['distribution_release'] }}"]
+    components: [stable]
+    architectures: ["{{ docker_deb_architectures[ansible_facts['architecture']] }}"]
+    signed_by: /etc/apt/keyrings/docker.asc
+    state: present
+
+- name: Instalar Docker Engine e plugins
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    update_cache: true
+
+- name: Configurar o daemon (logs limitados, live-restore, no-new-privileges por padrão)
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ docker_daemon_config | to_nice_json }}\n"
+  vars:
+    docker_daemon_config:
+      log-driver: local
+      log-opts:
+        max-size: 10m
+        max-file: "5"
+      # Containers continuam no ar se o dockerd reiniciar (atualização do pacote).
+      live-restore: true
+      no-new-privileges: true
+  notify: Reiniciar docker
+
+- name: Manter o Docker ligado no boot
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+# Ninguém entra no grupo docker: pertencer a ele equivale a root (spec 15.2). O deploy usa sudo para um comando só.

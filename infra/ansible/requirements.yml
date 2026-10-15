@@ -1,0 +1,7 @@
+---
+# Coleções usadas pelos roles, com versão fixada. Instalar: ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.general
+    version: "11.4.1"
+  - name: ansible.posix
+    version: "2.1.0"
