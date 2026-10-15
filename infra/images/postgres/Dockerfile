@@ -26,3 +26,7 @@ LABEL org.opencontainers.image.title="duora-postgres" \
 COPY --chmod=755 infra/images/postgres/initdb/10-duora-roles.sh /docker-entrypoint-initdb.d/
 # Rodado pelo duora-deploy depois de cada migração (versionado junto com a imagem da release).
 COPY --chmod=644 infra/images/postgres/reconcile-privileges.sql /usr/local/share/duora/reconcile-privileges.sql
+
+# Roda como o usuário postgres da imagem (999), como no compose.prod.yml: o volume em /var/lib/postgresql já é
+# dele, então o entrypoint não precisa de root para preparar o PGDATA.
+USER 999:999
