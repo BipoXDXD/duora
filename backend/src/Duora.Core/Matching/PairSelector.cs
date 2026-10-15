@@ -6,7 +6,7 @@ namespace Duora.Core.Matching;
 /// Seleção determinística de pares de uma rodada (spec 5.1, ADR-0012), versão <see cref="PairingAlgorithmVersion.GreedyByPriorityV1"/>.
 /// Função pura: sem I/O, sem relógio e sem aleatoriedade além da semente da rodada.
 /// <list type="number">
-/// <item>Aresta <c>A ↔ B</c> só existe sem bloqueio em qualquer direção, sem encontro anterior no evento e com
+/// <item>Aresta <c>A ↔ B</c> só existe sem bloqueio em qualquer direção, sem par já formado no evento e com
 /// aceitação nos dois sentidos. Restrições eliminam a aresta antes de qualquer ordenação.</item>
 /// <item>Ordena os candidatos por prioridade: mais rodadas sem par, depois espera mais longa, depois uma chave
 /// derivada da semente e da conta, depois a própria conta.</item>
@@ -81,7 +81,7 @@ public static class PairSelector
     {
         var pair = UserPair.Of(first.UserId, second.UserId);
         return !round.BlockedPairs.Contains(pair)
-            && !round.PriorEncounters.Contains(pair)
+            && !round.PriorPairings.Contains(pair)
             && first.Preferences.Accepts(second.Preferences)
             && second.Preferences.Accepts(first.Preferences);
     }

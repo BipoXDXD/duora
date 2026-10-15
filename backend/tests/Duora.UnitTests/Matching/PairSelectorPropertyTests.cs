@@ -62,11 +62,11 @@ public sealed class PairSelectorPropertyTests
     }
 
     [Fact]
-    public void NoPairRepeatsAnEncounterOfTheEvent()
+    public void NoPairRepeatsOneAlreadyFormedInTheEvent()
     {
         AnyRound.Sample(round =>
         {
-            Assert.DoesNotContain(Select(round).Pairs, round.PriorEncounters.Contains);
+            Assert.DoesNotContain(Select(round).Pairs, round.PriorPairings.Contains);
         }, iter: Iterations);
     }
 
@@ -208,7 +208,7 @@ public sealed class PairSelectorPropertyTests
     }
 
     /// <summary>Rodada gerada, com o oráculo das regras de aresta da spec 5.1 escrito de forma independente do seletor.</summary>
-    private sealed record RoundCase(Candidate[] Candidates, UserPair[] BlockedPairs, UserPair[] PriorEncounters, long Seed)
+    private sealed record RoundCase(Candidate[] Candidates, UserPair[] BlockedPairs, UserPair[] PriorPairings, long Seed)
     {
         public static RoundCase Create(
             long idPrefix,
@@ -231,7 +231,7 @@ public sealed class PairSelectorPropertyTests
         }
 
         public RoundSnapshot ToSnapshot() =>
-            new(Candidates, BlockedPairs, PriorEncounters, new RoundSeed(Seed), PairingAlgorithmVersion.GreedyByPriorityV1);
+            new(Candidates, BlockedPairs, PriorPairings, new RoundSeed(Seed), PairingAlgorithmVersion.GreedyByPriorityV1);
 
         public RoundCase Shuffled(int shuffleSeed)
         {
@@ -240,7 +240,7 @@ public sealed class PairSelectorPropertyTests
             {
                 Candidates = Reordered(Candidates, random),
                 BlockedPairs = Reordered(BlockedPairs, random),
-                PriorEncounters = Reordered(PriorEncounters, random),
+                PriorPairings = Reordered(PriorPairings, random),
             };
         }
 
@@ -249,7 +249,7 @@ public sealed class PairSelectorPropertyTests
         /// <summary>Opções viáveis de cada candidato pelas regras de aresta, calculadas uma vez por rodada.</summary>
         public Dictionary<Guid, HashSet<Guid>> ViableOptions()
         {
-            var excluded = BlockedPairs.Concat(PriorEncounters).ToHashSet();
+            var excluded = BlockedPairs.Concat(PriorPairings).ToHashSet();
             bool IsViable(Candidate a, Candidate b) =>
                 a.UserId != b.UserId
                 && !excluded.Contains(UserPair.Of(a.UserId, b.UserId))
@@ -262,7 +262,7 @@ public sealed class PairSelectorPropertyTests
         }
 
         public override string ToString() =>
-            $"{Candidates.Length} candidatos, {BlockedPairs.Length} bloqueios, {PriorEncounters.Length} encontros, semente {Seed}";
+            $"{Candidates.Length} candidatos, {BlockedPairs.Length} bloqueios, {PriorPairings.Length} pares anteriores, semente {Seed}";
 
         /// <summary>O índice ocupa os 8 bytes finais: ids distintos por construção, mesmo quando o CsCheck reduz o prefixo.</summary>
         private static Guid UniqueUserId(long prefix, int index)

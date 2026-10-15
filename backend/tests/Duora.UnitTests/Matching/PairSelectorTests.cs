@@ -127,9 +127,9 @@ public sealed class PairSelectorTests
     }
 
     [Fact]
-    public void PriorEncounterInTheEventRemovesThePair()
+    public void PairAlreadyFormedInTheEventIsNotRepeated()
     {
-        var round = new RoundBuilder().WithCandidate(1).WithCandidate(2).WithPriorEncounter(2, 1).Build();
+        var round = new RoundBuilder().WithCandidate(1).WithCandidate(2).WithPriorPairing(2, 1).Build();
 
         var selection = PairSelector.Select(round);
 
@@ -156,7 +156,7 @@ public sealed class PairSelectorTests
     {
         var round = new RoundBuilder()
             .WithCandidate(1).WithCandidate(2).WithCandidate(3)
-            .WithPriorEncounter(1, 2).WithPriorEncounter(1, 3).WithPriorEncounter(2, 3)
+            .WithPriorPairing(1, 2).WithPriorPairing(1, 3).WithPriorPairing(2, 3)
             .Build();
 
         var selection = PairSelector.Select(round);
@@ -220,7 +220,7 @@ public sealed class PairSelectorTests
             .WithCandidate(2, waitingMinutes: 40)
             .WithCandidate(3, waitingMinutes: 30)
             .WithCandidate(4, waitingMinutes: 10)
-            .WithPriorEncounter(1, 3).WithPriorEncounter(1, 4).WithPriorEncounter(2, 4)
+            .WithPriorPairing(1, 3).WithPriorPairing(1, 4).WithPriorPairing(2, 4)
             .Build();
 
         var selection = PairSelector.Select(round);
