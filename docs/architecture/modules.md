@@ -35,7 +35,7 @@ Schemas lógicos (spec 10.1): `identity`, `profiles`, `events`, `experiences`, `
 
 | Módulo | Responsabilidade | Schema e tabelas próprias | Operações públicas (spec 3.2) | Não deve |
 |---|---|---|---|---|
-| Identity | Conta, credenciais, sessões, recuperação, estado etário e consentimentos | `identity`: `users`, tabelas do ASP.NET Core Identity, `login_sessions`, `auth_tickets`, `age_verifications`, `consent_records` | `GetEligibility`, `RevokeSessions`, `DisableAccount` | Decidir pareamento ou abrir conversas |
+| Identity | Conta, credenciais, sessões, recuperação, estado etário e consentimentos | `identity`: `users`, tabelas do ASP.NET Core Identity, `login_sessions` (absorve `auth_tickets`, ADR-0019), `age_verifications`, `consent_records` | `GetEligibility`, `RevokeSessions`, `DisableAccount` | Decidir pareamento ou abrir conversas |
 | Profiles | Perfil, fotos do perfil, preferências e visibilidade | `profiles`: `profiles`, `preferences`, `profile_photos` | `GetAuthorizedProfile`, `UpdatePreferences` | Expor preferências privadas no DTO de outra pessoa |
 | Events | Evento, inscrição, lista de espera, check-in e rodada | `events`: `events`, `registrations`, `rounds` | `Register`, `CheckIn`, `StartRound`, `CancelEvent` | Formar pares ignorando Safety |
 | Matching | Seleção, histórico de pares e reserva do par | `events` (nota 1): `pairings`, `pairing_participants` | `BuildRoundPairings`, `ReleaseReservation` | Inferir atributos sensíveis por processamento externo |
