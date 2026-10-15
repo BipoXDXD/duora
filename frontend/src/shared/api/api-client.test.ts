@@ -24,9 +24,16 @@ function problemResponse(body: unknown, status: number, contentType = 'applicati
 function setup(
   respond: FakeFetch = () => Promise.resolve(jsonResponse({ ok: true })),
   token: string | null = CSRF_TOKEN,
+  readLocale: ApiClientDependencies['readLocale'] = () => 'pt-BR',
 ) {
   const fetch = vi.fn<FakeFetch>(respond)
-  const client = createApiClient({ fetch, origin: ORIGIN, readAntiforgeryToken: () => token, now: () => NOW })
+  const client = createApiClient({
+    fetch,
+    origin: ORIGIN,
+    readAntiforgeryToken: () => token,
+    readLocale,
+    now: () => NOW,
+  })
   const sentRequest = (): Request => {
     const call = fetch.mock.calls[0]
     if (call === undefined) {
@@ -134,6 +141,27 @@ describe('requestJson: antiforgery', () => {
     await client.requestJson({ method: 'POST', path: '/api/v1/auth/login' })
 
     expect(sentRequest().headers.has('X-XSRF-TOKEN')).toBe(false)
+  })
+})
+
+describe('requestJson: idioma', () => {
+  it.each(['pt-BR', 'en'] as const)('envia o idioma ativo %s no Accept-Language', async (locale) => {
+    const { client, sentRequest } = setup(undefined, CSRF_TOKEN, () => locale)
+
+    await client.requestJson({ method: 'POST', path: '/api/v1/auth/register', body: {} })
+
+    expect(sentRequest().headers.get('Accept-Language')).toBe(locale)
+  })
+
+  it('lê o idioma a cada requisição, para a troca no seletor valer sem recarregar', async () => {
+    let locale: 'pt-BR' | 'en' = 'pt-BR'
+    const { client, fetch } = setup(undefined, CSRF_TOKEN, () => locale)
+
+    await client.requestJson({ method: 'GET', path: '/api/v1/me' })
+    locale = 'en'
+    await client.requestJson({ method: 'GET', path: '/api/v1/me' })
+
+    expect(fetch.mock.calls.map(([request]) => request.headers.get('Accept-Language'))).toEqual(['pt-BR', 'en'])
   })
 })
 
