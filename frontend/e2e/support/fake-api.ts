@@ -16,7 +16,7 @@ const ANTIFORGERY_HEADER = 'x-xsrf-token'
 /** Campos exatos (todos texto) de cada corpo do contrato; rota fora daqui não aceita corpo. */
 const REQUEST_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'POST /auth/register': ['email', 'password', 'acceptedTermsVersion', 'acceptedPrivacyVersion'],
-  'POST /auth/confirm-email': ['userId', 'token'],
+  'POST /auth/confirm-email': ['userId', 'token', 'password'],
   'POST /auth/login': ['email', 'password'],
   'POST /auth/password-reset-requests': ['email'],
   'POST /auth/password-resets': ['userId', 'token', 'newPassword'],
@@ -229,7 +229,8 @@ export class FakeDuoraApi {
 
   #confirmEmail(body: RequestBody): Fulfillment {
     const user = [...this.#users.values()].find((candidate) => candidate.id === body.userId)
-    if (user === undefined || user.confirmationToken !== body.token) {
+    // Senha errada responde igual a token inválido: o erro não revela qual dos dois falhou.
+    if (user === undefined || user.confirmationToken !== body.token || user.password !== body.password) {
       return problem(400, 'INVALID_TOKEN')
     }
     user.emailConfirmed = true

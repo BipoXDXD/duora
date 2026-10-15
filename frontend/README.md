@@ -69,7 +69,7 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
 | -------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `/criar-conta`                                           | Cadastro, com aceite dos Termos e da Privacidade (`LEGAL_DOCUMENT_VERSIONS`) |
 | `/verifique-seu-email`                                   | Aviso neutro depois do cadastro                                              |
-| `/confirmar-email#userId=…&token=…`                      | Confirmação por clique (link do e-mail)                                      |
+| `/confirmar-email#userId=…&token=…`                      | Confirmação por clique, com a senha do cadastro (link do e-mail)             |
 | `/entrar`                                                | Entrada; mostra aviso de sessão expirada, saída ou entrada necessária        |
 | `/esqueci-a-senha` e `/redefinir-senha#userId=…&token=…` | Recuperação de senha                                                         |
 | `/conta`                                                 | Área autenticada: conta, sessões, revogação e saída                          |
