@@ -11,7 +11,7 @@ public sealed class AppealTests
         var clock = FixedClock.AtStart();
         var suspension = SanctionOn(Bruno, clock: clock);
 
-        var appeal = Appeal.File(suspension, Bruno, "Foi um mal-entendido.", clock).Accepted();
+        var appeal = Appeal.File(suspension, Bruno, "Foi um mal-entendido.", existingAppeal: null, clock).Accepted();
 
         Assert.Equal(7, appeal.Id.Value.Version);
         Assert.Equal(suspension.Id, appeal.ModerationActionId);
@@ -30,7 +30,7 @@ public sealed class AppealTests
         var suspension = SanctionOn(Bruno);
 
         var violation = Assert.Throws<SafetyRuleViolationException>(
-            () => Appeal.File(suspension, appellant == "reporter" ? Alice : Carla, "Injusto.", FixedClock.AtStart()));
+            () => Appeal.File(suspension, appellant == "reporter" ? Alice : Carla, "Injusto.", existingAppeal: null, FixedClock.AtStart()));
 
         Assert.Equal(SafetyRule.AppealOnlyOwnSanction, violation.Rule);
     }
@@ -41,7 +41,73 @@ public sealed class AppealTests
         var clock = FixedClock.AtStart();
         var revision = UpheldRevision(clock);
 
-        SafetyAssert.Rejected(SafetyRejection.ActionNotAppealable, Appeal.File(revision, Bruno, "De novo.", clock));
+        SafetyAssert.Rejected(SafetyRejection.ActionNotAppealable, Appeal.File(revision, Bruno, "De novo.", existingAppeal: null, clock));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TheOriginalMeasureAcceptsNoSecondAppealOnceDecided(bool upheld)
+    {
+        var clock = FixedClock.AtStart();
+        var original = SanctionOn(Bruno, clock: clock);
+        var first = AppealUnderReview(original, clock);
+        _ = upheld
+            ? first.Uphold(original, ModeratorPedro, Ruling("Mantida."), clock).Accepted()
+            : first.Overturn(original, ModeratorPedro, Ruling("Revertida."), clock).Accepted();
+
+        var second = Appeal.File(original, Bruno, "De novo.", existingAppeal: first, clock);
+
+        SafetyAssert.Rejected(SafetyRejection.ActionNotAppealable, second);
+    }
+
+    [Fact]
+    public void TheOriginalMeasureAcceptsNoSecondAppealWhileTheFirstIsOpen()
+    {
+        var clock = FixedClock.AtStart();
+        var original = SanctionOn(Bruno, clock: clock);
+        var first = Appeal.File(original, Bruno, "Injusto.", existingAppeal: null, clock).Accepted();
+
+        var second = Appeal.File(original, Bruno, "De novo.", existingAppeal: first, clock);
+
+        SafetyAssert.Rejected(SafetyRejection.ActionNotAppealable, second);
+    }
+
+    [Fact]
+    public void TheNoticeOffersAnAppealOnlyWhileNoneWasFiled()
+    {
+        var clock = FixedClock.AtStart();
+        var original = SanctionOn(Bruno, clock: clock);
+        var appeal = Appeal.File(original, Bruno, "Injusto.", existingAppeal: null, clock).Accepted();
+
+        Assert.True(original.GetSanctionNotice(Bruno, existingAppeal: null)?.CanAppeal);
+        Assert.False(original.GetSanctionNotice(Bruno, existingAppeal: appeal)?.CanAppeal);
+    }
+
+    [Fact]
+    public void AnExistingAppealOfAnotherMeasureIsAProgrammingError()
+    {
+        var clock = FixedClock.AtStart();
+        var original = SanctionOn(Bruno, clock: clock);
+        var unrelated = Appeal.File(SanctionOn(Bruno), Bruno, "Outro.", existingAppeal: null, clock).Accepted();
+
+        Assert.Throws<ArgumentException>(() => Appeal.File(original, Bruno, "De novo.", existingAppeal: unrelated, clock));
+        Assert.Throws<ArgumentException>(() => original.GetSanctionNotice(Bruno, existingAppeal: unrelated));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DecidingWithADifferentMeasureThanTheAppealedOneIsAProgrammingError(bool uphold)
+    {
+        var clock = FixedClock.AtStart();
+        var appeal = AppealUnderReview(SanctionOn(Bruno), clock);
+        var other = SanctionOn(Bruno);
+
+        Assert.Throws<ArgumentException>(() => uphold
+            ? appeal.Uphold(other, ModeratorPedro, Ruling("Mantida."), clock)
+            : appeal.Overturn(other, ModeratorPedro, Ruling("Revertida."), clock));
+        Assert.Equal(AppealState.UnderReview, appeal.State);
     }
 
     [Theory]
@@ -50,7 +116,7 @@ public sealed class AppealTests
     public void AppealReasonMustBeBetweenOneCharacterAndTheMaximum(int length)
     {
         Assert.ThrowsAny<ArgumentException>(
-            () => Appeal.File(SanctionOn(Bruno), Bruno, new string('a', length), FixedClock.AtStart()));
+            () => Appeal.File(SanctionOn(Bruno), Bruno, new string('a', length), existingAppeal: null, FixedClock.AtStart()));
     }
 
     [Fact]
@@ -58,13 +124,13 @@ public sealed class AppealTests
     {
         var reason = new string('a', Appeal.ReasonMaxLength);
 
-        Assert.Equal(reason, Appeal.File(SanctionOn(Bruno), Bruno, reason, FixedClock.AtStart()).Accepted().Reason);
+        Assert.Equal(reason, Appeal.File(SanctionOn(Bruno), Bruno, reason, existingAppeal: null, FixedClock.AtStart()).Accepted().Reason);
     }
 
     [Fact]
     public void TheAuthorOfTheOriginalDecisionCannotReviewTheAppeal()
     {
-        var appeal = Appeal.File(SanctionOn(Bruno), Bruno, "Injusto.", FixedClock.AtStart()).Accepted();
+        var appeal = Appeal.File(SanctionOn(Bruno), Bruno, "Injusto.", existingAppeal: null, FixedClock.AtStart()).Accepted();
 
         SafetyAssert.Rejected(SafetyRejection.ReviewerMustBeIndependent, appeal.StartReview(ModeratorMaria));
         Assert.Equal(AppealState.Received, appeal.State);
@@ -78,7 +144,7 @@ public sealed class AppealTests
         var clock = FixedClock.AtStart();
         var report = ReportIn(ReportState.UnderReview, clock);
         var action = report.TakeAction(Decision(), Limits, clock).Accepted();
-        var appeal = Appeal.File(action, Bruno, "Injusto.", clock).Accepted();
+        var appeal = Appeal.File(action, Bruno, "Injusto.", existingAppeal: null, clock).Accepted();
 
         var result = appeal.StartReview(party == "reporter" ? Alice : Bruno);
 
@@ -101,7 +167,7 @@ public sealed class AppealTests
     [Fact]
     public void TheAppellantCannotReviewTheirOwnAppeal()
     {
-        var appeal = Appeal.File(SanctionOn(Bruno), Bruno, "Injusto.", FixedClock.AtStart()).Accepted();
+        var appeal = Appeal.File(SanctionOn(Bruno), Bruno, "Injusto.", existingAppeal: null, FixedClock.AtStart()).Accepted();
 
         SafetyAssert.Rejected(SafetyRejection.ReviewerMustBeIndependent, appeal.StartReview(Bruno));
     }
@@ -112,7 +178,7 @@ public sealed class AppealTests
         var clock = FixedClock.AtStart();
         var restriction = ModerationAction.DecideWithoutReport(
             Bruno, Decision(ModerationMeasure.Restriction, new ModerationAuthor.Automated()), Limits, clock).Accepted();
-        var appeal = Appeal.File(restriction, Bruno, "Injusto.", clock).Accepted();
+        var appeal = Appeal.File(restriction, Bruno, "Injusto.", existingAppeal: null, clock).Accepted();
 
         appeal.StartReview(ModeratorMaria).Accepted();
 
@@ -127,7 +193,7 @@ public sealed class AppealTests
         var appeal = AppealUnderReview(original, clock);
         clock.Advance(TimeSpan.FromDays(1));
 
-        var revision = appeal.Uphold(ModeratorPedro, Ruling("Evidência confirmada."), clock).Accepted();
+        var revision = appeal.Uphold(original, ModeratorPedro, Ruling("Evidência confirmada."), clock).Accepted();
 
         Assert.Equal(AppealState.Upheld, appeal.State);
         Assert.Equal(Start.AddDays(1), appeal.DecidedAt);
@@ -152,7 +218,7 @@ public sealed class AppealTests
         var original = SanctionOn(Bruno, clock: clock);
         var appeal = AppealUnderReview(original, clock);
 
-        var revision = appeal.Overturn(ModeratorPedro, Ruling("Evidência insuficiente."), clock).Accepted();
+        var revision = appeal.Overturn(original, ModeratorPedro, Ruling("Evidência insuficiente."), clock).Accepted();
 
         Assert.Equal(AppealState.Overturned, appeal.State);
         Assert.Equal(original.Id, revision.SupersedesActionId);
@@ -168,11 +234,12 @@ public sealed class AppealTests
     public void OnlyTheAssignedReviewerCanDecide(bool uphold)
     {
         var clock = FixedClock.AtStart();
-        var appeal = AppealUnderReview(SanctionOn(Bruno), clock);
+        var original = SanctionOn(Bruno);
+        var appeal = AppealUnderReview(original, clock);
 
         var result = uphold
-            ? appeal.Uphold(Carla, Ruling("Mantida."), clock)
-            : appeal.Overturn(Carla, Ruling("Revertida."), clock);
+            ? appeal.Uphold(original, Carla, Ruling("Mantida."), clock)
+            : appeal.Overturn(original, Carla, Ruling("Revertida."), clock);
 
         SafetyAssert.Rejected(SafetyRejection.OnlyAssignedReviewerCanDecide, result);
         Assert.Equal(AppealState.UnderReview, appeal.State);
@@ -184,7 +251,7 @@ public sealed class AppealTests
     [InlineData(AppealState.Overturned)]
     public void StartReviewIsOnlyValidForAReceivedAppeal(AppealState state)
     {
-        var appeal = AppealIn(state);
+        var (appeal, _) = AppealIn(state);
 
         SafetyAssert.Rejected(SafetyRejection.TransitionNotAllowed, appeal.StartReview(Carla));
         Assert.Equal(state, appeal.State);
@@ -200,11 +267,11 @@ public sealed class AppealTests
     public void DecisionIsOnlyValidForAnAppealUnderReview(AppealState state, bool uphold)
     {
         var clock = FixedClock.AtStart();
-        var appeal = AppealIn(state);
+        var (appeal, original) = AppealIn(state);
 
         var result = uphold
-            ? appeal.Uphold(ModeratorPedro, Ruling("Mantida."), clock)
-            : appeal.Overturn(ModeratorPedro, Ruling("Revertida."), clock);
+            ? appeal.Uphold(original, ModeratorPedro, Ruling("Mantida."), clock)
+            : appeal.Overturn(original, ModeratorPedro, Ruling("Revertida."), clock);
 
         SafetyAssert.Rejected(SafetyRejection.TransitionNotAllowed, result);
         Assert.Equal(state, appeal.State);
@@ -215,7 +282,7 @@ public sealed class AppealTests
     {
         var revision = UpheldRevision(FixedClock.AtStart());
 
-        Assert.False(revision.GetSanctionNotice(Bruno)?.CanAppeal);
+        Assert.False(revision.GetSanctionNotice(Bruno, existingAppeal: null)?.CanAppeal);
     }
 
     private static void AssertOriginalUnchanged(ModerationAction original)
@@ -229,29 +296,27 @@ public sealed class AppealTests
         Assert.True(original.IsReviewable);
     }
 
-    private static ModerationAction UpheldRevision(TimeProvider clock) =>
-        AppealUnderReview(SanctionOn(Bruno, clock: clock), clock)
-            .Uphold(ModeratorPedro, Ruling("Mantida."), clock)
-            .Accepted();
+    private static ModerationAction UpheldRevision(TimeProvider clock) => Upheld(SanctionOn(Bruno, clock: clock), clock);
 
-    private static Appeal AppealIn(AppealState state)
+    private static (Appeal Appeal, ModerationAction Original) AppealIn(AppealState state)
     {
         var clock = FixedClock.AtStart();
+        var original = SanctionOn(Bruno);
         if (state == AppealState.Received)
         {
-            return Appeal.File(SanctionOn(Bruno), Bruno, "Injusto.", clock).Accepted();
+            return (Appeal.File(original, Bruno, "Injusto.", existingAppeal: null, clock).Accepted(), original);
         }
 
-        var appeal = AppealUnderReview(SanctionOn(Bruno), clock);
+        var appeal = AppealUnderReview(original, clock);
         if (state == AppealState.Upheld)
         {
-            appeal.Uphold(ModeratorPedro, Ruling("Mantida."), clock).Accepted();
+            appeal.Uphold(original, ModeratorPedro, Ruling("Mantida."), clock).Accepted();
         }
         else if (state == AppealState.Overturned)
         {
-            appeal.Overturn(ModeratorPedro, Ruling("Revertida."), clock).Accepted();
+            appeal.Overturn(original, ModeratorPedro, Ruling("Revertida."), clock).Accepted();
         }
 
-        return appeal;
+        return (appeal, original);
     }
 }

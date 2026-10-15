@@ -128,8 +128,7 @@ public sealed class InteractionPolicyTests
     {
         var clock = FixedClock.AtStart();
         var suspension = SanctionOn(Alice, ModerationMeasure.Suspension, clock);
-        var appeal = AppealUnderReview(suspension, clock);
-        var revision = appeal.Overturn(ModeratorPedro, Ruling("Evidência insuficiente."), clock).Accepted();
+        var revision = Overturned(suspension, clock);
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, [suspension, revision], clock);
 
@@ -141,8 +140,7 @@ public sealed class InteractionPolicyTests
     {
         var clock = FixedClock.AtStart();
         var suspension = SanctionOn(Alice, ModerationMeasure.Suspension, clock);
-        var appeal = AppealUnderReview(suspension, clock);
-        var revision = appeal.Uphold(ModeratorPedro, Ruling("Evidência confirmada."), clock).Accepted();
+        var revision = Upheld(suspension, clock);
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, [suspension, revision], clock);
 
