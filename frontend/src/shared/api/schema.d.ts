@@ -765,7 +765,8 @@ export interface components {
         /**
          * @description Edição parcial do próprio perfil (API-P02), com `If-Match` obrigatório. Campo ausente fica como está;
          *     `bio: null` apaga a descrição; `displayName: null` é recusado, porque o nome não se apaga, só se troca.
-         *     Campo desconhecido (inclusive id, dono, versão ou estado) é recusado pelo serializador.
+         *     Campo desconhecido (inclusive id, dono, versão ou estado) é recusado pelo serializador. Os limites de tamanho valem
+         *     depois da normalização NFC e de aparar as bordas, contados em caracteres Unicode (code points).
          */
         UpdateProfileRequest: {
             displayName?: null | string;

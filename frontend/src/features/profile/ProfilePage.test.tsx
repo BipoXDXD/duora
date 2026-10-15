@@ -121,8 +121,8 @@ describe('perfil: edição', () => {
       expect(backend.patches).toHaveLength(2)
     })
     expect(backend.patches).toEqual([
-      { ifMatch: '"0"', body: { displayName: 'Ana', bio: null } },
-      { ifMatch: '"1"', body: { displayName: 'Ana', bio: 'Oi' } },
+      { ifMatch: '"0"', body: { displayName: 'Ana' } },
+      { ifMatch: '"1"', body: { bio: 'Oi' } },
     ])
   })
 
@@ -174,6 +174,24 @@ describe('perfil: conflito (412, T-19)', () => {
 
     expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
     expect(backend.patches.map((patch) => patch.ifMatch)).toEqual(['"1"', '"2"'])
+  })
+
+  it('reaplicar manda só o campo editado e não desfaz o que a outra aba mudou', async () => {
+    const backend = useProfileBackend({ displayName: 'Ana', bio: 'Oi', version: 1 })
+    const { user } = renderApp('/conta/perfil')
+    const name = await screen.findByLabelText('Nome de exibição')
+
+    backend.changeElsewhere({ bio: 'Escrito na outra aba' })
+    await user.clear(name)
+    await user.type(name, 'Ana Souza')
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+    await user.click(await screen.findByRole('button', { name: 'Recarregar versão atual' }))
+    await screen.findByText('Escrito na outra aba')
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+
+    expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
+    expect(backend.patches.at(-1)).toEqual({ ifMatch: '"2"', body: { displayName: 'Ana Souza' } })
+    expect(screen.getByLabelText('Descrição curta')).toHaveValue('Escrito na outra aba')
   })
 
   it('descartar troca o rascunho pela versão salva', async () => {
