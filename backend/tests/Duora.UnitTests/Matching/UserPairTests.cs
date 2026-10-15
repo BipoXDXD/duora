@@ -18,6 +18,7 @@ public sealed class UserPairTests
     [Theory]
     [InlineData("80000000-0000-0000-0000-000000000000", "7fffffff-ffff-ffff-ffff-ffffffffffff")]
     [InlineData("00000000-8000-0000-0000-000000000000", "00000000-7fff-0000-0000-000000000000")]
+    [InlineData("00000000-0000-8000-0000-000000000000", "00000000-0000-7fff-0000-000000000000")]
     [InlineData("00000000-0000-0000-8000-000000000000", "00000000-0000-0000-7fff-ffffffffffff")]
     [InlineData("00000000-0000-0000-0000-800000000000", "00000000-0000-0000-0000-7fffffffffff")]
     public void LowUserFollowsThePostgreSqlUuidOrder(string higher, string lower)
