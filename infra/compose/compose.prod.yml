@@ -83,6 +83,8 @@ services:
   # saída para o S3 e com as credenciais e a senha de criptografia do repositório. Recebe o WAL do postgres por TLS
   # (certificado de cliente obrigatório) e faz os backups lendo o PGDATA só leitura e falando SQL com o papel
   # duora_backup por TCP (scram-sha-256, aceito só do IP deste container). Não compartilha o socket do postgres.
+  # Protege a saída para fora e a credencial do S3; NÃO protege contra exclusão: o certificado de cliente do postgres
+  # também apaga o repositório pelo servidor TLS. Contra isso, versionamento + Object Lock no bucket (ADR-0023).
   # Mesma imagem do postgres (mesma versão do pgBackRest); os timers do host chamam "docker exec" via duora-backup.
   backup:
     image: ${DUORA_POSTGRES_IMAGE:?defina DUORA_POSTGRES_IMAGE (digest da release)}
