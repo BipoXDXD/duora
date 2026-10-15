@@ -14,6 +14,8 @@ export default defineConfig({
   reporter: isCi ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: BASE_URL,
+    // O idioma da interface segue o navegador; sem isto o Playwright anuncia en-US. O inglês tem spec própria.
+    locale: 'pt-BR',
     trace: 'retain-on-failure',
   },
   projects: [
