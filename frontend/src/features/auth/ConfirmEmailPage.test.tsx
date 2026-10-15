@@ -35,7 +35,9 @@ describe('tela de confirmação de e-mail', () => {
 
     await user.click(screen.getByRole('button', { name: 'Confirmar e-mail' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('E-mail confirmado.')
+    const success = await screen.findByRole('status')
+    expect(success).toHaveTextContent('E-mail confirmado.')
+    expect(success).toHaveFocus()
     expect(screen.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar')
     expect(received).toEqual([{ body: { userId: USER_ID, token: 'tok+en/=' }, token: antiforgery.latestToken() }])
   })
