@@ -147,7 +147,8 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 
 | Passo | Especificação |
 |---|---|
-| Pedido (API-A06) | Recebe e-mail; responde sempre `202` com corpo vazio. Se a conta existe, grava o e-mail na outbox na mesma transação; senão, nada |
+| Pedido (API-A06) | Recebe e-mail; responde sempre `202` com corpo vazio e grava **sempre um** e-mail na outbox (mesmo trabalho nos três casos, TM-06): conta confirmada recebe o link; cadastro pendente recebe um lembrete para cadastrar de novo, sem link; endereço sem conta recebe um aviso de que não há conta. O volume é contido pelo rate limit por endereço (3 por hora) |
+| Conta pendente | Reset **não** se aplica e **não** confirma o e-mail: o cadastro pendente pode ter sido feito por outra pessoa, com os aceites dela. Quem tem o e-mail conclui pelo cadastro, que substitui o pendente (ver [Cadastro pendente](#cadastro-pendente-e-pré-sequestro-de-conta)). API-A07 recusa conta não confirmada com `INVALID_TOKEN` |
 | Token | `GeneratePasswordResetTokenAsync` do Identity (Data Protection, ligado ao security stamp). Provedor próprio para reset com vida de **30 min (hipótese)**, separado do token de confirmação de e-mail (**24 h, hipótese**). A entrega do e-mail expira antes (15 min e 12 h) para o link não chegar morto |
 | Link | Rota da SPA com as credenciais no **fragmento**: `/redefinir-senha#userId=…&token=…` e `/confirmar-email#userId=…&token=…`. O fragmento não vai a servidor, log de proxy nem `Referer`. O token é o base64url dos bytes do token do Identity. **Pendente (frontend):** `Referrer-Policy: no-referrer` nas páginas de conta |
 | Conclusão (API-A07) | `POST` com `userId`, `token` e `newPassword`. Sucesso: troca a senha, atualiza o security stamp (o token deixa de valer), zera o bloqueio por tentativas, revoga **todas** as sessões e não emite sessão nova. Falha: `400` `INVALID_TOKEN`, igual para conta inexistente. **Pendente:** notificar o titular da troca |
@@ -156,6 +157,24 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 
 Confirmação de e-mail (API-A03) usa o mesmo desenho: link para a SPA, ação por `POST` explícito (scanner de
 e-mail que faz `GET` não confirma), token de uso controlado e resposta idempotente.
+
+## Cadastro pendente e pré-sequestro de conta
+
+Ameaça (TM-66): o atacante cadastra o e-mail da vítima com a senha dele e deixa a conta `PendingEmail`. Se o
+cadastro da vítima só reenviasse o link, ela confirmaria uma conta com a senha do atacante.
+
+| Regra | Especificação |
+|---|---|
+| Cadastro sobre conta pendente | Substitui o pendente: senha, aceites, e-mail digitado, data e security stamp novos. O stamp novo invalida todo link de confirmação anterior. Um único `INSERT ... ON CONFLICT (normalized_email) DO UPDATE` na mesma transação dos aceites e da outbox, o que também serializa cadastros simultâneos |
+| Cadastro sobre conta confirmada | Nada muda na conta; o titular recebe um aviso pela outbox |
+| Prazo do pendente | `Identity:PendingAccountLifetime`, **72 h (hipótese)**, contado do último cadastro. Vencido, a confirmação é recusada (`400` `INVALID_TOKEN`); login de conta não confirmada já falha sempre. Um cadastro novo substitui o pendente vencido. **Pendente:** job de limpeza dos pendentes vencidos |
+| Nome de usuário | É o próprio e-mail; `CHECK (normalized_user_name IS NOT DISTINCT FROM normalized_email)` deixa a unicidade só no índice do e-mail, o único que o upsert arbitra |
+
+Risco residual aceito: a vítima pode clicar num link de confirmação que ela não pediu. Isso não dá acesso ao
+atacante quando o último cadastro é o da vítima, porque cada cadastro troca o stamp e invalida os links
+anteriores. Se o último cadastro for o do atacante e a vítima confirmar o link dele, a conta fica com a senha do
+atacante: o e-mail é neutro e diz para ignorá-lo se a pessoa não pediu o cadastro, mas a mitigação depende do
+usuário. Testes: `AccountTakeoverTests`.
 
 ## Revogação
 
@@ -178,9 +197,9 @@ comando do cliente falha no `RetrieveAsync` (spec 9.2; T-14).
 
 | Rota | Comportamento igual para conta existente e inexistente |
 |---|---|
-| API-A02 cadastro | `202` com corpo vazio. E-mail já cadastrado e confirmado: o titular recebe "alguém tentou se cadastrar com este e-mail" pela outbox; ainda não confirmado: recebe um link de confirmação novo. Cadastros simultâneos do mesmo e-mail criam uma conta só (índice único) |
-| API-A04 login | `401` com `code = INVALID_CREDENTIALS` para e-mail inexistente, senha errada, e-mail não confirmado e conta bloqueada; nos caminhos que não calculariam hash (inexistente, bloqueada, não confirmada) o servidor verifica um hash de isca de mesmo custo, para aproximar o tempo de resposta. `MFA_REQUIRED` só aparece depois da senha certa |
-| API-A06 pedido de reset | `202` neutro |
+| API-A02 cadastro | `202` com corpo vazio. E-mail já cadastrado e confirmado: o titular recebe "alguém tentou se cadastrar com este e-mail"; pendente: o cadastro substitui o pendente e manda um link novo; novo: cria a conta. **Tempo:** os três casos fazem o mesmo trabalho (um hash, o mesmo upsert, os mesmos comandos de aceite, uma leitura, um token e uma linha de outbox), verificado por `EnumerationTimingTests` comparando comandos SQL e hashes |
+| API-A04 login | `401` com `code = INVALID_CREDENTIALS` para e-mail inexistente, senha errada, e-mail não confirmado e conta bloqueada. **Tempo:** todo caminho de falha custa exatamente um hash (o `SignInManager` decide conta não confirmada e bloqueada antes do hash, então esses casos e a conta inexistente verificam um hash de isca pelo mesmo hasher); a senha errada numa conta existente ainda grava a falha para o lockout, e essa diferença fica encoberta por um piso de latência: nenhuma falha responde antes de `Identity:FailedLoginMinimumDuration` (**350 ms, hipótese**) mais até `FailedLoginJitter` (**100 ms**). `MFA_REQUIRED` só aparece depois da senha certa |
+| API-A06 pedido de reset | `202` neutro. **Tempo:** os três casos (confirmada, pendente, sem conta) fazem uma leitura e gravam um e-mail na outbox |
 | API-A03 e A07 | Token inválido, expirado ou de conta inexistente → mesmo erro |
 
 `429` (rate limit) pode ser distinguível, porque depende de origem e volume, não da existência da conta
@@ -288,7 +307,8 @@ sem artefato do CI (spec 25.19).
 | Antiforgery, cookie `XSRF-TOKEN` e checagem de origem | implementado | `CsrfProtectionTests` (T-13) | feat/m1-identity |
 | Recuperação de senha e confirmação de e-mail | implementado (e-mail pela outbox; adaptador de desenvolvimento em arquivo) | `RegistrationTests`, `PasswordResetTests`, `TransactionalEmailDispatchTests` | feat/m1-identity |
 | Revogação (A05, A10, troca de senha, reset) e fechamento do hub | A05, A10 e reset implementados; troca de senha e hub pendentes | `SessionTests` (T-14, parte HTTP), `PasswordResetTests` | feat/m1-identity |
-| Anti-enumeração | implementado | `RegistrationTests`, `LoginTests`, `PasswordResetTests` | feat/m1-identity |
+| Anti-enumeração (resposta e tempo) | implementado | `RegistrationTests`, `LoginTests`, `PasswordResetTests`, `EnumerationTimingTests` | feat/m1-identity |
+| Pré-sequestro de conta (TM-66) | implementado | `AccountTakeoverTests` | feat/m1-identity |
 | Data Protection persistente e protegido | persistente; proteção em repouso pendente (M3) | `StartupConfigurationTests.WebDoesNotStartWithoutAPersistentKeyRing` | feat/m1-identity |
 | Rate limit e lockout | implementado | `LoginTests`, `RegistrationTests` | feat/m1-identity |
 | Contrato A01 a A16 no OpenAPI gerado | A01 a A10 publicados; A11 a A16 pendentes | `docs/api/openapi.json` | feat/m1-identity |
@@ -310,3 +330,9 @@ sem artefato do CI (spec 25.19).
   - Lockout: 20 falhas e 15 min, sem dobrar; tabela de rate limit trocada pelos valores implementados.
   - CSRF: middleware próprio com `IsRequestValidAsync` em vez de `UseAntiforgery()`, que só valida formulário.
   - Data Protection: nome de aplicação `Duora`; proteção em repouso e nome por ambiente ficam para o M3.
+- **2026-10-15, feat/m1-identity (revisão de segurança).** Duas falhas corrigidas antes do merge:
+  - Pré-sequestro de conta (TM-66): o cadastro sobre conta pendente passa a substituí-la; o pendente expira
+    em 72 h; reset não serve a conta pendente nem confirma o e-mail.
+  - Enumeração por tempo (TM-06): cadastro e pedido de reset fazem o mesmo trabalho em todos os casos (o reset
+    passa a mandar um e-mail também para endereço sem conta); login com falha custa sempre um hash e respeita um
+    piso de latência.
