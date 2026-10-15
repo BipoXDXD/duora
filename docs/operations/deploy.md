@@ -15,7 +15,7 @@ para antes da migração e web/edge são recriados. Escala horizontal exige o AD
 | `duora.env` | `/etc/duora/` (Ansible, 0640) | Configuração **não sensível** do host |
 | Segredos | `/etc/duora/secrets/` (0700; arquivos 0400) | Senhas e connection strings, gerados uma vez |
 | `duora-deploy` | `/usr/local/sbin/` (root, 0755) | Único comando que o executor de deploy pode rodar |
-| `duora-secrets` | `/usr/local/sbin/` | Gera os segredos do banco (`init`) e os certificados do pgBackRest (`init-backup-tls`) na primeira configuração |
+| `duora-secrets` | `/usr/local/sbin/` | Gera os segredos do banco (`init`) e os do backup (`init-backup`: certificados do pgBackRest e senha do `duora_backup`) na primeira configuração |
 | `duora-backup` | `/usr/local/sbin/` (root, 0755) | Wrapper restrito do pgBackRest: timers de backup e `verify` chamado pelo deploy ([backup-restore.md](backup-restore.md)) |
 | Estado do deploy | `/var/lib/duora/` (root, 0700) | `current.json`, `previous.json`, `.deploy.lock`, `releases/<id>.{env,json}` (só releases implantadas com sucesso) e `staging/` (rascunho do deploy em curso) |
 
@@ -112,7 +112,7 @@ O Caddy é o único proxy. Ele fala com o web pela rede `edge`, que tem subnet f
 | `edge` | `172.30.10.0/24` | **Sim**: é o valor de `ForwardedHeadersOptions.KnownNetworks` no web (spec 11.3) |
 | `data` | atribuída pelo Docker | **Não**: o worker e o migrador estão nela e alcançam o web; um cabeçalho vindo dali seria forjável |
 | `egress` | atribuída pelo Docker | Não se aplica (o web não está nela) |
-| `pgbackrest` | atribuída pelo Docker, `internal` | Não se aplica: só postgres e backup (WAL por TLS) |
+| `pgbackrest` | `172.30.21.0/24`, `internal` | Não se aplica: só postgres e backup (WAL por TLS; SQL do `duora_backup` só de `172.30.21.10`) |
 | `backup-egress` | `172.30.20.0/24` | Não se aplica: só o backup e o job de restore; saída filtrada no host (`DOCKER-USER`) |
 
 O postgres está só em redes `internal` (`data` e `pgbackrest`): não tem rota para fora nem porta publicada. O único
@@ -187,7 +187,7 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
 1. Grave os segredos do repositório de backup (`pgbackrest_repo.conf`, `pgbackrest_cipher.conf`;
    [backup-restore.md](backup-restore.md#segredos-do-repositório-operador-uma-vez)). Depois o `ansible-playbook`
    (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração, segredos do banco
-   (`duora-secrets init`), certificados do pgBackRest (`duora-secrets init-backup-tls`) e os timers de backup;
+   (`duora-secrets init`), segredos do backup (`duora-secrets init-backup`) e os timers de backup;
    nada disso sobrescreve o que já existe.
 2. O primeiro deploy é do operador, com `--accept-missing-backup-check` (a stanza ainda não existe), seguido de
    `duora-backup stanza-create`, `full` e `verify` ([backup-restore.md](backup-restore.md#primeira-configuração)).
