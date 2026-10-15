@@ -83,6 +83,33 @@ public sealed class RoundResumeTests
         AssertResumedUnchanged(round, outcome, state, version);
     }
 
+    /// <summary>
+    /// Fora da tolerância a política cancela ou encerra; uma rodada já terminada não pode ser terminada de novo, nem
+    /// trocar de estado final, nem repetir os efeitos de liberação e aviso.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(FinishedRoundsOutsideTheTolerance))]
+    public void FinishedRoundStaysFinishedOutsideTheTolerance(RoundState state, int minutesAfterStart)
+    {
+        var round = In(state);
+        var version = round.Version;
+
+        var outcome = round.Resume(version, RoundStartsAt.AddMinutes(minutesAfterStart));
+
+        AssertResumedUnchanged(round, outcome, state, version);
+    }
+
+    /// <summary>1 min é o limite de início, 12 min é o fim da janela e 60 min é muito depois dela.</summary>
+    public static TheoryData<RoundState, int> FinishedRoundsOutsideTheTolerance() => new()
+    {
+        { RoundState.Closed, 1 },
+        { RoundState.Closed, 12 },
+        { RoundState.Closed, 60 },
+        { RoundState.Cancelled, 1 },
+        { RoundState.Cancelled, 12 },
+        { RoundState.Cancelled, 60 },
+    };
+
     [Fact]
     public void RepeatingTheResumeThatCancelledDoesNotRepeatItsEffects()
     {
