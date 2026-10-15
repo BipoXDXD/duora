@@ -48,6 +48,11 @@ export default defineConfig([
     },
   },
   {
+    // Utilitários e arquivos de teste nunca passam por fast refresh: podem exportar funções e componentes juntos.
+    files: ['src/test/**/*.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    rules: { 'react-refresh/only-export-components': 'off' },
+  },
+  {
     files: ['*.config.ts', 'config/**/*.ts', 'e2e/**/*.ts'],
     languageOptions: { globals: globals.node },
   },
