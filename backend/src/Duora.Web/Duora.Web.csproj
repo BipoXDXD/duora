@@ -3,6 +3,14 @@
     <UserSecretsId>duora-local-dev</UserSecretsId>
   </PropertyGroup>
 
+  <!-- Contrato OpenAPI gerado em todo build e versionado (ADR-0018, docs/api/README.md). A versão 3.1 fica
+       explícita porque é a que o openapi-typescript e o oasdiff leem; mudar exige revisar os dois. -->
+  <PropertyGroup>
+    <OpenApiGenerateDocumentsOnBuild>true</OpenApiGenerateDocumentsOnBuild>
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/../../../docs/api</OpenApiDocumentsDirectory>
+    <OpenApiGenerateDocumentsOptions>--file-name openapi --openapi-version OpenApi3_1</OpenApiGenerateDocumentsOptions>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Duora.Core\Duora.Core.csproj" />
     <ProjectReference Include="..\Duora.Contracts\Duora.Contracts.csproj" />
@@ -11,6 +19,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
