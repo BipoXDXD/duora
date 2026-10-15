@@ -283,7 +283,8 @@ class DeployTests(unittest.TestCase):
             "up --detach --wait postgres",
             "stop worker",
             "run --rm migrator",
-            "psql",
+            "reconcile-privileges.sql",
+            "ops.__ef_migrations_history",
             "up --detach --wait --no-deps web worker edge",
             "/health/ready",
         ]]
@@ -322,6 +323,14 @@ class DeployTests(unittest.TestCase):
 
         self.assertFalse(runner.ran("up --detach --wait --no-deps web worker edge"))
         self.assertFalse((self.paths.state_dir / "current.json").exists())
+
+    def test_failed_privilege_reconciliation_does_not_start_new_version(self) -> None:
+        runner = FakeRunner(fail_on="reconcile-privileges.sql")
+
+        with self.assertRaisesRegex(deploy.DeployError, "privilégios"):
+            self.run_deploy(runner)
+
+        self.assertFalse(runner.ran("up --detach --wait --no-deps web worker edge"))
 
     def test_database_head_different_from_manifest_stops_deploy(self) -> None:
         runner = FakeRunner(migration_head="20250101000000_Old")

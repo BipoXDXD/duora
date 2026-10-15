@@ -55,7 +55,10 @@ digest do índice multiarquitetura; atualizar as duas juntas.
   Web e worker leem `/run/secrets` com o provider KeyPerFile (`SecretsDirectory=/run/secrets`, nome do arquivo
   `ConnectionStrings__Duora`); `*_FILE` sozinho não funciona para o .NET (spec 15.4).
 - **Banco**: `duora_migrator` é dono do banco e aplica DDL; `duora_app` (web e worker) só tem DML, via default
-  privileges, e não cria objetos. O superusuário `postgres` fica para administração.
+  privileges, sem `CREATE`, sem `TEMPORARY` e sem acesso ao histórico do EF (`reconcile-privileges.sql`, rodado
+  pelo deploy depois de cada migração). Tabelas append-only perdem `UPDATE`/`DELETE` na própria migration
+  ([model.md](../docs/data/model.md#permissões-de-banco-spec-107)). O superusuário `postgres` fica para
+  administração.
 - **Imagens por digest**: `DUORA_*_IMAGE` vêm do manifesto da release; sem tag mutável em produção.
 
 ## Caddy
@@ -118,6 +121,7 @@ cada mudança de rede (spec 15.2), não a leitura das regras.
 | Caddyfile e SPA dentro da imagem edge | A borda vira artefato imutável por digest, versionado com o frontend | Mudar a CSP exige nova imagem |
 | Portas 80/443 por `ip_unprivileged_port_start` | Caddy sem root e sem capability, compatível com `no-new-privileges` | Sysctl por container no Compose |
 | Papéis separados de migrador e aplicação | Spec 17.3; o app não altera schema | Rotação de senha manual em dois arquivos |
+| Histórico do EF fechado ao app por reconciliação pós-migração | Vale desde a 1a migração e a cada deploy, sem tocar no backend nem copiar o DDL do EF para o initdb | Janela de segundos entre a migração e o `REVOKE` em que o app antigo ainda teria DML no histórico |
 | Deploy e segredos em Python 3.12 (biblioteca padrão) | Já vem no Ubuntu 24.04 (o Ansible também exige), valida JSON sem `jq`, tem testes e checagem de tipos | Um interpretador a mais no caminho do deploy (o do sistema, atualizado pelo Ubuntu) |
 | Smoke por `/health/ready` de dentro do edge | Saúde nunca exposta na borda; usa o `wget` que o Alpine já tem | O smoke depende do edge estar de pé |
 

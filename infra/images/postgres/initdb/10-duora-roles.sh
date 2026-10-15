@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Primeira inicialização do volume: papéis e banco do Duora (spec 17.3: o migrador usa credencial própria).
 #   duora_migrator  dono do banco "duora"; aplica as migrations (DDL).
-#   duora_app       web e worker; só DML nas tabelas que o migrador criar, via default privileges.
+#   duora_app       web e worker; só DML nas tabelas que o migrador criar, via default privileges. Sem DDL, sem
+#                   CREATE em schema algum, sem tabela temporária. Exceções (docs/data/model.md, "Permissões"):
+#                   o histórico de migrations perde tudo em reconcile-privileges.sql, que o deploy roda depois de
+#                   cada migração; tabelas append-only perdem UPDATE/DELETE na própria migration que as cria.
 # O superusuário "postgres" fica só para administração. Rotação de senha: docs/operations/deploy.md.
 set -euo pipefail
 
@@ -31,11 +34,15 @@ CREATE ROLE duora_app LOGIN PASSWORD :'app_password';
 
 CREATE DATABASE duora OWNER duora_migrator;
 REVOKE ALL ON DATABASE duora FROM PUBLIC;
-GRANT CONNECT, TEMPORARY ON DATABASE duora TO duora_app;
+GRANT CONNECT ON DATABASE duora TO duora_app;
 
 \connect duora
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
+-- USAGE sem CREATE: o app enxerga os schemas do migrador, mas não cria objetos neles.
 ALTER DEFAULT PRIVILEGES FOR ROLE duora_migrator GRANT USAGE ON SCHEMAS TO duora_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE duora_migrator GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO duora_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE duora_migrator GRANT USAGE, SELECT ON SEQUENCES TO duora_app;
+-- EXECUTE vai a PUBLIC por padrão; aqui só o app executa as funções do migrador.
+ALTER DEFAULT PRIVILEGES FOR ROLE duora_migrator REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE duora_migrator GRANT EXECUTE ON FUNCTIONS TO duora_app;
 SQL
