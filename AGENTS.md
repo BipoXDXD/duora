@@ -79,12 +79,36 @@ pnpm exec playwright install --with-deps chromium webkit   # uma vez por máquin
 pnpm e2e                                       # Playwright contra o bundle de produção
 ```
 
+Contrato da API, depois de mudar endpoint ou DTO ([docs/api/README.md](docs/api/README.md)):
+
+```sh
+dotnet build backend/Duora.slnx                # regenera docs/api/openapi.json
+pnpm --dir frontend api:generate               # regenera frontend/src/shared/api/schema.d.ts
+```
+
 Banco local para desenvolvimento manual (os testes usam Testcontainers, não este banco):
 
 ```sh
 docker compose -f infra/compose/compose.dev.yml up -d --wait
 docker compose -f infra/compose/compose.dev.yml down
 ```
+
+## Checks obrigatórios
+
+Todo PR para a `main` precisa destes jobs verdes (`.github/workflows/ci.yml`, spec 17.1). Nenhum deles é
+pulado, reduzido ou posto em quarentena para destravar um PR.
+
+| Check | Cobre |
+|---|---|
+| `backend` | restore travado, build com avisos como erro, formatação, testes de unidade, arquitetura e integração |
+| `frontend` | install travado, tipos, lint, formatação, Vitest e build |
+| `e2e` | Playwright contra o bundle de produção |
+| `secret-scan` | Gitleaks no histórico inteiro |
+| `contract` | OpenAPI e tipos gerados iguais ao commit; breaking change só com `breaking-change-approved` ([docs/api/README.md](docs/api/README.md)) |
+| `supply-chain` | Trivy (vulnerabilidades e misconfig HIGH/CRITICAL), SBOM CycloneDX e licenças na allowlist ([supply-chain.md](docs/security/supply-chain.md)) |
+
+Exceções (`.trivyignore`, `scripts/supply-chain/license-policy.json`, label `breaking-change-approved`): o
+agente pode propor, com justificativa escrita; só o responsável técnico aprova.
 
 ## Entrega
 
