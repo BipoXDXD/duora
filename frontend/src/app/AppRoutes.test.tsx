@@ -59,3 +59,13 @@ describe('rota inexistente', () => {
     expect(document.title).toBe('Página não encontrada · Duora')
   })
 })
+
+describe('página inicial: entrada', () => {
+  it('oferece criar conta e entrar', () => {
+    renderAt('/')
+
+    const main = screen.getByRole('main')
+    expect(within(main).getByRole('link', { name: 'Criar conta' })).toHaveAttribute('href', '/criar-conta')
+    expect(within(main).getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar')
+  })
+})
