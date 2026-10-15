@@ -1,4 +1,5 @@
 import { Link, Outlet } from 'react-router'
+import { RouteAnnouncer } from './RouteAnnouncer'
 
 const MAIN_CONTENT_ID = 'conteudo-principal'
 
@@ -24,6 +25,7 @@ export function AppLayout(): React.JSX.Element {
       <main id={MAIN_CONTENT_ID} tabIndex={-1} className="mx-auto w-full max-w-5xl flex-1 px-4 py-12">
         <Outlet />
       </main>
+      <RouteAnnouncer mainId={MAIN_CONTENT_ID} />
       <footer className="border-t border-border bg-surface-muted">
         <p className="mx-auto max-w-5xl px-4 py-6 text-sm text-text-muted">Duora · versão em desenvolvimento</p>
       </footer>
