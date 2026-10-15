@@ -7,7 +7,8 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig([
-  globalIgnores(['dist', 'coverage', 'playwright-report', 'test-results']),
+  // schema.d.ts é gerado do contrato (pnpm api:generate, docs/api/README.md); o CI confere que não foi editado.
+  globalIgnores(['dist', 'coverage', 'playwright-report', 'test-results', 'src/shared/api/schema.d.ts']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

@@ -18,6 +18,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
+    "api:generate": "openapi-typescript ../docs/api/openapi.json --output src/shared/api/schema.d.ts",
     "e2e:install": "playwright install --with-deps chromium webkit",
     "cert:dev": "mkdir -p \"$HOME/.aspnet/https\" && dotnet dev-certs https --export-path \"$HOME/.aspnet/https/duora-spa.pem\" --format Pem --no-password"
   },
@@ -50,6 +51,7 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",
     "jsdom": "^30.1.2",
+    "openapi-typescript": "7.13.0",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "typescript": "~6.0.2",

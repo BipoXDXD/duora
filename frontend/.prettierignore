@@ -3,3 +3,5 @@ coverage
 playwright-report
 test-results
 pnpm-lock.yaml
+# Gerado do contrato por pnpm api:generate (docs/api/README.md)
+src/shared/api/schema.d.ts
