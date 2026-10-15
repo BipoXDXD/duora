@@ -60,9 +60,14 @@ public sealed class GameSession<TState, TAction>
         new(Experience, Participants, Schedule, status, Version.Next(), state, ActionLog);
 }
 
-/// <summary>Ação aplicada, guardada com o autor e o conteúdo para distinguir reenvio de reuso do id.</summary>
-internal sealed record RecordedAction<TAction>(ParticipantId Actor, TAction Action, StateVersion ResultingVersion)
+/// <summary>
+/// Ação aplicada, guardada com o corpo inteiro do comando (autor, versão esperada e ação) para distinguir reenvio
+/// de reuso do id com outro corpo (spec 8.7).
+/// </summary>
+internal sealed record RecordedAction<TAction>(
+    ParticipantId Actor, StateVersion ExpectedVersion, TAction Action, StateVersion ResultingVersion)
     where TAction : class, IGameAction
 {
-    public bool IsSameAs(GameCommand<TAction> command) => Actor == command.Actor && Action.Equals(command.Action);
+    public bool IsSameAs(GameCommand<TAction> command) =>
+        Actor == command.Actor && ExpectedVersion == command.ExpectedVersion && Action.Equals(command.Action);
 }
