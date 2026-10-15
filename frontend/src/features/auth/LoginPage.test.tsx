@@ -93,6 +93,19 @@ describe('tela de entrada', () => {
     })
   })
 
+  it('caminho interno fora da allowlist de retorno leva à conta', async () => {
+    useAntiforgeryEndpoint()
+    useLoginEndpoint(() => new HttpResponse(null, { status: 204 }))
+    useAccountEndpoints()
+    const { user } = renderApp({ pathname: '/entrar', state: { from: '/admin/usuarios' } })
+
+    await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/conta$/)
+    })
+  })
+
   it('credenciais inválidas: erro neutro, sem apagar o que foi digitado', async () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => problem(401, 'INVALID_CREDENTIALS'))
