@@ -15,11 +15,16 @@ export function register(registration: Registration): Promise<void> {
   return sendMutation({ method: 'POST', path: '/api/v1/auth/register', body: registration })
 }
 
-export function confirmEmail(link: EmailLink): Promise<void> {
+/**
+ * Exige a senha do cadastro além do token: um link de confirmação gerado por outra pessoa e
+ * entregue na caixa da vítima não confirma a conta de quem o gerou. Senha errada responde como
+ * token inválido (400 INVALID_TOKEN).
+ */
+export function confirmEmail(link: EmailLink, password: string): Promise<void> {
   return sendMutation({
     method: 'POST',
     path: '/api/v1/auth/confirm-email',
-    body: { userId: link.userId, token: link.token },
+    body: { userId: link.userId, token: link.token, password },
   })
 }
 
