@@ -1,4 +1,5 @@
 using System.Buffers.Text;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using Duora.Core.Identity;
@@ -49,7 +50,19 @@ internal sealed class AccountLifecycleOptions
     /// </summary>
     public TimeSpan PendingAccountLifetime { get; set; } = TimeSpan.FromHours(72);
 
-    public bool IsValid() => PendingAccountLifetime > TimeSpan.Zero;
+    /// <summary>
+    /// Duração mínima de um login que falha, mais um sorteio de até <see cref="FailedLoginJitter"/>. Fica acima
+    /// do custo de um hash, para encobrir o que os caminhos de falha ainda fazem de diferente (a senha errada numa
+    /// conta existente grava a falha para o bloqueio; os outros casos não gravam) (TM-06).
+    /// </summary>
+    public TimeSpan FailedLoginMinimumDuration { get; set; } = TimeSpan.FromMilliseconds(350);
+
+    public TimeSpan FailedLoginJitter { get; set; } = TimeSpan.FromMilliseconds(100);
+
+    public bool IsValid() =>
+        PendingAccountLifetime > TimeSpan.Zero
+        && FailedLoginMinimumDuration >= TimeSpan.Zero
+        && FailedLoginJitter >= TimeSpan.Zero;
 }
 
 /// <summary>
@@ -65,7 +78,7 @@ public sealed class AccountService
     private readonly UserManager<DuoraUser> _users;
     private readonly SignInManager<DuoraUser> _signIn;
     private readonly LoginSessions _sessions;
-    private readonly CredentialTiming _timing;
+    private readonly DecoyPasswordHash _decoy;
     private readonly AccountLifecycleOptions _lifecycle;
     private readonly TimeProvider _time;
 
@@ -74,7 +87,7 @@ public sealed class AccountService
         UserManager<DuoraUser> users,
         SignInManager<DuoraUser> signIn,
         LoginSessions sessions,
-        CredentialTiming timing,
+        DecoyPasswordHash decoy,
         AccountLifecycleOptions lifecycle,
         TimeProvider time)
     {
@@ -82,7 +95,7 @@ public sealed class AccountService
         _users = users;
         _signIn = signIn;
         _sessions = sessions;
-        _timing = timing;
+        _decoy = decoy;
         _lifecycle = lifecycle;
         _time = time;
     }
@@ -148,25 +161,25 @@ public sealed class AccountService
     }
 
     /// <summary>
-    /// Conta pendente não recebe link de redefinição: redefinir não confirma o e-mail, porque o cadastro pendente
-    /// pode ser de outra pessoa (com os aceites dela). Quem tem o e-mail recebe um lembrete para cadastrar de novo,
-    /// o que substitui o pendente (TM-66).
+    /// Todo pedido gera exatamente um e-mail, para os três casos fazerem o mesmo trabalho (TM-06): conta
+    /// confirmada recebe o link; conta pendente recebe um lembrete para cadastrar de novo, porque redefinir não
+    /// confirma o e-mail e o cadastro pendente pode ser de outra pessoa (TM-66); endereço sem conta recebe um
+    /// aviso de que não há conta. O excesso de e-mails é contido pelo rate limit por endereço.
     /// </summary>
     public async Task RequestPasswordResetAsync(EmailAddress email, CancellationToken cancellationToken)
     {
         var user = await _users.FindByEmailAsync(email.Value);
-        if (user is null)
+        switch (user)
         {
-            return;
-        }
-
-        if (user.EmailConfirmed)
-        {
-            Enqueue(AccountEmailKind.PasswordReset, email, user.Id, await _users.GeneratePasswordResetTokenAsync(user));
-        }
-        else
-        {
-            Enqueue(AccountEmailKind.PendingRegistrationReminder, email, user.Id, token: null);
+            case null:
+                Enqueue(AccountEmailKind.PasswordResetForUnknownAddress, email, Guid.CreateVersion7(_time.GetUtcNow()), token: null);
+                break;
+            case { EmailConfirmed: true }:
+                Enqueue(AccountEmailKind.PasswordReset, email, user.Id, await _users.GeneratePasswordResetTokenAsync(user));
+                break;
+            default:
+                Enqueue(AccountEmailKind.PendingRegistrationReminder, email, user.Id, token: null);
+                break;
         }
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -201,34 +214,24 @@ public sealed class AccountService
         return true;
     }
 
+    /// <summary>
+    /// Verifica a senha. Toda falha custa um hash e não responde antes do piso de latência (TM-06): conta
+    /// inexistente, e-mail não confirmado e conta bloqueada verificam um hash de isca, porque nesses casos o
+    /// SignInManager decide antes de calcular o hash.
+    /// </summary>
     public async Task<LoginOutcome> VerifyCredentialsAsync(
         EmailAddress email,
         string password,
         CancellationToken cancellationToken)
     {
-        var user = await _users.FindByEmailAsync(email.Value);
-        if (user is null)
+        var startedAt = Stopwatch.GetTimestamp();
+        var outcome = await CheckCredentialsAsync(email, password);
+        if (outcome is LoginOutcome.InvalidCredentials)
         {
-            _timing.SpendHashingTime(password);
-            return new LoginOutcome.InvalidCredentials();
+            await WaitForFailureFloorAsync(startedAt, cancellationToken);
         }
 
-        var result = await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
-        if (result.IsNotAllowed || result.IsLockedOut)
-        {
-            // O SignInManager recusa e-mail não confirmado e conta bloqueada antes de calcular o hash.
-            _timing.SpendHashingTime(password);
-            return new LoginOutcome.InvalidCredentials();
-        }
-
-        if (!result.Succeeded)
-        {
-            return new LoginOutcome.InvalidCredentials();
-        }
-
-        return user.TwoFactorEnabled
-            ? new LoginOutcome.MfaRequired()
-            : new LoginOutcome.Verified(new VerifiedAccount(user.Id, await _users.GetSecurityStampAsync(user)));
+        return outcome;
     }
 
     public Task<AccountSummary?> FindAccountAsync(Guid userId, CancellationToken cancellationToken) =>
@@ -247,6 +250,53 @@ public sealed class AccountService
                     .OrderBy(name => name)
                     .ToList()))
             .SingleOrDefaultAsync(cancellationToken);
+
+    private async Task<LoginOutcome> CheckCredentialsAsync(EmailAddress email, string password)
+    {
+        var user = await _users.FindByEmailAsync(email.Value);
+        if (user is null)
+        {
+            VerifyDecoy(password);
+            return new LoginOutcome.InvalidCredentials();
+        }
+
+        var result = await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
+        if (result.IsNotAllowed || result.IsLockedOut)
+        {
+            VerifyDecoy(password);
+            return new LoginOutcome.InvalidCredentials();
+        }
+
+        if (!result.Succeeded)
+        {
+            return new LoginOutcome.InvalidCredentials();
+        }
+
+        return user.TwoFactorEnabled
+            ? new LoginOutcome.MfaRequired()
+            : new LoginOutcome.Verified(new VerifiedAccount(user.Id, await _users.GetSecurityStampAsync(user)));
+    }
+
+    /// <summary>
+    /// Mesmo hasher (e mesmo custo) que o SignInManager usa na senha real. O PasswordHasher padrão não usa o
+    /// usuário, por isso passar null é seguro.
+    /// </summary>
+    private void VerifyDecoy(string password) =>
+        _users.PasswordHasher.VerifyHashedPassword(null!, _decoy.Value, password);
+
+    /// <summary>
+    /// Espera em tempo real, não no <see cref="TimeProvider"/> da aplicação: o piso protege contra quem mede a
+    /// resposta de fora, e um relógio falso em teste não pode congelá-lo.
+    /// </summary>
+    private async Task WaitForFailureFloorAsync(long startedAt, CancellationToken cancellationToken)
+    {
+        var floor = _lifecycle.FailedLoginMinimumDuration + (_lifecycle.FailedLoginJitter * Random.Shared.NextDouble());
+        var remaining = floor - Stopwatch.GetElapsedTime(startedAt);
+        if (remaining > TimeSpan.Zero)
+        {
+            await Task.Delay(remaining, cancellationToken);
+        }
+    }
 
     private async Task<RegistrationRow> UpsertRegistrationAsync(
         EmailAddress email,
@@ -338,23 +388,13 @@ public sealed class AccountService
 }
 
 /// <summary>
-/// Gasta o tempo de um hash de senha quando o caminho real não calcularia nenhum (conta inexistente, bloqueada ou
-/// não confirmada), para o tempo de resposta não revelar a existência da conta.
+/// Hash de uma senha aleatória, calculado uma vez por processo com as opções do Identity (algoritmo e iterações).
+/// Verificá-lo custa o mesmo que verificar uma senha real, sem nunca conferir.
 /// </summary>
-/// <remarks>
-/// Usa o mesmo <see cref="PasswordHasher{TUser}"/> do Identity, com as mesmas opções (algoritmo e iterações), mas
-/// numa instância própria: o do Identity é scoped e este hash de isca é calculado uma vez por processo. O
-/// PasswordHasher não usa o usuário, por isso passar null é seguro.
-/// </remarks>
-internal sealed class CredentialTiming(IOptions<PasswordHasherOptions> options)
+internal sealed class DecoyPasswordHash(IOptions<PasswordHasherOptions> options)
 {
-    private readonly PasswordHasher<DuoraUser> _hasher = new(options);
-    private string? _decoyHash;
+    private readonly Lazy<string> _value = new(() =>
+        new PasswordHasher<DuoraUser>(options).HashPassword(null!, Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))));
 
-    public void SpendHashingTime(string password)
-    {
-        // Corrida inofensiva: duas threads podem calcular iscas diferentes; qualquer uma serve.
-        _decoyHash ??= _hasher.HashPassword(null!, Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
-        _hasher.VerifyHashedPassword(null!, _decoyHash, password);
-    }
+    public string Value => _value.Value;
 }
