@@ -35,7 +35,7 @@ public sealed class SecretLeakTests : IAsyncDisposable
         await RecordAsync(await IdentityScenario.LoginAsync(browser, email, canary));
         await RecordAsync(await browser.PostJsonAsync(
             "/api/v1/auth/confirm-email",
-            new { userId = account.UserId, token = canary }));
+            new { userId = account.UserId, token = canary, password = canary }));
         await RecordAsync(await browser.PostJsonAsync(
             "/api/v1/auth/password-resets",
             new { userId = account.UserId, token = canary, newPassword = canary }));

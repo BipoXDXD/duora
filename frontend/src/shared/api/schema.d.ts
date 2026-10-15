@@ -566,6 +566,7 @@ export interface components {
             /** Format: uuid */
             userId: null | string;
             token: null | string;
+            password: null | string;
         };
         CreatePasswordResetRequest: {
             email: null | string;

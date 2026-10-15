@@ -426,7 +426,8 @@
       "ConfirmEmailRequest": {
         "required": [
           "userId",
-          "token"
+          "token",
+          "password"
         ],
         "type": "object",
         "properties": {
@@ -438,6 +439,12 @@
             "format": "uuid"
           },
           "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "password": {
             "type": [
               "null",
               "string"

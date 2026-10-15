@@ -50,6 +50,9 @@ internal sealed class AccountLifecycleOptions
     /// </summary>
     public TimeSpan PendingAccountLifetime { get; set; } = TimeSpan.FromHours(72);
 
+    /// <summary>Falhas de confirmação (token ou senha) que invalidam o link de uma conta pendente.</summary>
+    public int MaxConfirmationFailures { get; set; } = 5;
+
     /// <summary>
     /// Duração mínima de um login que falha, mais um sorteio de até <see cref="FailedLoginJitter"/>. Fica acima
     /// do custo de um hash, para encobrir o que os caminhos de falha ainda fazem de diferente (a senha errada numa
@@ -61,6 +64,7 @@ internal sealed class AccountLifecycleOptions
 
     public bool IsValid() =>
         PendingAccountLifetime > TimeSpan.Zero
+        && MaxConfirmationFailures >= 1
         && FailedLoginMinimumDuration >= TimeSpan.Zero
         && FailedLoginJitter >= TimeSpan.Zero;
 }
@@ -141,21 +145,48 @@ public sealed class AccountService
         await transaction.CommitAsync(cancellationToken);
     }
 
-    public async Task<bool> ConfirmEmailAsync(Guid userId, string linkToken, CancellationToken cancellationToken)
+    /// <summary>
+    /// Confirma o e-mail só com o link (posse do e-mail) e a senha do cadastro pendente (conhecimento da senha).
+    /// Assim um link gerado por outra pessoa, que chegou à caixa da vítima, não confirma a conta dela com a senha
+    /// de outra pessoa (TM-66). Senha errada e token inválido dão o mesmo resultado, e toda tentativa custa um hash.
+    /// Depois de <see cref="AccountLifecycleOptions.MaxConfirmationFailures"/> falhas numa conta pendente, o stamp
+    /// muda e o link deixa de valer: a pessoa cadastra de novo.
+    /// </summary>
+    public async Task<bool> ConfirmEmailAsync(
+        Guid userId,
+        string linkToken,
+        string password,
+        CancellationToken cancellationToken)
     {
         var user = await _users.FindByIdAsync(userId.ToString("D"));
-        if (user is null || IsExpiredPendingRegistration(user) || !TryDecodeLinkToken(linkToken, out var token))
+        if (user is null)
         {
+            VerifyDecoy(password);
             return false;
         }
 
-        var result = await _users.ConfirmEmailAsync(user, token);
-        if (!result.Succeeded)
+        var passwordMatches = user.PasswordHash is { } hash
+            && _users.PasswordHasher.VerifyHashedPassword(user, hash, password) != PasswordVerificationResult.Failed;
+        var tokenIsValid = !IsExpiredPendingRegistration(user)
+            && TryDecodeLinkToken(linkToken, out var token)
+            && await _users.VerifyUserTokenAsync(
+                user,
+                _users.Options.Tokens.EmailConfirmationTokenProvider,
+                UserManager<DuoraUser>.ConfirmEmailTokenPurpose,
+                token);
+        if (!passwordMatches || !tokenIsValid)
         {
+            await CountConfirmationFailureAsync(user);
             return false;
         }
 
-        user.CompleteEmailConfirmation();
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            user.CompleteEmailConfirmation();
+            await _users.ResetAccessFailedCountAsync(user);
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -360,6 +391,25 @@ public sealed class AccountService
             where {replace}
             """,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Usa o contador de falhas do Identity, que numa conta pendente não serve a mais nada (ela não faz login) e é
+    /// zerado na confirmação. Conta já confirmada não conta aqui: o lockout dela é o do login.
+    /// </summary>
+    private async Task CountConfirmationFailureAsync(DuoraUser user)
+    {
+        if (user.EmailConfirmed)
+        {
+            return;
+        }
+
+        await _users.AccessFailedAsync(user);
+        if (await _users.GetAccessFailedCountAsync(user) >= _lifecycle.MaxConfirmationFailures)
+        {
+            await _users.UpdateSecurityStampAsync(user);
+            await _users.ResetAccessFailedCountAsync(user);
+        }
     }
 
     private bool IsExpiredPendingRegistration(DuoraUser user) =>

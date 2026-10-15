@@ -45,7 +45,7 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
         var link = await ReadLatestLinkAsync(email, "EmailConfirmation");
         using var confirmed = await browser.PostJsonAsync(
             "/api/v1/auth/confirm-email",
-            new { userId = link.UserId, token = link.Token });
+            new { userId = link.UserId, token = link.Token, password });
         Assert.Equal(HttpStatusCode.NoContent, confirmed.StatusCode);
         return new TestAccount(link.UserId, email, password);
     }
