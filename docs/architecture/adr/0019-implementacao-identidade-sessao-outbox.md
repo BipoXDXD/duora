@@ -98,8 +98,9 @@ controladas pelo produto, sem fornecedor de identidade e sem atrito extra para o
   navegador. `XSRF-TOKEN`: `Secure`, `SameSite=Strict`, `Path=/`, legível pelo JavaScript. Respostas de
   `/api` com `Cache-Control: no-store`.
 - Senha, token e conteúdo de e-mail nunca vão a log; falhas do envio registram só o tipo da exceção.
-- Atrás do proxy, o rate limit por IP depende de Forwarded Headers configurado só para o proxy confiável
-  (pendente, antes do primeiro deploy).
+- Atrás do proxy, o rate limit por IP usa `X-Forwarded-For` só de remetente nas redes de
+  `ReverseProxy:KnownNetworks` (a rede `edge` do Caddy), com um salto; sem rede configurada, nenhum proxy é
+  confiável. O deploy precisa definir essa chave.
 - O key ring precisa de backup e proteção em repouso (pendente, M3).
 
 ## Compliance

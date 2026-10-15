@@ -72,6 +72,11 @@ internal sealed class Browser : IDisposable
             request.Headers.Add("Sec-Fetch-Site", headers.FetchSite);
         }
 
+        foreach (var (name, value) in headers.Extra ?? new Dictionary<string, string>())
+        {
+            request.Headers.Add(name, value);
+        }
+
         return await _http.SendAsync(request, TestContext.Current.CancellationToken);
     }
 }
@@ -80,7 +85,8 @@ internal sealed record MutationHeaders(
     bool SendCsrfToken = true,
     string? CsrfTokenOverride = null,
     string? Origin = DuoraWebFactory.PublicOrigin,
-    string? FetchSite = "same-origin")
+    string? FetchSite = "same-origin",
+    IReadOnlyDictionary<string, string>? Extra = null)
 {
     public static MutationHeaders SameOrigin { get; } = new();
 }

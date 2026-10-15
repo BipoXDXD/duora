@@ -242,8 +242,12 @@ Teste: T-15 (recriar container mantém sessões válidas; rotação não derruba
 Duas camadas (spec 11.5; *Secure APIs*, cap. 5.1): **lockout por conta no banco** (Identity, sobrevive a
 reinício e não depende de IP) e **rate limiter em memória** por IP e por conta-alvo (`AddRateLimiter` e
 `PartitionedRateLimiter`, D-AUTH-04), que reinicia com o processo (aceito no piloto, ADR-0009). Os limites
-ficam na seção `RateLimiting` da configuração. **Pendente (antes do deploy):** Forwarded Headers aceitos só do
-Caddy; sem isso, atrás do proxy, todo cliente cai na mesma partição de IP.
+ficam na seção `RateLimiting` da configuração. O IP do cliente vem de `X-Forwarded-For` só quando o remetente
+está numa rede de `ReverseProxy:KnownNetworks` (em produção, a rede `edge` do Caddy, `172.30.10.0/24`, conforme
+`docs/operations/deploy.md`), com `ForwardLimit = 1`; o middleware roda antes do rate limit. Sem rede
+configurada, o processamento fica **desligado**: com as listas vazias o framework aceitaria o header de qualquer
+remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests`,
+`StartupConfigurationTests.WebDoesNotStartWithAnInvalidProxyNetwork`.
 
 | Operação | Chave | Limite inicial (hipótese) | Resposta |
 |---|---|---|---|

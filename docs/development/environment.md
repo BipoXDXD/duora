@@ -138,7 +138,9 @@ rode os dois a partir de `backend/`, como nos comandos deste arquivo.
 | `DataProtection:KeysDirectory` (Web) | `../.local/dataprotection-keys` | Key ring; apagá-lo derruba as sessões abertas |
 | `Email:PickupDirectory` (Worker) | `../.local/mail` | Cada e-mail de conta vira um `.eml` com o link de confirmação ou de redefinição |
 
-Sem essas chaves os processos não sobem; fora de Development, defina-as por variável de ambiente. Os e-mails só
+Sem essas chaves os processos não sobem; fora de Development, defina-as por variável de ambiente. Atrás do Caddy,
+defina também `ReverseProxy__KnownNetworks__0=172.30.10.0/24` (rede `edge`); sem ela, `X-Forwarded-For` é
+ignorado e o rate limit por IP vê só o IP do proxy. Os e-mails só
 saem com o Worker rodando: o Web grava na outbox e o Worker entrega.
 
 ## Migrations
