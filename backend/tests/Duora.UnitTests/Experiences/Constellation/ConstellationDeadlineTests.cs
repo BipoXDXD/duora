@@ -84,6 +84,21 @@ public sealed class ConstellationDeadlineTests
         }
     }
 
+    /// <summary>
+    /// A projeção mostra a própria resposta direto do estado da experiência, sem filtrar pelo status da sessão. Por
+    /// isso, se o prazo deixasse a resposta pendente no estado, ela reapareceria aqui para a própria pessoa.
+    /// </summary>
+    [Fact]
+    public void DeadlineDiscardsThePendingAnswerFromTheExperienceState()
+    {
+        var session = Act(_engine, NewSession(_engine), Ana, Choose(SundayCard, "picnic"));
+        _clock.SetUtcNow(Deadline);
+
+        var expired = Assert.IsType<Outcome.Resolved>(_engine.HandleDeadline(session, session.Version)).Session;
+
+        Assert.Null(_engine.ProjectForParticipant(expired, Ana)!.MyAnswer);
+    }
+
     [Fact]
     public void DeadlineWithoutAnyAnswerRevealsNothingAndInventsNoAnswer()
     {
