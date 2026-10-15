@@ -29,6 +29,8 @@ internal static class SafetyFixtures
     public static readonly PolicyVersion Policy = new("conduta", "2026-10");
     public static readonly PolicyVersion RevisedPolicy = new("conduta", "2026-11");
 
+    public static readonly SubjectNotice Notice = new("conduta.assedio", "Mensagens ofensivas repetidas na sala.");
+
     public static readonly TimeSpan OneWeek = TimeSpan.FromDays(7);
 
     /// <summary>Restrição automática até uma semana; qualquer medida temporária até 90 dias.</summary>
@@ -46,8 +48,12 @@ internal static class SafetyFixtures
             Policy,
             [Evidence],
             "Assédio reiterado na sala.",
+            Notice,
             author ?? new ModerationAuthor.Human(ModeratorMaria),
             duration ?? DefaultDurationFor(measure));
+
+    public static AppealRuling Ruling(string internalReason) =>
+        new(internalReason, new SubjectNotice("conduta.assedio", "Revisamos o caso a pedido seu."), RevisedPolicy);
 
     public static ModerationAction SanctionOn(
         Guid subject,

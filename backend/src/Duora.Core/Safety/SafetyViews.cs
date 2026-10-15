@@ -9,11 +9,12 @@ public sealed record ReportStatusView(
     ReportStatusForReporter Status,
     DateTimeOffset SubmittedAt);
 
-/// <summary>Projeção da medida para a pessoa sancionada.</summary>
+/// <summary>Projeção da medida para a pessoa sancionada; o motivo vem só do <see cref="SubjectNotice"/>.</summary>
 public sealed record SanctionNoticeView(
     ModerationActionId ActionId,
     ModerationMeasure Measure,
-    string Reason,
+    string ReasonCode,
+    string? NoticeText,
     PolicyVersion PolicyVersion,
     DateTimeOffset DecidedAt,
     DateTimeOffset? EffectiveUntil,
