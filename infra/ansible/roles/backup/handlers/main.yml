@@ -1,0 +1,9 @@
+---
+- name: Recarregar systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Reaplicar filtro de saída do backup
+  ansible.builtin.systemd_service:
+    name: duora-backup-egress.service
+    state: restarted

@@ -20,3 +20,8 @@ duora_state_dir: /var/lib/duora
 
 # Deploy: espaço livre mínimo para imagem nova + anterior (spec 15.1).
 duora_min_free_gib: 10
+
+# Backup (role backup, docs/operations/backup-restore.md). Subnet da rede backup-egress do compose.prod.yml.
+duora_backup_egress_subnet: 172.30.20.0/24
+# CIDRs do endpoint S3 liberados na 443. Vazio = qualquer destino na 443 até o provedor ser escolhido.
+duora_backup_s3_cidrs: []

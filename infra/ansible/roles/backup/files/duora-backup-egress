@@ -1,0 +1,31 @@
+#!/bin/sh
+# Filtro de saída da rede backup-egress (container backup e job de restore), na chain DOCKER-USER do iptables, que o
+# Docker consulta antes das próprias regras de forward. Gerenciado pelo Ansible (infra/ansible/roles/backup).
+#
+# Permite só DNS (o resolvedor embutido do Docker encaminha a consulta com o IP do container) e HTTPS para os
+# destinos de DUORA_BACKUP_S3_CIDRS (vazio = qualquer destino na 443); o resto sai em DROP. Idempotente: recria a
+# chain própria e insere o desvio uma única vez. A rede é só IPv4 (sem enable_ipv6 no compose.prod.yml).
+set -eu
+
+# shellcheck source=/dev/null  # gerado pelo Ansible no host (templates/backup-egress.env.j2)
+. /etc/duora/backup-egress.env
+: "${DUORA_BACKUP_SUBNET:?defina DUORA_BACKUP_SUBNET em /etc/duora/backup-egress.env}"
+CHAIN=DUORA-BACKUP-EGRESS
+
+iptables -w -N "$CHAIN" 2>/dev/null || true
+iptables -w -F "$CHAIN"
+iptables -w -A "$CHAIN" -p udp --dport 53 -j RETURN
+iptables -w -A "$CHAIN" -p tcp --dport 53 -j RETURN
+if [ -n "${DUORA_BACKUP_S3_CIDRS:-}" ]; then
+  for cidr in $DUORA_BACKUP_S3_CIDRS; do
+    iptables -w -A "$CHAIN" -p tcp -d "$cidr" --dport 443 -j RETURN
+  done
+else
+  iptables -w -A "$CHAIN" -p tcp --dport 443 -j RETURN
+fi
+iptables -w -A "$CHAIN" -j DROP
+
+# Só o tráfego que sai da subnet para fora dela; respostas para o container (destino na subnet) não passam aqui.
+if ! iptables -w -C DOCKER-USER -s "$DUORA_BACKUP_SUBNET" ! -d "$DUORA_BACKUP_SUBNET" -j "$CHAIN" 2>/dev/null; then
+  iptables -w -I DOCKER-USER -s "$DUORA_BACKUP_SUBNET" ! -d "$DUORA_BACKUP_SUBNET" -j "$CHAIN"
+fi

@@ -1,0 +1,12 @@
+# Gerenciado pelo Ansible (infra/ansible/roles/backup). pgbackrest check + idade do WAL e do último backup
+# (spec 19.1: alerta antes de exceder o RPO e ao falhar rotina).
+[Unit]
+Description=Duora: verificação de backup e WAL a cada 15 min
+
+[Timer]
+OnCalendar=*:0/15
+RandomizedDelaySec=60
+Unit=duora-backup@verify.service
+
+[Install]
+WantedBy=timers.target

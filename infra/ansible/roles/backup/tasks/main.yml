@@ -1,0 +1,73 @@
+---
+# Backup físico do PostgreSQL (spec 18): certificados do pgBackRest, wrapper restrito, timers systemd e o filtro de
+# saída da rede backup-egress. Manual: docs/operations/backup-restore.md.
+#
+# Os timers rodam como root do host e chegam ao container backup por "docker exec" (duora-backup). Nenhum
+# container recebe o socket do Docker, e o executor de deploy não ganha sudo para o duora-backup.
+
+- name: Gerar CA e certificados TLS do pgBackRest uma única vez (postgres → backup; nunca sobrescreve)
+  ansible.builtin.command:
+    cmd: "/usr/local/sbin/duora-secrets init-backup-tls {{ duora_secrets_dir }}"
+    creates: "{{ duora_secrets_dir }}/pgbackrest_tls_client.key"
+
+- name: Instalar o wrapper restrito do pgBackRest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../scripts/deploy/duora_backup.py"
+    dest: /usr/local/sbin/duora-backup
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Instalar o filtro de saída da rede backup-egress
+  ansible.builtin.copy:
+    src: duora-backup-egress
+    dest: /usr/local/sbin/duora-backup-egress
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Reaplicar filtro de saída do backup
+
+- name: Escrever a política de saída do backup (subnet e destinos permitidos)
+  ansible.builtin.template:
+    src: backup-egress.env.j2
+    dest: "{{ duora_config_dir }}/backup-egress.env"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reaplicar filtro de saída do backup
+
+- name: Instalar units systemd do backup (serviço por ação, timers e filtro de saída)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - duora-backup@.service
+    - duora-backup-full.timer
+    - duora-backup-diff.timer
+    - duora-backup-verify.timer
+    - duora-backup-egress.service
+  notify:
+    - Recarregar systemd
+    - Reaplicar filtro de saída do backup
+
+- name: Aplicar as units novas antes de ligar os timers
+  ansible.builtin.meta: flush_handlers
+
+- name: Ligar o filtro de saída (reaplicado a cada start do Docker)
+  ansible.builtin.systemd_service:
+    name: duora-backup-egress.service
+    enabled: true
+    state: started
+
+- name: Ligar os timers de full semanal, diferencial diário e verify a cada 15 min
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - duora-backup-full.timer
+    - duora-backup-diff.timer
+    - duora-backup-verify.timer
