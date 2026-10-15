@@ -147,6 +147,10 @@ Um termo, um significado. A coluna "No código" dá o nome usado em tipos, tabel
 | Comando de jogo | `GameCommand` | Envelope de uma ação de um participante, com `actionId` e versão esperada; deduplicado por `actionId` |
 | Ação | `IGameAction` | Payload tipado de um comando de jogo, de um conjunto fechado por experiência (ex.: escolher uma opção) |
 | Pista | `Clue` | Informação privada de um participante numa experiência; só chega ao próprio participante |
+| Cartão | `ConstellationCard` | Pergunta leve com opções aprovadas em Constelação de Escolhas; as duas pessoas recebem o mesmo cartão |
+| Pular | `SkipCard` | Ação de não responder a um cartão; o cartão passa sem mostrar a escolha de ninguém, e o resumo não indica quem pulou |
+| Revelação | `CardOutcome.Revealed` | Cartão em que as duas pessoas confirmaram uma opção (dupla confirmação); só então as duas escolhas aparecem para o par |
+| Cartão passado | `CardOutcome.Passed` | Cartão encerrado sem revelação, porque alguém pulou ou o prazo venceu; não guarda nenhuma resposta |
 | Projeção | `ParticipantView` | DTO montado por destinatário, sem pistas nem decisões de terceiros |
 | Decisão | `Decision` | Escolha privada de uma pessoa sobre interesse na outra após a sessão de jogo |
 | Interesse mútuo | — | Duas decisões `Interested` válidas do mesmo par; cria uma conexão |
