@@ -4,6 +4,7 @@
     <Project Path="src/Duora.Core/Duora.Core.csproj" />
     <Project Path="src/Duora.Infrastructure/Duora.Infrastructure.csproj" />
     <Project Path="src/Duora.Web/Duora.Web.csproj" />
+    <Project Path="src/Duora.Web.Identity/Duora.Web.Identity.csproj" />
     <Project Path="src/Duora.Worker/Duora.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">

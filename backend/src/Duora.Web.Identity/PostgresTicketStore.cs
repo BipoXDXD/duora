@@ -2,13 +2,14 @@ using System.Buffers.Text;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Duora.Core.Identity;
+using Duora.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
-namespace Duora.Infrastructure.Identity;
+namespace Duora.Web.Identity;
 
 /// <summary>
 /// <see cref="ITicketStore"/> sobre o PostgreSQL (ADR-0005): o cookie leva só uma chave aleatória de 256 bits,

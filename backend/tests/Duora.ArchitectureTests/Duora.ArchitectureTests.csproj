@@ -4,6 +4,7 @@
     <ProjectReference Include="..\..\src\Duora.Contracts\Duora.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Duora.Infrastructure\Duora.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Duora.Web\Duora.Web.csproj" />
+    <ProjectReference Include="..\..\src\Duora.Web.Identity\Duora.Web.Identity.csproj" />
     <ProjectReference Include="..\..\src\Duora.Worker\Duora.Worker.csproj" />
   </ItemGroup>
 

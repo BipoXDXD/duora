@@ -1,5 +1,5 @@
 using Duora.Core.Identity;
-using Duora.Infrastructure.Persistence;
+using Duora.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -10,9 +10,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Npgsql;
 
-namespace Duora.Infrastructure.Identity;
+namespace Duora.Web.Identity;
 
 /// <summary>Nomes do esquema de autenticação por cookie (ADR-0005).</summary>
 public static class DuoraAuthentication
@@ -44,26 +43,25 @@ internal sealed class DataProtectionStorageOptions
     public string KeysDirectory { get; set; } = "";
 }
 
-public static class IdentityServiceCollectionExtensions
+public static class WebIdentityServiceCollectionExtensions
 {
     /// <summary>
-    /// ASP.NET Core Identity, cookie de sessão com ticket no PostgreSQL e Data Protection com key ring persistido.
-    /// O host não sobe sem <c>DataProtection:KeysDirectory</c>.
+    /// Identidade do processo web: as contas da Infrastructure, mais SignInManager, token providers do Data
+    /// Protection, cookie de sessão com ticket no PostgreSQL e Data Protection com key ring persistido. O host não
+    /// sobe sem <c>DataProtection:KeysDirectory</c>.
     /// </summary>
-    public static IServiceCollection AddDuoraIdentity(this IServiceCollection services)
+    public static IServiceCollection AddDuoraWebIdentity(this IServiceCollection services)
     {
         services.AddDuoraDataProtection();
 
-        services.AddIdentityCore<DuoraUser>(ConfigureIdentity)
-            .AddRoles<IdentityRole<Guid>>()
-            .AddEntityFrameworkStores<DuoraDbContext>()
+        services.AddDuoraAccounts()
             .AddSignInManager()
             .AddDefaultTokenProviders()
-            .AddTokenProvider<PasswordResetTokenProvider>(PasswordResetTokenProvider.ProviderName);
+            .AddTokenProvider<PasswordResetTokenProvider>(AccountTokenProviders.PasswordReset);
         services.Configure<DataProtectionTokenProviderOptions>(o => o.TokenLifespan = TimeSpan.FromHours(24));
         services.Configure<PasswordResetTokenProviderOptions>(o =>
         {
-            o.Name = PasswordResetTokenProvider.ProviderName;
+            o.Name = AccountTokenProviders.PasswordReset;
             o.TokenLifespan = TimeSpan.FromMinutes(30);
         });
 
@@ -84,51 +82,18 @@ public static class IdentityServiceCollectionExtensions
                 });
         }
 
-        services.AddSingleton(provider => new LoginSessions(
-            provider.GetRequiredService<NpgsqlDataSource>(),
-            provider.GetRequiredService<TimeProvider>(),
-            SessionLifetime.Participant));
         services.AddSingleton<ITicketStore, PostgresTicketStore>();
-        services.AddOptions<AccountLifecycleOptions>()
-            .BindConfiguration(AccountLifecycleOptions.Section)
-            .Validate(o => o.IsValid(), "Identity: PendingAccountLifetime precisa ser positivo, e os tempos do login com falha não podem ser negativos.")
+        services.AddOptions<LoginTimingOptions>()
+            .BindConfiguration(LoginTimingOptions.Section)
+            .Validate(o => o.IsValid(), "Identity: os tempos do login com falha não podem ser negativos.")
             .ValidateOnStart();
-        services.AddSingleton<DecoyPasswordHash>();
-        services.AddScoped(provider => new AccountService(
-            provider.GetRequiredService<DuoraDbContext>(),
+        services.AddScoped(provider => new CredentialVerifier(
             provider.GetRequiredService<UserManager<DuoraUser>>(),
             provider.GetRequiredService<SignInManager<DuoraUser>>(),
-            provider.GetRequiredService<LoginSessions>(),
             provider.GetRequiredService<DecoyPasswordHash>(),
-            provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<IOptions<LoginTimingOptions>>()));
 
         return services;
-    }
-
-    private static void ConfigureIdentity(IdentityOptions options)
-    {
-        // NIST SP 800-63B: só comprimento (o teto de 128 é aplicado na fronteira, pela mesma PasswordPolicy).
-        options.Password.RequiredLength = PasswordPolicy.MinLength;
-        options.Password.RequiredUniqueChars = 1;
-        options.Password.RequireDigit = false;
-        options.Password.RequireLowercase = false;
-        options.Password.RequireUppercase = false;
-        options.Password.RequireNonAlphanumeric = false;
-
-        // O nome de usuário é o e-mail, já validado na fronteira; a lista padrão de caracteres recusaria e-mails válidos.
-        options.User.AllowedUserNameCharacters = "";
-        options.User.RequireUniqueEmail = true;
-        options.SignIn.RequireConfirmedEmail = true;
-
-        // Bloqueio temporário e silencioso (a resposta é a mesma de senha errada). O limite alto e a janela curta
-        // evitam que um atacante tranque a conta de alguém com poucas tentativas; o freio principal contra força
-        // bruta é o rate limit por conta e por IP (ADR-0019).
-        options.Lockout.AllowedForNewUsers = true;
-        options.Lockout.MaxFailedAccessAttempts = 20;
-        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-
-        options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProvider.ProviderName;
     }
 
     private static void ConfigureCookie(CookieAuthenticationOptions options)
@@ -184,7 +149,4 @@ internal sealed class PasswordResetTokenProvider(
     IDataProtectionProvider dataProtectionProvider,
     IOptions<PasswordResetTokenProviderOptions> options,
     ILogger<DataProtectorTokenProvider<DuoraUser>> logger)
-    : DataProtectorTokenProvider<DuoraUser>(dataProtectionProvider, options, logger)
-{
-    public const string ProviderName = "PasswordReset";
-}
+    : DataProtectorTokenProvider<DuoraUser>(dataProtectionProvider, options, logger);

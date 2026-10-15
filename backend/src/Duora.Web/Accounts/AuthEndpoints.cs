@@ -2,12 +2,13 @@ using System.Security.Claims;
 using Duora.Contracts.Identity;
 using Duora.Infrastructure.Identity;
 using Duora.Web.Http;
+using Duora.Web.Identity;
 using Duora.Web.Security;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http.HttpResults;
 
-namespace Duora.Web.Identity;
+namespace Duora.Web.Accounts;
 
 /// <summary>
 /// Rotas públicas de autenticação (API-A01 a API-A07). "Pública" não dispensa CSRF, rate limit nem resposta
@@ -102,7 +103,7 @@ internal static class AuthEndpoints
     private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> LoginAsync(
         LoginRequest request,
         HttpContext context,
-        AccountService accounts,
+        CredentialVerifier credentials,
         AccountAttemptLimiter limiter,
         IAntiforgery antiforgery,
         CancellationToken cancellationToken)
@@ -120,7 +121,7 @@ internal static class AuthEndpoints
             return ApiProblems.TooManyRequests(context, retryAfter);
         }
 
-        switch (await accounts.VerifyCredentialsAsync(email, password, cancellationToken))
+        switch (await credentials.VerifyAsync(email, password, cancellationToken))
         {
             case LoginOutcome.Verified verified:
                 await StartSessionAsync(context, antiforgery, verified.Account);

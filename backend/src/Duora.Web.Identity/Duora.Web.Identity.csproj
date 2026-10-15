@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Adaptador de identidade do processo web (ADR-0019, "Revisão: separação do runtime web"): cookie, ticket
+       store, SignInManager, token providers e Data Protection, tudo o que exige o framework do ASP.NET Core.
+       Só o Duora.Web referencia este projeto (verificado em Duora.ArchitectureTests); o Worker fica no runtime
+       .NET puro. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Duora.Core\Duora.Core.csproj" />
+    <ProjectReference Include="..\Duora.Infrastructure\Duora.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

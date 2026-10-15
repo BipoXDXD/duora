@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 using Duora.Infrastructure;
-using Duora.Infrastructure.Identity;
+using Duora.Web.Accounts;
 using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Security;
@@ -40,7 +40,7 @@ internal static class DuoraWebApp
         builder.Services.AddOpenApi();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddInfrastructure(builder.Configuration);
-        builder.Services.AddDuoraIdentity();
+        builder.Services.AddDuoraWebIdentity();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
         // Negar por padrão: toda rota exige sessão, e as públicas declaram AllowAnonymous.

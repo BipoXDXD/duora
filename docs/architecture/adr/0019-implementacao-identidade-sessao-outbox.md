@@ -31,9 +31,9 @@ Alternativas consideradas:
 
 Vamos implementar assim:
 
-1. **Onde.** O adaptador de Identity (modelo, ticket store, casos de uso de conta) fica na Infrastructure, que
-   passa a referenciar o framework compartilhado do ASP.NET Core; o worker herda essa referência e roda no
-   mesmo runtime do web. O Web só expõe rotas, CSRF e rate limit.
+1. **Onde.** Revisado: ver [Revisão: separação do runtime web](#revisão-separação-do-runtime-web). Os casos
+   de uso de conta e a persistência ficam na Infrastructure, sem o framework do ASP.NET Core; cookie, ticket
+   store, SignInManager e Data Protection ficam no `Duora.Web.Identity`. O Web expõe rotas, CSRF e rate limit.
 2. **Sessão.** `login_sessions` absorve `auth_tickets` (spec 10.2): são 1:1 e têm a mesma vida. O cookie leva
    uma chave aleatória de 256 bits; o banco guarda só o SHA-256 dela e o ticket protegido por Data Protection.
    Cada requisição autenticada executa um único `UPDATE ... RETURNING` que confere revogação, expiração ociosa
@@ -82,6 +82,52 @@ Vamos implementar assim:
 Porquê técnico: revogação imediata com uma consulta por requisição, nenhuma credencial legível pelo
 JavaScript, nenhum e-mail perdido ou duplicado entre banco e envio. Porquê de negócio: conta e sessão
 controladas pelo produto, sem fornecedor de identidade e sem atrito extra para o participante.
+
+## Revisão: separação do runtime web
+
+**Contexto.** A primeira versão pôs o adaptador de Identity na Infrastructure com `FrameworkReference` ao
+`Microsoft.AspNetCore.App`. O Worker depende da Infrastructure e herdou o framework: o `runtimeconfig` dele passou a
+exigir `Microsoft.AspNetCore.App`, e na imagem `dotnet/runtime` do deploy ele não iniciaria. Trocar a base do
+Worker para `aspnet` resolveria a imagem, mas daria ao Worker um runtime web que ele não usa (mais superfície e
+uma dependência escondida). O responsável técnico decidiu separar.
+
+O que exige o runtime web: o ticket store (`ITicketStore`, cookie, `HttpContext`), o `SignInManager`, os token
+providers do Data Protection e o próprio Data Protection. O resto do Identity (`IdentityDbContext`, `UserManager`,
+`PasswordHasher`) vem de pacotes NuGet e roda no runtime puro.
+
+A fronteira difícil é o cadastro, que grava conta, aceites e outbox na mesma transação sem expor o `DbContext`.
+Duas formas, comparadas pelo custo de uso no código de cima (CLAUDE.md, Qualidade 34):
+
+- **Opção 1: `InternalsVisibleTo` restrito ao projeto novo**, que passaria a conter os casos de uso de conta e a
+  usar o `DbContext`, as entidades da outbox e o SQL da Infrastructure. Uso barato para quem escreve o caso de uso
+  (acesso direto a tudo), mas a persistência passa a ter dois donos: o SQL do upsert, os comandos condicionais
+  do stamp e a gravação na outbox sairiam do assembly que é dono do schema, e o compilador deixaria de impedir
+  que o adaptador web escreva em qualquer tabela.
+- **Opção 2: interface estreita, e escolhida.** Os casos de uso que precisam da transação (cadastro, confirmação,
+  reset, consulta da conta) continuam na Infrastructure, no `AccountService`, que usa só o `UserManager` e o
+  `DbContext`. O adaptador web chama esse módulo profundo e o `LoginSessions` pelas APIs públicas que já existiam.
+  O único acréscimo de superfície são os métodos do `LoginSessions` que o ticket store usa e o `DecoyPasswordHash`.
+  Para o código de cima, o custo é o mesmo de antes: os endpoints continuam chamando `AccountService`; só o login
+  passa a chamar `CredentialVerifier`, porque usa o `SignInManager`.
+
+**Decisão.** Vamos usar a opção 2. O projeto novo se chama `Duora.Web.Identity`: é o adaptador de identidade do
+processo web, e o nome deixa claro que só o host web o usa. A pasta de endpoints de conta do `Duora.Web` passa a
+`Duora.Web.Accounts`, para não repetir o namespace do projeto novo. Infrastructure registra as contas com
+`AddDuoraAccounts()`, que devolve o `IdentityBuilder`; o `Duora.Web.Identity` completa com
+`AddDuoraWebIdentity()`: SignInManager, token providers, cookie, ticket store e Data Protection. O Worker volta à
+imagem `dotnet/runtime` chiseled, fixada por digest.
+
+**Consequências.** O Worker roda sem o runtime web, e a transação do cadastro não sai do dono do schema. O
+`AccountService` emite tokens com providers que só o host web registra; num host sem eles, emitir link falha alto
+(nenhum host além do web usa o `AccountService`). O login ficou num tipo separado do resto dos casos de uso de
+conta.
+
+**Compliance.** `Duora.ArchitectureTests.RuntimeSeparationTests`, todos vistos falhando com a regra sabotada:
+- Infrastructure, Worker, Core e Contracts não referenciam assembly do framework `Microsoft.AspNetCore.App`;
+- só o `Duora.Web` referencia o `Duora.Web.Identity`;
+- o `runtimeconfig.json` do Worker exige só `Microsoft.NETCore.App`.
+
+O smoke local da release (`scripts/deploy/smoke_local.py`) sobe o Worker na imagem real.
 
 ## Consequências
 
