@@ -75,7 +75,8 @@ solta o lock se o processo morrer).
    só vão para `releases/` depois do smoke (passo 10).
 4. `pull` de todas as imagens por digest e conferência da arquitetura de cada uma.
 5. Garante o PostgreSQL e o `backup` (repository host do pgBackRest) saudáveis (`up --wait postgres backup`) e
-   roda `/usr/local/sbin/duora-backup verify`: `pgbackrest check` (o segmento atual chega ao repositório),
+   roda `/usr/local/sbin/duora-backup verify`: filtro de saída do `backup` no iptables, bucket com versionamento +
+   Object Lock (ADR-0023), `pgbackrest check` (o segmento atual chega ao repositório),
    `pgbackrest info` sem erro, último WAL confirmado há no máximo 300 s (RPO), arquivamento sem falha pendente e
    último backup há no máximo 48 h. Falhou, o deploy para sem ter parado nada. Depois lê a última migration
    aplicada, **antes de parar qualquer serviço**. Banco vazio ou atrás de `schema.max`: deploy normal. Banco à frente de `schema.max`: só
@@ -184,11 +185,12 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
 
 ### Primeira configuração do host
 
-1. Grave os segredos do repositório de backup (`pgbackrest_repo.conf`, `pgbackrest_cipher.conf`;
-   [backup-restore.md](backup-restore.md#segredos-do-repositório-operador-uma-vez)). Depois o `ansible-playbook`
-   (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração, segredos do banco
-   (`duora-secrets init`), segredos do backup (`duora-secrets init-backup`) e os timers de backup;
-   nada disso sobrescreve o que já existe.
+1. O `ansible-playbook` (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração,
+   segredos do banco (`duora-secrets init`), segredos do backup (`duora-secrets init-backup`) e os timers de backup;
+   nada disso sobrescreve o que já existe. Depois grave os segredos do repositório de backup
+   (`pgbackrest_repo.conf`, `pgbackrest_cipher.conf`;
+   [backup-restore.md](backup-restore.md#segredos-do-repositório-operador-uma-vez)) no `/etc/duora/secrets` que o
+   playbook criou.
 2. O primeiro deploy é do operador, com `--accept-missing-backup-check` (a stanza ainda não existe), seguido de
    `duora-backup stanza-create`, `full` e `verify` ([backup-restore.md](backup-restore.md#primeira-configuração)).
    Ele cria os volumes; o PostgreSQL roda `10-duora-roles.sh` e `20-duora-config.sh` uma única vez e cria
