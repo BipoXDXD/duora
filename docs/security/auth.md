@@ -241,16 +241,20 @@ comando do cliente falha no `RetrieveAsync` (spec 9.2; T-14).
 
 | Item | Especificação (spec 11.2, 15.4; D-AUTH-02) |
 |---|---|
-| Persistência | Repositório em arquivo no diretório de `DataProtection:KeysDirectory` (em dev, `.local/dataprotection-keys/`, fora do git). Em produção, volume persistente restrito (`0700`, dono = usuário do container web), fora da camada gravável do container |
+| Persistência | Repositório em arquivo no diretório de `DataProtection:KeysDirectory` (em dev, `.local/dataprotection-keys/`, fora do git). Em produção, volume nomeado `dataprotection` (`0700`, dono = usuário do container web), fora da camada gravável do container. O boot confere em `/proc/self/mountinfo` que o diretório é ponto de montagem de um volume (nem `overlay`, nem `tmpfs`/`ramfs`); `DataProtection:RequireMountedVolume=false` só em Development, nos testes e na geração do OpenAPI |
 | Proteção em repouso | **Pendente (M3):** `ProtectKeysWithCertificate` com certificado lido de arquivo de segredo; persistir não é criptografar |
 | Nome da aplicação | `SetApplicationName("Duora")`, estável entre deploys. **Pendente (M3):** nome por ambiente; hoje homologação e produção se separam por volumes e certificados diferentes |
-| Vida da chave | Padrão do framework (90 dias) com rotação automática; chaves antigas mantidas enquanto houver payload válido (cookies de no máximo 12 h, tokens de no máximo 24 h) |
+| Vida da chave | 90 dias (`SetDefaultKeyLifetime`, igual ao padrão, explícito) com rotação automática; o framework nunca apaga chave antiga, então ela continua lendo o que protegeu (cookies de no máximo 12 h, tokens de no máximo 24 h) |
 | Worker | Não recebe o key ring de cookies; usa referências de conta e jobs. Se um dia precisar desproteger algo, usa purpose próprio e o ADR registra |
 | Backup | Key ring e certificado no inventário de backup, com custódia separada do backup do banco (spec 18.3) |
-| Startup | Web falha ao subir sem `DataProtection:KeysDirectory` (teste `WebDoesNotStartWithoutAPersistentKeyRing`); exigir o certificado entra com o M3 (spec 11.4) |
+| Startup | Web falha ao subir sem `DataProtection:KeysDirectory` (`WebDoesNotStartWithoutAPersistentKeyRing`) ou com ele fora de um volume montado (`WebDoesNotStartWithTheKeyRingOutsideAMountedVolume`, `KeyRingMountTests`); exigir o certificado entra com a proteção em repouso (spec 11.4) |
 | Comprometimento | Novo key ring, revogação de todas as sessões e invalidação de tokens pendentes |
 
-Teste: T-15 (recriar container mantém sessões válidas; rotação não derruba sessões dentro da política).
+Teste: T-15. `KeyRingRecoveryTests` recria o host sobre o mesmo banco: com o mesmo diretório a sessão continua
+válida; depois de uma rotação a chave antiga segue lendo a sessão e a nova protege o que é novo; com diretório vazio
+ou chaves revogadas a sessão termina em `401 UNAUTHENTICATED`, nunca `500`, e um login novo funciona.
+`ComposeFileTests` confere que o diretório do `compose.prod.yml` é o volume montado só no web, e o smoke local
+recria o container web e confere que um token antiforgery emitido antes continua válido.
 
 ## Rate limit e lockout
 
@@ -350,7 +354,7 @@ sem artefato do CI (spec 25.19).
 | Revogação (A05, A10, troca de senha, reset) e fechamento do hub | A05, A10 e reset implementados; troca de senha e hub pendentes | `SessionTests` (T-14, parte HTTP), `PasswordResetTests` | feat/m1-identity |
 | Anti-enumeração (resposta e tempo) | implementado | `RegistrationTests`, `LoginTests`, `PasswordResetTests`, `EnumerationTimingTests` | feat/m1-identity |
 | Pré-sequestro de conta (TM-66) | implementado | `AccountTakeoverTests` | feat/m1-identity |
-| Data Protection persistente e protegido | persistente; proteção em repouso pendente (M3) | `StartupConfigurationTests.WebDoesNotStartWithoutAPersistentKeyRing` | feat/m1-identity |
+| Data Protection persistente e protegido | persistente, com volume exigido no boot (T-15); proteção em repouso pendente de decisão | `StartupConfigurationTests`, `KeyRingRecoveryTests`, `KeyRingMountTests`, `ComposeFileTests` | feat/m1-dataprotection-t15 |
 | Rate limit e lockout | implementado | `LoginTests`, `RegistrationTests` | feat/m1-identity |
 | Contrato A01 a A16 no OpenAPI gerado | A01 a A10 publicados; A11 a A16 pendentes | `docs/api/openapi.json` | feat/m1-identity |
 
@@ -379,3 +383,6 @@ sem artefato do CI (spec 25.19).
     piso de latência.
   - API-A03 passa a exigir `password` (`{userId, token, password}`), fechando a ordem inversa do pré-sequestro
     (vítima cadastra, atacante cadastra, vítima clica no link do atacante); 5 falhas invalidam o link.
+- **2026-10-15, feat/m1-dataprotection-t15.** T-15: o web não sobe com o key ring fora de um volume montado
+  (`/proc/self/mountinfo`); vida da chave explícita em 90 dias; testes de recriação, rotação, key ring vazio e
+  revogado. Proteção em repouso e nome por ambiente continuam pendentes, à espera de decisão.

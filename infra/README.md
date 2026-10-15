@@ -157,8 +157,8 @@ cada mudança de rede (spec 15.2), não a leitura das regras.
 - **OpenTelemetry Collector** local e destino externo de monitoramento, com orçamento de 256 MiB (spec 19).
 - **Tudo que depende da VPS**: escolher provedor e arquitetura, OpenTofu para VPS/firewall/DNS, executar o playbook
   (idempotência ainda não provada em host real), varredura externa de portas, certificado ACME real, homologação.
-- **Backend** (fora deste PR): Data Protection com chaves protegidas em repouso e nome de aplicação estável
-  (spec 11.2; hoje persiste no volume em `$HOME/.aspnet/DataProtection-Keys`, sem criptografia); Forwarded Headers
+- **Backend** (fora deste PR): Data Protection com chaves protegidas em repouso e nome de aplicação por ambiente
+  (spec 11.2; hoje persiste no volume em `$HOME/.aspnet/DataProtection-Keys`, exigido no boot, sem criptografia); Forwarded Headers
   confiando só no Caddy (spec 11.3; subnet da rede `edge` em `docs/operations/deploy.md`); recusa de boot com
   schema fora de `min..max`.
 - **Dependabot** para as imagens em `infra/images/*` (área protegida, PR próprio).
