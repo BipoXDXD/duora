@@ -1,0 +1,48 @@
+# Atualizações de dependências (spec 14.2, D-CI-02). Área protegida (spec 14.3).
+# Política: patches agrupados num PR por ecossistema; minor e major chegam em PRs individuais.
+# Nada aqui habilita auto-merge: major nunca é silencioso, e auto-merge exige política explícita à parte.
+version: 2
+
+updates:
+  # Central Package Management: as versões ficam em Directory.Packages.props, na raiz.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    # Espera a versão nova amadurecer antes de propor (reduz risco de pacote comprometido recém-publicado).
+    cooldown:
+      default-days: 7
+    groups:
+      nuget-patches:
+        update-types: [patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      npm-patches:
+        update-types: [patch]
+
+  # Atualiza o SHA fixado e o comentário de versão das actions.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-patches:
+        update-types: [patch]
+
+  - package-ecosystem: docker-compose
+    directory: /infra/compose
+    schedule:
+      interval: weekly
+    groups:
+      compose-patches:
+        update-types: [patch]
+    ignore:
+      # Major do PostgreSQL é procedimento de upgrade de dados (pg_upgrade/dump), não troca de tag.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
