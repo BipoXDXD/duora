@@ -53,15 +53,26 @@ Vamos implementar assim:
    lockout do Identity fica alto e curto (20 falhas seguidas, 15 minutos) e silencioso: a resposta é a mesma da
    senha errada. O reset de senha zera o bloqueio.
 6. **Anti-enumeração.** Cadastro e pedido de reset respondem 202 com corpo vazio; login responde o mesmo 401
-   `INVALID_CREDENTIALS` para conta inexistente, senha errada, e-mail não confirmado e conta bloqueada, e gasta
-   o tempo de um hash nos caminhos que não calculariam nenhum.
+   `INVALID_CREDENTIALS` para conta inexistente, senha errada, e-mail não confirmado e conta bloqueada. Contra o
+   canal de tempo, iguala-se o trabalho em vez de processar o cadastro no worker: cadastro e pedido de reset
+   executam os mesmos comandos SQL, o mesmo número de hashes e uma linha de outbox em todos os casos (o reset
+   passa a mandar e-mail também para endereço sem conta); no login, toda falha custa um hash e só responde depois
+   de um piso de 350 ms com jitter, que encobre a gravação da falha feita só na senha errada de conta existente.
+   O cadastro assíncrono no worker foi descartado porque o worker precisaria do key ring do web para emitir o
+   token de confirmação (spec 11.2).
 7. **E-mail.** Cadastro e reset gravam o pedido de e-mail na outbox (`ops.outbox_events` e
    `ops.outbox_deliveries`) na mesma transação. O worker toma lotes com `FOR UPDATE SKIP LOCKED` e lease, envia
    fora da transação e só encerra a entrega se o token de fencing for o atual **e** o lease ainda valer. O id da
    entrega é a chave de idempotência do envio. O token vai no payload e o payload é esvaziado quando a entrega
-   termina. Os links levam `userId` e `token` no fragmento (`#`), que não vai ao servidor nem ao `Referer`; o prazo de entrega (12 h para confirmação, 15 min para reset, cujo token vale 30 min) fica abaixo da validade do token.
+   termina. Os links levam `userId` e `token` no fragmento (`#`), que não vai ao servidor nem ao `Referer`; o
+   prazo de entrega (12 h para confirmação, 15 min para reset, cujo token vale 30 min) fica abaixo da validade
+   do token.
 8. **Data Protection.** Nome de aplicação estável e key ring no diretório de `DataProtection:KeysDirectory`,
    obrigatório no boot. Só o web usa Data Protection.
+9. **Cadastro pendente (pré-sequestro, TM-66).** O cadastro é um upsert atômico no e-mail normalizado: conta
+   pendente é substituída (senha, aceites, stamp e data), conta confirmada fica intacta. O pendente expira em
+   72 h; reset de senha não serve a conta pendente nem confirma o e-mail. O nome de usuário segue o e-mail por
+   `CHECK`, e só o índice do e-mail é único, porque o upsert arbitra um índice só.
 
 Porquê técnico: revogação imediata com uma consulta por requisição, nenhuma credencial legível pelo
 JavaScript, nenhum e-mail perdido ou duplicado entre banco e envio. Porquê de negócio: conta e sessão
