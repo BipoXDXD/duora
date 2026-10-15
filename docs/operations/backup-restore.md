@@ -303,7 +303,8 @@ python3 scripts/backup/restore_drill.py --image duora-postgres:drill
 5. Confere `before` = 100 e `after` = 0, timeline ≥ 2, e `duora-backup verify` de novo.
 
 **RTO observado** = da destruição até os dados conferidos. Saída em JSON (`--report arquivo.json`); `--keep`
-mantém o ambiente. O CI roda o drill no job `images` (amd64 e arm64).
+mantém o ambiente. Sem `--keep`, o drill apaga o diretório temporário dele (segredos sintéticos com dono 999) por um
+container root da própria imagem e **falha** se algo sobrar. O CI roda o drill no job `images` (amd64 e arm64).
 
 | Data | Ambiente | RPO observado | RTO observado | Observação |
 |---|---|---|---|---|
