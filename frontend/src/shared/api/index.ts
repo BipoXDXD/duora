@@ -1,8 +1,9 @@
 import { createApiClient, type JsonRequest } from './api-client'
 import { readAntiforgeryTokenFromCookies } from './antiforgery'
-import { refreshAntiforgeryToken, sendWithFreshAntiforgeryToken } from './antiforgery-refresh'
+import { sendWithFreshAntiforgeryToken } from './antiforgery-refresh'
 
 export type { ApiClient, ApiFetch, HttpMethod, JsonRequest } from './api-client'
+export { refreshAntiforgeryToken } from './antiforgery-refresh'
 export { ApiError, ApiNetworkError, ApiProblemError, ApiResponseError } from './api-errors'
 export type { ProblemDetails } from './problem-details'
 export { classifyRequestFailure, isUnauthorized, type RequestFailure } from './request-failure'
@@ -14,11 +15,6 @@ export const apiClient = createApiClient({
   readAntiforgeryToken: () => readAntiforgeryTokenFromCookies(document.cookie),
   now: () => Date.now(),
 })
-
-/** Renova o token antiforgery do navegador (depois de login e logout). */
-export function renewAntiforgeryToken(): Promise<void> {
-  return refreshAntiforgeryToken(apiClient)
-}
 
 /** Envia uma mutação sem corpo de resposta, sempre com token antiforgery recém-emitido. */
 export function sendMutation(request: JsonRequest): Promise<void> {

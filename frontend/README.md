@@ -57,7 +57,7 @@ falha de rede (`ApiNetworkError`), com `retryAfterSeconds` lido do `Retry-After`
 `QueryClient` repete só leituras com falha transitória e nunca mutações.
 
 `sendMutation` pede `GET /api/v1/auth/csrf` antes de cada mutação, para nunca enviar o token de outra
-identidade, e `renewAntiforgeryToken` renova o token depois de login e logout. Respostas de API passam
+identidade, e `refreshAntiforgeryToken(apiClient)` renova o token depois de login e logout. Respostas de API passam
 por Zod na fronteira (`*-api.ts` de cada feature); nada de `as T`.
 
 Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescript e o cliente será
