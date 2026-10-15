@@ -103,8 +103,9 @@ do commit pode concluir: é o limite aceito pela spec 1.2 ("impedir após o bloq
 `lock_timeout` de 2 s, cria as guardas que faltam (`INSERT ... ON CONFLICT DO NOTHING`, na ordem de UUID), tranca
 as duas guardas em ordem de UUID, insere o bloqueio com `ON CONFLICT (blocker_id, blocked_id) DO NOTHING` e, só
 se a linha é nova, incrementa `security_version` das duas guardas e grava `safety.block_created` em
-`ops.audit_events`; commit. Repetir o bloqueio não muda nada. Alvo inexistente não abre transação nem grava
-nada. Leitura: `CheckInteractionAsync`, bilateral, sem lock. Testes: `BlockConcurrencyTests` (barreira com as
+`ops.audit_events`; commit. Repetir o bloqueio não muda nada. Alvo inexistente percorre os mesmos comandos (sem
+guarda para ele, o insert condicionado à guarda do alvo não grava nada), para o tempo de resposta não revelar se
+a conta existe (TM-24; `BlockSideChannelTests`). Leitura: `CheckInteractionAsync`, bilateral, sem lock. Testes: `BlockConcurrencyTests` (barreira com as
 guardas trancadas por um terceiro, bloqueios cruzados sem deadlock, corrida livre repetida) e
 `InteractionCheckTests`.
 
