@@ -49,6 +49,8 @@ DRILL_FILE = REPO_ROOT / "scripts" / "backup" / "compose.drill.yml"
 BACKUP_SCRIPT = REPO_ROOT / "scripts" / "deploy" / "duora_backup.py"
 PROJECT = "duora-drill"
 BUCKET = "duora-drill"
+# Como a produção exige (ADR-0023): Object Lock com retenção padrão que cobre a janela de 21 dias.
+BUCKET_LOCK = ("COMPLIANCE", "21d")
 ROWS_PER_PHASE = 100
 # Espera entre as escritas e o ponto de recuperação: o alvo cai com folga entre os dois commits.
 TARGET_MARGIN_SECONDS = 2
@@ -174,7 +176,6 @@ class Drill:
             "DUORA_HTTPS_PORT": "0",
             "DRILL_S3_KEY": s3_key,
             "DRILL_S3_SECRET": s3_secret,
-            "DRILL_S3_BUCKET": BUCKET,
             "DRILL_CERTS_DIR": str(certs_dir),
         })
         self._env_file.write_text("".join(f"{key}={value}\n" for key, value in env.items()), encoding="utf-8")
@@ -183,7 +184,15 @@ class Drill:
         # Sobra de um --keep anterior (volume com banco velho) invalidaria o drill.
         _run(self._compose + ["down", "--volumes", "--remove-orphans"], capture=True)
         _run(self._compose + ["up", "--detach", "--wait", "s3", "internet"])
+        self._create_locked_bucket()
         _run(self._compose + ["up", "--detach", "--wait", "--no-deps", "postgres", "backup"])
+
+    def _create_locked_bucket(self) -> None:
+        # Versionamento + Object Lock: sem eles o duora-backup verify recusa o repositório.
+        mode, retention = BUCKET_LOCK
+        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "mb", "--with-lock", f"local/{BUCKET}"], capture=True)
+        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "retention", "set", "--default", mode, retention,
+                              f"local/{BUCKET}"], capture=True)
 
     @staticmethod
     def _write_secrets(secrets_dir: Path, s3_key: str, s3_secret: str) -> None:

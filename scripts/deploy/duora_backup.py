@@ -27,14 +27,17 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
+import hmac
 import ipaddress
 import json
 import re
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ElementTree
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator, Protocol
 
@@ -60,6 +63,13 @@ QUERY_TIMEOUT_SECONDS = 5 * 60
 # Política do filtro de saída (infra/ansible/roles/backup): a subnet da rede backup-egress e a chain que a filtra.
 EGRESS_ENV = Path("/etc/duora/backup-egress.env")
 EGRESS_CHAIN = "DUORA-BACKUP-EGRESS"
+# Proteção contra exclusão (spec 18.3, ADR-0023): versionamento + Object Lock com retenção padrão que cubra a janela
+# máxima de retenção (21 dias, docs/operations/backup-restore.md). Sem isso o verify falha.
+MIN_OBJECT_LOCK_DAYS = 21
+DAYS_PER_YEAR = 365
+REPO_CONF_IN_CONTAINER = "/etc/pgbackrest/conf.d/repo.conf"
+SYSTEM_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
+EMPTY_PAYLOAD_SHA256 = hashlib.sha256(b"").hexdigest()
 
 _PGBACKREST_ARGS = {
     "stanza-create": ["stanza-create"],
@@ -87,8 +97,8 @@ class ArchiverStatus:
 
 
 class Runner(Protocol):
-    def __call__(self, command: list[str], *, capture: bool = False,
-                 timeout_seconds: int = QUERY_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]: ...
+    def __call__(self, command: list[str], *, capture: bool = False, timeout_seconds: int = QUERY_TIMEOUT_SECONDS,
+                 stdin: str | None = None) -> subprocess.CompletedProcess[str]: ...
 
 
 # --- Saúde do backup (decisão pura) ---------------------------------------------------------------------------------
@@ -392,7 +402,9 @@ def run_action(action: str, run: Runner, *, project: str, state_dir: Path, egres
         _step("AVISO: filtro de saída NÃO conferido (--skip-egress-check, só para o drill local)")
     else:
         _check_egress_filter(run, egress_env)
-    _verify(run, _find_backup(run, project))
+    container = _find_backup(run, project)
+    _check_bucket_protection(run, container, clock())
+    _verify(run, container)
     _record_verify_success(state_dir, clock())
 
 
@@ -469,6 +481,174 @@ def _verify(run: Runner, container: str) -> None:
     if problems:
         raise BackupError("backup/WAL não saudável:\n  - " + "\n  - ".join(problems))
     _step("backup e WAL saudáveis")
+
+
+# --- Proteção do bucket contra exclusão -----------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class S3Settings:
+    """O que o pgBackRest usa para chegar ao bucket (pgbackrest_repo.conf), com os padrões dele."""
+    endpoint: str
+    bucket: str
+    region: str
+    key: str
+    secret: str = field(repr=False)
+    path_style: bool = False
+    port: int = 443
+    ca_file: str = SYSTEM_CA_BUNDLE
+
+    @property
+    def host(self) -> str:
+        return self.endpoint if self.path_style else f"{self.bucket}.{self.endpoint}"
+
+    @property
+    def host_header(self) -> str:
+        return self.host if self.port == 443 else f"{self.host}:{self.port}"
+
+    @property
+    def bucket_path(self) -> str:
+        return f"/{self.bucket}" if self.path_style else "/"
+
+
+def parse_repo_settings(text: str) -> S3Settings:
+    """Lê repo1-* do pgbackrest_repo.conf; falta de campo obrigatório é erro (fail closed)."""
+    values = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith(("#", "[")) and "=" in line:
+            name, value = line.split("=", 1)
+            values[name.strip()] = value.strip()
+    required = ("repo1-s3-endpoint", "repo1-s3-bucket", "repo1-s3-region", "repo1-s3-key", "repo1-s3-key-secret")
+    missing = [name for name in required if not values.get(name)]
+    if missing:
+        raise BackupError(f"pgbackrest_repo.conf sem {', '.join(missing)}")
+    try:
+        port = int(values.get("repo1-storage-port", "443"))
+    except ValueError as error:
+        raise BackupError("pgbackrest_repo.conf com repo1-storage-port inválido") from error
+    return S3Settings(endpoint=values["repo1-s3-endpoint"], bucket=values["repo1-s3-bucket"],
+                      region=values["repo1-s3-region"], key=values["repo1-s3-key"],
+                      secret=values["repo1-s3-key-secret"], path_style=values.get("repo1-s3-uri-style") == "path",
+                      port=port, ca_file=values.get("repo1-storage-ca-file", SYSTEM_CA_BUNDLE))
+
+
+def signed_bucket_request(settings: S3Settings, subresource: str, now: float) -> str:
+    """GET de um sub-recurso do bucket (?versioning, ?object-lock) assinado com AWS Signature Version 4."""
+    amz_date = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
+    scope = f"{amz_date[:8]}/{settings.region}/s3/aws4_request"
+    headers = {"host": settings.host_header, "x-amz-content-sha256": EMPTY_PAYLOAD_SHA256, "x-amz-date": amz_date}
+    signed_headers = ";".join(headers)
+    canonical = "\n".join(["GET", settings.bucket_path, f"{subresource}=",
+                           *(f"{name}:{value}" for name, value in headers.items()), "", signed_headers,
+                           EMPTY_PAYLOAD_SHA256])
+    string_to_sign = "\n".join(["AWS4-HMAC-SHA256", amz_date, scope,
+                                hashlib.sha256(canonical.encode()).hexdigest()])
+    key = f"AWS4{settings.secret}".encode()
+    for part in (amz_date[:8], settings.region, "s3", "aws4_request"):
+        key = hmac.new(key, part.encode(), hashlib.sha256).digest()
+    signature = hmac.new(key, string_to_sign.encode(), hashlib.sha256).hexdigest()
+    authorization = (f"AWS4-HMAC-SHA256 Credential={settings.key}/{scope}, SignedHeaders={signed_headers}, "
+                     f"Signature={signature}")
+    return (f"GET {settings.bucket_path}?{subresource}= HTTP/1.1\r\nHost: {settings.host_header}\r\n"
+            f"x-amz-content-sha256: {EMPTY_PAYLOAD_SHA256}\r\nx-amz-date: {amz_date}\r\n"
+            f"Authorization: {authorization}\r\nConnection: close\r\n\r\n")
+
+
+def parse_http_response(raw: str) -> tuple[int, str]:
+    """(status, corpo) de uma resposta HTTP/1.1 crua, com ou sem chunked encoding.
+
+    O subprocess em modo texto já troca CRLF por LF; normaliza para os dois casos.
+    """
+    head, separator, body = raw.replace("\r\n", "\n").partition("\n\n")
+    match = re.match(r"HTTP/1\.[01] (\d{3})", head)
+    if not separator or match is None:
+        raise BackupError(f"resposta HTTP ilegível do S3: {raw[:80]!r}")
+    if re.search(r"^transfer-encoding:\s*chunked", head, re.IGNORECASE | re.MULTILINE):
+        body = _dechunk(body)
+    return int(match[1]), body
+
+
+def _dechunk(body: str) -> str:
+    chunks, rest = [], body
+    while True:
+        size_line, _, rest = rest.partition("\n")
+        try:
+            size = int(size_line.split(";")[0], 16)
+        except ValueError as error:
+            raise BackupError("resposta chunked ilegível do S3") from error
+        if size == 0:
+            return "".join(chunks)
+        chunks.append(rest[:size])
+        rest = rest[size + 1:]
+
+
+def bucket_protection_problems(versioning_xml: str, object_lock_xml: str) -> list[str]:
+    """Vazia só com versionamento ativo e Object Lock com retenção padrão de pelo menos MIN_OBJECT_LOCK_DAYS."""
+    problems = []
+    if _xml_text(versioning_xml, "Status") != "Enabled":
+        problems.append("versionamento do bucket não está Enabled")
+    if _xml_text(object_lock_xml, "ObjectLockEnabled") != "Enabled":
+        problems.append("Object Lock do bucket não está habilitado")
+        return problems
+    mode = _xml_text(object_lock_xml, "Mode")
+    if mode not in ("COMPLIANCE", "GOVERNANCE"):
+        problems.append(f"Object Lock sem retenção padrão (Mode {mode or 'ausente'})")
+        return problems
+    days = _retention_days(object_lock_xml)
+    if days is None or days < MIN_OBJECT_LOCK_DAYS:
+        problems.append(f"retenção padrão do Object Lock de {days if days is not None else '?'} dias "
+                        f"(mínimo {MIN_OBJECT_LOCK_DAYS}, a janela de retenção)")
+    return problems
+
+
+def _retention_days(xml_text: str) -> int | None:
+    for tag, multiplier in (("Days", 1), ("Years", DAYS_PER_YEAR)):
+        value = _xml_text(xml_text, tag)
+        if value is not None:
+            return int(value) * multiplier if value.isdigit() else None
+    return None
+
+
+def _xml_text(xml_text: str, local_name: str) -> str | None:
+    """Texto do primeiro elemento com esse nome local (qualquer namespace); None se ausente ou XML inválido."""
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError:
+        return None
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] == local_name:
+            return (element.text or "").strip()
+    return None
+
+
+def _check_bucket_protection(run: Runner, container: str, now: float) -> None:
+    """Fail closed: o bucket precisa provar versionamento e Object Lock (spec 18.3, ADR-0023).
+
+    A consulta sai do próprio container backup (mesma rede, DNS, CA e filtro de saída do pgBackRest) por openssl
+    s_client, que já está na imagem; a assinatura é feita aqui, e a chave lida do segredo montado no container.
+    """
+    conf = _check(run(["docker", "exec", container, "cat", REPO_CONF_IN_CONTAINER], capture=True),
+                  "leitura do pgbackrest_repo.conf")
+    settings = parse_repo_settings(conf.stdout)
+    bodies = {}
+    for subresource in ("versioning", "object-lock"):
+        command = ["docker", "exec", "-i", container, "openssl", "s_client", "-quiet", "-ign_eof",
+                   "-connect", f"{settings.host}:{settings.port}", "-servername", settings.host,
+                   "-verify_hostname", settings.host, "-verify_return_error", "-CAfile", settings.ca_file]
+        result = _check(run(command, capture=True, stdin=signed_bucket_request(settings, subresource, now)),
+                        f"consulta ?{subresource} do bucket")
+        status, body = parse_http_response(result.stdout)
+        # 404 em ?object-lock = bucket criado sem Object Lock (ObjectLockConfigurationNotFoundError).
+        if status == 404 and subresource == "object-lock":
+            body = ""
+        elif status != 200:
+            raise BackupError(f"consulta ?{subresource} do bucket respondeu HTTP {status} (a chave do backup precisa "
+                              "de s3:GetBucketVersioning e s3:GetBucketObjectLockConfiguration)")
+        bodies[subresource] = body
+    problems = bucket_protection_problems(bodies["versioning"], bodies["object-lock"])
+    if problems:
+        raise BackupError(f"bucket {settings.bucket} sem proteção contra exclusão (pré-requisito de produção, "
+                          "docs/operations/backup-restore.md):\n  - " + "\n  - ".join(problems))
 
 
 def _verify_repository(run: Runner, container: str) -> None:
@@ -574,11 +754,12 @@ def deploy_lock(state_dir: Path, *, wait_seconds: int) -> Iterator[None]:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
-def run_command(command: list[str], *, capture: bool = False,
-                timeout_seconds: int = QUERY_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]:
-    # Só se captura o que o verify lê (info em JSON, pg_stat_archiver); o resto vai para o journal do timer.
+def run_command(command: list[str], *, capture: bool = False, timeout_seconds: int = QUERY_TIMEOUT_SECONDS,
+                stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    # Só se captura o que o verify lê (info em JSON, pg_stat_archiver, respostas do S3); o resto vai para o journal.
     try:
-        return subprocess.run(command, text=True, check=False, capture_output=capture, timeout=timeout_seconds)
+        return subprocess.run(command, text=True, check=False, capture_output=capture, timeout=timeout_seconds,
+                              input=stdin, stdin=None if stdin is not None else subprocess.DEVNULL)
     except subprocess.TimeoutExpired as error:
         raise BackupError(f"comando excedeu {timeout_seconds} s: {' '.join(command[:6])} ...") from error
     except OSError as error:

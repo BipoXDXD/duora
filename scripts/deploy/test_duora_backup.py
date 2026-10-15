@@ -155,30 +155,60 @@ class BackupHealthTests(unittest.TestCase):
 
 
 CONTAINER_ID = "c0ffee123456"
+S3_SECRET = "segredo-sintetico-do-teste"
+REPO_CONF = f"""[global]
+repo1-s3-endpoint=s3.example.test
+repo1-s3-bucket=duora-backup
+repo1-s3-region=us-east-1
+repo1-s3-key=AKIASINTETICA
+repo1-s3-key-secret={S3_SECRET}
+"""
+VERSIONING_ENABLED = ('<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+                      "<Status>Enabled</Status></VersioningConfiguration>")
+
+
+def object_lock(*, enabled: str = "Enabled", mode: str = "COMPLIANCE", period: str = "<Days>21</Days>") -> str:
+    rule = f"<Rule><DefaultRetention><Mode>{mode}</Mode>{period}</DefaultRetention></Rule>" if mode else ""
+    return f"<ObjectLockConfiguration><ObjectLockEnabled>{enabled}</ObjectLockEnabled>{rule}</ObjectLockConfiguration>"
+
+
+def http(status: int, body: str) -> str:
+    """Resposta como o subprocess em modo texto entrega (CRLF já virou LF)."""
+    return f"HTTP/1.1 {status} X\nContent-Length: {len(body)}\nContent-Type: application/xml\n\n{body}"
 
 
 class FakeRunner:
     """Responde como Docker e pgBackRest responderiam; falha no comando que contém fail_on."""
 
     def __init__(self, *, containers: str = CONTAINER_ID + "\n", fail_on: str | None = None,
-                 info: str | None = None, archiver_line: str | None = None, verify: str = "") -> None:
+                 info: str | None = None, archiver_line: str | None = None, verify: str = "",
+                 bucket: dict[str, str] | None = None) -> None:
         self.commands: list[list[str]] = []
+        self.stdins: list[str | None] = []
         self._containers = containers
         self._fail_on = fail_on
         self._info = info if info is not None else info_json()
         self._verify = verify
+        self._bucket = bucket if bucket is not None else {"versioning": http(200, VERSIONING_ENABLED),
+                                                          "object-lock": http(200, object_lock())}
         self._archiver_line = archiver_line if archiver_line is not None else f"{NOW - 5}||{NOW}\n"
 
     # capture e timeout_seconds não mudam a resposta do dublê, mas ficam na assinatura para ela casar com o
     # Protocol duora_backup.Runner (o Pyright confere o FakeRunner passado a run_action).
-    def __call__(self, command: list[str], *, capture: bool = False,
-                 timeout_seconds: int = 0) -> subprocess.CompletedProcess[str]:
+    def __call__(self, command: list[str], *, capture: bool = False, timeout_seconds: int = 0,
+                 stdin: str | None = None) -> subprocess.CompletedProcess[str]:
         self.commands.append(command)
+        self.stdins.append(stdin)
         joined = " ".join(command)
-        if self._fail_on is not None and self._fail_on in joined:
+        if self._fail_on is not None and (self._fail_on in joined or self._fail_on in (stdin or "")):
             return subprocess.CompletedProcess(command, 1, "", "falha simulada")
         if command[:2] == ["docker", "ps"]:
             return subprocess.CompletedProcess(command, 0, self._containers, "")
+        if "cat" in command:
+            return subprocess.CompletedProcess(command, 0, REPO_CONF, "")
+        if "s_client" in command:
+            subresource = "object-lock" if "?object-lock=" in (stdin or "") else "versioning"
+            return subprocess.CompletedProcess(command, 0, self._bucket[subresource], "")
         if "--output=json" in command:
             return subprocess.CompletedProcess(command, 0, self._info, "")
         if "pg_stat_archiver" in joined:
@@ -458,11 +488,11 @@ class ScheduledVerifyDuringDeployTests(unittest.TestCase):
     def test_backup_actions_mark_the_backup_as_running(self) -> None:
         seen: list[bool] = []
 
-        def runner(command: list[str], *, capture: bool = False,
-                   timeout_seconds: int = 0) -> subprocess.CompletedProcess[str]:
+        def runner(command: list[str], *, capture: bool = False, timeout_seconds: int = 0,
+                   stdin: str | None = None) -> subprocess.CompletedProcess[str]:
             if "pgbackrest" in command:
                 seen.append(backup.deploy_in_progress(self.state_dir))
-            return FakeRunner()(command, capture=capture, timeout_seconds=timeout_seconds)
+            return FakeRunner()(command, capture=capture, timeout_seconds=timeout_seconds, stdin=stdin)
 
         backup.run_action("full", runner, project="duora", state_dir=self.state_dir, egress_env=self.egress_env)
 
@@ -709,6 +739,197 @@ class VerifyRepositoryActionTests(unittest.TestCase):
         self.assertEqual(2, tasks.count("duora-backup-verify-repo.timer"))
 
 
+class RepoSettingsTests(unittest.TestCase):
+    def test_defaults_follow_pgbackrest(self) -> None:
+        settings = backup.parse_repo_settings(REPO_CONF)
+
+        self.assertEqual(("duora-backup.s3.example.test", 443, "/", "/etc/ssl/certs/ca-certificates.crt"),
+                         (settings.host, settings.port, settings.bucket_path, settings.ca_file))
+        self.assertEqual("duora-backup.s3.example.test", settings.host_header)
+
+    def test_path_style_custom_port_and_ca(self) -> None:
+        settings = backup.parse_repo_settings(REPO_CONF + "repo1-s3-uri-style=path\nrepo1-storage-port=9000\n"
+                                              "repo1-storage-ca-file=/etc/pgbackrest/ca.crt\n")
+
+        self.assertEqual(("s3.example.test", "s3.example.test:9000", "/duora-backup", "/etc/pgbackrest/ca.crt"),
+                         (settings.host, settings.host_header, settings.bucket_path, settings.ca_file))
+
+    def test_missing_required_field_is_an_error(self) -> None:
+        for field_name in ("repo1-s3-endpoint", "repo1-s3-bucket", "repo1-s3-region", "repo1-s3-key",
+                           "repo1-s3-key-secret"):
+            with self.subTest(field=field_name):
+                text = "\n".join(line for line in REPO_CONF.splitlines() if not line.startswith(field_name + "="))
+
+                with self.assertRaisesRegex(backup.BackupError, field_name):
+                    backup.parse_repo_settings(text)
+
+    def test_invalid_port_is_an_error(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "repo1-storage-port"):
+            backup.parse_repo_settings(REPO_CONF + "repo1-storage-port=https\n")
+
+    def test_secret_is_not_in_the_repr(self) -> None:
+        self.assertNotIn(S3_SECRET, repr(backup.parse_repo_settings(REPO_CONF)))
+
+
+class SignedRequestTests(unittest.TestCase):
+    def test_matches_the_aws_signature_v4_example(self) -> None:
+        # Exemplo "GET Bucket Lifecycle" da documentação do Amazon S3 (Signature Version 4, header Authorization).
+        settings = backup.S3Settings(endpoint="s3.amazonaws.com", bucket="examplebucket", region="us-east-1",
+                                     key="AKIAIOSFODNN7EXAMPLE", secret="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
+
+        request = backup.signed_bucket_request(settings, "lifecycle", 1369353600.0)  # 2013-05-24T00:00:00Z
+
+        self.assertIn("Signature=fea454ca298b7da1c68078a5d1bdbfbbe0d65c699e0f91ac7a200a0136783543", request)
+        self.assertTrue(request.startswith("GET /?lifecycle= HTTP/1.1\r\nHost: examplebucket.s3.amazonaws.com\r\n"))
+        self.assertTrue(request.endswith("Connection: close\r\n\r\n"))
+
+    def test_path_style_signs_the_bucket_path_and_port(self) -> None:
+        settings = backup.parse_repo_settings(REPO_CONF + "repo1-s3-uri-style=path\nrepo1-storage-port=9000\n")
+
+        request = backup.signed_bucket_request(settings, "versioning", NOW)
+
+        self.assertTrue(request.startswith("GET /duora-backup?versioning= HTTP/1.1\r\nHost: s3.example.test:9000\r\n"))
+        self.assertNotIn(S3_SECRET, request)
+
+
+class HttpResponseTests(unittest.TestCase):
+    def test_plain_response(self) -> None:
+        self.assertEqual((200, "<a/>"), backup.parse_http_response("HTTP/1.1 200 OK\r\nA: b\r\n\r\n<a/>"))
+
+    def test_text_mode_line_endings(self) -> None:
+        self.assertEqual((404, "<e/>"), backup.parse_http_response("HTTP/1.1 404 Not Found\nA: b\n\n<e/>"))
+
+    def test_chunked_response(self) -> None:
+        raw = "HTTP/1.1 200 OK\nTransfer-Encoding: chunked\n\n3\n<a>\n4\n</a>\n0\n\n"
+
+        self.assertEqual((200, "<a></a>"), backup.parse_http_response(raw))
+
+    def test_garbage_is_an_error(self) -> None:
+        for raw in ("", "garbage", "HTTP/1.1 200 OK"):
+            with self.subTest(raw=raw), self.assertRaisesRegex(backup.BackupError, "ilegível"):
+                backup.parse_http_response(raw)
+
+
+class BucketProtectionTests(unittest.TestCase):
+    def test_versioning_and_compliance_lock_for_21_days_is_protected(self) -> None:
+        self.assertEqual([], backup.bucket_protection_problems(VERSIONING_ENABLED, object_lock()))
+
+    def test_governance_mode_and_years_are_accepted(self) -> None:
+        self.assertEqual([], backup.bucket_protection_problems(
+            VERSIONING_ENABLED, object_lock(mode="GOVERNANCE", period="<Years>1</Years>")))
+
+    def test_versioning_not_enabled_is_a_problem(self) -> None:
+        for versioning in ("<VersioningConfiguration/>",
+                           "<VersioningConfiguration><Status>Suspended</Status></VersioningConfiguration>",
+                           "not xml", ""):
+            with self.subTest(versioning=versioning):
+                self.assertEqual(["versionamento do bucket não está Enabled"],
+                                 backup.bucket_protection_problems(versioning, object_lock()))
+
+    def test_object_lock_not_enabled_is_a_problem(self) -> None:
+        for lock in ("", "not xml", object_lock(enabled="Disabled")):
+            with self.subTest(lock=lock):
+                self.assertEqual(["Object Lock do bucket não está habilitado"],
+                                 backup.bucket_protection_problems(VERSIONING_ENABLED, lock))
+
+    def test_lock_without_default_retention_is_a_problem(self) -> None:
+        self.assertEqual(["Object Lock sem retenção padrão (Mode ausente)"],
+                         backup.bucket_protection_problems(VERSIONING_ENABLED, object_lock(mode="")))
+
+    def test_retention_shorter_than_the_window_is_a_problem(self) -> None:
+        problems = backup.bucket_protection_problems(VERSIONING_ENABLED, object_lock(period="<Days>20</Days>"))
+
+        self.assertEqual(["retenção padrão do Object Lock de 20 dias (mínimo 21, a janela de retenção)"], problems)
+
+    def test_retention_period_missing_or_invalid_is_a_problem(self) -> None:
+        for period in ("", "<Days>vinte</Days>"):
+            with self.subTest(period=period):
+                self.assertEqual(1, len(backup.bucket_protection_problems(VERSIONING_ENABLED,
+                                                                          object_lock(period=period))))
+
+
+class BucketProtectionActionTests(unittest.TestCase):
+    """O verify (timer e deploy) falha fechado sem versionamento + Object Lock no bucket (spec 18.3, ADR-0023)."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state_dir = Path(self._tmp.name)
+
+    def verify(self, runner: FakeRunner) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            backup.run_action("verify", runner, project="duora", state_dir=self.state_dir, egress_env=None)
+
+    def test_queries_both_subresources_from_the_backup_container_with_tls_verification(self) -> None:
+        runner = FakeRunner()
+
+        self.verify(runner)
+
+        queries = [(command, stdin) for command, stdin in zip(runner.commands, runner.stdins) if "s_client" in command]
+        self.assertEqual(2, len(queries))
+        for command, _ in queries:
+            self.assertEqual(["docker", "exec", "-i", CONTAINER_ID, "openssl", "s_client"], command[:6])
+            self.assertIn("-verify_return_error", command)
+            self.assertEqual("duora-backup.s3.example.test", command[command.index("-verify_hostname") + 1])
+            self.assertEqual("duora-backup.s3.example.test:443", command[command.index("-connect") + 1])
+        self.assertEqual(["GET /?versioning=", "GET /?object-lock="],
+                         [(stdin or "").split(" HTTP/1.1")[0] for _, stdin in queries])
+
+    def test_bucket_is_checked_before_the_archive_check(self) -> None:
+        runner = FakeRunner()
+
+        self.verify(runner)
+
+        joined = [" ".join(command) for command in runner.commands]
+        first_query = next(i for i, command in enumerate(joined) if "s_client" in command)
+        check = next(i for i, command in enumerate(joined) if command.endswith(" check"))
+        self.assertLess(first_query, check)
+
+    def test_secret_never_goes_to_a_command_line(self) -> None:
+        runner = FakeRunner()
+
+        self.verify(runner)
+
+        self.assertFalse(any(S3_SECRET in " ".join(command) for command in runner.commands))
+        self.assertFalse(any(S3_SECRET in (stdin or "") for stdin in runner.stdins))
+
+    def test_bucket_without_object_lock_blocks(self) -> None:
+        # MinIO e S3 respondem 404 ObjectLockConfigurationNotFoundError para bucket criado sem lock.
+        runner = FakeRunner(bucket={"versioning": http(200, VERSIONING_ENABLED),
+                                    "object-lock": http(404, "<Error><Code>ObjectLockConfigurationNotFoundError"
+                                                             "</Code></Error>")})
+
+        with self.assertRaisesRegex(backup.BackupError, "Object Lock do bucket não está habilitado"):
+            self.verify(runner)
+        self.assertEqual([], runner.pgbackrest_calls())
+
+    def test_unversioned_bucket_blocks(self) -> None:
+        runner = FakeRunner(bucket={"versioning": http(200, "<VersioningConfiguration/>"),
+                                    "object-lock": http(200, object_lock())})
+
+        with self.assertRaisesRegex(backup.BackupError, "sem proteção contra exclusão"):
+            self.verify(runner)
+
+    def test_denied_query_blocks(self) -> None:
+        for subresource in ("versioning", "object-lock"):
+            with self.subTest(subresource=subresource):
+                bucket = {"versioning": http(200, VERSIONING_ENABLED), "object-lock": http(200, object_lock())}
+                bucket[subresource] = http(403, "<Error><Code>AccessDenied</Code></Error>")
+
+                with self.assertRaisesRegex(backup.BackupError, "HTTP 403"):
+                    self.verify(FakeRunner(bucket=bucket))
+
+    def test_versioning_404_blocks(self) -> None:
+        bucket = {"versioning": http(404, "<Error/>"), "object-lock": http(200, object_lock())}
+
+        with self.assertRaisesRegex(backup.BackupError, "HTTP 404"):
+            self.verify(FakeRunner(bucket=bucket))
+
+    def test_unreadable_response_blocks(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "ilegível"):
+            self.verify(FakeRunner(bucket={"versioning": "", "object-lock": http(200, object_lock())}))
+
+
 def _without(entry: dict, *path: str) -> dict:
     """Cópia de um backup do info sem o campo indicado (ex.: "timestamp", "stop")."""
     copy = json.loads(json.dumps(entry))
@@ -777,7 +998,8 @@ class FailClosedVerifyTests(unittest.TestCase):
                 self.assert_blocks(FakeRunner(archiver_line=line))
 
     def test_non_zero_exit_of_any_step_blocks(self) -> None:
-        for step in ("iptables", "docker ps", " check", "--output=json", "pg_stat_archiver"):
+        for step in ("iptables", "docker ps", " cat ", "?versioning=", "?object-lock=", " check", "--output=json",
+                     "pg_stat_archiver"):
             with self.subTest(step=step):
                 self.assert_blocks(FakeRunner(fail_on=step))
 
@@ -790,8 +1012,8 @@ class FailClosedVerifyTests(unittest.TestCase):
             backup.run_command(["/nonexistent/duora-no-such-binary"])
 
     def test_unexpected_exception_makes_the_cli_fail(self) -> None:
-        def exploding_runner(command: list[str], *, capture: bool = False,
-                             timeout_seconds: int = 0) -> subprocess.CompletedProcess[str]:
+        def exploding_runner(command: list[str], *, capture: bool = False, timeout_seconds: int = 0,
+                             stdin: str | None = None) -> subprocess.CompletedProcess[str]:
             raise RuntimeError("inesperado")
 
         with contextlib.redirect_stderr(io.StringIO()) as stderr:
