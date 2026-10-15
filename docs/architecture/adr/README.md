@@ -30,6 +30,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0019](0019-implementacao-identidade-sessao-outbox.md) | Identidade, sessões revogáveis, CSRF, rate limit e outbox de e-mail no M1 | Accepted | Mais de uma instância web, provedor de e-mail real ou MFA |
 | [0020](0020-persistencia-da-sessao-de-jogo.md) | Sessão de jogo persistida por snapshot público no Core, estado JSONB versionado e conteúdo pela versão fixada | Proposed | Estado consultado por SQL ou snapshot acima de 32 KiB |
 | [0021](0021-jobs-duraveis-e-leases-no-postgresql.md) | Jobs duráveis em `ops.jobs` com lease, fencing token, retry e `Expired` | Proposed | Idade do job mais antigo acima do alvo ou terceiro uso do protocolo de fila |
+| [0022](0022-i18n-intl-messageformat-catalogo-tipado.md) | Interface em PT-BR e EN com intl-messageformat e catálogo tipado próprio | Proposed | Terceiro idioma ou tradução por fornecedor externo |
 
 ## Regras
 
