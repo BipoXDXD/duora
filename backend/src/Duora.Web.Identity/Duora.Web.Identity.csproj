@@ -11,4 +11,9 @@
     <ProjectReference Include="..\Duora.Core\Duora.Core.csproj" />
     <ProjectReference Include="..\Duora.Infrastructure\Duora.Infrastructure.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- A leitura da tabela de montagens do key ring é testada com amostras de /proc/self/mountinfo. -->
+    <InternalsVisibleTo Include="Duora.IntegrationTests" />
+  </ItemGroup>
 </Project>

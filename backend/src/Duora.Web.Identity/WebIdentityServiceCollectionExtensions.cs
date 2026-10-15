@@ -41,6 +41,14 @@ internal sealed class DataProtectionStorageOptions
 
     /// <summary>Diretório do key ring, fora da camada gravável do container (spec 11.2).</summary>
     public string KeysDirectory { get; set; } = "";
+
+    /// <summary>
+    /// Exige que <see cref="KeysDirectory"/> seja o ponto de montagem de um volume (T-15). Ligado por padrão; só o
+    /// desenvolvimento local, os testes e a geração do OpenAPI no build desligam, porque rodam fora do container.
+    /// </summary>
+    public bool RequireMountedVolume { get; set; } = true;
+
+    public bool IsPersistent() => !RequireMountedVolume || KeyRingMount.IsPersistentMountPoint(KeysDirectory);
 }
 
 public static class WebIdentityServiceCollectionExtensions
@@ -130,10 +138,18 @@ public static class WebIdentityServiceCollectionExtensions
             .Validate(
                 o => !string.IsNullOrWhiteSpace(o.KeysDirectory),
                 "DataProtection:KeysDirectory é obrigatório: o key ring precisa sobreviver à recriação do processo.")
+            .Validate(
+                o => o.IsPersistent(),
+                "DataProtection:KeysDirectory precisa ser o ponto de montagem de um volume persistente: na camada do "
+                + "container ou em memória, a chave some no próximo deploy e todas as sessões caem.")
             .ValidateOnStart();
 
-        // Nome estável: o mesmo key ring precisa ler o que outra instância ou versão protegeu.
-        services.AddDataProtection().SetApplicationName("Duora");
+        // Nome estável: o mesmo key ring precisa ler o que outra instância ou versão protegeu. A vida da chave é a
+        // padrão, explícita aqui porque a política depende dela: a cada 90 dias nasce uma chave nova, e as antigas
+        // continuam no key ring para ler o que protegeram (sessão de até 12 h, links de até 24 h).
+        services.AddDataProtection()
+            .SetApplicationName("Duora")
+            .SetDefaultKeyLifetime(TimeSpan.FromDays(90));
         services.AddOptions<KeyManagementOptions>()
             .Configure<IOptions<DataProtectionStorageOptions>, ILoggerFactory>((keys, storage, loggers) =>
                 keys.XmlRepository = new FileSystemXmlRepository(
