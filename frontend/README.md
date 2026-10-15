@@ -69,9 +69,9 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
 | -------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `/criar-conta`                                           | Cadastro, com aceite dos Termos e da Privacidade (`LEGAL_DOCUMENT_VERSIONS`) |
 | `/verifique-seu-email`                                   | Aviso neutro depois do cadastro                                              |
-| `/confirmar-email?userId=…&token=…`                      | Confirmação por clique (link do e-mail)                                      |
+| `/confirmar-email#userId=…&token=…`                      | Confirmação por clique (link do e-mail)                                      |
 | `/entrar`                                                | Entrada; mostra aviso de sessão expirada, saída ou entrada necessária        |
-| `/esqueci-a-senha` e `/redefinir-senha?userId=…&token=…` | Recuperação de senha                                                         |
+| `/esqueci-a-senha` e `/redefinir-senha#userId=…&token=…` | Recuperação de senha                                                         |
 | `/conta`                                                 | Área autenticada: conta, sessões, revogação e saída                          |
 
 - `useMe` (`['me']`) descobre a identidade; dados privados usam chaves sob `['account', userId, …]`.
@@ -80,6 +80,9 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
   fica na tela de entrada, e não no clique de sair, porque o React Router navega dentro de uma transition:
   limpar com a área autenticada ainda montada faz as consultas dela buscarem de novo os dados de quem saiu.
 - Nada da sessão vai para `localStorage` ou `sessionStorage`.
+- Os links de e-mail trazem `userId` e `token` no fragmento, que não vai ao servidor nem aos logs (TM-19).
+  A tela lê o fragmento uma vez, guarda em estado e limpa a URL com replace. O `index.html` declara
+  `referrer: no-referrer`.
 - Cada área de rotas tem seu error boundary; a troca de rota move o foco para o h1 e anuncia o título.
 
 ## Design system

@@ -5,7 +5,7 @@ import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { renderApp } from '@/test/render'
 
 const USER_ID = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'
-const LINK = `/confirmar-email?userId=${USER_ID}&token=${encodeURIComponent('tok+en/=')}`
+const LINK = `/confirmar-email#userId=${USER_ID}&token=${encodeURIComponent('tok+en/=')}`
 
 function useConfirmEndpoint(respond: () => Response) {
   const received: { body: unknown; token: string | null }[] = []
@@ -40,7 +40,7 @@ describe('tela de confirmação de e-mail', () => {
     expect(received).toEqual([{ body: { userId: USER_ID, token: 'tok+en/=' }, token: antiforgery.latestToken() }])
   })
 
-  it('tira userId e token da URL ao montar e ainda envia o token certo no POST', async () => {
+  it('tira userId e token do fragmento ao montar e ainda envia o token certo no POST', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     const received = useConfirmEndpoint(() => new HttpResponse(null, { status: 204 }))
     const { user } = renderApp(LINK)
@@ -52,6 +52,14 @@ describe('tela de confirmação de e-mail', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('E-mail confirmado.')
     expect(received).toEqual([{ body: { userId: USER_ID, token: 'tok+en/=' }, token: antiforgery.latestToken() }])
+  })
+
+  it('um link com token na query também sai da URL, mesmo recusado', async () => {
+    renderApp(`/confirmar-email?userId=${USER_ID}&token=abc`)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirmar-email$/)
+    })
   })
 
   it('INVALID_TOKEN explica que o link não vale mais', async () => {
@@ -87,8 +95,9 @@ describe('tela de confirmação de e-mail', () => {
 
   it.each([
     ['sem parâmetros', '/confirmar-email'],
-    ['sem token', `/confirmar-email?userId=${USER_ID}`],
-    ['userId inválido', '/confirmar-email?userId=123&token=abc'],
+    ['sem token', `/confirmar-email#userId=${USER_ID}`],
+    ['userId inválido', '/confirmar-email#userId=123&token=abc'],
+    ['formato antigo, na query', `/confirmar-email?userId=${USER_ID}&token=abc`],
   ])('link malformado (%s) não chama a API', (_caso, path) => {
     const received = useConfirmEndpoint(() => new HttpResponse(null, { status: 204 }))
     renderApp(path)
