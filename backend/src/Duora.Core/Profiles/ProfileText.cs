@@ -68,9 +68,19 @@ public sealed record ProfileBio
 }
 
 /// <summary>
-/// Regras comuns aos textos livres do perfil. O tamanho conta caracteres Unicode (runes), como a spec 4.3 faz para
-/// mensagens e como o <c>char_length</c> do PostgreSQL conta, para frontend, API e CHECK do banco concordarem.
+/// Regras comuns aos textos livres do perfil. O texto é normalizado em NFC antes de aparar, validar e medir, para que
+/// o mesmo texto na tela seja o mesmo texto guardado. O tamanho conta caracteres Unicode (runes), como a spec 4.3 faz
+/// para mensagens e como o <c>char_length</c> do PostgreSQL conta, para frontend, API e CHECK do banco concordarem.
 /// </summary>
+/// <remarks>
+/// Recusa toda a categoria Cc (inclusive NUL e os controles C1) e toda a Cf: controles bidirecionais (U+200E/F,
+/// U+202A–U+202E, U+2066–U+2069), largura zero (U+200B–U+200D, U+2060, U+FEFF) e soft hyphen. Recusa também os
+/// separadores de linha e parágrafo (Zl, Zp) e surrogate solto. O custo conhecido: emoji composto com ZWJ (família,
+/// profissão com tom de pele) não entra. Homóglifos (cirílico "а" no lugar do latino "a", por exemplo) não são
+/// tratados aqui: nome de exibição não é único nem identifica a conta, então a falsificação por semelhança fica com a
+/// denúncia e a moderação (Safety), e não com uma lista de confusables que recusaria nomes legítimos em outros
+/// alfabetos.
+/// </remarks>
 internal static class ProfileText
 {
     public static bool TryNormalize(
@@ -81,10 +91,41 @@ internal static class ProfileText
         out ProfileTextProblem problem)
     {
         ArgumentNullException.ThrowIfNull(value);
-        normalized = value.Trim();
-        var found = FindProblem(normalized, maxLength, allowLineBreaks);
+        normalized = "";
+
+        // A normalização lança com surrogate solto; ele é recusado antes, como qualquer caractere proibido.
+        if (!IsWellFormedUtf16(value))
+        {
+            problem = ProfileTextProblem.ForbiddenCharacter;
+            return false;
+        }
+
+        var candidate = value.Normalize(NormalizationForm.FormC).Trim();
+        var found = FindProblem(candidate, maxLength, allowLineBreaks);
         problem = found.GetValueOrDefault();
-        return found is null;
+        if (found is not null)
+        {
+            return false;
+        }
+
+        normalized = candidate;
+        return true;
+    }
+
+    private static bool IsWellFormedUtf16(string value)
+    {
+        var remaining = value.AsSpan();
+        while (!remaining.IsEmpty)
+        {
+            if (Rune.DecodeFromUtf16(remaining, out _, out var consumed) != OperationStatus.Done)
+            {
+                return false;
+            }
+
+            remaining = remaining[consumed..];
+        }
+
+        return true;
     }
 
     private static ProfileTextProblem? FindProblem(string trimmed, int maxLength, bool allowLineBreaks)
@@ -95,17 +136,14 @@ internal static class ProfileText
         }
 
         var length = 0;
-        var remaining = trimmed.AsSpan();
-        while (!remaining.IsEmpty)
+        foreach (var rune in trimmed.EnumerateRunes())
         {
-            if (Rune.DecodeFromUtf16(remaining, out var rune, out var consumed) != OperationStatus.Done
-                || IsForbidden(rune, allowLineBreaks))
+            if (IsForbidden(rune, allowLineBreaks))
             {
                 return ProfileTextProblem.ForbiddenCharacter;
             }
 
             length++;
-            remaining = remaining[consumed..];
         }
 
         return length > maxLength ? ProfileTextProblem.TooLong : null;
@@ -119,12 +157,9 @@ internal static class ProfileText
         }
 
         return Rune.GetUnicodeCategory(rune) is UnicodeCategory.Control
-                or UnicodeCategory.LineSeparator
-                or UnicodeCategory.ParagraphSeparator
-            || IsBidiControl(rune.Value);
+            or UnicodeCategory.Format
+            or UnicodeCategory.LineSeparator
+            or UnicodeCategory.ParagraphSeparator
+            or UnicodeCategory.Surrogate;
     }
-
-    /// <summary>Embeddings, overrides e isolates (U+202A–U+202E, U+2066–U+2069): invertem a ordem exibida.</summary>
-    private static bool IsBidiControl(int codePoint) =>
-        codePoint is (>= 0x202A and <= 0x202E) or (>= 0x2066 and <= 0x2069);
 }

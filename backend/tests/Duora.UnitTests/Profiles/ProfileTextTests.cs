@@ -86,6 +86,113 @@ public sealed class DisplayNameTests
     }
 }
 
+/// <summary>
+/// Classes de caractere que deixam um nome parecer outro ou esconder conteúdo (revisão de segurança do PR): cada
+/// classe tem o seu caso, no nome e na descrição.
+/// </summary>
+public sealed class ProfileTextCharacterClassTests
+{
+    public static TheoryData<string, string> HiddenOrFormattingCharacters { get; } = new()
+    {
+        { "NUL (Cc)", "\u0000" },
+        { "BEL (Cc)", "\u0007" },
+        { "DEL (Cc)", "\u007F" },
+        { "C1 CSI (Cc)", "\u009B" },
+        { "LRM (Cf, bidi)", "\u200E" },
+        { "RLM (Cf, bidi)", "\u200F" },
+        { "LRE (Cf, bidi)", "\u202A" },
+        { "RLO (Cf, bidi)", "\u202E" },
+        { "LRI (Cf, bidi)", "\u2066" },
+        { "PDI (Cf, bidi)", "\u2069" },
+        { "ZWSP (Cf, largura zero)", "\u200B" },
+        { "ZWNJ (Cf, largura zero)", "\u200C" },
+        { "ZWJ (Cf, largura zero)", "\u200D" },
+        { "WORD JOINER (Cf, largura zero)", "\u2060" },
+        { "BOM/ZWNBSP (Cf, largura zero)", "\uFEFF" },
+        { "SOFT HYPHEN (Cf)", "\u00AD" },
+        { "LINE SEPARATOR (Zl)", "\u2028" },
+        { "PARAGRAPH SEPARATOR (Zp)", "\u2029" },
+        { "surrogate alto solto (Cs)", "\uD800" },
+        { "surrogate baixo solto (Cs)", "\uDC00" },
+    };
+
+    [Theory]
+    [MemberData(nameof(HiddenOrFormattingCharacters))]
+    public void DisplayNameRejectsTheCharacterInsideTheName(string characterClass, string character)
+    {
+        Assert.False(DisplayName.TryParse("Ana" + character + "Souza", out _, out var problem), characterClass);
+        Assert.Equal(ProfileTextProblem.ForbiddenCharacter, problem);
+    }
+
+    [Theory]
+    [MemberData(nameof(HiddenOrFormattingCharacters))]
+    public void BioRejectsTheCharacterInsideTheText(string characterClass, string character)
+    {
+        Assert.False(ProfileBio.TryParse("Oi" + character + "tudo bem", out _, out var problem), characterClass);
+        Assert.Equal(ProfileTextProblem.ForbiddenCharacter, problem);
+    }
+
+    /// <summary>Um nome feito só de caractere invisível não pode passar como nome.</summary>
+    [Theory]
+    [MemberData(nameof(HiddenOrFormattingCharacters))]
+    public void DisplayNameMadeOnlyOfTheCharacterIsRejected(string characterClass, string character)
+    {
+        Assert.False(DisplayName.TryParse(character, out _, out _), characterClass);
+    }
+
+    public static TheoryData<string> SeparatorsOnly { get; } =
+    [
+        " ",
+        "\u00A0",
+        "\u2003",
+        "\u3000",
+        " \u00A0\u2003 ",
+    ];
+
+    [Theory]
+    [MemberData(nameof(SeparatorsOnly))]
+    public void DisplayNameOfSeparatorsOnlyIsEmpty(string value)
+    {
+        Assert.False(DisplayName.TryParse(value, out _, out var problem));
+        Assert.Equal(ProfileTextProblem.Empty, problem);
+    }
+
+    [Fact]
+    public void DisplayNameTrimsUnicodeSeparatorsAtTheEdges()
+    {
+        Assert.True(DisplayName.TryParse("\u00A0\u3000Ana\u2003", out var name, out _));
+        Assert.Equal("Ana", name!.Value);
+    }
+
+    /// <summary>
+    /// "é" decomposto (e + U+0301) e composto são o mesmo nome na tela: guardado em NFC, os dois viram o mesmo texto,
+    /// e o tamanho é medido depois de normalizar.
+    /// </summary>
+    [Fact]
+    public void DisplayNameIsStoredInNfc()
+    {
+        Assert.True(DisplayName.TryParse("Jose\u0301", out var name, out _));
+        Assert.Equal("Jos\u00E9", name!.Value);
+    }
+
+    [Fact]
+    public void LengthIsMeasuredAfterNfc()
+    {
+        // 40 "é" decompostos: 80 runes antes da NFC, 40 depois.
+        var decomposed = string.Concat(Enumerable.Repeat("e\u0301", DisplayName.MaxLength));
+
+        Assert.True(DisplayName.TryParse(decomposed, out var name, out _));
+        Assert.Equal(DisplayName.MaxLength, name!.Value.Length);
+    }
+
+    [Fact]
+    public void BioIsStoredInNfc()
+    {
+        Assert.True(ProfileBio.TryParse("cafe\u0301", out var bio, out _));
+        Assert.Equal("caf\u00E9", bio!.Value);
+    }
+}
+
 public sealed class ProfileBioTests
 {
     [Theory]
