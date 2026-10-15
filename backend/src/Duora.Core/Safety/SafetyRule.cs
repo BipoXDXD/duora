@@ -1,27 +1,19 @@
 namespace Duora.Core.Safety;
 
-/// <summary>Regras de negócio do Safety; a fronteira HTTP traduz cada uma para a resposta adequada.</summary>
+/// <summary>
+/// Invariantes de programação: só são violadas por um caso de uso com defeito, nunca por entrada da pessoa. Falha
+/// esperada usa <see cref="SafetyRejection"/>.
+/// </summary>
 public enum SafetyRule
 {
-    SelfBlock,
+    /// <summary>O repositório só entrega bloqueios do próprio autor; outro pedido é defeito.</summary>
     OnlyBlockerCanLift,
-    SelfReport,
-    TransitionNotAllowed,
-
-    /// <summary>Quem revisa não pode ser parte do caso nem autor da decisão revista (spec 12.3, TM-34).</summary>
-    ReviewerMustBeIndependent,
-    OnlyAssignedReviewerCanDecide,
 
     /// <summary>Sanção permanente só com autor humano; o sistema apenas prepara a proposta (spec 12.3).</summary>
     PermanentSanctionRequiresHumanAuthor,
-
-    /// <summary>Classificador não rebaixa denúncia grave; só uma pessoa pode (spec 19.3).</summary>
-    AutomatedTriageCannotLowerSevereReport,
     DecisionRequiresEvidence,
-    MeasureDurationMismatch,
     ClearedIsOnlyAnAppealOutcome,
 
-    /// <summary>A fronteira responde 404, como para medida inexistente (TM-28).</summary>
+    /// <summary>Defesa em profundidade: a fronteira já filtra por titular e responde 404 (TM-28).</summary>
     AppealOnlyOwnSanction,
-    ActionNotAppealable,
 }

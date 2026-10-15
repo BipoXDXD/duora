@@ -24,8 +24,8 @@ public sealed class InteractionPolicyTests
     public void ABlockInEitherDirectionStopsInteractionForBothPeople(bool aliceBlocked, bool askedFromAliceSide)
     {
         var block = aliceBlocked
-            ? Block.Create(Alice, Bruno, FixedClock.AtStart())
-            : Block.Create(Bruno, Alice, FixedClock.AtStart());
+            ? Block.Create(Alice, Bruno, FixedClock.AtStart()).Accepted()
+            : Block.Create(Bruno, Alice, FixedClock.AtStart()).Accepted();
         var (a, b) = askedFromAliceSide ? (Alice, Bruno) : (Bruno, Alice);
 
         var verdict = InteractionPolicy.CheckInteraction(a, b, [block], NoSanctions, FixedClock.AtStart());
@@ -36,7 +36,7 @@ public sealed class InteractionPolicyTests
     [Fact]
     public void ABlockBetweenOtherPeopleDoesNotAffectThePair()
     {
-        Block[] blocks = [Block.Create(Alice, Carla, FixedClock.AtStart()), Block.Create(Carla, Bruno, FixedClock.AtStart())];
+        Block[] blocks = [Block.Create(Alice, Carla, FixedClock.AtStart()).Accepted(), Block.Create(Carla, Bruno, FixedClock.AtStart()).Accepted()];
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, blocks, NoSanctions, FixedClock.AtStart());
 
@@ -46,8 +46,8 @@ public sealed class InteractionPolicyTests
     [Fact]
     public void LiftingOneDirectionKeepsTheOtherPersonsBlockInForce()
     {
-        var aliceBlocksBruno = Block.Create(Alice, Bruno, FixedClock.AtStart());
-        var brunoBlocksAlice = Block.Create(Bruno, Alice, FixedClock.AtStart());
+        var aliceBlocksBruno = Block.Create(Alice, Bruno, FixedClock.AtStart()).Accepted();
+        var brunoBlocksAlice = Block.Create(Bruno, Alice, FixedClock.AtStart()).Accepted();
         aliceBlocksBruno.Lift(Alice, FixedClock.AtStart());
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, [brunoBlocksAlice], NoSanctions, FixedClock.AtStart());
@@ -61,7 +61,7 @@ public sealed class InteractionPolicyTests
         // O bloqueio removido deixa de contar para checagens futuras; o que ele encerrou fica encerrado em
         // Connections/Messaging, porque BlockLifted não carrega intenção de restaurar (ver BlockTests).
         var clock = FixedClock.AtStart();
-        var block = Block.Create(Alice, Bruno, clock);
+        var block = Block.Create(Alice, Bruno, clock).Accepted();
         block.Lift(Alice, clock);
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, NoSanctions, clock);
@@ -128,9 +128,8 @@ public sealed class InteractionPolicyTests
     {
         var clock = FixedClock.AtStart();
         var suspension = SanctionOn(Alice, ModerationMeasure.Suspension, clock);
-        var appeal = Appeal.File(suspension, Alice, "Não fui eu.", clock);
-        appeal.StartReview(ModeratorPedro);
-        var revision = appeal.Overturn(ModeratorPedro, "Evidência insuficiente.", RevisedPolicy, clock);
+        var appeal = AppealUnderReview(suspension, clock);
+        var revision = appeal.Overturn(ModeratorPedro, "Evidência insuficiente.", RevisedPolicy, clock).Accepted();
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, [suspension, revision], clock);
 
@@ -142,9 +141,8 @@ public sealed class InteractionPolicyTests
     {
         var clock = FixedClock.AtStart();
         var suspension = SanctionOn(Alice, ModerationMeasure.Suspension, clock);
-        var appeal = Appeal.File(suspension, Alice, "Não fui eu.", clock);
-        appeal.StartReview(ModeratorPedro);
-        var revision = appeal.Uphold(ModeratorPedro, "Evidência confirmada.", RevisedPolicy, clock);
+        var appeal = AppealUnderReview(suspension, clock);
+        var revision = appeal.Uphold(ModeratorPedro, "Evidência confirmada.", RevisedPolicy, clock).Accepted();
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, [suspension, revision], clock);
 
