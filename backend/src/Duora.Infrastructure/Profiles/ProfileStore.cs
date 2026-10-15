@@ -88,19 +88,8 @@ public sealed class ProfileStore
         }
 
         return new OwnProfile(
-            reader.IsDBNull(0) ? null : RehydrateDisplayName(reader.GetString(0)),
-            reader.IsDBNull(1) ? null : RehydrateBio(reader.GetString(1)),
+            reader.IsDBNull(0) ? null : DisplayName.FromStorage(reader.GetString(0)),
+            reader.IsDBNull(1) ? null : ProfileBio.FromStorage(reader.GetString(1)),
             reader.GetInt64(2));
     }
-
-    // O banco só guarda o que passou pela validação; um valor fora dela é corrupção e falha alto, sem vazar o texto.
-    private static DisplayName RehydrateDisplayName(string value) =>
-        DisplayName.TryParse(value, out var name, out _)
-            ? name
-            : throw new InvalidOperationException("profiles.display_name gravado fora das regras do domínio.");
-
-    private static ProfileBio RehydrateBio(string value) =>
-        ProfileBio.TryParse(value, out var bio, out _)
-            ? bio
-            : throw new InvalidOperationException("profiles.bio gravado fora das regras do domínio.");
 }

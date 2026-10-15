@@ -193,6 +193,114 @@ public sealed class ProfileTextCharacterClassTests
     }
 }
 
+/// <summary>
+/// Revisão do PR #24 (B1 e I1): noncharacter, não atribuído e uso privado são recusados antes da NFC (U+FFFE fazia o
+/// Normalize lançar); marcas combinantes só depois de uma base e no máximo quatro por base; seletor de variação e
+/// CGJ só logo depois da base, um por base; texto só de fillers conta como vazio.
+/// </summary>
+public sealed class ProfileTextStructureTests
+{
+    public static TheoryData<string, string> RejectedBeforeNormalization { get; } = new()
+    {
+        { "noncharacter U+FDD0", "\uFDD0" },
+        { "noncharacter U+FDEF", "\uFDEF" },
+        { "noncharacter U+FFFE", "\uFFFE" },
+        { "noncharacter U+FFFF", "\uFFFF" },
+        { "noncharacter U+1FFFE", "\uD83F\uDFFE" },
+        { "noncharacter U+10FFFF", "\uDBFF\uDFFF" },
+        { "não atribuído U+0378 (Cn)", "\u0378" },
+        { "uso privado U+E000 (Co)", "\uE000" },
+        { "uso privado U+F0000 (Co)", "\uDB80\uDC00" },
+    };
+
+    [Theory]
+    [MemberData(nameof(RejectedBeforeNormalization))]
+    public void DisplayNameRejectsWithoutThrowing(string characterClass, string character)
+    {
+        Assert.False(DisplayName.TryParse("Ana" + character, out _, out var problem), characterClass);
+        Assert.Equal(ProfileTextProblem.ForbiddenCharacter, problem);
+    }
+
+    [Theory]
+    [MemberData(nameof(RejectedBeforeNormalization))]
+    public void BioRejectsWithoutThrowing(string characterClass, string character)
+    {
+        Assert.False(ProfileBio.TryParse("Oi" + character, out _, out var problem), characterClass);
+        Assert.Equal(ProfileTextProblem.ForbiddenCharacter, problem);
+    }
+
+    public static TheoryData<string, string> MisplacedMarks { get; } = new()
+    {
+        { "começa com Mn", "\u0301Ana" },
+        { "começa com Me", "\u20DDAna" },
+        { "cinco Mn na mesma base", "x\u0332\u0332\u0332\u0332\u0332" },
+        { "começa com seletor de variação", "\uFE0FAna" },
+        { "dois seletores na mesma base", "\u263A\uFE0F\uFE0E" },
+        { "seletor depois de marca, não da base", "x\u0332\uFE0F" },
+        { "começa com CGJ", "\u034FAna" },
+        { "dois CGJ na mesma base", "a\u034F\u034F" },
+        { "seletor depois de espaço", "Ana \uFE0Fx" },
+    };
+
+    [Theory]
+    [MemberData(nameof(MisplacedMarks))]
+    public void MisplacedOrStackedMarksAreRejected(string reason, string value)
+    {
+        Assert.False(DisplayName.TryParse(value, out _, out var problem), reason);
+        Assert.Equal(ProfileTextProblem.ForbiddenCharacter, problem);
+    }
+
+    [Fact]
+    public void MarkAfterALineBreakInTheBioIsRejected()
+    {
+        Assert.False(ProfileBio.TryParse("Oi\n\u0301tudo", out _, out var problem));
+        Assert.Equal(ProfileTextProblem.ForbiddenCharacter, problem);
+    }
+
+    public static TheoryData<string, string> AcceptedMarks { get; } = new()
+    {
+        { "quatro Mn na mesma base", "x\u0332\u0332\u0332\u0332" },
+        { "emoji com VS16", "\u263A\uFE0F" },
+        { "letra com VS15", "Ana\uFE0E" },
+        { "ideograma com seletor suplementar", "\u845B\uDB40\uDD00" },
+        { "mongol com FVS1", "\u1820\u180B" },
+        { "CGJ depois da base", "a\u034Fb" },
+        { "marcas em bases diferentes", "x\u0332\u0332\u0332\u0332y\u0332\u0332\u0332\u0332" },
+    };
+
+    [Theory]
+    [MemberData(nameof(AcceptedMarks))]
+    public void MarksRightAfterABaseAreAccepted(string reason, string value)
+    {
+        Assert.True(DisplayName.TryParse(value, out _, out _), reason);
+    }
+
+    public static TheoryData<string> FillersOnly { get; } =
+    [
+        "\u3164",
+        "\u115F\u1160",
+        "\uFFA0",
+        "\u2800",
+        " \u3164 \u2800 ",
+    ];
+
+    [Theory]
+    [MemberData(nameof(FillersOnly))]
+    public void TextOfFillersOnlyIsEmpty(string value)
+    {
+        Assert.False(DisplayName.TryParse(value, out _, out var nameProblem));
+        Assert.Equal(ProfileTextProblem.Empty, nameProblem);
+        Assert.False(ProfileBio.TryParse(value, out _, out var bioProblem));
+        Assert.Equal(ProfileTextProblem.Empty, bioProblem);
+    }
+
+    [Fact]
+    public void AFillerNextToAVisibleCharacterIsNotBlank()
+    {
+        Assert.True(DisplayName.TryParse("A\u3164B", out _, out _));
+    }
+}
+
 public sealed class ProfileBioTests
 {
     [Theory]
