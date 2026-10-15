@@ -18,6 +18,7 @@ import {
   DISPLAY_NAME_MAX_LENGTH,
   profileFormSchema,
   toProfileChanges,
+  type EditedFields,
   type ProfileErrorKey,
   type ProfileFormInput,
   type ProfileFormValues,
@@ -106,7 +107,8 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
     defaultValues: toFormValues(initial),
   })
   const save = useMutation({
-    mutationFn: (values: ProfileFormValues) => updateOwnProfile(base.version, toProfileChanges(values)),
+    mutationFn: ({ values, edited }: { readonly values: ProfileFormValues; readonly edited: EditedFields }) =>
+      updateOwnProfile(base.version, toProfileChanges(values, edited)),
     onSuccess: (saved) => {
       queryClient.setQueryData(profileQueryKey(userId), saved)
       setBase(saved)
@@ -128,9 +130,11 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
       save.reset()
     },
   })
+  // Lido no render: o formState do react-hook-form só calcula o que é lido durante a renderização.
+  const { dirtyFields } = form.formState
   const submit = form.handleSubmit((values) => {
     if (!save.isPending) {
-      save.mutate(values)
+      save.mutate({ values, edited: { ...dirtyFields } })
     }
   })
 

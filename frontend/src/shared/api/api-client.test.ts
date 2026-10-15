@@ -94,6 +94,14 @@ describe('requestJson: sucesso', () => {
     expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBe(CSRF_TOKEN)
   })
 
+  it('sem token antiforgery, um header pedido não se passa por ele', async () => {
+    const { client, sentRequest } = setup(undefined, null)
+
+    await client.requestJson({ method: 'PATCH', path: '/api/v1/me/profile', headers: { 'X-XSRF-TOKEN': 'forjado' } })
+
+    expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBeNull()
+  })
+
   it('não deixa um header pedido substituir o token antiforgery', async () => {
     const { client, sentRequest } = setup()
 
