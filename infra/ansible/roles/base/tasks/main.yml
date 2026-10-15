@@ -34,3 +34,14 @@
     owner: root
     group: root
     mode: "0644"
+
+# Usuários sem root não veem processos alheios em /proc (linha de comando, ambiente). Defesa em profundidade: o
+# segredo do migrador já não passa em argumento. Root, o dockerd e o sudo do deploy continuam vendo tudo; os
+# containers têm o próprio /proc.
+- name: Montar /proc com hidepid=invisible
+  ansible.posix.mount:
+    path: /proc
+    src: proc
+    fstype: proc
+    opts: defaults,hidepid=invisible
+    state: mounted
