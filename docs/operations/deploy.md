@@ -89,6 +89,19 @@ que o deploy lê (arquitetura, migration, estado) é capturado.
 
 Os passos 2 e 3 da spec (pausar rodadas e concluir salas) dependem de funcionalidades que ainda não existem.
 
+## Proxy confiável (Forwarded Headers)
+
+O Caddy é o único proxy. Ele fala com o web pela rede `edge`, que tem subnet fixa no `compose.prod.yml`:
+
+| Rede | Subnet | Confiar em `X-Forwarded-*`? |
+|---|---|---|
+| `edge` | `172.30.10.0/24` | **Sim**: é o valor de `ForwardedHeadersOptions.KnownNetworks` no web (spec 11.3) |
+| `data` | atribuída pelo Docker | **Não**: o worker e o migrador estão nela e alcançam o web; um cabeçalho vindo dali seria forjável |
+| `egress` | atribuída pelo Docker | Não se aplica (o web não está nela) |
+
+Configurar o backend é pendência (fora deste PR): `KnownNetworks` só com `172.30.10.0/24`, `KnownProxies` vazio,
+`ForwardLimit = 1`. Se a subnet colidir com uma rede do provedor, mude nos dois lugares no mesmo PR.
+
 ## Como o CI chama (quando houver VPS)
 
 O executor tem uma chave SSH dedicada, presa no `authorized_keys` ao comando
