@@ -1,7 +1,8 @@
 # Deploy na VPS
 
 Procedimento de release do Duora na VPS Ubuntu Server 24.04 com Docker Engine + Compose (spec 15 e 17). Visão da
-infraestrutura e decisões: [infra/README.md](../../infra/README.md).
+infraestrutura e decisões: [infra/README.md](../../infra/README.md). Backup e restore:
+[backup-restore.md](backup-restore.md).
 
 **Não é zero-downtime.** Com uma instância web, o deploy tem uma breve interrupção planejada (spec 17.3): o worker
 para antes da migração e web/edge são recriados. Escala horizontal exige o ADR de SignalR, sessões e fan-out.
@@ -14,7 +15,8 @@ para antes da migração e web/edge são recriados. Escala horizontal exige o AD
 | `duora.env` | `/etc/duora/` (Ansible, 0640) | Configuração **não sensível** do host |
 | Segredos | `/etc/duora/secrets/` (0700; arquivos 0400) | Senhas e connection strings, gerados uma vez |
 | `duora-deploy` | `/usr/local/sbin/` (root, 0755) | Único comando que o executor de deploy pode rodar |
-| `duora-secrets` | `/usr/local/sbin/` | Gera os segredos na primeira configuração |
+| `duora-secrets` | `/usr/local/sbin/` | Gera os segredos do banco (`init`) e os certificados do pgBackRest (`init-backup-tls`) na primeira configuração |
+| `duora-backup` | `/usr/local/sbin/` (root, 0755) | Wrapper restrito do pgBackRest: timers de backup e `verify` chamado pelo deploy ([backup-restore.md](backup-restore.md)) |
 | Estado do deploy | `/var/lib/duora/` (root, 0700) | `current.json`, `previous.json`, `.deploy.lock`, `releases/<id>.{env,json}` (só releases implantadas com sucesso) e `staging/` (rascunho do deploy em curso) |
 
 ## Manifesto da release (spec 17.2)
@@ -65,14 +67,18 @@ solta o lock se o processo morrer).
 
 1. Valida o manifesto e a configuração do host; confere a arquitetura do host e o espaço livre
    (`DUORA_MIN_FREE_GIB`, padrão 10 GiB, em `DUORA_DISK_CHECK_PATH`).
-2. Backup/WAL: **ainda não verificável** (pgBackRest pendente). Sem `--accept-missing-backup-check` o deploy para;
-   o comando liberado no sudoers não inclui essa flag, então produção fica bloqueada até a verificação existir.
+2. Backup/WAL: verificado no passo 5, com o postgres e o backup da release já de pé e **antes de parar qualquer
+   serviço**. `--accept-missing-backup-check` pula a verificação só no primeiro deploy (antes da stanza existir),
+   em homologação ou no smoke; o comando liberado no sudoers não inclui essa flag.
 3. Recusa um `releaseId` já registrado com outro conteúdo (releases são imutáveis) e grava `<releaseId>.env`
    (digests) e `<releaseId>.json` em `/var/lib/duora/staging/`. Nada em `staging/` decide coisa alguma; os arquivos
    só vão para `releases/` depois do smoke (passo 10).
 4. `pull` de todas as imagens por digest e conferência da arquitetura de cada uma.
-5. Garante o PostgreSQL saudável (`up --wait postgres`) e lê a última migration aplicada, **antes de parar
-   qualquer serviço**. Banco vazio ou atrás de `schema.max`: deploy normal. Banco à frente de `schema.max`: só
+5. Garante o PostgreSQL e o `backup` (repository host do pgBackRest) saudáveis (`up --wait postgres backup`) e
+   roda `/usr/local/sbin/duora-backup verify`: `pgbackrest check` (o segmento atual chega ao repositório),
+   `pgbackrest info` sem erro, último WAL confirmado há no máximo 300 s (RPO), arquivamento sem falha pendente e
+   último backup há no máximo 48 h. Falhou, o deploy para sem ter parado nada. Depois lê a última migration
+   aplicada, **antes de parar qualquer serviço**. Banco vazio ou atrás de `schema.max`: deploy normal. Banco à frente de `schema.max`: só
    segue como rollback elegível (abaixo); fora disso, recusa sem tocar em nada.
 6. Para o worker (passo 4 da spec: sem novos leases durante a migração).
 7. Roda o migrador como job exclusivo (`--profile migrate run --rm migrator`), aplica
@@ -106,6 +112,12 @@ O Caddy é o único proxy. Ele fala com o web pela rede `edge`, que tem subnet f
 | `edge` | `172.30.10.0/24` | **Sim**: é o valor de `ForwardedHeadersOptions.KnownNetworks` no web (spec 11.3) |
 | `data` | atribuída pelo Docker | **Não**: o worker e o migrador estão nela e alcançam o web; um cabeçalho vindo dali seria forjável |
 | `egress` | atribuída pelo Docker | Não se aplica (o web não está nela) |
+| `pgbackrest` | atribuída pelo Docker, `internal` | Não se aplica: só postgres e backup (WAL por TLS) |
+| `backup-egress` | `172.30.20.0/24` | Não se aplica: só o backup e o job de restore; saída filtrada no host (`DOCKER-USER`) |
+
+O postgres está só em redes `internal` (`data` e `pgbackrest`): não tem rota para fora nem porta publicada. O único
+caminho até o repositório S3 é o container `backup`, cuja saída o filtro `duora-backup-egress` limita a DNS e HTTPS
+(decidido pelo usuário em 2026-10-15; motivo e opções em [backup-restore.md](backup-restore.md#decisão-repository-host-via-tls-decidido-pelo-usuário-em-2026-10-15)).
 
 Configurar o backend é pendência (fora deste PR): `KnownNetworks` só com `172.30.10.0/24`, `KnownProxies` vazio,
 `ForwardLimit = 1`. Se a subnet colidir com uma rede do provedor, mude nos dois lugares no mesmo PR.
@@ -172,9 +184,14 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
 
 ### Primeira configuração do host
 
-1. `ansible-playbook` (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração e
-   segredos (`duora-secrets init /etc/duora/secrets`, que nunca sobrescreve).
-2. O primeiro deploy cria os volumes; o PostgreSQL roda `10-duora-roles.sh` uma única vez e cria
+1. Grave os segredos do repositório de backup (`pgbackrest_repo.conf`, `pgbackrest_cipher.conf`;
+   [backup-restore.md](backup-restore.md#segredos-do-repositório-operador-uma-vez)). Depois o `ansible-playbook`
+   (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração, segredos do banco
+   (`duora-secrets init`), certificados do pgBackRest (`duora-secrets init-backup-tls`) e os timers de backup;
+   nada disso sobrescreve o que já existe.
+2. O primeiro deploy é do operador, com `--accept-missing-backup-check` (a stanza ainda não existe), seguido de
+   `duora-backup stanza-create`, `full` e `verify` ([backup-restore.md](backup-restore.md#primeira-configuração)).
+   Ele cria os volumes; o PostgreSQL roda `10-duora-roles.sh` e `20-duora-config.sh` uma única vez e cria
    `duora_migrator` (dono do banco `duora`) e `duora_app` (só DML via default privileges; regras completas e
    convenção de tabela append-only em [model.md](../data/model.md#permissões-de-banco-spec-107)).
 
