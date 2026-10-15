@@ -23,6 +23,9 @@ test-results/
 # --- Python (scripts/) ---
 __pycache__/
 
+# --- SBOMs gerados localmente (docs/security/supply-chain.md) ---
+/sbom/
+
 # --- IDEs ---
 .idea/
 .vscode/*
