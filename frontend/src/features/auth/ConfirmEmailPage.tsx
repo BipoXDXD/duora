@@ -1,12 +1,12 @@
 import { useMutation } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router'
 import { classifyRequestFailure } from '@/shared/api'
 import { messages } from '@/shared/messages'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { confirmEmail } from './auth-api'
-import { readEmailLink, type EmailLink } from './auth-schemas'
+import type { EmailLink } from './auth-schemas'
+import { useEmailLinkFromUrl } from './use-email-link'
 
 const PROBLEM_MESSAGES = { INVALID_TOKEN: messages.confirmEmail.invalidToken }
 
@@ -15,8 +15,7 @@ const PROBLEM_MESSAGES = { INVALID_TOKEN: messages.confirmEmail.invalidToken }
  * scanners de link que executam JavaScript não confirmam a conta sozinhos (API-A03).
  */
 export function ConfirmEmailPage(): React.JSX.Element {
-  const [searchParams] = useSearchParams()
-  const link = readEmailLink(searchParams)
+  const link = useEmailLinkFromUrl()
 
   return (
     <Page title={messages.confirmEmail.title}>

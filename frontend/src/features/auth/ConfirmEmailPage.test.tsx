@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
@@ -37,6 +37,20 @@ describe('tela de confirmação de e-mail', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('E-mail confirmado.')
     expect(screen.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar')
+    expect(received).toEqual([{ body: { userId: USER_ID, token: 'tok+en/=' }, token: antiforgery.latestToken() }])
+  })
+
+  it('tira userId e token da URL ao montar e ainda envia o token certo no POST', async () => {
+    const antiforgery = useAntiforgeryEndpoint()
+    const received = useConfirmEndpoint(() => new HttpResponse(null, { status: 204 }))
+    const { user } = renderApp(LINK)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirmar-email$/)
+    })
+    await user.click(screen.getByRole('button', { name: 'Confirmar e-mail' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('E-mail confirmado.')
     expect(received).toEqual([{ body: { userId: USER_ID, token: 'tok+en/=' }, token: antiforgery.latestToken() }])
   })
 
