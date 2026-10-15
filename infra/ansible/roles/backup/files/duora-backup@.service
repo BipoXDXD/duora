@@ -9,6 +9,7 @@ OnFailure=duora-backup-failed@%n.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/duora-backup %i
+# --scheduled: o verify pula durante um deploy, se houver verify bom na última hora (docs/operations/backup-restore.md).
+ExecStart=/usr/local/sbin/duora-backup %i --scheduled
 NoNewPrivileges=yes
 PrivateTmp=yes
