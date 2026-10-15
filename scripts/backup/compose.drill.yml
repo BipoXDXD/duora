@@ -1,0 +1,51 @@
+# Sobreposição do compose.prod.yml só para o drill de restore (restore_drill.py). NUNCA em produção.
+#
+# Acrescenta, na rede backup-egress (a saída do container backup):
+#   - s3: MinIO como dublê do repositório S3, com TLS de CA autoassinada;
+#   - internet: um host externo arbitrário qualquer, que o postgres não pode alcançar.
+# E entrega a CA do dublê ao backup e ao job de restore. Tudo o mais (secrets, volumes, redes, usuários,
+# configuração do pgBackRest) é o do compose.prod.yml.
+x-minio-image: &minio-image
+  # Imagem do MinIO da Bitnami (o projeto MinIO parou de publicar imagens oficiais). Dublê de teste: fixada por
+  # tag e digest do índice multiarquitetura, sem dado real.
+  bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
+
+services:
+  s3:
+    image: *minio-image
+    environment:
+      MINIO_ROOT_USER: ${DRILL_S3_KEY:?defina DRILL_S3_KEY}
+      MINIO_ROOT_PASSWORD: ${DRILL_S3_SECRET:?defina DRILL_S3_SECRET}
+      MINIO_DEFAULT_BUCKETS: ${DRILL_S3_BUCKET:?defina DRILL_S3_BUCKET}
+      MINIO_SCHEME: https
+      # O setup da Bitnami cria o bucket com o mc (Go) em https://localhost:9000: confia só na CA do dublê.
+      SSL_CERT_FILE: /certs/public.crt
+    volumes:
+      - ${DRILL_CERTS_DIR:?defina DRILL_CERTS_DIR}:/certs:ro
+    networks: [backup-egress]
+    healthcheck:
+      # Saudável só depois que o setup da Bitnami criou o alias "local" e o bucket (o servidor responde antes).
+      test: ["CMD-SHELL", "mc ls local/$$MINIO_DEFAULT_BUCKETS > /dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  internet:
+    image: *minio-image
+    environment:
+      MINIO_ROOT_USER: internet-synthetic
+      MINIO_ROOT_PASSWORD: ${DRILL_S3_SECRET:?defina DRILL_S3_SECRET}
+    networks: [backup-egress]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  backup:
+    volumes:
+      - ${DRILL_CERTS_DIR:?defina DRILL_CERTS_DIR}/public.crt:/etc/pgbackrest/drill-ca.crt:ro
+
+  restore:
+    volumes:
+      - ${DRILL_CERTS_DIR:?defina DRILL_CERTS_DIR}/public.crt:/etc/pgbackrest/drill-ca.crt:ro
