@@ -58,6 +58,24 @@ public sealed class AuditTrailTests(PostgresFixture postgres)
         Assert.Empty(await ReadByTargetAsync(targetId));
     }
 
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 0)]
+    public async Task ConditionalAppendWritesOnlyWhenTheEffectHappened(bool effectHappened, int expectedRows)
+    {
+        var targetId = Guid.CreateVersion7();
+        await using var db = postgres.CreateDbContext();
+        var trail = new AuditTrail(db, new FakeTimeProvider(Now));
+
+        await using (var transaction = await db.Database.BeginTransactionAsync(Ct))
+        {
+            await trail.AppendIfAsync(SystemRecord(targetId), effectHappened, Ct);
+            await transaction.CommitAsync(Ct);
+        }
+
+        Assert.Equal(expectedRows, (await ReadByTargetAsync(targetId)).Count);
+    }
+
     [Fact]
     public async Task AppendOutsideATransactionIsRejected()
     {

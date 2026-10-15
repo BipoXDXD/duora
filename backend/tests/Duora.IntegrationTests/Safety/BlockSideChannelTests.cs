@@ -31,28 +31,29 @@ public sealed partial class BlockSideChannelTests : IAsyncDisposable
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
     /// <summary>
-    /// Alvo inexistente (ou o UUID vazio) faz exatamente o mesmo trabalho que um alvo existente já bloqueado: as
-    /// mesmas leituras, a mesma transação e os mesmos locks, só com dados diferentes.
+    /// Primeiro bloqueio, bloqueio repetido, alvo inexistente e UUID vazio fazem exatamente o mesmo trabalho: as
+    /// mesmas leituras, a mesma transação, os mesmos locks e os mesmos comandos de escrita e de auditoria, só com
+    /// dados diferentes (e por isso linhas afetadas diferentes).
     /// </summary>
     [Fact]
-    public async Task UnknownTargetRunsTheSameCommandsAsAnExistingAlreadyBlockedTarget()
+    public async Task EveryTargetRunsTheSameCommands()
     {
         var scenario = new SafetyScenario(_postgres, _factory);
         var blocker = await scenario.CreateAccountAsync();
         var existing = await scenario.CreateAccountAsync();
         using var browser = await scenario.SignedInBrowserAsync(blocker);
-        using (await browser.PutAsync(SafetyScenario.BlockPath(existing.UserId)))
-        {
-        }
 
-        var existingWork = await RecordAsync(browser, existing.UserId);
-        var unknownWork = await RecordAsync(browser, Guid.CreateVersion7());
-        var emptyWork = await RecordAsync(browser, Guid.Empty);
+        var firstBlock = await RecordAsync(browser, existing.UserId);
+        var repeatedBlock = await RecordAsync(browser, existing.UserId);
+        var unknownTarget = await RecordAsync(browser, Guid.CreateVersion7());
+        var emptyTarget = await RecordAsync(browser, Guid.Empty);
 
-        Assert.NotEmpty(existingWork);
-        Assert.Contains(existingWork, command => command.Contains("for update", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(existingWork, unknownWork);
-        Assert.Equal(existingWork, emptyWork);
+        Assert.Contains(firstBlock, command => command.Contains("for update", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(firstBlock, command => command.Contains("ops.audit_events", StringComparison.Ordinal));
+        Assert.Equal(firstBlock, repeatedBlock);
+        Assert.Equal(firstBlock, unknownTarget);
+        Assert.Equal(firstBlock, emptyTarget);
+        Assert.Equal(new BlockState(1, 1, 1, 1), await scenario.ReadAsync(blocker.UserId, existing.UserId));
     }
 
     private async Task<List<string>> RecordAsync(Identity.Browser browser, Guid target)
