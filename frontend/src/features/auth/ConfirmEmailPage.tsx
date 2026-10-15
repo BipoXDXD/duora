@@ -1,18 +1,25 @@
+import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation } from '@tanstack/react-query'
-import { classifyRequestFailure } from '@/shared/api'
+import { useForm } from 'react-hook-form'
+import { z } from 'zod'
+import { classifyRequestFailure, type RequestFailure } from '@/shared/api'
 import { messages } from '@/shared/messages'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
+import { PasswordField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { confirmEmail } from './auth-api'
-import type { EmailLink } from './auth-schemas'
+import { currentPasswordSchema, type EmailLink } from './auth-schemas'
 import { useEmailLinkFromUrl } from './use-email-link'
 
 const PROBLEM_MESSAGES = { INVALID_TOKEN: messages.confirmEmail.invalidToken }
 
+const confirmEmailSchema = z.object({ password: currentPasswordSchema })
+
 /**
- * Confirmação de e-mail pelo link recebido. Pede um clique em vez de confirmar ao abrir a página:
- * scanners de link que executam JavaScript não confirmam a conta sozinhos (API-A03).
+ * Confirmação de e-mail pelo link recebido. Pede um clique em vez de confirmar ao abrir a página
+ * (scanners de link que executam JavaScript não confirmam a conta sozinhos, API-A03) e a senha do
+ * cadastro (um link gerado por terceiro não confirma a conta na caixa de outra pessoa).
  */
 export function ConfirmEmailPage(): React.JSX.Element {
   const link = useEmailLinkFromUrl()
@@ -34,7 +41,16 @@ export function ConfirmEmailPage(): React.JSX.Element {
 }
 
 function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Element {
-  const confirmation = useMutation({ mutationFn: () => confirmEmail(link) })
+  const form = useForm<z.input<typeof confirmEmailSchema>, unknown, z.output<typeof confirmEmailSchema>>({
+    resolver: zodResolver(confirmEmailSchema),
+    defaultValues: { password: '' },
+  })
+  const confirmation = useMutation({ mutationFn: (password: string) => confirmEmail(link, password) })
+  const submit = form.handleSubmit(({ password }) => {
+    if (!confirmation.isPending) {
+      confirmation.mutate(password)
+    }
+  })
 
   if (confirmation.isSuccess) {
     return (
@@ -48,22 +64,32 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
       </>
     )
   }
+  const failure = confirmation.isError ? classifyRequestFailure(confirmation.error) : null
   return (
     <>
-      {confirmation.isError ? (
-        <RequestFailureAlert failure={classifyRequestFailure(confirmation.error)} problemMessages={PROBLEM_MESSAGES} />
+      {failure === null ? null : <RequestFailureAlert failure={failure} problemMessages={PROBLEM_MESSAGES} />}
+      {isInvalidToken(failure) ? (
+        <p>
+          <TextLink to={paths.register}>{messages.confirmEmail.registerAgain}</TextLink>
+        </p>
       ) : null}
       <p className="text-text-muted">{messages.confirmEmail.intro}</p>
       <form
+        noValidate
         method="post"
         aria-busy={confirmation.isPending}
+        className="flex flex-col gap-6"
         onSubmit={(event) => {
-          event.preventDefault()
-          if (!confirmation.isPending) {
-            confirmation.mutate()
-          }
+          void submit(event)
         }}
       >
+        <PasswordField
+          label={messages.confirmEmail.password}
+          hint={messages.confirmEmail.passwordHint}
+          autoComplete="current-password"
+          error={form.formState.errors.password?.message}
+          {...form.register('password')}
+        />
         <SubmitButton
           pending={confirmation.isPending}
           label={messages.confirmEmail.submit}
@@ -72,4 +98,8 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
       </form>
     </>
   )
+}
+
+function isInvalidToken(failure: RequestFailure | null): boolean {
+  return failure?.kind === 'problem' && failure.code === 'INVALID_TOKEN'
 }

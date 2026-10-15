@@ -2,10 +2,11 @@ import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
-import { renderApp } from '@/test/render'
+import { renderApp, type RenderedApp } from '@/test/render'
 
 const USER_ID = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'
 const LINK = `/confirmar-email#userId=${USER_ID}&token=${encodeURIComponent('tok+en/=')}`
+const PASSWORD = 'frase longa do cadastro'
 
 function useConfirmEndpoint(respond: () => Response) {
   const received: { body: unknown; token: string | null }[] = []
@@ -18,9 +19,20 @@ function useConfirmEndpoint(respond: () => Response) {
   return received
 }
 
+async function confirmWithPassword({ user }: RenderedApp, password: string) {
+  if (password !== '') {
+    // Colar, como faz um gerenciador de senhas.
+    await user.click(screen.getByLabelText('Senha'))
+    await user.paste(password)
+  }
+  await user.click(screen.getByRole('button', { name: 'Confirmar e-mail' }))
+}
+
+const noContent = () => new HttpResponse(null, { status: 204 })
+
 describe('tela de confirmação de e-mail', () => {
   it('não confirma sozinha ao abrir: espera o clique (scanner de link não confirma)', () => {
-    const received = useConfirmEndpoint(() => new HttpResponse(null, { status: 204 }))
+    const received = useConfirmEndpoint(noContent)
     renderApp(LINK)
 
     expect(document.title).toBe('Confirmar e-mail · Duora')
@@ -28,32 +40,58 @@ describe('tela de confirmação de e-mail', () => {
     expect(received).toEqual([])
   })
 
-  it('confirma com userId e token do link, com CSRF', async () => {
-    const antiforgery = useAntiforgeryEndpoint()
-    const received = useConfirmEndpoint(() => new HttpResponse(null, { status: 204 }))
-    const { user } = renderApp(LINK)
+  it('pede a senha do cadastro com label persistente, ajuda e autocomplete de senha atual', () => {
+    renderApp(LINK)
 
-    await user.click(screen.getByRole('button', { name: 'Confirmar e-mail' }))
+    const password = screen.getByLabelText('Senha')
+    expect(password).toHaveAttribute('type', 'password')
+    expect(password).toHaveAttribute('autocomplete', 'current-password')
+    expect(password).toHaveAccessibleDescription('Use a mesma senha que você criou no cadastro.')
+  })
+
+  it('confirma com userId, token e a senha colada, com CSRF', async () => {
+    const antiforgery = useAntiforgeryEndpoint()
+    const received = useConfirmEndpoint(noContent)
+    const app = renderApp(LINK)
+
+    await confirmWithPassword(app, PASSWORD)
 
     const success = await screen.findByRole('status')
     expect(success).toHaveTextContent('E-mail confirmado.')
     expect(success).toHaveFocus()
     expect(screen.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar')
-    expect(received).toEqual([{ body: { userId: USER_ID, token: 'tok+en/=' }, token: antiforgery.latestToken() }])
+    expect(received).toEqual([
+      { body: { userId: USER_ID, token: 'tok+en/=', password: PASSWORD }, token: antiforgery.latestToken() },
+    ])
   })
 
   it('tira userId e token do fragmento ao montar e ainda envia o token certo no POST', async () => {
     const antiforgery = useAntiforgeryEndpoint()
-    const received = useConfirmEndpoint(() => new HttpResponse(null, { status: 204 }))
-    const { user } = renderApp(LINK)
+    const received = useConfirmEndpoint(noContent)
+    const app = renderApp(LINK)
 
     await waitFor(() => {
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirmar-email$/)
     })
-    await user.click(screen.getByRole('button', { name: 'Confirmar e-mail' }))
+    await confirmWithPassword(app, PASSWORD)
 
     expect(await screen.findByRole('status')).toHaveTextContent('E-mail confirmado.')
-    expect(received).toEqual([{ body: { userId: USER_ID, token: 'tok+en/=' }, token: antiforgery.latestToken() }])
+    expect(received).toEqual([
+      { body: { userId: USER_ID, token: 'tok+en/=', password: PASSWORD }, token: antiforgery.latestToken() },
+    ])
+  })
+
+  it('senha vazia: erro associado, foco no campo e nada enviado', async () => {
+    const received = useConfirmEndpoint(noContent)
+    const app = renderApp(LINK)
+
+    await confirmWithPassword(app, '')
+
+    const password = screen.getByLabelText('Senha')
+    expect(password).toHaveFocus()
+    expect(password).toHaveAttribute('aria-invalid', 'true')
+    expect(password).toHaveAccessibleDescription('Use a mesma senha que você criou no cadastro. Informe sua senha.')
+    expect(received).toEqual([])
   })
 
   it('um link com token na query também sai da URL, mesmo recusado', async () => {
@@ -64,22 +102,24 @@ describe('tela de confirmação de e-mail', () => {
     })
   })
 
-  it('INVALID_TOKEN explica que o link não vale mais', async () => {
+  it('INVALID_TOKEN (token ruim ou senha errada): mensagem neutra e caminho para cadastrar de novo', async () => {
     useAntiforgeryEndpoint()
     useConfirmEndpoint(() => problem(400, 'INVALID_TOKEN'))
-    const { user } = renderApp(LINK)
+    const app = renderApp(LINK)
 
-    await user.click(screen.getByRole('button', { name: 'Confirmar e-mail' }))
+    await confirmWithPassword(app, 'senha errada qualquer')
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('inválido, expirou ou já foi usado')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Link inválido ou senha incorreta.')
+    expect(screen.getByRole('link', { name: 'Criar conta de novo' })).toHaveAttribute('href', '/criar-conta')
+    expect(screen.getByLabelText('Senha')).toHaveValue('senha errada qualquer')
   })
 
   it('429 mostra o tempo de espera', async () => {
     useAntiforgeryEndpoint()
     useConfirmEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '1' }))
-    const { user } = renderApp(LINK)
+    const app = renderApp(LINK)
 
-    await user.click(screen.getByRole('button', { name: 'Confirmar e-mail' }))
+    await confirmWithPassword(app, PASSWORD)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('espere 1 segundo')
   })
@@ -87,12 +127,13 @@ describe('tela de confirmação de e-mail', () => {
   it('erro de rede tem mensagem própria e permite tentar de novo', async () => {
     useAntiforgeryEndpoint()
     useConfirmEndpoint(() => HttpResponse.error())
-    const { user } = renderApp(LINK)
+    const app = renderApp(LINK)
 
-    await user.click(screen.getByRole('button', { name: 'Confirmar e-mail' }))
+    await confirmWithPassword(app, PASSWORD)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Confira sua conexão')
     expect(screen.getByRole('button', { name: 'Confirmar e-mail' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Criar conta de novo' })).not.toBeInTheDocument()
   })
 
   it.each([
@@ -101,7 +142,7 @@ describe('tela de confirmação de e-mail', () => {
     ['userId inválido', '/confirmar-email#userId=123&token=abc'],
     ['formato antigo, na query', `/confirmar-email?userId=${USER_ID}&token=abc`],
   ])('link malformado (%s) não chama a API', (_caso, path) => {
-    const received = useConfirmEndpoint(() => new HttpResponse(null, { status: 204 }))
+    const received = useConfirmEndpoint(noContent)
     renderApp(path)
 
     expect(screen.getByRole('alert')).toHaveTextContent('Este link de confirmação é inválido ou expirou.')

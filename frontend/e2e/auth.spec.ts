@@ -35,8 +35,12 @@ test.describe('jornada de entrada', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Verifique seu e-mail' })).toBeVisible()
     await expect(page).toHaveURL(/\/verifique-seu-email$/)
 
-    // A pessoa abre o link recebido por e-mail.
+    // A pessoa abre o link recebido por e-mail e confirma com a senha do cadastro.
     await page.goto(api.lastEmailLink('confirmation').path)
+    await page.getByLabel('Senha', { exact: true }).fill('senha que não é a do cadastro')
+    await page.getByRole('button', { name: 'Confirmar e-mail' }).click()
+    await expect(page.getByRole('alert')).toContainText('Link inválido ou senha incorreta.')
+    await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Confirmar e-mail' }).click()
     await expect(page.getByRole('status')).toContainText('E-mail confirmado.')
 
@@ -218,8 +222,10 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
   test('confirmação com token inválido', async ({ page }) => {
     await FakeDuoraApi.install(page)
     await page.goto('/confirmar-email#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
+    await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Confirmar e-mail' }).click()
-    await expect(page.getByRole('alert')).toContainText('inválido, expirou ou já foi usado')
+    await expect(page.getByRole('alert')).toContainText('Link inválido ou senha incorreta.')
+    await expect(page.getByRole('link', { name: 'Criar conta de novo' })).toBeVisible()
 
     await expectNoAxeViolations(page)
   })

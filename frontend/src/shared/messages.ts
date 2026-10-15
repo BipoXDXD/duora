@@ -82,12 +82,16 @@ export const messages = {
   },
   confirmEmail: {
     title: 'Confirmar e-mail',
-    intro: 'Para concluir a confirmação do seu endereço, use o botão abaixo.',
+    intro: 'Para concluir a confirmação do seu endereço, informe sua senha e use o botão abaixo.',
+    password: 'Senha',
+    passwordHint: 'Use a mesma senha que você criou no cadastro.',
     submit: 'Confirmar e-mail',
     submitting: 'Confirmando…',
     success: 'E-mail confirmado. Agora você já pode entrar.',
     invalidLink: 'Este link de confirmação é inválido ou expirou.',
-    invalidToken: 'Este link de confirmação é inválido, expirou ou já foi usado.',
+    // Neutra de propósito: não diz se o problema foi o link ou a senha (contrato do M1).
+    invalidToken: 'Link inválido ou senha incorreta. Confira a senha ou faça o cadastro de novo.',
+    registerAgain: 'Criar conta de novo',
     signInLink: 'Entrar',
   },
   login: {
