@@ -1,3 +1,4 @@
+import { DEFAULT_LOCALE, matchLocale } from '@/shared/i18n/locale'
 import { createApiClient, type JsonRequest } from './api-client'
 import { readAntiforgeryTokenFromCookies } from './antiforgery'
 import { sendWithFreshAntiforgeryToken } from './antiforgery-refresh'
@@ -13,6 +14,8 @@ export const apiClient = createApiClient({
   fetch: (request) => globalThis.fetch(request),
   origin: globalThis.location.origin,
   readAntiforgeryToken: () => readAntiforgeryTokenFromCookies(document.cookie),
+  // O I18nProvider mantém o <html lang> igual ao idioma ativo; é a mesma fonte que leitores de tela usam.
+  readLocale: () => matchLocale(document.documentElement.lang) ?? DEFAULT_LOCALE,
   now: () => Date.now(),
 })
 
