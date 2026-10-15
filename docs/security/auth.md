@@ -40,7 +40,7 @@ sequenceDiagram
     participant S as ITicketStore (PostgreSQL)
     B->>W: POST /api/v1/auth/login (credenciais, X-XSRF-TOKEN)
     W->>W: Identity valida senha (+ TOTP se exigido)
-    W->>S: StoreAsync: cria login_sessions + auth_tickets (chave aleatória)
+    W->>S: StoreAsync: cria login_sessions (chave aleatória; ticket protegido)
     W-->>B: Set-Cookie __Host-duora = referência protegida (Data Protection)
     B->>W: requisição seguinte com cookie
     W->>S: RetrieveAsync(chave): sessão ativa? ociosa e absoluta válidas? stamp igual?
@@ -52,26 +52,26 @@ sequenceDiagram
 |---|---|
 | Cookie de autenticação | `__Host-duora`; `Secure`, `HttpOnly`, `Path=/`, sem `Domain`, `SameSite=Lax`; sem `Max-Age`/`Expires` (cookie de sessão do navegador; a validade real é a do servidor) |
 | Conteúdo do cookie | Só a referência ao ticket (claim de chave de sessão), protegida pelo Data Protection; nenhuma claim de papel, e-mail ou elegibilidade legível ou confiável no cliente |
-| `CookieAuthenticationOptions.SessionStore` | Implementação de `ITicketStore` sobre `identity.auth_tickets` e `identity.login_sessions` (D-AUTH-02) |
-| Chave do ticket | 256 bits de CSPRNG, codificada em base64url; gerada em `StoreAsync`; nunca reutilizada |
+| `CookieAuthenticationOptions.SessionStore` | `PostgresTicketStore` sobre `identity.login_sessions`, que absorve `auth_tickets` (1:1, mesma vida; [ADR-0019](../architecture/adr/0019-implementacao-identidade-sessao-outbox.md)) (D-AUTH-02) |
+| Chave do ticket | 256 bits de CSPRNG, codificada em base64url; gerada em `StoreAsync`; nunca reutilizada. O banco guarda só o SHA-256 da chave (`key_hash`) |
 | Ticket armazenado | `AuthenticationTicket` serializado e protegido pelo Data Protection (`bytea`), nunca em claro; classe S |
-| `RetrieveAsync` | Uma consulta: ticket + sessão + `users.security_stamp` + estado da conta. Devolve nada (→ `401`) se: sessão revogada, `idle_expires_at <= agora`, `absolute_expires_at <= agora`, stamp da sessão diferente do atual, conta `Deleted` ou `DeletionPending` |
+| `RetrieveAsync` | Um único `UPDATE ... RETURNING ticket` que confere sessão + `users.security_stamp` e desliza a expiração ociosa. Devolve nada (→ `401`) se: sessão revogada, `idle_expires_at <= agora`, `absolute_expires_at <= agora` ou stamp da sessão diferente do atual. **Pendente:** recusar conta `DeletionPending` (hoje a sessão continua válida, e `/me` informa o estado) |
 | Conta restrita ou suspensa | Sessão válida, mas a política de autorização limita a conta própria, segurança e recurso (spec 8.2) |
 | Respostas da API | `401`/`403` em Problem Details; `OnRedirectToLogin` e `OnRedirectToAccessDenied` substituídos para nunca redirecionar a API para HTML (spec 8.2; D-AUTH-01) |
-| Banco indisponível | Falha fechada: `503` sem detalhe; nunca aceitar ticket sem consulta (TM-16) |
+| Banco indisponível | Falha fechada: nunca aceita ticket sem consulta (TM-16). Hoje a resposta é `500` `INTERNAL_ERROR` sem detalhe; **pendente:** mapear para `503` |
 | Relógio | `TimeProvider` injetado em toda decisão de expiração; `FakeTimeProvider` nos testes |
-| Negar por padrão | Política de fallback exige usuário autenticado; rotas públicas numa allowlist explícita (API-A01, A02, A03, A04, A06, A07, saúde e webhooks) (TM-64) |
+| Negar por padrão | Política de fallback exige usuário autenticado; rotas públicas numa allowlist explícita (API-A01 a A07, `/health/live`, `/health/ready`; webhooks quando existirem) (TM-64). O teste `EndpointAuthorizationTests` falha se uma rota nova nascer pública |
 
-Custo aceito (ADR-0005): uma consulta ao ticket store por requisição autenticada. A renovação da expiração
-ociosa grava no máximo uma vez por minuto por sessão **(hipótese)** para não transformar toda leitura em
-escrita.
+Custo aceito (ADR-0005, ADR-0019): uma consulta ao ticket store por requisição autenticada, que também grava
+`last_seen_at` e a expiração ociosa. Limitar essa escrita a uma vez por minuto fica para quando a medição
+mostrar custo.
 
 ## Expiração
 
 | Política | Ociosa | Absoluta | Aplicação |
 |---|---|---|---|
 | Normal | 30 min | 12 h | Contas de participante |
-| Administrativa | 15 min | 8 h | Contas privilegiadas |
+| Administrativa | 15 min | 8 h | Contas privilegiadas (**pendente:** chega com os papéis e o MFA) |
 
 - No login: `absolute_expires_at = agora + absoluta` (imutável) e `idle_expires_at = min(agora + ociosa,
   absolute_expires_at)`.
@@ -87,6 +87,11 @@ Nova sessão (nova linha em `login_sessions`, nova chave de ticket, novo cookie)
 login, troca de senha (API-A16), conclusão de reset (API-A07 não emite sessão), ativação ou desativação de MFA
 e qualquer mudança de papel. Nunca reaproveitar sessão anônima (spec 11.1; TM-03). Depois de login, logout ou
 troca de identidade, o token antiforgery é renovado (spec 8.2).
+
+Implementado no M1 para o login: a sessão anterior é revogada e a nova é gravada pelo esquema
+`Duora.Session.SignIn`, que nunca leu o cookie da requisição. O handler de cookie padrão, depois de autenticar,
+reaproveitaria a chave anterior no `SignInAsync` (chama `RenewAsync`), o que seria fixation (ADR-0019). Login
+e logout já devolvem um `XSRF-TOKEN` novo, ligado à identidade nova.
 
 ## Reautenticação e step-up
 
@@ -116,7 +121,7 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 | Novos códigos (API-A14) | Autenticação recente; revoga o conjunto anterior; mostra o novo uma vez; nada em log |
 | Desativar (API-A15) | Autenticação recente; recusado (`403` `MFA_REQUIRED_BY_ROLE`) se a conta é privilegiada; para participante, desativa, revoga as outras sessões e notifica |
 | Recuperação de MFA de conta privilegiada | Não há caminho self-service por e-mail: procedimento operacional auditado, com outra pessoa ou conta privilegiada quando houver (TM-22) |
-| Armazenamento | Chave do autenticador e códigos de recuperação ficam em `identity.user_tokens` (classe S). **A verificar antes do M1:** se a versão adotada do Identity os guarda em claro, avaliar `ProtectPersonalData`/proteção por Data Protection, porque um dump do banco daria o segundo fator |
+| Armazenamento | Chave do autenticador e códigos de recuperação ficam em `identity.user_tokens` (classe S). **Pendente, antes de implementar o MFA:** verificar se o Identity 10.0.13 os grava em claro; se sim, avaliar `ProtectPersonalData`/proteção por Data Protection, porque um dump do banco daria o segundo fator |
 
 ## CSRF
 
@@ -125,14 +130,15 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 
 | Camada | Especificação |
 |---|---|
-| 1. Token antiforgery | `AddAntiforgery(o => o.HeaderName = "X-XSRF-TOKEN")`, `app.UseAntiforgery()` e validação em toda rota `POST`, `PUT`, `PATCH` e `DELETE` autenticada por cookie, **inclusive** API-A02 a A07 (D-AUTH-05). Cookie interno do antiforgery: `__Host-duora-af`, `HttpOnly`, `Secure`, `SameSite=Strict` |
+| 1. Token antiforgery | `AddAntiforgery(o => o.HeaderName = "X-XSRF-TOKEN")` e um middleware (`CsrfProtectionMiddleware`) que chama `IAntiforgery.IsRequestValidAsync` em todo método que não é `GET`, `HEAD`, `OPTIONS` ou `TRACE`, **inclusive** API-A02 a A07 (D-AUTH-05). Roda depois da autorização: rota protegida sem sessão responde `401` antes. Cookie interno do antiforgery: `__Host-duora-af`, `HttpOnly`, `Secure`, `SameSite=Strict` |
 | 2. Cookie legível | API-A01 chama `GetAndStoreTokens` e grava o request token no cookie `XSRF-TOKEN` (`Secure`, `Path=/`, `SameSite=Strict`, **sem** `HttpOnly`, para a SPA ler). A SPA o envia no header `X-XSRF-TOKEN` (já implementado em `frontend/src/shared/api/antiforgery.ts`). O token sozinho não basta: precisa casar com o cookie `__Host-` e com a identidade |
-| 3. Origem | Em mutação: `Origin` presente e diferente da origem da aplicação → rejeita; `Origin` ausente e `Sec-Fetch-Site` presente e diferente de `same-origin` → rejeita; os dois ausentes → só a camada 1 decide (cliente não-navegador). No hub, `Origin` é obrigatório e exato (TM-45) |
+| 3. Origem | Em mutação: `Origin` presente e diferente da origem pública (`Duora:PublicOrigin`; em Development também `https://localhost:5173`) → rejeita; `Sec-Fetch-Site` presente e diferente de `same-origin` → rejeita; os dois ausentes → só a camada 1 decide (cliente não-navegador). No hub, `Origin` é obrigatório e exato (TM-45) |
 
 - Falha de antiforgery ou de origem: `403` Problem Details com `code = CSRF_VALIDATION_FAILED`, sem efeito
   (o padrão do framework é `400`; o M1 mapeia para `403`).
-- `DisableAntiforgery()` só em `/webhooks/{provider}` (sem cookie; autenticação por assinatura) e nunca em
-  outra rota sem revisão.
+- A resposta não diz qual camada falhou.
+- Webhooks (`/webhooks/{provider}`, quando existirem) precisarão de exceção explícita no middleware, com
+  revisão.
 - O token é ligado à identidade: depois de login, logout ou troca de identidade, a SPA chama API-A01 de novo.
 - CORS: nenhuma política aberta; respostas não trazem `Access-Control-Allow-Origin` para origem não aprovada
   (ADR-0006).
@@ -141,10 +147,10 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 
 | Passo | Especificação |
 |---|---|
-| Pedido (API-A06) | Recebe e-mail; responde sempre `202` com corpo neutro idêntico. Se a conta existe e está apta, enfileira e-mail via outbox; senão, nada (ou e-mail "não há conta com este endereço" se o produto quiser, sempre pelo mesmo canal assíncrono) |
-| Token | `GeneratePasswordResetTokenAsync` do Identity (Data Protection, ligado ao security stamp). Provedor próprio para reset com vida de **30 min (hipótese)**, separado do token de confirmação de e-mail (**24 h, hipótese**) |
-| Link | Aponta para uma rota da SPA com o token no **fragmento** (`#token=...`), que não vai a servidor, log de proxy nem `Referer`; `Referrer-Policy: no-referrer` nas páginas de conta |
-| Conclusão (API-A07) | `POST` com e-mail, token e nova senha. Sucesso: troca a senha, atualiza o security stamp (o token deixa de valer), revoga **todas** as sessões, não emite sessão nova, notifica o titular. Falha: erro neutro `RESET_TOKEN_INVALID` |
+| Pedido (API-A06) | Recebe e-mail; responde sempre `202` com corpo vazio. Se a conta existe, grava o e-mail na outbox na mesma transação; senão, nada |
+| Token | `GeneratePasswordResetTokenAsync` do Identity (Data Protection, ligado ao security stamp). Provedor próprio para reset com vida de **30 min (hipótese)**, separado do token de confirmação de e-mail (**24 h, hipótese**). A entrega do e-mail expira antes (15 min e 12 h) para o link não chegar morto |
+| Link | Rota da SPA com as credenciais no **fragmento**: `/redefinir-senha#userId=…&token=…` e `/confirmar-email#userId=…&token=…`. O fragmento não vai a servidor, log de proxy nem `Referer`. O token é o base64url dos bytes do token do Identity. **Pendente (frontend):** `Referrer-Policy: no-referrer` nas páginas de conta |
+| Conclusão (API-A07) | `POST` com `userId`, `token` e `newPassword`. Sucesso: troca a senha, atualiza o security stamp (o token deixa de valer), zera o bloqueio por tentativas, revoga **todas** as sessões e não emite sessão nova. Falha: `400` `INVALID_TOKEN`, igual para conta inexistente. **Pendente:** notificar o titular da troca |
 | Conta privilegiada | Reset troca a senha, mas não remove nem contorna o MFA (TM-22) |
 | Política de senha | Comprimento mínimo de 12 caracteres e máximo de 128 **(hipótese)**, sem regras de composição forçada; colar e gerenciador de senhas permitidos (A11Y-01); verificação contra senhas vazadas fica como evolução, se houver serviço aprovado |
 
@@ -172,8 +178,8 @@ comando do cliente falha no `RetrieveAsync` (spec 9.2; T-14).
 
 | Rota | Comportamento igual para conta existente e inexistente |
 |---|---|
-| API-A02 cadastro | `202` com corpo neutro. E-mail já cadastrado: o titular recebe "você já tem uma conta" pelo mesmo canal assíncrono |
-| API-A04 login | `401` com `code = INVALID_CREDENTIALS` para e-mail inexistente, senha errada e conta bloqueada por lockout; para e-mail inexistente o servidor ainda executa uma verificação de hash de custo equivalente, para aproximar o tempo de resposta |
+| API-A02 cadastro | `202` com corpo vazio. E-mail já cadastrado e confirmado: o titular recebe "alguém tentou se cadastrar com este e-mail" pela outbox; ainda não confirmado: recebe um link de confirmação novo. Cadastros simultâneos do mesmo e-mail criam uma conta só (índice único) |
+| API-A04 login | `401` com `code = INVALID_CREDENTIALS` para e-mail inexistente, senha errada, e-mail não confirmado e conta bloqueada; nos caminhos que não calculariam hash (inexistente, bloqueada, não confirmada) o servidor verifica um hash de isca de mesmo custo, para aproximar o tempo de resposta. `MFA_REQUIRED` só aparece depois da senha certa |
 | API-A06 pedido de reset | `202` neutro |
 | API-A03 e A07 | Token inválido, expirado ou de conta inexistente → mesmo erro |
 
@@ -184,13 +190,13 @@ comando do cliente falha no `RetrieveAsync` (spec 9.2; T-14).
 
 | Item | Especificação (spec 11.2, 15.4; D-AUTH-02) |
 |---|---|
-| Persistência | `PersistKeysToFileSystem` num volume persistente restrito (`0700`, dono = usuário do container web), fora da camada gravável do container |
-| Proteção em repouso | `ProtectKeysWithCertificate` com certificado lido de arquivo de segredo; persistir não é criptografar |
-| Nome da aplicação | `SetApplicationName("duora-<ambiente>")` estável entre deploys; homologação e produção com nomes, volumes e certificados diferentes |
+| Persistência | Repositório em arquivo no diretório de `DataProtection:KeysDirectory` (em dev, `.local/dataprotection-keys/`, fora do git). Em produção, volume persistente restrito (`0700`, dono = usuário do container web), fora da camada gravável do container |
+| Proteção em repouso | **Pendente (M3):** `ProtectKeysWithCertificate` com certificado lido de arquivo de segredo; persistir não é criptografar |
+| Nome da aplicação | `SetApplicationName("Duora")`, estável entre deploys. **Pendente (M3):** nome por ambiente; hoje homologação e produção se separam por volumes e certificados diferentes |
 | Vida da chave | Padrão do framework (90 dias) com rotação automática; chaves antigas mantidas enquanto houver payload válido (cookies de no máximo 12 h, tokens de no máximo 24 h) |
 | Worker | Não recebe o key ring de cookies; usa referências de conta e jobs. Se um dia precisar desproteger algo, usa purpose próprio e o ADR registra |
 | Backup | Key ring e certificado no inventário de backup, com custódia separada do backup do banco (spec 18.3) |
-| Startup | Web falha ao subir sem volume, certificado ou nome de aplicação configurados (spec 11.4) |
+| Startup | Web falha ao subir sem `DataProtection:KeysDirectory` (teste `WebDoesNotStartWithoutAPersistentKeyRing`); exigir o certificado entra com o M3 (spec 11.4) |
 | Comprometimento | Novo key ring, revogação de todas as sessões e invalidação de tokens pendentes |
 
 Teste: T-15 (recriar container mantém sessões válidas; rotação não derruba sessões dentro da política).
@@ -198,23 +204,30 @@ Teste: T-15 (recriar container mantém sessões válidas; rotação não derruba
 ## Rate limit e lockout
 
 Duas camadas (spec 11.5; *Secure APIs*, cap. 5.1): **lockout por conta no banco** (Identity, sobrevive a
-reinício e não depende de IP) e **rate limiter em memória** por origem e por sessão (`AddRateLimiter`,
-D-AUTH-04), que reinicia com o processo (aceito no piloto, ADR-0009). O IP usado é o do proxy confiável
-(Forwarded Headers aceitos só do Caddy).
+reinício e não depende de IP) e **rate limiter em memória** por IP e por conta-alvo (`AddRateLimiter` e
+`PartitionedRateLimiter`, D-AUTH-04), que reinicia com o processo (aceito no piloto, ADR-0009). Os limites
+ficam na seção `RateLimiting` da configuração. **Pendente (antes do deploy):** Forwarded Headers aceitos só do
+Caddy; sem isso, atrás do proxy, todo cliente cai na mesma partição de IP.
 
 | Operação | Chave | Limite inicial (hipótese) | Resposta |
 |---|---|---|---|
-| Login (A04): falhas de senha ou MFA | Conta | 5 falhas → lockout de 1 min, dobrando a cada novo lockout até 1 h; zera no sucesso; aviso por e-mail no 3.º lockout | `401` `INVALID_CREDENTIALS` (sem revelar lockout) |
-| Login (A04) | IP | 20 tentativas / 5 min | `429` + `Retry-After` |
-| Cadastro (A02) | IP | 5 / hora | `429` + `Retry-After` |
-| Reenvio de confirmação, pedido de reset (A06) | Hash do e-mail normalizado e IP | 3 / hora por e-mail; 10 / hora por IP | `202` neutro (excesso descartado em silêncio por e-mail); `429` por IP |
-| Conclusão de reset (A07), confirmação (A03) | IP | 10 / 15 min | `429` + `Retry-After` |
+| Login (A04): falhas de senha | Conta (banco) | 20 falhas seguidas → bloqueio de 15 min; zera no sucesso e no reset de senha | `401` `INVALID_CREDENTIALS` (sem revelar lockout) |
+| Login (A04) | E-mail normalizado, exista a conta ou não | 10 / 15 min | `429` + `Retry-After` |
+| Login (A04) | IP | 10 / min | `429` + `Retry-After` |
+| Cadastro (A02) | E-mail normalizado | 3 / hora | `429` + `Retry-After` |
+| Cadastro (A02) | IP | 20 / hora | `429` + `Retry-After` |
+| Pedido de reset (A06) | E-mail normalizado | 3 / hora | `429` + `Retry-After` |
+| Pedido de reset (A06) | IP | 10 / hora | `429` + `Retry-After` |
+| Conclusão de reset (A07), confirmação (A03) | IP | 20 / 10 min | `429` + `Retry-After` |
 | Reautenticação (A13) | Sessão | Mesmo lockout da conta | `401` |
 | MFA (A11, A12, A14, A15), troca de senha (A16) | Sessão | 10 / hora | `429` + `Retry-After` |
 | Revogar sessão (A10) | Sessão | 30 / hora | `429` + `Retry-After` |
 
 Valores calibrados pelo uso real e versionados; nunca bloquear permanentemente uma conta por falhas de terceiros
-(TM-09). Métricas: contagem de `401`/`429` por rota e origem agregada, sem e-mail nem ID de pessoa como label
+(TM-09). Trade-off aceito ([ADR-0019](../architecture/adr/0019-implementacao-identidade-sessao-outbox.md)):
+quem insiste no e-mail de outra pessoa esgota o limite por conta dela e pode bloqueá-la por até 15 min. Não há
+lockout progressivo, que facilitaria o bloqueio abusivo; o reset de senha destrava a conta. **Pendente:** aviso
+por e-mail ao titular quando a conta é bloqueada. Métricas: contagem de `401`/`429` por rota e origem agregada, sem e-mail nem ID de pessoa como label
 (spec 19.2).
 
 ## Contrato de rotas API-A01 a A16
@@ -226,15 +239,15 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | ID | Rota | Autenticação | Antiforgery | Recente | Entrada → saída | Erros principais | Auditoria |
 |---|---|---|---|---|---|---|---|
 | API-A01 | `GET /auth/csrf` | Pública | — | — | — → `204` + cookie `XSRF-TOKEN` | — | — |
-| API-A02 | `POST /auth/register` | Pública | Sim | — | `email`, `password`, `termsVersion`, `privacyVersion` → `202` neutro | `400` validação; `429` | Cadastro criado (sem e-mail no evento) |
-| API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token` → `204` | `400` `CONFIRMATION_TOKEN_INVALID` | Confirmação |
-| API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password`, `twoFactorCode?`, `recoveryCode?` → `204` + cookie | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `429` | Sucesso, falha, lockout |
-| API-A05 | `POST /auth/logout` | Cookie | Sim | — | — → `204` | `401` | Logout |
-| API-A06 | `POST /auth/password-reset-requests` | Pública | Sim | — | `email` → `202` neutro | `429` por IP | Pedido (pseudonimizado) |
-| API-A07 | `POST /auth/password-resets` | Pública | Sim | — | `email`, `token`, `newPassword` → `204` | `400` `RESET_TOKEN_INVALID`, `400` validação de senha | Reset concluído |
-| API-A08 | `GET /me` | Cookie (inclusive conta restrita) | — | — | → conta própria: `id`, `state`, `eligibility`, `roles`, `mfaEnabled`, configuração pública | `401` | — |
-| API-A09 | `GET /me/sessions` | Cookie | — | Só para detalhes | → `items[]`: `sessionId`, `current`, `createdAt`, `lastSeenAt`, `deviceSummary`; com recente: `networkPrefix` | `401` | — |
-| API-A10 | `DELETE /me/sessions/{sessionId}` | Cookie | Sim | — | → `204` | `404` (alheia ou inexistente) | Revogação |
+| API-A02 | `POST /auth/register` | Pública | Sim | — | `email` (≤ 254), `password` (12–128), `acceptedTermsVersion`, `acceptedPrivacyVersion` (1–32, `[A-Za-z0-9._-]`) → `202` sem corpo, igual exista ou não a conta | `400` `VALIDATION_FAILED` (com `errors`) ou `INVALID_REQUEST`; `403` `CSRF_VALIDATION_FAILED`; `429` `RATE_LIMITED` | Pendente |
+| API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token` → `204` (idempotente) | `400` `INVALID_TOKEN`; `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
+| API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo. `twoFactorCode`/`recoveryCode` chegam com o MFA | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | Pendente |
+| API-A05 | `POST /auth/logout` | Pública (sem sessão também responde `204`) | Sim | — | — → `204` + `XSRF-TOKEN` novo; revoga a sessão no servidor | `403` | Pendente |
+| API-A06 | `POST /auth/password-reset-requests` | Pública | Sim | — | `email` → `202` sem corpo | `400`; `403`; `429` por IP e por e-mail | Pendente |
+| API-A07 | `POST /auth/password-resets` | Pública | Sim | — | `userId`, `token`, `newPassword` (12–128) → `204` | `400` `INVALID_TOKEN`, `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
+| API-A08 | `GET /me` | Cookie (inclusive conta restrita) | — | — | → `id`, `email`, `status` (`PendingEmail`, `PendingEligibility`, `Active`, `Restricted`, `Suspended`, `DeletionPending`), `emailConfirmed`, `mfaEnabled`, `roles` | `401` `UNAUTHENTICATED` | — |
+| API-A09 | `GET /me/sessions` | Cookie | — | Só para detalhes (pendente) | → `items[]`: `id`, `createdAt`, `lastSeenAt`, `current`, `description` (só família de navegador e sistema; o User-Agent não é guardado); até 100 sessões ativas | `401` | — |
+| API-A10 | `DELETE /me/sessions/{sessionId}` | Cookie | Sim | — | → `204` (também para sessão própria já revogada) | `404` `NOT_FOUND` (alheia ou inexistente); `403`; `401` | Pendente |
 | API-A11 | `POST /me/mfa/enrollments` | Cookie | Sim | Sim | → `sharedKey`, `authenticatorUri` | `401` `REAUTHENTICATION_REQUIRED`; `409` MFA já ativo | Início de cadastro |
 | API-A12 | `POST /me/mfa/confirmations` | Cookie | Sim | Sim | `code` → `recoveryCodes[]` + sessão renovada | `400` `MFA_CODE_INVALID` | MFA ativado |
 | API-A13 | `POST /auth/reauthenticate` | Cookie | Sim | — | `password`, `twoFactorCode?` → `204` | `401` `INVALID_CREDENTIALS`; `429` | Reautenticação |
@@ -242,7 +255,9 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | API-A15 | `DELETE /me/mfa` | Cookie | Sim | Sim | → `204` | `403` `MFA_REQUIRED_BY_ROLE` | MFA desativado |
 | API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` → `204` + sessão renovada | `400` validação; `401` senha atual errada | Senha trocada |
 
-Regras comuns: DTO estrito (campo desconhecido → `400`); nenhum segredo (senha, token, código, chave) em log,
+Regras comuns: DTO estrito (campo desconhecido ou repetido → `400` `INVALID_REQUEST`); corpo até 32 KiB; erros
+em `application/problem+json` com `type` (`urn:duora:problem:<código>`), `title`, `status`, `code` e `traceId`;
+instantes em RFC 3339 UTC com `Z`; nenhum segredo (senha, token, código, chave) em log,
 trace ou métrica; nenhuma credencial em query string; respostas de sucesso não ecoam e-mail nem dados de
 outras contas; contrato publicado pelo OpenAPI gerado (ADR-0018).
 
@@ -265,15 +280,33 @@ sem artefato do CI (spec 25.19).
 
 | Item | Status | Teste / evidência | PR |
 |---|---|---|---|
-| Cookie `__Host-duora` e `ITicketStore` PostgreSQL | não implementado | — | — |
-| Expiração ociosa e absoluta, normal e administrativa | não implementado | — | — |
-| Fixação: nova sessão no login e nas mudanças de privilégio | não implementado | — | — |
+| Cookie `__Host-duora` e `ITicketStore` PostgreSQL | implementado | `SessionTests` (atributos, revogação) | feat/m1-identity |
+| Expiração ociosa e absoluta, normal e administrativa | normal implementada; administrativa pendente | `SessionTests.IdleSessionExpiresAfterThirtyMinutes`, `ActivitySlidesTheIdleLimitButNeverPastTwelveHours` | feat/m1-identity |
+| Fixação: nova sessão no login e nas mudanças de privilégio | login implementado; mudança de privilégio pendente | `SessionTests.SessionIdChangesOnLoginAndThePreviousCookieStopsWorking` | feat/m1-identity |
 | Reautenticação e step-up | não implementado | — | — |
 | MFA TOTP (A11, A12, A14, A15) e política por papel | não implementado | — | — |
-| Antiforgery, cookie `XSRF-TOKEN` e checagem de origem | não implementado (cliente da SPA já envia `X-XSRF-TOKEN`) | `frontend/src/shared/api/api-client.test.ts` cobre só o lado do cliente | — |
-| Recuperação de senha e confirmação de e-mail | não implementado | — | — |
-| Revogação (A05, A10, troca de senha, reset) e fechamento do hub | não implementado | — | — |
-| Anti-enumeração | não implementado | — | — |
-| Data Protection persistente e protegido | não implementado | — | — |
-| Rate limit e lockout | não implementado | — | — |
-| Contrato A01 a A16 no OpenAPI gerado | não implementado | — | — |
+| Antiforgery, cookie `XSRF-TOKEN` e checagem de origem | implementado | `CsrfProtectionTests` (T-13) | feat/m1-identity |
+| Recuperação de senha e confirmação de e-mail | implementado (e-mail pela outbox; adaptador de desenvolvimento em arquivo) | `RegistrationTests`, `PasswordResetTests`, `TransactionalEmailDispatchTests` | feat/m1-identity |
+| Revogação (A05, A10, troca de senha, reset) e fechamento do hub | A05, A10 e reset implementados; troca de senha e hub pendentes | `SessionTests` (T-14, parte HTTP), `PasswordResetTests` | feat/m1-identity |
+| Anti-enumeração | implementado | `RegistrationTests`, `LoginTests`, `PasswordResetTests` | feat/m1-identity |
+| Data Protection persistente e protegido | persistente; proteção em repouso pendente (M3) | `StartupConfigurationTests.WebDoesNotStartWithoutAPersistentKeyRing` | feat/m1-identity |
+| Rate limit e lockout | implementado | `LoginTests`, `RegistrationTests` | feat/m1-identity |
+| Contrato A01 a A16 no OpenAPI gerado | A01 a A10 publicados; A11 a A16 pendentes | `docs/api/openapi.json` | feat/m1-identity |
+
+## Histórico
+
+- **2026-10-15, feat/m1-identity.** Contrato reconciliado com a implementação, que é a fonte do contrato
+  ([ADR-0018](../architecture/adr/0018-contrato-openapi-code-first.md)); o frontend foi escrito contra a mesma
+  versão. Mudanças em relação ao texto anterior:
+  - API-A02: `termsVersion`/`privacyVersion` viram `acceptedTermsVersion`/`acceptedPrivacyVersion`; `202` sem
+    corpo.
+  - API-A03 e A07: `CONFIRMATION_TOKEN_INVALID` e `RESET_TOKEN_INVALID` viram um código só, `INVALID_TOKEN`;
+    A07 identifica a conta por `userId` (vindo do link), não por `email`.
+  - API-A05: pública; responde `204` mesmo sem sessão.
+  - API-A08: `state` e `eligibility` viram `status` e `emailConfirmed`; `roles` e `mfaEnabled` mantidos.
+  - API-A09: `sessionId` e `deviceSummary` viram `id` e `description`; `networkPrefix` não existe.
+  - Links de e-mail com `userId` e `token` no fragmento.
+  - Sessão: `auth_tickets` absorvida por `login_sessions`; expiração ociosa gravada a cada requisição.
+  - Lockout: 20 falhas e 15 min, sem dobrar; tabela de rate limit trocada pelos valores implementados.
+  - CSRF: middleware próprio com `IsRequestValidAsync` em vez de `UseAntiforgery()`, que só valida formulário.
+  - Data Protection: nome de aplicação `Duora`; proteção em repouso e nome por ambiente ficam para o M3.

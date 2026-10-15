@@ -957,3 +957,21 @@ fontes:
     requisitos: ["2.1", "ADR-005"]
     testes: []
     responsavel: "a designar"
+
+# Uso das fichas por entrega: quais foram consultadas, para quê e o que a implementação tirou delas.
+consultas:
+  - data: 2026-10-15
+    entrega: "M1 identidade: Identity, sessões, CSRF, rate limit e outbox de e-mail (branch feat/m1-identity, ADR-0019)"
+    fichas:
+      - id: D-AUTH-01
+        uso: "Cookie de sessão sem IsPersistent, ExpiresUtc absoluto e OnRedirectToLogin trocado por 401"
+      - id: D-AUTH-02
+        uso: "Contrato do ITicketStore (Store, Retrieve, Renew e Remove com HttpContext) e key ring com SetApplicationName"
+      - id: D-AUTH-04
+        uso: "PartitionedRateLimiter por IP (RemoteIpAddress) e por conta, 429 com Retry-After pelo metadata do lease"
+      - id: D-AUTH-05
+        uso: "Token no header X-XSRF-TOKEN, cookie XSRF-TOKEN legível e IAntiforgery fora de formulário"
+      - id: D-EF-03
+        uso: "Transação explícita no cadastro (conta, aceites e outbox no mesmo commit) e conclusões condicionais na fila"
+      - id: D-SEC-03
+        uso: "Renovar o id de sessão no login (fixation), expiração ociosa e absoluta, cookie com prefixo __Host-"
