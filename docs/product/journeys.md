@@ -3,7 +3,8 @@
 Jornadas verificáveis da spec 4.1, com as rotas da API (spec 8) e os testes de aceite
 ([acceptance.md](../testing/acceptance.md)) que as cobrem. Cada jornada tem caminho de sucesso, falhas e
 saídas obrigatórias; nenhuma é aceita só pelo caminho feliz (spec 22, M2). Estados e termos seguem
-[scope.md](scope.md).
+[scope.md](scope.md). A interface de cada jornada (telas, estados e caminhos de recuperação) está em
+[screens.md](../design/screens.md) e [information-architecture.md](../design/information-architecture.md).
 
 ## Resumo (spec 4.1)
 

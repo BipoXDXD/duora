@@ -966,6 +966,8 @@ Não usar ranking de aparência, contador artificial de escassez, animação de 
 | Especificação de handoff | Regras responsivas, estados, texto, interação e contrato de dados | Um implementador não precisa inventar comportamento ausente |
 | Revisão de uso | Sessões com participantes adultos e tarefas definidas | Registrar problemas observados; não alegar validação estatística de amostra pequena |
 
+Artefatos: [brief de experiência](experience-brief.md), [arquitetura de informação](../design/information-architecture.md), [telas e wireframes](../design/screens.md) e [design system](../design/system.md).
+
 ### 13.2. Mapa de telas e estados
 
 | Área/tela | Conteúdo e ações principais | Estados obrigatórios |
@@ -1067,6 +1069,8 @@ A referência normativa é **WCAG 2.2, níveis A e AA**, aplicada às jornadas c
 **Automação:** Playwright com `@axe-core/playwright` nas páginas e estados relevantes, incluindo erro, modal aberto, nova mensagem e sessão expirada. Fixar a versão do axe e conferir suas regras/tags; uma configuração que só seleciona WCAG 2.0/2.1 não demonstra cobertura automática de critérios 2.2. Adicionar assertions de teclado/foco e de nome acessível que expressem o comportamento esperado.
 
 **Avaliação manual:** Safari + VoiceOver no macOS 27, teclado sem leitor de tela, zoom/reflow e os dispositivos móveis da matriz de suporte. Documentar outras combinações de leitor/browser necessárias para o público do piloto; testar apenas uma combinação não autoriza prometer compatibilidade universal. Testes com pessoas com deficiência são parte da validação de uso quando organizados, não substitutos da inspeção técnica.
+
+Critérios e matriz de suporte: [design/accessibility.md](../design/accessibility.md); procedimento e registro de evidência: [design/accessibility-test-protocol.md](../design/accessibility-test-protocol.md).
 
 O relatório distingue **falha**, **atendido**, **não aplicável com justificativa** e **não avaliado**. Ausência de violações no scanner não transforma itens não avaliados em aprovados. Barreiras nas jornadas essenciais bloqueiam o aceite T-23. Fontes: [D-DES-02](#d-des-02), [D-DES-03](#d-des-03), [D-DES-06](#d-des-06), [D-DES-07](#d-des-07), [D-DES-08](#d-des-08) e [D-TEST-05](#d-test-05).
 
@@ -1599,7 +1603,7 @@ Esta árvore é um **contrato de organização a implementar**, não uma afirma�
 |---|---|---|---|
 | Desenvolvimento | `development/environment.md` | macOS 27, Ubuntu 24.04, arquitetura, versões, certificados, Docker e diagnóstico | Muda ferramenta, arquitetura ou imagem |
 | Referências | `references/sources.yml` | ID, URL, tópico, versão, data de consulta, requisito, teste e responsável | Uma fonte sustenta nova decisão ou comando |
-| Acessibilidade | `design/accessibility-test-protocol.md` | A11Y-01 a A11Y-08; browser/leitor, evidência e pendências | Nova interação ou mudança da matriz de suporte |
+| Acessibilidade | [`design/accessibility-test-protocol.md`](../design/accessibility-test-protocol.md) | A11Y-01 a A11Y-08; browser/leitor, evidência e pendências | Nova interação ou mudança da matriz de suporte |
 | Produto | `product/scope.md` | Escopo, estados, limites, invariantes e glossário | Muda regra ou entrega |
 | Produto | `product/journeys.md` | Fluxos, erros, abandono, segurança e critérios de aceite | Muda jornada |
 | Produto | `product/experiences.md` | Regras, conteúdo, versão e projeções de cada jogo | Publica versão do jogo |
@@ -1610,8 +1614,9 @@ Esta árvore é um **contrato de organização a implementar**, não uma afirma�
 | Tempo real | `api/realtime.md` | Eventos, versões, reconexão, autorização e incompatibilidade | Muda hub/protocolo |
 | Dados | `data/model.md` | ER, dicionário, constraints, índices e classificação | Migração relevante |
 | Dados | `data/concurrency.md` | Ordem de locks, versão, retries e idempotência | Muda transação crítica |
-| Design | `design/system.md` + tokens/Storybook | Semântica, componentes, temas e estados | Muda design system |
-| Design | `design/accessibility.md` | Critérios, matriz e evidências manuais/automáticas | Nova jornada ou auditoria |
+| Design | [`design/system.md`](../design/system.md) + tokens/Storybook | Semântica, componentes, temas e estados | Muda design system |
+| Design | [`design/accessibility.md`](../design/accessibility.md) | Critérios, matriz e evidências manuais/automáticas | Nova jornada ou auditoria |
+| Design | [`product/experience-brief.md`](experience-brief.md), [`design/information-architecture.md`](../design/information-architecture.md), [`design/screens.md`](../design/screens.md) | Brief, mapa de navegação e recuperação, telas com estados e wireframes (13.1, 13.2) | Muda jornada, tela ou área de navegação |
 | Segurança | `security/threat-model.md` | Ativos, atacantes, superfícies, ameaças e controles | Novo fluxo/fornecedor |
 | Segurança | `security/auth.md` | Sessões, MFA, CSRF, recuperação, chaves e revogação | Muda identidade |
 | Segurança | `security/supply-chain.md` | Dependências, licenças, SBOM e exceções | Novo pacote/risco |
