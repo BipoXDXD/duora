@@ -3,7 +3,7 @@ using System.Collections.Frozen;
 namespace Duora.Core.Matching;
 
 /// <summary>
-/// Entrada imutável da seleção de pares de uma rodada. Nasce válida: sem candidato repetido, com semente e com uma
+/// Entrada imutável da seleção de pares de uma rodada. Nasce válida: sem candidato repetido e com uma
 /// versão de algoritmo conhecida, para que o seletor não precise se defender.
 /// </summary>
 public sealed class RoundSnapshot
@@ -18,7 +18,6 @@ public sealed class RoundSnapshot
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(blockedPairs);
         ArgumentNullException.ThrowIfNull(priorEncounters);
-        ArgumentNullException.ThrowIfNull(seed);
         if (!Enum.IsDefined(algorithmVersion))
         {
             throw new ArgumentOutOfRangeException(nameof(algorithmVersion), algorithmVersion, "Versão de algoritmo desconhecida.");
