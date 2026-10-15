@@ -57,7 +57,9 @@ function ResetPasswordForm({ link }: { readonly link: EmailLink }): React.JSX.El
   if (reset.isSuccess) {
     return (
       <>
-        <Alert variant="success">{messages.resetPassword.success}</Alert>
+        <Alert variant="success" focusOnMount>
+          {messages.resetPassword.success}
+        </Alert>
         <p>
           <TextLink to={paths.login}>{messages.resetPassword.signInLink}</TextLink>
         </p>

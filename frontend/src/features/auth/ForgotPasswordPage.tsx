@@ -29,7 +29,9 @@ export function ForgotPasswordPage(): React.JSX.Element {
     // Resposta neutra (API-A06): a mesma mensagem exista ou não a conta.
     return (
       <Page title={messages.forgotPassword.title}>
-        <Alert variant="success">{messages.forgotPassword.sent}</Alert>
+        <Alert variant="success" focusOnMount>
+          {messages.forgotPassword.sent}
+        </Alert>
         <p>
           <TextLink to={paths.login}>{messages.forgotPassword.signInLink}</TextLink>
         </p>

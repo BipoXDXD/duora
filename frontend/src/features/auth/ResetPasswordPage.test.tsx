@@ -46,7 +46,9 @@ describe('tela de redefinição de senha', () => {
 
     await submitPassword(app, 'outra frase longa de senha')
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Senha alterada.')
+    const success = await screen.findByRole('status')
+    expect(success).toHaveTextContent('Senha alterada.')
+    expect(success).toHaveFocus()
     expect(received).toEqual([
       {
         body: { userId: USER_ID, token: 'reset-token', newPassword: 'outra frase longa de senha' },

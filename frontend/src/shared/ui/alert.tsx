@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { cn } from 'cn'
 import type { RequestFailure } from '@/shared/api'
 import { messages } from '@/shared/messages'
@@ -23,12 +23,25 @@ interface AlertProps {
   readonly variant: AlertVariant
   readonly children: ReactNode
   readonly className?: string
+  /**
+   * Recebe o foco ao aparecer. Use quando o alerta substitui o controle que estava focado (o
+   * formulário some depois do envio): sem isso, o foco cai no body.
+   */
+  readonly focusOnMount?: boolean
 }
 
-export function Alert({ variant, children, className }: AlertProps): React.JSX.Element {
+export function Alert({ variant, children, className, focusOnMount = false }: AlertProps): React.JSX.Element {
   const style = ALERT_STYLES[variant]
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (focusOnMount) {
+      ref.current?.focus()
+    }
+  }, [focusOnMount])
   return (
     <div
+      ref={ref}
+      tabIndex={focusOnMount ? -1 : undefined}
       role={style.role}
       className={cn('rounded-md border-l-4 bg-surface-muted px-4 py-3 text-text', style.className, className)}
     >
