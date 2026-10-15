@@ -189,19 +189,15 @@ class PreflightTests(unittest.TestCase):
         self.release = parse(manifest)
         self.host = deploy.HostConfig(image_prefix=PREFIX, min_free_gib=0, disk_check_path=Path("."))
 
-    def test_production_does_not_proceed_without_backup_check(self) -> None:
-        with self.assertRaisesRegex(deploy.DeployError, "backup"):
-            deploy.preflight(self.release, self.host, accept_missing_backup_check=False)
-
-    def test_explicit_acceptance_lets_staging_proceed_without_backup_check(self) -> None:
-        deploy.preflight(self.release, self.host, accept_missing_backup_check=True)
+    def test_matching_architecture_and_enough_disk_pass(self) -> None:
+        deploy.preflight(self.release, self.host)
 
     def test_release_for_other_architecture_is_refused(self) -> None:
         manifest = valid_manifest()
         manifest["architecture"] = next(a for a in deploy.SUPPORTED_ARCHITECTURES if a != self.release.architecture)
 
         with self.assertRaisesRegex(deploy.DeployError, "host"):
-            deploy.preflight(parse(manifest), self.host, accept_missing_backup_check=True)
+            deploy.preflight(parse(manifest), self.host)
 
 
 class HostConfigTests(unittest.TestCase):
@@ -282,6 +278,7 @@ class DeployTests(unittest.TestCase):
             compose_file=root / "compose.prod.yml",
             host_env=root / "duora.env",
             state_dir=root / "releases",
+            backup_command=root / "duora-backup",
         )
         self.release = parse(valid_manifest())
 
@@ -306,6 +303,39 @@ class DeployTests(unittest.TestCase):
             "/health/ready",
         ]]
         self.assertEqual(sorted(order), order)
+
+    def test_backup_is_verified_with_postgres_up_before_anything_stops(self) -> None:
+        runner = FakeRunner()
+
+        self.run_deploy(runner)
+
+        verify = runner.index_of("duora-backup verify")
+        self.assertEqual([str(self.paths.backup_command), "verify"], runner.commands[verify])
+        self.assertLess(runner.index_of("up --detach --wait postgres backup"), verify)
+        self.assertLess(verify, runner.index_of("stop worker"))
+
+    def test_unhealthy_backup_stops_deploy_before_stopping_anything(self) -> None:
+        runner = FakeRunner(fail_on="duora-backup verify")
+
+        with self.assertRaisesRegex(deploy.DeployError, "backup"):
+            self.run_deploy(runner)
+        self.assertFalse(runner.ran("stop worker"))
+        self.assertFalse(runner.ran("run --rm migrator"))
+        self.assertFalse((self.paths.state_dir / "current.json").exists())
+
+    def test_backup_check_skipped_only_when_explicitly_accepted(self) -> None:
+        runner = FakeRunner()
+
+        self.run_deploy(runner, verify_backup=False)
+
+        self.assertFalse(runner.ran("duora-backup"))
+        self.assertTrue(runner.ran("stop worker"))
+
+    def test_rollback_also_requires_healthy_backup(self) -> None:
+        runner = FakeRunner(fail_on="duora-backup verify", pre_head="20261020000000_Newer")
+
+        with self.assertRaisesRegex(deploy.DeployError, "backup"):
+            self.run_deploy(runner)
 
     def test_compose_receives_host_and_release_env_files(self) -> None:
         runner = FakeRunner()
