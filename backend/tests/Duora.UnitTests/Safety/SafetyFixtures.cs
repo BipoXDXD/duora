@@ -50,25 +50,32 @@ internal static class SafetyFixtures
         Guid subject,
         ModerationMeasure measure = ModerationMeasure.Suspension,
         TimeProvider? clock = null) =>
-        ModerationAction.DecideWithoutReport(subject, Decision(measure), clock ?? FixedClock.AtStart());
+        ModerationAction.DecideWithoutReport(subject, Decision(measure), clock ?? FixedClock.AtStart()).Accepted();
+
+    public static Appeal AppealUnderReview(ModerationAction action, TimeProvider clock)
+    {
+        var appeal = Appeal.File(action, action.SubjectUserId, "Foi um mal-entendido.", clock).Accepted();
+        appeal.StartReview(ModeratorPedro).Accepted();
+        return appeal;
+    }
 
     /// <summary>Leva uma denúncia de Alice contra Bruno até o estado pedido pelo caminho válido.</summary>
     public static Report ReportIn(ReportState state, TimeProvider? clock = null)
     {
         clock ??= FixedClock.AtStart();
-        var report = Report.Submit(Submission(), clock);
+        var report = Report.Submit(Submission(), clock).Accepted();
         if (state == ReportState.Received)
         {
             return report;
         }
 
-        report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated());
+        report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated()).Accepted();
         if (state == ReportState.Triaged)
         {
             return report;
         }
 
-        report.StartReview(ModeratorMaria);
+        report.StartReview(ModeratorMaria).Accepted();
         if (state == ReportState.UnderReview)
         {
             return report;
@@ -76,17 +83,17 @@ internal static class SafetyFixtures
 
         if (state == ReportState.Closed)
         {
-            report.Close(ModeratorMaria, "Sem violação da política.", clock);
+            report.Close(ModeratorMaria, "Sem violação da política.", clock).Accepted();
             return report;
         }
 
-        var action = report.TakeAction(Decision(), clock);
+        var action = report.TakeAction(Decision(), clock).Accepted();
         if (state == ReportState.Actioned)
         {
             return report;
         }
 
-        report.MarkAppealed(Appeal.File(action, Bruno, "Foi um mal-entendido.", clock));
+        report.MarkAppealed(Appeal.File(action, Bruno, "Foi um mal-entendido.", clock).Accepted()).Accepted();
         return report;
     }
 

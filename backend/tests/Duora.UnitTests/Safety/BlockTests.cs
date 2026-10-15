@@ -8,7 +8,7 @@ public sealed class BlockTests
     [Fact]
     public void CreateRecordsWhoBlockedWhomAndWhen()
     {
-        var block = Block.Create(Alice, Bruno, FixedClock.AtStart());
+        var block = Block.Create(Alice, Bruno, FixedClock.AtStart()).Accepted();
 
         Assert.Equal(Alice, block.Pair.BlockerId);
         Assert.Equal(Bruno, block.Pair.BlockedId);
@@ -18,10 +18,13 @@ public sealed class BlockTests
     [Fact]
     public void SelfBlockIsRejected()
     {
-        var violation = Assert.Throws<SafetyRuleViolationException>(
-            () => Block.Create(Alice, Alice, FixedClock.AtStart()));
+        SafetyAssert.Rejected(SafetyRejection.SelfBlock, Block.Create(Alice, Alice, FixedClock.AtStart()));
+    }
 
-        Assert.Equal(SafetyRule.SelfBlock, violation.Rule);
+    [Fact]
+    public void APairOfTheSamePersonCannotExist()
+    {
+        Assert.Throws<ArgumentException>(() => new BlockPair(Alice, Alice));
     }
 
     [Theory]
@@ -52,7 +55,7 @@ public sealed class BlockTests
     public void LiftByTheBlockerProducesOnlyTheFactOfRemoval()
     {
         var clock = FixedClock.AtStart();
-        var block = Block.Create(Alice, Bruno, clock);
+        var block = Block.Create(Alice, Bruno, clock).Accepted();
         clock.Advance(TimeSpan.FromHours(1));
 
         var lifted = block.Lift(Alice, clock);
@@ -72,7 +75,7 @@ public sealed class BlockTests
     [Fact]
     public void TheBlockedPersonCannotLiftTheBlock()
     {
-        var block = Block.Create(Alice, Bruno, FixedClock.AtStart());
+        var block = Block.Create(Alice, Bruno, FixedClock.AtStart()).Accepted();
 
         var violation = Assert.Throws<SafetyRuleViolationException>(() => block.Lift(Bruno, FixedClock.AtStart()));
 

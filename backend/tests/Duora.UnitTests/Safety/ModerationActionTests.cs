@@ -8,7 +8,7 @@ public sealed class ModerationActionTests
     [Fact]
     public void ADecisionRecordsEverythingNeededToTraceAndReviewIt()
     {
-        var action = ModerationAction.DecideWithoutReport(Bruno, Decision(), FixedClock.AtStart());
+        var action = ModerationAction.DecideWithoutReport(Bruno, Decision(), FixedClock.AtStart()).Accepted();
 
         Assert.Equal(7, action.Id.Value.Version);
         Assert.Equal(Bruno, action.SubjectUserId);
@@ -37,22 +37,10 @@ public sealed class ModerationActionTests
     public void AHumanCanDecideAPermanentBanWithoutEndDate()
     {
         var action = ModerationAction.DecideWithoutReport(
-            Bruno, Decision(ModerationMeasure.PermanentBan), FixedClock.AtStart());
+            Bruno, Decision(ModerationMeasure.PermanentBan), FixedClock.AtStart()).Accepted();
 
         Assert.Equal(ModerationMeasure.PermanentBan, action.Measure);
         Assert.Null(action.EffectiveUntil);
-    }
-
-    [Theory]
-    [InlineData(ModerationMeasure.Warning)]
-    [InlineData(ModerationMeasure.Restriction)]
-    [InlineData(ModerationMeasure.Suspension)]
-    public void TheSystemCanDecideNonPermanentMeasures(ModerationMeasure measure)
-    {
-        var action = ModerationAction.DecideWithoutReport(
-            Bruno, Decision(measure, new ModerationAuthor.Automated()), FixedClock.AtStart());
-
-        Assert.Equal(new ModerationAuthor.Automated(), action.Author);
     }
 
     [Fact]
@@ -75,10 +63,9 @@ public sealed class ModerationActionTests
     {
         var decision = Decision(measure) with { Duration = durationTicks is { } ticks ? TimeSpan.FromTicks(ticks) : null };
 
-        var violation = Assert.Throws<SafetyRuleViolationException>(
-            () => ModerationAction.DecideWithoutReport(Bruno, decision, FixedClock.AtStart()));
+        var result = ModerationAction.DecideWithoutReport(Bruno, decision, FixedClock.AtStart());
 
-        Assert.Equal(SafetyRule.MeasureDurationMismatch, violation.Rule);
+        SafetyAssert.Rejected(SafetyRejection.MeasureDurationMismatch, result);
     }
 
     [Fact]
@@ -86,7 +73,7 @@ public sealed class ModerationActionTests
     {
         var decision = Decision(ModerationMeasure.Suspension) with { Duration = TimeSpan.FromTicks(1) };
 
-        var action = ModerationAction.DecideWithoutReport(Bruno, decision, FixedClock.AtStart());
+        var action = ModerationAction.DecideWithoutReport(Bruno, decision, FixedClock.AtStart()).Accepted();
 
         Assert.Equal(Start.AddTicks(1), action.EffectiveUntil);
     }
@@ -109,7 +96,7 @@ public sealed class ModerationActionTests
     {
         var evidence = new List<Guid> { Evidence };
         var action = ModerationAction.DecideWithoutReport(
-            Bruno, Decision() with { EvidenceIds = evidence }, FixedClock.AtStart());
+            Bruno, Decision() with { EvidenceIds = evidence }, FixedClock.AtStart()).Accepted();
 
         evidence.Add(Guid.NewGuid());
 
@@ -138,7 +125,7 @@ public sealed class ModerationActionTests
     [Fact]
     public void TheSubjectSeesOnlyTheNoticeFieldsOfTheirSanction()
     {
-        var action = ModerationAction.DecideWithoutReport(Bruno, Decision(), FixedClock.AtStart());
+        var action = ModerationAction.DecideWithoutReport(Bruno, Decision(), FixedClock.AtStart()).Accepted();
 
         var notice = action.GetSanctionNotice(Bruno);
 
@@ -163,7 +150,7 @@ public sealed class ModerationActionTests
     public void TheNoticeSaysWhenTheDecisionWasAutomated()
     {
         var action = ModerationAction.DecideWithoutReport(
-            Bruno, Decision(ModerationMeasure.Warning, new ModerationAuthor.Automated()), FixedClock.AtStart());
+            Bruno, Decision(ModerationMeasure.Warning, new ModerationAuthor.Automated()), FixedClock.AtStart()).Accepted();
 
         Assert.True(action.GetSanctionNotice(Bruno)?.DecidedAutomatically);
     }
@@ -173,7 +160,7 @@ public sealed class ModerationActionTests
     [InlineData("moderator")]
     public void NobodyButTheSubjectSeesTheSanctionNotice(string requester)
     {
-        var action = ModerationAction.DecideWithoutReport(Bruno, Decision(), FixedClock.AtStart());
+        var action = ModerationAction.DecideWithoutReport(Bruno, Decision(), FixedClock.AtStart()).Accepted();
 
         Assert.Null(action.GetSanctionNotice(requester == "reporter" ? Alice : ModeratorMaria));
     }

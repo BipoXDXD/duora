@@ -42,7 +42,7 @@ public sealed class ReportTests
     [Fact]
     public void SubmitReceivesTheReportWithAServerGeneratedProtocol()
     {
-        var report = Report.Submit(Submission(), FixedClock.AtStart());
+        var report = Report.Submit(Submission(), FixedClock.AtStart()).Accepted();
 
         Assert.Equal(ReportState.Received, report.State);
         Assert.Equal(7, report.Id.Value.Version);
@@ -61,7 +61,9 @@ public sealed class ReportTests
     {
         var clock = FixedClock.AtStart();
 
-        Assert.NotEqual(Report.Submit(Submission(), clock).Id, Report.Submit(Submission(), clock).Id);
+        Assert.NotEqual(
+            Report.Submit(Submission(), clock).Accepted().Id,
+            Report.Submit(Submission(), clock).Accepted().Id);
     }
 
     [Theory]
@@ -72,7 +74,7 @@ public sealed class ReportTests
     [InlineData(ReportCategory.MinorSafety, ReportPriority.Urgent)]
     public void SevereCategoriesArriveWithUrgentPriority(ReportCategory category, ReportPriority expected)
     {
-        var report = Report.Submit(Submission(category), FixedClock.AtStart());
+        var report = Report.Submit(Submission(category), FixedClock.AtStart()).Accepted();
 
         Assert.Equal(expected, report.Priority);
     }
@@ -82,10 +84,15 @@ public sealed class ReportTests
     {
         var submission = Submission() with { TargetUserId = Alice };
 
-        var violation = Assert.Throws<SafetyRuleViolationException>(
-            () => Report.Submit(submission, FixedClock.AtStart()));
+        SafetyAssert.Rejected(SafetyRejection.SelfReport, Report.Submit(submission, FixedClock.AtStart()));
+    }
 
-        Assert.Equal(SafetyRule.SelfReport, violation.Rule);
+    [Fact]
+    public void SelfReportAndBlockIsRejectedWithoutProducingABlock()
+    {
+        var submission = Submission() with { TargetUserId = Alice };
+
+        SafetyAssert.Rejected(SafetyRejection.SelfReport, Report.SubmitAndBlock(submission, FixedClock.AtStart()));
     }
 
     [Fact]
@@ -100,9 +107,9 @@ public sealed class ReportTests
     public void SubmittingDoesNotBlockButSubmitAndBlockProducesBothEffects()
     {
         var clock = FixedClock.AtStart();
-        var onlyReport = Report.Submit(Submission(), clock);
+        var onlyReport = Report.Submit(Submission(), clock).Accepted();
 
-        var both = Report.SubmitAndBlock(Submission(), clock);
+        var both = Report.SubmitAndBlock(Submission(), clock).Accepted();
 
         Assert.IsType<Report>(onlyReport);
         Assert.Equal(ReportState.Received, both.Report.State);
@@ -122,7 +129,8 @@ public sealed class ReportTests
             new ReportContext.Profile(photo),
         ];
 
-        var stored = contexts.Select(context => Report.Submit(Submission() with { Context = context }, FixedClock.AtStart()).Context);
+        var stored = contexts.Select(
+            context => Report.Submit(Submission() with { Context = context }, FixedClock.AtStart()).Accepted().Context);
 
         Assert.Equal(contexts, stored);
     }
@@ -152,20 +160,20 @@ public sealed class ReportTests
     public void TheFullPathWithAppealUpheldEndsActionedOnTheRevision()
     {
         var clock = FixedClock.AtStart();
-        var report = Report.Submit(Submission(), clock);
+        var report = Report.Submit(Submission(), clock).Accepted();
 
-        report.Triage(ReportPriority.High, new ModerationAuthor.Automated());
+        report.Triage(ReportPriority.High, new ModerationAuthor.Automated()).Accepted();
         Assert.Equal((ReportState.Triaged, ReportPriority.High), (report.State, report.Priority));
-        report.StartReview(ModeratorMaria);
+        report.StartReview(ModeratorMaria).Accepted();
         Assert.Equal((ReportState.UnderReview, ModeratorMaria), (report.State, report.AssignedModeratorId));
-        var action = report.TakeAction(Decision(), clock);
+        var action = report.TakeAction(Decision(), clock).Accepted();
         Assert.Equal((ReportState.Actioned, action.Id), (report.State, report.CurrentActionId));
-        var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", clock);
-        report.MarkAppealed(appeal);
+        var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", clock).Accepted();
+        report.MarkAppealed(appeal).Accepted();
         Assert.Equal(ReportState.Appealed, report.State);
-        appeal.StartReview(ModeratorPedro);
-        var revision = appeal.Uphold(ModeratorPedro, "Evidência confirmada.", RevisedPolicy, clock);
-        report.ResolveAppeal(revision, clock);
+        appeal.StartReview(ModeratorPedro).Accepted();
+        var revision = appeal.Uphold(ModeratorPedro, "Evidência confirmada.", RevisedPolicy, clock).Accepted();
+        report.ResolveAppeal(revision, clock).Accepted();
 
         Assert.Equal((ReportState.Actioned, revision.Id), (report.State, report.CurrentActionId));
         Assert.Null(report.ClosedAt);
@@ -176,13 +184,13 @@ public sealed class ReportTests
     {
         var clock = FixedClock.AtStart();
         var (report, action) = ActionedReport(clock);
-        var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", clock);
-        report.MarkAppealed(appeal);
-        appeal.StartReview(ModeratorPedro);
+        var appeal = Appeal.File(action, Bruno, "Foi um mal-entendido.", clock).Accepted();
+        report.MarkAppealed(appeal).Accepted();
+        appeal.StartReview(ModeratorPedro).Accepted();
         clock.Advance(TimeSpan.FromDays(2));
 
-        var revision = appeal.Overturn(ModeratorPedro, "Evidência insuficiente.", RevisedPolicy, clock);
-        report.ResolveAppeal(revision, clock);
+        var revision = appeal.Overturn(ModeratorPedro, "Evidência insuficiente.", RevisedPolicy, clock).Accepted();
+        report.ResolveAppeal(revision, clock).Accepted();
 
         Assert.Equal((ReportState.Closed, revision.Id), (report.State, report.CurrentActionId));
         Assert.Equal(Start.AddDays(2), report.ClosedAt);
@@ -191,10 +199,7 @@ public sealed class ReportTests
     [Fact]
     public void TakeActionLinksTheMeasureToTheReportAndItsTarget()
     {
-        var clock = FixedClock.AtStart();
-        var report = ReportIn(ReportState.UnderReview, clock);
-
-        var action = report.TakeAction(Decision(), clock);
+        var (report, action) = ActionedReport(FixedClock.AtStart());
 
         Assert.Equal(report.Id, action.ReportId);
         Assert.Equal(Bruno, action.SubjectUserId);
@@ -207,7 +212,7 @@ public sealed class ReportTests
         var report = ReportIn(ReportState.UnderReview, clock);
         clock.Advance(TimeSpan.FromHours(3));
 
-        report.Close(ModeratorMaria, "Sem violação da política.", clock);
+        report.Close(ModeratorMaria, "Sem violação da política.", clock).Accepted();
 
         Assert.Equal(ReportState.Closed, report.State);
         Assert.Equal("Sem violação da política.", report.ClosingReason);
@@ -222,30 +227,41 @@ public sealed class ReportTests
         var clock = FixedClock.AtStart();
         var report = ReportIn(state, clock);
 
-        var violation = Assert.Throws<SafetyRuleViolationException>(() => Apply(transition, report, clock));
+        var rejection = Apply(transition, report, clock);
 
-        Assert.Equal(SafetyRule.TransitionNotAllowed, violation.Rule);
+        Assert.Equal(SafetyRejection.TransitionNotAllowed, rejection);
         Assert.Equal(state, report.State);
+    }
+
+    [Fact]
+    public void ARepeatedTransitionIsRejectedLikeADoubleClick()
+    {
+        var report = ReportIn(ReportState.Received);
+        report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated()).Accepted();
+
+        SafetyAssert.Rejected(
+            SafetyRejection.TransitionNotAllowed,
+            report.Triage(ReportPriority.High, new ModerationAuthor.Automated()));
+        Assert.Equal(ReportPriority.Normal, report.Priority);
     }
 
     [Fact]
     public void AutomatedTriageCannotLowerTheUrgencyOfASevereReport()
     {
-        var report = Report.Submit(Submission(ReportCategory.MinorSafety), FixedClock.AtStart());
+        var report = Report.Submit(Submission(ReportCategory.MinorSafety), FixedClock.AtStart()).Accepted();
 
-        var violation = Assert.Throws<SafetyRuleViolationException>(
-            () => report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated()));
+        var result = report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated());
 
-        Assert.Equal(SafetyRule.AutomatedTriageCannotLowerSevereReport, violation.Rule);
+        SafetyAssert.Rejected(SafetyRejection.AutomatedTriageCannotLowerSevereReport, result);
         Assert.Equal((ReportState.Received, ReportPriority.Urgent), (report.State, report.Priority));
     }
 
     [Fact]
     public void AHumanCanLowerTheUrgencyOfASevereReport()
     {
-        var report = Report.Submit(Submission(ReportCategory.MinorSafety), FixedClock.AtStart());
+        var report = Report.Submit(Submission(ReportCategory.MinorSafety), FixedClock.AtStart()).Accepted();
 
-        report.Triage(ReportPriority.Normal, new ModerationAuthor.Human(ModeratorMaria));
+        report.Triage(ReportPriority.Normal, new ModerationAuthor.Human(ModeratorMaria)).Accepted();
 
         Assert.Equal(ReportPriority.Normal, report.Priority);
     }
@@ -257,10 +273,9 @@ public sealed class ReportTests
     {
         var report = ReportIn(ReportState.Triaged);
 
-        var violation = Assert.Throws<SafetyRuleViolationException>(
-            () => report.StartReview(party == "reporter" ? Alice : Bruno));
+        var result = report.StartReview(party == "reporter" ? Alice : Bruno);
 
-        Assert.Equal(SafetyRule.ReviewerMustBeIndependent, violation.Rule);
+        SafetyAssert.Rejected(SafetyRejection.ReviewerMustBeIndependent, result);
         Assert.Equal(ReportState.Triaged, report.State);
     }
 
@@ -274,10 +289,9 @@ public sealed class ReportTests
             ? new ModerationAuthor.Automated()
             : new ModerationAuthor.Human(ModeratorPedro);
 
-        var violation = Assert.Throws<SafetyRuleViolationException>(
-            () => report.TakeAction(Decision(ModerationMeasure.Warning, decisionAuthor), FixedClock.AtStart()));
+        var result = report.TakeAction(Decision(ModerationMeasure.Warning, decisionAuthor), FixedClock.AtStart());
 
-        Assert.Equal(SafetyRule.OnlyAssignedReviewerCanDecide, violation.Rule);
+        SafetyAssert.Rejected(SafetyRejection.OnlyAssignedReviewerCanDecide, result);
         Assert.Equal(ReportState.UnderReview, report.State);
     }
 
@@ -286,10 +300,9 @@ public sealed class ReportTests
     {
         var report = ReportIn(ReportState.UnderReview);
 
-        var violation = Assert.Throws<SafetyRuleViolationException>(
-            () => report.Close(ModeratorPedro, "Sem violação.", FixedClock.AtStart()));
+        var result = report.Close(ModeratorPedro, "Sem violação.", FixedClock.AtStart());
 
-        Assert.Equal(SafetyRule.OnlyAssignedReviewerCanDecide, violation.Rule);
+        SafetyAssert.Rejected(SafetyRejection.OnlyAssignedReviewerCanDecide, result);
     }
 
     [Fact]
@@ -297,7 +310,7 @@ public sealed class ReportTests
     {
         var clock = FixedClock.AtStart();
         var report = ReportIn(ReportState.Actioned, clock);
-        var unrelated = Appeal.File(SanctionOn(Bruno), Bruno, "Outro caso.", clock);
+        var unrelated = Appeal.File(SanctionOn(Bruno), Bruno, "Outro caso.", clock).Accepted();
 
         Assert.Throws<ArgumentException>(() => report.MarkAppealed(unrelated));
         Assert.Equal(ReportState.Actioned, report.State);
@@ -308,9 +321,9 @@ public sealed class ReportTests
     {
         var clock = FixedClock.AtStart();
         var report = ReportIn(ReportState.Appealed, clock);
-        var unrelated = Appeal.File(SanctionOn(Bruno), Bruno, "Outro caso.", clock);
-        unrelated.StartReview(ModeratorPedro);
-        var foreignRevision = unrelated.Overturn(ModeratorPedro, "Outro caso.", RevisedPolicy, clock);
+        var foreignRevision = AppealUnderReview(SanctionOn(Bruno), clock)
+            .Overturn(ModeratorPedro, "Outro caso.", RevisedPolicy, clock)
+            .Accepted();
 
         Assert.Throws<ArgumentException>(() => report.ResolveAppeal(foreignRevision, clock));
         Assert.Equal(ReportState.Appealed, report.State);
@@ -319,7 +332,7 @@ public sealed class ReportTests
     [Fact]
     public void ReporterSeesOnlyTheAllowedStatusFields()
     {
-        var report = Report.Submit(Submission(), FixedClock.AtStart());
+        var report = Report.Submit(Submission(), FixedClock.AtStart()).Accepted();
 
         var view = report.GetReportStatus(Alice);
 
@@ -362,38 +375,23 @@ public sealed class ReportTests
         Assert.Null(report.GetReportStatus(requesterId));
     }
 
-    private static void Apply(Transition transition, Report report, TimeProvider clock)
+    private static SafetyRejection? Apply(Transition transition, Report report, TimeProvider clock) => transition switch
     {
-        switch (transition)
-        {
-            case Transition.Triage:
-                report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated());
-                break;
-            case Transition.StartReview:
-                report.StartReview(ModeratorMaria);
-                break;
-            case Transition.TakeAction:
-                report.TakeAction(Decision(), clock);
-                break;
-            case Transition.Close:
-                report.Close(ModeratorMaria, "Sem violação.", clock);
-                break;
-            case Transition.MarkAppealed:
-                report.MarkAppealed(Appeal.File(SanctionOn(Bruno), Bruno, "Recurso.", clock));
-                break;
-            case Transition.ResolveAppeal:
-                var appeal = Appeal.File(SanctionOn(Bruno), Bruno, "Recurso.", clock);
-                appeal.StartReview(ModeratorPedro);
-                report.ResolveAppeal(appeal.Overturn(ModeratorPedro, "Revisto.", RevisedPolicy, clock), clock);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(transition));
-        }
-    }
+        Transition.Triage => report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated()).Rejection,
+        Transition.StartReview => report.StartReview(ModeratorMaria).Rejection,
+        Transition.TakeAction => report.TakeAction(Decision(), clock).Rejection,
+        Transition.Close => report.Close(ModeratorMaria, "Sem violação.", clock).Rejection,
+        Transition.MarkAppealed => report.MarkAppealed(
+            Appeal.File(SanctionOn(Bruno), Bruno, "Recurso.", clock).Accepted()).Rejection,
+        Transition.ResolveAppeal => report.ResolveAppeal(
+            AppealUnderReview(SanctionOn(Bruno), clock).Overturn(ModeratorPedro, "Revisto.", RevisedPolicy, clock).Accepted(),
+            clock).Rejection,
+        _ => throw new ArgumentOutOfRangeException(nameof(transition)),
+    };
 
     private static (Report Report, ModerationAction Action) ActionedReport(TimeProvider clock)
     {
         var report = ReportIn(ReportState.UnderReview, clock);
-        return (report, report.TakeAction(Decision(), clock));
+        return (report, report.TakeAction(Decision(), clock).Accepted());
     }
 }

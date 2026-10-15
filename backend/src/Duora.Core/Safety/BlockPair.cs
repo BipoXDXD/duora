@@ -12,7 +12,7 @@ public sealed record BlockPair
         ArgumentOutOfRangeException.ThrowIfEqual(blockedId, Guid.Empty);
         if (blockerId == blockedId)
         {
-            throw new SafetyRuleViolationException(SafetyRule.SelfBlock);
+            throw new ArgumentException("Um par de bloqueio tem duas pessoas diferentes.", nameof(blockedId));
         }
 
         BlockerId = blockerId;

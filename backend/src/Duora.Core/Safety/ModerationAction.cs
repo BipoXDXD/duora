@@ -56,7 +56,7 @@ public sealed class ModerationAction
     /// <summary>Há um nível de recurso: a decisão do recurso não admite outro (proposta; a spec não define).</summary>
     public bool IsReviewable => SupersedesActionId is null;
 
-    public static ModerationAction DecideWithoutReport(
+    public static SafetyResult<ModerationAction> DecideWithoutReport(
         Guid subjectUserId,
         ModerationDecision decision,
         TimeProvider clock) =>
@@ -84,7 +84,7 @@ public sealed class ModerationAction
                 DecidedAutomatically: Author is ModerationAuthor.Automated,
                 CanAppeal: IsReviewable);
 
-    internal static ModerationAction Decide(
+    internal static SafetyResult<ModerationAction> Decide(
         Guid subjectUserId,
         ReportId? reportId,
         ModerationDecision decision,
@@ -93,15 +93,20 @@ public sealed class ModerationAction
         ArgumentOutOfRangeException.ThrowIfEqual(subjectUserId, Guid.Empty);
         ArgumentNullException.ThrowIfNull(clock);
         var terms = ValidTerms(decision);
+        if (!DurationFits(decision))
+        {
+            return SafetyResult.Rejected<ModerationAction>(SafetyRejection.MeasureDurationMismatch);
+        }
+
         var decidedAt = clock.GetUtcNow();
-        return new ModerationAction(
+        return SafetyResult.Success(new ModerationAction(
             ModerationActionId.New(decidedAt),
             subjectUserId,
             reportId,
             terms,
             decidedAt,
             decidedAt + decision.Duration,
-            supersedesActionId: null);
+            supersedesActionId: null));
     }
 
     internal ModerationAction Revise(
@@ -165,12 +170,11 @@ public sealed class ModerationAction
         {
             throw new SafetyRuleViolationException(SafetyRule.PermanentSanctionRequiresHumanAuthor);
         }
+    }
 
+    private static bool DurationFits(ModerationDecision decision)
+    {
         var isTemporary = decision.Measure is ModerationMeasure.Restriction or ModerationMeasure.Suspension;
-        var durationFits = isTemporary ? decision.Duration > TimeSpan.Zero : decision.Duration is null;
-        if (!durationFits)
-        {
-            throw new SafetyRuleViolationException(SafetyRule.MeasureDurationMismatch);
-        }
+        return isTemporary ? decision.Duration > TimeSpan.Zero : decision.Duration is null;
     }
 }

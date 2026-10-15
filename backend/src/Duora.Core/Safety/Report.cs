@@ -50,7 +50,7 @@ public sealed class Report
 
     public DateTimeOffset? ClosedAt { get; private set; }
 
-    public static Report Submit(ReportSubmission submission, TimeProvider clock)
+    public static SafetyResult<Report> Submit(ReportSubmission submission, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(submission);
         ArgumentNullException.ThrowIfNull(clock);
@@ -65,95 +65,130 @@ public sealed class Report
 
         if (submission.ReporterId == submission.TargetUserId)
         {
-            throw new SafetyRuleViolationException(SafetyRule.SelfReport);
+            return SafetyResult.Rejected<Report>(SafetyRejection.SelfReport);
         }
 
         var now = clock.GetUtcNow();
-        return new Report(ReportId.New(now), submission, now);
+        return SafetyResult.Success(new Report(ReportId.New(now), submission, now));
     }
 
-    public static ReportAndBlock SubmitAndBlock(ReportSubmission submission, TimeProvider clock)
+    public static SafetyResult<ReportAndBlock> SubmitAndBlock(ReportSubmission submission, TimeProvider clock)
     {
-        var report = Submit(submission, clock);
-        return new ReportAndBlock(report, Block.Create(report.ReporterId, report.TargetUserId, clock));
+        var submitted = Submit(submission, clock);
+        if (submitted.Rejection is { } rejection)
+        {
+            return SafetyResult.Rejected<ReportAndBlock>(rejection);
+        }
+
+        var report = submitted.Value;
+        var block = Block.Create(report.ReporterId, report.TargetUserId, clock).Value;
+        return SafetyResult.Success(new ReportAndBlock(report, block));
     }
 
     /// <summary>Triagem pode ser automatizada, mas automação não rebaixa denúncia grave (spec 12.3, 19.3).</summary>
-    public void Triage(ReportPriority priority, ModerationAuthor author)
+    public SafetyResult Triage(ReportPriority priority, ModerationAuthor author)
     {
         ArgumentNullException.ThrowIfNull(author);
-        RequireState(ReportState.Received);
         if (!Enum.IsDefined(priority))
         {
             throw new ArgumentOutOfRangeException(nameof(priority), priority, "Prioridade desconhecida.");
         }
 
+        if (State != ReportState.Received)
+        {
+            return SafetyResult.Rejected(SafetyRejection.TransitionNotAllowed);
+        }
+
         if (IsSevere(Category) && priority < ReportPriority.Urgent && author is ModerationAuthor.Automated)
         {
-            throw new SafetyRuleViolationException(SafetyRule.AutomatedTriageCannotLowerSevereReport);
+            return SafetyResult.Rejected(SafetyRejection.AutomatedTriageCannotLowerSevereReport);
         }
 
         Priority = priority;
         State = ReportState.Triaged;
+        return SafetyResult.Success();
     }
 
-    public void StartReview(Guid moderatorId)
+    public SafetyResult StartReview(Guid moderatorId)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(moderatorId, Guid.Empty);
-        RequireState(ReportState.Triaged);
+        if (State != ReportState.Triaged)
+        {
+            return SafetyResult.Rejected(SafetyRejection.TransitionNotAllowed);
+        }
+
         if (moderatorId == ReporterId || moderatorId == TargetUserId)
         {
-            throw new SafetyRuleViolationException(SafetyRule.ReviewerMustBeIndependent);
+            return SafetyResult.Rejected(SafetyRejection.ReviewerMustBeIndependent);
         }
 
         AssignedModeratorId = moderatorId;
         State = ReportState.UnderReview;
+        return SafetyResult.Success();
     }
 
     /// <summary>A decisão é do moderador atribuído; a automação só prepara a proposta.</summary>
-    public ModerationAction TakeAction(ModerationDecision decision, TimeProvider clock)
+    public SafetyResult<ModerationAction> TakeAction(ModerationDecision decision, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(decision);
-        RequireState(ReportState.UnderReview);
-        RequireAssignedModerator(decision.Author);
+        if (RejectionToDecide(decision.Author) is { } rejection)
+        {
+            return SafetyResult.Rejected<ModerationAction>(rejection);
+        }
 
-        var action = ModerationAction.Decide(TargetUserId, Id, decision, clock);
-        CurrentActionId = action.Id;
-        State = ReportState.Actioned;
-        return action;
+        var decided = ModerationAction.Decide(TargetUserId, Id, decision, clock);
+        if (decided.IsSuccess)
+        {
+            CurrentActionId = decided.Value.Id;
+            State = ReportState.Actioned;
+        }
+
+        return decided;
     }
 
-    public void Close(Guid moderatorId, string reason, TimeProvider clock)
+    public SafetyResult Close(Guid moderatorId, string reason, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(clock);
-        RequireState(ReportState.UnderReview);
-        RequireAssignedModerator(new ModerationAuthor.Human(moderatorId));
+        if (RejectionToDecide(new ModerationAuthor.Human(moderatorId)) is { } rejection)
+        {
+            return SafetyResult.Rejected(rejection);
+        }
 
         ClosingReason = SafetyText.RequireBounded(reason, ClosingReasonMaxLength, allowEmpty: false, nameof(reason));
         ClosedAt = clock.GetUtcNow();
         State = ReportState.Closed;
+        return SafetyResult.Success();
     }
 
-    public void MarkAppealed(Appeal appeal)
+    public SafetyResult MarkAppealed(Appeal appeal)
     {
         ArgumentNullException.ThrowIfNull(appeal);
-        RequireState(ReportState.Actioned);
+        if (State != ReportState.Actioned)
+        {
+            return SafetyResult.Rejected(SafetyRejection.TransitionNotAllowed);
+        }
+
         if (appeal.ModerationActionId != CurrentActionId)
         {
             throw new ArgumentException("O recurso não é sobre a medida desta denúncia.", nameof(appeal));
         }
 
         State = ReportState.Appealed;
+        return SafetyResult.Success();
     }
 
     /// <summary>
     /// Registra a revisão do recurso. A medida anterior continua existindo; o caso passa a apontar para a revisão.
     /// </summary>
-    public void ResolveAppeal(ModerationAction revision, TimeProvider clock)
+    public SafetyResult ResolveAppeal(ModerationAction revision, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(revision);
         ArgumentNullException.ThrowIfNull(clock);
-        RequireState(ReportState.Appealed);
+        if (State != ReportState.Appealed)
+        {
+            return SafetyResult.Rejected(SafetyRejection.TransitionNotAllowed);
+        }
+
         if (revision.SupersedesActionId != CurrentActionId)
         {
             throw new ArgumentException("A revisão não substitui a medida desta denúncia.", nameof(revision));
@@ -165,10 +200,11 @@ public sealed class Report
             ClosingReason = revision.Reason;
             ClosedAt = clock.GetUtcNow();
             State = ReportState.Closed;
-            return;
+            return SafetyResult.Success();
         }
 
         State = ReportState.Actioned;
+        return SafetyResult.Success();
     }
 
     /// <summary>Só quem denunciou vê o protocolo; para qualquer outra pessoa, a denúncia não existe.</summary>
@@ -186,19 +222,15 @@ public sealed class Report
         _ => throw new InvalidOperationException($"Estado de denúncia sem projeção: {State}."),
     };
 
-    private void RequireState(ReportState expected)
+    private SafetyRejection? RejectionToDecide(ModerationAuthor author)
     {
-        if (State != expected)
+        if (State != ReportState.UnderReview)
         {
-            throw new SafetyRuleViolationException(SafetyRule.TransitionNotAllowed);
+            return SafetyRejection.TransitionNotAllowed;
         }
-    }
 
-    private void RequireAssignedModerator(ModerationAuthor author)
-    {
-        if (AssignedModeratorId is not { } moderatorId || !author.Is(moderatorId))
-        {
-            throw new SafetyRuleViolationException(SafetyRule.OnlyAssignedReviewerCanDecide);
-        }
+        return AssignedModeratorId is { } moderatorId && author.Is(moderatorId)
+            ? null
+            : SafetyRejection.OnlyAssignedReviewerCanDecide;
     }
 }

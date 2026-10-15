@@ -16,10 +16,15 @@ public sealed class Block
 
     public DateTimeOffset CreatedAt { get; }
 
-    public static Block Create(Guid blockerId, Guid blockedId, TimeProvider clock)
+    public static SafetyResult<Block> Create(Guid blockerId, Guid blockedId, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(clock);
-        return new Block(new BlockPair(blockerId, blockedId), clock.GetUtcNow());
+        if (blockerId == blockedId)
+        {
+            return SafetyResult.Rejected<Block>(SafetyRejection.SelfBlock);
+        }
+
+        return SafetyResult.Success(new Block(new BlockPair(blockerId, blockedId), clock.GetUtcNow()));
     }
 
     /// <summary>
