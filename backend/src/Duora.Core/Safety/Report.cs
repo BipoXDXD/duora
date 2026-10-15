@@ -29,6 +29,8 @@ public sealed class Report
 
     public Guid TargetUserId { get; }
 
+    public CaseParties Parties => new(TargetUserId, ReporterId);
+
     public ReportCategory Category { get; }
 
     public ReportContext Context { get; }
@@ -99,6 +101,11 @@ public sealed class Report
             return SafetyResult.Rejected(SafetyRejection.TransitionNotAllowed);
         }
 
+        if (author is ModerationAuthor.Human human && Parties.Includes(human.UserId))
+        {
+            return SafetyResult.Rejected(SafetyRejection.ReviewerMustBeIndependent);
+        }
+
         if (IsSevere(Category) && priority < ReportPriority.Urgent && author is ModerationAuthor.Automated)
         {
             return SafetyResult.Rejected(SafetyRejection.AutomatedTriageCannotLowerSevereReport);
@@ -117,7 +124,7 @@ public sealed class Report
             return SafetyResult.Rejected(SafetyRejection.TransitionNotAllowed);
         }
 
-        if (moderatorId == ReporterId || moderatorId == TargetUserId)
+        if (Parties.Includes(moderatorId))
         {
             return SafetyResult.Rejected(SafetyRejection.ReviewerMustBeIndependent);
         }
@@ -139,7 +146,7 @@ public sealed class Report
             return SafetyResult.Rejected<ModerationAction>(rejection);
         }
 
-        var decided = ModerationAction.Decide(TargetUserId, Id, decision, limits, clock);
+        var decided = ModerationAction.Decide(Parties, Id, decision, limits, clock);
         if (decided.IsSuccess)
         {
             CurrentActionId = decided.Value.Id;
