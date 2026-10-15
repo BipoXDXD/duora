@@ -886,17 +886,26 @@ erDiagram
 
 Dono: Operations (D3).
 
-- **Colunas:** `id bigint identity`; `occurred_at timestamptz`; `actor_kind text` (`User`, `Moderator`,
-  `Admin`, `Operator`, `System`); `actor_id uuid`; `action text` (catálogo fechado: `auth.login_succeeded`,
-  `auth.login_failed`, `session.revoked`, `safety.block_created`, `moderation.evidence_read`...);
-  `target_type text`; `target_id uuid`; `reason text`; `policy_version text`; `correlation_id text`;
-  `target_version bigint`; `metadata jsonb` (allowlist de campos, sem senha, ticket nem corpo de conversa,
+- **Colunas (implementadas):** `id bigint generated always as identity`; `occurred_at timestamptz`; `actor_kind
+  varchar(16)` (`User`, `Moderator`, `Admin`, `Operator`, `System`); `actor_id uuid` (nulo só para `System`);
+  `action varchar(64)` (catálogo fechado `AuditAction` no código: `safety.block_created`; próximas:
+  `auth.login_succeeded`, `auth.login_failed`, `session.revoked`, `moderation.evidence_read`...);
+  `target_type varchar(32)`; `target_id uuid`; `target_version bigint`; `correlation_id varchar(32)` (trace id
+  W3C da requisição).
+- **Colunas previstas, por migration aditiva quando o primeiro uso chegar (moderação, T-10):** `reason text`;
+  `policy_version text`; `metadata jsonb` (allowlist de campos, sem senha, ticket nem corpo de conversa,
   spec 10.2).
 - **Constraints:** sem FKs de propósito (o registro sobrevive ao alvo e ao autor; exceção documentada à regra
-  de associação polimórfica); permissões: conta da aplicação só com `INSERT` e `SELECT`.
+  de associação polimórfica); `CHECK` de `actor_kind`, de ator com id e do formato de `action` e `target_type`;
+  permissões: conta da aplicação só com `INSERT` e `SELECT` (`REVOKE UPDATE, DELETE, TRUNCATE` na migration
+  `AuditEvents`; teste `AuditPrivilegesTests`).
+- **Escrita:** só por `AuditTrail.AppendAsync`, que exige a transação aberta do efeito auditado: rollback do
+  efeito leva o registro junto, e não há registro fora de transação (`AuditTrailTests`).
 - **Índices:** `ix_audit_events_target (target_type, target_id, occurred_at)`; `ix_audit_events_actor
   (actor_id, occurred_at)`; outros só medidos.
 - **Classe:** P2 (P3 quando o alvo é denúncia ou evidência). `actor_id` pseudonimizado na exclusão da conta.
+  Pendente: com a tabela append-only, a pseudonimização na exclusão precisa de um caminho próprio (papel do job
+  de privacidade com `UPDATE` só em `actor_id`, ou função `SECURITY DEFINER`), a decidir na fatia de exclusão.
 
 ### ops.notification_preferences
 
