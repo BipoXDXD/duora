@@ -6,7 +6,7 @@ namespace Duora.Core.Events;
 /// Evento e coordenador da sua lotação: estado, capacidade, inscrições e lista de espera formam um único agregado,
 /// porque a persistência tranca a linha do evento para inscrever, retirar e promover na mesma transação
 /// (spec 10.4, cenário "duas inscrições na última vaga"). Com até 100 vagas (spec 4.3) e a fila, carregar as
-/// inscrições inteiras é barato. As rodadas são agregados próprios (<c>Round</c>), ligados pelo id do evento.
+/// inscrições inteiras é barato. As rodadas são agregados próprios (<see cref="Round"/>), ligados pelo id do evento.
 /// </summary>
 [SuppressMessage(
     "Naming",
