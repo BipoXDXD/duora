@@ -5,6 +5,7 @@ import { ApiNetworkError, ApiProblemError, ApiResponseError } from './api-errors
 
 const ORIGIN = 'https://duora.test'
 const CSRF_TOKEN = 'token-antiforgery-123'
+const NOW = Date.parse('2026-10-15T12:00:00Z')
 
 type FakeFetch = ApiClientDependencies['fetch']
 
@@ -25,7 +26,7 @@ function setup(
   token: string | null = CSRF_TOKEN,
 ) {
   const fetch = vi.fn<FakeFetch>(respond)
-  const client = createApiClient({ fetch, origin: ORIGIN, readAntiforgeryToken: () => token })
+  const client = createApiClient({ fetch, origin: ORIGIN, readAntiforgeryToken: () => token, now: () => NOW })
   const sentRequest = (): Request => {
     const call = fetch.mock.calls[0]
     if (call === undefined) {
@@ -177,6 +178,43 @@ describe('requestJson: erros HTTP', () => {
 
     expect(error).toBeInstanceOf(ApiResponseError)
     expect(error).toMatchObject({ status: 400 })
+  })
+})
+
+describe('requestJson: limite de uso', () => {
+  it('expõe o Retry-After de um 429 com Problem Details em segundos', async () => {
+    const { client } = setup(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ title: 'Muitas tentativas', status: 429, code: 'RATE_LIMITED' }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '30' },
+        }),
+      ),
+    )
+
+    const error = await client.requestJson({ method: 'POST', path: '/api/v1/auth/login' }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiProblemError)
+    expect(error).toMatchObject({ status: 429, retryAfterSeconds: 30 })
+  })
+
+  it('expõe o Retry-After de um 429 sem Problem Details', async () => {
+    const { client } = setup(() =>
+      Promise.resolve(new Response('slow down', { status: 429, headers: { 'Retry-After': '5' } })),
+    )
+
+    const error = await client.requestJson({ method: 'POST', path: '/api/v1/auth/login' }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ApiResponseError)
+    expect(error).toMatchObject({ status: 429, retryAfterSeconds: 5 })
+  })
+
+  it('usa null quando não há Retry-After', async () => {
+    const { client } = setup(() => Promise.resolve(problemResponse({ title: 'Muitas tentativas' }, 429)))
+
+    const error = await client.requestJson({ method: 'POST', path: '/api/v1/auth/login' }).catch((e: unknown) => e)
+
+    expect(error).toMatchObject({ status: 429, retryAfterSeconds: null })
   })
 })
 
