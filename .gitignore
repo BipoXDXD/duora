@@ -1,0 +1,50 @@
+# --- .NET ---
+bin/
+obj/
+*.user
+*.suo
+*.binlog
+TestResults/
+*.trx
+coverage*.xml
+*.nupkg
+
+# --- Node / pnpm (frontend) ---
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+*.tsbuildinfo
+.vite/
+storybook-static/
+playwright-report/
+test-results/
+
+# --- IDEs ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.iml
+.vs/
+_ReSharper.Caches/
+
+# --- Sistema operacional ---
+.DS_Store
+Thumbs.db
+
+# --- Ferramentas locais de agentes ---
+.serena/
+
+# --- Material de trabalho que não pertence ao repositório ---
+livros-pdf/
+plano-duora.md
+
+# --- Segredos e configuração local ---
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key
+secrets/
+appsettings.*.local.json
