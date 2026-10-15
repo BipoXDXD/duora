@@ -72,9 +72,10 @@ internal sealed class Browser : IDisposable
             request.Headers.Add("Sec-Fetch-Site", headers.FetchSite);
         }
 
+        // Sem validação: os testes também mandam headers malformados, como um cliente qualquer mandaria.
         foreach (var (name, value) in headers.Extra ?? new Dictionary<string, string>())
         {
-            request.Headers.Add(name, value);
+            request.Headers.TryAddWithoutValidation(name, value);
         }
 
         return await _http.SendAsync(request, TestContext.Current.CancellationToken);

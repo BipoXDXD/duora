@@ -126,6 +126,25 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
         return new AccountLink(root.GetProperty("userId").GetGuid(), root.GetProperty("token").GetString() ?? "");
     }
 
+    /// <summary>Idioma gravado no pedido de e-mail mais recente do tipo, ou <c>null</c> se o campo faltar.</summary>
+    public async Task<string?> ReadLatestLanguageAsync(string email, string kind)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            select payload->>'language' from ops.outbox_events
+            where payload->>'to' = $1 and payload->>'kind' = $2
+            order by occurred_at desc, id desc
+            limit 1
+            """,
+            connection);
+        command.Parameters.AddWithValue(email);
+        command.Parameters.AddWithValue(kind);
+        var language = await command.ExecuteScalarAsync(TestContext.Current.CancellationToken);
+        return language as string;
+    }
+
     public async Task<long> ScalarAsync(string sql, params object[] parameters)
     {
         await using var connection = new NpgsqlConnection(postgres.ConnectionString);

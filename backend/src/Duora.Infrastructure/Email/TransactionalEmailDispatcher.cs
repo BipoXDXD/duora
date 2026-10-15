@@ -100,13 +100,14 @@ public sealed partial class TransactionalEmailDispatcher
             return false;
         }
 
+        var language = EmailLanguageTag.ParseOrDefault(message.Language);
         email = (message.Kind, message.Token) switch
         {
-            (AccountEmailKind.EmailConfirmation, { Length: > 0 } token) => _emails.EmailConfirmation(to, message.UserId, token),
-            (AccountEmailKind.PasswordReset, { Length: > 0 } token) => _emails.PasswordReset(to, message.UserId, token),
-            (AccountEmailKind.RegistrationAttemptOnExistingAccount, _) => _emails.RegistrationAttemptOnExistingAccount(to),
-            (AccountEmailKind.PendingRegistrationReminder, _) => _emails.PendingRegistrationReminder(to),
-            (AccountEmailKind.PasswordResetForUnknownAddress, _) => _emails.PasswordResetForUnknownAddress(to),
+            (AccountEmailKind.EmailConfirmation, { Length: > 0 } token) => _emails.EmailConfirmation(to, message.UserId, token, language),
+            (AccountEmailKind.PasswordReset, { Length: > 0 } token) => _emails.PasswordReset(to, message.UserId, token, language),
+            (AccountEmailKind.RegistrationAttemptOnExistingAccount, _) => _emails.RegistrationAttemptOnExistingAccount(to, language),
+            (AccountEmailKind.PendingRegistrationReminder, _) => _emails.PendingRegistrationReminder(to, language),
+            (AccountEmailKind.PasswordResetForUnknownAddress, _) => _emails.PasswordResetForUnknownAddress(to, language),
             _ => null,
         };
         return email is not null;

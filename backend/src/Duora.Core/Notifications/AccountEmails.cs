@@ -3,8 +3,9 @@ using Duora.Core.Identity;
 namespace Duora.Core.Notifications;
 
 /// <summary>
-/// Monta os e-mails de conta com links para a SPA. O texto é neutro: não diz se a conta existe para quem não é o
-/// titular e não repete dados além do necessário para a ação.
+/// Monta os e-mails de conta com links para a SPA, no idioma pedido. O texto é neutro: não diz se a conta existe
+/// para quem não é o titular e não repete dados além do necessário para a ação. Os links são os mesmos nos dois
+/// idiomas: as rotas da SPA não mudam com o idioma.
 /// </summary>
 public sealed class AccountEmails
 {
@@ -16,85 +17,34 @@ public sealed class AccountEmails
         _publicOrigin = publicOrigin;
     }
 
-    public TransactionalEmail EmailConfirmation(EmailAddress to, Guid userId, string token) =>
-        new(
-            to,
-            "Confirme seu e-mail no Duora",
-            $"""
-            Olá,
+    public TransactionalEmail EmailConfirmation(EmailAddress to, Guid userId, string token, EmailLanguage language) =>
+        Compose(to, CatalogFor(language).EmailConfirmation(ActionLink("/confirmar-email", userId, token)));
 
-            Para confirmar este endereço de e-mail no Duora, abra o link abaixo. Vamos pedir a senha que você
-            escolheu no cadastro.
+    public TransactionalEmail PasswordReset(EmailAddress to, Guid userId, string token, EmailLanguage language) =>
+        Compose(to, CatalogFor(language).PasswordReset(ActionLink("/redefinir-senha", userId, token)));
 
-            {ActionLink("/confirmar-email", userId, token)}
-
-            Se você não pediu este cadastro, ignore esta mensagem: sem a senha, ninguém confirma a conta.
-            """);
-
-    public TransactionalEmail PasswordReset(EmailAddress to, Guid userId, string token) =>
-        new(
-            to,
-            "Redefinição de senha do Duora",
-            $"""
-            Olá,
-
-            Recebemos um pedido para redefinir a senha da conta ligada a este e-mail. Para escolher uma nova senha,
-            abra o link abaixo:
-
-            {ActionLink("/redefinir-senha", userId, token)}
-
-            Se você não fez esse pedido, ignore esta mensagem; sua senha continua a mesma.
-            """);
-
-    public TransactionalEmail RegistrationAttemptOnExistingAccount(EmailAddress to) =>
-        new(
-            to,
-            "Tentativa de cadastro no Duora",
-            $"""
-            Olá,
-
-            Alguém tentou criar uma conta no Duora com este e-mail, que já tem cadastro. Se foi você, entre
-            normalmente ou recupere a senha em:
-
-            {_publicOrigin.Resolve("/recuperar-senha")}
-
-            Se não foi você, nenhuma ação é necessária.
-            """);
+    public TransactionalEmail RegistrationAttemptOnExistingAccount(EmailAddress to, EmailLanguage language) =>
+        Compose(to, CatalogFor(language).RegistrationAttemptOnExistingAccount(_publicOrigin.Resolve("/recuperar-senha")));
 
     /// <summary>
     /// Pedido de redefinição para uma conta que nunca confirmou o e-mail. Não há link de confirmação nem de
     /// redefinição: o cadastro pendente pode ter sido feito por outra pessoa, e só um cadastro novo, feito por
     /// quem lê este e-mail, substitui o anterior (TM-66).
     /// </summary>
-    public TransactionalEmail PendingRegistrationReminder(EmailAddress to) =>
-        new(
-            to,
-            "Cadastro não concluído no Duora",
-            $"""
-            Olá,
+    public TransactionalEmail PendingRegistrationReminder(EmailAddress to, EmailLanguage language) =>
+        Compose(to, CatalogFor(language).PendingRegistrationReminder(_publicOrigin.Resolve("/cadastro")));
 
-            Recebemos um pedido de redefinição de senha para este e-mail, mas o cadastro dele nunca foi
-            confirmado. Para usar o Duora com este endereço, faça o cadastro de novo:
+    public TransactionalEmail PasswordResetForUnknownAddress(EmailAddress to, EmailLanguage language) =>
+        Compose(to, CatalogFor(language).PasswordResetForUnknownAddress(_publicOrigin.Resolve("/cadastro")));
 
-            {_publicOrigin.Resolve("/cadastro")}
+    /// <summary>Valor fora do enum (um cast de inteiro) cai no padrão, como uma tag desconhecida.</summary>
+    private static IAccountEmailCatalog CatalogFor(EmailLanguage language) => language switch
+    {
+        EmailLanguage.English => EnglishAccountEmails.Instance,
+        _ => BrazilianPortugueseAccountEmails.Instance,
+    };
 
-            Se você não fez esse pedido, ignore esta mensagem.
-            """);
-
-    public TransactionalEmail PasswordResetForUnknownAddress(EmailAddress to) =>
-        new(
-            to,
-            "Redefinição de senha do Duora",
-            $"""
-            Olá,
-
-            Recebemos um pedido de redefinição de senha para este e-mail, mas não há conta do Duora com ele.
-            Se quiser criar uma, use:
-
-            {_publicOrigin.Resolve("/cadastro")}
-
-            Se você não fez esse pedido, ignore esta mensagem.
-            """);
+    private static TransactionalEmail Compose(EmailAddress to, EmailText text) => new(to, text.Subject, text.Body);
 
     /// <summary>
     /// Credenciais no fragmento, nunca na query: o fragmento não vai ao servidor, ao log do proxy nem ao
