@@ -1,0 +1,62 @@
+{
+  "$comment": "Política de licenças (spec 2.3; docs/security/supply-chain.md). Mudar este arquivo é decisão de política: toda exceção tem justificativa e passa por revisão humana.",
+  "allowed": [
+    "0BSD",
+    "Apache-2.0",
+    "BlueOak-1.0.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "PostgreSQL",
+    "Python-2.0",
+    "Unlicense"
+  ],
+  "exceptions": [
+    {
+      "package": "axe-core",
+      "license": "MPL-2.0",
+      "reason": "Só nos testes E2E de acessibilidade (devDependency via @axe-core/playwright), injetado no navegador de teste; não vai para o bundle. Copyleft fraco por arquivo: só obriga a publicar alterações nos próprios arquivos, e não os alteramos."
+    },
+    {
+      "package": "@axe-core/playwright",
+      "license": "MPL-2.0",
+      "reason": "Integração do axe-core com o Playwright, só nos testes E2E (devDependency); mesma justificativa do axe-core."
+    },
+    {
+      "package": "lightningcss",
+      "license": "MPL-2.0",
+      "reason": "Ferramenta de build (transformador de CSS do Vite/Tailwind), não vai para o bundle; o CSS gerado não é obra derivada. Usado sem modificação, então o copyleft por arquivo não gera obrigação."
+    },
+    {
+      "package": "lightningcss-*",
+      "license": "MPL-2.0",
+      "reason": "Binário nativo do lightningcss para a plataforma do runner; mesma justificativa do lightningcss."
+    },
+    {
+      "package": "caniuse-lite",
+      "license": "CC-BY-4.0",
+      "reason": "Base de dados de suporte de navegadores usada pelo Browserslist no build; não vai para o bundle. CC-BY-4.0 é permissiva e só exige atribuição, que o próprio pacote mantém."
+    }
+  ],
+  "missingLicenseAllowed": [
+    {
+      "pattern": "@rolldown/binding-*",
+      "reason": "Binários nativos opcionais do rolldown por plataforma. Só o da plataforma corrente é instalado, e é dele que se lê a licença (que passa pela allowlist); os outros constam do lockfile sem package.json no disco."
+    },
+    {
+      "pattern": "@tailwindcss/oxide-*",
+      "reason": "Binários nativos opcionais do Tailwind por plataforma; mesma situação do @rolldown/binding-*."
+    },
+    {
+      "pattern": "lightningcss-*",
+      "reason": "Binários nativos opcionais do lightningcss por plataforma; mesma situação do @rolldown/binding-*."
+    },
+    {
+      "pattern": "fsevents",
+      "reason": "Dependência opcional só de macOS; no runner Linux não é instalada e a licença não pode ser lida."
+    }
+  ]
+}
