@@ -360,8 +360,9 @@ class Drill:
     # --- Infra ------------------------------------------------------------------------------------------------------
 
     def _duora_backup(self, action: str) -> None:
+        # Docker Desktop não tem a chain DOCKER-USER do host: o filtro de saída só se prova na VPS (manual).
         _run([sys.executable, str(BACKUP_SCRIPT), action, "--compose-project", PROJECT,
-              "--state-dir", str(self._state_dir)])
+              "--state-dir", str(self._state_dir), "--skip-egress-check"])
 
     def _sql(self, sql: str) -> str:
         return _run(self._compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "--quiet",

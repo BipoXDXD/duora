@@ -82,7 +82,18 @@ O role Ansible `backup` instala `duora-backup-egress.service`, que cria a chain 
   resolvedor de terceiro e manter o mesmo IP no compose e no inventário;
 - permite HTTPS (443/tcp) só para `duora_backup_s3_cidrs` (inventário). **Enquanto o provedor não for escolhido a
   lista é vazia, o que libera a 443 para qualquer destino**;
-- descarta o resto. O serviço é `PartOf=docker.service`: reaplica a cada restart do Docker. A rede é só IPv4.
+- descarta o resto. A rede é só IPv4.
+
+O filtro **falha fechado**:
+
+- a chain é trocada de uma vez (`iptables-restore`) e sempre termina em `DROP`; se faltar resolvedor ou uma regra for
+  recusada, fica só o `DROP` (o backup perde a saída e o verify alerta) e a unit falha com o alerta `crit`
+  (`OnFailure=duora-backup-failed@`);
+- a unit roda `Before=docker.service`: no boot a chain existe antes de o Docker subir os containers com restart
+  automático, sem janela em que o `backup` saia sem filtro. `PartOf=docker.service` reaplica a cada restart do Docker;
+- o `duora-backup verify` (timer e deploy) confere no iptables o desvio `FORWARD -> DOCKER-USER`, o desvio da subnet
+  para `DUORA-BACKUP-EGRESS` e o `DROP` final, e falha se faltar qualquer um (`EgressFilterCheckTests`). Só o drill
+  local pula essa checagem (`--skip-egress-check`), porque o Docker Desktop não tem a chain do host.
 
 O postgres não depende desse filtro: ele não está em rede nenhuma com saída. O drill prova isso (abaixo); o filtro
 `DOCKER-USER` em si só pode ser provado num host Linux real (pendência).
@@ -187,7 +198,7 @@ full: rode `sudo duora-backup full` assim que o destino voltar. O verify a cada 
 |---|---|---|
 | `stanza-create` | operador, uma vez | Cria a stanza `duora` no repositório |
 | `full` / `diff` | timers `duora-backup-full.timer` / `duora-backup-diff.timer` | Backup; espera um deploy em curso terminar (mesmo lock, até 30 min) |
-| `verify` | `duora-backup-verify.timer` (15 min) e `duora-deploy` | `pgbackrest check` (troca o segmento e espera ele chegar ao repositório), `info` sem erro, último WAL confirmado há ≤ 300 s (RPO), arquivamento não falhando, último backup há ≤ 48 h. **Falha fechado** (abaixo) |
+| `verify` | `duora-backup-verify.timer` (15 min) e `duora-deploy` | filtro de saída aplicado no iptables, `pgbackrest check` (troca o segmento e espera ele chegar ao repositório), `info` sem erro, último WAL confirmado há ≤ 300 s (RPO), arquivamento não falhando, último backup há ≤ 48 h. **Falha fechado** (abaixo) |
 | `info` | operador | `pgbackrest info` |
 
 Ninguém além do root chama o `duora-backup`: o executor de deploy não tem sudo para ele, e nenhum container tem o
