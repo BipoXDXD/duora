@@ -1,0 +1,15 @@
+# Gerenciado pelo Ansible (infra/ansible/roles/backup). Filtro de saída da rede backup-egress.
+[Unit]
+Description=Duora: filtro de saída do container backup (DOCKER-USER)
+# O Docker cria a chain DOCKER-USER ao iniciar; PartOf reaplica o filtro a cada restart do Docker.
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/duora-backup-egress
+
+[Install]
+WantedBy=docker.service

@@ -1,0 +1,13 @@
+# Gerenciado pelo Ansible (infra/ansible/roles/backup). Full semanal (spec 18.2).
+[Unit]
+Description=Duora: backup full semanal do PostgreSQL
+
+[Timer]
+OnCalendar=Sun *-*-* 03:00:00 UTC
+# Jitter para não coincidir com outros jobs agendados; Persistent roda o que um reboot fez perder.
+RandomizedDelaySec=15min
+Persistent=true
+Unit=duora-backup@full.service
+
+[Install]
+WantedBy=timers.target
