@@ -5,6 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
+import { noLiteralUiText } from './config/eslint/no-literal-ui-text.ts'
 
 export default defineConfig([
   // schema.d.ts é gerado do contrato (pnpm api:generate, docs/api/README.md); o CI confere que não foi editado.
@@ -46,6 +47,13 @@ export default defineConfig([
         { selector: 'TSEnumDeclaration', message: 'Use união de literais ou objeto as const.' },
       ],
     },
+  },
+  {
+    // Todo texto visível vem do catálogo de idiomas (src/shared/i18n); testes descrevem o que veem e ficam de fora.
+    files: ['src/**/*.tsx'],
+    ignores: ['src/test/**', 'src/**/*.test.tsx'],
+    plugins: { duora: { rules: { 'no-literal-ui-text': noLiteralUiText } } },
+    rules: { 'duora/no-literal-ui-text': 'error' },
   },
   {
     // Utilitários e arquivos de teste nunca passam por fast refresh: podem exportar funções e componentes juntos.
