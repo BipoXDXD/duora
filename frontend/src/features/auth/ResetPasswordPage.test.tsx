@@ -6,7 +6,7 @@ import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { createTestQueryClient, renderApp, type RenderedApp } from '@/test/render'
 
 const USER_ID = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'
-const LINK = `/redefinir-senha?userId=${USER_ID}&token=reset-token`
+const LINK = `/redefinir-senha#userId=${USER_ID}&token=reset-token`
 
 function useResetEndpoint(respond: () => Response) {
   const received: { body: unknown; token: string | null }[] = []
@@ -56,7 +56,7 @@ describe('tela de redefinição de senha', () => {
     expect(queryClient.getQueryCache().getAll()).toEqual([])
   })
 
-  it('tira userId e token da URL ao montar e ainda envia o token certo no POST', async () => {
+  it('tira userId e token do fragmento ao montar e ainda envia o token certo no POST', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     const received = useResetEndpoint(noContent)
     const app = renderApp(LINK)
@@ -131,7 +131,7 @@ describe('tela de redefinição de senha', () => {
   })
 
   it('link malformado não mostra o formulário', () => {
-    renderApp('/redefinir-senha?userId=nao-e-uuid&token=x')
+    renderApp('/redefinir-senha#userId=nao-e-uuid&token=x')
 
     expect(screen.getByRole('alert')).toHaveTextContent('Este link de recuperação é inválido ou expirou.')
     expect(screen.queryByLabelText('Senha nova')).not.toBeInTheDocument()

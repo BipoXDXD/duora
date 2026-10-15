@@ -161,7 +161,7 @@ export class FakeDuoraApi {
       }
       this.#users.set(email, user)
       this.#confirmationLinks.push({
-        path: `/confirmar-email?userId=${user.id}&token=${encodeURIComponent(user.confirmationToken)}`,
+        path: `/confirmar-email#userId=${user.id}&token=${encodeURIComponent(user.confirmationToken)}`,
         userId: user.id,
         token: user.confirmationToken,
       })

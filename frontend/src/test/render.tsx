@@ -23,7 +23,7 @@ interface RouteEntry {
 /** Mostra o caminho atual num elemento oculto, para o teste conferir navegações. */
 function LocationProbe(): React.JSX.Element {
   const location = useLocation()
-  return <output data-testid="location" hidden>{`${location.pathname}${location.search}`}</output>
+  return <output data-testid="location" hidden>{`${location.pathname}${location.search}${location.hash}`}</output>
 }
 
 export interface RenderedApp extends RenderResult {

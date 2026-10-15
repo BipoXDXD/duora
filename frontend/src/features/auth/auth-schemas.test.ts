@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { emailSchema, newPasswordSchema, readEmailLink } from './auth-schemas'
+import { emailSchema, newPasswordSchema, readEmailLinkFragment } from './auth-schemas'
 
 const USER_ID = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'
 
@@ -33,21 +33,22 @@ describe('emailSchema', () => {
   })
 })
 
-describe('readEmailLink', () => {
-  it('lê userId e token do link', () => {
-    expect(readEmailLink(new URLSearchParams({ userId: USER_ID, token: 'abc+/=' }))).toEqual({
+describe('readEmailLinkFragment', () => {
+  it('lê userId e token do fragmento do link', () => {
+    expect(readEmailLinkFragment(`#userId=${USER_ID}&token=${encodeURIComponent('abc+/=')}`)).toEqual({
       userId: USER_ID,
       token: 'abc+/=',
     })
   })
 
   it.each([
-    ['sem parâmetros', ''],
+    ['fragmento vazio', ''],
+    ['só o #', '#'],
     ['sem token', `userId=${USER_ID}`],
     ['token vazio', `userId=${USER_ID}&token=`],
     ['userId que não é UUID', 'userId=1&token=abc'],
     ['token gigante', `userId=${USER_ID}&token=${'a'.repeat(2049)}`],
   ])('devolve null para link inválido: %s', (_caso, query) => {
-    expect(readEmailLink(new URLSearchParams(query))).toBeNull()
+    expect(readEmailLinkFragment(`#${query}`)).toBeNull()
   })
 })

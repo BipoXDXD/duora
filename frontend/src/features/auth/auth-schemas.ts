@@ -35,8 +35,9 @@ export const newPasswordSchema = z
 export const currentPasswordSchema = z.string().min(1, messages.validation.passwordRequired)
 
 /**
- * Parâmetros dos links de e-mail (`?userId=…&token=…`). A query string é dado externo: só vale
- * com userId UUID e token não vazio de tamanho limitado.
+ * Parâmetros dos links de e-mail, no fragmento (`#userId=…&token=…`): o fragmento não vai ao
+ * servidor, aos logs de acesso nem ao Referer (TM-19). É dado externo: só vale com userId UUID e
+ * token não vazio de tamanho limitado.
  */
 const emailLinkSchema = z.object({
   userId: z.uuid(),
@@ -45,10 +46,8 @@ const emailLinkSchema = z.object({
 
 export type EmailLink = z.output<typeof emailLinkSchema>
 
-export function readEmailLink(searchParams: URLSearchParams): EmailLink | null {
-  const parsed = emailLinkSchema.safeParse({
-    userId: searchParams.get('userId'),
-    token: searchParams.get('token'),
-  })
+export function readEmailLinkFragment(hash: string): EmailLink | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ''))
+  const parsed = emailLinkSchema.safeParse({ userId: params.get('userId'), token: params.get('token') })
   return parsed.success ? parsed.data : null
 }
