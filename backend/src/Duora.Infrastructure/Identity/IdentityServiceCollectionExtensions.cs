@@ -20,10 +20,12 @@ public static class DuoraAuthentication
     public const string Scheme = "Duora.Session";
 
     /// <summary>
-    /// Esquema usado só para gravar a sessão nova no login. O handler do <see cref="Scheme"/> já leu o cookie da
-    /// requisição e, no SignIn, reaproveitaria a chave da sessão anterior (chama RenewAsync em vez de StoreAsync),
-    /// o que seria session fixation. Este handler nunca autentica, então sempre cria uma chave nova. Os dois
-    /// esquemas usam o mesmo cookie e o mesmo formato de ticket.
+    /// Esquema usado só para gravar a sessão nova no login, com o mesmo cookie e o mesmo formato de ticket do
+    /// <see cref="Scheme"/>. O handler do <see cref="Scheme"/>, que já autenticou a requisição, reaproveitaria a
+    /// chave anterior no SignIn (RenewAsync em vez de StoreAsync). Este handler também lê o cookie da requisição, por
+    /// isso ele sozinho não basta: quem garante que a chave anterior não sobrevive é a ordem no login, com
+    /// <c>SignOutAsync(Scheme)</c> revogando a sessão anterior no banco ANTES do <c>SignInAsync(SignInScheme)</c>.
+    /// Invariante: nunca chamar SignIn sem esse SignOut antes (coberta pelos testes de fixation).
     /// </summary>
     public const string SignInScheme = "Duora.Session.SignIn";
 
