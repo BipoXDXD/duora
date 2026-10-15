@@ -132,20 +132,51 @@ public sealed class RoundTests
     }
 
     [Fact]
-    public void RunningIsAcceptedJustBeforeTheWindowEnds()
+    public void RunningIsAcceptedJustBeforeTheStartDeadline()
     {
         var round = Inviting();
 
-        AssertAccepted(round.BeginRunning(round.Version, RoundEndsAt - Tick));
+        AssertAccepted(round.BeginRunning(round.Version, StartDeadline - Tick));
     }
 
     [Fact]
-    public void RunningIsRefusedFromTheEndOfTheWindow()
+    public void RunningIsRefusedFromTheStartDeadlineBecauseTheGameNoLongerFits()
     {
         var round = Inviting();
 
-        AssertRefused(RoundRefusal.WindowElapsed, round.BeginRunning(round.Version, RoundEndsAt));
-        Assert.Equal(RoundState.Inviting, round.State);
+        AssertRefused(RoundRefusal.StartWindowElapsed, round.BeginRunning(round.Version, StartDeadline));
+        Assert.Equal((RoundState.Inviting, 3L), (round.State, round.Version));
+    }
+
+    /// <summary>
+    /// O worker sem reinício (<c>BeginRunning</c>) e o que acabou de reiniciar (<c>Resume</c>) aplicam a mesma regra
+    /// de início (spec 4.3: o jogo precisa caber até início + 9 min) no mesmo instante.
+    /// </summary>
+    [Fact]
+    public void BeginRunningAndResumeAgreeJustBeforeTheStartDeadline()
+    {
+        var now = StartDeadline - Tick;
+        var running = Inviting();
+        var resumed = Inviting();
+
+        AssertAccepted(running.BeginRunning(running.Version, now));
+        AssertAccepted(resumed.Resume(resumed.Version, now));
+
+        Assert.Equal(RoundState.Running, running.State);
+        Assert.Equal(RoundState.Inviting, resumed.State);
+    }
+
+    [Fact]
+    public void BeginRunningAndResumeAgreeAtTheStartDeadline()
+    {
+        var running = Inviting();
+        var resumed = Inviting();
+
+        AssertRefused(RoundRefusal.StartWindowElapsed, running.BeginRunning(running.Version, StartDeadline));
+        AssertAccepted(resumed.Resume(resumed.Version, StartDeadline));
+
+        Assert.Equal(RoundState.Inviting, running.State);
+        Assert.Equal(RoundState.Cancelled, resumed.State);
     }
 
     [Fact]
