@@ -1,6 +1,7 @@
 """Testes do gerador de segredos. Rodar da raiz: python3 -m unittest discover -s scripts/deploy -v"""
 
 import stat
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -65,6 +66,82 @@ class InitSecretsTests(unittest.TestCase):
             secrets_cli.init_secrets(self.directory, change_owner=False)
 
         self.assertEqual("antiga", read(self.directory, "db_app_password"))
+
+
+def openssl(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["openssl", *args], capture_output=True, text=True, check=False)
+
+
+class InitBackupTlsTests(unittest.TestCase):
+    """Certificados do pgBackRest (postgres → backup por TLS). Precisa do openssl, como na VPS."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.directory = Path(self._tmp.name) / "secrets"
+
+    def test_creates_ca_server_and_client_files_0400(self) -> None:
+        secrets_cli.init_backup_tls(self.directory, change_owner=False)
+
+        self.assertEqual(set(secrets_cli.TLS_FILES), {p.name for p in self.directory.iterdir()})
+        for path in self.directory.iterdir():
+            with self.subTest(file=path.name):
+                self.assertEqual(0o400, stat.S_IMODE(path.stat().st_mode))
+
+    def test_ca_private_key_is_not_kept(self) -> None:
+        secrets_cli.init_backup_tls(self.directory, change_owner=False)
+
+        keys = [p.name for p in self.directory.iterdir() if "PRIVATE KEY" in p.read_text(encoding="utf-8")]
+        self.assertEqual(["pgbackrest_tls_client.key", "pgbackrest_tls_server.key"], sorted(keys))
+
+    def test_server_certificate_is_for_the_backup_host_and_signed_by_the_ca(self) -> None:
+        secrets_cli.init_backup_tls(self.directory, change_owner=False)
+
+        server = str(self.directory / "pgbackrest_tls_server.crt")
+        verify = openssl("verify", "-CAfile", str(self.directory / "pgbackrest_tls_ca.crt"), "-purpose", "sslserver",
+                         "-verify_hostname", "backup", server)
+        self.assertEqual(0, verify.returncode, verify.stdout + verify.stderr)
+
+    def test_server_certificate_is_not_valid_for_another_host(self) -> None:
+        secrets_cli.init_backup_tls(self.directory, change_owner=False)
+
+        verify = openssl("verify", "-CAfile", str(self.directory / "pgbackrest_tls_ca.crt"), "-verify_hostname",
+                         "postgres", str(self.directory / "pgbackrest_tls_server.crt"))
+        self.assertNotEqual(0, verify.returncode)
+
+    def test_client_certificate_carries_the_cn_authorized_on_the_backup_server(self) -> None:
+        secrets_cli.init_backup_tls(self.directory, change_owner=False)
+
+        client = str(self.directory / "pgbackrest_tls_client.crt")
+        verify = openssl("verify", "-CAfile", str(self.directory / "pgbackrest_tls_ca.crt"), "-purpose", "sslclient",
+                         client)
+        subject = openssl("x509", "-in", client, "-noout", "-subject", "-nameopt", "RFC2253")
+        self.assertEqual(0, verify.returncode, verify.stdout + verify.stderr)
+        self.assertEqual("subject=CN=duora-postgres", subject.stdout.strip())
+
+    def test_second_run_keeps_existing_certificates(self) -> None:
+        secrets_cli.init_backup_tls(self.directory, change_owner=False)
+        before = read(self.directory, "pgbackrest_tls_server.crt")
+
+        created = secrets_cli.init_backup_tls(self.directory, change_owner=False)
+
+        self.assertFalse(created)
+        self.assertEqual(before, read(self.directory, "pgbackrest_tls_server.crt"))
+
+    def test_partial_tls_set_is_refused(self) -> None:
+        self.directory.mkdir(mode=0o700)
+        (self.directory / "pgbackrest_tls_ca.crt").write_text("antiga", encoding="utf-8")
+
+        with self.assertRaisesRegex(secrets_cli.SecretsError, "incompleto"):
+            secrets_cli.init_backup_tls(self.directory, change_owner=False)
+
+        self.assertEqual("antiga", read(self.directory, "pgbackrest_tls_ca.crt"))
+
+    def test_database_secrets_and_tls_coexist_in_the_same_directory(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        secrets_cli.init_backup_tls(self.directory, change_owner=False)
+
+        self.assertFalse(secrets_cli.init_secrets(self.directory, change_owner=False))
 
 
 if __name__ == "__main__":
