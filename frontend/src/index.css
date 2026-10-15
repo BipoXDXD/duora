@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+
+/*
+ * Tokens semânticos do Duora (spec 13.3). Valores provisórios de M0: um único tema claro,
+ * sem identidade visual final. O teste src/app/design-tokens.test.ts mede o contraste de
+ * cada par real de uso; mude um valor aqui e o teste confere de novo.
+ *
+ * A paleta padrão do Tailwind é desligada para que só estes tokens existam como cor.
+ */
+@theme {
+  --color-*: initial;
+
+  --color-surface: oklch(0.99 0.004 85);
+  --color-surface-muted: oklch(0.955 0.008 85);
+  --color-text: oklch(0.24 0.012 85);
+  --color-text-muted: oklch(0.47 0.014 85);
+  --color-border: oklch(0.6 0.014 85);
+  --color-action: oklch(0.47 0.13 265);
+  --color-action-hover: oklch(0.4 0.13 265);
+  --color-action-foreground: oklch(0.99 0.004 85);
+  --color-danger: oklch(0.5 0.18 27);
+  --color-danger-hover: oklch(0.44 0.17 27);
+  --color-danger-foreground: oklch(0.99 0.004 85);
+  --color-focus: oklch(0.52 0.2 265);
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-surface font-sans text-base leading-normal text-text antialiased;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

@@ -1,0 +1,25 @@
+# Dependências e saídas de build
+node_modules
+dist
+dist-ssr
+coverage
+
+# Playwright
+playwright-report
+test-results
+blob-report
+
+# Variáveis locais: só o .env.example é versionado
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs
+*.log
+
+# Editor e sistema
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
