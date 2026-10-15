@@ -1,0 +1,8 @@
+// Gerenciado pelo Ansible (infra/ansible/roles/base). Spec 15.5: atualizações de segurança automáticas, com
+// reinício só na janela de manutenção. As origens continuam as do 50unattended-upgrades (segurança do Ubuntu);
+// o repositório do Docker fica de fora de propósito: atualizar o daemon é mudança planejada.
+Unattended-Upgrade::Automatic-Reboot "{{ 'true' if duora_unattended_reboot else 'false' }}";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ duora_unattended_reboot_time }}";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";

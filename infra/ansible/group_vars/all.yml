@@ -1,0 +1,22 @@
+---
+# Padrões do host do Duora. Valores por host (domínio, chave do CI, origem do SSH) ficam no inventário.
+
+# Operador humano (já existe, criado pelo provedor) e executor de deploy (criado aqui, sem sudo ALL).
+duora_admin_user: "{{ ansible_user }}"
+duora_deploy_user: duora-deploy
+
+# Janela de reinício automático após atualização de segurança que o exija (horário do host, em UTC).
+duora_unattended_reboot: true
+duora_unattended_reboot_time: "04:30"
+
+# Origens aceitas no SSH (UFW). "any" = qualquer origem, IPv4 e IPv6.
+duora_ssh_allowed_sources: [any]
+
+# Diretórios no host.
+duora_install_dir: /opt/duora
+duora_config_dir: /etc/duora
+duora_secrets_dir: /etc/duora/secrets
+duora_state_dir: /var/lib/duora/releases
+
+# Deploy: espaço livre mínimo para imagem nova + anterior (spec 15.1).
+duora_min_free_gib: 10

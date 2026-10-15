@@ -1,0 +1,20 @@
+---
+# Configura a VPS do Duora (Ubuntu Server 24.04). Idempotente: reaplicar não apaga volumes nem recria segredos.
+#   ansible-playbook -i ~/duora-ops/inventory.yml site.yml --check --diff   # revisar antes
+#   ansible-playbook -i ~/duora-ops/inventory.yml site.yml
+- name: Configurar host do Duora
+  hosts: duora_vps
+  become: true
+  pre_tasks:
+    - name: Exigir Ubuntu 24.04 (playbooks validados só nessa versão, spec 15.1)
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_version'] == '24.04'
+        fail_msg: "Host {{ inventory_hostname }} não é Ubuntu 24.04."
+  roles:
+    - role: base
+    - role: ssh
+    - role: firewall
+    - role: docker
+    - role: app_dirs

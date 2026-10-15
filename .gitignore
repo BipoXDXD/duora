@@ -58,3 +58,6 @@ appsettings.*.local.json
 # --- Python (scripts de operação) ---
 __pycache__/
 *.pyc
+
+# --- Ansible (cache local do ansible-lint/galaxy) ---
+.ansible/
