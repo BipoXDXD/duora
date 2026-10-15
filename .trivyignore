@@ -1,0 +1,10 @@
+# Exceções do Trivy (docs/security/supply-chain.md). Área de política: cada entrada passa por revisão humana.
+#
+# Regra, conferida no CI por scripts/supply-chain/check_trivyignore.py:
+#   - uma justificativa em comentário na linha imediatamente acima de cada ID, dizendo por que o achado não
+#     se aplica ou qual mitigação existe, e quem aceitou o risco;
+#   - validade obrigatória `exp:AAAA-MM-DD`; vencida, o Trivy volta a reportar e o achado é triado de novo.
+#
+# Exemplo (não ativo):
+#   # Só afeta o parser de X, que não usamos; aceito por @responsavel em 2026-10-15
+#   CVE-2026-00000 exp:2027-01-15
