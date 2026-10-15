@@ -134,11 +134,11 @@ public sealed class AccountService
         var token = await _users.GenerateEmailConfirmationTokenAsync(user);
         if (registration.EmailConfirmed)
         {
-            Enqueue(AccountEmailKind.RegistrationAttemptOnExistingAccount, email, user.Id, token: null);
+            Enqueue(AccountEmailKind.RegistrationAttemptOnExistingAccount, StoredAddress(user), user.Id, token: null);
         }
         else
         {
-            Enqueue(AccountEmailKind.EmailConfirmation, email, user.Id, token);
+            Enqueue(AccountEmailKind.EmailConfirmation, StoredAddress(user), user.Id, token);
         }
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -203,13 +203,13 @@ public sealed class AccountService
         switch (user)
         {
             case null:
-                Enqueue(AccountEmailKind.PasswordResetForUnknownAddress, email, Guid.CreateVersion7(_time.GetUtcNow()), token: null);
+                Enqueue(AccountEmailKind.PasswordResetForUnknownAddress, email.Value, Guid.CreateVersion7(_time.GetUtcNow()), token: null);
                 break;
             case { EmailConfirmed: true }:
-                Enqueue(AccountEmailKind.PasswordReset, email, user.Id, await _users.GeneratePasswordResetTokenAsync(user));
+                Enqueue(AccountEmailKind.PasswordReset, StoredAddress(user), user.Id, await _users.GeneratePasswordResetTokenAsync(user));
                 break;
             default:
-                Enqueue(AccountEmailKind.PendingRegistrationReminder, email, user.Id, token: null);
+                Enqueue(AccountEmailKind.PendingRegistrationReminder, StoredAddress(user), user.Id, token: null);
                 break;
         }
 
@@ -415,10 +415,17 @@ public sealed class AccountService
     private bool IsExpiredPendingRegistration(DuoraUser user) =>
         !user.EmailConfirmed && user.CreatedAt + _lifecycle.PendingAccountLifetime <= _time.GetUtcNow();
 
-    private void Enqueue(AccountEmailKind kind, EmailAddress email, Guid userId, string? token)
+    /// <summary>
+    /// E-mail de conta vai para o endereço gravado, nunca para o digitado: a busca é por e-mail normalizado, e o
+    /// que foi digitado pode ser uma variante que só coincide na normalização (TM-67).
+    /// </summary>
+    private static string StoredAddress(DuoraUser user) =>
+        user.Email ?? throw new InvalidOperationException("Conta sem e-mail gravado.");
+
+    private void Enqueue(AccountEmailKind kind, string recipient, Guid userId, string? token)
     {
         var linkToken = token is null ? null : Base64Url.EncodeToString(Encoding.UTF8.GetBytes(token));
-        _db.Add(AccountEmailOutbox.Create(new AccountEmailRequested(kind, email.Value, userId, linkToken), _time.GetUtcNow()));
+        _db.Add(AccountEmailOutbox.Create(new AccountEmailRequested(kind, recipient, userId, linkToken), _time.GetUtcNow()));
     }
 
     /// <summary>O token do Identity tem '+', '/' e '='; no link ele vai como base64url dos seus bytes UTF-8.</summary>

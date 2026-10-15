@@ -43,5 +43,11 @@ public sealed record EmailAddress
         return parsed.User.Length <= MaxLocalPartLength && parsed.Host.Contains('.', StringComparison.Ordinal);
     }
 
-    private static bool IsForbiddenCharacter(char character) => char.IsControl(character) || char.IsWhiteSpace(character);
+    /// <summary>
+    /// Só ASCII imprimível, sem espaço; domínio internacional entra em punycode (<c>xn--</c>). Fora do ASCII,
+    /// endereços diferentes colidem na normalização usada na busca ("ſ" vira "S" em maiúsculas) e um deles acharia a
+    /// conta do outro (TM-67).
+    /// </summary>
+    private static bool IsForbiddenCharacter(char character) =>
+        !char.IsAscii(character) || char.IsControl(character) || char.IsWhiteSpace(character);
 }
