@@ -65,6 +65,37 @@ public sealed class RegistrationTests
     }
 
     [Fact]
+    public void NewEventStartsTheWaitlistCounterAtOne()
+    {
+        var @event = Published();
+
+        Assert.Equal(1, @event.NextWaitlistPosition);
+        Assert.Equal(0, @event.ConfirmedCount);
+    }
+
+    [Fact]
+    public void ConfirmedRegistrationDoesNotConsumeAWaitlistPosition()
+    {
+        var @event = WithRegistrations(capacity: 3, count: 3);
+
+        Assert.Equal(1, @event.NextWaitlistPosition);
+    }
+
+    [Fact]
+    public void WaitlistPositionsAreNeverReusedAfterLeavingOrBeingPromoted()
+    {
+        var @event = WithRegistrations(capacity: 1, count: 3);
+        @event.Withdraw(User(3), Now);
+        @event.Withdraw(User(1), Now);
+
+        @event.Register(RegistrationId(4), User(4), ParticipantEligibility.Eligible, Now);
+
+        Assert.Equal(3, @event.RegistrationOf(User(4))?.WaitlistPosition);
+        Assert.Equal(4, @event.NextWaitlistPosition);
+        Assert.Equal(1, @event.ConfirmedCount);
+    }
+
+    [Fact]
     public void WaitlistIsEmptyWhileThereAreFreeSeats()
     {
         var @event = WithRegistrations(capacity: 5, count: 5);
@@ -352,6 +383,7 @@ public sealed class RegistrationTests
 
         Assert.Equal(RegistrationState.Completed, @event.RegistrationOf(User(1))?.State);
         Assert.Equal(RegistrationState.NoShow, @event.RegistrationOf(User(2))?.State);
+        Assert.Equal(0, @event.ConfirmedCount);
     }
 
     [Fact]
