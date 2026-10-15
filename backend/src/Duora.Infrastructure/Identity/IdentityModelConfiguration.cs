@@ -42,7 +42,16 @@ internal static class IdentityModelConfiguration
     private static void ConfigureUser(EntityTypeBuilder<DuoraUser> user)
     {
         var statuses = string.Join(", ", Enum.GetNames<AccountStatus>().Select(name => $"'{name}'"));
-        user.ToTable(table => table.HasCheckConstraint("ck_users_status", $"status IN ({statuses})"));
+        user.ToTable(table =>
+        {
+            table.HasCheckConstraint("ck_users_status", $"status IN ({statuses})");
+            // O nome de usuário é o e-mail. Com isso, o índice único do e-mail garante também o do nome, e o
+            // upsert do cadastro arbitra um índice só (com dois índices únicos, cadastros simultâneos do mesmo
+            // e-mail estourariam no índice que o ON CONFLICT não arbitra).
+            table.HasCheckConstraint(
+                "ck_users_user_name_is_email",
+                "normalized_user_name IS NOT DISTINCT FROM normalized_email");
+        });
         user.Property(u => u.Status).HasConversion<string>().HasMaxLength(24);
         user.Property(u => u.CreatedAt);
         user.Property(u => u.Email).HasMaxLength(EmailAddress.MaxLength);
@@ -53,6 +62,7 @@ internal static class IdentityModelConfiguration
         // O Identity cria o índice de e-mail sem unicidade; aqui ele vira a garantia contra cadastro duplicado
         // concorrente, que a verificação prévia do UserManager não impede.
         user.HasIndex(u => u.NormalizedEmail).IsUnique();
+        user.HasIndex(u => u.NormalizedUserName).IsUnique(false);
     }
 
     private static void RenameStoreObjects(IMutableEntityType entity, string table)

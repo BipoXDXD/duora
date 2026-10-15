@@ -147,12 +147,13 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ux_users_normalized_email");
 
                     b.HasIndex("NormalizedUserName")
-                        .IsUnique()
-                        .HasDatabaseName("ux_users_normalized_user_name");
+                        .HasDatabaseName("ix_users_normalized_user_name");
 
                     b.ToTable("users", "identity", t =>
                         {
                             t.HasCheckConstraint("ck_users_status", "status IN ('PendingEmail', 'PendingEligibility', 'Active', 'Restricted', 'Suspended', 'DeletionPending')");
+
+                            t.HasCheckConstraint("ck_users_user_name_is_email", "normalized_user_name IS NOT DISTINCT FROM normalized_email");
                         });
                 });
 
