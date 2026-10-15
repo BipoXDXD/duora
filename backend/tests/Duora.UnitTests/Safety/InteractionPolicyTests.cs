@@ -129,7 +129,7 @@ public sealed class InteractionPolicyTests
         var clock = FixedClock.AtStart();
         var suspension = SanctionOn(Alice, ModerationMeasure.Suspension, clock);
         var appeal = AppealUnderReview(suspension, clock);
-        var revision = appeal.Overturn(ModeratorPedro, "Evidência insuficiente.", RevisedPolicy, clock).Accepted();
+        var revision = appeal.Overturn(ModeratorPedro, Ruling("Evidência insuficiente."), clock).Accepted();
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, [suspension, revision], clock);
 
@@ -142,7 +142,7 @@ public sealed class InteractionPolicyTests
         var clock = FixedClock.AtStart();
         var suspension = SanctionOn(Alice, ModerationMeasure.Suspension, clock);
         var appeal = AppealUnderReview(suspension, clock);
-        var revision = appeal.Uphold(ModeratorPedro, "Evidência confirmada.", RevisedPolicy, clock).Accepted();
+        var revision = appeal.Uphold(ModeratorPedro, Ruling("Evidência confirmada."), clock).Accepted();
 
         var verdict = InteractionPolicy.CheckInteraction(Alice, Bruno, NoBlocks, [suspension, revision], clock);
 

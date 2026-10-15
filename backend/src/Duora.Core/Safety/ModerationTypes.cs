@@ -51,13 +51,49 @@ public sealed record PolicyVersion
 }
 
 /// <summary>
+/// O que a pessoa sancionada lê: o código do motivo no catálogo da política, que liga a medida a uma cláusula da
+/// <see cref="PolicyVersion"/>, e um texto curto opcional, escrito de propósito para ela. Nunca leva o motivo interno.
+/// </summary>
+public sealed record SubjectNotice
+{
+    public const int ReasonCodeMaxLength = 64;
+    public const int TextMaxLength = 500;
+
+    public SubjectNotice(string reasonCode, string? text)
+    {
+        ReasonCode = RequireCatalogCode(reasonCode);
+        Text = text is null ? null : SafetyText.RequireBounded(text, TextMaxLength, allowEmpty: false, nameof(text));
+    }
+
+    /// <summary>Código da cláusula no catálogo, como `conduta.assedio`.</summary>
+    public string ReasonCode { get; }
+
+    public string? Text { get; }
+
+    private static string RequireCatalogCode(string code)
+    {
+        ArgumentNullException.ThrowIfNull(code);
+        var wellFormed = code.Length is > 0 and <= ReasonCodeMaxLength
+            && char.IsAsciiLetterLower(code[0])
+            && code.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '.' or '_' or '-');
+        return wellFormed
+            ? code
+            : throw new ArgumentException("Código de motivo fora do formato do catálogo.", nameof(code));
+    }
+}
+
+/// <summary>
 /// O que quem decide informa. <paramref name="Duration"/> é relativa ao instante da decisão, para o fim da medida
-/// nunca vir de um relógio de fora.
+/// nunca vir de um relógio de fora. <paramref name="InternalReason"/> serve à auditoria (INV-10) e não chega à pessoa.
 /// </summary>
 public sealed record ModerationDecision(
     ModerationMeasure Measure,
     PolicyVersion PolicyVersion,
     IReadOnlyList<Guid> EvidenceIds,
-    string Reason,
+    string InternalReason,
+    SubjectNotice Notice,
     ModerationAuthor Author,
     TimeSpan? Duration = null);
+
+/// <summary>Fundamentação da decisão de um recurso, com a mesma separação entre motivo interno e aviso.</summary>
+public sealed record AppealRuling(string InternalReason, SubjectNotice Notice, PolicyVersion PolicyVersion);

@@ -30,7 +30,10 @@ public sealed class ModerationAction
 
     public required IReadOnlyList<Guid> EvidenceIds { get; init; }
 
-    public required string Reason { get; init; }
+    /// <summary>Motivo para auditoria (INV-10); pode citar investigação e nunca vai para a pessoa.</summary>
+    public required string InternalReason { get; init; }
+
+    public required SubjectNotice Notice { get; init; }
 
     public required ModerationAuthor Author { get; init; }
 
@@ -66,7 +69,8 @@ public sealed class ModerationAction
             : new SanctionNoticeView(
                 Id,
                 Measure,
-                Reason,
+                Notice.ReasonCode,
+                Notice.Text,
                 PolicyVersion,
                 DecidedAt,
                 EffectiveUntil,
@@ -98,7 +102,8 @@ public sealed class ModerationAction
             Measure = decision.Measure,
             PolicyVersion = decision.PolicyVersion,
             EvidenceIds = [.. decision.EvidenceIds],
-            Reason = SafetyText.RequireBounded(decision.Reason, ReasonMaxLength, allowEmpty: false, nameof(decision)),
+            InternalReason = RequireInternalReason(decision.InternalReason),
+            Notice = decision.Notice,
             Author = decision.Author,
             DecidedAt = decidedAt,
             EffectiveUntil = decidedAt + decision.Duration,
@@ -109,21 +114,23 @@ public sealed class ModerationAction
     internal ModerationAction Revise(
         ModerationMeasure measure,
         DateTimeOffset? effectiveUntil,
-        string reason,
-        PolicyVersion policyVersion,
+        AppealRuling ruling,
         Guid reviewerId,
         DateTimeOffset decidedAt)
     {
-        ArgumentNullException.ThrowIfNull(policyVersion);
+        ArgumentNullException.ThrowIfNull(ruling);
+        ArgumentNullException.ThrowIfNull(ruling.PolicyVersion);
+        ArgumentNullException.ThrowIfNull(ruling.Notice);
         return new ModerationAction
         {
             Id = ModerationActionId.New(decidedAt),
             SubjectUserId = SubjectUserId,
             ReportId = ReportId,
             Measure = measure,
-            PolicyVersion = policyVersion,
+            PolicyVersion = ruling.PolicyVersion,
             EvidenceIds = EvidenceIds,
-            Reason = SafetyText.RequireBounded(reason, ReasonMaxLength, allowEmpty: false, nameof(reason)),
+            InternalReason = RequireInternalReason(ruling.InternalReason),
+            Notice = ruling.Notice,
             Author = new ModerationAuthor.Human(reviewerId),
             DecidedAt = decidedAt,
             EffectiveUntil = effectiveUntil,
@@ -131,10 +138,14 @@ public sealed class ModerationAction
         };
     }
 
+    private static string RequireInternalReason(string reason) =>
+        SafetyText.RequireBounded(reason, ReasonMaxLength, allowEmpty: false, nameof(reason));
+
     private static void RequireInvariants(ModerationDecision decision)
     {
         ArgumentNullException.ThrowIfNull(decision);
         ArgumentNullException.ThrowIfNull(decision.PolicyVersion);
+        ArgumentNullException.ThrowIfNull(decision.Notice);
         ArgumentNullException.ThrowIfNull(decision.EvidenceIds);
         ArgumentNullException.ThrowIfNull(decision.Author);
         if (!Enum.IsDefined(decision.Measure))

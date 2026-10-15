@@ -16,7 +16,7 @@ public sealed class ModerationActionTests
         Assert.Equal(ModerationMeasure.Suspension, action.Measure);
         Assert.Equal(Policy, action.PolicyVersion);
         Assert.Equal([Evidence], action.EvidenceIds);
-        Assert.Equal("Assédio reiterado na sala.", action.Reason);
+        Assert.Equal("Assédio reiterado na sala.", action.InternalReason);
         Assert.Equal(new ModerationAuthor.Human(ModeratorMaria), action.Author);
         Assert.Equal(Start, action.DecidedAt);
         Assert.Equal(Start + OneWeek, action.EffectiveUntil);
@@ -188,7 +188,7 @@ public sealed class ModerationActionTests
     [InlineData("   ")]
     public void ADecisionWithoutReasonIsRejected(string reason)
     {
-        var decision = Decision() with { Reason = reason };
+        var decision = Decision() with { InternalReason = reason };
 
         Assert.Throws<ArgumentException>(
             () => ModerationAction.DecideWithoutReport(Bruno, decision, Limits, FixedClock.AtStart()));
@@ -211,19 +211,71 @@ public sealed class ModerationActionTests
 
         var keys = typeof(SanctionNoticeView).GetProperties().Select(property => property.Name).Order();
         Assert.Equal(
-            ["ActionId", "CanAppeal", "DecidedAt", "DecidedAutomatically", "EffectiveUntil", "Measure", "PolicyVersion", "Reason"],
+            [
+                "ActionId", "CanAppeal", "DecidedAt", "DecidedAutomatically", "EffectiveUntil", "Measure",
+                "NoticeText", "PolicyVersion", "ReasonCode",
+            ],
             keys);
         Assert.Equal(
             new SanctionNoticeView(
                 action.Id,
                 ModerationMeasure.Suspension,
-                "Assédio reiterado na sala.",
+                "conduta.assedio",
+                "Mensagens ofensivas repetidas na sala.",
                 Policy,
                 Start,
                 Start + OneWeek,
                 DecidedAutomatically: false,
                 CanAppeal: true),
             notice);
+    }
+
+    [Fact]
+    public void TheInternalReasonNeverReachesTheSanctionedPerson()
+    {
+        var canary = $"CANARY-{Guid.NewGuid()}";
+        var clock = FixedClock.AtStart();
+        var action = ModerationAction.DecideWithoutReport(
+            Bruno, Decision() with { InternalReason = canary }, Limits, clock).Accepted();
+        var revision = AppealUnderReview(action, clock).Overturn(ModeratorPedro, Ruling(canary), clock).Accepted();
+
+        Assert.Equal(canary, action.InternalReason);
+        Assert.DoesNotContain(canary, action.GetSanctionNotice(Bruno)?.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(canary, revision.GetSanctionNotice(Bruno)?.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Conduta")]
+    [InlineData("conduta assedio")]
+    [InlineData(".conduta")]
+    public void NoticeReasonCodeMustBeACatalogCode(string code)
+    {
+        Assert.Throws<ArgumentException>(() => new SubjectNotice(code, null));
+    }
+
+    [Fact]
+    public void NoticeReasonCodeIsLimitedInLength()
+    {
+        Assert.Equal(64, new SubjectNotice(new string('a', 64), null).ReasonCode.Length);
+        Assert.Throws<ArgumentException>(() => new SubjectNotice(new string('a', 65), null));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(SubjectNotice.TextMaxLength)]
+    public void NoticeTextIsOptionalUpToTheMaximum(int? length)
+    {
+        var text = length is { } size ? new string('a', size) : null;
+
+        Assert.Equal(text, new SubjectNotice("conduta.assedio", text).Text);
+    }
+
+    [Fact]
+    public void NoticeTextAboveTheMaximumIsRejected()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new SubjectNotice("conduta.assedio", new string('a', SubjectNotice.TextMaxLength + 1)));
     }
 
     [Fact]
