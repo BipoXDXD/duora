@@ -1365,6 +1365,8 @@ Configurar `wal_level`, `archive_mode`, `archive_command` e parâmetros do repos
 
 **Integração real com containers:** construir uma imagem de PostgreSQL derivada, fixada e testada que contenha pgBackRest compatível; seu comando de archive executa dentro do ambiente com acesso ao `PGDATA` e às credenciais necessárias. Backups agendados podem ser acionados por timer do host com wrapper restrito. Um sidecar sem acesso aos arquivos/socket/configuração não constitui backup físico funcional. A automação de backup não exige montar o Docker socket na aplicação.
 
+> **Divergência registrada ([ADR-0023](../architecture/adr/0023-topologia-do-backup-repository-host-e-object-lock.md), 2026-10-15):** as credenciais do repositório **não** ficam no ambiente do PostgreSQL. O `archive_command` envia o WAL por TLS mútuo a um container `backup` (repository host do pgBackRest), o único com a credencial do S3, a senha de cifra e saída para fora; ele lê o `PGDATA` só leitura. O postgres fica sem rede de saída. Como o certificado de cliente do postgres ainda pode apagar o repositório, a proteção contra exclusão vem do versionamento + Object Lock do bucket (spec 18.3), pré-requisito de produção.
+
 Não usar `pg_dump` como único mecanismo para uma meta de RPO em minutos. Dumps lógicos podem complementar verificações ou portabilidade. Snapshot do provedor e réplica também são complementos, não substitutos de uma cópia externa independente e restaurável.
 
 ### 18.3. Isolamento e proteção das cópias
