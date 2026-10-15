@@ -207,6 +207,9 @@ repo1-cipher-pass=<openssl rand -base64 48, gerado FORA da VPS>
 ```
 
 ```sh
+# O diretório é criado pelo playbook (role app_dirs, root, 0700); o install -d só garante o mesmo estado se ainda não
+# existir, sem afrouxar o modo.
+sudo install -d -o root -g root -m 0700 /etc/duora/secrets
 sudo install -o 999 -g 999 -m 0400 pgbackrest_repo.conf pgbackrest_cipher.conf /etc/duora/secrets/
 ```
 
@@ -306,13 +309,16 @@ ignorado no deploy) derruba os testes.
 
 ### Primeira configuração
 
-1. Bucket e credencial no provedor; gravar `pgbackrest_repo.conf` e `pgbackrest_cipher.conf` (acima).
-2. `ansible-playbook` (role `backup`): certificados, `duora-backup`, timers e filtro de saída.
-3. Primeiro deploy pelo operador, **sem** verificação (a stanza ainda não existe):
+1. Bucket com versionamento + Object Lock e credencial com a política mínima no provedor (acima).
+2. `ansible-playbook` (roles `app_dirs` e `backup`): `/etc/duora/secrets`, certificados, `duora-backup`, timers e
+   filtro de saída.
+3. Gravar `pgbackrest_repo.conf` e `pgbackrest_cipher.conf` em `/etc/duora/secrets/` (acima), já com o diretório
+   criado pelo passo 2.
+4. Primeiro deploy pelo operador, **sem** verificação (a stanza ainda não existe):
    `sudo duora-deploy --manifest release.json --accept-missing-backup-check`. A flag não está no sudoers do
    executor de deploy: só um humano com sudo a usa.
-4. `sudo duora-backup stanza-create && sudo duora-backup full && sudo duora-backup verify`.
-5. Daí em diante o `duora-deploy` do CI verifica o backup antes de parar qualquer serviço e para se ele não estiver
+5. `sudo duora-backup stanza-create && sudo duora-backup full && sudo duora-backup verify`.
+6. Daí em diante o `duora-deploy` do CI verifica o backup antes de parar qualquer serviço e para se ele não estiver
    saudável.
 
 ## Restore seguro (spec 18.4)
@@ -344,13 +350,29 @@ C="sudo docker compose -f /opt/duora/compose.prod.yml --env-file /etc/duora/duor
 $C stop web worker edge                    # passo 2: nada fala com o banco nem com a internet
 $C rm --stop --force postgres backup       # o backup monta o PGDATA só leitura e sai junto
 sudo docker volume rm duora_pgdata         # só depois de decidir que o volume atual não serve (copie antes se houver dúvida)
-$C --profile restore run --rm restore --type=time --target="2026-10-15 18:00:00+00" --target-action=promote restore
+$C --profile restore run --rm restore --type=time --target="2026-10-15 18:00:00+00" --target-action=pause restore
 $C up -d --wait backup                     # o restore_command do postgres busca o WAL nele
-$C up -d --wait postgres                   # recovery até o ponto e promoção; acompanhe com $C logs -f postgres
+$C up -d --wait postgres                   # recovery até o ponto e PAUSA; acompanhe com $C logs -f postgres
+P="$C exec --no-TTY postgres psql --username postgres --dbname duora --tuples-only --no-align --command"
+$P "select pg_is_in_recovery(), pg_get_wal_replay_pause_state()"   # t|paused: parado no ponto, ainda sem promover
+# Conferir aqui, só leitura: o dano não está, o que deve estar está (contagens, amostras). Ponto errado = parar o
+# postgres, apagar o volume e repetir o restore com outro --target; nada foi promovido nem arquivado na timeline nova.
+$P "select pg_wal_replay_resume()"         # promove: timeline nova
+$P "select pg_is_in_recovery()"            # f
+sudo duora-backup full                     # full logo depois do PITR (abaixo)
 ```
 
+`--target-action=pause` (em vez de `promote`) deixa o banco parado no ponto escolhido, aceitando só leitura, para
+conferir antes de promover: promover cria uma timeline nova e é o ponto sem volta do restore. O drill usa `promote`
+porque confere os dados por script.
+
+**Full depois do PITR:** a timeline nova só tem WAL a partir da promoção, e o backup mais novo é de antes do ponto.
+Um `sudo duora-backup full` logo depois da promoção dá à timeline nova um backup próprio: um segundo restore não
+precisa atravessar a troca de timeline, e o restore seguinte fica mais curto (RTO).
+
 Sem `--type=time`, o restore vai até o fim do WAL disponível (perda de host). Para manter o volume atual e
-restaurar só o que mudou, use `--delta` no lugar de apagar o volume.
+restaurar só o que mudou, use `--delta` no lugar de apagar o volume. Depois de uma exclusão maliciosa do repositório,
+acrescente `--repo=1 --repo-target-time="<instante UTC antes da exclusão>"` (seção "Proteção contra exclusão").
 
 ## Drill local (prova automática)
 
