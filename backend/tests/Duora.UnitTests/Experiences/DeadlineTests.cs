@@ -111,6 +111,40 @@ public sealed class DeadlineTests
     }
 
     [Fact]
+    public void ResendAfterHandleDeadlineExpiredTheSessionReturnsTheOriginalReceipt()
+    {
+        var session = NewSession(_engine);
+        var command = Acknowledge(session);
+        session = Apply(_engine, session, command);
+        _clock.SetUtcNow(Deadline);
+        var expired = Assert.IsType<Outcome.Resolved>(_engine.HandleDeadline(session, session.Version)).Session;
+
+        var resend = _engine.ValidateAction(expired, command);
+
+        Assert.Equal(SessionStatus.Expired, expired.Status);
+        Assert.Equal(
+            new ActionReceipt(command.ActionId, new StateVersion(2)),
+            Assert.IsType<Validation.AlreadyApplied>(resend).Receipt);
+    }
+
+    [Fact]
+    public void ResendOfTheFinalConfirmationOnACompletedSessionReturnsTheOriginalReceipt()
+    {
+        var session = AtAdjustment(_engine, NewSession(_engine));
+        session = Act(_engine, session, Ana, new UnlikelyRoutesAction.ConfirmRoute());
+        var finalConfirmation = Command(session, Bia, new UnlikelyRoutesAction.ConfirmRoute());
+        session = Apply(_engine, session, finalConfirmation);
+        _clock.SetUtcNow(Deadline);
+
+        var resend = _engine.ValidateAction(session, finalConfirmation);
+
+        Assert.Equal(SessionStatus.Completed, session.Status);
+        Assert.Equal(
+            new ActionReceipt(finalConfirmation.ActionId, new StateVersion(11)),
+            Assert.IsType<Validation.AlreadyApplied>(resend).Receipt);
+    }
+
+    [Fact]
     public void HandleDeadlineOneTickBeforeTheDeadlineIsNotDue()
     {
         var session = NewSession(_engine);
