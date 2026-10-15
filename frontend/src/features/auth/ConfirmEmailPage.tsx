@@ -39,7 +39,9 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
   if (confirmation.isSuccess) {
     return (
       <>
-        <Alert variant="success">{messages.confirmEmail.success}</Alert>
+        <Alert variant="success" focusOnMount>
+          {messages.confirmEmail.success}
+        </Alert>
         <p>
           <TextLink to={paths.login}>{messages.confirmEmail.signInLink}</TextLink>
         </p>

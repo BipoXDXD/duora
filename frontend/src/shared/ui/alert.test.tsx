@@ -25,6 +25,27 @@ describe('Alert', () => {
   })
 })
 
+describe('Alert com focusOnMount', () => {
+  it('recebe o foco ao aparecer, sem entrar na ordem de tabulação', () => {
+    render(
+      <Alert variant="success" focusOnMount>
+        Senha alterada.
+      </Alert>,
+    )
+
+    const alert = screen.getByRole('status')
+    expect(alert).toHaveFocus()
+    expect(alert).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('sem a opção, não rouba o foco', () => {
+    render(<Alert variant="info">Aviso.</Alert>)
+
+    expect(screen.getByRole('status')).not.toHaveFocus()
+    expect(screen.getByRole('status')).not.toHaveAttribute('tabindex')
+  })
+})
+
 describe('RequestFailureAlert', () => {
   it('mostra a mensagem de rede, distinta das demais', () => {
     render(<RequestFailureAlert failure={{ kind: 'network' }} />)

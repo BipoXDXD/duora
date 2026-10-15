@@ -31,7 +31,10 @@ describe('tela de recuperação de senha', () => {
     expect(screen.getByLabelText('E-mail')).toHaveAttribute('autocomplete', 'email')
     await submitEmail(app, 'ana@exemplo.com')
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Se houver uma conta com esse e-mail')
+    const success = await screen.findByRole('status')
+    expect(success).toHaveTextContent('Se houver uma conta com esse e-mail')
+    // O botão some com o formulário: o foco vai para o aviso, não cai no body.
+    expect(success).toHaveFocus()
     expect(received).toEqual([{ body: { email: 'ana@exemplo.com' }, token: antiforgery.latestToken() }])
   })
 
