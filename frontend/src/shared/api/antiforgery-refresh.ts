@@ -18,3 +18,9 @@ export async function sendWithFreshAntiforgeryToken(client: ApiClient, request: 
   await refreshAntiforgeryToken(client)
   await client.sendCommand(request)
 }
+
+/** Igual a `sendWithFreshAntiforgeryToken`, para mutações que devolvem o recurso alterado. */
+export async function requestJsonWithFreshAntiforgeryToken(client: ApiClient, request: JsonRequest): Promise<unknown> {
+  await refreshAntiforgeryToken(client)
+  return client.requestJson(request)
+}

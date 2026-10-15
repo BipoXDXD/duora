@@ -137,6 +137,38 @@ export const ptBR = {
   'account.statusLabel.DeletionPending': 'Exclusão solicitada',
   'account.statusLabel.Unknown': 'Indisponível no momento',
 
+  'account.editProfile': 'Editar perfil',
+
+  'profile.title': 'Seu perfil',
+  'profile.intro':
+    'O nome de exibição e a descrição aparecem para as pessoas com quem você joga. Não coloque contato, endereço nem informação sensível.',
+  'profile.loading': 'Carregando seu perfil…',
+  'profile.loadError': 'Não foi possível carregar seu perfil.',
+  'profile.displayName': 'Nome de exibição',
+  'profile.displayNameHint': 'Como as outras pessoas vão ver você. Até {max} caracteres.',
+  'profile.bio': 'Descrição curta',
+  'profile.bioHint': 'Opcional. Até {max} caracteres.',
+  'profile.save': 'Salvar perfil',
+  'profile.saving': 'Salvando…',
+  'profile.saved': 'Perfil salvo.',
+  'profile.conflict':
+    'Seu perfil foi alterado em outra aba ou aparelho depois que você abriu esta página. Recarregue a versão atual; o que você digitou continua no formulário.',
+  'profile.reload': 'Recarregar versão atual',
+  'profile.reloading': 'Recarregando…',
+  'profile.reloaded':
+    'Versão atual carregada. Confira o que está salvo e salve de novo para aplicar suas alterações sobre ela, ou descarte-as.',
+  'profile.savedDisplayName': 'Nome salvo',
+  'profile.savedBio': 'Descrição salva',
+  'profile.emptyValue': '(vazio)',
+  'profile.discardChanges': 'Descartar minhas alterações',
+  'profile.restricted': 'A situação da sua conta não permite alterar o perfil agora.',
+  'profile.validationFailed': 'Confira os campos do perfil e tente de novo.',
+  'profile.backToAccount': 'Voltar para a conta',
+  'profile.error.displayNameRequired': 'Informe um nome de exibição.',
+  'profile.error.displayNameTooLong': 'O nome pode ter no máximo {max} caracteres.',
+  'profile.error.bioTooLong': 'A descrição pode ter no máximo {max} caracteres.',
+  'profile.error.invalidCharacters': 'Remova caracteres de controle ou invisíveis deste campo.',
+
   'sessions.title': 'Sessões ativas',
   'sessions.intro': 'Aparelhos e navegadores conectados à sua conta. Encerre os que você não reconhece.',
   'sessions.loading': 'Carregando sessões…',

@@ -6,7 +6,8 @@ import type { PlainMessageKey } from '@/shared/i18n/catalog'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
-import { Page } from '@/shared/ui/page'
+import { paths } from '@/shared/paths'
+import { Page, TextLink } from '@/shared/ui/page'
 import { SessionList } from './SessionList'
 
 const STATUS_LABELS: Readonly<Record<AccountStatus, PlainMessageKey>> = {
@@ -51,6 +52,9 @@ export function AccountPage(): React.JSX.Element {
         <dt className="font-semibold">{t('account.status')}</dt>
         <dd className="text-text-muted">{t(STATUS_LABELS[account.status])}</dd>
       </dl>
+      <p>
+        <TextLink to={paths.profile}>{t('account.editProfile')}</TextLink>
+      </p>
       <SessionList userId={account.id} />
     </Page>
   )

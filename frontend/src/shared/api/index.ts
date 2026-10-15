@@ -1,7 +1,7 @@
 import { DEFAULT_LOCALE, matchLocale } from '@/shared/i18n/locale'
 import { createApiClient, type JsonRequest } from './api-client'
 import { readAntiforgeryTokenFromCookies } from './antiforgery'
-import { sendWithFreshAntiforgeryToken } from './antiforgery-refresh'
+import { requestJsonWithFreshAntiforgeryToken, sendWithFreshAntiforgeryToken } from './antiforgery-refresh'
 
 export type { ApiClient, ApiFetch, HttpMethod, JsonRequest } from './api-client'
 export { refreshAntiforgeryToken } from './antiforgery-refresh'
@@ -22,4 +22,9 @@ export const apiClient = createApiClient({
 /** Envia uma mutação sem corpo de resposta, sempre com token antiforgery recém-emitido. */
 export function sendMutation(request: JsonRequest): Promise<void> {
   return sendWithFreshAntiforgeryToken(apiClient, request)
+}
+
+/** Envia uma mutação que devolve o recurso alterado (JSON ainda não validado), com token antiforgery recém-emitido. */
+export function sendMutationForJson(request: JsonRequest): Promise<unknown> {
+  return requestJsonWithFreshAntiforgeryToken(apiClient, request)
 }
