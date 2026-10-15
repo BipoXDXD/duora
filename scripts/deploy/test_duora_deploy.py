@@ -313,10 +313,10 @@ class DeployTests(unittest.TestCase):
         self.run_deploy(runner)
 
         pull = runner.commands[runner.index_of("pull")]
-        release_env = self.paths.state_dir / "releases" / "2026.10.15-1.env"
         self.assertIn(str(self.paths.host_env), pull)
-        self.assertIn(str(release_env), pull)
-        self.assertIn(f"DUORA_WEB_IMAGE={PREFIX}web@{DIGEST}", release_env.read_text().splitlines())
+        self.assertIn(str(self.paths.state_dir / "staging" / "2026.10.15-1.env"), pull)
+        recorded_env = self.paths.state_dir / "releases" / "2026.10.15-1.env"
+        self.assertIn(f"DUORA_WEB_IMAGE={PREFIX}web@{DIGEST}", recorded_env.read_text().splitlines())
 
     def test_marks_release_as_current_after_success(self) -> None:
         self.run_deploy(FakeRunner())
@@ -446,14 +446,106 @@ class DeployTests(unittest.TestCase):
 
         self.assertFalse(runner.ran("stop worker"))
 
-    def write_current(self, release_id: str, *, previous: str | None) -> None:
+    def write_current(self, release_id: str, *, previous: str | None,
+                      schema_max: str = "20261020000000_Newer") -> None:
+        """Estado como o próprio script grava depois de dois deploys bem-sucedidos: a release anterior (a deste
+        teste, self.release) e a corrente, que declara a anterior como previousReleaseId."""
         releases = self.paths.state_dir / "releases"
         releases.mkdir(parents=True, exist_ok=True)
+        (releases / f"{self.release.release_id}.json").write_text(
+            json.dumps(self.release.raw, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         manifest = valid_manifest()
         manifest["releaseId"] = release_id
         manifest["previousReleaseId"] = previous
-        (releases / f"{release_id}.json").write_text(json.dumps(manifest), encoding="utf-8")
+        manifest["migrations"] = ["20261015175752_Baseline", schema_max]
+        manifest["schema"]["max"] = schema_max
+        (releases / f"{release_id}.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                                                    encoding="utf-8")
         (self.paths.state_dir / "current.json").write_text(json.dumps({"releaseId": release_id}), encoding="utf-8")
+
+    # --- Adversariais: o manifesto do CI não pode mexer na elegibilidade nem no estado ---------------------------
+
+    def test_manifest_claiming_eligible_id_with_other_images_is_refused(self) -> None:
+        self.write_current("2026.10.16-1", previous="2026.10.15-1")
+        manifest = valid_manifest()
+        manifest["images"]["web"] = f"{PREFIX}web@sha256:{'b' * 64}"
+        self.release = parse(manifest)
+        runner = FakeRunner(pre_head="20261020000000_Newer")
+
+        # O id elegível já está registrado com outras imagens: releases são imutáveis.
+        with self.assertRaisesRegex(deploy.DeployError, "já registrada"):
+            self.run_deploy(runner)
+
+        self.assertEqual([], runner.commands)
+
+    def test_failed_deploy_cannot_poison_eligibility_for_a_later_rollback(self) -> None:
+        self.write_current("2026.10.16-1", previous="2026.10.15-1")
+        # 1o envio: reusa o id da release corrente, declara um "anterior" falso e falha antes do migrador.
+        poison = valid_manifest()
+        poison["releaseId"] = "2026.10.16-1"
+        poison["previousReleaseId"] = "2026.10.01-evil"
+        self.release = parse(poison)
+        with self.assertRaises(deploy.DeployError):
+            self.run_deploy(FakeRunner(architecture="amd64"))
+        # 2o envio: a release "anterior" falsa, com o banco à frente.
+        evil = valid_manifest()
+        evil["releaseId"] = "2026.10.01-evil"
+        self.release = parse(evil)
+        runner = FakeRunner(pre_head="20261020000000_Newer")
+
+        with self.assertRaisesRegex(deploy.DeployError, "elegível"):
+            self.run_deploy(runner)
+
+        self.assertFalse(runner.ran("stop worker"))
+
+    def test_release_id_already_recorded_with_other_content_is_refused_before_anything(self) -> None:
+        self.write_current("2026.10.16-1", previous="2026.10.15-1")
+        reused = valid_manifest()
+        reused["releaseId"] = "2026.10.16-1"
+        self.release = parse(reused)
+        runner = FakeRunner(pre_head="20261020000000_Newer")
+
+        with self.assertRaisesRegex(deploy.DeployError, "já registrada"):
+            self.run_deploy(runner)
+
+        self.assertEqual([], runner.commands)
+
+    def test_rollback_to_declared_previous_that_never_ran_here_is_refused(self) -> None:
+        self.write_current("2026.10.16-1", previous="2026.10.15-1")
+        (self.paths.state_dir / "releases" / "2026.10.15-1.json").unlink()
+        runner = FakeRunner(pre_head="20261020000000_Newer")
+
+        with self.assertRaisesRegex(deploy.DeployError, "nunca foi implantada"):
+            self.run_deploy(runner)
+
+        self.assertFalse(runner.ran("stop worker"))
+
+    def test_failed_deploy_records_nothing(self) -> None:
+        runner = FakeRunner(fail_on="run --rm migrator")
+
+        with self.assertRaises(deploy.DeployError):
+            self.run_deploy(runner)
+
+        self.assertFalse((self.paths.state_dir / "releases" / "2026.10.15-1.json").exists())
+        self.assertFalse((self.paths.state_dir / "releases" / "2026.10.15-1.env").exists())
+        self.assertFalse((self.paths.state_dir / "current.json").exists())
+
+    def test_successful_deploy_records_release_for_manual_operation(self) -> None:
+        self.run_deploy(FakeRunner())
+
+        recorded = json.loads((self.paths.state_dir / "releases" / "2026.10.15-1.json").read_text())
+        self.assertEqual(self.release.raw, recorded)
+        self.assertTrue((self.paths.state_dir / "releases" / "2026.10.15-1.env").exists())
+
+    def test_rollback_with_database_beyond_current_release_schema_is_refused(self) -> None:
+        # Teto: o banco não pode estar além do schema.max da release corrente registrada.
+        self.write_current("2026.10.16-1", previous="2026.10.15-1", schema_max="20261020000000_Newer")
+        runner = FakeRunner(pre_head="20261101000000_Unknown")
+
+        with self.assertRaisesRegex(deploy.DeployError, "20261101000000_Unknown"):
+            self.run_deploy(runner)
+
+        self.assertFalse(runner.ran("stop worker"))
 
 
 class ManifestInputTests(unittest.TestCase):
