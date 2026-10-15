@@ -41,6 +41,7 @@ REGISTRY_CONTAINER = "duora-smoke-registry"
 REGISTRY = "localhost:5050"
 IMAGE_PREFIX = f"{REGISTRY}/duora/"
 DOMAIN = "localhost"
+EDGE_SUBNET = "172.30.10.0/24"  # mesmo valor de compose.prod.yml e docs/operations/deploy.md
 BUILDS = {
     "web": ("infra/images/dotnet/Dockerfile", "web"),
     "worker": ("infra/images/dotnet/Dockerfile", "worker"),
@@ -218,6 +219,10 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
         capture_output=True, text=True, check=False)
     checks.expect(history_update.returncode != 0 and "permission denied" in history_update.stderr,
                   "duora_app não altera o histórico real de migrations")
+
+    edge_network = json.loads(run(["docker", "network", "inspect", "duora_edge"]))[0]
+    subnets = [config.get("Subnet") for config in edge_network["IPAM"]["Config"]]
+    checks.expect(subnets == [EDGE_SUBNET], f"rede edge na subnet fixa {EDGE_SUBNET} (recebido {subnets})")
 
     check_hardening(compose, checks)
     return checks.failures

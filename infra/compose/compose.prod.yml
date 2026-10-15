@@ -188,7 +188,12 @@ services:
           pids: 128
 
 networks:
-  edge: {}
+  # Subnet fixa: é o único endereço de origem em que o web confia para X-Forwarded-* (ForwardedHeaders
+  # KnownNetworks, spec 11.3; docs/operations/deploy.md "Proxy confiável"). Mudar aqui exige mudar no backend.
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
   # internal: sem rota para fora. O banco só existe aqui.
   data:
     internal: true
