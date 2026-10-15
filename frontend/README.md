@@ -42,20 +42,45 @@ Nada de segredo em `VITE_*`: essas variáveis entram no JavaScript público.
 
 - `src/app`: composição (rotas, layout, providers, `QueryClient`).
 - `src/features/<feature>`: telas e lógica de cada jornada.
-- `src/shared`: código sem dono de feature — `api` (cliente HTTP), `ui` (componentes do design system).
+- `src/shared`: código sem dono de feature — `api` (cliente HTTP), `ui` (componentes do design system),
+  `messages.ts` (todos os textos da interface em PT-BR) e `paths.ts` (rotas).
+- `src/test`: setup do Vitest, servidor MSW e helpers de renderização.
 - `config`: configuração do servidor de desenvolvimento, testada.
-- `e2e`: testes Playwright.
+- `e2e`: testes Playwright; `e2e/support/fake-api.ts` simula a API por `page.route`.
 
 ## Cliente HTTP
 
 `src/shared/api` é o único ponto de saída HTTP: mesma origem com `credentials: 'same-origin'`, header
 antiforgery `X-XSRF-TOKEN` (lido do cookie `XSRF-TOKEN`) em métodos que alteram estado, `AbortSignal`,
 erro tipado para Problem Details (`ApiProblemError`), resposta fora do contrato (`ApiResponseError`) e
-falha de rede (`ApiNetworkError`). Não faz retry; o `QueryClient` repete só leituras com falha
-transitória e nunca mutações.
+falha de rede (`ApiNetworkError`), com `retryAfterSeconds` lido do `Retry-After`. Não faz retry; o
+`QueryClient` repete só leituras com falha transitória e nunca mutações.
+
+`sendMutation` pede `GET /api/v1/auth/csrf` antes de cada mutação, para nunca enviar o token de outra
+identidade, e `renewAntiforgeryToken` renova o token depois de login e logout. Respostas de API passam
+por Zod na fronteira (`*-api.ts` de cada feature); nada de `as T`.
 
 Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescript e o cliente será
 `createClient<paths>({ baseUrl: '/api/v1', fetch: apiClient.fetch })`, mantendo as mesmas garantias.
+
+## Autenticação e sessão (M1)
+
+| Rota                                                     | Tela                                                                         |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `/criar-conta`                                           | Cadastro, com aceite dos Termos e da Privacidade (`LEGAL_DOCUMENT_VERSIONS`) |
+| `/verifique-seu-email`                                   | Aviso neutro depois do cadastro                                              |
+| `/confirmar-email?userId=…&token=…`                      | Confirmação por clique (link do e-mail)                                      |
+| `/entrar`                                                | Entrada; mostra aviso de sessão expirada, saída ou entrada necessária        |
+| `/esqueci-a-senha` e `/redefinir-senha?userId=…&token=…` | Recuperação de senha                                                         |
+| `/conta`                                                 | Área autenticada: conta, sessões, revogação e saída                          |
+
+- `useMe` (`['me']`) descobre a identidade; dados privados usam chaves sob `['account', userId, …]`.
+- `RequireSession` leva à entrada no 401. Um 401 em qualquer leitura privada reconsulta a identidade.
+- Ao entrar e ao chegar à tela de entrada, todo o cache do `QueryClient` é descartado (T-21). O descarte
+  fica na tela de entrada, e não no clique de sair, porque o React Router navega dentro de uma transition:
+  limpar com a área autenticada ainda montada faz as consultas dela buscarem de novo os dados de quem saiu.
+- Nada da sessão vai para `localStorage` ou `sessionStorage`.
+- Cada área de rotas tem seu error boundary; a troca de rota move o foco para o h1 e anuncia o título.
 
 ## Design system
 
