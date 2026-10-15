@@ -15,7 +15,7 @@ para antes da migração e web/edge são recriados. Escala horizontal exige o AD
 | Segredos | `/etc/duora/secrets/` (0700; arquivos 0400) | Senhas e connection strings, gerados uma vez |
 | `duora-deploy` | `/usr/local/sbin/` (root, 0755) | Único comando que o executor de deploy pode rodar |
 | `duora-secrets` | `/usr/local/sbin/` | Gera os segredos na primeira configuração |
-| Estado do deploy | `/var/lib/duora/` (0700) | `current.json`, `previous.json`, `.deploy.lock` e `releases/<releaseId>.{env,json}` |
+| Estado do deploy | `/var/lib/duora/` (root, 0700) | `current.json`, `previous.json`, `.deploy.lock`, `releases/<id>.{env,json}` (só releases implantadas com sucesso) e `staging/` (rascunho do deploy em curso) |
 
 ## Manifesto da release (spec 17.2)
 
@@ -67,8 +67,9 @@ solta o lock se o processo morrer).
    (`DUORA_MIN_FREE_GIB`, padrão 10 GiB, em `DUORA_DISK_CHECK_PATH`).
 2. Backup/WAL: **ainda não verificável** (pgBackRest pendente). Sem `--accept-missing-backup-check` o deploy para;
    o comando liberado no sudoers não inclui essa flag, então produção fica bloqueada até a verificação existir.
-3. Grava `<releaseId>.env` (digests) e `<releaseId>.json` em `/var/lib/duora/releases/` (subdiretório: um
-   `releaseId` chamado `current` não sobrescreve o estado).
+3. Recusa um `releaseId` já registrado com outro conteúdo (releases são imutáveis) e grava `<releaseId>.env`
+   (digests) e `<releaseId>.json` em `/var/lib/duora/staging/`. Nada em `staging/` decide coisa alguma; os arquivos
+   só vão para `releases/` depois do smoke (passo 10).
 4. `pull` de todas as imagens por digest e conferência da arquitetura de cada uma.
 5. Garante o PostgreSQL saudável (`up --wait postgres`) e lê a última migration aplicada, **antes de parar
    qualquer serviço**. Banco vazio ou atrás de `schema.max`: deploy normal. Banco à frente de `schema.max`: só
@@ -80,7 +81,7 @@ solta o lock se o processo morrer).
 8. Sobe web, worker e edge da release (`up --wait --no-deps`).
 9. Smoke: `GET http://web:8080/health/ready` de dentro do edge (rede interna), por até 90 s; depois confere que
    web, worker e edge estão `running` (pega restart em laço).
-10. Só então grava `current.json` (e move o anterior para `previous.json`).
+10. Só então promove os arquivos para `releases/` e grava `current.json` (o anterior vira `previous.json`).
 
 No rollback elegível os passos 6 e 7 não rodam: o banco fica como está.
 
@@ -127,11 +128,16 @@ sudo docker compose -f /opt/duora/compose.prod.yml --env-file /etc/duora/duora.e
 
 ### Rollback de aplicação
 
-Rollback é reimplantar o manifesto anterior (`/var/lib/duora/releases/<previousReleaseId>.json`) com o mesmo
-comando. O `duora-deploy` só aceita um banco mais novo que o `schema.max` da release alvo quando ela é a **release
-anterior elegível**: o `previousReleaseId` do manifesto corrente (`current.json`). Nesse caso o migrador não roda
-e o schema fica como está, o que só é seguro porque as migrations seguem expand/contract (spec 17.4). Qualquer
-outra release antiga é recusada antes de parar o worker. O migrador não desfaz migrations e nunca roda `Down`;
+Rollback é reimplantar o manifesto anterior (`/var/lib/duora/releases/<previousReleaseId>.json`, o mesmo
+arquivo, sem editar) com o mesmo comando. Com o banco mais novo que o `schema.max` da release alvo, o
+`duora-deploy` só segue se, **pelo estado que ele mesmo gravou** (nunca pelo manifesto recebido):
+
+- a release alvo é o `previousReleaseId` da release corrente registrada em `releases/`;
+- a release alvo já foi implantada aqui com exatamente esse manifesto;
+- o banco não passa do `schema.max` da release corrente (teto: além disso o estado é desconhecido).
+
+Nesse caso o migrador não roda e o schema fica como está, o que só é seguro porque as migrations seguem
+expand/contract (spec 17.4). Qualquer outro caso é recusado antes de parar o worker, e nenhuma flag relaxa isso. O migrador não desfaz migrations e nunca roda `Down`;
 restaurar backup para desfazer deploy é decisão humana.
 
 ### Falha no meio do deploy
