@@ -51,8 +51,11 @@ digest do índice multiarquitetura; atualizar as duas juntas.
   `internal` e não tem `ports`; só o edge publica 80, 443 e 443/udp.
 - **Backup** ([backup-restore.md](../docs/operations/backup-restore.md)): o container `backup` (mesma imagem do
   postgres) é o repository host do pgBackRest e o único com as credenciais do S3 e a senha de cifra; recebe o WAL do
-  postgres por TLS com certificado de cliente e lê PGDATA e socket só leitura. O job `restore` (profile `restore`)
-  monta o PGDATA gravável.
+  postgres por TLS com certificado de cliente, lê o PGDATA só leitura (sem o socket do banco) e fala SQL como
+  `duora_backup` (sem superusuário, scram, só do IP `172.30.21.10`). O job `restore` (profile `restore`) monta o
+  PGDATA gravável.
+- **Autenticação do banco**: `pg_hba.duora.conf` versionado e sem `trust` (`postgres` só por `peer` no socket do
+  próprio container; papéis de rede por `scram-sha-256`; o resto, `reject`).
 - **Volumes nomeados**: `pgdata` em `/var/lib/postgresql` (layout do PG 18), `dataprotection`,
   `caddy_data`/`caddy_config`. O dono e o modo 0700 vêm da imagem na primeira montagem.
 - **Endurecimento** (web, worker, edge, migrator): `read_only` + `tmpfs` em `/tmp`, `cap_drop: [ALL]`,
@@ -112,7 +115,7 @@ uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.y
 - `firewall`: UFW com IPv6, entrada negada por padrão, SSH com `limit` das origens permitidas, 80/443 TCP e 443 UDP.
 - `docker`: repositório oficial; a chave é baixada fora de `/etc/apt/keyrings`, convertida para binário e só instalada se o arquivo final tiver exatamente uma chave primária com a impressão digital publicada (`files/validate_apt_key.py`, com teste; uma chave extra no arquivo também passaria a valer para o apt), `daemon.json` com `live-restore`,
   `no-new-privileges` e logs limitados. Ninguém entra no grupo `docker` (equivale a root).
-- `backup`: certificados do pgBackRest (`duora-secrets init-backup-tls`), `/usr/local/sbin/duora-backup`, timers
+- `backup`: segredos do backup (`duora-secrets init-backup`), `/usr/local/sbin/duora-backup`, timers
   systemd (full domingo 03:00 UTC, diferencial seg–sáb 03:00 UTC, `verify` a cada 15 min) e o filtro de saída
   `duora-backup-egress` (chain `DOCKER-USER` para `172.30.20.0/24`: só DNS e HTTPS, HTTPS restrito a
   `duora_backup_s3_cidrs` quando o provedor existir).

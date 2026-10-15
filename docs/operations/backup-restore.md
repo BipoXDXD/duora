@@ -9,18 +9,18 @@ drill local mede os dois em cada execução (abaixo); a prova com o volume real 
 ## Arquitetura
 
 ```
-             rede data (internal)                  rede pgbackrest (internal)        rede backup-egress
-web, worker ─────────────── postgres ──── WAL por TLS (8432) ────▶ backup ─────── HTTPS ───▶ repositório S3
-migrator                    │ archive_command                       │ pgbackrest server            (externo)
-                            │ (archive-push assíncrono)             │ PGDATA e socket só leitura
-                            └── volume pgdata, socket ──────────────┘ credenciais S3 + cifra
+             rede data (internal)            rede pgbackrest (internal, 172.30.21.0/24)     rede backup-egress
+web, worker ─────────────── postgres ──── WAL por TLS (8432, cert. de cliente) ──▶ backup ── HTTPS ──▶ repositório S3
+migrator                    │ archive_command  ◀── SQL como duora_backup (scram) ── │ 172.30.21.10      (externo)
+                            │ archive-push                                         │ pgbackrest server
+                            └── volume pgdata ──────── só leitura ─────────────────┘ credenciais S3 + cifra
 ```
 
 | Container | Redes | Tem | Não tem |
 |---|---|---|---|
-| `postgres` | `data`, `pgbackrest` (ambas `internal`) | `archive_command` do pgBackRest, certificado de **cliente** TLS | saída para fora, credencial do S3, senha de cifra |
-| `backup` (repository host) | `pgbackrest`, `backup-egress` | `pgbackrest server` (TLS, exige certificado de cliente), credenciais do S3, senha de cifra, PGDATA e socket **só leitura** | porta publicada, senha de banco |
-| `restore` (job, profile `restore`) | `backup-egress` | o mesmo do backup, com o PGDATA **gravável** | servidor TLS; só existe durante um restore |
+| `postgres` | `data`, `pgbackrest` (ambas `internal`) | `archive_command` do pgBackRest, certificado de **cliente** TLS, `pg_hba` sem `trust` | saída para fora, porta publicada, credencial do S3, senha de cifra |
+| `backup` (repository host) | `pgbackrest` (IP fixo `172.30.21.10`), `backup-egress` | `pgbackrest server` (TLS só no IP da rede `pgbackrest`, exige certificado de cliente `duora-postgres`), credenciais do S3, senha de cifra, PGDATA **só leitura**, senha do papel `duora_backup` | socket do postgres, superusuário, porta publicada, `privileged`, capabilities (`cap_drop: ALL`, `read_only`) |
+| `restore` (job, profile `restore`) | `backup-egress` | credenciais do S3 e cifra, PGDATA **gravável** | servidor TLS, acesso ao banco; só existe durante um restore |
 | `web`, `worker`, `migrator` | `data` (e `edge`/`egress`) | nada do backup | credencial do repositório, socket do Docker, acesso a arquivo ou programa do servidor pelo SQL (teste `test_app_cannot_read_server_files_or_run_programs`) |
 
 ### Decisão: repository host via TLS (decidido pelo usuário em 2026-10-15)
@@ -34,11 +34,39 @@ comprometido (spec 15.2). Opções avaliadas:
 | **(a) Repository host via `pgbackrest server` (escolhida)** | O postgres fica só em redes `internal`, sem nenhuma rota para fora; credenciais do S3 e senha de cifra saem do processo do banco (um postgres comprometido não lê nem apaga o backup); o filtro de saída só precisa cuidar de um container sem SQL exposto | Um container a mais; CA e certificados próprios para gerar, guardar e rotacionar (825 dias); o restore usa um job separado |
 | (b) Archive no postgres + filtro `DOCKER-USER` por IP do endpoint | Topologia mais simples | O banco continua com saída (mesmo filtrada) e com credencial que apaga o repositório; endpoint S3 resolve para IPs que mudam (CDN), então a allowlist por IP é frágil |
 
-Variante adotada dentro de (a): o `backup` monta o PGDATA e o socket **só leitura** e faz os backups localmente,
-em vez de um terceiro container agente pgBackRest junto ao postgres. O poder do `backup` sobre os dados é o mesmo
-nas duas formas (o backup físico já carrega o banco inteiro, e o pg_backup_start exige papel privilegiado), com
-um container e um par de certificados a menos. A mesma imagem (`duora-postgres`) roda os dois lados: o pgBackRest
-exige versão igual no cliente e no servidor.
+Variante adotada dentro de (a): o `backup` lê o PGDATA **só leitura** e faz os backups localmente, em vez de um
+terceiro container agente pgBackRest (`pg1-host`) junto ao postgres. No modo repository host clássico o repositório
+não lê o PGDATA, mas o agente do lado do banco lê (o backup físico é a cópia desses arquivos): o acesso aos dados só
+muda de container, e o agente traria mais um par de certificados. Desta forma, o `backup` não recebe o socket do
+postgres. O SQL de controle do backup (`pg_backup_start/stop`, `pg_switch_wal`, `pg_create_restore_point`) vai por
+TCP com um papel próprio e sem superusuário (abaixo). A mesma imagem (`duora-postgres`) roda os dois lados, porque o
+pgBackRest exige a mesma versão no cliente e no servidor.
+
+### Autenticação no banco e no servidor TLS
+
+O `pg_hba` ativo é `infra/images/postgres/pg_hba.duora.conf` (via `hba_file`), **sem nenhuma entrada `trust`**.
+Nem o `pg_hba.conf` gerado pelo initdb tem `trust` (`POSTGRES_INITDB_ARGS=--auth-local=peer --auth-host=scram-sha-256`).
+
+| Quem | Como | Onde |
+|---|---|---|
+| `postgres` (superusuário) | `peer` | só pelo socket, dentro do próprio container; pela rede é sempre recusado |
+| `duora_backup` | `scram-sha-256` | só `172.30.21.10/32` (o `backup`) e só no banco `postgres`; recusado no socket e em qualquer outra origem |
+| `duora_app`, `duora_migrator` | `scram-sha-256` | rede (`data`) |
+| qualquer outro | `reject` | — |
+
+O papel `duora_backup` (`initdb/10-duora-roles.sh`) não é superusuário, não cria papel nem banco, não tem
+`REPLICATION` nem `CONNECT` no banco `duora`. Ele tem só `pg_read_all_settings` (o pgBackRest confere
+`data_directory` e o arquivamento) e `EXECUTE` em `pg_backup_start`, `pg_backup_stop`, `pg_switch_wal` e
+`pg_create_restore_point`. É o mínimo com que o drill roda `stanza-create`, `backup`, `check` e `info`. A senha vem de
+`duora-secrets init-backup` (`db_backup_password` para o initdb e `pgbackrest_db_pgpass` para o libpq do `backup`).
+
+O servidor TLS do pgBackRest escuta só em `172.30.21.10:8432`: pela rede `backup-egress` a porta nem abre. Ele exige
+certificado de cliente assinado pela CA própria, e `tls-server-auth=duora-postgres=duora` aceita só o certificado do
+postgres e só para a stanza `duora`.
+
+Testes: `test_db_privileges.py` (sem `trust` no `pg_hba` ativo, `duora_backup` sem superusuário e sem acesso ao banco
+`duora`, recusado sem senha, recusado de `127.0.0.1` mesmo com a senha certa e recusado no socket, além dos privilégios
+do `duora_app`) e o drill (abaixo).
 
 ### Saída da rede `backup-egress`
 
@@ -63,7 +91,7 @@ O postgres não depende desse filtro: ele não está em rede nenhuma com saída.
 | `infra/images/postgres/pgbackrest-repo.conf` | imagem, `/etc/pgbackrest/` | Lado do backup e do restore: S3, `aes-256-cbc`, retenção, servidor TLS (`tls-server-auth=duora-postgres=duora`) |
 | `pgbackrest_repo.conf` | segredo do operador | endpoint, bucket, região, chaves (abaixo) |
 | `pgbackrest_cipher.conf` | segredo do operador | `repo1-cipher-pass` |
-| `pgbackrest_tls_*` | `duora-secrets init-backup-tls` | CA, certificado do servidor `backup` e do cliente `duora-postgres` |
+| `pgbackrest_tls_*` | `duora-secrets init-backup` | CA, certificado do servidor `backup` e do cliente `duora-postgres` |
 
 ### Segredos do repositório (operador, uma vez)
 
@@ -95,13 +123,22 @@ A senha de cifra é gerada e guardada **fora da VPS** (cofre do responsável, co
 com a única cópia da senha torna o backup inútil (spec 18.1, "cópia inutilizável sem a chave não resolve"). O app
 nunca recebe esses arquivos: só os serviços `backup` e `restore` os montam.
 
-### Certificados TLS
+### Certificados TLS e senha do `duora_backup`
 
-`duora-secrets init-backup-tls /etc/duora/secrets` (rodado pelo Ansible, uma vez) cria uma CA própria (EC P-256,
-10 anos), o certificado do servidor `backup` (SAN `DNS:backup`, `serverAuth`) e o do cliente `duora-postgres`
-(`clientAuth`), 825 dias, 0400 com dono 999. A chave da CA é descartada: ninguém emite certificado novo com ela.
-**Rotação** (antes de 825 dias, ou se um container for comprometido): apagar os cinco `pgbackrest_tls_*`, rodar o
-comando de novo e recriar `postgres` e `backup` (`docker compose ... up -d --force-recreate postgres backup`).
+`duora-secrets init-backup /etc/duora/secrets` (rodado pelo Ansible, uma vez, antes do primeiro deploy) cria:
+
+- uma CA própria (EC P-256, 10 anos);
+- o certificado do servidor `backup` (SAN `DNS:backup`, `serverAuth`) e o do cliente `duora-postgres`
+  (`clientAuth`), de 825 dias;
+- a senha do papel `duora_backup` (`db_backup_password`) e o `.pgpass` dela (`pgbackrest_db_pgpass`).
+
+Tudo fica em 0400 com dono 999. A chave da CA é descartada: ninguém emite certificado novo com ela.
+
+**Rotação** (antes de 825 dias, ou se um container for comprometido): apagar os sete arquivos (`pgbackrest_tls_*`,
+`db_backup_password`, `pgbackrest_db_pgpass`), rodar o comando de novo, trocar a senha no banco
+(`ALTER ROLE duora_backup PASSWORD '...'` como `postgres`, pelo socket) e recriar `postgres` e `backup`
+(`docker compose ... up -d --force-recreate postgres backup`). O pgBackRest recusa chave TLS com permissão de grupo
+ou de outros.
 
 ## Retenção: janela recuperável de 14 dias
 
@@ -145,11 +182,25 @@ full: rode `sudo duora-backup full` assim que o destino voltar. O verify a cada 
 |---|---|---|
 | `stanza-create` | operador, uma vez | Cria a stanza `duora` no repositório |
 | `full` / `diff` | timers `duora-backup-full.timer` / `duora-backup-diff.timer` | Backup; espera um deploy em curso terminar (mesmo lock, até 30 min) |
-| `verify` | `duora-backup-verify.timer` (15 min) e `duora-deploy` | `pgbackrest check` (troca o segmento e espera ele chegar ao repositório), `info` sem erro, último WAL confirmado há ≤ 300 s (RPO), arquivamento não falhando, último backup há ≤ 48 h |
+| `verify` | `duora-backup-verify.timer` (15 min) e `duora-deploy` | `pgbackrest check` (troca o segmento e espera ele chegar ao repositório), `info` sem erro, último WAL confirmado há ≤ 300 s (RPO), arquivamento não falhando, último backup há ≤ 48 h. **Falha fechado** (abaixo) |
 | `info` | operador | `pgbackrest info` |
 
 Ninguém além do root chama o `duora-backup`: o executor de deploy não tem sudo para ele, e nenhum container tem o
-socket do Docker. Falhas aparecem em `systemctl --failed` e em `journalctl -u 'duora-backup@*'`.
+socket do Docker. Falhas aparecem em `systemctl --failed`, em `journalctl -u 'duora-backup@*'` e, com prioridade
+`crit`, em `journalctl -t duora-backup-alert` (`OnFailure=duora-backup-failed@`).
+
+**O verify falha fechado.** O deploy só segue com a prova positiva de backup saudável. Bloqueiam (código 1,
+mensagem clara):
+
+- saída do `info` vazia, JSON inválido, formato inesperado, stanza ausente ou repetida;
+- campo ausente ou de outro tipo (`status.code`, `backup[].timestamp.stop`, `backup[].error` etc.);
+- nenhum backup ou nenhum WAL no repositório;
+- linha do `pg_stat_archiver` vazia ou ilegível, WAL mais velho que o limite, ou falha posterior ao último sucesso;
+- código de saída diferente de 0 em qualquer passo, timeout, executável ausente ou exceção inesperada.
+
+Testes: `FailClosedVerifyTests` em `scripts/deploy/test_duora_backup.py`. A sabotagem de cada tratamento para
+fail-open (formato aceito como saudável, exceção virando sucesso, WAL atrasado ignorado e `duora-backup` ausente
+ignorado no deploy) derruba os testes.
 
 ### Primeira configuração
 
@@ -169,7 +220,7 @@ Restaurar é decisão humana (spec 17.4), nunca automática. Os 10 passos, na or
 | # | Procedimento | Como, hoje | Verificação |
 |---|---|---|---|
 | 1 | Isolar o incidente e escolher o ponto de recuperação | Classificar: perda de host, corrupção, exclusão acidental ou comprometimento. Ponto = instante UTC antes do dano (`pgbackrest info` mostra a janela) | Registrar a causa e o ponto escolhido |
-| 2 | Ambiente limpo e rede restrita | Comprometimento: VPS nova pelo playbook, certificados TLS novos (`init-backup-tls`), credencial S3 nova; nunca reutilizar host ou chaves suspeitos. Edge parado até o passo 10 | Só `postgres`, `backup` e `restore` no ar |
+| 2 | Ambiente limpo e rede restrita | Comprometimento: VPS nova pelo playbook, certificados TLS novos (`init-backup`), credencial S3 nova; nunca reutilizar host ou chaves suspeitos. Edge parado até o passo 10 | Só `postgres`, `backup` e `restore` no ar |
 | 3 | Restaurar backup e WAL até o ponto | Ver "Comandos" abaixo | Timeline nova (`select timeline_id from pg_control_checkpoint()`), log com `recovery stopping before ...` no ponto pedido, `pg_is_in_recovery()` = false |
 | 4 | Subir a aplicação em modo de recuperação | **Pendência do backend:** não existe chave que desligue e-mail, pareamento, notificações externas e jobs destrutivos. Até existir, web e worker **não sobem**; o edge fica parado | Nenhum efeito externo antes do passo 10 |
 | 5 | Revogar sessões e reavaliar chaves | Revogar todas as sessões e tokens no banco restaurado (pendência do backend: comando de revogação em massa); trocar Data Protection, senhas de banco e credenciais suspeitas | Nenhuma sessão anterior ao incidente aceita |
@@ -210,8 +261,14 @@ docker buildx build -f infra/images/postgres/Dockerfile -t duora-postgres:drill 
 python3 scripts/backup/restore_drill.py --image duora-postgres:drill
 ```
 
-1. **Isolamento**: o postgres não conecta no host `internet` (nem por nome, nem pelo IP) nem no S3; conecta no
-   servidor TLS do backup; o backup conecta no S3; o postgres não enxerga credencial do repositório.
+1. **Isolamento**:
+   - o postgres não conecta no host `internet` (nem por nome, nem pelo IP) nem no S3, e conecta no servidor TLS do
+     backup;
+   - o backup conecta no S3;
+   - outro container (`internet`) não alcança a porta TLS do backup (por nome e pelo IP da `backup-egress`) nem o
+     postgres;
+   - o postgres não enxerga credencial do repositório;
+   - `duora_backup` autentica do backup com a senha e falha sem ela.
 2. `stanza-create` e full pelo `duora-backup`; escrita das linhas `before`; marca o ponto; escrita das `after`.
 3. **RPO natural**: tempo entre o commit das `after` e o WAL delas confirmado no repositório, só com
    `archive_timeout` (sem troca forçada).
@@ -224,7 +281,8 @@ mantém o ambiente. O CI roda o drill no job `images` (amd64 e arm64).
 | Data | Ambiente | RPO observado | RTO observado | Observação |
 |---|---|---|---|---|
 | 2026-10-15 | Docker Desktop, Apple Silicon (arm64), banco quase vazio | 55,3 s | 31,2 s | Prova do caminho, não do volume real: o RTO de produção depende do tamanho do banco e da banda até o S3 |
-| 2026-10-15 | Idem, versão final do PR (com prova de isolamento) | 55,6 s | 13,4 s | O RPO natural fica perto do `archive_timeout` (60 s), dentro da meta de 5 min |
+| 2026-10-15 | Idem, com prova de isolamento | 55,6 s | 13,4 s | O RPO natural fica perto do `archive_timeout` (60 s), dentro da meta de 5 min |
+| 2026-10-15 | Idem, sem `trust`, sem socket compartilhado, `duora_backup` sem superusuário | 55,6 s | 13,1 s | Backup, check e restore com o papel mínimo |
 
 Limites do drill: o MinIO roda na mesma máquina (sem latência de rede real); o filtro `DOCKER-USER` não é exercido
 (Docker Desktop não tem a chain do host); dados sintéticos.
@@ -234,7 +292,7 @@ Limites do drill: o MinIO roda na mesma máquina (sem latência de rede real); o
 | Sinal | Hoje | Falta |
 |---|---|---|
 | WAL atrasado ou arquivamento falhando | `duora-backup verify` a cada 15 min falha (unit em `failed`) | Destino de alerta fora da VPS (OTel Collector ou monitor externo lendo o estado das units) |
-| Backup full/diff falhou | Unit `duora-backup@full`/`@diff` em `failed` | Idem |
+| Backup full/diff falhou | Unit `duora-backup@full`/`@diff` em `failed` e registro `crit` em `duora-backup-alert` | Idem |
 | Fila de WAL no pg_wal | Aviso do pgBackRest no log do postgres | Métrica do tamanho do `pg_wal` com alerta antes de 4 GiB |
 | Certificado TLS perto de vencer | — | Checagem de validade (825 dias) no verify ou no monitor |
 
