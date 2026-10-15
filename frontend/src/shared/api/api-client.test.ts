@@ -79,6 +79,29 @@ describe('requestJson: sucesso', () => {
     expect(await sentRequest().json()).toEqual({ roundId: 'r1' })
   })
 
+  it('envia os headers pedidos junto com o corpo JSON', async () => {
+    const { client, sentRequest } = setup()
+
+    await client.requestJson({
+      method: 'PATCH',
+      path: '/api/v1/me/profile',
+      body: { displayName: 'Ana' },
+      headers: { 'If-Match': '"3"' },
+    })
+
+    expect(sentRequest().headers.get('If-Match')).toBe('"3"')
+    expect(sentRequest().headers.get('Content-Type')).toBe('application/json')
+    expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBe(CSRF_TOKEN)
+  })
+
+  it('não deixa um header pedido substituir o token antiforgery', async () => {
+    const { client, sentRequest } = setup()
+
+    await client.requestJson({ method: 'PATCH', path: '/api/v1/me/profile', headers: { 'X-XSRF-TOKEN': 'forjado' } })
+
+    expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBe(CSRF_TOKEN)
+  })
+
   it('rejeita resposta 2xx com conteúdo que não é JSON', async () => {
     const { client } = setup(() =>
       Promise.resolve(new Response('<html></html>', { status: 200, headers: { 'Content-Type': 'text/html' } })),

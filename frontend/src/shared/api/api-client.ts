@@ -14,6 +14,8 @@ export interface JsonRequest {
   /** Caminho absoluto na mesma origem, por exemplo `/api/v1/me`. */
   readonly path: string
   readonly body?: unknown
+  /** Headers do recurso, como `If-Match`; o header antiforgery é sempre do cliente e não pode ser trocado. */
+  readonly headers?: Readonly<Record<string, string>>
   readonly signal?: AbortSignal
 }
 
@@ -55,10 +57,11 @@ export function createApiClient(dependencies: ApiClientDependencies): ApiClient 
     return response
   }
 
-  const toRequest = ({ method, path, body, signal }: JsonRequest): Request =>
+  const toRequest = ({ method, path, body, headers = {}, signal }: JsonRequest): Request =>
     new Request(resolveSameOriginUrl(path, dependencies.origin), {
       method,
-      ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
+      headers: body === undefined ? headers : { ...headers, 'Content-Type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       ...(signal === undefined ? {} : { signal }),
     })
 
@@ -80,6 +83,7 @@ function withSessionPolicy(request: Request, dependencies: ApiClientDependencies
   headers.set('Accept-Language', dependencies.readLocale())
   if (!SAFE_METHODS.has(request.method.toUpperCase())) {
     const token = dependencies.readAntiforgeryToken()
+    headers.delete(ANTIFORGERY_HEADER_NAME)
     if (token !== null) {
       headers.set(ANTIFORGERY_HEADER_NAME, token)
     }

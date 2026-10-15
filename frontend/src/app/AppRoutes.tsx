@@ -18,13 +18,15 @@ const ForgotPasswordPage = routePage(
 )
 const ResetPasswordPage = routePage(async () => (await import('@/features/auth/ResetPasswordPage')).ResetPasswordPage)
 const AccountPage = routePage(async () => (await import('@/features/account/AccountPage')).AccountPage)
-// O guarda espera o chunk da conta: assim, quando GET /me responde, a página entra sem um segundo fallback.
-// O pré-carregamento é fixo porque hoje o guarda protege só a conta; uma rota protegida nova entra aqui também,
-// senão ela mostra o fallback de novo depois do "Carregando sua conta…".
+const ProfilePage = routePage(async () => (await import('@/features/profile/ProfilePage')).ProfilePage)
+// O guarda espera os chunks das rotas protegidas: assim, quando GET /me responde, a página entra sem um segundo
+// fallback. Uma rota protegida nova entra aqui também, senão ela mostra o fallback de novo depois do
+// "Carregando sua conta…".
 const RequireSession = routePage(async () => {
   const [{ RequireSession: guard }] = await Promise.all([
     import('@/features/session/RequireSession'),
     AccountPage.preload(),
+    ProfilePage.preload(),
   ])
   return guard
 })
@@ -45,6 +47,7 @@ export function AppRoutes(): React.JSX.Element {
         <Route element={<Area />}>
           <Route element={<RequireSession />}>
             <Route path={paths.account} element={<AccountPage />} />
+            <Route path={paths.profile} element={<ProfilePage />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />
