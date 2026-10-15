@@ -258,6 +258,9 @@ public sealed class OwnProfileTests : IAsyncDisposable
     [InlineData("displayName", "\"Ana\\u0007\"", "INVALID_CHARACTERS")]
     [InlineData("displayName", "\"Ana\\nSouza\"", "INVALID_CHARACTERS")]
     [InlineData("displayName", "\"Ana\\u202Eazuos\"", "INVALID_CHARACTERS")]
+    [InlineData("displayName", "\"Ana\\u200BSouza\"", "INVALID_CHARACTERS")]
+    [InlineData("displayName", "\"Ana\\uFEFF\"", "INVALID_CHARACTERS")]
+    [InlineData("bio", "\"Oi\\u200Dtudo\"", "INVALID_CHARACTERS")]
     [InlineData("bio", "\"\"", "REQUIRED")]
     [InlineData("bio", "\"Oi\\u0000\"", "INVALID_CHARACTERS")]
     [InlineData("bio", "\"Oi\\u001B[31m\"", "INVALID_CHARACTERS")]
@@ -299,6 +302,19 @@ public sealed class OwnProfileTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal($"{name}|{bio}|1", await StoredAsync(account.UserId));
+    }
+
+    /// <summary>O nome decomposto (e + acento combinante) é gravado na forma composta, igual ao digitado em NFC.</summary>
+    [Fact]
+    public async Task TextIsStoredInNfc()
+    {
+        var (account, browser) = await SignedInAsync();
+        using var _ = browser;
+
+        using var response = await PatchAsync(browser, """{"displayName":"Jose\u0301"}""", "\"0\"");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Jos\u00E9|<null>|1", await StoredAsync(account.UserId));
     }
 
     [Fact]
