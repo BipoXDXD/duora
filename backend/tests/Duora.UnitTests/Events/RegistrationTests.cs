@@ -248,6 +248,36 @@ public sealed class RegistrationTests
     }
 
     [Fact]
+    public void WithdrawingJustBeforeTheStartInstantPromotes()
+    {
+        var @event = WithRegistrations(capacity: 1, count: 2);
+        @event.OpenCheckIn(CheckInOpensAt);
+        var justBeforeStart = StartsAt - TimeSpan.FromTicks(1);
+
+        var outcome = @event.Withdraw(User(1), justBeforeStart);
+
+        Assert.Equal([new WaitlistedRegistrationPromoted(EventId, User(2), justBeforeStart)], outcome.Effects);
+        Assert.Equal(RegistrationState.Confirmed, @event.RegistrationOf(User(2))?.State);
+    }
+
+    /// <summary>O job ainda não iniciou o evento, mas o horário de início já chegou: quem fosse promovido não teria
+    /// mais como fazer check-in.</summary>
+    [Fact]
+    public void WithdrawingAtTheStartInstantDoesNotPromoteEvenBeforeTheEventStarts()
+    {
+        var @event = WithRegistrations(capacity: 1, count: 2);
+        @event.OpenCheckIn(CheckInOpensAt);
+
+        var outcome = @event.Withdraw(User(1), StartsAt);
+
+        AssertAccepted(outcome);
+        Assert.Empty(outcome.Effects);
+        Assert.Equal(EventState.CheckInOpen, @event.State);
+        Assert.Equal(RegistrationState.Waitlisted, @event.RegistrationOf(User(2))?.State);
+        Assert.Equal(0, @event.ConfirmedCount);
+    }
+
+    [Fact]
     public void WithdrawingWhileRunningFreesTheSeatWithoutPromotion()
     {
         var @event = WithRegistrations(capacity: 1, count: 2);
