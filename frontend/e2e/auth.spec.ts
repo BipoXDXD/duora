@@ -122,6 +122,8 @@ test.describe('jornada de entrada', () => {
     await page.goto('/entrar')
 
     await page.getByRole('link', { name: 'Esqueci minha senha' }).click()
+    // A entrada também tem um campo "E-mail": sem esperar a tela nova, o fill pode cair no campo que está saindo.
+    await expect(page.getByRole('heading', { level: 1, name: 'Recuperar senha' })).toBeVisible()
     await page.getByLabel('E-mail', { exact: true }).fill('ana@exemplo.com')
     await page.getByRole('button', { name: 'Enviar link' }).click()
     await expect(page.getByRole('status')).toBeFocused()
