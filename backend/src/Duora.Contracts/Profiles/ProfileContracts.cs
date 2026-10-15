@@ -9,7 +9,8 @@ public sealed record OwnProfileResponse(string? DisplayName, string? Bio, string
 /// <summary>
 /// Edição parcial do próprio perfil (API-P02), com <c>If-Match</c> obrigatório. Campo ausente fica como está;
 /// <c>bio: null</c> apaga a descrição; <c>displayName: null</c> é recusado, porque o nome não se apaga, só se troca.
-/// Campo desconhecido (inclusive id, dono, versão ou estado) é recusado pelo serializador.
+/// Campo desconhecido (inclusive id, dono, versão ou estado) é recusado pelo serializador. Os limites de tamanho valem
+/// depois da normalização NFC e de aparar as bordas, contados em caracteres Unicode (code points).
 /// </summary>
 public sealed record UpdateProfileRequest
 {

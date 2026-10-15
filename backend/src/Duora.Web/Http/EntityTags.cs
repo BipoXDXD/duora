@@ -36,7 +36,9 @@ internal static class EntityTags
         var isQuotedDecimal = value.Length > 2
             && value[0] == '"'
             && value[^1] == '"'
-            && value[1..^1].All(char.IsAsciiDigit);
+            && value[1..^1].All(char.IsAsciiDigit)
+            // Uma versão tem uma grafia só: "01" não é o ETag "1" que a API emitiu.
+            && (value.Length == 3 || value[1] != '0');
         return isQuotedDecimal
             && long.TryParse(value[1..^1], NumberStyles.None, CultureInfo.InvariantCulture, out var version)
                 ? new IfMatch(IfMatchKind.Version, version)
