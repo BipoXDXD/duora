@@ -26,12 +26,16 @@ digest do índice multiarquitetura; atualizar as duas juntas.
 | web | `aspnet:10.0.13-noble-chiseled-extra` | 1654 | Sem shell nem gerenciador de pacotes; `-extra` traz ICU e tzdata |
 | worker | `runtime:10.0.13-noble-chiseled-extra` | 1654 | Sem ASP.NET Core; nenhuma porta |
 | migrator | `runtime-deps:10.0.13-noble` | 1654 | Bundle do EF Core self-contained + `migrate.sh` (lê o segredo) |
-| edge | `caddy:2.11.7-alpine` | 10001 | Capability de arquivo removida; portas baixas por sysctl |
-| postgres | `postgres:18.6-trixie` | 999 | pgBackRest do PGDG em versão exata; `pgbackrest version` roda no build |
+| edge | `caddy:2.11.7-alpine` | 10001 | Binário recompilado (xcaddy, Go 1.26.9, x/net 0.60.0); portas baixas por sysctl |
+| postgres | `postgres:18.6-trixie` | 999 | pgBackRest do PGDG em versão exata; `pgbackrest version` roda no build; sem `gosu` |
 
 - **Build sem emulação**: o SDK roda no `BUILDPLATFORM`. Web e worker saem como IL portátil (`UseAppHost=false`),
   idêntico nas duas arquiteturas; só o bundle de migração é nativo (gerado com o RID do alvo). Restore em
   `--locked-mode`, como no CI.
+- **Scan das imagens** (spec 17.1): Trivy em cada imagem, nas duas arquiteturas; HIGH e CRITICAL com correção
+  publicada bloqueiam. Achado sem correção (hoje só pacotes do Debian da base do postgres, status `affected`) não
+  tem bump possível: sai num relatório no resumo do job e volta a bloquear quando a correção for publicada.
+  Exceção pontual vai para o `.trivyignore`, com justificativa e validade.
 - **amd64 e arm64**: o CI builda cada arquitetura no runner nativo (`ubuntu-24.04` e `ubuntu-24.04-arm`) e executa
   o bundle, o pgBackRest e o `caddy validate` (spec 2.4: emulação não é prova).
 - **Sem `HEALTHCHECK` no web**: a imagem chiseled não tem shell nem cliente HTTP, e o Docker fora do Swarm não reinicia
@@ -119,6 +123,7 @@ cada mudança de rede (spec 15.2), não a leitura das regras.
 |---|---|---|
 | Um Dockerfile .NET com três alvos | Web, worker e migrator compartilham restore e build | Um arquivo maior |
 | Chiseled `-extra` para web e worker | Sem shell e sem apt reduz a superfície; ICU/tzdata preservam globalização | Sem `HEALTHCHECK` nem depuração por shell no container |
+| Caddy recompilado no estágio `caddy-build` | O binário oficial 2.11.7 traz Go 1.26.8 e x/net 0.59.0 com CVEs de DoS em HTTP/2 e TLS na borda | Um estágio a manter; volta ao binário oficial quando ele vier corrigido |
 | Caddyfile e SPA dentro da imagem edge | A borda vira artefato imutável por digest, versionado com o frontend | Mudar a CSP exige nova imagem |
 | Portas 80/443 por `ip_unprivileged_port_start` | Caddy sem root e sem capability, compatível com `no-new-privileges` | Sysctl por container no Compose |
 | Papéis separados de migrador e aplicação | Spec 17.3; o app não altera schema | Rotação de senha manual em dois arquivos |
