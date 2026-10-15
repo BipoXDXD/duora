@@ -49,9 +49,10 @@ public sealed class BlockService
     /// <para>
     /// Depois da checagem de auto-bloqueio, o trabalho não depende de o alvo existir (TM-24): as mesmas leituras, a
     /// mesma transação e os mesmos locks, só com dados diferentes; o alvo inexistente cai no mesmo caminho de um
-    /// alvo já bloqueado. Sair mais cedo deixaria quem bloqueia medir o tempo e enumerar contas. A única diferença
-    /// que sobra é o primeiro bloqueio de um par (versão e auditoria), que só diz a quem bloqueia algo sobre o
-    /// próprio bloqueio.
+    /// alvo já bloqueado e de um primeiro bloqueio. Sair mais cedo deixaria quem bloqueia medir o tempo e enumerar
+    /// contas. O que ainda varia são as linhas afetadas pelos mesmos comandos (o primeiro bloqueio grava três linhas e
+    /// tranca duas guardas; os outros casos, nenhuma e uma) dentro de uma transação que já tem escrita no WAL pelo
+    /// `FOR UPDATE` da guarda de quem bloqueia, então o commit custa o mesmo.
     /// </para>
     /// <para>
     /// No M2, cada módulo acrescenta aqui, dentro da mesma transação, o próprio efeito (conexão, conversa, sala,
@@ -145,20 +146,26 @@ public sealed class BlockService
             on conflict (blocker_id, blocked_id) do nothing
             """,
             cancellationToken);
-        if (inserted == 1)
-        {
-            await _db.Database.ExecuteSqlAsync(
-                $"update safety.user_guards set security_version = security_version + 1 where user_id = any({pair})",
-                cancellationToken);
-            await _audit.AppendAsync(
-                new AuditRecord(
-                    AuditActorKind.User,
-                    blockerId,
-                    AuditAction.SafetyBlockCreated,
-                    AuditTargetTypes.User,
-                    targetUserId),
-                cancellationToken);
-        }
+        // Sempre os mesmos comandos, com efeito só quando o bloqueio é novo: repetir o bloqueio ou mirar um id
+        // inexistente custa o mesmo que o primeiro bloqueio (TM-24).
+        var isNew = inserted == 1;
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            update safety.user_guards set security_version = security_version + 1
+            where user_id = any({pair}) and {isNew}
+            """,
+            cancellationToken);
+        await _audit.AppendIfAsync(
+            new AuditRecord(
+                AuditActorKind.User,
+                blockerId,
+                AuditAction.SafetyBlockCreated,
+                AuditTargetTypes.User,
+                // O UUID vazio nunca vira bloqueio (isNew é falso); o registro só precisa ser válido para o comando
+                // rodar igual.
+                targetUserId == Guid.Empty ? blockerId : targetUserId),
+            isNew,
+            cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
     }
