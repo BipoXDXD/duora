@@ -3,20 +3,34 @@ import type { Page, Route } from '@playwright/test'
 
 /**
  * Backend simulado do contrato de autenticação do M1, por `page.route`, com estado em memória por
- * teste. Confere o header antiforgery em toda mutação, como o servidor real, e guarda os "e-mails"
- * enviados para o teste seguir os links.
+ * teste. Como o servidor real, confere o header antiforgery em toda mutação (403
+ * CSRF_VALIDATION_FAILED) e recusa corpo fora do contrato (400 VALIDATION_FAILED): campo faltando,
+ * campo desconhecido ou tipo errado fazem o teste falhar. Guarda os "e-mails" enviados para o teste
+ * seguir os links.
  */
 
 const API_PREFIX = '/api/v1'
 const ANTIFORGERY_COOKIE = 'XSRF-TOKEN'
 const ANTIFORGERY_HEADER = 'x-xsrf-token'
 
+/** Campos exatos (todos texto) de cada corpo do contrato; rota fora daqui não aceita corpo. */
+const REQUEST_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  'POST /auth/register': ['email', 'password', 'acceptedTermsVersion', 'acceptedPrivacyVersion'],
+  'POST /auth/confirm-email': ['userId', 'token'],
+  'POST /auth/login': ['email', 'password'],
+  'POST /auth/password-reset-requests': ['email'],
+  'POST /auth/password-resets': ['userId', 'token', 'newPassword'],
+}
+
+type RequestBody = Readonly<Record<string, string>>
+
 interface FakeUser {
   readonly id: string
   readonly email: string
-  readonly password: string
+  password: string
   emailConfirmed: boolean
   readonly confirmationToken: string
+  passwordResetToken: string | null
 }
 
 interface FakeSession {
@@ -24,6 +38,14 @@ interface FakeSession {
   readonly userId: string
   readonly createdAt: string
   readonly description: string
+}
+
+type EmailKind = 'confirmation' | 'password-reset'
+
+/** Rotas da SPA para onde os links de e-mail apontam, com userId e token no fragmento. */
+const EMAIL_ROUTES: Readonly<Record<EmailKind, string>> = {
+  confirmation: '/confirmar-email',
+  'password-reset': '/redefinir-senha',
 }
 
 export interface EmailLink {
@@ -44,7 +66,7 @@ export class FakeDuoraApi {
   readonly #users = new Map<string, FakeUser>()
   readonly #sessions: FakeSession[] = []
   readonly #overrides = new Map<string, { readonly override: Override; remaining: number }>()
-  readonly #confirmationLinks: EmailLink[] = []
+  readonly #emails: { readonly kind: EmailKind; readonly link: EmailLink }[] = []
   #currentSessionId: string | null = null
   #antiforgeryToken: string | null = null
 
@@ -62,7 +84,14 @@ export class FakeDuoraApi {
 
   /** Cria uma conta já confirmada, como se tivesse passado pelo cadastro. */
   seedConfirmedUser(email: string, password: string): void {
-    this.#users.set(email, { id: randomUUID(), email, password, emailConfirmed: true, confirmationToken: randomUUID() })
+    this.#users.set(email, {
+      id: randomUUID(),
+      email,
+      password,
+      emailConfirmed: true,
+      confirmationToken: randomUUID(),
+      passwordResetToken: null,
+    })
   }
 
   /**
@@ -73,12 +102,13 @@ export class FakeDuoraApi {
     this.#overrides.set(`${method} ${path}`, { override, remaining: times })
   }
 
-  lastConfirmationLink(): EmailLink {
-    const link = this.#confirmationLinks.at(-1)
-    if (link === undefined) {
-      throw new Error('Nenhum e-mail de confirmação foi enviado.')
+  /** Link do último e-mail do tipo pedido, como chegaria na caixa de entrada. */
+  lastEmailLink(kind: EmailKind): EmailLink {
+    const email = this.#emails.findLast((candidate) => candidate.kind === kind)
+    if (email === undefined) {
+      throw new Error(`Nenhum e-mail do tipo ${kind} foi enviado.`)
     }
-    return link
+    return email.link
   }
 
   async #handle(route: Route): Promise<void> {
@@ -111,10 +141,14 @@ export class FakeDuoraApi {
       !['GET', 'HEAD'].includes(request.method()) &&
       request.headers()[ANTIFORGERY_HEADER] !== this.#antiforgeryToken
     ) {
-      await route.fulfill(problem(400, 'ANTIFORGERY_TOKEN_INVALID'))
+      await route.fulfill(problem(403, 'CSRF_VALIDATION_FAILED'))
       return
     }
-    const body: unknown = request.postDataJSON()
+    const body = parseBody(key, request.postData())
+    if (body === null) {
+      await route.fulfill(problem(400, 'VALIDATION_FAILED'))
+      return
+    }
     await route.fulfill(this.#respond(key, body, path))
   }
 
@@ -123,21 +157,21 @@ export class FakeDuoraApi {
     await this.#page.context().addCookies([{ name: ANTIFORGERY_COOKIE, value: this.#antiforgeryToken, url: origin }])
   }
 
-  #respond(key: string, body: unknown, path: string): Fulfillment {
+  #respond(key: string, body: RequestBody, path: string): Fulfillment {
     switch (key) {
       case 'POST /auth/register':
-        return this.#register(readRecord(body))
+        return this.#register(body)
       case 'POST /auth/confirm-email':
-        return this.#confirmEmail(readRecord(body))
+        return this.#confirmEmail(body)
       case 'POST /auth/login':
-        return this.#login(readRecord(body))
+        return this.#login(body)
       case 'POST /auth/logout':
         this.#currentSessionId = null
         return { status: 204 }
       case 'POST /auth/password-reset-requests':
-        return { status: 202 }
+        return this.#requestPasswordReset(body)
       case 'POST /auth/password-resets':
-        return problem(400, 'INVALID_TOKEN')
+        return this.#resetPassword(body)
       case 'GET /me':
         return this.#me()
       case 'GET /me/sessions':
@@ -149,27 +183,51 @@ export class FakeDuoraApi {
     }
   }
 
-  #register(body: Readonly<Record<string, unknown>>): Fulfillment {
-    const email = String(body.email)
+  #register(body: RequestBody): Fulfillment {
+    const email = body.email ?? ''
     if (!this.#users.has(email)) {
       const user: FakeUser = {
         id: randomUUID(),
         email,
-        password: String(body.password),
+        password: body.password ?? '',
         emailConfirmed: false,
         confirmationToken: randomUUID(),
+        passwordResetToken: null,
       }
       this.#users.set(email, user)
-      this.#confirmationLinks.push({
-        path: `/confirmar-email#userId=${user.id}&token=${encodeURIComponent(user.confirmationToken)}`,
-        userId: user.id,
-        token: user.confirmationToken,
-      })
+      this.#sendEmail('confirmation', user.id, user.confirmationToken)
     }
     return { status: 202 }
   }
 
-  #confirmEmail(body: Readonly<Record<string, unknown>>): Fulfillment {
+  #sendEmail(kind: EmailKind, userId: string, token: string): void {
+    const path = `${EMAIL_ROUTES[kind]}#userId=${userId}&token=${encodeURIComponent(token)}`
+    this.#emails.push({ kind, link: { path, userId, token } })
+  }
+
+  #requestPasswordReset(body: RequestBody): Fulfillment {
+    const user = this.#users.get(body.email ?? '')
+    if (user !== undefined) {
+      user.passwordResetToken = randomUUID()
+      this.#sendEmail('password-reset', user.id, user.passwordResetToken)
+    }
+    return { status: 202 }
+  }
+
+  #resetPassword(body: RequestBody): Fulfillment {
+    const user = [...this.#users.values()].find((candidate) => candidate.id === body.userId)
+    if (user?.passwordResetToken == null || user.passwordResetToken !== body.token) {
+      return problem(400, 'INVALID_TOKEN')
+    }
+    user.password = body.newPassword ?? ''
+    user.passwordResetToken = null
+    // A troca de senha encerra as sessões anteriores (API-A07).
+    const remaining = this.#sessions.filter((session) => session.userId !== user.id)
+    this.#sessions.splice(0, this.#sessions.length, ...remaining)
+    return { status: 204 }
+  }
+
+  #confirmEmail(body: RequestBody): Fulfillment {
     const user = [...this.#users.values()].find((candidate) => candidate.id === body.userId)
     if (user === undefined || user.confirmationToken !== body.token) {
       return problem(400, 'INVALID_TOKEN')
@@ -178,8 +236,8 @@ export class FakeDuoraApi {
     return { status: 204 }
   }
 
-  #login(body: Readonly<Record<string, unknown>>): Fulfillment {
-    const user = this.#users.get(String(body.email))
+  #login(body: RequestBody): Fulfillment {
+    const user = this.#users.get(body.email ?? '')
     if (user === undefined || user.password !== body.password) {
       return problem(401, 'INVALID_CREDENTIALS')
     }
@@ -263,6 +321,34 @@ function problem(status: number, code: string, retryAfter?: string): Fulfillment
   }
 }
 
-function readRecord(body: unknown): Readonly<Record<string, unknown>> {
-  return typeof body === 'object' && body !== null ? Object.fromEntries(Object.entries(body)) : {}
+/**
+ * Corpo da requisição contra o contrato: rotas com corpo exigem exatamente os campos listados, todos
+ * texto; as demais não aceitam corpo. Devolve null quando o corpo não respeita o contrato.
+ */
+function parseBody(key: string, raw: string | null): RequestBody | null {
+  const fields = REQUEST_FIELDS[key]
+  if (fields === undefined) {
+    return raw === null || raw === '' ? {} : null
+  }
+  const body = parseJson(raw)
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return null
+  }
+  const entries = Object.entries(body)
+  const exactFields = entries.length === fields.length && entries.every(([name]) => fields.includes(name))
+  const allText = entries.every((entry): entry is [string, string] => typeof entry[1] === 'string')
+  return exactFields && allText ? Object.fromEntries(entries) : null
+}
+
+function parseJson(raw: string | null): unknown {
+  if (raw === null) {
+    return null
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return parsed
+  } catch {
+    // JSON malformado é corpo fora do contrato: quem chama responde 400.
+    return null
+  }
 }
