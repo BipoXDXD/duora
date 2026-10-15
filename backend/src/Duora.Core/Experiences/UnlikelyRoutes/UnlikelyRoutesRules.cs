@@ -35,7 +35,10 @@ public sealed class UnlikelyRoutesRules
             UnlikelyRoutesAction.RequestRevisionType,
         ]);
 
-    /// <summary>A semente sorteia quem recebe cada conjunto de pistas e quem escolhe a primeira parada.</summary>
+    /// <summary>
+    /// A semente sorteia quem recebe cada conjunto de pistas e quem escolhe a primeira parada. O resultado fica no
+    /// estado; nada depois da criação volta a sortear.
+    /// </summary>
     public UnlikelyRoutesState CreateInitialState(
         UnlikelyRoutesContent content, ParticipantPair participants, SessionSeed seed)
     {
