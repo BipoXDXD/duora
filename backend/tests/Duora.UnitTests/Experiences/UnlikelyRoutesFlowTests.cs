@@ -227,6 +227,18 @@ public sealed class UnlikelyRoutesFlowTests
     }
 
     [Fact]
+    public void ReusingAnActionIdWithTheSameActionButAnotherExpectedVersionIsRejected()
+    {
+        var session = AtChoices(_engine, NewSession(_engine));
+        var choose = Command(session, Ana, new UnlikelyRoutesAction.ChooseOption("route-stop-1", "lighthouse"));
+        session = Apply(_engine, session, choose);
+
+        var otherBody = choose with { ExpectedVersion = session.Version };
+
+        AssertRejected(RejectionReason.ActionIdReused, _engine.ValidateAction(session, otherBody));
+    }
+
+    [Fact]
     public void ReusingAnActionIdFromAnotherParticipantIsRejected()
     {
         var session = NewSession(_engine);

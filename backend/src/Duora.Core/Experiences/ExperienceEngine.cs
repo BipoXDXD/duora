@@ -99,7 +99,7 @@ public sealed class ExperienceEngine<TContent, TState, TAction, TView>
         var status = transition.IsConcluded ? SessionStatus.Completed : SessionStatus.Active;
         var next = session.AfterAction(
             transition.NextState, status, command.ActionId,
-            new RecordedAction<TAction>(command.Actor, command.Action, version));
+            new RecordedAction<TAction>(command.Actor, command.ExpectedVersion, command.Action, version));
 
         var now = _clock.GetUtcNow();
         List<GameEvent> events = [new ActionApplied(command.ActionId, command.Actor, command.Action.Type, version, now)];
