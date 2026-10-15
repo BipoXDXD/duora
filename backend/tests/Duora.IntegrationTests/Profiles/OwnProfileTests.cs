@@ -162,6 +162,8 @@ public sealed class OwnProfileTests : IAsyncDisposable
     [InlineData("1")]
     [InlineData("\"abc\"")]
     [InlineData("\"-1\"")]
+    [InlineData("\"01\"")]
+    [InlineData("\"001\"")]
     [InlineData("\"99999999999999999999\"")]
     [InlineData("\"1\" ; drop")]
     public async Task ETagThatDoesNotMatchTheCurrentVersionIs412(string ifMatch)
@@ -259,6 +261,11 @@ public sealed class OwnProfileTests : IAsyncDisposable
     [InlineData("displayName", "\"Ana\\nSouza\"", "INVALID_CHARACTERS")]
     [InlineData("displayName", "\"Ana\\u202Eazuos\"", "INVALID_CHARACTERS")]
     [InlineData("displayName", "\"Ana\\u200BSouza\"", "INVALID_CHARACTERS")]
+    [InlineData("displayName", "\"Ana\\uFFFE\"", "INVALID_CHARACTERS")]
+    [InlineData("displayName", "\"Ana\\uFDD0\"", "INVALID_CHARACTERS")]
+    [InlineData("displayName", "\"\\u0301Ana\"", "INVALID_CHARACTERS")]
+    [InlineData("displayName", "\"\\u3164\"", "REQUIRED")]
+    [InlineData("bio", "\"Oi\\uFFFF\"", "INVALID_CHARACTERS")]
     [InlineData("displayName", "\"Ana\\uFEFF\"", "INVALID_CHARACTERS")]
     [InlineData("bio", "\"Oi\\u200Dtudo\"", "INVALID_CHARACTERS")]
     [InlineData("bio", "\"\"", "REQUIRED")]
@@ -315,6 +322,29 @@ public sealed class OwnProfileTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("Jos\u00E9|<null>|1", await StoredAsync(account.UserId));
+    }
+
+    /// <summary>
+    /// I2: uma linha gravada antes de a regra endurecer (aqui, direto no banco, com largura zero) continua legível;
+    /// o PATCH segue validando a entrada nova e aceita mexer só no outro campo.
+    /// </summary>
+    [Fact]
+    public async Task RowSavedUnderAnOlderRuleStillReadsAndPatchStillValidates()
+    {
+        var (account, browser) = await SignedInAsync();
+        using var _ = browser;
+        await InsertRawAsync(account.UserId, "Ana\u200BSouza", "Oi");
+
+        using var read = await browser.GetAsync(ProfilePath);
+        using var rejected = await PatchAsync(browser, """{"displayName":"Bia\u200B"}""", "\"1\"");
+        using var bioOnly = await PatchAsync(browser, """{"bio":"Nova"}""", "\"1\"");
+
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        Assert.Equal("Ana\u200BSouza", (string?)(await ReadObjectAsync(read))["displayName"]);
+        var problem = await ProblemAssert.IsProblemAsync(rejected, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        Assert.Equal("INVALID_CHARACTERS", (string?)problem["errors"]?["displayName"]?[0]);
+        Assert.Equal(HttpStatusCode.OK, bioOnly.StatusCode);
+        Assert.Equal("Ana\u200BSouza|Nova|2", await StoredAsync(account.UserId));
     }
 
     [Fact]
@@ -436,6 +466,19 @@ public sealed class OwnProfileTests : IAsyncDisposable
             connection);
         command.Parameters.AddWithValue(userId);
         return await command.ExecuteScalarAsync(TestContext.Current.CancellationToken) as string ?? "none";
+    }
+
+    private async Task InsertRawAsync(Guid userId, string displayName, string bio)
+    {
+        await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "insert into profiles.profiles (user_id, display_name, bio, version, updated_at) values ($1, $2, $3, 1, now())",
+            connection);
+        command.Parameters.AddWithValue(userId);
+        command.Parameters.AddWithValue(displayName);
+        command.Parameters.AddWithValue(bio);
+        Assert.Equal(1, await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
     }
 
     /// <summary>Estado de conta que ainda não tem fluxo pela API (sanção do Safety); dado sintético do teste.</summary>
