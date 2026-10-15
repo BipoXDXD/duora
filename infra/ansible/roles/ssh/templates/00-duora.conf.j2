@@ -10,9 +10,5 @@ MaxAuthTries 3
 LoginGraceTime 30
 X11Forwarding no
 
-# O executor de deploy só roda o comando forçado do authorized_keys: sem túnel, agente ou terminal.
-Match User {{ duora_deploy_user }}
-    AllowTcpForwarding no
-    AllowAgentForwarding no
-    PermitTTY no
-    X11Forwarding no
+# O executor de deploy não tem bloco Match aqui: o authorized_keys dele usa "restrict" + command= (role app_dirs).
+# Um Match num drop-in incluído no topo engoliria tudo o que viesse depois no sshd_config.
