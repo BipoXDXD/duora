@@ -58,6 +58,7 @@ PROMOTION_WAIT_SECONDS = 300
 CONNECT_TIMEOUT_SECONDS = 5
 COMMAND_TIMEOUT_SECONDS = 15 * 60
 PGBACKREST_TLS_PORT = 8432
+POSTGRES_PORT = 5432
 S3_PORT = 9000
 UNUSED_IMAGE = "unused.invalid/duora-unused@sha256:" + "0" * 64
 
@@ -186,8 +187,8 @@ class Drill:
 
     @staticmethod
     def _write_secrets(secrets_dir: Path, s3_key: str, s3_secret: str) -> None:
-        # Certificados pelo mesmo gerador da VPS (duora-secrets init-backup-tls).
-        duora_secrets.init_backup_tls(secrets_dir, change_owner=False)
+        # Certificados pelo mesmo gerador da VPS (duora-secrets init-backup).
+        duora_secrets.init_backup(secrets_dir, change_owner=False)
         synthetic = {
             "postgres_superuser_password": secrets.token_urlsafe(24),
             "db_migrator_password": secrets.token_urlsafe(24),
@@ -229,15 +230,19 @@ class Drill:
     # --- Isolamento -------------------------------------------------------------------------------------------------
 
     def _check_isolation(self) -> None:
-        internet_ip = _run(["docker", "inspect", "--format",
-                            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-                            f"{PROJECT}-internet-1"], capture=True).strip()
+        internet_ip = self._ip_of("internet", "backup-egress")
+        backup_egress_ip = self._ip_of("backup", "backup-egress")
         expectations = {
             "postgres -> internet (nome)": ("postgres", "internet", S3_PORT, False),
             f"postgres -> internet ({internet_ip})": ("postgres", internet_ip, S3_PORT, False),
             "postgres -> s3": ("postgres", "s3", S3_PORT, False),
             "postgres -> backup (TLS do pgBackRest)": ("postgres", "backup", PGBACKREST_TLS_PORT, True),
             "backup -> s3": ("backup", "s3", S3_PORT, True),
+            # O servidor TLS só escuta no IP da rede pgbackrest: de outro container a porta recusa.
+            "internet -> backup TLS (nome)": ("internet", "backup", PGBACKREST_TLS_PORT, False),
+            f"internet -> backup TLS ({backup_egress_ip})": ("internet", backup_egress_ip, PGBACKREST_TLS_PORT,
+                                                              False),
+            "internet -> postgres": ("internet", "postgres", POSTGRES_PORT, False),
         }
         for label, (service, host, port, expected) in expectations.items():
             reached = self._can_connect(service, host, port)
@@ -253,6 +258,28 @@ class Drill:
         self.report.isolation["postgres tem credenciais do repositório"] = has_repo_credentials
         if has_repo_credentials:
             raise DrillFailure(f"o postgres enxerga credenciais do repositório:\n{listing}")
+        self._check_backup_role_authentication()
+
+    def _check_backup_role_authentication(self) -> None:
+        """duora_backup entra com a senha do .pgpass, da origem certa; sem senha, não entra."""
+        login = ["psql", "--no-psqlrc", "--no-password", "--host", "postgres", "--username", "duora_backup",
+                 "--dbname", "postgres", "--tuples-only", "--no-align", "--command", "select current_user"]
+        with_password = subprocess.run(self._compose + ["exec", "--no-TTY", "backup", *login],
+                                       capture_output=True, text=True, check=False, timeout=COMMAND_TIMEOUT_SECONDS)
+        without_password = subprocess.run(self._compose + ["exec", "--no-TTY", "--env", "PGPASSFILE=/dev/null",
+                                                           "backup", *login],
+                                          capture_output=True, text=True, check=False,
+                                          timeout=COMMAND_TIMEOUT_SECONDS)
+        self.report.isolation["duora_backup com senha, do backup"] = with_password.returncode == 0
+        self.report.isolation["duora_backup sem senha"] = without_password.returncode == 0
+        if with_password.stdout.strip() != "duora_backup":
+            raise DrillFailure(f"duora_backup não autenticou do backup: {with_password.stderr.strip()}")
+        if without_password.returncode == 0:
+            raise DrillFailure("duora_backup autenticou sem senha")
+
+    def _ip_of(self, service: str, network: str) -> str:
+        template = f'{{{{(index .NetworkSettings.Networks "{PROJECT}_{network}").IPAddress}}}}'
+        return _run(["docker", "inspect", "--format", template, f"{PROJECT}-{service}-1"], capture=True).strip()
 
     def _can_connect(self, service: str, host: str, port: int) -> bool:
         # bash da imagem: abre um socket TCP com teto de tempo; resolução de nome falha também conta como falha.

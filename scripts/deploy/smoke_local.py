@@ -83,7 +83,7 @@ def main() -> int:
 
         secrets_dir = workdir / "secrets"
         duora_secrets.init_secrets(secrets_dir, change_owner=False)
-        duora_secrets.init_backup_tls(secrets_dir, change_owner=False)
+        duora_secrets.init_backup(secrets_dir, change_owner=False)
         # Repositório placeholder: o smoke não testa backup (deploy com --accept-missing-backup-check); o drill
         # scripts/backup/restore_drill.py testa. Sem destino válido o archive falha e o WAL fica no pg_wal.
         for name, content in (("pgbackrest_repo.conf", "[global]\nrepo1-s3-endpoint=s3.invalid\n"

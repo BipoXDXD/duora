@@ -2,11 +2,12 @@
 """Gera, uma única vez, os arquivos de segredo que o compose.prod.yml monta (spec 15.4).
 
     sudo duora-secrets init /etc/duora/secrets
-    sudo duora-secrets init-backup-tls /etc/duora/secrets
+    sudo duora-secrets init-backup /etc/duora/secrets
 
-`init-backup-tls` cria a CA própria do pgBackRest e os certificados do servidor TLS do container backup (CN e SAN
-"backup") e do cliente do postgres (CN "duora-postgres"), com o openssl do sistema. A chave da CA é descartada:
-rotação = gerar o conjunto inteiro de novo (docs/operations/backup-restore.md).
+`init-backup` cria a senha do papel duora_backup (e o .pgpass dela), a CA própria do pgBackRest e os certificados
+do servidor TLS do container backup (CN e SAN "backup") e do cliente do postgres (CN "duora-postgres"), com o
+openssl do sistema. A chave da CA é descartada: rotação = gerar o conjunto inteiro de novo
+(docs/operations/backup-restore.md).
 
 Senhas aleatórias e connection strings coerentes com elas. Nunca sobrescreve: com tudo presente não faz nada; com
 o diretório incompleto, recusa (gerar só uma parte deixaria senha e connection string divergentes). Rotação é
@@ -36,14 +37,21 @@ SECRET_OWNERS = {
     "duora_migrator_connection": APP_UID,
 }
 
-# Certificados do pgBackRest: todos lidos pelo usuário postgres (999), seja no container postgres ou no backup.
-TLS_FILES = (
+# Segredos do backup: todos lidos pelo usuário postgres (999), no container postgres ou no backup.
+#   pgbackrest_tls_*      CA, servidor TLS do backup e cliente do postgres (WAL por TLS)
+#   db_backup_password    senha do papel duora_backup (lida pelo initdb do postgres)
+#   pgbackrest_db_pgpass  a mesma senha no formato .pgpass, para o pgBackRest do backup conectar por TCP
+BACKUP_FILES = (
     "pgbackrest_tls_ca.crt",
     "pgbackrest_tls_server.crt",
     "pgbackrest_tls_server.key",
     "pgbackrest_tls_client.crt",
     "pgbackrest_tls_client.key",
+    "db_backup_password",
+    "pgbackrest_db_pgpass",
 )
+BACKUP_ROLE = "duora_backup"
+BACKUP_DATABASE = "postgres"  # banco em que o pgBackRest conecta (pg1-database padrão)
 TLS_SERVER_HOST = "backup"  # nome do serviço no compose.prod.yml; o postgres confere o certificado por ele
 TLS_CLIENT_CN = "duora-postgres"  # autorizado em tls-server-auth (pgbackrest-repo.conf)
 TLS_CA_DAYS = 3650
@@ -76,23 +84,27 @@ def init_secrets(directory: Path, *, change_owner: bool) -> bool:
     return True
 
 
-def init_backup_tls(directory: Path, *, change_owner: bool) -> bool:
-    """Cria CA, certificado do servidor backup e do cliente postgres se nenhum existe; True se criou."""
+def init_backup(directory: Path, *, change_owner: bool) -> bool:
+    """Cria CA, certificados, senha do duora_backup e o .pgpass se nenhum existe; True se criou."""
     existing = {path.name for path in directory.iterdir()} if directory.exists() else set()
-    expected: set[str] = set(TLS_FILES)
+    expected: set[str] = set(BACKUP_FILES)
     if expected <= existing:
         return False
     if existing & expected:
         missing = ", ".join(sorted(expected - existing))
-        raise SecretsError(f"conjunto TLS incompleto ({directory}); faltam: {missing}. Apague os arquivos "
-                           "pgbackrest_tls_* e gere todos de novo (o postgres e o backup precisam ser recriados).")
+        raise SecretsError(f"conjunto de backup incompleto ({directory}); faltam: {missing}. Apague os arquivos "
+                           "pgbackrest_tls_*, db_backup_password e pgbackrest_db_pgpass e gere todos de novo; a senha "
+                           "do duora_backup no banco precisa ser trocada junto (docs/operations/backup-restore.md).")
 
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     directory.chmod(0o700)
     # A chave da CA só existe neste diretório temporário: ninguém emite certificado novo com ela depois.
     with tempfile.TemporaryDirectory(prefix="duora-tls-") as scratch:
         generated = _generate_tls(Path(scratch))
-    for name in TLS_FILES:
+    password = secrets.token_urlsafe(PASSWORD_BYTES)
+    generated["db_backup_password"] = password
+    generated["pgbackrest_db_pgpass"] = f"{DATABASE_HOST}:5432:{BACKUP_DATABASE}:{BACKUP_ROLE}:{password}\n"
+    for name in BACKUP_FILES:
         _write_secret(directory / name, generated[name], owner=POSTGRES_UID if change_owner else None)
     return True
 
@@ -159,7 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="duora-secrets", description=DESCRIPTION)
     subcommands = parser.add_subparsers(dest="command", required=True)
     for name, help_text in (("init", "cria os segredos do banco (todos ou nenhum)"),
-                            ("init-backup-tls", "cria CA e certificados TLS do pgBackRest (todos ou nenhum)")):
+                            ("init-backup", "cria senha do duora_backup e certificados TLS do pgBackRest "
+                                            "(todos ou nenhum)")):
         command = subcommands.add_parser(name, help=help_text)
         command.add_argument("directory", type=Path)
         command.add_argument("--no-chown", action="store_true",
@@ -171,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         print("duora-secrets: rode como root ou use --no-chown", file=sys.stderr)
         return 1
     try:
-        initialize = init_secrets if args.command == "init" else init_backup_tls
+        initialize = init_secrets if args.command == "init" else init_backup
         created = initialize(args.directory, change_owner=change_owner)
     except SecretsError as error:
         print(f"duora-secrets: {error}", file=sys.stderr)

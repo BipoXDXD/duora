@@ -5,10 +5,10 @@
 # Os timers rodam como root do host e chegam ao container backup por "docker exec" (duora-backup). Nenhum
 # container recebe o socket do Docker, e o executor de deploy não ganha sudo para o duora-backup.
 
-- name: Gerar CA e certificados TLS do pgBackRest uma única vez (postgres → backup; nunca sobrescreve)
+- name: Gerar senha do duora_backup e certificados TLS do pgBackRest uma única vez (nunca sobrescreve)
   ansible.builtin.command:
-    cmd: "/usr/local/sbin/duora-secrets init-backup-tls {{ duora_secrets_dir }}"
-    creates: "{{ duora_secrets_dir }}/pgbackrest_tls_client.key"
+    cmd: "/usr/local/sbin/duora-secrets init-backup {{ duora_secrets_dir }}"
+    creates: "{{ duora_secrets_dir }}/pgbackrest_db_pgpass"
 
 - name: Instalar o wrapper restrito do pgBackRest
   ansible.builtin.copy:
