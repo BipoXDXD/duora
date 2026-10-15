@@ -46,8 +46,17 @@ public sealed class BlockService
     /// audita. Alvo inexistente não grava nada e responde igual (G3).
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// Depois da checagem de auto-bloqueio, o trabalho não depende de o alvo existir (TM-24): as mesmas leituras, a
+    /// mesma transação e os mesmos locks, só com dados diferentes; o alvo inexistente cai no mesmo caminho de um
+    /// alvo já bloqueado. Sair mais cedo deixaria quem bloqueia medir o tempo e enumerar contas. A única diferença
+    /// que sobra é o primeiro bloqueio de um par (versão e auditoria), que só diz a quem bloqueia algo sobre o
+    /// próprio bloqueio.
+    /// </para>
+    /// <para>
     /// No M2, cada módulo acrescenta aqui, dentro da mesma transação, o próprio efeito (conexão, conversa, sala,
     /// reserva, outbox do par), na ordem global de locks (concurrency.md C2).
+    /// </para>
     /// </remarks>
     public async Task<BlockOutcome> BlockAsync(Guid blockerId, Guid targetUserId, CancellationToken cancellationToken)
     {
@@ -61,23 +70,14 @@ public sealed class BlockService
             return BlockOutcome.AccountNotEligible;
         }
 
-        if (targetUserId == Guid.Empty)
-        {
-            return BlockOutcome.Done;
-        }
-
-        var requested = Block.Create(blockerId, targetUserId, _time);
-        if (requested.Rejection == SafetyRejection.SelfBlock)
+        if (targetUserId != Guid.Empty
+            && Block.Create(blockerId, targetUserId, _time).Rejection == SafetyRejection.SelfBlock)
         {
             return BlockOutcome.SelfBlock;
         }
 
-        if (await _accounts.FindAccountAsync(targetUserId, cancellationToken) is null)
-        {
-            return BlockOutcome.Done;
-        }
-
-        await RecordAsync(requested.Value, cancellationToken);
+        var targetExists = await _accounts.FindAccountAsync(targetUserId, cancellationToken) is not null;
+        await RecordAsync(blockerId, targetUserId, targetExists, cancellationToken);
         return BlockOutcome.Done;
     }
 
@@ -108,9 +108,19 @@ public sealed class BlockService
         return blocked ? InteractionVerdict.Unavailable : InteractionVerdict.Allowed;
     }
 
-    private async Task RecordAsync(Block block, CancellationToken cancellationToken)
+    /// <summary>
+    /// Com <c>targetExists</c> falso (id inexistente, inclusive o UUID vazio), o alvo não ganha guarda e o insert do
+    /// bloqueio exige a guarda do alvo, então nada é gravado. Os comandos são os mesmos.
+    /// </summary>
+    private async Task RecordAsync(
+        Guid blockerId,
+        Guid targetUserId,
+        bool targetExists,
+        CancellationToken cancellationToken)
     {
-        Guid[] pair = [.. new[] { block.Pair.BlockerId, block.Pair.BlockedId }.Order()];
+        var now = _time.GetUtcNow();
+        Guid[] pair = [.. new[] { blockerId, targetUserId }.Order()];
+        Guid[] guarded = targetExists ? pair : [blockerId];
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         await _db.Database.ExecuteSqlRawAsync($"set local lock_timeout = '{LockTimeout}'", cancellationToken);
 
@@ -118,7 +128,7 @@ public sealed class BlockService
         await _db.Database.ExecuteSqlAsync(
             $"""
             insert into safety.user_guards (user_id)
-            select user_id from unnest({pair}::uuid[]) with ordinality as ids(user_id, position)
+            select user_id from unnest({guarded}::uuid[]) with ordinality as ids(user_id, position)
             order by position
             on conflict (user_id) do nothing
             """,
@@ -130,8 +140,8 @@ public sealed class BlockService
         var inserted = await _db.Database.ExecuteSqlAsync(
             $"""
             insert into safety.blocks (id, blocker_id, blocked_id, created_at)
-            values ({Guid.CreateVersion7(block.CreatedAt)}, {block.Pair.BlockerId}, {block.Pair.BlockedId},
-                    {block.CreatedAt})
+            select {Guid.CreateVersion7(now)}, {blockerId}, {targetUserId}, {now}
+            where exists (select 1 from safety.user_guards where user_id = {targetUserId})
             on conflict (blocker_id, blocked_id) do nothing
             """,
             cancellationToken);
@@ -143,10 +153,10 @@ public sealed class BlockService
             await _audit.AppendAsync(
                 new AuditRecord(
                     AuditActorKind.User,
-                    block.Pair.BlockerId,
+                    blockerId,
                     AuditAction.SafetyBlockCreated,
                     AuditTargetTypes.User,
-                    block.Pair.BlockedId),
+                    targetUserId),
                 cancellationToken);
         }
 
