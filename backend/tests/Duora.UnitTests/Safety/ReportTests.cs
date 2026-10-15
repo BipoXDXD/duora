@@ -48,7 +48,7 @@ public sealed class ReportTests
         Assert.Equal(7, report.Id.Value.Version);
         Assert.Equal(Alice, report.ReporterId);
         Assert.Equal(Bruno, report.TargetUserId);
-        Assert.Equal(ReportCategory.Harassment, report.Category);
+        Assert.Equal(Harassment, report.Category);
         Assert.Equal(new ReportContext.Room(GameSession), report.Context);
         Assert.Equal("Insultos no chat.", report.Narrative.Text);
         Assert.Equal(Start, report.SubmittedAt);
@@ -67,13 +67,12 @@ public sealed class ReportTests
     }
 
     [Theory]
-    [InlineData(ReportCategory.Harassment, ReportPriority.Normal)]
-    [InlineData(ReportCategory.Spam, ReportPriority.Normal)]
-    [InlineData(ReportCategory.Other, ReportPriority.Normal)]
-    [InlineData(ReportCategory.ThreatOfViolence, ReportPriority.Urgent)]
-    [InlineData(ReportCategory.MinorSafety, ReportPriority.Urgent)]
-    public void SevereCategoriesArriveWithUrgentPriority(ReportCategory category, ReportPriority expected)
+    [InlineData(false, ReportPriority.Normal)]
+    [InlineData(true, ReportPriority.Urgent)]
+    public void SeverityComesFromTheCategoryData(bool isSevere, ReportPriority expected)
     {
+        var category = new ReportCategory(new ReportCategoryCode("any_category"), isSevere);
+
         var report = Report.Submit(Submission(category), FixedClock.AtStart()).Accepted();
 
         Assert.Equal(expected, report.Priority);
@@ -95,12 +94,29 @@ public sealed class ReportTests
         SafetyAssert.Rejected(SafetyRejection.SelfReport, Report.SubmitAndBlock(submission, FixedClock.AtStart()));
     }
 
-    [Fact]
-    public void CategoryOutsideTheClosedSetIsRejected()
+    [Theory]
+    [InlineData("")]
+    [InlineData("Harassment")]
+    [InlineData("minor safety")]
+    [InlineData("_harassment")]
+    [InlineData("harassment;drop")]
+    public void CategoryCodeMustHaveTheLookupTableFormat(string code)
     {
-        var submission = Submission((ReportCategory)999);
+        Assert.Throws<ArgumentException>(() => new ReportCategoryCode(code));
+    }
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => Report.Submit(submission, FixedClock.AtStart()));
+    [Fact]
+    public void CategoryCodeIsLimitedInLength()
+    {
+        Assert.Equal(64, new ReportCategoryCode(new string('a', 64)).Value.Length);
+        Assert.Throws<ArgumentException>(() => new ReportCategoryCode(new string('a', 65)));
+    }
+
+    [Fact]
+    public void SubmitRejectsMissingCategory()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => Report.Submit(Submission() with { Category = null! }, FixedClock.AtStart()));
     }
 
     [Fact]
@@ -248,7 +264,7 @@ public sealed class ReportTests
     [Fact]
     public void AutomatedTriageCannotLowerTheUrgencyOfASevereReport()
     {
-        var report = Report.Submit(Submission(ReportCategory.MinorSafety), FixedClock.AtStart()).Accepted();
+        var report = Report.Submit(Submission(MinorSafety), FixedClock.AtStart()).Accepted();
 
         var result = report.Triage(ReportPriority.Normal, new ModerationAuthor.Automated());
 
@@ -259,7 +275,7 @@ public sealed class ReportTests
     [Fact]
     public void AHumanCanLowerTheUrgencyOfASevereReport()
     {
-        var report = Report.Submit(Submission(ReportCategory.MinorSafety), FixedClock.AtStart()).Accepted();
+        var report = Report.Submit(Submission(MinorSafety), FixedClock.AtStart()).Accepted();
 
         report.Triage(ReportPriority.Normal, new ModerationAuthor.Human(ModeratorMaria)).Accepted();
 
@@ -267,13 +283,13 @@ public sealed class ReportTests
     }
 
     [Theory]
-    [InlineData("reporter", ReportCategory.Harassment)]
-    [InlineData("target", ReportCategory.Harassment)]
-    [InlineData("reporter", ReportCategory.MinorSafety)]
-    [InlineData("target", ReportCategory.MinorSafety)]
-    public void APartyToTheReportCannotTriageIt(string party, ReportCategory category)
+    [InlineData("reporter", false)]
+    [InlineData("target", false)]
+    [InlineData("reporter", true)]
+    [InlineData("target", true)]
+    public void APartyToTheReportCannotTriageIt(string party, bool severe)
     {
-        var report = Report.Submit(Submission(category), FixedClock.AtStart()).Accepted();
+        var report = Report.Submit(Submission(severe ? MinorSafety : Harassment), FixedClock.AtStart()).Accepted();
         var priorityBefore = report.Priority;
 
         var result = report.Triage(ReportPriority.Normal, new ModerationAuthor.Human(party == "reporter" ? Alice : Bruno));
@@ -362,7 +378,7 @@ public sealed class ReportTests
         var keys = typeof(ReportStatusView).GetProperties().Select(property => property.Name).Order();
         Assert.Equal(["Category", "Protocol", "Status", "SubmittedAt"], keys);
         Assert.Equal(
-            new ReportStatusView(report.Id, ReportCategory.Harassment, ReportStatusForReporter.Received, Start),
+            new ReportStatusView(report.Id, Harassment.Code, ReportStatusForReporter.Received, Start),
             view);
     }
 
