@@ -204,9 +204,10 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     health = get(context, "/health/ready", {"Accept": "*/*"})
     checks.expect(health.status == 404, f"/health fechado na borda (status {health.status})")
 
+    # Sem sessão, o backend nega por padrão (política de fallback): 401 também prova que o upgrade chegou ao web.
     hub_status = websocket_upgrade(context, "/hubs/updates")
-    checks.expect(hub_status in (101, 404),
-                  f"/hubs/updates com upgrade WebSocket chega ao web: 101 ou 404 do backend (status {hub_status})")
+    checks.expect(hub_status in (101, 401, 404),
+                  f"/hubs/updates com upgrade WebSocket chega ao web: 101, 401 ou 404 do backend (status {hub_status})")
 
     edge_logs = run(compose + ["logs", "--no-color", "edge"])
     checks.expect(canary not in edge_logs, "log do Caddy sem query string, cookie nem Authorization")
