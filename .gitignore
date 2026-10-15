@@ -54,3 +54,7 @@ plano-duora.md
 *.key
 secrets/
 appsettings.*.local.json
+
+# --- Python (scripts de operação) ---
+__pycache__/
+*.pyc
