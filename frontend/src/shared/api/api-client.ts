@@ -1,3 +1,4 @@
+import type { Locale } from '@/shared/i18n/locale'
 import { ANTIFORGERY_HEADER_NAME } from './antiforgery'
 import { ApiNetworkError, ApiProblemError, ApiResponseError } from './api-errors'
 import { parseProblemDetails } from './problem-details'
@@ -29,6 +30,8 @@ export interface ApiClientDependencies {
   readonly fetch: ApiFetch
   readonly origin: string
   readonly readAntiforgeryToken: () => string | null
+  /** Idioma ativo da interface, lido a cada requisição; o backend escreve os e-mails nele. */
+  readonly readLocale: () => Locale
   /** Relógio em milissegundos desde a época, para interpretar Retry-After com data. */
   readonly now: () => number
 }
@@ -38,7 +41,8 @@ const NO_CONTENT = 204
 
 /**
  * Único ponto de saída HTTP da SPA. Garante same-origin com cookies, header antiforgery em
- * mutações, cancelamento por AbortSignal e erro tipado para qualquer resposta não-ok.
+ * mutações, idioma ativo no Accept-Language, cancelamento por AbortSignal e erro tipado para
+ * qualquer resposta não-ok.
  * Não faz retry: repetir é decisão de quem chama (TanStack Query só repete leituras).
  */
 export function createApiClient(dependencies: ApiClientDependencies): ApiClient {
@@ -72,6 +76,8 @@ export function createApiClient(dependencies: ApiClientDependencies): ApiClient 
 
 function withSessionPolicy(request: Request, dependencies: ApiClientDependencies): Request {
   const headers = new Headers(request.headers)
+  // O navegador mandaria a preferência dele, não a escolhida no seletor de idioma.
+  headers.set('Accept-Language', dependencies.readLocale())
   if (!SAFE_METHODS.has(request.method.toUpperCase())) {
     const token = dependencies.readAntiforgeryToken()
     if (token !== null) {
