@@ -19,7 +19,7 @@ public sealed class GameSession<TState, TAction>
         SessionStatus status,
         StateVersion version,
         TState state,
-        ImmutableDictionary<ActionId, RecordedAction<TAction>> actionLog)
+        ImmutableDictionary<ActionId, RecordedAction> actionLog)
     {
         Experience = experience;
         Participants = participants;
@@ -44,30 +44,43 @@ public sealed class GameSession<TState, TAction>
     internal TState State { get; }
 
     /// <summary>Ações já aplicadas, por id, para que um reenvio devolva o resultado original (INV-06).</summary>
-    internal ImmutableDictionary<ActionId, RecordedAction<TAction>> ActionLog { get; }
+    internal ImmutableDictionary<ActionId, RecordedAction> ActionLog { get; }
 
     internal static GameSession<TState, TAction> Start(
         ExperienceVersion experience, ParticipantPair participants, GameSchedule schedule, TState state) =>
         new(experience, participants, schedule, SessionStatus.Active, StateVersion.Initial, state,
-            ImmutableDictionary<ActionId, RecordedAction<TAction>>.Empty);
+            ImmutableDictionary<ActionId, RecordedAction>.Empty);
 
-    internal GameSession<TState, TAction> AfterAction(
-        TState state, SessionStatus status, ActionId actionId, RecordedAction<TAction> recorded) =>
+    internal GameSession<TState, TAction> AfterAction(TState state, SessionStatus status, RecordedAction recorded) =>
         new(Experience, Participants, Schedule, status, recorded.ResultingVersion, state,
-            ActionLog.Add(actionId, recorded));
+            ActionLog.Add(recorded.ActionId, recorded));
 
     internal GameSession<TState, TAction> AfterDeadline(TState state, SessionStatus status) =>
         new(Experience, Participants, Schedule, status, Version.Next(), state, ActionLog);
 }
 
 /// <summary>
-/// Ação aplicada, guardada com o corpo inteiro do comando (autor, versão esperada e ação) para distinguir reenvio
-/// de reuso do id com outro corpo (spec 8.7).
+/// Resultado mínimo de uma ação aplicada (spec 8.7): autor, id, tipo, versões e o hash canônico do corpo. O corpo
+/// não fica guardado, porque pode ser uma escolha privada (INV-05); o hash basta para distinguir reenvio de reuso
+/// do id com outro corpo, inclusive depois de uma reidratação (ADR-0020).
 /// </summary>
-internal sealed record RecordedAction<TAction>(
-    ParticipantId Actor, StateVersion ExpectedVersion, TAction Action, StateVersion ResultingVersion)
-    where TAction : class, IGameAction
+internal sealed record RecordedAction(
+    ParticipantId Actor,
+    ActionId ActionId,
+    ActionType Type,
+    StateVersion ExpectedVersion,
+    StateVersion ResultingVersion,
+    ActionFingerprint Fingerprint)
 {
-    public bool IsSameAs(GameCommand<TAction> command) =>
-        Actor == command.Actor && ExpectedVersion == command.ExpectedVersion && Action.Equals(command.Action);
+    public static RecordedAction Of<TAction>(GameCommand<TAction> command, StateVersion resultingVersion)
+        where TAction : class, IGameAction =>
+        new(command.Actor, command.ActionId, command.Action.Type, command.ExpectedVersion, resultingVersion,
+            ActionFingerprint.Of(command.Action));
+
+    public bool IsSameAs<TAction>(GameCommand<TAction> command)
+        where TAction : class, IGameAction =>
+        Actor == command.Actor
+        && Type == command.Action.Type
+        && ExpectedVersion == command.ExpectedVersion
+        && Fingerprint == ActionFingerprint.Of(command.Action);
 }
