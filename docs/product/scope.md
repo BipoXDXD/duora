@@ -144,7 +144,8 @@ Um termo, um significado. A coluna "No código" dá o nome usado em tipos, tabel
 | Experiência | `Experience`, `experience_definitions` | Atividade cooperativa do catálogo (ex.: Rotas Improváveis). Evitar: "minijogo" em código |
 | Versão de experiência | `ExperienceVersion` | Regras e conteúdo publicados e imutáveis de uma experiência |
 | Sessão de jogo | `GameSession`, `game_sessions` | Instância de uma versão de experiência para um par numa rodada; nasce do convite e é a sala. Tem a máquina de estados da sala, estado de jogo e deadline. Não confundir com sessão de login |
-| Ação | `GameAction` | Comando de um participante na sessão de jogo, deduplicado por `actionId` |
+| Comando de jogo | `GameCommand` | Envelope de uma ação de um participante, com `actionId` e versão esperada; deduplicado por `actionId` |
+| Ação | `IGameAction` | Payload tipado de um comando de jogo, de um conjunto fechado por experiência (ex.: escolher uma opção) |
 | Pista | `Clue` | Informação privada de um participante numa experiência; só chega ao próprio participante |
 | Projeção | `ParticipantView` | DTO montado por destinatário, sem pistas nem decisões de terceiros |
 | Decisão | `Decision` | Escolha privada de uma pessoa sobre interesse na outra após a sessão de jogo |
