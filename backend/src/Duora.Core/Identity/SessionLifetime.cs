@@ -5,7 +5,8 @@ public sealed record SessionWindow(DateTimeOffset IdleExpiresAt, DateTimeOffset 
 
 /// <summary>
 /// Limites de uma sessão de login (spec 4.3): a inatividade desliza a cada uso, mas nunca passa do limite absoluto
-/// contado a partir do login.
+/// contado a partir do login. O deslize é feito no banco, no mesmo comando que valida a sessão
+/// (<c>least(agora + Idle, absoluto)</c>), para não haver janela entre ler e renovar.
 /// </summary>
 public sealed record SessionLifetime
 {
@@ -26,9 +27,4 @@ public sealed record SessionLifetime
     public TimeSpan Absolute { get; }
 
     public SessionWindow Open(DateTimeOffset now) => new(now + Idle, now + Absolute);
-
-    public SessionWindow Touch(SessionWindow window, DateTimeOffset now) =>
-        window with { IdleExpiresAt = Min(now + Idle, window.AbsoluteExpiresAt) };
-
-    private static DateTimeOffset Min(DateTimeOffset left, DateTimeOffset right) => left <= right ? left : right;
 }

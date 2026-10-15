@@ -1,0 +1,162 @@
+using System.Text;
+using Duora.Core.Identity;
+using Duora.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace Duora.Infrastructure.Identity;
+
+/// <summary>
+/// Leva as tabelas do ASP.NET Core Identity para o schema <c>identity</c> com nomes snake_case (spec 10.1). As
+/// tabelas e chaves são nomeadas aqui; as colunas seguem o nome da propriedade convertido, porque as entidades são
+/// do framework e não há outro lugar para mapeá-las uma a uma.
+/// </summary>
+internal static class IdentityModelConfiguration
+{
+    private static readonly (Type Entity, string Table)[] IdentityTables =
+    [
+        (typeof(DuoraUser), "users"),
+        (typeof(IdentityRole<Guid>), "roles"),
+        (typeof(IdentityUserRole<Guid>), "user_roles"),
+        (typeof(IdentityUserClaim<Guid>), "user_claims"),
+        (typeof(IdentityUserLogin<Guid>), "user_logins"),
+        (typeof(IdentityUserToken<Guid>), "user_tokens"),
+        (typeof(IdentityRoleClaim<Guid>), "role_claims"),
+    ];
+
+    /// <summary>Chamar depois do <c>base.OnModelCreating</c> do IdentityDbContext, que cria os nomes padrão.</summary>
+    public static void Apply(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DuoraUser>(ConfigureUser);
+
+        foreach (var (entity, table) in IdentityTables)
+        {
+            modelBuilder.Entity(entity).ToTable(table, DatabaseSchemas.Identity);
+            RenameStoreObjects(modelBuilder.Model.FindEntityType(entity)
+                ?? throw new InvalidOperationException($"{entity} não está no modelo."), table);
+        }
+    }
+
+    private static void ConfigureUser(EntityTypeBuilder<DuoraUser> user)
+    {
+        var statuses = string.Join(", ", Enum.GetNames<AccountStatus>().Select(name => $"'{name}'"));
+        user.ToTable(table => table.HasCheckConstraint("ck_users_status", $"status IN ({statuses})"));
+        user.Property(u => u.Status).HasConversion<string>().HasMaxLength(24);
+        user.Property(u => u.CreatedAt);
+        user.Property(u => u.Email).HasMaxLength(EmailAddress.MaxLength);
+        user.Property(u => u.NormalizedEmail).HasMaxLength(EmailAddress.MaxLength);
+        user.Property(u => u.UserName).HasMaxLength(EmailAddress.MaxLength);
+        user.Property(u => u.NormalizedUserName).HasMaxLength(EmailAddress.MaxLength);
+
+        // O Identity cria o índice de e-mail sem unicidade; aqui ele vira a garantia contra cadastro duplicado
+        // concorrente, que a verificação prévia do UserManager não impede.
+        user.HasIndex(u => u.NormalizedEmail).IsUnique();
+    }
+
+    private static void RenameStoreObjects(IMutableEntityType entity, string table)
+    {
+        foreach (var property in entity.GetProperties())
+        {
+            property.SetColumnName(ToSnakeCase(property.Name));
+        }
+
+        entity.FindPrimaryKey()?.SetName($"pk_{table}");
+
+        foreach (var foreignKey in entity.GetForeignKeys())
+        {
+            foreignKey.SetConstraintName($"fk_{table}_{foreignKey.PrincipalEntityType.GetTableName()}");
+        }
+
+        foreach (var index in entity.GetIndexes())
+        {
+            var prefix = index.IsUnique ? "ux" : "ix";
+            var columns = string.Join("_", index.Properties.Select(p => ToSnakeCase(p.Name)));
+            index.SetDatabaseName($"{prefix}_{table}_{columns}");
+        }
+    }
+
+    internal static string ToSnakeCase(string name)
+    {
+        var builder = new StringBuilder(name.Length + 8);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var character = name[i];
+            if (char.IsUpper(character) && i > 0 && !char.IsUpper(name[i - 1]))
+            {
+                builder.Append('_');
+            }
+
+            builder.Append(char.ToLowerInvariant(character));
+        }
+
+        return builder.ToString();
+    }
+}
+
+internal sealed class ConsentRecordConfiguration : IEntityTypeConfiguration<ConsentRecord>
+{
+    public void Configure(EntityTypeBuilder<ConsentRecord> builder)
+    {
+        var documents = string.Join(", ", Enum.GetNames<LegalDocument>().Select(name => $"'{name}'"));
+        builder.ToTable("consent_records", DatabaseSchemas.Identity, table =>
+            table.HasCheckConstraint("ck_consent_records_document", $"document IN ({documents})"));
+        builder.HasKey(c => c.Id).HasName("pk_consent_records");
+
+        builder.Property(c => c.Id).HasColumnName("id").ValueGeneratedNever();
+        builder.Property(c => c.UserId).HasColumnName("user_id");
+        builder.Property(c => c.Document).HasColumnName("document").HasConversion<string>().HasMaxLength(16);
+        builder.Property(c => c.Version).HasColumnName("version").HasMaxLength(32).IsRequired();
+        builder.Property(c => c.AcceptedAt).HasColumnName("accepted_at");
+
+        builder.HasOne<DuoraUser>()
+            .WithMany()
+            .HasForeignKey(c => c.UserId)
+            .HasConstraintName("fk_consent_records_users")
+            // Os aceites existem por causa da conta; a exclusão da conta (spec 12.4) os leva junto.
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // A coluna líder também serve de índice da FK.
+        builder.HasIndex(c => new { c.UserId, c.Document, c.Version })
+            .IsUnique()
+            .HasDatabaseName("ux_consent_records_user_id_document_version");
+    }
+}
+
+internal sealed class LoginSessionConfiguration : IEntityTypeConfiguration<LoginSession>
+{
+    public void Configure(EntityTypeBuilder<LoginSession> builder)
+    {
+        builder.ToTable("login_sessions", DatabaseSchemas.Identity, table =>
+        {
+            table.HasCheckConstraint("ck_login_sessions_window", "idle_expires_at <= absolute_expires_at");
+            table.HasCheckConstraint("ck_login_sessions_key_hash", "octet_length(key_hash) = 32");
+        });
+        builder.HasKey(s => s.Id).HasName("pk_login_sessions");
+
+        builder.Property(s => s.Id).HasColumnName("id").ValueGeneratedNever();
+        builder.Property(s => s.UserId).HasColumnName("user_id");
+        builder.Property(s => s.KeyHash).HasColumnName("key_hash");
+        builder.Property(s => s.Ticket).HasColumnName("ticket");
+        builder.Property(s => s.SecurityStamp).HasColumnName("security_stamp").HasMaxLength(256).IsRequired();
+        builder.Property(s => s.Description).HasColumnName("description").HasMaxLength(64).IsRequired();
+        builder.Property(s => s.CreatedAt).HasColumnName("created_at");
+        builder.Property(s => s.LastSeenAt).HasColumnName("last_seen_at");
+        builder.Property(s => s.IdleExpiresAt).HasColumnName("idle_expires_at");
+        builder.Property(s => s.AbsoluteExpiresAt).HasColumnName("absolute_expires_at");
+        builder.Property(s => s.RevokedAt).HasColumnName("revoked_at");
+        builder.Property(s => s.RevocationReason).HasColumnName("revocation_reason").HasMaxLength(32);
+
+        builder.HasOne<DuoraUser>()
+            .WithMany()
+            .HasForeignKey(s => s.UserId)
+            .HasConstraintName("fk_login_sessions_users")
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(s => s.KeyHash).IsUnique().HasDatabaseName("ux_login_sessions_key_hash");
+        builder.HasIndex(s => s.UserId).HasDatabaseName("ix_login_sessions_user_id");
+        // Limpeza de sessões vencidas (job a criar) e índice de expiração pedido na spec 10.2.
+        builder.HasIndex(s => s.AbsoluteExpiresAt).HasDatabaseName("ix_login_sessions_absolute_expires_at");
+    }
+}
