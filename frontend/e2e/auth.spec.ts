@@ -36,7 +36,7 @@ test.describe('jornada de entrada', () => {
     await expect(page).toHaveURL(/\/verifique-seu-email$/)
 
     // A pessoa abre o link recebido por e-mail.
-    await page.goto(api.lastConfirmationLink().path)
+    await page.goto(api.lastEmailLink('confirmation').path)
     await page.getByRole('button', { name: 'Confirmar e-mail' }).click()
     await expect(page.getByRole('status')).toContainText('E-mail confirmado.')
 
@@ -109,6 +109,33 @@ test.describe('jornada de entrada', () => {
 
     await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
     await expect(page.getByRole('status')).toContainText('Você saiu da sua conta.')
+  })
+
+  test('esqueci a senha → link do e-mail → senha nova → entrar com ela', async ({ page }) => {
+    const api = await FakeDuoraApi.install(page)
+    api.seedConfirmedUser('ana@exemplo.com', PASSWORD)
+    const newPassword = 'outra frase longa de senha nova'
+    await page.goto('/entrar')
+
+    await page.getByRole('link', { name: 'Esqueci minha senha' }).click()
+    await page.getByLabel('E-mail', { exact: true }).fill('ana@exemplo.com')
+    await page.getByRole('button', { name: 'Enviar link' }).click()
+    await expect(page.getByRole('status')).toBeFocused()
+
+    await page.goto(api.lastEmailLink('password-reset').path)
+    await expect(page).toHaveURL(/\/redefinir-senha$/)
+    await page.getByLabel('Senha nova', { exact: true }).fill(newPassword)
+    await page.getByRole('button', { name: 'Salvar senha nova' }).click()
+    const success = page.getByRole('status')
+    await expect(success).toContainText('Senha alterada.')
+    await expect(success).toBeFocused()
+
+    await page.getByRole('main').getByRole('link', { name: 'Entrar' }).click()
+    await signIn(page, 'ana@exemplo.com')
+    await expect(page.getByRole('alert')).toContainText('E-mail ou senha incorretos.')
+    await page.getByLabel('Senha', { exact: true }).fill(newPassword)
+    await page.getByRole('button', { name: 'Entrar' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Sua conta' })).toBeVisible()
   })
 
   test('entrada só com teclado: preencher e enviar com Enter', async ({ page }) => {
