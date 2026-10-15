@@ -77,7 +77,11 @@ public sealed class SessionTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         var body = await ReadObjectAsync(response);
-        Assert.Equal(["email", "emailConfirmed", "id", "status"], body.Select(p => p.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["email", "emailConfirmed", "id", "mfaEnabled", "roles", "status"],
+            body.Select(p => p.Key).Order(StringComparer.Ordinal));
+        Assert.False((bool?)body["mfaEnabled"]);
+        Assert.Empty(body["roles"]!.AsArray());
         Assert.Equal(account.UserId, body["id"]!.GetValue<Guid>());
         Assert.Equal(account.Email, (string?)body["email"]);
         Assert.Equal("PendingEligibility", (string?)body["status"]);
@@ -211,6 +215,8 @@ public sealed class SessionTests : IAsyncDisposable
             item.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.True((bool?)item["current"]);
         Assert.EndsWith("Z", (string?)item["createdAt"], StringComparison.Ordinal);
+        Assert.EndsWith("Z", (string?)item["lastSeenAt"], StringComparison.Ordinal);
+        Assert.DoesNotContain("+00:00", body.ToJsonString(), StringComparison.Ordinal);
     }
 
     [Fact]

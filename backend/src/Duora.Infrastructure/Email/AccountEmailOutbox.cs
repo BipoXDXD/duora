@@ -39,7 +39,7 @@ internal static class AccountEmailOutbox
     public static TimeSpan DeliveryWindow(AccountEmailKind kind) => kind switch
     {
         AccountEmailKind.EmailConfirmation => TimeSpan.FromHours(12),
-        AccountEmailKind.PasswordReset => TimeSpan.FromMinutes(30),
+        AccountEmailKind.PasswordReset => TimeSpan.FromMinutes(15),
         AccountEmailKind.RegistrationAttemptOnExistingAccount => TimeSpan.FromHours(24),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Tipo de e-mail desconhecido."),
     };

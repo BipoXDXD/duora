@@ -11,9 +11,12 @@ internal static class MeEndpoints
     {
         var me = api.MapGroup("/me").WithTags("Me");
 
-        me.MapGet("", GetMeAsync);
-        me.MapGet("/sessions", ListSessionsAsync);
-        me.MapDelete("/sessions/{sessionId:guid}", RevokeSessionAsync);
+        me.MapGet("", GetMeAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
+        me.MapGet("/sessions", ListSessionsAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
+        me.MapDelete("/sessions/{sessionId:guid}", RevokeSessionAsync)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
     }
 
     private static async Task<Results<Ok<MeResponse>, UnauthorizedHttpResult>> GetMeAsync(
@@ -27,7 +30,13 @@ internal static class MeEndpoints
             return TypedResults.Unauthorized();
         }
 
-        return TypedResults.Ok(new MeResponse(account.Id, account.Email, account.Status.ToString(), account.EmailConfirmed));
+        return TypedResults.Ok(new MeResponse(
+            account.Id,
+            account.Email,
+            account.Status.ToString(),
+            account.EmailConfirmed,
+            account.MfaEnabled,
+            account.Roles));
     }
 
     private static async Task<Results<Ok<SessionListResponse>, UnauthorizedHttpResult>> ListSessionsAsync(

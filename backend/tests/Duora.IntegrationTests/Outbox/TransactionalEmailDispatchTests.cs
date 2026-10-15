@@ -26,7 +26,7 @@ public sealed class TransactionalEmailDispatchTests(PostgresFixture postgres)
         Assert.Equal(1, delivery.Attempts);
         var file = Assert.Single(harness.MailFiles());
         Assert.Contains(
-            $"{EmailOutboxHarness.PublicOrigin}/confirmar-email?userId=",
+            $"{EmailOutboxHarness.PublicOrigin}/confirmar-email#userId=",
             await File.ReadAllTextAsync(file, Ct),
             StringComparison.Ordinal);
     }

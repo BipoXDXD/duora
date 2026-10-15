@@ -20,7 +20,7 @@ public sealed class AccountEmailsTests
 
         Assert.Equal(Recipient, email.To);
         Assert.Contains(
-            "https://duora.example/confirmar-email?userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
+            "https://duora.example/confirmar-email#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
             email.TextBody,
             StringComparison.Ordinal);
     }
@@ -33,9 +33,22 @@ public sealed class AccountEmailsTests
         var email = emails.PasswordReset(Recipient, UserId, "tok-en_1");
 
         Assert.Contains(
-            "https://duora.example/redefinir-senha?userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
+            "https://duora.example/redefinir-senha#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
             email.TextBody,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CredentialsTravelInTheFragmentNeverInTheQueryString()
+    {
+        var emails = new AccountEmails(Origin);
+
+        var link = emails.EmailConfirmation(Recipient, UserId, "tok-en_1").TextBody
+            .Split((char[])['\n', ' '])
+            .Single(word => word.StartsWith("https://", StringComparison.Ordinal));
+
+        Assert.Equal("", new Uri(link).Query);
+        Assert.Contains("token=tok-en_1", new Uri(link).Fragment, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -22,7 +22,15 @@ internal static class BuildTimeOpenApi
             return;
         }
 
+        // A origem e o diretório do key ring também só passam pela validação: nenhuma chave é criada, porque o
+        // servidor falso não emite cookie nem token.
         configuration.AddInMemoryCollection(
-            [new KeyValuePair<string, string?>("ConnectionStrings:Duora", PlaceholderConnectionString)]);
+        [
+            new KeyValuePair<string, string?>("ConnectionStrings:Duora", PlaceholderConnectionString),
+            new KeyValuePair<string, string?>("Duora:PublicOrigin", "https://build-time-openapi.invalid"),
+            new KeyValuePair<string, string?>(
+                "DataProtection:KeysDirectory",
+                Path.Combine(Path.GetTempPath(), "duora-build-time-openapi-keys")),
+        ]);
     }
 }
