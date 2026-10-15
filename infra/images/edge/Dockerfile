@@ -5,10 +5,25 @@
 # --- SPA: Node só no build; a saída é estática e igual para qualquer arquitetura -----------------------------------
 FROM --platform=$BUILDPLATFORM node:24.22.0-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS spa
 WORKDIR /src/frontend
-# pnpm na versão do packageManager do package.json, via Corepack (como no CI).
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# pnpm na versão do packageManager do package.json, via Corepack (como no CI). Retries e timeouts de rede do
+# npm/pnpm (as variáveis npm_config_* valem para os dois) para os pacotes do lockfile.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=10000 \
+    npm_config_fetch_retry_maxtimeout=60000 \
+    npm_config_fetch_timeout=60000
 RUN corepack enable
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+COPY frontend/package.json ./
+# No primeiro uso, o pnpm 12 via Corepack baixa o próprio executável nativo (@pnpm/linuxmusl-<arch>, com assinatura
+# do npm conferida) sem timeout nem retry: no runner arm64 a conexão travou e só caiu 11 min depois. Aqui o
+# download roda num passo próprio, com prazo por tentativa e até 3 tentativas; a falha continua quebrando o build.
+RUN for attempt in 1 2 3; do \
+      timeout 120 pnpm --version && exit 0; \
+      echo "pnpm: download do executável falhou (tentativa $attempt de 3)" >&2; \
+      sleep $((attempt * 10)); \
+    done; \
+    exit 1
+COPY frontend/pnpm-lock.yaml ./
 RUN --mount=type=cache,id=duora-pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 COPY frontend/ ./
