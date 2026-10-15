@@ -8,11 +8,14 @@ export class ApiProblemError extends ApiError {
   override readonly name = 'ApiProblemError'
   readonly status: number
   readonly problem: ProblemDetails
+  /** Espera pedida pelo header Retry-After, em segundos; null quando ausente ou inválido. */
+  readonly retryAfterSeconds: number | null
 
-  constructor(problem: ProblemDetails) {
+  constructor(problem: ProblemDetails, retryAfterSeconds: number | null = null) {
     super(`${String(problem.status)} ${problem.title}`)
     this.status = problem.status
     this.problem = problem
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 
@@ -20,10 +23,13 @@ export class ApiProblemError extends ApiError {
 export class ApiResponseError extends ApiError {
   override readonly name = 'ApiResponseError'
   readonly status: number
+  /** Espera pedida pelo header Retry-After, em segundos; null quando ausente ou inválido. */
+  readonly retryAfterSeconds: number | null
 
-  constructor(status: number, reason: string) {
+  constructor(status: number, reason: string, retryAfterSeconds: number | null = null) {
     super(`Resposta inesperada da API (${String(status)}): ${reason}`)
     this.status = status
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 

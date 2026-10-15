@@ -10,4 +10,5 @@ export const apiClient = createApiClient({
   fetch: (request) => globalThis.fetch(request),
   origin: globalThis.location.origin,
   readAntiforgeryToken: () => readAntiforgeryTokenFromCookies(document.cookie),
+  now: () => Date.now(),
 })
