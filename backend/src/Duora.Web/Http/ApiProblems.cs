@@ -18,6 +18,13 @@ internal static class ApiProblems
     public const string MfaRequired = "MFA_REQUIRED";
     public const string PreconditionFailed = "PRECONDITION_FAILED";
     public const string PreconditionRequired = "PRECONDITION_REQUIRED";
+    public const string MfaCodeInvalid = "MFA_CODE_INVALID";
+    public const string MfaAlreadyEnabled = "MFA_ALREADY_ENABLED";
+    public const string MfaEnrollmentNotStarted = "MFA_ENROLLMENT_NOT_STARTED";
+    public const string MfaEnrollmentRequired = "MFA_ENROLLMENT_REQUIRED";
+    public const string MfaNotEnabled = "MFA_NOT_ENABLED";
+    public const string MfaRequiredByRole = "MFA_REQUIRED_BY_ROLE";
+    public const string ReauthenticationRequired = "REAUTHENTICATION_REQUIRED";
     public const string RateLimited = "RATE_LIMITED";
     public const string SelfBlock = "SELF_BLOCK";
     public const string TemporarilyUnavailable = "TEMPORARILY_UNAVAILABLE";
