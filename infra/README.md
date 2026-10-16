@@ -116,8 +116,8 @@ uvx --from ansible-core==2.21.5 ansible-playbook -i inventory/example.yml site.y
 - `docker`: repositório oficial; a chave é baixada fora de `/etc/apt/keyrings`, convertida para binário e só instalada se o arquivo final tiver exatamente uma chave primária com a impressão digital publicada (`files/validate_apt_key.py`, com teste; uma chave extra no arquivo também passaria a valer para o apt), `daemon.json` com `live-restore`,
   `no-new-privileges` e logs limitados. Ninguém entra no grupo `docker` (equivale a root).
 - `backup`: segredos do backup (`duora-secrets init-backup`), `/usr/local/sbin/duora-backup`, timers
-  systemd (full domingo 03:00 UTC, diferencial seg–sáb 03:00 UTC, `verify` a cada 15 min, `verify-repo` diário às
-  05:00 UTC) e o filtro de saída `duora-backup-egress` (chain `DOCKER-USER` para `172.30.20.0/24`, aplicada antes do
+  systemd (full domingo 03:00 UTC, diferencial seg–sáb 03:00 UTC, `verify` a cada 15 min, `verify-repo` leve diário às
+  05:00 UTC e `verify-repo-full` completo às quartas 06:00 UTC) e o filtro de saída `duora-backup-egress` (chain `DOCKER-USER` para `172.30.20.0/24`, aplicada antes do
   Docker e falhando fechado: DNS só para `duora_backup_dns_resolvers` ou os upstream do systemd-resolved, HTTPS
   restrito a `duora_backup_s3_cidrs` quando o provedor existir).
 - `app_dirs`: `/opt/duora`, `/etc/duora` (0750), `/etc/duora/secrets` (0700), `/var/lib/duora` (0700),
