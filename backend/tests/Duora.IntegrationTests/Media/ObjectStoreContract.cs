@@ -43,7 +43,7 @@ public abstract class ObjectStoreContract
     public async Task WritingTheSameKeyAgainReplacesTheObject()
     {
         // Retomada do Worker depois de perder o lease grava o mesmo derivado de novo (spec 16.2).
-        var key = ObjectKey.ForDerivative(Guid.NewGuid(), PhotoVariant.Card);
+        var key = ObjectKey.ForDerivative(ObjectKey.NewQuarantine(), PhotoVariant.Card);
         await PutAsync(key, [1, 2, 3]);
 
         await PutAsync(key, [9, 8, 7, 6]);
@@ -112,7 +112,7 @@ public abstract class ObjectStoreContract
     public async Task QuarantineAndDerivativesAreSeparateAreas()
     {
         var original = ObjectKey.NewQuarantine();
-        var derivative = ObjectKey.ForDerivative(Guid.NewGuid(), PhotoVariant.Thumb);
+        var derivative = ObjectKey.ForDerivative(ObjectKey.NewQuarantine(), PhotoVariant.Thumb);
         await PutAsync(original, [1]);
         await PutAsync(derivative, [2]);
 
