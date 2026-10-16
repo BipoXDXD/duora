@@ -17,17 +17,27 @@ internal static class CurrentSession
 
     /// <summary>
     /// Troca a sessão corrente por uma nova (nova chave, novo cookie) depois de mudar MFA ou senha, que trocam o
-    /// security stamp. Mantém a política e leva as provas indicadas.
+    /// security stamp. Mantém a política e o limite absoluto da sessão anterior (renovar não estende a vida desde o
+    /// login) e leva as provas indicadas.
     /// </summary>
     public static Task RenewAsync(
         HttpContext context,
         IAntiforgery antiforgery,
         string securityStamp,
         DateTimeOffset? reauthenticatedAt,
-        DateTimeOffset? mfaVerifiedAt)
+        DateTimeOffset? mfaVerifiedAt,
+        DateTimeOffset? totpVerifiedAt)
     {
         var (userId, _) = Require(context);
-        var grant = new SessionGrant(userId, securityStamp, State(context).Policy, reauthenticatedAt, mfaVerifiedAt);
+        var session = State(context);
+        var grant = new SessionGrant(
+            userId,
+            securityStamp,
+            session.Policy,
+            reauthenticatedAt,
+            mfaVerifiedAt,
+            totpVerifiedAt,
+            session.AbsoluteExpiresAt);
         return AuthEndpoints.StartSessionAsync(context, antiforgery, grant);
     }
 }

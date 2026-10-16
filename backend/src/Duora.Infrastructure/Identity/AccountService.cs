@@ -95,6 +95,7 @@ public sealed class AccountService
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var registration = await UpsertRegistrationAsync(email, passwordHash, now, cancellationToken);
         await ReplaceConsentsUnlessConfirmedAsync(registration, termsVersion, privacyVersion, now, cancellationToken);
+        await GrantParticipantRoleUnlessAnyAsync(registration.UserId, cancellationToken);
         var user = await _users.FindByIdAsync(registration.UserId.ToString("D"))
             ?? throw new InvalidOperationException("Conta sumiu dentro da transação do cadastro.");
         var token = await _users.GenerateEmailConfirmationTokenAsync(user);
@@ -196,7 +197,9 @@ public sealed class AccountService
     /// <summary>
     /// Troca a senha com o token do e-mail. O Identity troca o security stamp, o que já invalida todas as sessões;
     /// a revogação explícita deixa o motivo registrado. O bloqueio por tentativas é zerado, para quem foi
-    /// bloqueado por um atacante recuperar o acesso pelo e-mail. Só vale para conta confirmada.
+    /// bloqueado por um atacante recuperar o acesso pelo e-mail, exceto em conta com MFA: o e-mail não prova o
+    /// segundo fator, e destravar ali reabriria a força bruta do TOTP (I4 da revisão do #38). Só vale para conta
+    /// confirmada.
     /// </summary>
     public async Task<bool> ResetPasswordAsync(
         Guid userId,
@@ -216,10 +219,23 @@ public sealed class AccountService
             return false;
         }
 
-        await _users.ResetAccessFailedCountAsync(user);
-        await _users.SetLockoutEndDateAsync(user, lockoutEnd: null);
+        if (!user.TwoFactorEnabled)
+        {
+            EnsureSucceeded(await _users.ResetAccessFailedCountAsync(user), "zerar as falhas de login");
+            EnsureSucceeded(await _users.SetLockoutEndDateAsync(user, lockoutEnd: null), "encerrar o bloqueio");
+        }
+
         await _sessions.RevokeAllAsync(user.Id, "password-reset", cancellationToken);
         return true;
+    }
+
+    private static void EnsureSucceeded(IdentityResult result, string operation)
+    {
+        if (!result.Succeeded)
+        {
+            var codes = string.Join(", ", result.Errors.Select(error => error.Code));
+            throw new InvalidOperationException($"O Identity recusou {operation}: {codes}.");
+        }
     }
 
     public Task<AccountSummary?> FindAccountAsync(Guid userId, CancellationToken cancellationToken) =>
@@ -248,6 +264,24 @@ public sealed class AccountService
 
     /// <summary>Mesmo hasher (e mesmo custo) da senha real, para a conta inexistente custar um hash.</summary>
     private void VerifyDecoy(string password) => _decoy.Verify(_users.PasswordHasher, password);
+
+    /// <summary>
+    /// Conta nova nasce com o papel de participante (D13), na mesma transação do cadastro. Conta que já tem papel,
+    /// inclusive privilegiada, não ganha nada: o INSERT não seleciona linha e o trigger nem dispara. O mesmo comando
+    /// roda nos três casos do cadastro, para o trabalho continuar igual (TM-06).
+    /// </summary>
+    private async Task GrantParticipantRoleUnlessAnyAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var participant = AccountRoles.Participant;
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            insert into identity.user_roles (user_id, role_id)
+            select {userId}, r.id from identity.roles r
+            where r.name = {participant}
+              and not exists (select 1 from identity.user_roles ur where ur.user_id = {userId})
+            """,
+            cancellationToken);
+    }
 
     private async Task<RegistrationRow> UpsertRegistrationAsync(
         EmailAddress email,

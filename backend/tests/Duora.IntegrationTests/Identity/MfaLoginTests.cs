@@ -56,7 +56,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
         using var browser = new Browser(_factory);
         _time.Advance(TimeSpan.FromSeconds(1));
 
-        using var response = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Now(mfa.SharedKey));
+        using var response = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Next(_time, mfa.SharedKey));
         using var me = await browser.GetAsync("/api/v1/me");
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
@@ -72,7 +72,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
         var (account, mfa) = await AccountWithMfaAsync();
         using var browser = new Browser(_factory);
 
-        using var response = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Wrong(mfa.SharedKey));
+        using var response = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Wrong(_time, mfa.SharedKey));
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
         Assert.Null(browser.Cookie("__Host-duora"));
@@ -88,7 +88,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
         using var response = await MfaScenario.LoginAsync(
             browser,
             account with { Password = "outra frase longa qualquer" },
-            twoFactorCode: Totp.Now(mfa.SharedKey));
+            twoFactorCode: Totp.Next(_time, mfa.SharedKey));
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
     }
@@ -100,11 +100,11 @@ public sealed class MfaLoginTests : IAsyncDisposable
         using var browser = new Browser(_factory);
         for (var attempt = 0; attempt < 20; attempt++)
         {
-            using var wrong = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Wrong(mfa.SharedKey));
+            using var wrong = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Wrong(_time, mfa.SharedKey));
             Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
         }
 
-        using var right = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Now(mfa.SharedKey));
+        using var right = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Next(_time, mfa.SharedKey));
 
         await ProblemAssert.IsProblemAsync(right, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
     }
@@ -114,11 +114,11 @@ public sealed class MfaLoginTests : IAsyncDisposable
     {
         var (account, mfa) = await AccountWithMfaAsync();
         using var browser = new Browser(_factory);
-        using (await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Wrong(mfa.SharedKey)))
+        using (await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Wrong(_time, mfa.SharedKey)))
         {
         }
 
-        using var right = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Now(mfa.SharedKey));
+        using var right = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Next(_time, mfa.SharedKey));
 
         Assert.Equal(HttpStatusCode.NoContent, right.StatusCode);
         Assert.Equal(0, await AccessFailedCountAsync(account));
@@ -218,14 +218,15 @@ public sealed class MfaLoginTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task NewRecoveryCodesNeedActiveMfa()
+    public async Task NewRecoveryCodesNeedARecentAuthenticatorProof()
     {
+        // Sem MFA ativo não há TOTP recente: o step-up (I3) responde antes do 409 MFA_NOT_ENABLED do serviço.
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
 
         using var response = await browser.PostJsonAsync(MfaScenario.RecoveryCodes, body: null);
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "MFA_NOT_ENABLED");
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");
     }
 
     [Fact]
@@ -245,7 +246,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
     {
         var (account, mfa, browser) = await SignedInAccountWithMfaAsync();
         using var other = new Browser(_factory);
-        using (await MfaScenario.LoginAsync(other, account, twoFactorCode: Totp.Now(mfa.SharedKey)))
+        using (await MfaScenario.LoginAsync(other, account, twoFactorCode: Totp.Next(_time, mfa.SharedKey)))
         {
         }
 
@@ -287,7 +288,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         var browser = await Scenario.SignedInBrowserAsync(account);
-        var mfa = await MfaScenario.EnableAsync(browser);
+        var mfa = await MfaScenario.EnableAsync(browser, _time);
         return (account, mfa, browser);
     }
 

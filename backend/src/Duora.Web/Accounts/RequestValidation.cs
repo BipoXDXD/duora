@@ -22,6 +22,7 @@ internal sealed class RequestValidation
 
     private const int MaxVersionLength = 32;
     private const int AuthenticatorCodeLength = 6;
+    private const int MaxTypedAuthenticatorCodeLength = 16;
     private const int MaxRecoveryCodeLength = 32;
 
     private readonly Dictionary<string, string[]> _errors = [];
@@ -113,16 +114,31 @@ internal sealed class RequestValidation
         return !value.Any(char.IsControl) || Fail(field, InvalidCharacters);
     }
 
-    /// <summary>Código do autenticador TOTP: exatamente 6 dígitos ASCII.</summary>
+    /// <summary>
+    /// Código do autenticador TOTP: 6 dígitos ASCII, aceitando os espaços com que os apps o mostram ("123 456");
+    /// devolve o código sem espaços.
+    /// </summary>
     public bool AuthenticatorCode(string field, string? value, [NotNullWhen(true)] out string? code)
     {
-        code = value;
+        code = null;
         if (string.IsNullOrEmpty(value))
         {
             return Fail(field, Required);
         }
 
-        return (value.Length == AuthenticatorCodeLength && value.All(char.IsAsciiDigit)) || Fail(field, InvalidFormat);
+        if (value.Length > MaxTypedAuthenticatorCodeLength)
+        {
+            return Fail(field, InvalidFormat);
+        }
+
+        var normalized = Duora.Core.Identity.Totp.NormalizeInput(value);
+        if (normalized.Length != AuthenticatorCodeLength || !normalized.All(char.IsAsciiDigit))
+        {
+            return Fail(field, InvalidFormat);
+        }
+
+        code = normalized;
+        return true;
     }
 
     /// <summary>Código de recuperação: até 32 caracteres, sem caractere de controle.</summary>

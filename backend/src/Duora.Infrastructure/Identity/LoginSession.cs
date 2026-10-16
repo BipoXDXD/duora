@@ -35,8 +35,11 @@ internal sealed class LoginSession
     /// <summary>Última prova de credencial nesta sessão (login ou API-A13), para o step-up.</summary>
     public DateTimeOffset? ReauthenticatedAt { get; private set; }
 
-    /// <summary>Última prova de segundo fator nesta sessão; nula numa sessão aberta só com senha.</summary>
+    /// <summary>Última prova de segundo fator nesta sessão (TOTP ou código de recuperação); nula numa sessão aberta só com senha.</summary>
     public DateTimeOffset? MfaVerifiedAt { get; private set; }
+
+    /// <summary>Última prova de TOTP nesta sessão: a que o step-up das ações críticas e o A14 exigem.</summary>
+    public DateTimeOffset? TotpVerifiedAt { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 

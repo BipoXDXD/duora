@@ -6,15 +6,20 @@ using Microsoft.AspNetCore.Authorization.Policy;
 namespace Duora.Web.Security;
 
 /// <summary>
-/// Autorização pela sessão (ADR-0017; auth.md, "MFA"). Negar por padrão: toda rota sem política própria exige sessão
-/// e, se a conta é privilegiada, o MFA provado nesta sessão. Conta privilegiada sem segundo fator só alcança as
-/// rotas marcadas com <see cref="AllowDuringMfaEnrollment{TBuilder}"/>; as demais respondem 403
-/// <c>MFA_ENROLLMENT_REQUIRED</c>. As rotas <c>/admin</c> exigem a sessão administrativa completa.
+/// Autorização pela sessão (ADR-0017; auth.md, "MFA"). Negar por padrão: toda rota sem política própria é de
+/// participante e exige sessão de conta não privilegiada (decisão I2 da revisão do #38: moderação e administração
+/// usam contas próprias e não alcançam perfil, bloqueio nem salas). Conta privilegiada sem segundo fator só alcança
+/// as rotas marcadas com <see cref="AllowDuringMfaEnrollment{TBuilder}"/>; as demais respondem 403
+/// <c>MFA_ENROLLMENT_REQUIRED</c>. Rotas da própria conta (sessões, MFA, senha) usam
+/// <see cref="RequireAccountSession{TBuilder}"/>, e as <c>/admin</c> exigem a sessão administrativa completa.
 /// </summary>
 internal static class SessionAuthorization
 {
     /// <summary>Sessão qualquer, inclusive de conta privilegiada que ainda cadastra o MFA.</summary>
     public const string SignedIn = "signed-in";
+
+    /// <summary>Qualquer conta com o MFA exigido já provado: rotas da própria conta.</summary>
+    public const string AccountSession = "account-session";
 
     /// <summary>Conta privilegiada, sessão administrativa e MFA provado nesta sessão.</summary>
     public const string AdministrativeSession = "administrative-session";
@@ -23,11 +28,18 @@ internal static class SessionAuthorization
     {
         services.AddSingleton<IAuthorizationHandler, SessionRequirementsHandler>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, SessionAuthorizationResultHandler>();
+        var accountSession = new AuthorizationPolicyBuilder()
+            .RequireAuthenticatedUser()
+            .AddRequirements(new MfaEnrollmentCompleteRequirement())
+            .Build();
         services.AddAuthorizationBuilder()
             .SetFallbackPolicy(new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
-                .AddRequirements(new MfaEnrollmentCompleteRequirement())
+                .AddRequirements(new MfaEnrollmentCompleteRequirement(), new ParticipantAccountRequirement())
                 .Build())
+            // RequireAuthorization() sem nome não pode abrir mão do MFA da conta privilegiada.
+            .SetDefaultPolicy(accountSession)
+            .AddPolicy(AccountSession, accountSession)
             .AddPolicy(SignedIn, policy => policy.RequireAuthenticatedUser())
             .AddPolicy(AdministrativeSession, policy => policy
                 .RequireAuthenticatedUser()
@@ -42,11 +54,18 @@ internal static class SessionAuthorization
     public static TBuilder AllowDuringMfaEnrollment<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder =>
         builder.RequireAuthorization(SignedIn);
+
+    /// <summary>Rota da própria conta, aberta também a conta privilegiada (com o MFA dela provado).</summary>
+    public static TBuilder RequireAccountSession<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder =>
+        builder.RequireAuthorization(AccountSession);
 }
 
 internal sealed class MfaEnrollmentCompleteRequirement : IAuthorizationRequirement;
 
 internal sealed class AdministrativeSessionRequirement : IAuthorizationRequirement;
+
+internal sealed class ParticipantAccountRequirement : IAuthorizationRequirement;
 
 internal sealed class SessionRequirementsHandler : IAuthorizationHandler
 {
@@ -69,6 +88,9 @@ internal sealed class SessionRequirementsHandler : IAuthorizationHandler
                     context.Succeed(requirement);
                     break;
                 case AdministrativeSessionRequirement when session.IsAdministrative:
+                    context.Succeed(requirement);
+                    break;
+                case ParticipantAccountRequirement when !session.AccountIsPrivileged:
                     context.Succeed(requirement);
                     break;
             }

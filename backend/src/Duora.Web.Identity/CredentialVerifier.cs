@@ -8,9 +8,9 @@ namespace Duora.Web.Identity;
 
 /// <summary>
 /// Conta que provou a credencial e pode abrir sessão: a política sai dos papéis, e
-/// <paramref name="SecondFactorVerified"/> diz se o segundo fator foi provado neste login.
+/// <paramref name="SecondFactor"/> diz qual segundo fator foi provado neste login.
 /// </summary>
-public sealed record VerifiedAccount(Guid UserId, string SecurityStamp, SessionPolicy Policy, bool SecondFactorVerified);
+public sealed record VerifiedAccount(Guid UserId, string SecurityStamp, SessionPolicy Policy, SecondFactorKind SecondFactor);
 
 /// <summary>Resultado da verificação de credenciais. Os casos negativos não dizem se a conta existe.</summary>
 public abstract record LoginOutcome
@@ -35,8 +35,8 @@ public abstract record ReauthenticationOutcome
     {
     }
 
-    /// <summary>Credencial provada; <paramref name="WithSecondFactor"/> diz se o TOTP também foi.</summary>
-    public sealed record Verified(bool WithSecondFactor) : ReauthenticationOutcome;
+    /// <summary>Credencial provada; <paramref name="WithAuthenticator"/> diz se o TOTP também foi.</summary>
+    public sealed record Verified(bool WithAuthenticator) : ReauthenticationOutcome;
 
     public sealed record Invalid : ReauthenticationOutcome;
 }
@@ -116,23 +116,45 @@ public sealed class CredentialVerifier
         CancellationToken cancellationToken)
     {
         var user = await _users.FindByIdAsync(userId.ToString("D"));
-        if (user is null || !(await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true)).Succeeded)
+        if (user is null)
+        {
+            return new ReauthenticationOutcome.Invalid();
+        }
+
+        await using var check = await _security.LockAccountAsync(user, cancellationToken);
+        var outcome = await CheckReauthenticationAsync(user, password, authenticatorCode, cancellationToken);
+        await check.CommitAsync(cancellationToken);
+        return outcome;
+    }
+
+    private async Task<ReauthenticationOutcome> CheckReauthenticationAsync(
+        DuoraUser user,
+        string password,
+        string? authenticatorCode,
+        CancellationToken cancellationToken)
+    {
+        if (!(await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true)).Succeeded)
         {
             return new ReauthenticationOutcome.Invalid();
         }
 
         if (!user.TwoFactorEnabled)
         {
-            return new ReauthenticationOutcome.Verified(WithSecondFactor: false);
+            return new ReauthenticationOutcome.Verified(WithAuthenticator: false);
         }
 
-        if (authenticatorCode is null
-            || !await VerifySecondFactorAsync(user, new SecondFactorProof.AuthenticatorCode(authenticatorCode), cancellationToken))
+        if (authenticatorCode is null)
         {
             return new ReauthenticationOutcome.Invalid();
         }
 
-        return new ReauthenticationOutcome.Verified(WithSecondFactor: true);
+        var proved = await _security.VerifySecondFactorAsync(
+            user,
+            new SecondFactorProof.AuthenticatorCode(authenticatorCode),
+            cancellationToken);
+        return proved == SecondFactorKind.Authenticator
+            ? new ReauthenticationOutcome.Verified(WithAuthenticator: true)
+            : new ReauthenticationOutcome.Invalid();
     }
 
     private async Task<LoginOutcome> CheckAsync(
@@ -148,6 +170,20 @@ public sealed class CredentialVerifier
             return new LoginOutcome.InvalidCredentials();
         }
 
+        // Conta travada durante toda a verificação: o bloqueio (ler, somar, gravar) e o passo TOTP não perdem
+        // atualização sob logins paralelos (B1 e B2 da revisão do #38). A falha também é confirmada, para contar.
+        await using var check = await _security.LockAccountAsync(user, cancellationToken);
+        var outcome = await CheckLockedAsync(user, password, secondFactor, cancellationToken);
+        await check.CommitAsync(cancellationToken);
+        return outcome;
+    }
+
+    private async Task<LoginOutcome> CheckLockedAsync(
+        DuoraUser user,
+        string password,
+        SecondFactorProof? secondFactor,
+        CancellationToken cancellationToken)
+    {
         var result = await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
         if (result.IsNotAllowed || result.IsLockedOut)
         {
@@ -160,6 +196,7 @@ public sealed class CredentialVerifier
             return new LoginOutcome.InvalidCredentials();
         }
 
+        var proved = SecondFactorKind.None;
         if (user.TwoFactorEnabled)
         {
             if (secondFactor is null)
@@ -167,7 +204,8 @@ public sealed class CredentialVerifier
                 return new LoginOutcome.MfaRequired();
             }
 
-            if (!await VerifySecondFactorAsync(user, secondFactor, cancellationToken))
+            proved = await _security.VerifySecondFactorAsync(user, secondFactor, cancellationToken);
+            if (proved == SecondFactorKind.None)
             {
                 return new LoginOutcome.InvalidCredentials();
             }
@@ -178,20 +216,7 @@ public sealed class CredentialVerifier
             user.Id,
             await _users.GetSecurityStampAsync(user),
             policy,
-            SecondFactorVerified: user.TwoFactorEnabled));
-    }
-
-    /// <summary>Confere o segundo fator; o erro soma no bloqueio e o acerto zera as falhas da senha e do código.</summary>
-    private async Task<bool> VerifySecondFactorAsync(DuoraUser user, SecondFactorProof proof, CancellationToken cancellationToken)
-    {
-        if (!await _security.VerifySecondFactorAsync(user, proof, cancellationToken))
-        {
-            await _users.AccessFailedAsync(user);
-            return false;
-        }
-
-        await _users.ResetAccessFailedCountAsync(user);
-        return true;
+            proved));
     }
 
     /// <summary>

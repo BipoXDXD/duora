@@ -48,10 +48,17 @@ internal sealed partial class PostgresTicketStore(
             ?? throw new InvalidOperationException("Ticket sem política de sessão.");
         var reauthenticatedAt = DuoraClaims.ReadInstant(principal, DuoraClaims.ReauthenticatedAt);
         var mfaVerifiedAt = DuoraClaims.ReadInstant(principal, DuoraClaims.MfaVerifiedAt);
+        var totpVerifiedAt = DuoraClaims.ReadInstant(principal, DuoraClaims.TotpVerifiedAt);
+        var inheritedLimit = DuoraClaims.ReadInstant(principal, DuoraClaims.AbsoluteExpiresAt);
         RemoveSessionState(identity);
 
         var now = time.GetUtcNow();
         var window = SessionLifetime.For(policy).Open(now);
+        if (inheritedLimit is { } limit && limit < window.AbsoluteExpiresAt)
+        {
+            // Renovação: a sessão nova herda o fim da anterior, nunca o estende.
+            window = new SessionWindow(window.IdleExpiresAt < limit ? window.IdleExpiresAt : limit, limit);
+        }
         var sessionId = Guid.CreateVersion7(now);
         identity.AddClaim(new Claim(DuoraClaims.SessionId, sessionId.ToString("D")));
         ticket.Properties.IssuedUtc = now;
@@ -71,7 +78,8 @@ internal sealed partial class PostgresTicketStore(
                 window,
                 policy,
                 reauthenticatedAt,
-                mfaVerifiedAt),
+                mfaVerifiedAt,
+                totpVerifiedAt),
             cancellationToken);
         return key;
     }
@@ -103,6 +111,8 @@ internal sealed partial class PostgresTicketStore(
         };
         DuoraClaims.AddInstant(state, DuoraClaims.ReauthenticatedAt, session.ReauthenticatedAt);
         DuoraClaims.AddInstant(state, DuoraClaims.MfaVerifiedAt, session.MfaVerifiedAt);
+        DuoraClaims.AddInstant(state, DuoraClaims.TotpVerifiedAt, session.TotpVerifiedAt);
+        DuoraClaims.AddInstant(state, DuoraClaims.AbsoluteExpiresAt, session.AbsoluteExpiresAt);
         identity.AddClaims(state);
         return ticket;
     }

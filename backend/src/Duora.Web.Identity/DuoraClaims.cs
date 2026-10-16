@@ -4,13 +4,19 @@ using Duora.Core.Identity;
 
 namespace Duora.Web.Identity;
 
-/// <summary>Conta e provas com que uma sessão nova nasce (login ou renovação depois de mudar MFA ou senha).</summary>
+/// <summary>
+/// Conta e provas com que uma sessão nova nasce (login ou renovação depois de mudar MFA ou senha). Na renovação,
+/// <paramref name="AbsoluteExpiresAt"/> é o limite absoluto da sessão anterior: renovar nunca estende a vida
+/// contada desde o login (M2 da revisão do #38).
+/// </summary>
 public sealed record SessionGrant(
     Guid UserId,
     string SecurityStamp,
     SessionPolicy Policy,
     DateTimeOffset? ReauthenticatedAt,
-    DateTimeOffset? MfaVerifiedAt);
+    DateTimeOffset? MfaVerifiedAt,
+    DateTimeOffset? TotpVerifiedAt,
+    DateTimeOffset? AbsoluteExpiresAt = null);
 
 /// <summary>
 /// Estado da sessão corrente como o banco o tem agora (lido a cada requisição pelo ticket store, nunca pelo
@@ -20,6 +26,8 @@ public sealed record SessionState(
     SessionPolicy Policy,
     DateTimeOffset? ReauthenticatedAt,
     DateTimeOffset? MfaVerifiedAt,
+    DateTimeOffset? TotpVerifiedAt,
+    DateTimeOffset? AbsoluteExpiresAt,
     bool AccountIsPrivileged)
 {
     /// <summary>Conta privilegiada sem segundo fator nesta sessão: só pode cadastrar o MFA (ADR-0017).</summary>
@@ -43,11 +51,15 @@ public static class DuoraClaims
 
     public const string MfaVerifiedAt = "duora:mfa_verified_at";
 
+    public const string TotpVerifiedAt = "duora:totp_verified_at";
+
+    public const string AbsoluteExpiresAt = "duora:absolute_expires_at";
+
     public const string AccountIsPrivileged = "duora:privileged";
 
     /// <summary>Claims de estado: valem pelo que está no banco, então o ticket store as tira antes de gravar e as repõe ao ler.</summary>
     internal static IReadOnlyList<string> SessionStateTypes { get; } =
-        [Policy, ReauthenticatedAt, MfaVerifiedAt, AccountIsPrivileged];
+        [Policy, ReauthenticatedAt, MfaVerifiedAt, TotpVerifiedAt, AbsoluteExpiresAt, AccountIsPrivileged];
 
     public static Guid? ReadUserId(ClaimsPrincipal principal) =>
         Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
@@ -67,6 +79,8 @@ public static class DuoraClaims
             parsed,
             ReadInstant(principal, ReauthenticatedAt),
             ReadInstant(principal, MfaVerifiedAt),
+            ReadInstant(principal, TotpVerifiedAt),
+            ReadInstant(principal, AbsoluteExpiresAt),
             principal.FindFirstValue(AccountIsPrivileged) == bool.TrueString);
     }
 
@@ -81,6 +95,8 @@ public static class DuoraClaims
         };
         AddInstant(claims, ReauthenticatedAt, grant.ReauthenticatedAt);
         AddInstant(claims, MfaVerifiedAt, grant.MfaVerifiedAt);
+        AddInstant(claims, TotpVerifiedAt, grant.TotpVerifiedAt);
+        AddInstant(claims, AbsoluteExpiresAt, grant.AbsoluteExpiresAt);
         return new ClaimsPrincipal(new ClaimsIdentity(claims, DuoraAuthentication.Scheme));
     }
 

@@ -19,4 +19,11 @@ public sealed class DuoraUser : IdentityUser<Guid>
 
     /// <summary>Criação da conta; num cadastro pendente substituído, o instante do cadastro que ficou.</summary>
     public DateTimeOffset CreatedAt { get; private set; }
+
+    /// <summary>
+    /// Último passo TOTP (RFC 6238) aceito para esta conta. Um código só vale se o passo dele for maior: o mesmo
+    /// código, ou um anterior ainda dentro da tolerância, é recusado. Gravado só por UPDATE condicional em
+    /// <see cref="AccountSecurityService"/>.
+    /// </summary>
+    public long? LastTotpStep { get; private set; }
 }

@@ -13,8 +13,10 @@ namespace Duora.Infrastructure.Identity;
 /// <remarks>
 /// Resgatar um código verifica até <see cref="AccountSecurityService.RecoveryCodeCount"/> hashes. É o caminho raro
 /// (perda do autenticador), já limitado pelo rate limit do login. Dois resgates simultâneos do mesmo código não
-/// passam os dois: o <c>UpdateAsync</c> do UserManager confere o concurrency stamp da conta, e o perdedor falha
-/// sem gravar.
+/// passam os dois por duas defesas: o login trava a linha da conta (<see cref="AccountCheck"/>), e, mesmo sem o
+/// lock, o <c>UpdateAsync</c> do UserManager confere o concurrency stamp da conta e o perdedor falharia sem gravar
+/// (o token e a linha da conta saem no mesmo SaveChanges). Este store depende desse acoplamento: trocar o
+/// <c>RedeemCodeAsync</c> por SQL direto exigiria a condição explícita no UPDATE.
 /// </remarks>
 internal sealed class DuoraUserStore(
     DuoraDbContext context,
@@ -64,8 +66,12 @@ internal sealed class DuoraUserStore(
         return (await ReadHashesAsync(user, cancellationToken)).Count;
     }
 
-    /// <summary>Os códigos saem em maiúsculas; quem digita em minúsculas ou com espaço em volta não erra por isso.</summary>
-    private static string Normalize(string code) => code.Trim().ToUpperInvariant();
+    /// <summary>
+    /// Os códigos saem em maiúsculas com um hífen no meio; quem digita em minúsculas, sem o hífen ou com espaços não
+    /// erra por isso.
+    /// </summary>
+    private static string Normalize(string code) =>
+        string.Concat(code.Where(c => c != '-' && !char.IsWhiteSpace(c))).ToUpperInvariant();
 
     private async Task<List<string>> ReadHashesAsync(DuoraUser user, CancellationToken cancellationToken)
     {

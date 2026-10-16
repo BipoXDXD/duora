@@ -87,7 +87,6 @@ public sealed class AdminRouteTests : IAsyncDisposable
     public async Task AParticipantSessionIsForbiddenOnEveryAdminRoute()
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
-        await Scenario.GrantRoleAsync(account.UserId, AccountRoles.Participant);
         using var browser = await Scenario.SignedInBrowserAsync(account);
 
         await AssertEveryAdminRouteAsync(browser, HttpStatusCode.Forbidden, "FORBIDDEN");
@@ -98,7 +97,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        await MfaScenario.EnableAsync(browser);
+        await MfaScenario.EnableAsync(browser, _time);
 
         await AssertEveryAdminRouteAsync(browser, HttpStatusCode.Forbidden, "FORBIDDEN");
     }
@@ -120,7 +119,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
     {
         var account = await Scenario.CreatePrivilegedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        await MfaScenario.EnableAsync(browser);
+        await MfaScenario.EnableAsync(browser, _time);
 
         foreach (var route in AdminRoutesOf(_factory))
         {
@@ -136,11 +135,11 @@ public sealed class AdminRouteTests : IAsyncDisposable
         EnabledMfa mfa;
         using (var enrolling = await Scenario.SignedInBrowserAsync(account))
         {
-            mfa = await MfaScenario.EnableAsync(enrolling);
+            mfa = await MfaScenario.EnableAsync(enrolling, _time);
         }
 
         using var browser = new Browser(_factory);
-        using var login = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Now(mfa.SharedKey));
+        using var login = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Next(_time, mfa.SharedKey));
         using var probe = await browser.GetAsync(Probe);
 
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
@@ -152,7 +151,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
     {
         var account = await Scenario.CreatePrivilegedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        var mfa = await MfaScenario.EnableAsync(browser);
+        var mfa = await MfaScenario.EnableAsync(browser, _time);
         _time.Advance(TimeSpan.FromMinutes(5));
 
         using var stale = await browser.PostJsonAsync(CriticalProbe, body: null);
@@ -161,7 +160,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
         using var stillStale = await browser.PostJsonAsync(CriticalProbe, body: null);
         using var stepUp = await browser.PostJsonAsync(
             MfaScenario.Reauthenticate,
-            new { password = account.Password, twoFactorCode = Totp.Now(mfa.SharedKey) });
+            new { password = account.Password, twoFactorCode = Totp.Next(_time, mfa.SharedKey) });
         using var fresh = await browser.PostJsonAsync(CriticalProbe, body: null);
 
         await ProblemAssert.IsProblemAsync(stale, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");
@@ -178,7 +177,11 @@ public sealed class AdminRouteTests : IAsyncDisposable
         // A sessão normal tem a janela de 30 min/12 h; só um login novo abre a administrativa (15 min/8 h).
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        await MfaScenario.EnableAsync(browser);
+        await MfaScenario.EnableAsync(browser, _time);
+        // Troca de papel feita por fora da API (suporte, bootstrap): tira o de participante e dá o de moderador.
+        await Scenario.ScalarAsync(
+            "with removed as (delete from identity.user_roles where user_id = $1 returning 1) select count(*) from removed",
+            account.UserId);
         await Scenario.GrantRoleAsync(account.UserId, AccountRoles.Moderator);
 
         using var probe = await browser.GetAsync(Probe);
@@ -191,7 +194,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
     {
         var account = await Scenario.CreatePrivilegedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        await MfaScenario.EnableAsync(browser);
+        await MfaScenario.EnableAsync(browser, _time);
 
         await Scenario.ScalarAsync(
             "with removed as (delete from identity.user_roles where user_id = $1 returning 1) select count(*) from removed",

@@ -18,13 +18,16 @@ internal static class ReauthenticationEndpoints
         api.MapPost("/auth/reauthenticate", ReauthenticateAsync)
             .WithTags("Auth")
             .AllowDuringMfaEnrollment()
+            .RequireAccountRateLimit()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .ProducesProblem(StatusCodes.Status403Forbidden);
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
         api.MapPost("/me/password-changes", ChangePasswordAsync)
             .WithTags("Me")
+            .RequireAccountSession()
             .RequireRecentAuthentication()
-            .RequireSessionRateLimit()
+            .RequireAccountRateLimit()
             .ProducesValidationProblem()
             .ProducesAccountSecurityProblems();
     }
@@ -56,7 +59,7 @@ internal static class ReauthenticationEndpoints
             return InvalidCredentials();
         }
 
-        await security.RecordReauthenticationAsync(userId, sessionId, verified.WithSecondFactor, cancellationToken);
+        await security.RecordReauthenticationAsync(userId, sessionId, verified.WithAuthenticator, cancellationToken);
         return TypedResults.NoContent();
     }
 
@@ -80,13 +83,15 @@ internal static class ReauthenticationEndpoints
         switch (await security.ChangePasswordAsync(userId, currentPassword, newPassword, cancellationToken))
         {
             case PasswordChange.Changed changed:
-                // Acabou de provar a senha; a prova de MFA da sessão (se houver) continua valendo na sessão nova.
+                // Acabou de provar a senha; as provas de segundo fator da sessão continuam valendo na sessão nova.
+                var session = CurrentSession.State(context);
                 await CurrentSession.RenewAsync(
                     context,
                     antiforgery,
                     changed.SecurityStamp,
                     time.GetUtcNow(),
-                    CurrentSession.State(context).MfaVerifiedAt);
+                    session.MfaVerifiedAt,
+                    session.TotpVerifiedAt);
                 return TypedResults.NoContent();
             case PasswordChange.WrongPassword:
                 return InvalidCredentials();
