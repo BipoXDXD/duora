@@ -134,6 +134,8 @@ erDiagram
         uuid id PK
         uuid user_id FK
         text state
+        text provider_reference
+        text request_nonce
         timestamptz expires_at
     }
 ```
@@ -214,15 +216,19 @@ erDiagram
 ### identity.age_verifications
 
 - **Colunas:** `id uuid`; `user_id`; `state text` (`Pending`, `VerifiedAdult`, `Rejected`, `Expired`,
-  `ManualReview`); `policy_version text`; `provider text`; `provider_reference text` (≤ 200);
-  `request_nonce text` (gerado pelo servidor, casado com o callback); `requested_at`, `decided_at`,
-  `expires_at timestamptz`; `decision_source text` (`Callback`, `ProviderQuery`, `ManualReview`);
-  `version bigint`.
+  `ManualReview`); `policy_version text` (≤ 32); `provider text` (≤ 32); `provider_reference text` (≤ 200,
+  gravada pelo worker ao abrir no fornecedor); `request_nonce text` (≥ 256 bits em base64url, gerado pelo servidor,
+  casado com o callback); `provider_flow_url text` (≤ 2048, https, origem na allowlist do adaptador; ADR-0024);
+  `requested_at`, `decided_at`, `expires_at timestamptz`; `decision_source text` (`Callback`, `ProviderQuery`,
+  `ManualReview`); `version bigint`.
 - **Constraints:** PK `id`; FK `user_id` `RESTRICT`; `UNIQUE (provider, provider_reference)`;
   `UNIQUE (request_nonce)`; índice único parcial `ux_age_verifications_open_user` em `(user_id)` onde
-  `state IN ('Pending', 'ManualReview')` (uma solicitação aberta por pessoa); `CHECK` de estado;
+  `state IN ('Pending', 'ManualReview')` (uma solicitação aberta por pessoa); `CHECK` de estado, de
+  `decision_source`, de `version >= 0` e de `provider_flow_url` https;
   `CHECK (state <> 'VerifiedAdult' OR expires_at IS NOT NULL)`.
-- **Índices:** `ix_age_verifications_user_id`.
+- **Índices:** `ix_age_verifications_user_id_requested_at` (FK e leitura da última solicitação da pessoa).
+- **Escrita:** só SQL condicional no estado (`WHERE state = 'Pending'`); a conta é travada antes da solicitação
+  em API-P05 e no webhook, nessa ordem ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md)).
 - **Classe:** P3. Sem documento, imagem ou biometria (spec 12.1, 12.2).
 
 ### identity.consent_records

@@ -53,3 +53,17 @@ public sealed record RecoveryCodesResponse(IReadOnlyList<string> RecoveryCodes);
 public sealed record SessionResponse(Guid Id, DateTime CreatedAt, DateTime LastSeenAt, bool Current, string Description);
 
 public sealed record SessionListResponse(IReadOnlyList<SessionResponse> Items);
+
+/// <summary>
+/// Corpo de API-P05: vazio de propósito. O resultado etário nunca vem do navegador (spec 12.2, TM-35); qualquer
+/// campo, inclusive <c>isAdult</c>, é recusado com 400.
+/// </summary>
+public sealed record StartAgeVerificationRequest;
+
+/// <summary>
+/// Estado mínimo da verificação etária (API-P06). <c>State</c>: NotStarted | Pending | VerifiedAdult | Rejected |
+/// Expired | ManualReview. <c>NextStep</c>: None | StartVerification | WaitForProvider | ContinueWithProvider |
+/// WaitForReview | NotAvailable. <c>ContinueUrl</c> só vem com ContinueWithProvider: o fluxo do fornecedor, de uma
+/// origem na allowlist. Nenhuma inferência do fornecedor (TM-38).
+/// </summary>
+public sealed record AgeVerificationResponse(string State, string NextStep, string? ContinueUrl);
