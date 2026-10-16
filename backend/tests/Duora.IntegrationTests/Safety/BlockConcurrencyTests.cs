@@ -1,4 +1,5 @@
 using System.Net;
+using Duora.IntegrationTests.Identity;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Safety;
@@ -65,6 +66,47 @@ public sealed class BlockConcurrencyTests(PostgresFixture postgres) : IAsyncDisp
         Assert.Equal(HttpStatusCode.NoContent, brunoResponse.StatusCode);
         Assert.Equal(new BlockState(1, 1, 2, 2), await scenario.ReadAsync(ana.UserId, bruno.UserId));
         Assert.Equal(new BlockState(1, 1, 2, 2), await scenario.ReadAsync(bruno.UserId, ana.UserId));
+    }
+
+    /// <summary>
+    /// I1: guarda trancada por mais tempo que as tentativas (3 × `lock_timeout` de 2 s) dá `503` com `Retry-After`,
+    /// nunca `500`, e nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task GuardHeldBeyondEveryRetryAnswers503AndChangesNothing()
+    {
+        var scenario = new SafetyScenario(postgres, _factory);
+        var blocker = await scenario.CreateAccountAsync();
+        var blocked = await scenario.CreateAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(blocker);
+        await using var holder = await HoldGuardsAsync(blocker.UserId, blocked.UserId);
+
+        using var response = await browser.PutAsync(SafetyScenario.BlockPath(blocked.UserId));
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+        Assert.InRange(ProblemAssert.RetryAfterSeconds(response), 1, 60);
+        await holder.ReleaseAsync();
+        Assert.Equal(new BlockState(0, 0, 0, 0), await scenario.ReadAsync(blocker.UserId, blocked.UserId));
+    }
+
+    /// <summary>I1: se a guarda solta depois da primeira tentativa vencer, a próxima tentativa bloqueia.</summary>
+    [Fact]
+    public async Task GuardReleasedAfterTheFirstTimeoutIsRetriedAndBlocks()
+    {
+        var scenario = new SafetyScenario(postgres, _factory);
+        var blocker = await scenario.CreateAccountAsync();
+        var blocked = await scenario.CreateAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(blocker);
+        await using var holder = await HoldGuardsAsync(blocker.UserId, blocked.UserId);
+
+        var pending = browser.PutAsync(SafetyScenario.BlockPath(blocked.UserId));
+        var firstAttempt = await WaitForWaiterAsync(startedAfter: null);
+        await WaitForWaiterAsync(startedAfter: firstAttempt);
+        await holder.ReleaseAsync();
+        using var response = await pending;
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(new BlockState(1, 1, 1, 1), await scenario.ReadAsync(blocker.UserId, blocked.UserId));
     }
 
     /// <summary>Corrida livre repetida, para interleavings que a barreira não prevê (concurrency.md, item 2).</summary>
@@ -140,6 +182,32 @@ public sealed class BlockConcurrencyTests(PostgresFixture postgres) : IAsyncDisp
             }
 
             Assert.True(DateTimeOffset.UtcNow < deadline, $"Os {expectedWaiters} pedidos não chegaram ao lock das guardas.");
+            await Task.Yield();
+        }
+    }
+
+    /// <summary>Instante em que um pedido começou a esperar pelo lock das guardas, mais novo que o anterior.</summary>
+    private async Task<DateTime> WaitForWaiterAsync(DateTime? startedAfter)
+    {
+        await using var observer = new NpgsqlConnection(postgres.ConnectionString);
+        await observer.OpenAsync(Ct);
+        var deadline = DateTimeOffset.UtcNow + WaitLimit;
+        while (true)
+        {
+            await using var command = new NpgsqlCommand(
+                """
+                select max(query_start) from pg_stat_activity
+                where wait_event_type = 'Lock' and query like '%safety.user_guards%for update%'
+                  and ($1::timestamptz is null or query_start > $1)
+                """,
+                observer);
+            command.Parameters.AddWithValue(NpgsqlTypes.NpgsqlDbType.TimestampTz, (object?)startedAfter ?? DBNull.Value);
+            if (await command.ExecuteScalarAsync(Ct) is DateTime started)
+            {
+                return started;
+            }
+
+            Assert.True(DateTimeOffset.UtcNow < deadline, "O pedido não voltou a esperar pelo lock das guardas.");
             await Task.Yield();
         }
     }

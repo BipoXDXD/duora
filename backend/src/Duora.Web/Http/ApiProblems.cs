@@ -20,6 +20,7 @@ internal static class ApiProblems
     public const string PreconditionRequired = "PRECONDITION_REQUIRED";
     public const string RateLimited = "RATE_LIMITED";
     public const string SelfBlock = "SELF_BLOCK";
+    public const string TemporarilyUnavailable = "TEMPORARILY_UNAVAILABLE";
     public const string ValidationFailed = "VALIDATION_FAILED";
 
     public static ProblemHttpResult Problem(int status, string code, string title) =>
