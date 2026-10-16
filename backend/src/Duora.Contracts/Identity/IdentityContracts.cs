@@ -12,8 +12,8 @@ public sealed record RegisterRequest(
 public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 
 /// <summary>
-/// Login (API-A04). Conta com MFA ativo manda também <c>TwoFactorCode</c> (6 dígitos do autenticador) ou
-/// <c>RecoveryCode</c>, nunca os dois.
+/// Login (API-A04). Conta com MFA ativo manda também <c>twoFactorCode</c> (6 dígitos do autenticador) ou
+/// <c>recoveryCode</c>, nunca os dois.
 /// </summary>
 public sealed record LoginRequest(string? Email, string? Password, string? TwoFactorCode = null, string? RecoveryCode = null);
 
@@ -33,7 +33,8 @@ public sealed record ResetPasswordRequest(Guid? UserId, string? Token, string? N
 
 /// <summary>
 /// Conta do titular. <c>Status</c>: PendingEmail | PendingEligibility | Active | Restricted | Suspended |
-/// DeletionPending. <c>Roles</c> vem vazio para participante; papéis privilegiados chegam com o MFA (ADR-0017).
+/// DeletionPending. <c>Roles</c>: nomes do catálogo (participant, moderator, product_admin, operator); vazio para
+/// participante que nunca recebeu papel explícito.
 /// </summary>
 public sealed record MeResponse(
     Guid Id,
