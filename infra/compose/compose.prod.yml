@@ -75,10 +75,12 @@ services:
     stop_grace_period: 60s
     logging: *logging
     healthcheck:
-      # Sonda TCP em 127.0.0.1: o servidor temporário da inicialização só ouve no socket, então a porta só abre
-      # depois que os scripts de initdb terminaram. Sem login: o pg_isready como postgres pela rede era recusado
-      # pelo pg_hba e gerava um FATAL no log a cada 5 s.
-      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/5432"]
+      # -h 127.0.0.1: o servidor temporário da inicialização só ouve no socket; pelo TCP o banco só fica pronto
+      # depois que os scripts de initdb terminaram. pg_isready (não uma sonda TCP) para não dar healthy durante o
+      # recovery, quando o servidor recusa conexões; web, worker e migrator esperam service_healthy. Como duora_app,
+      # que o pg_hba aceita por TCP: o pg_isready não manda senha e não gera FATAL (como postgres, o pg_hba recusava e
+      # logava um FATAL a cada 5 s). O drill confere que não há "no pg_hba.conf entry" no log.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "duora_app", "-d", "postgres"]
       interval: 5s
       timeout: 3s
       retries: 12

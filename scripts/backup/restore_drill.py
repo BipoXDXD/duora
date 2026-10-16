@@ -401,6 +401,12 @@ class Drill:
         finally:
             _run(self._compose + ["start", "s3"], capture=True)
         logs = _run(self._compose + ["logs", "--no-color", "--since", since, "postgres"], capture=True)
+        # O healthcheck (pg_isready a cada 5 s, mais de 30 s até aqui) não pode encher o log de FATAL do pg_hba.
+        hba_rejections = sum(1 for line in logs.splitlines()
+                             if "FATAL" in line and ("pg_hba.conf" in line or '"duora_app"' in line))
+        self.report.isolation["healthcheck gera FATAL de pg_hba"] = hba_rejections > 0
+        if hba_rejections:
+            raise DrillFailure(f"{hba_rejections} FATAL de pg_hba ou de duora_app no log do postgres (healthcheck?)")
         restarts = logs.count(CRASH_RESTART_MARKER)
         self.report.isolation["crash-restart do postgres com o S3 fora do ar"] = restarts > 0
         if restarts:
