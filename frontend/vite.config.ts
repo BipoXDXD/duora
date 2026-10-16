@@ -10,6 +10,10 @@ import { readDevServerSettings, type TlsFiles } from './config/dev-server.ts'
 // Variáveis privadas do servidor de desenvolvimento; nunca use VITE_* para isso.
 const PRIVATE_ENV_PREFIX = 'DUORA_'
 
+// O teste de registro das ilustrações (src/shared/ui/illustration.test.tsx) lê o catálogo e o registro de licenças
+// com ?raw; o Vite confere o id com a query, então a permissão precisa ser do diretório, não do arquivo.
+const TEST_DIRS_OUTSIDE_ROOT = ['../tools/visual', '../docs/design']
+
 export default defineConfig(({ command, mode, isPreview }) => {
   const isDevServer = command === 'serve' && isPreview !== true && process.env.VITEST === undefined
 
@@ -20,7 +24,16 @@ export default defineConfig(({ command, mode, isPreview }) => {
         '@': path.resolve(import.meta.dirname, './src'),
       },
     },
-    server: isDevServer ? createDevServerOptions(loadEnv(mode, import.meta.dirname, PRIVATE_ENV_PREFIX)) : {},
+    server: isDevServer
+      ? createDevServerOptions(loadEnv(mode, import.meta.dirname, PRIVATE_ENV_PREFIX))
+      : {
+          fs: {
+            allow: [
+              import.meta.dirname,
+              ...TEST_DIRS_OUTSIDE_ROOT.map((dir) => path.resolve(import.meta.dirname, dir)),
+            ],
+          },
+        },
     test: {
       environment: 'jsdom',
       include: ['src/**/*.test.{ts,tsx}', 'config/**/*.test.ts'],
