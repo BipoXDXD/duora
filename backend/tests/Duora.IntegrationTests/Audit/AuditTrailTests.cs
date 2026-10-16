@@ -141,6 +141,82 @@ public sealed class AuditTrailTests(PostgresFixture postgres)
         Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
     }
 
+    [Fact]
+    public void TerminalOperatorOnlyActsThroughItsLabel() =>
+        Assert.Throws<ArgumentException>(() =>
+            new AuditRecord(AuditActorKind.TerminalOperator, null, AuditAction.SafetyBlockCreated, "user", Guid.CreateVersion7()));
+
+    [Fact]
+    public async Task TerminalOperatorRecordIsPersistedWithItsLabelAndNoActorId()
+    {
+        var targetId = Guid.CreateVersion7();
+        Assert.True(OperatorName.TryParse("ana.ops", out var operatorName));
+        await using var db = postgres.CreateDbContext();
+        var trail = new AuditTrail(db, new FakeTimeProvider(Now));
+
+        await using (var transaction = await db.Database.BeginTransactionAsync(Ct))
+        {
+            await trail.AppendAsync(
+                AuditRecord.ByTerminalOperator(operatorName, AuditAction.AdminTemporaryPasswordReissued, "user", targetId),
+                Ct);
+            await transaction.CommitAsync(Ct);
+        }
+
+        var row = Assert.Single(await ReadByTargetAsync(targetId));
+        Assert.Equal("TerminalOperator", row.ActorKind);
+        Assert.Null(row.ActorId);
+        Assert.Equal("ana.ops", row.ActorLabel);
+        Assert.Equal("identity.admin_temporary_password_reissued", row.Action);
+    }
+
+    /// <summary>
+    /// O banco é a última barreira do rótulo do terminal: só <c>TerminalOperator</c> o tem, sempre, sem id de ator e
+    /// no formato de usuário de sistema. Os casos válidos mostram que a recusa vem da regra, não do comando.
+    /// </summary>
+    [Theory]
+    [InlineData("TerminalOperator", false, "ana.ops", true)]
+    [InlineData("TerminalOperator", false, null, false)]
+    [InlineData("TerminalOperator", true, "ana.ops", false)]
+    [InlineData("TerminalOperator", false, "Ana Silva", false)]
+    [InlineData("TerminalOperator", false, "ana.ops\n", false)]
+    [InlineData("TerminalOperator", false, "-ana", false)]
+    [InlineData("TerminalOperator", false, ".ana", false)]
+    [InlineData("User", true, "ana.ops", false)]
+    [InlineData("System", false, "ana.ops", false)]
+    [InlineData("Operator", true, "ana.ops", false)]
+    [InlineData("Operator", true, null, true)]
+    [InlineData("System", false, null, true)]
+    public async Task DatabaseAcceptsAnActorLabelOnlyForTheTerminalOperator(
+        string actorKind,
+        bool withActorId,
+        string? actorLabel,
+        bool accepted)
+    {
+        var targetId = Guid.CreateVersion7();
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var command = new NpgsqlCommand(
+            """
+            insert into ops.audit_events (occurred_at, actor_kind, actor_id, actor_label, action, target_type, target_id)
+            values (now(), $1, $2, $3, 'identity.admin_granted.moderator', 'user', $4)
+            """,
+            connection);
+        command.Parameters.AddWithValue(actorKind);
+        command.Parameters.AddWithValue(withActorId ? Guid.CreateVersion7() : DBNull.Value);
+        command.Parameters.AddWithValue((object?)actorLabel ?? DBNull.Value);
+        command.Parameters.AddWithValue(targetId);
+
+        if (accepted)
+        {
+            Assert.Equal(1, await command.ExecuteNonQueryAsync(Ct));
+            return;
+        }
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(Ct));
+        Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+        Assert.Empty(await ReadByTargetAsync(targetId));
+    }
+
     private static AuditRecord SystemRecord(Guid targetId) =>
         new(AuditActorKind.System, null, AuditAction.SafetyBlockCreated, "user", targetId);
 
@@ -151,7 +227,8 @@ public sealed class AuditTrailTests(PostgresFixture postgres)
             .SqlQuery<AuditRow>(
                 $"""
                 select occurred_at as "OccurredAt", actor_kind as "ActorKind", actor_id as "ActorId",
-                       action as "Action", target_type as "TargetType", target_version as "TargetVersion",
+                       actor_label as "ActorLabel", action as "Action", target_type as "TargetType",
+                       target_version as "TargetVersion",
                        correlation_id as "CorrelationId"
                 from ops.audit_events where target_id = {targetId}
                 """)
@@ -162,6 +239,7 @@ public sealed class AuditTrailTests(PostgresFixture postgres)
         DateTimeOffset OccurredAt,
         string ActorKind,
         Guid? ActorId,
+        string? ActorLabel,
         string Action,
         string TargetType,
         long? TargetVersion,

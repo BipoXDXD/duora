@@ -11,7 +11,9 @@ namespace Duora.Web.Security;
 /// usam contas próprias e não alcançam perfil, bloqueio nem salas). Conta privilegiada sem segundo fator só alcança
 /// as rotas marcadas com <see cref="AllowDuringMfaEnrollment{TBuilder}"/>; as demais respondem 403
 /// <c>MFA_ENROLLMENT_REQUIRED</c>. Rotas da própria conta (sessões, MFA, senha) usam
-/// <see cref="RequireAccountSession{TBuilder}"/>, e as <c>/admin</c> exigem a sessão administrativa completa.
+/// <see cref="RequireAccountSession{TBuilder}"/>, e as <c>/admin</c> exigem a sessão administrativa completa. Antes de
+/// tudo isso, conta com a senha temporária do bootstrap (D4) só alcança a troca de senha
+/// (<see cref="AllowDuringPasswordChange{TBuilder}"/>); as demais respondem 403 <c>PASSWORD_CHANGE_REQUIRED</c>.
 /// </summary>
 internal static class SessionAuthorization
 {
@@ -24,26 +26,43 @@ internal static class SessionAuthorization
     /// <summary>Conta privilegiada, sessão administrativa e MFA provado nesta sessão.</summary>
     public const string AdministrativeSession = "administrative-session";
 
+    /// <summary>
+    /// Troca de senha (API-A16): rota da própria conta que também atende a sessão aberta com a senha temporária,
+    /// mas não a conta privilegiada que ainda cadastra o MFA.
+    /// </summary>
+    public const string PasswordChange = "password-change";
+
     public static IServiceCollection AddSessionAuthorization(this IServiceCollection services)
     {
         services.AddSingleton<IAuthorizationHandler, SessionRequirementsHandler>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, SessionAuthorizationResultHandler>();
         var accountSession = new AuthorizationPolicyBuilder()
             .RequireAuthenticatedUser()
-            .AddRequirements(new MfaEnrollmentCompleteRequirement())
+            .AddRequirements(new PasswordChangeCompleteRequirement(), new MfaEnrollmentCompleteRequirement())
             .Build();
         services.AddAuthorizationBuilder()
             .SetFallbackPolicy(new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
-                .AddRequirements(new MfaEnrollmentCompleteRequirement(), new ParticipantAccountRequirement())
+                .AddRequirements(
+                    new PasswordChangeCompleteRequirement(),
+                    new MfaEnrollmentCompleteRequirement(),
+                    new ParticipantAccountRequirement())
                 .Build())
             // RequireAuthorization() sem nome não pode abrir mão do MFA da conta privilegiada.
             .SetDefaultPolicy(accountSession)
             .AddPolicy(AccountSession, accountSession)
-            .AddPolicy(SignedIn, policy => policy.RequireAuthenticatedUser())
+            .AddPolicy(SignedIn, policy => policy
+                .RequireAuthenticatedUser()
+                .AddRequirements(new PasswordChangeCompleteRequirement()))
+            .AddPolicy(PasswordChange, policy => policy
+                .RequireAuthenticatedUser()
+                .AddRequirements(new PasswordChangeAllowedRequirement()))
             .AddPolicy(AdministrativeSession, policy => policy
                 .RequireAuthenticatedUser()
-                .AddRequirements(new MfaEnrollmentCompleteRequirement(), new AdministrativeSessionRequirement()));
+                .AddRequirements(
+                    new PasswordChangeCompleteRequirement(),
+                    new MfaEnrollmentCompleteRequirement(),
+                    new AdministrativeSessionRequirement()));
         return services;
     }
 
@@ -55,6 +74,11 @@ internal static class SessionAuthorization
         where TBuilder : IEndpointConventionBuilder =>
         builder.RequireAuthorization(SignedIn);
 
+    /// <summary>Única rota da sessão aberta com a senha temporária do bootstrap: a troca de senha (API-A16).</summary>
+    public static TBuilder AllowDuringPasswordChange<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder =>
+        builder.RequireAuthorization(PasswordChange);
+
     /// <summary>Rota da própria conta, aberta também a conta privilegiada (com o MFA dela provado).</summary>
     public static TBuilder RequireAccountSession<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder =>
@@ -62,6 +86,12 @@ internal static class SessionAuthorization
 }
 
 internal sealed class MfaEnrollmentCompleteRequirement : IAuthorizationRequirement;
+
+/// <summary>A conta não usa mais a senha temporária do bootstrap.</summary>
+internal sealed class PasswordChangeCompleteRequirement : IAuthorizationRequirement;
+
+/// <summary>Pode trocar a senha: está na senha temporária ou já não deve o MFA da conta privilegiada.</summary>
+internal sealed class PasswordChangeAllowedRequirement : IAuthorizationRequirement;
 
 internal sealed class AdministrativeSessionRequirement : IAuthorizationRequirement;
 
@@ -81,6 +111,18 @@ internal sealed class SessionRequirementsHandler : IAuthorizationHandler
         {
             switch (requirement)
             {
+                case PasswordChangeCompleteRequirement when session.AwaitsPasswordChange:
+                    context.Fail(new AuthorizationFailureReason(this, ApiProblems.PasswordChangeRequired));
+                    break;
+                case PasswordChangeCompleteRequirement:
+                    context.Succeed(requirement);
+                    break;
+                case PasswordChangeAllowedRequirement when session.AwaitsPasswordChange || !session.AwaitsMfaEnrollment:
+                    context.Succeed(requirement);
+                    break;
+                case PasswordChangeAllowedRequirement:
+                    context.Fail(new AuthorizationFailureReason(this, ApiProblems.MfaEnrollmentRequired));
+                    break;
                 case MfaEnrollmentCompleteRequirement when session.AwaitsMfaEnrollment:
                     context.Fail(new AuthorizationFailureReason(this, ApiProblems.MfaEnrollmentRequired));
                     break;
@@ -101,8 +143,9 @@ internal sealed class SessionRequirementsHandler : IAuthorizationHandler
 }
 
 /// <summary>
-/// Dá ao 403 de MFA pendente o código próprio e à elegibilidade indisponível o 503; os outros resultados seguem o
-/// tratamento padrão.
+/// Dá aos 403 de senha temporária e de MFA pendente os códigos próprios e à elegibilidade indisponível o 503; os
+/// outros resultados seguem o tratamento padrão. A senha temporária vem primeiro: a conta nessa fase também deve o
+/// MFA, e o que ela precisa fazer agora é trocar a senha.
 /// </summary>
 internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
@@ -116,6 +159,9 @@ internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewa
         AuthorizationPolicy policy,
         PolicyAuthorizationResult authorizeResult)
     {
+        var awaitsPasswordChange = authorizeResult.Forbidden
+            && authorizeResult.AuthorizationFailure?.FailureReasons.Any(
+                reason => reason.Message == ApiProblems.PasswordChangeRequired) == true;
         var awaitsMfa = authorizeResult.Forbidden
             && authorizeResult.AuthorizationFailure?.FailureReasons.Any(
                 reason => reason.Message == ApiProblems.MfaEnrollmentRequired) == true;
@@ -129,6 +175,16 @@ internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewa
                     StatusCodes.Status503ServiceUnavailable,
                     ApiProblems.TemporarilyUnavailable,
                     "Tente novamente em instantes.")
+                .ExecuteAsync(context);
+            return;
+        }
+
+        if (awaitsPasswordChange)
+        {
+            await ApiProblems.Problem(
+                    StatusCodes.Status403Forbidden,
+                    ApiProblems.PasswordChangeRequired,
+                    "Troque a senha temporária para continuar.")
                 .ExecuteAsync(context);
             return;
         }

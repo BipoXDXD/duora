@@ -73,10 +73,16 @@ internal static class IdentityModelConfiguration
             table.HasCheckConstraint(
                 "ck_users_user_name_is_email",
                 "normalized_user_name IS NOT DISTINCT FROM normalized_email");
+            // Conta com senha temporária (bootstrap administrativo) nasce confirmada e assim fica: o upsert do
+            // cadastro só substitui conta não confirmada, então nunca toca uma conta privilegiada pendente (TM-66).
+            table.HasCheckConstraint(
+                "ck_users_temporary_password_requires_confirmed_email",
+                "temporary_password_expires_at IS NULL OR email_confirmed");
         });
         user.Property(u => u.Status).HasConversion<string>().HasMaxLength(24);
         user.Property(u => u.CreatedAt);
         user.Property(u => u.LastTotpStep);
+        user.Property(u => u.TemporaryPasswordExpiresAt);
         user.Property(u => u.Email).HasMaxLength(EmailAddress.MaxLength);
         user.Property(u => u.NormalizedEmail).HasMaxLength(EmailAddress.MaxLength);
         user.Property(u => u.UserName).HasMaxLength(EmailAddress.MaxLength);
