@@ -289,7 +289,8 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Scripts de operação (deploy e segredos) e Ansible: testes, tipos e lint com versões fixadas.
+  # Ferramentas Python do repositório (scripts de operação, Ansible e pipeline de ilustrações): testes, tipos e lint
+  # com versões fixadas.
   ops:
     name: ops
     runs-on: ubuntu-24.04
@@ -308,6 +309,20 @@ jobs:
           # diferente do versionado aborta a instalação.
           "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes -r scripts/deploy/requirements.txt
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      # Venv próprio: o Pillow do tooling visual não se mistura com as ferramentas de operação (e vice-versa).
+      - name: Dependências do pipeline de ilustrações
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv-visual"
+          "$RUNNER_TEMP/venv-visual/bin/pip" install --quiet --require-hashes -r tools/visual/requirements.txt
+
+      - name: Testes do pipeline de ilustrações
+        run: |
+          "$RUNNER_TEMP/venv-visual/bin/python" -m unittest discover -s tools/visual -v
+
+      # --pythonpath: o pyright resolve o Pillow pelo venv do tooling visual, não pelo das ferramentas de operação.
+      - name: Pyright do pipeline de ilustrações
+        run: pyright -p tools/visual/pyrightconfig.json --pythonpath "$RUNNER_TEMP/venv-visual/bin/python" tools/visual
 
       - name: Testes dos scripts de deploy
         run: python3 -m unittest discover -s scripts/deploy -v
