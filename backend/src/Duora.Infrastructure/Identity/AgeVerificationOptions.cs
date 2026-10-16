@@ -32,12 +32,6 @@ internal sealed class AgeVerificationOptions
     /// <summary>Versão da política etária gravada em cada solicitação (TM-37).</summary>
     public string PolicyVersion { get; set; } = "synthetic-2026-10";
 
-    /// <summary>
-    /// Validade de uma verificação adulta. Hipótese configurável enquanto o ECA Digital art. 9º § 1º está pendente
-    /// (issue #9, item 5).
-    /// </summary>
-    public TimeSpan Validity { get; set; } = TimeSpan.FromDays(365);
-
     /// <summary>Quanto tempo uma solicitação sem resultado fica aberta antes de a pessoa poder pedir outra.</summary>
     public TimeSpan RequestLifetime { get; set; } = TimeSpan.FromHours(24);
 
@@ -48,7 +42,7 @@ internal sealed class AgeVerificationOptions
 
     public bool IsEnabled => Provider != AgeVerificationProviderKind.None;
 
-    public AgeVerificationPolicy ToPolicy() => new(PolicyVersion, Validity, RequestLifetime);
+    public AgeVerificationPolicy ToPolicy() => new(PolicyVersion, RequestLifetime);
 
     /// <summary>A URL do fluxo pode ir ao navegador: https, sem credencial e com origem na allowlist.</summary>
     public bool IsAllowedFlow(Uri flowUrl) =>
@@ -77,11 +71,6 @@ internal sealed class AgeVerificationOptions
             return $"{Section}:PolicyVersion fora do formato (até 32 letras, dígitos, '.', '-', '_').";
         }
 
-        if (Validity <= TimeSpan.Zero)
-        {
-            return $"{Section}:Validity precisa ser positiva.";
-        }
-
         if (RequestLifetime <= TimeSpan.Zero)
         {
             return $"{Section}:RequestLifetime precisa ser positivo.";
@@ -99,7 +88,7 @@ internal sealed class AgeVerificationOptions
     {
         try
         {
-            _ = new AgeVerificationPolicy(PolicyVersion, TimeSpan.FromDays(1), TimeSpan.FromDays(1));
+            _ = new AgeVerificationPolicy(PolicyVersion, TimeSpan.FromDays(1));
             return true;
         }
         catch (ArgumentException)

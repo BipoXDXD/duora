@@ -8,26 +8,16 @@ namespace Duora.UnitTests.Identity;
 /// </summary>
 public sealed class AgeEligibilityDecideTests
 {
-    private static readonly DateTimeOffset DecidedAt = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
-
-    private static readonly AgeVerificationPolicy Policy = new(
-        "2026-10-15",
-        validity: TimeSpan.FromDays(365),
-        requestLifetime: TimeSpan.FromHours(24));
-
     [Fact]
-    public void VerifiedAdultActivatesAPendingEligibilityAccountAndSetsTheExpiry()
+    public void VerifiedAdultActivatesAPendingEligibilityAccountForGood()
     {
         var decision = AgeEligibility.Decide(
             AccountStatus.PendingEligibility,
             AgeVerificationState.Pending,
-            AgeCheckOutcome.VerifiedAdult,
-            DecidedAt,
-            Policy);
+            AgeCheckOutcome.VerifiedAdult);
 
         Assert.NotNull(decision);
         Assert.Equal(AgeVerificationState.VerifiedAdult, decision.VerificationState);
-        Assert.Equal(new DateTimeOffset(2027, 10, 15, 12, 0, 0, TimeSpan.Zero), decision.ExpiresAt);
         Assert.Equal(AccountStatus.Active, decision.AccountStatus);
         Assert.True(decision.ChangesAccountFrom(AccountStatus.PendingEligibility));
     }
@@ -38,13 +28,10 @@ public sealed class AgeEligibilityDecideTests
         var decision = AgeEligibility.Decide(
             AccountStatus.PendingEligibility,
             AgeVerificationState.Pending,
-            AgeCheckOutcome.NotAdult,
-            DecidedAt,
-            Policy);
+            AgeCheckOutcome.NotAdult);
 
         Assert.NotNull(decision);
         Assert.Equal(AgeVerificationState.Rejected, decision.VerificationState);
-        Assert.Null(decision.ExpiresAt);
         Assert.Equal(AccountStatus.Restricted, decision.AccountStatus);
     }
 
@@ -54,9 +41,7 @@ public sealed class AgeEligibilityDecideTests
         var decision = AgeEligibility.Decide(
             AccountStatus.Active,
             AgeVerificationState.Pending,
-            AgeCheckOutcome.NotAdult,
-            DecidedAt,
-            Policy);
+            AgeCheckOutcome.NotAdult);
 
         Assert.Equal(AccountStatus.Restricted, decision?.AccountStatus);
     }
@@ -67,13 +52,10 @@ public sealed class AgeEligibilityDecideTests
         var decision = AgeEligibility.Decide(
             AccountStatus.PendingEligibility,
             AgeVerificationState.Pending,
-            AgeCheckOutcome.Inconclusive,
-            DecidedAt,
-            Policy);
+            AgeCheckOutcome.Inconclusive);
 
         Assert.NotNull(decision);
         Assert.Equal(AgeVerificationState.ManualReview, decision.VerificationState);
-        Assert.Null(decision.ExpiresAt);
         Assert.Equal(AccountStatus.PendingEligibility, decision.AccountStatus);
         Assert.False(decision.ChangesAccountFrom(AccountStatus.PendingEligibility));
     }
@@ -88,9 +70,7 @@ public sealed class AgeEligibilityDecideTests
         var decision = AgeEligibility.Decide(
             account,
             AgeVerificationState.Pending,
-            AgeCheckOutcome.VerifiedAdult,
-            DecidedAt,
-            Policy);
+            AgeCheckOutcome.VerifiedAdult);
 
         Assert.NotNull(decision);
         Assert.Equal(AgeVerificationState.VerifiedAdult, decision.VerificationState);
@@ -106,9 +86,7 @@ public sealed class AgeEligibilityDecideTests
         var decision = AgeEligibility.Decide(
             account,
             AgeVerificationState.Pending,
-            AgeCheckOutcome.NotAdult,
-            DecidedAt,
-            Policy);
+            AgeCheckOutcome.NotAdult);
 
         Assert.Equal(account, decision?.AccountStatus);
     }
@@ -118,11 +96,10 @@ public sealed class AgeEligibilityDecideTests
     [InlineData(AccountStatus.Active)]
     public void LateNotAdultOnAnExpiredRequestStillRestrictsTheAccount(AccountStatus account)
     {
-        var decision = AgeEligibility.Decide(account, AgeVerificationState.Expired, AgeCheckOutcome.NotAdult, DecidedAt, Policy);
+        var decision = AgeEligibility.Decide(account, AgeVerificationState.Expired, AgeCheckOutcome.NotAdult);
 
         Assert.NotNull(decision);
         Assert.Equal(AgeVerificationState.Expired, decision.VerificationState);
-        Assert.Null(decision.ExpiresAt);
         Assert.Equal(AccountStatus.Restricted, decision.AccountStatus);
     }
 
@@ -131,7 +108,7 @@ public sealed class AgeEligibilityDecideTests
     [InlineData(AgeCheckOutcome.Inconclusive)]
     public void LateNonRestrictingResultOnAnExpiredRequestIsIgnored(AgeCheckOutcome outcome)
     {
-        Assert.Null(AgeEligibility.Decide(AccountStatus.PendingEligibility, AgeVerificationState.Expired, outcome, DecidedAt, Policy));
+        Assert.Null(AgeEligibility.Decide(AccountStatus.PendingEligibility, AgeVerificationState.Expired, outcome));
     }
 
     [Theory]
@@ -144,9 +121,7 @@ public sealed class AgeEligibilityDecideTests
         var decision = AgeEligibility.Decide(
             AccountStatus.PendingEligibility,
             state,
-            AgeCheckOutcome.VerifiedAdult,
-            DecidedAt,
-            Policy);
+            AgeCheckOutcome.VerifiedAdult);
 
         Assert.Null(decision);
     }
@@ -157,8 +132,6 @@ public sealed class AgeEligibilityDecideTests
         Assert.Throws<ArgumentOutOfRangeException>(() => AgeEligibility.Decide(
             AccountStatus.PendingEligibility,
             AgeVerificationState.Pending,
-            (AgeCheckOutcome)99,
-            DecidedAt,
-            Policy));
+            (AgeCheckOutcome)99));
     }
 }

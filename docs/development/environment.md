@@ -168,7 +168,6 @@ antigo.
 |---|---|---|
 | `AgeVerification:Provider` | `None` | `None` ou `Fake` (Development e Testing) |
 | `AgeVerification:PolicyVersion` | `synthetic-2026-10` | Versão gravada em cada solicitação (TM-37) |
-| `AgeVerification:Validity` | `365.00:00:00` | Validade da verificação adulta (hipótese; issue #9, item 5) |
 | `AgeVerification:RequestLifetime` | `1.00:00:00` | Depois disso, uma solicitação sem resultado deixa pedir outra |
 | `AgeVerification:AllowedFlowOrigins` | vazio | Origens aceitas para o fluxo do fornecedor; obrigatória com fornecedor |
 | `AgeVerification:Fake:Mode` | `Succeed` | `Succeed`, `Slow`, `Fail` ou `DuplicateCallback` |

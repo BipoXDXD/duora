@@ -37,7 +37,7 @@ ser dado pessoal sensível (LGPD art. 5.º, II) ou de risco elevado; a resposta 
 | `identity.users` | E-mail, hash de senha, estado da conta, data de nascimento, tentativas de login | Pessoa usuária | S / P3 | F-01, F-02 | Não, mas a data de nascimento serve à proteção etária | A definir com apoio jurídico |
 | `identity.login_sessions` | Instantes de uso, resumo do dispositivo, prefixo de rede | Pessoa usuária | P2 | F-01, F-07 | Não | A definir com apoio jurídico |
 | `identity.auth_tickets`, `identity.user_tokens` | Ticket de sessão, chave TOTP, códigos de recuperação | Pessoa usuária | S | F-01 | Não | A definir com apoio jurídico |
-| `identity.age_verifications` | Resultado mínimo, validade, referência do fornecedor, versão da política | Pessoa usuária | P3 | F-02 | Possível (biometria no fornecedor, se o método usar) | A definir com apoio jurídico |
+| `identity.age_verifications` | Resultado mínimo, instante da decisão, referência do fornecedor, versão da política | Pessoa usuária | P3 | F-02 | Possível (biometria no fornecedor, se o método usar) | A definir com apoio jurídico |
 | `identity.consent_records` | Versões de termos aceitas e instantes | Pessoa usuária | P2 | F-01, F-08 | Não | A definir com apoio jurídico |
 | `profiles.profiles` | Nome de exibição, faixa etária, região aproximada (UF em ISO 3166-2:BR, opcional; nunca cidade, CEP nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
 | `profiles.preferences` | Critérios privados de compatibilidade | Pessoa usuária | P3 | F-03 | **Provável** se incluírem gênero buscado ou orientação (vida sexual) | A definir com apoio jurídico |
@@ -72,7 +72,7 @@ contrato de cada adaptador afirma esse conjunto (TM-60).
 
 | Função | Interface | Dados enviados (máximo) | Dados recebidos | Requisitos antes de dados reais |
 |---|---|---|---|---|
-| Verificação etária | `IAgeEligibilityProvider` | ID de solicitação (nonce), URL de retorno fixa; o que o método exigir é coletado **pelo fornecedor**, não pelo Duora | Resultado mínimo, referência, validade | Método proporcional, taxa de erro, contestação, acessibilidade, retenção e local de tratamento, callbacks assinados (spec 12.2, 16.3) |
+| Verificação etária | `IAgeEligibilityProvider` | ID de solicitação (nonce), URL de retorno fixa; o que o método exigir é coletado **pelo fornecedor**, não pelo Duora | Resultado mínimo, referência | Método proporcional, taxa de erro, contestação, acessibilidade, retenção e local de tratamento, callbacks assinados (spec 12.2, 16.3) |
 | E-mail transacional | `ITransactionalEmailSender` | Endereço, modelo e variáveis neutras (sem nome de outra pessoa, trecho de mensagem ou motivo de moderação) | Recibos, bounces, reclamações | Domínio autenticado (SPF, DKIM, DMARC), retenção de logs do fornecedor, suppression (spec 16.4) |
 | Armazenamento de fotos | `IObjectStore` (adaptador de filesystem) | Bytes de fotos (quarentena e derivados) e arquivo de exportação, no disco da VPS (Hostinger); nenhum terceiro além do provedor da VPS | — | Diretório do host com dono e modo restritos, montagem por área, cópia externa obrigatória (adendo do ADR-0010) |
 | Backup | pgBackRest (banco e WAL) e restic (derivados das fotos), no **Backblaze B2, região US East (EUA)** | Cópia física do banco e WAL e cópia dos derivados das fotos, **cifradas no cliente** antes de sair da VPS (a Backblaze só recebe blocos cifrados; as chaves de cifra ficam na VPS e no cofre do responsável) | — | Criptografia com chave sob custódia separada, retenção, proteção contra exclusão (spec 18.3); escolhido em 2026-10-16 |
@@ -145,9 +145,10 @@ Pendências que este mapa não resolve; cada uma bloqueia dados reais até ter d
    necessária ou se basta a faixa etária mais o resultado da verificação.
 4. **Registros de acesso:** aplicabilidade do Marco Civil (art. 15, seis meses) ao Duora, armazenamento
    separado e acesso restrito (spec 12.1, 12.4).
-5. **ECA Digital:** avaliar com apoio jurídico se o art. 9.º se aplica ao Duora (serviço restrito a adultos) e,
-   se sim, como "verificação de idade a cada acesso, vedada a autodeclaração" se compara à verificação com
-   validade prevista na spec 12.2.
+5. **ECA Digital:** ~~avaliar com apoio jurídico se o art. 9.º se aplica ao Duora~~. Decidido pelo dono
+   (2026-10-16, issue #9): não haverá análise jurídica; a verificação etária acontece só no cadastro, sem validade
+   nem reverificação por acesso ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md), adendo de
+   2026-10-16).
 6. **Registro das operações de tratamento** (LGPD art. 37) e comunicação de incidentes (art. 48): responsável
    e procedimento (spec 12.5).
 7. **Fotos de terceiros** nas imagens de perfil e **terceiros mencionados** em mensagens e denúncias: tratamento

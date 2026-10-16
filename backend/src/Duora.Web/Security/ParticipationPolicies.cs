@@ -44,12 +44,12 @@ internal static class ParticipationPolicies
         builder.RequireAuthorization(EligibleParticipant);
 }
 
-/// <summary>Conta ativa com verificação etária adulta dentro da validade, avaliada a cada requisição no banco.</summary>
+/// <summary>Conta ativa com verificação etária adulta (que não vence), avaliada a cada requisição no banco.</summary>
 internal sealed class EligibleParticipantRequirement : IAuthorizationRequirement;
 
 /// <summary>
-/// Pergunta ao Identity (<c>GetEligibility</c>) a cada requisição, sem cache: restrição, suspensão e vencimento da
-/// verificação valem na requisição seguinte. A sessão vai junto, sem efeito por ora (ADR-0024, decisão 3).
+/// Pergunta ao Identity (<c>GetEligibility</c>) a cada requisição, sem cache: restrição e suspensão valem na
+/// requisição seguinte. A sessão vai junto, sem efeito por ora (ADR-0024, decisão 3).
 /// </summary>
 internal sealed class EligibleParticipantHandler(AgeVerificationService verifications)
     : AuthorizationHandler<EligibleParticipantRequirement>

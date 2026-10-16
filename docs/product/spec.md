@@ -899,6 +899,8 @@ Selecionar e validar um mecanismo proporcional ao risco, considerando privacidad
 
 A evidência mínima vincula resultado ao usuário, procedimento e validade. Callback recebido é autenticado, deduplicado e associado a uma solicitação criada pelo servidor. Nunca aceitar `isAdult: true` do navegador. Indisponibilidade mantém conta pendente; suspeita de menor restringe acesso e aciona revisão apropriada. Não improvisar “estimativa de idade” com um prompt em um modelo genérico de visão.
 
+> **Divergência registrada ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md), adendo de 2026-10-16):** por decisão do dono (issue #9), a verificação etária acontece uma vez, no cadastro, e uma `VerifiedAdult` **não tem validade**: a evidência vincula o resultado ao usuário, ao procedimento, à versão da política e ao instante da decisão, sem data de expiração, e não há reverificação por acesso ou sessão. `Expired` vale só para solicitação abandonada. Onde esta spec fala em "validade" ou "data de expiração" da verificação etária (10.2, 12.1 e este item), vale o ADR.
+
 ### 12.3. Moderação amplamente automatizada, mas não abandonada
 
 | Ação | Automação permitida | Gate humano |
