@@ -16,13 +16,13 @@ public sealed class UserGuardsMigrationTests(PostgresFixture postgres)
     public async Task ExistingAccountsGetAGuardWithVersionZero()
     {
         var database = await postgres.CreateEmptyDatabaseAsync(Ct);
-        await using (var before = PostgresFixture.CreateDbContext(database))
+        await using (var before = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
             await before.GetService<IMigrator>().MigrateAsync(MigrationBeforeSafety, cancellationToken: Ct);
         }
 
         var existing = Guid.CreateVersion7();
-        await using (var connection = new NpgsqlConnection(database))
+        await using (var connection = new NpgsqlConnection(database.AppConnectionString))
         {
             await connection.OpenAsync(Ct);
             await using var insert = new NpgsqlCommand(
@@ -36,12 +36,12 @@ public sealed class UserGuardsMigrationTests(PostgresFixture postgres)
             await insert.ExecuteNonQueryAsync(Ct);
         }
 
-        await using (var after = PostgresFixture.CreateDbContext(database))
+        await using (var after = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
             await after.Database.MigrateAsync(Ct);
         }
 
-        await using var check = new NpgsqlConnection(database);
+        await using var check = new NpgsqlConnection(database.AppConnectionString);
         await check.OpenAsync(Ct);
         await using var read = new NpgsqlCommand(
             "select security_version from safety.user_guards where user_id = $1", check);
