@@ -51,6 +51,7 @@ public sealed class ComposeFileTests
         var compose = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "infra", "compose", "compose.prod.yml"));
 
         Assert.DoesNotContain("RequireMountedVolume", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("RequireCertificate", compose, StringComparison.Ordinal);
         Assert.Contains(
             "\n      ASPNETCORE_ENVIRONMENT: Production\n",
             Between(compose, "\n  web:\n", "\n  worker:\n"),

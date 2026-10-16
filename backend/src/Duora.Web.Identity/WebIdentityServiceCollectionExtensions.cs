@@ -183,6 +183,10 @@ public static class WebIdentityServiceCollectionExtensions
                 o => o.IsPersistent(),
                 "DataProtection:KeysDirectory precisa ser o ponto de montagem de um volume persistente: na camada do "
                 + "container ou em memória, a chave some no próximo deploy e todas as sessões caem.")
+            .Validate<IHostEnvironment>(
+                (o, environment) => o.RequireCertificate || !environment.IsProduction(),
+                "DataProtection:RequireCertificate=false é proibido em Production: o key ring ficaria em claro no "
+                + "volume e nos backups.")
             .Validate(
                 o => !o.RequireCertificate || !string.IsNullOrWhiteSpace(o.Certificate),
                 "DataProtection:Certificate é obrigatório: sem ele o key ring fica em claro no volume e nos backups.")
