@@ -39,9 +39,12 @@ public sealed class OwnProfileTests : IAsyncDisposable
         Assert.Equal("\"0\"", response.Headers.ETag?.ToString());
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         var body = await ReadObjectAsync(response);
-        Assert.Equal(["bio", "displayName", "version"], body.Select(p => p.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["bio", "displayName", "regionCode", "version"],
+            body.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.Null(body["displayName"]);
         Assert.Null(body["bio"]);
+        Assert.Null(body["regionCode"]);
         Assert.Equal("0", (string?)body["version"]);
         Assert.Equal("none", await StoredAsync(account.UserId));
     }
@@ -104,6 +107,129 @@ public sealed class OwnProfileTests : IAsyncDisposable
         var problem = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
         Assert.Equal("NULL_NOT_ALLOWED", (string?)problem["errors"]?["displayName"]?[0]);
         Assert.Equal("Ana|Oi|1", await StoredAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task RegionIsSavedAndReadBack()
+    {
+        var (account, browser) = await SignedInAsync();
+        using var _ = browser;
+
+        using var response = await PatchAsync(browser, """{"displayName":"Ana","regionCode":"BR-SP"}""", "\"0\"");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("BR-SP", (string?)(await ReadObjectAsync(response))["regionCode"]);
+        Assert.Equal("BR-SP|1", await StoredRegionAsync(account.UserId));
+        using var read = await browser.GetAsync(ProfilePath);
+        Assert.Equal("BR-SP", (string?)(await ReadObjectAsync(read))["regionCode"]);
+    }
+
+    [Fact]
+    public async Task AbsentRegionIsKept()
+    {
+        var (account, browser) = await SavedProfileAsync("Ana", "Oi", "BR-BA");
+        using var _ = browser;
+
+        using var response = await PatchAsync(browser, """{"bio":"Nova"}""", "\"1\"");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("BR-BA", (string?)(await ReadObjectAsync(response))["regionCode"]);
+        Assert.Equal("BR-BA|2", await StoredRegionAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task NullRegionClearsIt()
+    {
+        var (account, browser) = await SavedProfileAsync("Ana", "Oi", "BR-BA");
+        using var _ = browser;
+
+        using var response = await PatchAsync(browser, """{"regionCode":null}""", "\"1\"");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Null((await ReadObjectAsync(response))["regionCode"]);
+        Assert.Equal("<null>|2", await StoredRegionAsync(account.UserId));
+        Assert.Equal("Ana|Oi|2", await StoredAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task RegionChangeWithAStaleETagIs412AndKeepsTheSavedRegion()
+    {
+        var (account, browser) = await SavedProfileAsync("Ana", "Oi", "BR-BA");
+        using var _ = browser;
+        using (var first = await PatchAsync(browser, """{"regionCode":"BR-PE"}""", "\"1\""))
+        {
+            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        }
+
+        using var stale = await PatchAsync(browser, """{"regionCode":"BR-RS"}""", "\"1\"");
+
+        await ProblemAssert.IsProblemAsync(stale, HttpStatusCode.PreconditionFailed, "PRECONDITION_FAILED");
+        Assert.Equal("BR-PE|2", await StoredRegionAsync(account.UserId));
+    }
+
+    /// <summary>
+    /// Só a forma canônica ISO 3166-2:BR entra: minúscula é recusada, não normalizada (decisão documentada em
+    /// docs/data/model.md), para o enum do contrato e o CHECK do banco dizerem a mesma coisa.
+    /// </summary>
+    [Theory]
+    [InlineData("\"br-sp\"")]
+    [InlineData("\"BR-XX\"")]
+    [InlineData("\"\"")]
+    [InlineData("\" BR-SP\"")]
+    [InlineData("\"BR-SP\\u0000\"")]
+    [InlineData("\"\\u0000\"")]
+    [InlineData("\"US-CA\"")]
+    [InlineData("\"'; drop table profiles.profiles; --\"")]
+    public async Task InvalidRegionIs400WithTheFieldCodeAndWritesNothing(string jsonValue)
+    {
+        var (account, browser) = await SavedProfileAsync("Ana", "Oi", "BR-BA");
+        using var _ = browser;
+
+        using var response = await PatchAsync(browser, $$"""{"regionCode":{{jsonValue}}}""", "\"1\"");
+
+        var problem = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        Assert.Equal("UNKNOWN_REGION", (string?)problem["errors"]?["regionCode"]?[0]);
+        Assert.Equal("BR-BA|1", await StoredRegionAsync(account.UserId));
+    }
+
+    [Theory]
+    [InlineData("""{"regionCode":35}""")]
+    [InlineData("""{"regionCode":["BR-SP"]}""")]
+    [InlineData("""{"regionCode":"BR-SP","RegionCode":"BR-RJ"}""")]
+    public async Task MalformedRegionIs400AndWritesNothing(string json)
+    {
+        var (account, browser) = await SavedProfileAsync("Ana", "Oi", "BR-BA");
+        using var _ = browser;
+
+        using var response = await PatchAsync(browser, json, "\"1\"");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("BR-BA|1", await StoredRegionAsync(account.UserId));
+    }
+
+    /// <summary>O CHECK é a última barreira: nem uma escrita fora da API grava código fora das 27 UFs.</summary>
+    [Theory]
+    [InlineData("BR-XX")]
+    [InlineData("br-sp")]
+    [InlineData("")]
+    public async Task DatabaseRejectsARegionOutsideTheTwentySevenStates(string regionCode)
+    {
+        var (account, browser) = await SavedProfileAsync("Ana", "Oi", "BR-BA");
+        using var _ = browser;
+        await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "update profiles.profiles set region_code = $1 where user_id = $2",
+            connection);
+        command.Parameters.AddWithValue(regionCode);
+        command.Parameters.AddWithValue(account.UserId);
+
+        var error = await Assert.ThrowsAsync<PostgresException>(
+            () => command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+        Assert.Equal("ck_profiles_region_code", error.ConstraintName);
+        Assert.Equal("BR-BA|1", await StoredRegionAsync(account.UserId));
     }
 
     [Fact]
@@ -435,10 +561,19 @@ public sealed class OwnProfileTests : IAsyncDisposable
         return (account, await Scenario.SignedInBrowserAsync(account));
     }
 
-    private async Task<(TestAccount Account, Browser Browser)> SavedProfileAsync(string displayName, string bio)
+    private async Task<(TestAccount Account, Browser Browser)> SavedProfileAsync(
+        string displayName,
+        string bio,
+        string? regionCode = null)
     {
         var (account, browser) = await SignedInAsync();
-        var body = new JsonObject { ["displayName"] = displayName, ["bio"] = bio }.ToJsonString();
+        var fields = new JsonObject { ["displayName"] = displayName, ["bio"] = bio };
+        if (regionCode is not null)
+        {
+            fields["regionCode"] = regionCode;
+        }
+
+        var body = fields.ToJsonString();
         using var response = await PatchAsync(browser, body, "\"0\"");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (account, browser);
@@ -463,6 +598,18 @@ public sealed class OwnProfileTests : IAsyncDisposable
             select coalesce(display_name, '<null>') || '|' || coalesce(bio, '<null>') || '|' || version
             from profiles.profiles where user_id = $1
             """,
+            connection);
+        command.Parameters.AddWithValue(userId);
+        return await command.ExecuteScalarAsync(TestContext.Current.CancellationToken) as string ?? "none";
+    }
+
+    /// <summary>Região gravada como "código|versão", com <c>&lt;null&gt;</c> sem região; "none" sem linha.</summary>
+    private async Task<string> StoredRegionAsync(Guid userId)
+    {
+        await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select coalesce(region_code, '<null>') || '|' || version from profiles.profiles where user_id = $1",
             connection);
         command.Parameters.AddWithValue(userId);
         return await command.ExecuteScalarAsync(TestContext.Current.CancellationToken) as string ?? "none";

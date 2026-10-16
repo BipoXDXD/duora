@@ -36,10 +36,14 @@ interface FakeUser {
 interface FakeProfile {
   displayName: string | null
   bio: string | null
+  regionCode: string | null
   version: number
 }
 
-const PROFILE_FIELDS: readonly string[] = ['displayName', 'bio']
+const PROFILE_FIELDS: readonly string[] = ['displayName', 'bio', 'regionCode']
+
+/** Formato da UF em ISO 3166-2:BR; a lista exata das 27 é do servidor e do contrato, não deste dublê. */
+const REGION_CODE_FORMAT = /^BR-[A-Z]{2}$/
 
 interface FakeSession {
   readonly id: string
@@ -308,7 +312,7 @@ export class FakeDuoraApi {
     if (existing !== undefined) {
       return existing
     }
-    const created: FakeProfile = { displayName: null, bio: null, version: 0 }
+    const created: FakeProfile = { displayName: null, bio: null, regionCode: null, version: 0 }
     this.#profiles.set(userId, created)
     return created
   }
@@ -320,7 +324,7 @@ export class FakeDuoraApi {
 
   /**
    * PATCH com a regra do servidor: If-Match obrigatório (428), versão desatualizada é 412 sem gravar, só os campos
-   * do contrato, com texto ou null; displayName null é recusado.
+   * do contrato, com texto ou null; displayName null é recusado e regionCode só aceita o formato canônico.
    */
   #updateProfile(raw: string | null, ifMatch: string | null): Fulfillment {
     const user = this.#currentUser()
@@ -338,7 +342,11 @@ export class FakeDuoraApi {
     const valid =
       entries.every(
         ([name, value]) => PROFILE_FIELDS.includes(name) && (typeof value === 'string' || value === null),
-      ) && !entries.some(([name, value]) => name === 'displayName' && value === null)
+      ) &&
+      !entries.some(([name, value]) => name === 'displayName' && value === null) &&
+      !entries.some(
+        ([name, value]) => name === 'regionCode' && typeof value === 'string' && !REGION_CODE_FORMAT.test(value),
+      )
     if (!valid) {
       return problem(400, 'VALIDATION_FAILED')
     }
@@ -395,7 +403,12 @@ interface Fulfillment {
 
 function profileResponse(profile: FakeProfile): Fulfillment {
   return {
-    ...json({ displayName: profile.displayName, bio: profile.bio, version: String(profile.version) }),
+    ...json({
+      displayName: profile.displayName,
+      bio: profile.bio,
+      regionCode: profile.regionCode,
+      version: String(profile.version),
+    }),
     headers: { ETag: `"${String(profile.version)}"` },
   }
 }

@@ -2,8 +2,12 @@
 import { describe, expect, it } from 'vitest'
 import { DISPLAY_NAME_MAX_LENGTH, BIO_MAX_LENGTH, profileFormSchema, toProfileChanges } from './profile-form'
 
-function errorsOf(input: { displayName: string; bio: string }): Record<string, string | undefined> {
-  const result = profileFormSchema.safeParse(input)
+function errorsOf(input: {
+  displayName: string
+  bio: string
+  regionCode?: string
+}): Record<string, string | undefined> {
+  const result = profileFormSchema.safeParse({ regionCode: '', ...input })
   if (result.success) {
     return {}
   }
@@ -12,16 +16,19 @@ function errorsOf(input: { displayName: string; bio: string }): Record<string, s
 
 describe('profileFormSchema', () => {
   it('aceita nome e descrição comuns, aparando as bordas', () => {
-    expect(profileFormSchema.parse({ displayName: '  Ana  ', bio: ' Oi \n' })).toEqual({
+    expect(profileFormSchema.parse({ displayName: '  Ana  ', bio: ' Oi \n', regionCode: '' })).toEqual({
       displayName: 'Ana',
       bio: 'Oi',
+      regionCode: '',
     })
   })
 
   it('normaliza em NFC antes de medir, como o servidor', () => {
     const decomposed = 'e\u0301'.repeat(DISPLAY_NAME_MAX_LENGTH)
 
-    expect(profileFormSchema.parse({ displayName: decomposed, bio: '' }).displayName).toBe('é'.repeat(40))
+    expect(profileFormSchema.parse({ displayName: decomposed, bio: '', regionCode: '' }).displayName).toBe(
+      'é'.repeat(40),
+    )
   })
 
   it('conta caracteres Unicode, não unidades UTF-16', () => {
@@ -123,17 +130,32 @@ describe('profileFormSchema: mesma estrutura que o servidor (revisão do PR #24)
   )
 
   it('descrição só de fillers é vazia e vira null', () => {
-    expect(profileFormSchema.parse({ displayName: 'Ana', bio: '\u3164\u2800' }).bio).toBe('')
+    expect(profileFormSchema.parse({ displayName: 'Ana', bio: '\u3164\u2800', regionCode: '' }).bio).toBe('')
   })
 
   it('apara as bordas como o .NET: NEL sai, U+FEFF fica e é recusado', () => {
-    expect(profileFormSchema.parse({ displayName: '\u0085Ana\u0085', bio: '' }).displayName).toBe('Ana')
+    expect(profileFormSchema.parse({ displayName: '\u0085Ana\u0085', bio: '', regionCode: '' }).displayName).toBe('Ana')
     expect(errorsOf({ displayName: '\uFEFFAna', bio: '' })).toEqual({ displayName: 'profile.error.invalidCharacters' })
   })
 })
 
+describe('profileFormSchema: região', () => {
+  it.each(['', 'BR-SP', 'BR-AC', 'BR-DF', 'BR-TO'])('aceita %j (vazio é "não informar")', (regionCode) => {
+    expect(errorsOf({ displayName: 'Ana', bio: '', regionCode })).toEqual({})
+  })
+
+  it.each(['br-sp', 'BR-XX', ' BR-SP', 'BR-SP\u0000', '\u0000', 'US-CA'])(
+    'recusa %j, como o servidor (só a forma canônica)',
+    (regionCode) => {
+      expect(errorsOf({ displayName: 'Ana', bio: '', regionCode })).toEqual({
+        regionCode: 'profile.error.unknownRegion',
+      })
+    },
+  )
+})
+
 describe('toProfileChanges', () => {
-  const values = { displayName: 'Ana', bio: 'Oi' }
+  const values = { displayName: 'Ana', bio: 'Oi', regionCode: 'BR-SP' } as const
 
   it('manda só os campos alterados', () => {
     expect(toProfileChanges(values, { displayName: true })).toEqual({ displayName: 'Ana' })
@@ -146,6 +168,11 @@ describe('toProfileChanges', () => {
   })
 
   it('descrição apagada vira null, que apaga no servidor', () => {
-    expect(toProfileChanges({ displayName: 'Ana', bio: '' }, { bio: true })).toEqual({ bio: null })
+    expect(toProfileChanges({ displayName: 'Ana', bio: '', regionCode: '' }, { bio: true })).toEqual({ bio: null })
+  })
+
+  it('região escolhida vai como código e "não informar" vira null, que limpa no servidor', () => {
+    expect(toProfileChanges(values, { regionCode: true })).toEqual({ regionCode: 'BR-SP' })
+    expect(toProfileChanges({ ...values, regionCode: '' }, { regionCode: true })).toEqual({ regionCode: null })
   })
 })

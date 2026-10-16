@@ -611,7 +611,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** @description Edição parcial com If-Match obrigatório (o ETag da leitura). Campo ausente fica como está; bio null apaga a descrição. Sem If-Match: 428. Versão desatualizada: 412, sem gravar nada. */
+        /** @description Edição parcial com If-Match obrigatório (o ETag da leitura). Campo ausente fica como está; bio null apaga a descrição; regionCode null volta a região para não informada. Sem If-Match: 428. Versão desatualizada: 412, sem gravar nada. */
         patch: {
             parameters: {
                 query?: never;
@@ -1646,11 +1646,17 @@ export interface components {
         };
         /**
          * @description Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec
-         *     8.1); `"0"` quando o perfil ainda não foi salvo. Nome e descrição vêm `null` enquanto não preenchidos.
+         *     8.1); `"0"` quando o perfil ainda não foi salvo. Nome, descrição e região vêm `null` enquanto não
+         *     preenchidos. `RegionCode` é a UF em ISO 3166-2:BR (`BR-SP`).
          */
         OwnProfileResponse: {
             displayName: null | string;
             bio: null | string;
+            /**
+             * @description UF em ISO 3166-2:BR, na forma canônica; null quando não informada.
+             * @enum {null|string}
+             */
+            regionCode: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
             version: string;
         };
         /** @description Estado de processamento de uma foto do titular. `RejectionCode` só vem com Status Rejected. */
@@ -1720,13 +1726,20 @@ export interface components {
         Stream: string;
         /**
          * @description Edição parcial do próprio perfil (API-P02), com `If-Match` obrigatório. Campo ausente fica como está;
-         *     `bio: null` apaga a descrição; `displayName: null` é recusado, porque o nome não se apaga, só se troca.
+         *     `bio: null` apaga a descrição; `regionCode: null` volta a região para "não informada";
+         *     `displayName: null` é recusado, porque o nome não se apaga, só se troca. `regionCode` aceita só uma das 27
+         *     UFs em ISO 3166-2:BR, na forma canônica (`BR-SP`; `br-sp` é recusado).
          *     Campo desconhecido (inclusive id, dono, versão ou estado) é recusado pelo serializador. Os limites de tamanho valem
          *     depois da normalização NFC e de aparar as bordas, contados em caracteres Unicode (code points).
          */
         UpdateProfileRequest: {
             displayName?: null | string;
             bio?: null | string;
+            /**
+             * @description UF em ISO 3166-2:BR, na forma canônica; null quando não informada.
+             * @enum {null|string}
+             */
+            regionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
         };
     };
     responses: never;

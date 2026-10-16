@@ -12,15 +12,20 @@ internal static class ProfileEditParser
 {
     public const string NullNotAllowed = "NULL_NOT_ALLOWED";
 
+    /// <summary>Região fora das 27 UFs em ISO 3166-2:BR, inclusive vazia, minúscula ou com caractere de controle.</summary>
+    public const string UnknownRegion = "UNKNOWN_REGION";
+
     private const string DisplayNameField = "displayName";
     private const string BioField = "bio";
+    private const string RegionField = "regionCode";
 
     public static ProfileEdit? Parse(UpdateProfileRequest request, out Dictionary<string, string[]> errors)
     {
         errors = [];
         var displayName = ParseDisplayName(request.DisplayName, errors);
         var bio = ParseBio(request.Bio, errors);
-        return errors.Count == 0 ? new ProfileEdit(displayName, bio) : null;
+        var region = ParseRegion(request.RegionCode, errors);
+        return errors.Count == 0 ? new ProfileEdit(displayName, bio, region) : null;
     }
 
     private static DisplayName? ParseDisplayName(PatchField<string> field, Dictionary<string, string[]> errors)
@@ -63,6 +68,27 @@ internal static class ProfileEditParser
         }
 
         errors[BioField] = [CodeFor(problem)];
+        return null;
+    }
+
+    private static RegionChange? ParseRegion(PatchField<string> field, Dictionary<string, string[]> errors)
+    {
+        if (!field.IsPresent)
+        {
+            return null;
+        }
+
+        if (field.Value is null)
+        {
+            return new RegionChange(null);
+        }
+
+        if (RegionCode.TryParse(field.Value, out var region))
+        {
+            return new RegionChange(region);
+        }
+
+        errors[RegionField] = [UnknownRegion];
         return null;
     }
 

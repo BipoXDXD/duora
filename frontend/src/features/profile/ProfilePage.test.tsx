@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { profileQueryKey } from '@/features/session/query-keys'
@@ -15,6 +15,7 @@ const ME = {
 interface StoredProfile {
   displayName: string | null
   bio: string | null
+  regionCode?: string | null
   version: number
 }
 
@@ -27,7 +28,12 @@ interface SentPatch {
 function useProfileBackend(initial: StoredProfile = { displayName: null, bio: null, version: 0 }) {
   const stored: StoredProfile = { ...initial }
   const patches: SentPatch[] = []
-  const toJson = () => ({ displayName: stored.displayName, bio: stored.bio, version: String(stored.version) })
+  const toJson = () => ({
+    displayName: stored.displayName,
+    bio: stored.bio,
+    regionCode: stored.regionCode ?? null,
+    version: String(stored.version),
+  })
   server.use(
     http.get(`${API}/me`, () => HttpResponse.json(ME)),
     http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
@@ -49,6 +55,9 @@ function useProfileBackend(initial: StoredProfile = { displayName: null, bio: nu
       }
       if (body.bio !== undefined) {
         stored.bio = body.bio
+      }
+      if (body.regionCode !== undefined) {
+        stored.regionCode = body.regionCode
       }
       stored.version += 1
       return HttpResponse.json(toJson(), { headers: { ETag: `"${String(stored.version)}"` } })
@@ -83,7 +92,10 @@ describe('perfil: leitura', () => {
       http.get(`${API}/me/profile`, () =>
         failing
           ? problem(404, 'NOT_FOUND')
-          : HttpResponse.json({ displayName: 'Ana', bio: null, version: '1' }, { headers: { ETag: '"1"' } }),
+          : HttpResponse.json(
+              { displayName: 'Ana', bio: null, regionCode: null, version: '1' },
+              { headers: { ETag: '"1"' } },
+            ),
       ),
     )
     const { user } = await renderApp('/conta/perfil')
@@ -163,6 +175,91 @@ describe('perfil: edição', () => {
 
     expect(await screen.findByText(/alterado em outra aba ou aparelho/)).toBeInTheDocument()
     expect(backend.patches[0]?.ifMatch).toBe('"1"')
+  })
+})
+
+describe('perfil: região', () => {
+  it('mostra a UF salva no select, com "Não informar" e as 27 UFs pelo nome', async () => {
+    useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-BA', version: 1 })
+    await renderApp('/conta/perfil')
+
+    const region = await screen.findByRole('combobox', { name: 'Região' })
+    expect(region).toHaveValue('BR-BA')
+    expect(screen.getByRole('option', { name: 'Bahia', selected: true })).toBeInTheDocument()
+    const options = within(region).getAllByRole('option')
+    expect(options).toHaveLength(28)
+    expect(options[0]).toHaveTextContent('Não informar')
+    expect(options[0]).toHaveValue('')
+    expect(screen.getByRole('option', { name: 'São Paulo' })).toHaveValue('BR-SP')
+    expect(screen.getByRole('option', { name: 'Distrito Federal' })).toHaveValue('BR-DF')
+  })
+
+  it('as UFs vêm em ordem alfabética do nome, depois de "Não informar"', async () => {
+    useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
+    await renderApp('/conta/perfil')
+
+    const region = await screen.findByRole('combobox', { name: 'Região' })
+    const names = within(region)
+      .getAllByRole('option')
+      .slice(1)
+      .map((option) => option.textContent)
+
+    expect(names.slice(0, 4)).toEqual(['Acre', 'Alagoas', 'Amapá', 'Amazonas'])
+    expect(names.at(-1)).toBe('Tocantins')
+  })
+
+  it('perfil sem região começa em "Não informar"', async () => {
+    useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
+    await renderApp('/conta/perfil')
+
+    expect(await screen.findByRole('combobox', { name: 'Região' })).toHaveValue('')
+  })
+
+  it('escolher uma UF manda só o código da região', async () => {
+    const backend = useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
+    const { user } = await renderApp('/conta/perfil')
+
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Região' }), 'Pernambuco')
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+
+    expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
+    expect(backend.patches).toEqual([{ ifMatch: '"1"', body: { regionCode: 'BR-PE' } }])
+    expect(screen.getByRole('combobox', { name: 'Região' })).toHaveValue('BR-PE')
+  })
+
+  it('"Não informar" manda null, que limpa a região no servidor', async () => {
+    const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-SP', version: 1 })
+    const { user } = await renderApp('/conta/perfil')
+
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Região' }), 'Não informar')
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+
+    expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
+    expect(backend.patches).toEqual([{ ifMatch: '"1"', body: { regionCode: null } }])
+  })
+
+  it('a ajuda diz que só o estado é guardado', async () => {
+    useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
+    await renderApp('/conta/perfil')
+
+    expect(await screen.findByRole('combobox', { name: 'Região' })).toHaveAccessibleDescription(
+      'Opcional. Só o estado, nunca a cidade ou o endereço.',
+    )
+  })
+
+  it('no conflito, a versão salva mostra a região pelo nome', async () => {
+    const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-SP', version: 1 })
+    const { user } = await renderApp('/conta/perfil')
+    const region = await screen.findByRole('combobox', { name: 'Região' })
+
+    backend.changeElsewhere({ regionCode: 'BR-RJ' })
+    await user.selectOptions(region, 'Bahia')
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+    await user.click(await screen.findByRole('button', { name: 'Recarregar versão atual' }))
+
+    const savedRegion = await screen.findByText('Região salva')
+    expect(savedRegion.nextElementSibling).toHaveTextContent('Rio de Janeiro')
+    expect(region).toHaveValue('BR-BA')
   })
 })
 
