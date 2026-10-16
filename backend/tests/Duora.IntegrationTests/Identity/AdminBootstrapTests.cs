@@ -199,6 +199,28 @@ public sealed class AdminBootstrapTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AfterFiveMinutesTheTemporarySessionNeedsANewLoginToChangeThePassword()
+    {
+        var email = IdentityScenario.NewEmail();
+        var grant = await GrantAsync(email);
+        using var browser = await SignedInAsync(email, grant.Password);
+        _time.Advance(TimeSpan.FromMinutes(6));
+
+        using var stale = await browser.PostJsonAsync(
+            ChangePassword,
+            new { currentPassword = grant.Password, newPassword = NewPassword });
+        using var logout = await browser.PostJsonAsync("/api/v1/auth/logout", body: null);
+        using var again = await SignedInAsync(email, grant.Password);
+        using var change = await again.PostJsonAsync(
+            ChangePassword,
+            new { currentPassword = grant.Password, newPassword = NewPassword });
+
+        await ProblemAssert.IsProblemAsync(stale, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");
+        Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, change.StatusCode);
+    }
+
+    [Fact]
     public async Task ChangingTheTemporaryPasswordLeadsToTheMfaEnrollmentSessionOnly()
     {
         var email = IdentityScenario.NewEmail();
@@ -308,6 +330,87 @@ public sealed class AdminBootstrapTests : IAsyncDisposable
     }
 
     [Fact]
+    [Trait("Threat", "TM-22")]
+    public async Task APasswordResetStaysBlockedAfterTheTemporaryPasswordIsChangedButBeforeMfa()
+    {
+        var email = IdentityScenario.NewEmail();
+        var grant = await GrantAsync(email);
+        using (await ChangeTemporaryPasswordAsync(email, grant.Password))
+        {
+        }
+
+        var token = await ResetLinkTokenAsync(grant.UserId);
+        using var browser = new Browser(_factory);
+        await browser.FetchCsrfTokenAsync();
+        using var request = await browser.PostJsonAsync("/api/v1/auth/password-reset-requests", new { email });
+        using var reset = await browser.PostJsonAsync(
+            "/api/v1/auth/password-resets",
+            new { userId = grant.UserId, token, newPassword = "a senha que o atacante queria" });
+        using var login = await IdentityScenario.LoginAsync(browser, email, NewPassword);
+
+        Assert.Equal(HttpStatusCode.Accepted, request.StatusCode);
+        Assert.Empty(await Scenario.ReadLinksAsync(email, "PasswordReset"));
+        Assert.Single(await Scenario.ReadLinksAsync(email, "PasswordResetUnavailable"));
+        await ProblemAssert.IsProblemAsync(reset, HttpStatusCode.BadRequest, "INVALID_TOKEN");
+        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+    }
+
+    [Fact]
+    public async Task AChangeWithAnExpiredTemporaryPasswordIsRefusedEvenInsideTheService()
+    {
+        var email = IdentityScenario.NewEmail();
+        var grant = await GrantAsync(email);
+        var before = await AccountRowAsync(grant.UserId);
+        _time.Advance(TimeSpan.FromHours(24));
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var security = scope.ServiceProvider.GetRequiredService<AccountSecurityService>();
+
+        var change = await security.ChangePasswordAsync(
+            grant.UserId,
+            grant.Password,
+            NewPassword,
+            Duora.Core.Notifications.EmailLanguage.BrazilianPortuguese,
+            Ct);
+
+        Assert.IsType<PasswordChange.WrongPassword>(change);
+        Assert.Equal(before, await AccountRowAsync(grant.UserId));
+        Assert.Empty(await Scenario.ReadLinksAsync(email, "PasswordChangedNotice"));
+    }
+
+    [Fact]
+    public async Task MfaCannotBeConfirmedWhileThePasswordIsTemporary()
+    {
+        var grant = await GrantAsync(IdentityScenario.NewEmail());
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var security = scope.ServiceProvider.GetRequiredService<AccountSecurityService>();
+
+        var activation = await security.ConfirmMfaEnrollmentAsync(
+            grant.UserId,
+            "000000",
+            Duora.Core.Notifications.EmailLanguage.BrazilianPortuguese,
+            Ct);
+
+        Assert.IsType<MfaActivation.PasswordChangeRequired>(activation);
+        Assert.Equal(0L, await Scenario.ScalarAsync(
+            "select count(*) from identity.users where id = $1 and two_factor_enabled", grant.UserId));
+    }
+
+    [Fact]
+    public void TheIssuedCredentialAndThePendingIssueNeverPrintTheSecret()
+    {
+        const string Secret = "CANARY0SECRET0PASSWORD00";
+        const string Hash = "AQAAAAIAAYagAAAAEcanaryhash";
+        var issued = new AdministratorCredential.Issued(Guid.CreateVersion7(), Secret, DateTimeOffset.UnixEpoch);
+        Assert.True(EmailAddress.TryParse("ana@example.com", out var email));
+        var issue = new TemporaryIssue(email, "ANA@EXAMPLE.COM", AccountRoles.Moderator, Secret, Hash, default, default);
+
+        Assert.DoesNotContain(Secret, issued.ToString(), StringComparison.Ordinal);
+        Assert.Contains(issued.UserId.ToString(), issued.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(Secret, issue.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(Hash, issue.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     [Trait("Threat", "TM-66")]
     public async Task APublicRegistrationWithTheSameEmailDoesNotTouchTheAccount()
     {
@@ -408,10 +511,19 @@ public sealed class AdminBootstrapTests : IAsyncDisposable
     public async Task TwoSimultaneousGrantsOfTheSameEmailCreateOneAccount()
     {
         var email = IdentityScenario.NewEmail();
+        using var barrier = new InsertBarrier(participants: 2);
+        await using var factory = new DuoraWebFactory(_postgres.ConnectionString)
+        {
+            Time = _time,
+            TestServices = services => services.ConfigureDbContext<Duora.Infrastructure.Persistence.DuoraDbContext>(
+                options => options.AddInterceptors(barrier)),
+        };
 
         var results = await Task.WhenAll(
-            RunAsync(GrantArguments(email, AccountRoles.Moderator, reissue: false)),
-            RunAsync(GrantArguments(email, AccountRoles.Moderator, reissue: false)));
+            RunAsync(factory, GrantArguments(email, AccountRoles.Moderator, reissue: false)),
+            RunAsync(factory, GrantArguments(email, AccountRoles.Moderator, reissue: false)));
+
+        Assert.True(barrier.Overlapped, "Os dois INSERT não chegaram juntos ao banco.");
 
         Assert.Equal([0, AdminCommand.RefusedExitCode], results.Select(result => result.ExitCode).Order());
         Assert.Equal(1L, await Scenario.ScalarAsync(
@@ -616,12 +728,44 @@ public sealed class AdminBootstrapTests : IAsyncDisposable
         return new GrantResult(result.ExitCode, result.Output, result.Error, Guid.Parse(userId), password);
     }
 
-    private async Task<CommandResult> RunAsync(params string[] args)
+    private Task<CommandResult> RunAsync(params string[] args) => RunAsync(_factory, args);
+
+    private static async Task<CommandResult> RunAsync(DuoraWebFactory factory, params string[] args)
     {
         await using var output = new StringWriter();
         await using var error = new StringWriter();
-        var exitCode = await AdminCommand.ExecuteAsync(_factory.Services, args, output, error, Ct);
+        var exitCode = await AdminCommand.ExecuteAsync(factory.Services, args, output, error, Ct);
         return new CommandResult(exitCode, output.ToString(), error.ToString());
+    }
+
+    /// <summary>
+    /// Segura cada INSERT do bootstrap até os dois comandos chegarem a ele, para a corrida acontecer de fato no índice
+    /// único, não por sorte do agendador. Com teto: se o segundo não chegar, o primeiro segue e o teste reprova.
+    /// </summary>
+    private sealed class InsertBarrier(int participants)
+        : Microsoft.EntityFrameworkCore.Diagnostics.DbCommandInterceptor, IDisposable
+    {
+        private static readonly TimeSpan Ceiling = TimeSpan.FromSeconds(10);
+        private readonly Barrier _barrier = new(participants);
+
+        public bool Overlapped { get; private set; }
+
+        public void Dispose() => _barrier.Dispose();
+
+        public override async ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader>> ReaderExecutingAsync(
+            System.Data.Common.DbCommand command,
+            Microsoft.EntityFrameworkCore.Diagnostics.CommandEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<System.Data.Common.DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("on conflict (normalized_email) do nothing", StringComparison.Ordinal))
+            {
+                var bothArrived = await Task.Run(() => _barrier.SignalAndWait(Ceiling), cancellationToken);
+                Overlapped = Overlapped || bothArrived;
+            }
+
+            return result;
+        }
     }
 
     private async Task<Browser> SignedInAsync(string email, string password)
