@@ -3,58 +3,55 @@ using Npgsql;
 namespace Duora.IntegrationTests.Audit;
 
 /// <summary>
-/// `ops.audit_events` é append-only por GRANT (D3, TM-05): com os papéis de produção, o app só insere e lê.
-/// Diferente de <c>scripts/deploy/test_db_privileges.py</c>, que simula a migration, este aplica a migration real
-/// do EF como <c>duora_migrator</c> e tenta alterar o histórico como <c>duora_app</c>.
+/// `ops.audit_events` é append-only por GRANT (D3, TM-05). A allowlist (`AppRoleTableAccess`, entrada `AppendOnly`)
+/// confere os privilégios no catálogo; aqui o mesmo resultado é provado pelo comportamento, conectado como
+/// <c>duora_app</c> no banco da suíte, migrado como em produção.
 /// </summary>
 public sealed class AuditPrivilegesTests(PostgresFixture postgres)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task AppRoleCanOnlyInsertAndSelectAuditEvents()
+    public async Task AppRoleCanInsertAndSelectAuditEvents()
     {
-        await using var roles = await ProductionRoles.CreateMigratedDatabaseAsync(postgres, Ct);
-        await using var app = await roles.OpenAsAppAsync(Ct);
+        var targetId = Guid.CreateVersion7();
+        await using var app = await OpenAsAppAsync();
 
-        await ExecuteAsync(
-            app,
+        await using (var insert = new NpgsqlCommand(
             """
             insert into ops.audit_events (occurred_at, actor_kind, action, target_type, target_id)
-            values (now(), 'System', 'safety.block_created', 'user', gen_random_uuid())
-            """);
-        await using (var count = new NpgsqlCommand("select count(*) from ops.audit_events", app))
+            values (now(), 'System', 'safety.block_created', 'user', $1)
+            """,
+            app))
         {
-            Assert.Equal(1L, await count.ExecuteScalarAsync(Ct));
+            insert.Parameters.AddWithValue(targetId);
+            await insert.ExecuteNonQueryAsync(Ct);
         }
 
-        foreach (var sql in new[]
-                 {
-                     "update ops.audit_events set action = 'safety.block_lifted'",
-                     "delete from ops.audit_events",
-                     "truncate ops.audit_events",
-                 })
-        {
-            var error = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(app, sql));
-            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
-        }
+        await using var count = new NpgsqlCommand("select count(*) from ops.audit_events where target_id = $1", app);
+        count.Parameters.AddWithValue(targetId);
+        Assert.Equal(1L, await count.ExecuteScalarAsync(Ct));
     }
 
-    [Fact]
-    public async Task AppRoleKeepsFullDmlOnOtherTables()
+    [Theory]
+    [InlineData("update ops.audit_events set action = 'safety.block_lifted'")]
+    [InlineData("delete from ops.audit_events")]
+    [InlineData("truncate ops.audit_events")]
+    public async Task AppRoleCannotRewriteTheAuditTrail(string sql)
     {
-        await using var roles = await ProductionRoles.CreateMigratedDatabaseAsync(postgres, Ct);
-        await using var app = await roles.OpenAsAppAsync(Ct);
+        await using var app = await OpenAsAppAsync();
 
-        // Prova que o REVOKE é só da tabela append-only: a outbox continua com DML completo.
-        await ExecuteAsync(
-            app,
-            """
-            insert into ops.outbox_events (id, type, schema_version, resource_type, resource_id, payload, occurred_at)
-            values (gen_random_uuid(), 'test', 1, 'user', gen_random_uuid(), '{}', now())
-            """);
-        await ExecuteAsync(app, "update ops.outbox_events set payload = '{}'");
-        await ExecuteAsync(app, "delete from ops.outbox_events");
+        var error = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(app, sql));
+
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+    }
+
+    private async Task<NpgsqlConnection> OpenAsAppAsync()
+    {
+        var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(Ct);
+        Assert.Equal("duora_app", connection.UserName);
+        return connection;
     }
 
     private static async Task ExecuteAsync(NpgsqlConnection connection, string sql)
