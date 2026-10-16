@@ -7,7 +7,7 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 
 | Controle | Onde | Bloqueia quando |
 |---|---|---|
-| Lockfiles e fontes | `dotnet restore --locked-mode`, `pnpm install --frozen-lockfile`, `pip install --require-hashes` no job `ops` (`scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`), `nuget.config` só com nuget.org | lockfile diverge, hash de pacote Python diverge ou aparece fonte não mapeada |
+| Lockfiles e fontes | `dotnet restore --locked-mode`, `pnpm install --frozen-lockfile`, `pip install --require-hashes --only-binary=:all:` no job `ops` (`scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`), `nuget.config` só com nuget.org | lockfile diverge, hash de pacote Python diverge ou aparece fonte não mapeada |
 | Auditoria do NuGet | `NuGetAudit` em `Directory.Build.props` (modo `all`, nível `low`) | o build encontra pacote com vulnerabilidade conhecida |
 | Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies, e os lockfiles pip `scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`) | achado HIGH ou CRITICAL fora do `.trivyignore` |
 | Misconfiguration | mesmo passo do Trivy (`--scanners vuln,misconfig`) | achado HIGH ou CRITICAL em Dockerfile e demais formatos de IaC que o Trivy reconhece |
@@ -15,7 +15,7 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 | Licenças | `scripts/supply-chain/check_licenses.py` sobre os SBOMs | licença fora da allowlist, ou componente sem licença, sem exceção escrita |
 | Segredos | job `secret-scan` (Gitleaks, histórico inteiro alcançável do commit testado, `--log-opts=HEAD`; branches de outros PRs ficam fora) | qualquer segredo, inclusive um removido em commit posterior; o Trivy roda com o scanner de segredos desligado para não duplicar |
 | Actions | `.github/workflows/ci.yml` | action de terceiros sem SHA completo (revisão); o Dependabot atualiza SHA e comentário |
-| Atualizações | `.github/dependabot.yml`: NuGet, npm, Actions, Compose e pip (`/scripts/deploy`, `/tools/visual`), com cooldown de 7 dias onde há registro de pacotes | não bloqueia; abre PRs semanais revisados por humano |
+| Atualizações | `.github/dependabot.yml`: NuGet, npm, Actions, Compose e pip (`/scripts/deploy`, `/tools/visual`). Cooldown de 7 dias em `nuget`, `npm` e `pip`; `github-actions` e `docker-compose` não têm cooldown | não bloqueia; abre PRs semanais revisados por humano |
 
 Os achados aparecem no log do job; o inventário de licenças e o changelog do contrato vão para o resumo do job.
 
@@ -115,6 +115,11 @@ ferramenta entra.
   (`pkg/fanal/analyzer/language/python/pip/pip.go`, conferido em 2026-10-16). Por isso os lockfiles Python se
   chamam `requirements.txt`, com o `requirements.in` ao lado. Lockfile pip com outro nome fica fora da
   varredura de vulnerabilidades sem aviso.
+- O pyright vem do wrapper PyPI: o wheel 1.1.408 traz o pacote npm embutido (`pyright/dist`, coberto pelo hash
+  do lockfile), e no CI nada é baixado do npm (conferido no log do job `ops` em 2026-10-16). O Node.js que o
+  executa é o global do runner, sem versão nem hash fixados por nós. Sem node no PATH, o wrapper baixa um com
+  o nodeenv, também sem hash fixado. Com outra versão de pyright (`PYRIGHT_PYTHON_FORCE_VERSION`), o wrapper
+  roda `npm install pyright@<versão>`, sem lockfile nem hash.
 - O lockfile é gerado por `uv pip compile --no-header`. O PR do Dependabot pip pode regenerá-lo com outra
   ferramenta ou formatação; quem revisa confere o diff e, se preciso, regenera com o comando do `requirements.in`.
 - `openapi-typescript` 7.13.0 declara peer `typescript ^5`; o projeto usa TypeScript 6 e a geração foi
