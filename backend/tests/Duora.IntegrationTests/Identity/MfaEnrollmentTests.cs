@@ -184,7 +184,7 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
         await MfaScenario.EnableAsync(browser, _time);
 
         Assert.Equal(
-            ["identity.mfa_enabled", "identity.mfa_enrollment_started"],
+            ["identity.login_succeeded", "identity.mfa_enabled", "identity.mfa_enrollment_started"],
             await AuditActionsAsync(account.UserId));
     }
 

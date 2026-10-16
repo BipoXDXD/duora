@@ -86,26 +86,6 @@ public sealed class LoginSessions
         return sessions;
     }
 
-    /// <summary>
-    /// Revoga uma sessão do próprio titular. Falso quando a sessão não existe ou é de outra pessoa, casos que a
-    /// API não distingue. Revogar de novo uma sessão própria é sucesso.
-    /// </summary>
-    public async Task<bool> RevokeOwnAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken)
-    {
-        await using var command = _dataSource.CreateCommand(
-            """
-            update identity.login_sessions
-            set revoked_at = coalesce(revoked_at, @now),
-                revocation_reason = coalesce(revocation_reason, @reason)
-            where id = @id and user_id = @user_id
-            """);
-        command.Parameters.AddWithValue("id", sessionId);
-        command.Parameters.AddWithValue("user_id", userId);
-        command.Parameters.AddWithValue("now", _time.GetUtcNow());
-        command.Parameters.AddWithValue("reason", "revoked-by-owner");
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
-    }
-
     public async Task CreateAsync(NewLoginSession session, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand(

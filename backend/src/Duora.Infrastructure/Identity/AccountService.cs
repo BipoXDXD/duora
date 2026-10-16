@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Duora.Core.Identity;
 using Duora.Core.Notifications;
+using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -48,6 +49,7 @@ public sealed class AccountService
 
     private readonly DuoraDbContext _db;
     private readonly UserManager<DuoraUser> _users;
+    private readonly AuditTrail _audit;
     private readonly DecoyPasswordHash _decoy;
     private readonly AccountLifecycleOptions _lifecycle;
     private readonly TimeProvider _time;
@@ -61,6 +63,7 @@ public sealed class AccountService
     {
         _db = db;
         _users = users;
+        _audit = new AuditTrail(db, time);
         _decoy = decoy;
         _lifecycle = lifecycle;
         _time = time;
@@ -195,8 +198,9 @@ public sealed class AccountService
     /// Troca a senha com o token do e-mail. O Identity troca o security stamp, o que já invalida todas as sessões;
     /// a revogação explícita deixa o motivo registrado. O bloqueio por tentativas é zerado, para quem foi
     /// bloqueado por um atacante recuperar o acesso pelo e-mail, exceto em conta com MFA: o e-mail não prova o
-    /// segundo fator, e destravar ali reabriria a força bruta do TOTP. Só vale para conta
-    /// confirmada. Troca, revogação e aviso ao titular (TM-21) vão num commit só: sem troca, nada é gravado.
+    /// segundo fator, e destravar ali reabriria a força bruta do TOTP. Só vale para conta confirmada. Troca,
+    /// desbloqueio, revogação, auditoria (TM-05) e aviso ao titular (TM-21) vão num commit só: sem troca, nada é
+    /// gravado.
     /// </summary>
     public async Task<bool> ResetPasswordAsync(
         Guid userId,
@@ -212,16 +216,22 @@ public sealed class AccountService
         }
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        var wasLockedOut = await _users.IsLockedOutAsync(user);
         var result = await _users.ResetPasswordAsync(user, token, newPassword);
         if (!result.Succeeded)
         {
             return false;
         }
 
+        await AppendAuditAsync(user.Id, AuditAction.PasswordReset, cancellationToken);
         if (!user.TwoFactorEnabled)
         {
             EnsureSucceeded(await _users.ResetAccessFailedCountAsync(user), "zerar as falhas de login");
             EnsureSucceeded(await _users.SetLockoutEndDateAsync(user, lockoutEnd: null), "encerrar o bloqueio");
+            if (wasLockedOut)
+            {
+                await AppendAuditAsync(user.Id, AuditAction.LockoutCleared, cancellationToken);
+            }
         }
 
         await RevokeAllSessionsAsync(user.Id, "password-reset", cancellationToken);
@@ -249,6 +259,12 @@ public sealed class AccountService
             """,
             cancellationToken);
     }
+
+    /// <summary>O titular é ator e alvo: o reset prova a posse do e-mail, não uma sessão.</summary>
+    private Task AppendAuditAsync(Guid userId, AuditAction action, CancellationToken cancellationToken) =>
+        _audit.AppendAsync(
+            new AuditRecord(AuditActorKind.User, userId, action, AuditTargetTypes.User, userId),
+            cancellationToken);
 
     private static void EnsureSucceeded(IdentityResult result, string operation)
     {

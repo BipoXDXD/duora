@@ -183,9 +183,21 @@ internal static class AuthEndpoints
         return null;
     }
 
-    /// <summary>Sem sessão válida, logout também é 204: o estado final (sem sessão) já é o pedido.</summary>
-    private static async Task<NoContent> LogoutAsync(HttpContext context, IAntiforgery antiforgery)
+    /// <summary>
+    /// Sem sessão válida, logout também é 204: o estado final (sem sessão) já é o pedido, e não há o que registrar.
+    /// Com sessão, a revogação e o registro de auditoria (TM-05) confirmam juntos antes de o cookie sair.
+    /// </summary>
+    private static async Task<NoContent> LogoutAsync(
+        HttpContext context,
+        IAntiforgery antiforgery,
+        AccountSecurityService security,
+        CancellationToken cancellationToken)
     {
+        if ((DuoraClaims.ReadUserId(context.User), DuoraClaims.ReadSessionId(context.User)) is ({ } userId, { } sessionId))
+        {
+            await security.RecordLogoutAsync(userId, sessionId, cancellationToken);
+        }
+
         await context.SignOutAsync(DuoraAuthentication.Scheme);
         context.User = new ClaimsPrincipal(new ClaimsIdentity());
         AntiforgeryTokens.Issue(context, antiforgery);
