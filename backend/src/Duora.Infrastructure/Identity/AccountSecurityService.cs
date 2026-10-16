@@ -144,16 +144,26 @@ public abstract record SecondFactorProof
     public sealed record RecoveryCode(string Code) : SecondFactorProof;
 }
 
-/// <summary>Resultado de uma tentativa de login numa conta existente, para a auditoria (TM-05).</summary>
+/// <summary>Login com a senha certa numa conta confirmada, para a auditoria (TM-05).</summary>
 public enum LoginAttempt
 {
     Succeeded,
 
-    /// <summary>Senha errada: conta no bloqueio.</summary>
-    WrongPassword,
+    /// <summary>Conta com MFA e pedido sem segundo fator: nenhuma sessão é aberta.</summary>
+    SecondFactorRequired,
+}
 
-    /// <summary>Recusada sem conferir a senha, porque a conta já estava bloqueada.</summary>
-    RefusedWhileLockedOut,
+/// <summary>Onde a senha de uma conta confirmada foi conferida e falhou, para a auditoria (TM-05).</summary>
+public enum PasswordCheck
+{
+    /// <summary>API-A04.</summary>
+    Login,
+
+    /// <summary>API-A13.</summary>
+    Reauthentication,
+
+    /// <summary>API-A16 (senha atual).</summary>
+    PasswordChange,
 }
 
 /// <summary>Que segundo fator uma sessão provou: o código de recuperação não vale como TOTP recente.</summary>
@@ -406,7 +416,7 @@ public sealed class AccountSecurityService
             // A senha acabou de conferir, então a conta não estava bloqueada antes desta falha.
             EnsureSucceeded(await _users.AccessFailedAsync(user), "contar a falha do segundo fator");
             await AppendAuditAsync(user.Id, AuditAction.SecondFactorFailed, cancellationToken);
-            await RecordLockoutIfStartedAsync(user, wasLockedOut: false, cancellationToken);
+            await RecordLockoutIfStartedAsync(user, cancellationToken);
             return SecondFactorKind.None;
         }
 
@@ -420,8 +430,8 @@ public sealed class AccountSecurityService
     }
 
     /// <summary>
-    /// Registra na auditoria o resultado de um login numa conta existente, dentro da <see cref="AccountCheck"/> que
-    /// o verificou: o registro confirma junto com o contador de falhas. E-mail sem conta não chega aqui (TM-06).
+    /// Registra na auditoria um login de senha certa numa conta confirmada, dentro da <see cref="AccountCheck"/> que
+    /// o verificou: o registro confirma junto com o contador de falhas.
     /// </summary>
     public Task RecordLoginAttemptAsync(DuoraUser user, LoginAttempt attempt, CancellationToken cancellationToken)
     {
@@ -430,25 +440,65 @@ public sealed class AccountSecurityService
         var action = attempt switch
         {
             LoginAttempt.Succeeded => AuditAction.LoginSucceeded,
-            LoginAttempt.WrongPassword => AuditAction.LoginFailed,
-            LoginAttempt.RefusedWhileLockedOut => AuditAction.LoginRefusedLockedOut,
+            LoginAttempt.SecondFactorRequired => AuditAction.LoginSecondFactorRequired,
             _ => throw new ArgumentOutOfRangeException(nameof(attempt), attempt, "Tentativa de login desconhecida."),
         };
         return AppendAuditAsync(user.Id, action, cancellationToken);
     }
 
     /// <summary>
-    /// Registra o início do bloqueio quando a falha recém-contada levou a conta ao teto. Quem chama informa se a
-    /// conta já estava bloqueada antes da falha, para o bloqueio ser registrado uma vez, não a cada tentativa.
+    /// Registra a senha que não abriu a conta, na transação que travou a conta e contou a falha. Se a conta já estava
+    /// bloqueada antes, a senha nem foi conferida, e o registro diz isso; senão, a falha é registrada e, se ela levou
+    /// a conta ao teto, o início do bloqueio também (uma vez, não a cada tentativa seguinte).
     /// </summary>
-    public async Task RecordLockoutIfStartedAsync(DuoraUser user, bool wasLockedOut, CancellationToken cancellationToken)
+    public async Task RecordPasswordFailureAsync(
+        DuoraUser user,
+        PasswordCheck check,
+        bool wasLockedOut,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(user);
         RequireAccountCheck();
-        if (!wasLockedOut && await _users.IsLockedOutAsync(user))
+        var (failed, refusedLockedOut) = check switch
         {
-            await AppendAuditAsync(user.Id, AuditAction.AccountLockedOut, cancellationToken);
+            PasswordCheck.Login => (AuditAction.LoginFailed, AuditAction.LoginRefusedLockedOut),
+            PasswordCheck.Reauthentication =>
+                (AuditAction.ReauthenticationFailed, AuditAction.ReauthenticationRefusedLockedOut),
+            PasswordCheck.PasswordChange => (AuditAction.PasswordChangeFailed, AuditAction.PasswordChangeRefusedLockedOut),
+            _ => throw new ArgumentOutOfRangeException(nameof(check), check, "Verificação de senha desconhecida."),
+        };
+        if (wasLockedOut)
+        {
+            await AppendAuditAsync(user.Id, refusedLockedOut, cancellationToken);
+            return;
         }
+
+        await AppendAuditAsync(user.Id, failed, cancellationToken);
+        await RecordLockoutIfStartedAsync(user, cancellationToken);
+    }
+
+    /// <summary>
+    /// Registra um login com e-mail sem conta ou com cadastro não confirmado, sem a conta: o ator é o sistema e o alvo
+    /// é a própria tentativa, com um id novo. Roda na transação aberta (a <see cref="AccountCheck"/> da conta pendente)
+    /// ou numa própria, curta, quando não há conta para travar.
+    /// </summary>
+    public async Task RecordLoginWithoutConfirmedAccountAsync(CancellationToken cancellationToken)
+    {
+        var record = new AuditRecord(
+            AuditActorKind.System,
+            actorId: null,
+            AuditAction.LoginFailedUnknownAccount,
+            AuditTargetTypes.LoginAttempt,
+            Guid.CreateVersion7(_time.GetUtcNow()));
+        if (_db.Database.CurrentTransaction is not null)
+        {
+            await _audit.AppendAsync(record, cancellationToken);
+            return;
+        }
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        await _audit.AppendAsync(record, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     /// <summary>
@@ -512,6 +562,8 @@ public sealed class AccountSecurityService
         var user = await LockUserAsync(userId, cancellationToken);
         if (await _users.IsLockedOutAsync(user))
         {
+            await RecordPasswordFailureAsync(user, PasswordCheck.PasswordChange, wasLockedOut: true, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return new PasswordChange.WrongPassword();
         }
 
@@ -519,7 +571,7 @@ public sealed class AccountSecurityService
         if (result.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.PasswordMismatch)))
         {
             EnsureSucceeded(await _users.AccessFailedAsync(user), "contar a falha de senha");
-            await RecordLockoutIfStartedAsync(user, wasLockedOut: false, cancellationToken);
+            await RecordPasswordFailureAsync(user, PasswordCheck.PasswordChange, wasLockedOut: false, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new PasswordChange.WrongPassword();
         }
@@ -609,6 +661,17 @@ public sealed class AccountSecurityService
         await _db.Entry(user).ReloadAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Registra o início do bloqueio quando a falha recém-contada levou ao teto uma conta que não estava bloqueada.
+    /// </summary>
+    private async Task RecordLockoutIfStartedAsync(DuoraUser user, CancellationToken cancellationToken)
+    {
+        if (await _users.IsLockedOutAsync(user))
+        {
+            await AppendAuditAsync(user.Id, AuditAction.AccountLockedOut, cancellationToken);
+        }
+    }
+
     private void RequireAccountCheck()
     {
         if (_db.Database.CurrentTransaction is null)
@@ -661,6 +724,8 @@ public sealed class AccountSecurityService
     /// <summary>
     /// Revoga a sessão da conta e registra o fato, na mesma transação, só se ela ainda estava ativa. A linha é
     /// travada na leitura: dois pedidos simultâneos para a mesma sessão registram uma revogação, não duas.
+    /// <c>FOR NO KEY UPDATE</c> basta, porque só colunas que não são chave mudam, e não espera por quem só
+    /// referencia a sessão.
     /// </summary>
     private async Task<bool> RevokeAndAuditAsync(
         Guid userId,
@@ -675,7 +740,7 @@ public sealed class AccountSecurityService
                 $"""
                 select revoked_at is null as "Value" from identity.login_sessions
                 where id = {sessionId} and user_id = {userId}
-                for update
+                for no key update
                 """)
             .ToListAsync(cancellationToken);
         if (state is not [var active])
