@@ -35,7 +35,7 @@ Classes que a tabela 12.4 não cobre e que o modelo de dados cria. **Proposta �
 | Tokens de confirmação e reset | Sem armazenamento (gerados pelo Data Protection); vida de 24 h e 30 min | Nada a apagar |
 | Outbox entregue (`ops.outbox_events`, `outbox_deliveries` em estado final) | 7 dias | Diagnóstico de entrega; o fato de negócio está nas tabelas do módulo |
 | Entregas `Failed` | Até revisão, no máximo 30 dias | Fila de revisão com causa sanitizada |
-| Jobs concluídos (`ops.jobs`) | 7 dias | Idem |
+| Jobs concluídos (`ops.jobs`) | 7 dias; as linhas fixas dos tipos recorrentes (uma por tipo) não são apagadas | Idem |
 | Jobs `Failed` (`ops.jobs`) | Até resolução (reprocessar ou descartar como `Cancelled`, com auditoria); não são apagados antes disso | Um job de correção de estado falho pode deixar sala ou rodada parada; apagá-lo esconderia o defeito. O payload só tem IDs ([ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md)) |
 | Recibos de webhook (`ops.webhook_receipts`) | 30 dias após processar | Janela de replay do fornecedor mais margem |
 | Recibos de e-mail (`ops.email_receipts`) | 30 dias | Diagnóstico de entrega e supressão |

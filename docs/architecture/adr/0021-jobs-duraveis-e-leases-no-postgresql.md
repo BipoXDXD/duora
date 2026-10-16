@@ -80,9 +80,8 @@ Vamos usar uma tabela `ops.jobs` com um conjunto fechado de tipos, cada um com h
 mesmo protocolo de lease e fencing da outbox. Só o processo worker executa jobs (ADR-0003); o web só os cria.
 
 1. **Tabela.** `ops.jobs`: `id uuid` (UUIDv7 da aplicação); `kind text` (`CHECK` com os tipos conhecidos);
-   `dedupe_key text` (`UNIQUE (kind, dedupe_key)`, ex.: `expire-invite:<gameSessionId>`,
-   `round-transition:<roundId>:<estado alvo>`, `retention:<data>`); `payload jsonb` (só IDs e versões do
-   agregado alvo, nunca ID de pessoa quando o agregado basta; `CHECK (octet_length(payload::text) <= 4096)`;
+   `dedupe_key text` (`UNIQUE (kind, dedupe_key)`; formato no item 2); `payload jsonb` (só IDs, versões e o
+   instante agendado do agregado alvo, nunca ID de pessoa quando o agregado basta; `CHECK (octet_length(payload::text) <= 4096)`;
    leitor tolerante conforme a convenção de evolução de payload do [model.md](../../data/model.md#convenções));
    `status text` (`Pending`, `InFlight`, `Done`, `Failed`, `Expired`, `Cancelled`; `Pending`, `InFlight`,
    `Failed` e `Expired` com os nomes da outbox implementada, `Done` e `Cancelled` próprios de job);
@@ -97,74 +96,153 @@ mesmo protocolo de lease e fencing da outbox. Só o processo worker executa jobs
    `ix_jobs_in_flight (lease_expires_at) WHERE status = 'InFlight'` e
    `ix_jobs_completed (completed_at) WHERE status IN ('Done', 'Expired', 'Cancelled')` (limpeza). Nenhum
    predicado usa `now()`.
-2. **Criação na transação de negócio.** O job nasce no mesmo commit do fato que o motiva (sala criada, rodada
-   agendada), com `INSERT ... ON CONFLICT (kind, dedupe_key) DO NOTHING`. Nada de timer em memória como
-   registro de prazo. **Transação de negócio só insere em `ops.jobs`; nunca atualiza, cancela nem tranca um job
-   existente.** Se o fato mudar (convite aceito antes do prazo, prazo adiado), o handler descobre na revalidação
-   (item 4): estado já resolvido → conclui sem efeito; prazo ainda no futuro → reagenda o próprio job para o
-   instante persistido. Assim nenhuma transação de API disputa a linha do job, e a ordem de locks do item 4 não
-   tem inversão possível. `Cancelled` só vem da área administrativa.
-3. **Claim.** Transação curta, sem chamada externa, um único comando: seleciona até `lote` linhas com
-   `kind = ANY($tiposConhecidos)` (o worker de uma release só toma os tipos que sabe executar, o que torna o
-   rollback seguro quando a release nova criou um tipo novo) e fora dos tipos pausados, que estejam `Pending`
-   com `available_at <= $agora` e `attempts < max_attempts`, ou `InFlight` com `lease_expires_at <= $agora` e
-   `attempts < max_attempts`; `ORDER BY available_at, id LIMIT $lote FOR UPDATE SKIP LOCKED`; no mesmo comando
-   passa a `InFlight`, incrementa `attempts` e `fencing_token` e grava `lease_expires_at = $agora + $lease`. Linha
-   com `deadline_at <= $agora` não é executada: vai a `Expired` (com `lease_expires_at = NULL` e `completed_at`)
-   no próprio claim e não é devolvida como trabalho.
-   - **Lote, lease e timeout são uma conta só**, validada no boot (`ValidateOnStart`): `lote × timeout do efeito
-     ≤ lease / 2`, porque o lote é processado em sequência e o último item precisa terminar dentro do lease que
-     ganhou junto com o primeiro. Valores iniciais (hipótese): jobs internos com lote 20, lease 60 s e timeout de
-     transação de 2 s (`lock_timeout`) mais `statement_timeout`; jobs de efeito externo com lote 1, lease 60 s
-     renovado por heartbeat condicionado ao token e timeout por chamada externa de 30 s.
+2. **Criação na transação de negócio, uma chave por agendamento.** O job nasce no mesmo commit do fato que o
+   motiva (sala criada, jogo iniciado, rodada agendada), com `INSERT ... ON CONFLICT (kind, dedupe_key) DO
+   NOTHING`. Nada de timer em memória como registro de prazo. **Transação de negócio só insere em `ops.jobs`;
+   nunca atualiza, cancela nem tranca um job existente.**
+   - A `dedupe_key` identifica **o agendamento**, não só o agregado: `<kind>:<id do agregado>:<instante agendado
+     em UTC, ISO 8601>`, ex.: `expire-invite:<gameSessionId>:2026-10-16T19:00:00Z`,
+     `active-deadline:<gameSessionId>:<prazo>`, `round-transition:<roundId>:<estado alvo>:<horário>`. O payload
+     repete o id e o instante. Usar a versão do agregado na chave foi descartado: a sala muda de versão a cada
+     ação de jogo, e o job de prazo ficaria obsoleto na primeira jogada; o instante muda só quando o prazo muda.
+   - Se o fato mudar (convite aceito, prazo antecipado ou adiado), a transação que o muda insere o job do novo
+     agendamento, com chave nova; o antigo continua na fila e, na revalidação (item 4), vê que o agregado já não
+     está no estado esperado ou que o instante persistido é outro, e conclui `Done` sem efeito. Não há
+     reagendamento pelo handler nem chave antiga reaproveitada. O `DO NOTHING` só descartaria um agendamento
+     real se a mesma chave já existisse em estado final, e isso exige reagendar para um instante cujo job já
+     rodou, ou seja, para o passado, que o domínio recusa; voltar a um instante futuro já agendado encontra o job
+     ainda `Pending`, que executa normalmente.
+   - Por que isso importa: `INSERT ... ON CONFLICT DO NOTHING` **espera** quando a linha conflitante está sendo
+     alterada por outra transação ainda aberta. Se a API reinserisse a mesma chave do job que um handler está
+     executando (linha do job trancada, handler esperando a sala que a API tranca), haveria deadlock. Com uma
+     chave por agendamento, a API só insere chaves que ainda não existem, e esse conflito não acontece no fluxo
+     normal; se acontecer por bug, o PostgreSQL detecta o deadlock (`40P01`) e a unidade é repetida (política de
+     retry do [concurrency.md](../../data/concurrency.md#transações-no-banco)).
+   - `Cancelled` só vem da área administrativa (item 9).
+3. **Claim.** Transação curta, sem chamada externa, um único comando. Toma só os tipos que a release sabe
+   executar (`$tiposConhecidos`, o que torna o rollback seguro quando a release nova criou um tipo novo) e que não
+   estão pausados. Cada linha tomada recebe um destino calculado no próprio comando: deadline vencido → `Expired`;
+   tentativas esgotadas (o job derrubou o processo em todas elas) → `Failed`; senão → `InFlight`. Todas trocam o
+   token, o que invalida o dono anterior; só as `InFlight` voltam como trabalho:
+
+   ```sql
+   WITH picked AS (
+       SELECT id,
+              CASE WHEN deadline_at <= $agora       THEN 'Expired'
+                   WHEN attempts >= max_attempts    THEN 'Failed'
+                   ELSE 'InFlight' END AS next_status
+       FROM ops.jobs
+       WHERE kind = ANY($tiposConhecidos) AND kind <> ALL($tiposPausados)
+         AND ((status = 'Pending' AND available_at <= $agora)
+           OR (status = 'InFlight' AND lease_expires_at <= $agora))
+       ORDER BY available_at, id
+       LIMIT $lote
+       FOR UPDATE SKIP LOCKED
+   ),
+   updated AS (
+       UPDATE ops.jobs AS j
+       SET status           = p.next_status,
+           attempts         = j.attempts + (p.next_status = 'InFlight')::int,
+           fencing_token    = j.fencing_token + 1,
+           lease_expires_at = CASE WHEN p.next_status = 'InFlight' THEN $agora + $lease END,
+           completed_at     = CASE WHEN p.next_status = 'InFlight' THEN NULL ELSE $agora END,
+           last_error_code  = CASE WHEN p.next_status = 'Failed' THEN 'LeaseExpiredExhausted'
+                                   ELSE j.last_error_code END
+       FROM picked AS p
+       WHERE j.id = p.id
+       RETURNING j.id, j.kind, j.payload, j.fencing_token, j.attempts, j.status
+   )
+   SELECT id, kind, payload, fencing_token, attempts FROM updated WHERE status = 'InFlight';
+   ```
+
+   Todas as linhas atualizadas respeitam os `CHECK` do item 1 (lease só em `InFlight`, `completed_at` só em estado
+   final), e nenhuma conta pode ser violada pelo incremento de `attempts`.
+   - **Lote, lease e prazo são uma conta só**, validada no boot (`ValidateOnStart`): `lote × prazo do item ≤
+     lease / 2`, porque o lote é processado em sequência e o último item precisa terminar dentro do lease que
+     ganhou junto com o primeiro. O **prazo do item** limita a unidade inteira, não só a espera por lock: um
+     `CancellationToken` com prazo (`CancelAfter` pelo `TimeProvider`) passado a todos os comandos, que o Npgsql
+     converte em cancelamento do comando em curso e rollback; dentro dele, `SET LOCAL lock_timeout` e o
+     `statement_timeout` da conta continuam como tetos por comando. `transaction_timeout` (PostgreSQL 17+) foi
+     descartado aqui porque encerra a sessão inteira, não só a transação. Valores iniciais (hipótese): jobs
+     internos com lote 10, prazo do item 3 s (`lock_timeout` 2 s) e lease 60 s (10 × 3 s = 30 s); jobs de efeito
+     externo com lote 1, prazo por chamada externa 30 s e lease 60 s, renovado por heartbeat condicionado ao token
+     entre chamadas quando o job faz várias (retenção em lotes no storage).
+   - **Antes de cada item do lote**, o executor confere o lease restante: se `lease_expires_at - $agora` for menor
+     que o prazo do item, devolve o próprio item e o resto do lote a `Pending` como no shutdown (item 12) e
+     encerra o lote. Assim um item lento nunca faz o seguinte começar com lease insuficiente.
    - Polling a cada 1 s com jitter (`JitteredInterval`) quando o lote anterior veio vazio; imediatamente quando
      veio cheio.
-4. **Efeito interno (expiração, prazo, rodada, retenção no banco).** Uma transação, com `SET LOCAL
-   lock_timeout`: primeiro `UPDATE ops.jobs SET status = 'Done', completed_at = $agora, lease_expires_at = NULL
+4. **Efeito interno (expiração, prazo, rodada, retenção no banco).** Uma transação, sob o prazo do item (item 3):
+   primeiro `UPDATE ops.jobs SET status = 'Done', completed_at = $agora, lease_expires_at = NULL
    WHERE id = $id AND status = 'InFlight' AND fencing_token = $t AND lease_expires_at > $agora`; zero linhas →
-   rollback e descarte (`stale_completion`). Esse `UPDATE` tranca a linha do job, que ocupa a posição 0 da
-   ordem global de locks (no lugar do registro de idempotência, que um job não usa); como nenhuma transação de
-   negócio tranca jobs (item 2) e o claim concorrente usa `SKIP LOCKED`, ele nunca espera. Depois, a ordem global
-   da spec 10.4 (guardas de usuário, rodada, sala), a revalidação depois do lock e a transição condicional de
-   negócio (`WHERE version = $v AND state = ...`, C6). Operação de outro módulo (liberar reserva do Matching)
-   passa pelo coordenador de caso de uso, nunca por escrita direta na tabela alheia. Efeito e conclusão comitam
-   juntos: o efeito acontece uma vez, mesmo com dois executores; um executor pausado que volta depois do commit
+   rollback e descarte (`stale_completion`). Job recorrente usa, no lugar do `Done`, o reagendamento do item 8,
+   com o mesmo predicado. Esse `UPDATE` tranca a linha do job, que ocupa a posição 0 da ordem global de locks (no
+   lugar do registro de idempotência, que um job não usa). Ele não espera por transação de negócio, que não
+   tranca jobs (item 2), nem por outro executor, cujo claim usa `SKIP LOCKED`; pode esperar só por uma ação
+   administrativa curta sobre o mesmo job (item 9), que não tranca negócio. Depois, a ordem global da spec 10.4
+   (guardas de usuário, rodada, sala), a revalidação depois do lock (o agregado está no estado esperado e o
+   instante persistido é o do payload; senão, `Done` sem efeito) e a transição condicional de negócio (`WHERE
+   version = $v AND state = ...`, C6, com a `version` lida sob o lock). Operação de outro módulo (liberar
+   reserva do Matching) passa pelo coordenador de caso de uso, nunca por escrita direta na tabela alheia. Efeito
+   e conclusão comitam juntos: o efeito acontece uma vez, mesmo com dois executores; um executor pausado que volta depois do commit
    do outro encontra o token trocado ou o `status` já `Done`.
-5. **Efeito externo (exclusão no storage).** Efeito fora de qualquer transação, com timeout, cancelamento e chave
-   de idempotência estável (`id` do job); conclusão em transação curta condicionada ao token e ao lease, como na
-   outbox. Zero linhas → resultado descartado e métrica `stale_completion`; o efeito pode ter acontecido duas
-   vezes, por isso ele precisa ser idempotente (sobrescrever o mesmo objeto, apagar o que já não existe é
-   sucesso).
-6. **Retry e veneno.** Falha transitória (`40P01`, `55P03`, timeout, `5xx` do storage) volta a `Pending` com
-   `available_at = $agora + atraso`, atraso do `ExponentialBackoff` (15 s dobrando até o teto de 15 min, sorteado
-   na metade de cima do intervalo), condicionado ao token. `attempts` conta no claim, então um job que derruba o
-   processo também esgota tentativas: o claim deixa de tomá-lo quando `attempts = max_attempts`, e o mesmo
-   comando de claim leva a `Failed` (`last_error_code = 'LeaseExpiredExhausted'`) as linhas `InFlight` com lease
-   vencido e tentativas esgotadas. Falha na última tentativa, ou falha definitiva (payload inválido, alvo com
-   estado incoerente), vai a `Failed`. Alvo inexistente não é falha: o agregado foi removido (exclusão de conta,
+5. **Efeito externo (exclusão no storage).** O banco autoriza antes, o storage executa depois, nesta ordem:
+   1. **Autorizar** (transação curta): renovar o lease do job com o predicado de posse (`UPDATE ops.jobs SET
+      lease_expires_at = $agora + $lease WHERE id = $id AND status = 'InFlight' AND fencing_token = $t AND
+      lease_expires_at > $agora`; zero linhas → descartar o lote, `stale_completion`) e, na mesma transação, a
+      transição condicional das linhas de negócio que perdem o objeto, com predicado de estado e de corte (ex.:
+      `UPDATE media.uploads SET state = 'Deleted' ... WHERE state = 'Pending' AND created_at < $corte`, pela API do
+      módulo dono). Só as linhas que estão no estado final dessa transição, por esta execução ou por uma anterior
+      que caiu no meio, entram no passo 2.
+   2. **Executar** fora de qualquer transação, com prazo por chamada e chave estável: apagar os objetos dessas
+      linhas; objeto ausente é sucesso.
+   3. **Concluir** (transação curta, condicionada ao token e ao lease): registrar o fim (ex.: apagar as linhas
+      `Deleted` cujo objeto saiu, ou marcar `object_deleted_at`) e passar o job a `Done` ou reagendá-lo.
+
+   O fencing garante que um executor com token antigo não **autoriza** efeito novo: o passo 1 dele afeta zero
+   linhas. Ele não impede que repita um efeito que já estava autorizado (um executor pausado entre os passos 1 e 2
+   que volta depois de o outro assumir); por isso o passo 2 é idempotente, e a repetição apaga o que já não
+   existe.
+6. **Retry e veneno.** Falha transitória (`40P01`, `55P03`, prazo do item, `5xx` do storage) volta a `Pending`
+   com `available_at = $agora + atraso`, `lease_expires_at = NULL` e `completed_at = NULL` (os `CHECK` do item 1),
+   atraso do `ExponentialBackoff` (15 s dobrando até o teto de 15 min, sorteado na metade de cima do intervalo),
+   condicionado ao token e ao lease. `attempts` conta no claim, então um job que derruba o processo também esgota
+   tentativas: o claim do item 3 leva a `Failed` (`LeaseExpiredExhausted`) a linha cujo lease venceu com
+   `attempts >= max_attempts`, em vez de tomá-la de novo. Falha na última tentativa, ou falha definitiva
+   (payload inválido, alvo com estado incoerente), vai a `Failed`. Alvo inexistente não é falha: o agregado foi removido (exclusão de conta,
    retenção) e o job conclui como `Done` sem efeito.
 7. **Deadline.** Cada tipo declara se tem deadline. Jobs de correção de estado (expiração, prazo, transição de
    rodada) não têm: precisam rodar mesmo atrasados, e a política de retomada da spec 5.2 decide o que fazer com a
    rodada vencida. Jobs cujo efeito perde sentido com o tempo têm, e viram `Expired` em vez de rodar tarde. Job
    atrasado não abre janela para o usuário: a ação de jogo e o aceite de convite comparam o prazo persistido com
    o relógio do servidor no próprio comando (C6), então o atraso do worker só atrasa a notificação do fim.
-8. **Recorrência sem agendador.** Job recorrente (retenção diária, limpezas) usa `dedupe_key` com o período
-   (`retention:2026-10-16`); ao concluir, o handler insere a próxima ocorrência na mesma transação, calculada a
-   partir de `$agora` (não da ocorrência anterior), com jitter do `JitteredInterval`; no boot o worker garante a
-   ocorrência do período corrente com `ON CONFLICT DO NOTHING`. Depois de dias parado, o worker roda uma
-   ocorrência, não uma por dia perdido: os handlers recorrentes processam "tudo o que venceu até agora" e por isso
-   são idempotentes e não precisam de recuperação de ocorrências.
-9. **Fila de revisão.** `Failed` é a fila de revisão (API-ADM19): consulta por `status = 'Failed'`, causa
-   sanitizada em `last_error_code`, nunca dado pessoal. Reprocessar é API-ADM20: permissão, chave de
-   idempotência, nova verificação de elegibilidade, `status = 'Pending'`, `attempts = 0` e auditoria. Descartar
-   é `Cancelled`, com auditoria. Um `Failed` não é apagado pela limpeza enquanto não for resolvido.
+8. **Recorrência sem agendador: uma linha fixa por tipo.** Cada tipo recorrente (retenção, limpezas) tem uma
+   única linha, `dedupe_key = '<kind>'` (ex.: `retention`), que nunca chega a `Done`: ao terminar, o handler a
+   devolve a `Pending` na mesma transação do efeito, com o predicado de posse do item 4 (`SET status =
+   'Pending', available_at = $proxima, attempts = 0, lease_expires_at = NULL, completed_at = NULL,
+   last_error_code = NULL`). `$proxima` é calculada a partir de `$agora` (não da execução anterior), com jitter do
+   `JitteredInterval`. No boot, o worker garante que a linha de cada tipo recorrente existe (`INSERT ... ON
+   CONFLICT DO NOTHING`). Depois de dias parado, roda uma execução, não uma por dia perdido: os handlers
+   recorrentes processam "tudo o que venceu até agora" e por isso são idempotentes. Uma linha recorrente em
+   `Failed` para a recorrência daquele tipo até ser resolvida, e por isso alerta (item 10).
+9. **Fila de revisão.** `Failed` é a fila de revisão (API-ADM19, só leitura, sem lock): consulta por `status =
+   'Failed'`, causa sanitizada em `last_error_code`, nunca dado pessoal. Reprocessar é API-ADM20, na ordem de
+   locks: registro de idempotência; depois, ainda na posição 0, `UPDATE ops.jobs SET status = 'Pending',
+   available_at = $agora, attempts = 0, completed_at = NULL, last_error_code = NULL WHERE id = $id AND status =
+   'Failed'` (zero linhas → o job não está mais em revisão, `409`); depois a nova verificação de elegibilidade
+   lendo o negócio **sem** `FOR UPDATE` (quem tranca e revalida é o handler, quando executar); auditoria no mesmo
+   commit. Descartar é o mesmo `UPDATE` para `Cancelled` (com `completed_at`), com auditoria. Um `Failed` não é
+   apagado pela limpeza enquanto não for resolvido.
 10. **Métricas.** Por `kind`: idade do `Pending` vencido mais antigo (`$agora - min(available_at)` entre os
     vencidos, pelo `ix_jobs_due`), quantidade em `Failed` e `Expired`, `stale_completion`, leases vencidos
     retomados, duração do efeito e tamanho da tabela (`n_live_tup`, `n_dead_tup` de `pg_stat_user_tables`).
-    Alerta pela idade, não pelo tamanho da fila (spec 10.6), e por `Failed > 0` em tipo de correção de estado
-    (sala ou rodada possivelmente parada); limiares iniciais são hipótese a medir no ensaio de carga.
+    Alerta pela idade, não pelo tamanho da fila (spec 10.6), e por `Failed > 0` em **qualquer** `kind`: num tipo
+    de correção de estado é sala ou rodada possivelmente parada; num recorrente, retenção ou limpeza parada (item
+    8); em qualquer tipo, acúmulo que a limpeza não remove (item 11). Limiares iniciais são hipótese a medir no
+    ensaio de carga.
 11. **Limpeza e manutenção da tabela.** Job recorrente apaga em lotes de até 1.000 linhas, uma transação por
-    lote, os jobs `Done`, `Expired` e `Cancelled` com `completed_at` acima de 7 dias
+    lote, os jobs `Done`, `Expired` e `Cancelled` com `completed_at` acima de 7 dias (as linhas recorrentes do
+    item 8 nunca ficam em estado final e não entram)
     ([retention.md](../../privacy/retention.md)). `ops.jobs` é tabela de fila (cada job é inserido, atualizado
     duas ou três vezes e apagado), e as colunas dos predicados dos índices parciais mudam a cada transição, então
     os `UPDATE` não são HOT e geram tuplas mortas nos índices que o polling percorre. A migração define
@@ -172,8 +250,10 @@ mesmo protocolo de lease e fencing da outbox. Só o processo worker executa jobs
     **hipótese**) e o ensaio de carga confere `n_dead_tup` e o plano do claim com `EXPLAIN (ANALYZE, BUFFERS)`;
     ajuste além disso só com medição.
 12. **Parada do worker (spec 17.3, passo 4).** No `SIGTERM` o worker para de fazer claim, termina o job em curso
-    dentro do prazo de shutdown e devolve a `Pending` os jobs do lote que não começou, por `UPDATE` condicionado
-    ao token (devolvendo a tentativa, `attempts - 1`). O que não for devolvido volta pelo lease vencido.
+    dentro do prazo de shutdown e devolve a `Pending` os jobs do lote que não começaram: `UPDATE ops.jobs SET
+    status = 'Pending', attempts = attempts - 1, lease_expires_at = NULL, completed_at = NULL WHERE id = ANY($ids)
+    AND status = 'InFlight' AND fencing_token = <token de cada um> AND lease_expires_at > $agora` (a tentativa é
+    devolvida; `available_at` não muda). O que não for devolvido volta pelo lease vencido.
 13. **Código.** Mesma política e mesmos tipos de apoio da outbox (`ExponentialBackoff`, `JitteredInterval`,
     `TimeProvider`); o SQL de `ops.jobs` fica numa classe própria por enquanto. Se aparecer um terceiro uso do
     protocolo, extrair a fila comum.
@@ -186,11 +266,12 @@ fora da política e sem mais infraestrutura no piloto.
 ## Consequências
 
 - Positivas: uma tabela e um protocolo, iguais aos da outbox; agendamento e fato comitam juntos; o cenário de
-  pausa da spec 3.5 tem resposta mecânica (token) e não depende de relógio entre máquinas; nenhuma transação de
-  API espera por um job.
+  pausa da spec 3.5 tem resposta mecânica (token) e não depende de relógio entre máquinas; transação de API
+  nunca tranca job e, com uma chave por agendamento, não espera por um no fluxo normal.
 - Negativas: escrevemos e mantemos claim, retry, recorrência, devolução no shutdown e limpeza; sem painel pronto
   (a fila de revisão depende da área administrativa); polling a cada segundo gera carga constante, pequena, no
-  banco; o handler de cada tipo precisa revalidar e reagendar, porque a API não cancela jobs.
+  banco; o handler de cada tipo precisa revalidar estado e instante, porque a API não cancela jobs, e jobs
+  obsoletos ficam na fila até rodarem sem efeito.
 - Trade-off: vazão limitada pelo PostgreSQL, aceitável para a carga de referência; o gatilho de revisão mede a
   idade do item mais antigo. O lease usa o relógio do executor: com um worker numa VPS não há desvio entre
   máquinas; com vários, o desvio só antecipa ou atrasa a retomada, e a correção continua no token e no lock da
@@ -222,27 +303,38 @@ fora da política e sem mais infraestrutura no piloto.
   relógio além do lease; o executor 2 faz o claim (token t + 1) e conclui; o executor 1 é liberado. Asserções,
   relendo por outra conexão: a conclusão do executor 1 afeta 0 linhas; a sala tem uma única transição para
   `Expired`, a reserva foi liberada uma vez e há um único evento na outbox; o job está `Done` com `fencing_token =
-  t + 1`; `stale_completion` foi incrementado. Variante de efeito externo: o storage falso recebe a mesma chave
-  de idempotência nas duas chamadas. Variantes de queda: executor descartado antes do commit do efeito (o job
+  t + 1`; `stale_completion` foi incrementado. Variante de efeito externo: o executor 1 pausado antes do passo 1
+  (item 5) não autoriza nada e o storage falso não recebe chamada dele; pausado entre os passos 1 e 2, a repetição
+  apaga um objeto já ausente e conta como sucesso. Variantes de queda: executor descartado antes do commit do efeito (o job
   volta a ser elegível depois do lease) e depois do efeito externo e antes da conclusão (efeito repetido,
   deduplicado).
 - **Sabotagem:** o teste é conferido uma vez com `fencing_token = $t` removido da conclusão e precisa falhar
   (duas transições ou dois eventos).
 - **Retry, veneno e deadline (integração, M2):** falha transitória reagenda dentro da faixa do backoff; a oitava
   falha vai a `Failed`; job `InFlight` com lease vencido e `attempts = max_attempts` vai a `Failed` com
-  `LeaseExpiredExhausted` **sem** derrubar o claim dos outros jobs do mesmo lote; job com `deadline_at` vencido
+  `LeaseExpiredExhausted`, token incrementado e `completed_at` gravado, **sem** derrubar o claim nem ser devolvido
+  como trabalho, enquanto os outros jobs do mesmo lote são tomados; job com `deadline_at` vencido
   vira `Expired` sem executar; `SKIP LOCKED` faz dois executores simultâneos tomarem lotes disjuntos (`Barrier`,
   50 repetições).
-- **Revalidação (integração, M2):** convite aceito antes do prazo → o job `expire-invite` conclui `Done` sem
-  transição; prazo persistido no futuro → o job volta a `Pending` com `available_at` igual ao prazo; alvo
-  apagado → `Done` sem efeito.
+- **Revalidação e chave por agendamento (integração, M2):** convite aceito antes do prazo → o job
+  `expire-invite` conclui `Done` sem transição; prazo antecipado e prazo adiado → o job do instante novo executa
+  no instante novo e o do instante antigo conclui sem efeito; ações de jogo entre o início e o prazo não tornam o
+  job de prazo obsoleto; alvo apagado → `Done` sem efeito.
+- **Sem espera da API (integração, M2):** com um handler parado no gancho depois de trancar a linha do job, uma
+  transação de API que muda o prazo da mesma sala comita sem esperar (`pg_blocking_pids` vazio para ela).
+- **Prazo do item e lease restante (integração, M2):** item que excede o prazo é cancelado e reagendado; lote cujo
+  lease restante não cobre o próximo item devolve esse item e o resto a `Pending` com a tentativa devolvida.
+- **Revisão (integração, M2):** API-ADM20 sobre job `Failed` o leva a `Pending` com `attempts = 0`; sobre job que
+  já saiu de `Failed`, `409` sem alteração; a linha de negócio não é trancada pela rota (`pg_locks`).
 - **Rollback e pausa (integração, M2):** um job de `kind` fora de `$tiposConhecidos` nunca é tomado; um `kind`
   pausado em `ops.operational_flags` fica `Pending` e volta a ser tomado ao despausar.
-- **Recorrência e limpeza (integração, M2):** worker parado por três dias simulados → uma ocorrência de
-  `retention`, não três; a limpeza apaga `Done` com mais de 7 dias e preserva `Failed` não resolvido.
+- **Recorrência e limpeza (integração, M2):** existe exatamente uma linha por tipo recorrente depois de dois
+  boots; worker parado por três dias simulados → uma execução de `retention`, não três, e a linha volta a
+  `Pending` com a próxima data; a limpeza apaga `Done` com mais de 7 dias e preserva `Failed` não resolvido e as
+  linhas recorrentes.
 - **Shutdown (integração, M2):** cancelar o host com lote tomado devolve os jobs não iniciados a `Pending` com a
-  tentativa devolvida.
-- **Boot (unidade, M2):** opções com `lote × timeout > lease / 2` impedem a subida (`ValidateOnStart`).
+  tentativa devolvida, `lease_expires_at` e `completed_at` nulos (nenhum `CHECK` violado).
+- **Boot (unidade, M2):** opções com `lote × prazo do item > lease / 2` impedem a subida (`ValidateOnStart`).
 - **Fechamento dos tipos (arquitetura, M2):** todo valor do `CHECK` de `kind` tem exatamente um handler
   registrado no worker, e vice-versa (enumeração por reflexão contra a lista usada na migração).
 - **T-18 (unidade e integração, M2):** prazo de sala e rodada resolvido pelo relógio do servidor, com job
