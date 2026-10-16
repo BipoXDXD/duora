@@ -57,6 +57,29 @@ public sealed class ComposeFileTests
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Spec 11.2: o certificado do key ring e os anteriores chegam ao web como os arquivos que o Data Protection lê
+    /// (DataProtection__Certificate e DataProtection__PreviousCertificates), e a nenhum outro serviço.
+    /// </summary>
+    [Fact]
+    public void ProductionKeyRingCertificateReachesOnlyTheWeb()
+    {
+        var compose = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "infra", "compose", "compose.prod.yml"));
+        var web = Between(compose, "\n  web:\n", "\n  worker:\n");
+        var topLevelSecrets = compose[compose.IndexOf("\nsecrets:\n", StringComparison.Ordinal)..];
+
+        foreach (var (source, target) in new[]
+        {
+            ("dataprotection_certificate", "DataProtection__Certificate"),
+            ("dataprotection_previous_certificates", "DataProtection__PreviousCertificates"),
+        })
+        {
+            Assert.Contains($"- source: {source}\n        target: {target}\n", web, StringComparison.Ordinal);
+            Assert.Equal(1, Regex.Count(compose, $@"- source: {source}\b"));
+            Assert.Contains($"/{source}\n", topLevelSecrets, StringComparison.Ordinal);
+        }
+    }
+
     private static string Between(string text, string start, string end)
     {
         var from = text.IndexOf(start, StringComparison.Ordinal);

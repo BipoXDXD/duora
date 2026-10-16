@@ -1,6 +1,9 @@
 extern alias worker;
+using System.Security.Cryptography.X509Certificates;
 using Duora.Web;
+using Duora.Web.Identity;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using WorkerHost = worker::Duora.Worker.WorkerHost;
 
 namespace Duora.IntegrationTests;
@@ -26,6 +29,22 @@ public sealed class SecretFilesConfigurationTests : IDisposable
         await using var app = DuoraWebApp.Build(["--environment=Testing", $"--SecretsDirectory={_secrets.FullName}"]);
 
         Assert.Equal(SyntheticConnectionString, app.Configuration.GetConnectionString("Duora"));
+    }
+
+    [Fact]
+    public async Task WebEncryptsTheKeyRingWithTheCertificateFromTheSecretFiles()
+    {
+        // Mesmos nomes de target do compose.prod.yml; o arquivo de anteriores existe vazio fora de uma rotação.
+        var certificate = TestCertificates.Create("duora-key-ring");
+        WriteSecret("DataProtection__Certificate", certificate.Pem);
+        WriteSecret("DataProtection__PreviousCertificates", "");
+
+        await using var app = DuoraWebApp.Build(["--environment=Testing", $"--SecretsDirectory={_secrets.FullName}"]);
+
+        var loaded = app.Services.GetRequiredService<KeyRingCertificates>();
+        var current = Assert.IsType<X509Certificate2>(loaded.Current);
+        Assert.Equal(certificate.RawBase64, Convert.ToBase64String(current.RawData));
+        Assert.Empty(loaded.Previous);
     }
 
     [Fact]

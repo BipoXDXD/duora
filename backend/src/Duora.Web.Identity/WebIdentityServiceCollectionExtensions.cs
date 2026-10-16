@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -67,6 +68,24 @@ internal sealed class DataProtectionStorageOptions
     public bool RequireMountedVolume { get; set; } = true;
 
     public bool IsPersistent() => !RequireMountedVolume || KeyRingMount.IsPersistentMountPoint(KeysDirectory);
+
+    /// <summary>
+    /// PEM com o certificado e a chave privada que cifram o key ring em repouso (spec 11.2). Em produção vem do Docker
+    /// secret <c>DataProtection__Certificate</c>, gerado pelo <c>duora-secrets</c>.
+    /// </summary>
+    public string Certificate { get; set; } = "";
+
+    /// <summary>
+    /// Certificados anteriores, em pares PEM, só para decifrar as chaves que eles cifraram enquanto a troca não
+    /// termina. Vazio fora de uma rotação.
+    /// </summary>
+    public string PreviousCertificates { get; set; } = "";
+
+    /// <summary>
+    /// Exige <see cref="Certificate"/>. Ligado por padrão; só o desenvolvimento local, os testes e a geração do
+    /// OpenAPI no build desligam, como em <see cref="RequireMountedVolume"/>.
+    /// </summary>
+    public bool RequireCertificate { get; set; } = true;
 }
 
 public static class WebIdentityServiceCollectionExtensions
@@ -76,9 +95,9 @@ public static class WebIdentityServiceCollectionExtensions
     /// Protection, cookie de sessão com ticket no PostgreSQL e Data Protection com key ring persistido. O host não
     /// sobe sem <c>DataProtection:KeysDirectory</c>.
     /// </summary>
-    public static IServiceCollection AddDuoraWebIdentity(this IServiceCollection services)
+    public static IServiceCollection AddDuoraWebIdentity(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddDuoraDataProtection();
+        services.AddDuoraDataProtection(configuration);
 
         services.AddDuoraAccounts()
             .AddSignInManager()
@@ -149,7 +168,7 @@ public static class WebIdentityServiceCollectionExtensions
         };
     }
 
-    private static void AddDuoraDataProtection(this IServiceCollection services)
+    private static void AddDuoraDataProtection(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<DataProtectionStorageOptions>()
             .BindConfiguration(DataProtectionStorageOptions.Section)
@@ -164,12 +183,22 @@ public static class WebIdentityServiceCollectionExtensions
                 o => o.IsPersistent(),
                 "DataProtection:KeysDirectory precisa ser o ponto de montagem de um volume persistente: na camada do "
                 + "container ou em memória, a chave some no próximo deploy e todas as sessões caem.")
+            .Validate(
+                o => !o.RequireCertificate || !string.IsNullOrWhiteSpace(o.Certificate),
+                "DataProtection:Certificate é obrigatório: sem ele o key ring fica em claro no volume e nos backups.")
+            .Validate(
+                o => KeyRingCertificates.IsValid(o.Certificate, maximum: 1),
+                "DataProtection:Certificate precisa ser um PEM com um certificado seguido da sua chave privada.")
+            .Validate(
+                o => KeyRingCertificates.IsValid(o.PreviousCertificates),
+                "DataProtection:PreviousCertificates precisa ser vazio ou PEM com pares de certificado e chave privada.")
             .ValidateOnStart();
+
 
         // Nome estável: o mesmo key ring precisa ler o que outra instância ou versão protegeu. A vida da chave é a
         // padrão, explícita aqui porque a política depende dela: a cada 90 dias nasce uma chave nova, e as antigas
         // continuam no key ring para ler o que protegeram (sessão de até 12 h, links de até 24 h).
-        services.AddDataProtection()
+        var dataProtection = services.AddDataProtection()
             .SetApplicationName("Duora")
             .SetDefaultKeyLifetime(TimeSpan.FromDays(90));
         services.AddOptions<KeyManagementOptions>()
@@ -177,6 +206,17 @@ public static class WebIdentityServiceCollectionExtensions
                 keys.XmlRepository = new FileSystemXmlRepository(
                     new DirectoryInfo(storage.Value.KeysDirectory),
                     loggers));
+
+        // Spec 11.2: o atual cifra as chaves novas; o atual e os anteriores decifram as chaves que cada um cifrou. O
+        // framework só aceita os certificados no registro, então eles são lidos aqui; se o PEM for inválido, nada
+        // é registrado e a validação acima barra o start com a mensagem certa.
+        var storage = configuration.GetSection(DataProtectionStorageOptions.Section).Get<DataProtectionStorageOptions>();
+        if (KeyRingCertificates.TryLoad(storage?.Certificate, storage?.PreviousCertificates) is { Current: { } current } certificates)
+        {
+            services.AddSingleton(certificates);
+            dataProtection.ProtectKeysWithCertificate(current);
+            dataProtection.UnprotectKeysWithAnyCertificate([.. certificates.All]);
+        }
     }
 }
 
