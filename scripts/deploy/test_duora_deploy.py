@@ -305,7 +305,8 @@ class FakeRunner:
     def __init__(self, architecture: str = "arm64", fail_on: str | None = None,
                  pre_head: str | None = None, migration_head: str = "20261015175752_Baseline",
                  ready_after: int = 1,
-                 service_states: str = "web=running\nworker=running\nedge=running\n") -> None:
+                 service_states: str = "web=running\nworker=running\nedge=running\n",
+                 privileged_without_mfa: str = "0") -> None:
         self.commands: list[list[str]] = []
         self.captured: list[bool] = []
         self._architecture = architecture
@@ -316,6 +317,7 @@ class FakeRunner:
         self._ready_after = ready_after
         self._readiness_calls = 0
         self._service_states = service_states
+        self._privileged_without_mfa = privileged_without_mfa
 
     def __call__(self, command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
         self.commands.append(command)
@@ -332,6 +334,8 @@ class FakeRunner:
         if 'max("MigrationId")' in joined:
             head = self._pre_head if self._head_reads == 1 else self._migration_head
             return subprocess.CompletedProcess(command, 0, (head or "") + "\n", "")
+        if "not u.two_factor_enabled" in joined:
+            return subprocess.CompletedProcess(command, 0, self._privileged_without_mfa + "\n", "")
         if "ps" in command and "--format" in command:
             return subprocess.CompletedProcess(command, 0, self._service_states, "")
         if "/health/ready" in joined:
@@ -572,6 +576,41 @@ class DeployTests(unittest.TestCase):
         self.assertTrue(runner.ran("up --detach --wait --no-deps web worker edge"))
         current = json.loads((self.paths.state_dir / "current.json").read_text())
         self.assertEqual("2026.10.15-1", current["releaseId"])
+
+    def test_rollback_across_the_bootstrap_with_privileged_account_without_mfa_is_refused_before_stopping_anything(
+            self) -> None:
+        # A release anterior ao bootstrap não tem o I5: o reset por e-mail tomaria a conta sem segundo fator.
+        self.write_current("2026.10.16-1", previous="2026.10.15-1")
+        runner = FakeRunner(pre_head="20261020000000_Newer", privileged_without_mfa="2")
+
+        with self.assertRaisesRegex(deploy.DeployError, "sem MFA"):
+            self.run_deploy(runner)
+
+        self.assertTrue(runner.ran("not u.two_factor_enabled"))
+        self.assertFalse(runner.ran("stop worker"))
+        self.assertFalse(runner.ran("up --detach --wait --no-deps"))
+
+    def test_rollback_across_the_bootstrap_checks_privileged_accounts_and_proceeds_without_any(self) -> None:
+        self.write_current("2026.10.16-1", previous="2026.10.15-1")
+        runner = FakeRunner(pre_head="20261020000000_Newer", privileged_without_mfa="0")
+
+        self.run_deploy(runner)
+
+        self.assertTrue(runner.ran("not u.two_factor_enabled"))
+        self.assertTrue(runner.ran("up --detach --wait --no-deps web worker edge"))
+
+    def test_forward_deploy_does_not_check_privileged_accounts(self) -> None:
+        runner = FakeRunner(pre_head="20261001000000_Older", privileged_without_mfa="2")
+
+        self.run_deploy(runner)
+
+        self.assertFalse(runner.ran("not u.two_factor_enabled"))
+
+    def test_bootstrap_migration_named_by_the_rollback_guard_exists(self) -> None:
+        migrations = (Path(__file__).resolve().parents[2] / "backend" / "src" / "Duora.Infrastructure" / "Persistence"
+                      / "Migrations")
+
+        self.assertTrue((migrations / f"{deploy.ADMIN_BOOTSTRAP_MIGRATION}.cs").is_file())
 
     def test_rollback_to_release_not_declared_previous_is_refused_before_stopping_anything(self) -> None:
         self.write_current("2026.10.16-1", previous="2026.10.14-9")
