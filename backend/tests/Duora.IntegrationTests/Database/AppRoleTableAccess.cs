@@ -38,6 +38,11 @@ internal static class AppRoleTableAccess
             ["identity.user_tokens"] = AppTableAccess.ReadWrite,
             ["identity.users"] = AppTableAccess.ReadWrite,
 
+            // media (dono: Media)
+            ["media.media_assets"] = AppTableAccess.ReadWrite,
+            ["media.media_variants"] = AppTableAccess.ReadWrite,
+            ["media.uploads"] = AppTableAccess.ReadWrite,
+
             // ops (dono: Operations; outbox de propriedade comum, modules.md nota 4)
             ["ops.__ef_migrations_history"] = AppTableAccess.None,
             ["ops.audit_events"] = AppTableAccess.AppendOnly,

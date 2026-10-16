@@ -762,15 +762,22 @@ erDiagram
 
 ### media.uploads
 
+Implementada na migration `Media` ([ADR-0025](../architecture/adr/0025-pipeline-de-fotos-imagesharp-s3-outbox.md)).
+
 - **Colunas:** `id`; `owner_id`; `state text` (`Pending`, `Quarantined`, `Processing`, `Approved`, `Rejected`,
-  `Deleted`); `quarantine_key text` (aleatória, gerada pelo servidor); `declared_content_type text`;
-  `size_bytes bigint`; `created_at`, `abandon_after timestamptz` (24 h, spec 12.4); `rejection_code text`;
+  `Deleted`); `client_key text` (≤ 64, `Idempotency-Key` do cliente); `quarantine_key text` (aleatória, gerada pelo
+  servidor); `declared_content_type text`; `size_bytes bigint`; `content_sha256 bytea` (SHA-256 dos bytes recebidos;
+  nulo enquanto `Pending`); `created_at`, `abandon_after timestamptz` (24 h, spec 12.4); `rejection_code text`;
   `version bigint`.
-- **Constraints:** `UNIQUE (quarantine_key)`; FK `owner_id` `RESTRICT`; `CHECK (size_bytes BETWEEN 1 AND
-  5242880)` (5 MiB, spec 4.3); `CHECK` de estado.
-- **Índices:** `ix_uploads_owner_id`; `ix_uploads_pending_owner` em `(owner_id)` onde `state IN ('Pending',
-  'Quarantined', 'Processing')` (teto de pendentes, spec 11.5); `ix_uploads_abandon_after` onde `state IN
-  ('Pending', 'Quarantined')` (limpeza).
+- **Constraints:** `UNIQUE (owner_id, client_key)` (idempotência local, ADR-0025; a coluna líder indexa a FK do
+  dono); `UNIQUE (quarantine_key)`; FK `owner_id` `RESTRICT`; `CHECK (size_bytes BETWEEN 1 AND 5242880)` (5 MiB,
+  spec 4.3); `CHECK` de estado, de tipo declarado (allowlist), do formato de `client_key`, do hash (32 bytes; ausente
+  só em `Pending` e `Deleted`) e do código de rejeição (só em `Rejected`, mantido em `Deleted`).
+- **Índices:** `ix_uploads_pending_owner` em `(owner_id)` onde `state IN ('Pending', 'Quarantined', 'Processing')`
+  (teto de pendentes, spec 11.5); `ix_uploads_abandon_after` onde `state IN ('Pending', 'Quarantined')` (limpeza).
+- **Concorrência:** a reserva conta os pendentes e insere depois de `SELECT ... FOR NO KEY UPDATE` da linha do dono
+  em `identity.users` (sem write skew; teste `PendingUploadsPerAccountAreCapped`). Toda transição é `UPDATE`
+  condicional por `state` e `version`.
 - **Classe:** P3.
 
 ### media.media_assets
@@ -780,7 +787,8 @@ erDiagram
   bytea`; `original_key text` (anulável: apagado depois da derivação, spec 12.4); `approved_at`,
   `deleted_at timestamptz`; `version bigint`.
 - **Constraints:** `UNIQUE (upload_id)`; FK `upload_id` `RESTRICT`; FK `owner_id` `RESTRICT`;
-  `CHECK (width::bigint * height <= 20000000)` (20 megapixels, spec 4.3).
+  `CHECK (width::bigint * height <= 20000000)` (20 megapixels, spec 4.3); `CHECK` de estado, tipo detectado,
+  dimensões positivas e `sha256` de 32 bytes.
 - **Índices:** `ix_media_assets_owner_id`.
 - **Classe:** P3.
 

@@ -1,11 +1,13 @@
 using System.Text.Json.Serialization;
 using Duora.Infrastructure;
+using Duora.Infrastructure.Media;
 using Duora.Infrastructure.Profiles;
 using Duora.Infrastructure.Safety;
 using Duora.Web.Accounts;
 using Duora.Web.Admin;
 using Duora.Web.Http;
 using Duora.Web.Identity;
+using Duora.Web.Media;
 using Duora.Web.Profiles;
 using Duora.Web.Safety;
 using Duora.Web.Security;
@@ -15,7 +17,7 @@ namespace Duora.Web;
 /// <summary>Composition root do Web, separado do Program para os testes subirem a mesma app.</summary>
 internal static class DuoraWebApp
 {
-    /// <summary>Teto de corpo para JSON comum (spec 4.3); upload terá limite próprio por rota.</summary>
+    /// <summary>Teto de corpo para JSON comum (spec 4.3); o upload de foto sobe o próprio limite na rota.</summary>
     private const long MaxRequestBodyBytes = 32 * 1024;
 
     private const int MaxJsonDepth = 16;
@@ -51,6 +53,7 @@ internal static class DuoraWebApp
         builder.Services.AddDuoraWebIdentity(builder.Configuration);
         builder.Services.AddDuoraProfiles();
         builder.Services.AddDuoraSafety();
+        builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
         // Negar por padrão: toda rota exige sessão (e MFA, se a conta é privilegiada); as públicas declaram
@@ -90,6 +93,7 @@ internal static class DuoraWebApp
         api.MapMfaEndpoints();
         api.MapReauthenticationEndpoints();
         api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
+        api.MapPhotoEndpoints();
 
         return app;
     }

@@ -5,6 +5,8 @@ internal static class DatabaseSchemas
 {
     public const string Identity = "identity";
 
+    public const string Media = "media";
+
     public const string Ops = "ops";
 
     public const string Profiles = "profiles";
