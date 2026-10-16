@@ -44,10 +44,15 @@ public static class AccountServiceCollectionExtensions
             provider.GetRequiredService<DecoyPasswordHash>(),
             provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
             provider.GetRequiredService<TimeProvider>()));
+        services.AddOptions<AccountLockOptions>()
+            .BindConfiguration(AccountLockOptions.Section)
+            .Validate(o => o.IsValid(), "Identity:AccountLockTimeout precisa ficar entre 100 ms e 1 min.")
+            .ValidateOnStart();
         services.AddScoped(provider => new AccountSecurityService(
             provider.GetRequiredService<DuoraDbContext>(),
             provider.GetRequiredService<UserManager<DuoraUser>>(),
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<IOptions<AccountLockOptions>>().Value));
 
         return identity;
     }

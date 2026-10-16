@@ -4,8 +4,58 @@ using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 
 namespace Duora.Infrastructure.Identity;
+
+/// <summary>Teto da espera pelo lock da conta (seção <c>Identity</c>).</summary>
+internal sealed class AccountLockOptions
+{
+    public const string Section = "Identity";
+
+    private static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan Maximum = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Quanto uma verificação espera outra da mesma conta terminar (5 s, hipótese). Passou disso, a requisição
+    /// desiste com <see cref="AccountBusyException"/> em vez de segurar uma conexão do pool.
+    /// </summary>
+    public TimeSpan AccountLockTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+    public bool IsValid() => AccountLockTimeout >= Minimum && AccountLockTimeout <= Maximum;
+}
+
+/// <summary>
+/// A conta está travada por outra verificação há mais que <see cref="AccountLockOptions.AccountLockTimeout"/>
+/// (<c>lock_timeout</c>, 55P03). Nada foi gravado; o cliente pode tentar de novo depois de <see cref="RetryAfter"/>.
+/// </summary>
+public sealed class AccountBusyException : Exception
+{
+    public AccountBusyException()
+        : this(TimeSpan.FromSeconds(1))
+    {
+    }
+
+    public AccountBusyException(string message)
+        : base(message)
+    {
+        RetryAfter = TimeSpan.FromSeconds(1);
+    }
+
+    public AccountBusyException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+        RetryAfter = TimeSpan.FromSeconds(1);
+    }
+
+    internal AccountBusyException(TimeSpan retryAfter, Exception? innerException = null)
+        : base("Conta ocupada por outra verificação.", innerException)
+    {
+        RetryAfter = retryAfter;
+    }
+
+    public TimeSpan RetryAfter { get; }
+}
 
 /// <summary>Início do cadastro do TOTP (API-A11).</summary>
 public abstract record MfaEnrollmentStart
@@ -136,13 +186,19 @@ public sealed class AccountSecurityService
     private readonly UserManager<DuoraUser> _users;
     private readonly AuditTrail _audit;
     private readonly TimeProvider _time;
+    private readonly AccountLockOptions _lock;
 
-    internal AccountSecurityService(DuoraDbContext db, UserManager<DuoraUser> users, TimeProvider time)
+    internal AccountSecurityService(
+        DuoraDbContext db,
+        UserManager<DuoraUser> users,
+        TimeProvider time,
+        AccountLockOptions accountLock)
     {
         _db = db;
         _users = users;
         _audit = new AuditTrail(db, time);
         _time = time;
+        _lock = accountLock;
     }
 
     /// <summary>
@@ -411,13 +467,27 @@ public sealed class AccountSecurityService
     /// <summary>
     /// Trava a linha da conta até o fim da transação e relê a entidade, que pode ter sido carregada antes do lock.
     /// <c>FOR NO KEY UPDATE</c> serializa as verificações da conta sem bloquear quem só referencia a conta por FK
-    /// (abrir sessão, gravar aceite).
+    /// (abrir sessão, gravar aceite). A espera tem teto (<c>lock_timeout</c> só desta transação): sem ele, uma fila
+    /// de verificações da mesma conta seguraria conexões do pool até o timeout do comando.
     /// </summary>
+    /// <exception cref="AccountBusyException">A espera passou do teto; a transação não gravou nada.</exception>
     private async Task LockAndReloadAsync(DuoraUser user, CancellationToken cancellationToken)
     {
+        var lockTimeout = $"{(long)_lock.AccountLockTimeout.TotalMilliseconds}ms";
         await _db.Database.ExecuteSqlAsync(
-            $"select 1 from identity.users where id = {user.Id} for no key update",
+            $"select set_config('lock_timeout', {lockTimeout}, true)",
             cancellationToken);
+        try
+        {
+            await _db.Database.ExecuteSqlAsync(
+                $"select 1 from identity.users where id = {user.Id} for no key update",
+                cancellationToken);
+        }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.LockNotAvailable)
+        {
+            throw new AccountBusyException(_lock.AccountLockTimeout, error);
+        }
+
         await _db.Entry(user).ReloadAsync(cancellationToken);
     }
 
