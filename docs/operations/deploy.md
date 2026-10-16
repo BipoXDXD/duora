@@ -261,10 +261,13 @@ atual: invalidar a senha não fecha o buraco. Por isso:
   cada conta privilegiada ativa o MFA (ou perde o papel por decisão registrada do responsável técnico), e só então
   o rollback passa.
 
+Conta privilegiada, para a guarda, é toda conta sem MFA com algum papel que não seja `participant`: um papel
+novo entra contado sem mudar o script.
+
 ```sql
 select count(*) from identity.users u where not u.two_factor_enabled and exists (
   select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
-  where ur.user_id = u.id and r.name in ('moderator', 'product_admin', 'operator'));
+  where ur.user_id = u.id and r.name is distinct from 'participant');
 ```
 
 O aviso de senha redefinida da reemissão usa o tipo `PasswordResetNotice`, que o leitor dos avisos já entrega; ele
