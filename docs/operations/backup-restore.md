@@ -282,8 +282,11 @@ quando ele sai com erro (S3 parado), o trata como filho desconhecido ("untracked
 code 103") e faz crash-restart do cluster a cada tentativa, e o shutdown normal acaba em "abnormal database system
 shutdown". O drill prova a correção (passo 5 do drill) e falha sem o `init`. O `postgres` depende do `backup`
 (`depends_on`, `service_started`): o Compose sobe o `backup` antes e para o `postgres` antes dele. O healthcheck do
-`postgres` é uma sonda TCP em `127.0.0.1:5432`, sem login (o `pg_isready` como `postgres` pela rede era recusado
-pelo `pg_hba` e gerava um FATAL no log a cada 5 s); a porta TCP só abre depois do initdb.
+`postgres` é `pg_isready -h 127.0.0.1 -U duora_app -d postgres`: só fica healthy com o servidor aceitando conexões
+(não durante o recovery, ao contrário de uma sonda TCP, e web, worker e migrator esperam `service_healthy`), pelo
+TCP só depois do initdb, e sem FATAL no log (como `postgres` pela rede o `pg_hba` recusava e logava um FATAL a cada
+5 s; `duora_app` é aceito e o `pg_isready` não manda senha). O drill falha se aparecer FATAL de `pg_hba` ou de
+`duora_app` no log.
 
 **Quebra da cadeia:** se o repositório ficar fora do ar e o WAL pendente passar de `archive-push-queue-max` (4 GiB),
 o pgBackRest descarta a fila para o PostgreSQL não parar por disco cheio. Sem PITR depois desse ponto até o próximo
@@ -325,7 +328,14 @@ socket do Docker. Falhas aparecem em `systemctl --failed`, em `journalctl -u 'du
 estiver ocupado por um deploy (não por um backup: `full`/`diff` seguram também `.backup.lock`) **e** houver um verify
 bom há no máximo 1 h (`/var/lib/duora/.backup-verify-ok`), ele pula com uma linha informativa no journal: o deploy
 recria `postgres` e `backup` e roda o próprio verify antes de parar serviços. Sem verify bom recente, com o marcador
-ilegível, durante um backup ou chamado à mão, o verify roda normalmente. Testes: `ScheduledVerifyDuringDeployTests`.
+ilegível, durante um backup ou chamado à mão, o verify roda normalmente. Testes: `ScheduledVerifyDuringDeployTests`
+e `ProcLocksTests`.
+
+No Linux o lock é lido em `/proc/locks` (sem tomá-lo), casando dispositivo e inode do `stat` de
+`/var/lib/duora/.deploy.lock`. Em btrfs (ou num subvolume), o dispositivo do `stat` pode não ser o que o
+`/proc/locks` mostra; aí o deploy não é reconhecido e o verify **roda** durante ele, o que pode dar um alerta `crit`
+falso enquanto `postgres` e `backup` são recriados. O erro é sempre para o lado de alertar, nunca de esconder uma
+falha. Confira na VPS com `findmnt -T /var/lib/duora` (ext4 casa).
 
 **O verify falha fechado.** O deploy só segue com a prova positiva de backup saudável. Bloqueiam (código 1,
 mensagem clara):
