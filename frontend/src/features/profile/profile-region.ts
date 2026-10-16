@@ -40,3 +40,7 @@ export const REGION_LABEL_KEYS = {
 
 /** As 27 UFs, na ordem das chaves acima; `z.enum` pede uma tupla não vazia. */
 export const REGION_CODES = Object.keys(REGION_LABEL_KEYS) as [RegionCode, ...RegionCode[]]
+
+export function isRegionCode(value: string): value is RegionCode {
+  return Object.hasOwn(REGION_LABEL_KEYS, value)
+}
