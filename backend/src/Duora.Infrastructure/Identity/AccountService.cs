@@ -160,10 +160,12 @@ public sealed class AccountService
     }
 
     /// <summary>
-    /// Todo pedido gera exatamente um e-mail, para os três casos fazerem o mesmo trabalho (TM-06): conta
-    /// confirmada recebe o link; conta pendente recebe um lembrete para cadastrar de novo, porque redefinir não
-    /// confirma o e-mail e o cadastro pendente pode ser de outra pessoa (TM-66); endereço sem conta recebe um
-    /// aviso de que não há conta. O excesso de e-mails é contido pelo rate limit por endereço.
+    /// Todo pedido gera exatamente um e-mail, para os casos fazerem o mesmo trabalho (TM-06): conta confirmada
+    /// recebe o link; conta pendente recebe um lembrete para cadastrar de novo, porque redefinir não confirma o
+    /// e-mail e o cadastro pendente pode ser de outra pessoa (TM-66); endereço sem conta recebe um aviso de que não
+    /// há conta. Conta privilegiada que ainda não ativou o MFA recebe um aviso sem link (I5): antes do segundo fator,
+    /// o e-mail sozinho não pode virar caminho para tomar a conta. O excesso de e-mails é contido pelo rate limit
+    /// por endereço.
     /// </summary>
     public async Task RequestPasswordResetAsync(
         EmailAddress email,
@@ -171,6 +173,9 @@ public sealed class AccountService
         CancellationToken cancellationToken)
     {
         var user = await _users.FindByEmailAsync(email.Value);
+        // A consulta de papel roda em todos os casos, até sem conta, para o trabalho continuar igual (TM-06).
+        var awaitsFirstMfa = await HasPrivilegedRoleAsync(user?.Id ?? Guid.Empty, cancellationToken)
+            && user is { TwoFactorEnabled: false };
         switch (user)
         {
             case null:
@@ -180,6 +185,9 @@ public sealed class AccountService
                     Guid.CreateVersion7(_time.GetUtcNow()),
                     token: null,
                     language);
+                break;
+            case { EmailConfirmed: true } when awaitsFirstMfa:
+                Enqueue(AccountEmailKind.PasswordResetUnavailable, StoredAddress(user), user.Id, token: null, language);
                 break;
             case { EmailConfirmed: true }:
                 Enqueue(
@@ -201,10 +209,10 @@ public sealed class AccountService
     /// Troca a senha com o token do e-mail. O Identity troca o security stamp, o que já invalida todas as sessões;
     /// a revogação explícita deixa o motivo registrado. O bloqueio por tentativas é zerado, para quem foi
     /// bloqueado por um atacante recuperar o acesso pelo e-mail, exceto em conta com MFA: o e-mail não prova o
-    /// segundo fator, e destravar ali reabriria a força bruta do TOTP. Só vale para conta confirmada. Troca,
-    /// desbloqueio, revogação, auditoria (TM-05) e aviso ao titular (TM-21) vão num commit só, com a conta travada
-    /// como nas outras operações de credencial: sem troca, nada é gravado, e uma falha de login simultânea não se
-    /// perde nem derruba o reset.
+    /// segundo fator, e destravar ali reabriria a força bruta do TOTP. Só vale para conta confirmada e, se
+    /// privilegiada, com o MFA já ativado (I5). Troca, desbloqueio, revogação, auditoria (TM-05) e aviso ao titular
+    /// (TM-21) vão num commit só, com a conta travada como nas outras operações de credencial: sem troca, nada é
+    /// gravado, e uma falha de login simultânea não se perde nem derruba o reset.
     /// </summary>
     /// <exception cref="AccountBusyException">A espera pela conta passou do teto; nada foi gravado.</exception>
     public async Task<bool> ResetPasswordAsync(
@@ -215,7 +223,10 @@ public sealed class AccountService
         CancellationToken cancellationToken)
     {
         var user = await _users.FindByIdAsync(userId.ToString("D"));
-        if (user is null || !user.EmailConfirmed || !TryDecodeLinkToken(linkToken, out var token))
+        if (user is null
+            || !user.EmailConfirmed
+            || (!user.TwoFactorEnabled && await HasPrivilegedRoleAsync(user.Id, cancellationToken))
+            || !TryDecodeLinkToken(linkToken, out var token))
         {
             return false;
         }
@@ -315,6 +326,23 @@ public sealed class AccountService
             .Where(user => user.Id == userId)
             .Select(user => (AccountStatus?)user.Status)
             .SingleOrDefaultAsync(cancellationToken);
+
+    /// <summary>
+    /// A conta tem papel privilegiado? Com MFA inativo, isso quer dizer que ela ainda não fez a primeira ativação
+    /// (I5), porque conta privilegiada não desativa o MFA (A15); até lá, o reset fica bloqueado. Um comando só, com
+    /// o mesmo texto para qualquer id, inclusive o de conta inexistente.
+    /// </summary>
+    private async Task<bool> HasPrivilegedRoleAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var privileged = AccountRoles.Privileged.ToArray();
+        return await _db.Database.SqlQuery<bool>(
+                $"""
+                select exists (
+                    select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
+                    where ur.user_id = {userId} and r.name = any({privileged})) as "Value"
+                """)
+            .SingleAsync(cancellationToken);
+    }
 
     /// <summary>Mesmo hasher (e mesmo custo) da senha real, para a conta inexistente custar um hash.</summary>
     private void VerifyDecoy(string password) => _decoy.Verify(_users.PasswordHasher, password);
