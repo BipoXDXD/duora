@@ -5,13 +5,14 @@ restritas. Nenhum agente roda estes comandos: eles exigem o login da conta B2, q
 Decisão do provedor: Backblaze B2, região US East (responsável, 2026-10-16; adendo do
 [ADR-0023](../architecture/adr/0023-topologia-do-backup-repository-host-e-object-lock.md)). As fotos ficam no disco
 da VPS (adendo do [ADR-0010](../architecture/adr/0010-object-storage-externo-leitura-via-api.md)) e não têm bucket de
-leitura; a cópia delas para este bucket é a proposta da seção [Fotos](#fotos-proposta-a-aprovar).
+leitura; os derivados vão para o prefixo `media/` deste bucket com restic
+([backup-restore.md](backup-restore.md#backup-das-fotos-restic)).
 
 | Item | Valor |
 |---|---|
 | Bucket | Um só, privado (`allPrivate`), **próprio do Duora**: a conta B2 é compartilhada com outro projeto |
 | Proteção | File Lock (Object Lock) ligado na criação, retenção padrão `compliance` de 21 dias, lifecycle de versões ocultas |
-| Prefixos | `duora/` (repositório do pgBackRest, `repo1-path=/duora`); `media/` reservado para o backup das fotos |
+| Prefixos | `duora/` (repositório do pgBackRest, `repo1-path=/duora`); `media/` (repositório restic das fotos) |
 | Cifra | SSE-B2 por padrão, além da cifra do pgBackRest no cliente (`aes-256-cbc`): a Backblaze só vê blocos cifrados |
 | Endpoint | `s3.us-east-005.backblazeb2.com` é o provável; **confirmar no bucket** (passo 1) |
 
@@ -81,14 +82,20 @@ direto para o cofre, sem gravar em arquivo nem colar em chat, issue ou commit.
 |---|---|---|---|---|
 | `duora-backup` | VPS (`pgbackrest_repo.conf`, passo 4) e cofre | `duora/` | `listFiles,readFiles,writeFiles,readBuckets,readBucketRetentions` | pgBackRest (backup, WAL, `expire`) e `duora-backup verify` |
 | `duora-backup-verify` | só no cofre | `duora/` | `listFiles,readFiles,readBuckets,readBucketRetentions` | Conferência independente fora da VPS (passo 6) e restore de ensaio fora da VPS |
-| `duora-backup-admin` | criada só quando for usada | nenhum | `listFiles,readFiles,writeFiles,deleteFiles,readBuckets,writeBuckets,readBucketRetentions,readFileRetentions` | Remover hide markers depois de um ataque, mudar lifecycle |
+| `duora-media-backup` | VPS (`restic_media_credentials`) e cofre | `media/` | `listBuckets,listFiles,readFiles,writeFiles,readBuckets,readBucketRetentions` | restic das fotos (`listBuckets`: o `restic init` confere que o bucket existe) e `media-verify` |
+| `duora-backup-admin` | **nunca guardada**: criada na hora, com `--duration`, e apagada no fim | nenhum | `listFiles,readFiles,writeFiles,deleteFiles,readBuckets,writeBuckets,readBucketRetentions,readFileRetentions` | Remover hide markers depois de um ataque, mudar lifecycle |
 
 ```sh
 b2 key create --bucket "$BUCKET" --name-prefix duora/ duora-backup \
   listFiles,readFiles,writeFiles,readBuckets,readBucketRetentions
 b2 key create --bucket "$BUCKET" --name-prefix duora/ duora-backup-verify \
   listFiles,readFiles,readBuckets,readBucketRetentions
+b2 key create --bucket "$BUCKET" --name-prefix media/ duora-media-backup \
+  listBuckets,listFiles,readFiles,writeFiles,readBuckets,readBucketRetentions
 ```
+
+A `duora-media-backup` vai para a VPS pelo `duora-secrets write-media-backup-repo`, junto com a senha do repositório
+restic ([backup-restore.md](backup-restore.md#primeira-configuração-das-fotos)).
 
 Por que essas capacidades (tabela de operações S3 × capacidades da Backblaze):
 
@@ -100,9 +107,9 @@ Por que essas capacidades (tabela de operações S3 × capacidades da Backblaze)
 - Nenhuma capacidade de retenção, legal hold, bucket, chaves, compartilhamento (`shareFiles`) ou `bypassGovernance`.
   O verify reprova qualquer capacidade fora da lista, inclusive uma que a Backblaze criar no futuro.
 
-**Chave administrativa sob demanda** (recomendação; decisão do responsável): o B2 não exige 2FA para usar uma
-application key, então uma chave com `deleteFiles` guardada no cofre é uma credencial de apagar sem segundo fator.
-Crie-a só na hora, com validade curta, a partir do login com 2FA, e apague-a depois:
+**Chave administrativa só na hora** (decidido em 2026-10-16): o B2 não exige 2FA para usar uma application key, então
+uma chave com `deleteFiles` guardada seria uma credencial de apagar sem segundo fator. Ela **nunca** é guardada (nem
+no cofre): nasce do login com 2FA, com `--duration` curta, para uma tarefa, e é apagada ao fim dela.
 
 ```sh
 b2 key create --bucket "$BUCKET" --duration 3600 duora-backup-admin \
@@ -136,7 +143,9 @@ existir, o comando recusa; na rotação, use `--replace` (troca por rename atôm
 |---|---|
 | `duora-backup` (key ID e application key) | VPS (`pgbackrest_repo.conf`) e cofre |
 | `duora-backup-verify` | só no cofre |
-| `duora-backup-admin` | em lugar nenhum: nasce e morre no uso |
+| `duora-media-backup` (key ID e application key) | VPS (`restic_media_credentials`) e cofre |
+| Senha do repositório restic das fotos | VPS (`restic_media_password`) e cofre, com cópia de emergência fora dele |
+| `duora-backup-admin` | em lugar nenhum: nasce e morre no uso, nunca é guardada |
 | Senha de cifra do pgBackRest | VPS (`pgbackrest_cipher.conf`) e cofre, com cópia de emergência fora dele |
 | Login da conta B2 | cofre, com 2FA |
 
@@ -222,19 +231,6 @@ wc -l hide-markers.txt     # confira o volume antes de apagar
 while read -r id; do b2 rm "b2id://$id"; done < hide-markers.txt
 ```
 
-## Fotos (proposta a aprovar)
-
-As fotos aprovadas ficam no disco da VPS (adendo do ADR-0010) e precisam de cópia fora dela antes do upload ser
-ligado em produção. Proposta (ferramenta nova, **decisão do responsável**): `restic` para o prefixo `media/` deste
-bucket, com repositório cifrado no cliente, chave própria e as mesmas proteções:
-
-```sh
-b2 key create --bucket "$BUCKET" --name-prefix media/ duora-media-backup \
-  listFiles,readFiles,writeFiles,readBuckets,readBucketRetentions
-```
-
-Nada disso existe ainda: a chave só é criada no PR que implementar o backup das fotos.
-
 ## Custo esperado
 
 Preços de tabela pública da Backblaze, **a conferir** em <https://www.backblaze.com/cloud-storage/pricing> na criação:
@@ -245,5 +241,5 @@ cobram o espaço guardado.
 No exemplo de dimensionamento de [backup-restore.md](backup-restore.md#retenção-janela-recuperável-de-14-dias)
 (~29 GB correntes + até ~29 GB de versões ocultas), o armazenamento fica abaixo de US$ 0,50 por mês. O download do
 `verify-repo-full` semanal, do `verify-repo` diário e de um ensaio mensal de restore (~165 GB por mês) fica perto da
-franquia de 3× (~170 GB): no pior caso, alguns centavos. Fotos somam pouco espaço (10 mil fotos ≈ 2 GB) e não geram
-download no uso normal, porque a leitura sai do disco da VPS.
+franquia de 3× (~170 GB): no pior caso, alguns centavos. Fotos somam pouco espaço (10 mil fotos ≈ 2 GB, mais as versões
+do restic) e o único download delas é o `media-check` semanal; a leitura no uso normal sai do disco da VPS.

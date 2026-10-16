@@ -1199,7 +1199,7 @@ Persistir dados de Caddy necessários a certificados. Não emitir certificados e
 | Data Protection | Volume persistente restrito | Chaves protegidas em repouso; material de abertura sob custódia separada |
 | Caddy | Volumes de dados/configuração necessários | Backup seletivo de configuração e material sensível |
 | Arquivos temporários | Diretório limitado do worker/web | Limite de tamanho, limpeza e ausência de conteúdo privado em logs |
-| Fotos aprovadas e quarentena | Object storage externo, buckets/prefixos privados separados | Nunca depender do filesystem efêmero do container |
+| Fotos aprovadas e quarentena | Disco da VPS: diretório do host montado no web e no worker, áreas separadas (`quarantine/`, `derivatives/`); cópia externa dos derivados com restic no Backblaze B2 (ADR-0010, adendo de 2026-10-16) | Nunca depender do filesystem efêmero do container: o boot recusa a raiz ausente; upload em produção só com o backup das fotos verificado |
 | Spool de backup | Disco local limitado, quando configurado | Não contar como cópia externa recuperável |
 | Segredos | Arquivos protegidos fora do repositório, materializados no deploy | `0600`, proprietário correto, rotação e inventário |
 

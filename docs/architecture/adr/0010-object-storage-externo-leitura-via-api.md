@@ -66,22 +66,24 @@ volume pedir).
   escrita no `worker`, dono `1654`, `0700`. Trade-off aceito: o `web` consegue ler a quarentena que ele mesmo grava (o
   S3 com credencial separada impedia); a quarentena continua sem rota de leitura na API (TM-44).
 - **Cópia externa (pré-requisito para ligar o upload em produção):** só `derivatives/` vai para o backup; a quarentena
-  é transitória (original com EXIF, 24 h no máximo) e fica de fora. Proposta mais simples, **a confirmar pelo
-  responsável por ser ferramenta nova**: `restic` (BSD-2-Clause, binário único, cifra no cliente, snapshots
-  incrementais, `restic check --read-data-subset`) para o prefixo `media/` do mesmo bucket B2 com File Lock, com chave
-  própria presa a `media/`, sem `deleteFiles`, num timer diário com verificação semanal. O repositório do pgBackRest
-  não serve: ele só guarda o cluster do PostgreSQL. `rclone sync` foi descartado: espelho não é backup (uma exclusão ou
+  é transitória (original com EXIF, 24 h no máximo) e fica de fora. Decidido pelo responsável em 2026-10-16:
+  `restic` (BSD-2-Clause, pacote do Ubuntu, cifra no cliente, snapshots incrementais, `restic check --read-data`) no
+  host, para o prefixo `media/` do mesmo bucket B2 com File Lock, com chave própria presa a `media/` e sem
+  `deleteFiles`: backup diário, verify diário (bucket, chave, idade do snapshot, estrutura) e leitura completa semanal,
+  pelas ações `media-*` do `duora-backup` e timers do role `backup`, com o mesmo alerta de falha. Operação em
+  [backup-restore.md](../../operations/backup-restore.md#backup-das-fotos-restic). O repositório do pgBackRest não
+  serve: ele só guarda o cluster do PostgreSQL. `rclone sync` foi descartado: espelho não é backup (uma exclusão ou
   corrupção se propaga) e a cifra seria outra camada para configurar.
 - **Exclusão e restore:** apagar uma foto apaga o arquivo na VPS na hora, mas a cópia dela fica no backup até o
-  snapshot sair da retenção, o lock vencer e o lifecycle limpar (proposta: 14 dias de snapshots + 21 de lock + 30 do
-  lifecycle). Isso entra no mapa de dados e na política de retenção (spec 12.4, 16.2). Restaurar fotos exige aplicar
-  depois as exclusões registradas no banco (tombstones, INV-11): arquivo de asset apagado ou reprovado é removido antes
-  de reabrir.
+  snapshot sair da retenção, o lock vencer e o lifecycle limpar (decidido: 14 dias de snapshots + 21 de lock + 30 do
+  lifecycle, até ~65 dias; registrado no mapa de dados e na retenção). Restaurar fotos exige aplicar as exclusões do
+  banco já restaurado (tombstones, INV-11): só voltam os derivados de assets `Approved`, copiados de um staging.
 - **Custo e capacidade:** sem egress de leitura (a foto sai do disco local). O disco da VPS passa a ter dois
   consumidores que crescem (banco e fotos); `duora_min_free_gib` do deploy já barra disco cheio.
 
 Gate novo: o upload de fotos **não liga em produção** (`Media:Review` ausente no `compose.prod.yml`) sem o backup das
 fotos implementado, com verify que falhe fechado e um restore de ensaio que prove a volta dos derivados. Compliance
 acrescentado: `TheFileSystemStoreServesProductionFromAMountedDirectory`,
-`TheFileSystemStoreRefusesAMissingDirectoryInProduction`, `TheFileSystemStoreRefusesARelativeDirectoryInProduction` e
-`WebRefusesTheFileSystemPhotoStoreInProductionWithoutTheMountedDirectory`.
+`TheFileSystemStoreRefusesAMissingDirectoryInProduction`, `TheFileSystemStoreRefusesARelativeDirectoryInProduction`,
+`WebRefusesTheFileSystemPhotoStoreInProductionWithoutTheMountedDirectory`, `MediaBackupTests`,
+`MediaBackupUnitsTests` e `WriteMediaBackupRepositoryTests`. A spec 15.4 foi atualizada para esta decisão.
