@@ -3,9 +3,9 @@ using Duora.Core.Media;
 namespace Duora.Infrastructure.Media;
 
 /// <summary>
-/// Object storage em diretório local, só para desenvolvimento e testes: o boot o recusa em <c>Production</c>, porque
-/// o disco do container é efêmero (spec 15.4). Grava num arquivo temporário e renomeia, para uma escrita
-/// interrompida nunca aparecer como objeto.
+/// Object storage em diretório local. Em <c>Production</c> a raiz é um diretório do host montado no container (adendo
+/// do ADR-0010), e o boot recusa uma raiz ausente, que seria o disco efêmero do container (spec 15.4). Grava num
+/// arquivo temporário e renomeia, para uma escrita interrompida nunca aparecer como objeto.
 /// </summary>
 internal sealed class FileSystemObjectStore : IObjectStore
 {

@@ -58,15 +58,57 @@ public sealed class MediaStorageConfigurationTests : IDisposable
     }
 
     [Fact]
-    public void TheFileSystemStoreIsRefusedInProduction()
+    public void TheFileSystemStoreServesProductionFromAMountedDirectory()
+    {
+        // Adendo do ADR-0010 (2026-10-16): fotos no disco da VPS, num diretório do host montado no container.
+        var store = Resolve("Production", new()
+        {
+            ["Media:Storage:Provider"] = "FileSystem",
+            ["Media:Storage:FileSystemRoot"] = _root.FullName,
+        });
+
+        Assert.IsType<FileSystemObjectStore>(store);
+    }
+
+    [Fact]
+    public void TheFileSystemStoreRefusesAMissingDirectoryInProduction()
+    {
+        // Sem o volume montado, gravar criaria o diretório na camada efêmera do container (spec 15.4).
+        var missing = Path.Combine(_root.FullName, "volume-nao-montado");
+
+        var error = Assert.Throws<OptionsValidationException>(() => Resolve("Production", new()
+        {
+            ["Media:Storage:Provider"] = "FileSystem",
+            ["Media:Storage:FileSystemRoot"] = missing,
+        }));
+
+        Assert.Contains("FileSystemRoot", error.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(missing));
+    }
+
+    [Fact]
+    public void TheFileSystemStoreRefusesARelativeDirectoryInProduction()
     {
         var error = Assert.Throws<OptionsValidationException>(() => Resolve("Production", new()
         {
             ["Media:Storage:Provider"] = "FileSystem",
-            ["Media:Storage:FileSystemRoot"] = _root.FullName,
+            ["Media:Storage:FileSystemRoot"] = "media",
         }));
 
-        Assert.Contains("Production", error.Message, StringComparison.Ordinal);
+        Assert.Contains("FileSystemRoot", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OutsideProductionAMissingDirectoryIsCreatedOnFirstWrite()
+    {
+        var store = Resolve("Development", new()
+        {
+            ["Media:Review"] = "TechnicalOnly",
+            ["Media:Storage:Provider"] = "FileSystem",
+            ["Media:Storage:FileSystemRoot"] = Path.Combine(_root.FullName, "ainda-nao-existe"),
+        });
+
+        Assert.IsType<FileSystemObjectStore>(store);
     }
 
     [Fact]
