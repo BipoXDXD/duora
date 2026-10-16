@@ -77,7 +77,7 @@ digest do índice multiarquitetura; atualizar as duas juntas.
 
 ## Caddy
 
-Tabela 15.3 da spec: `/api/*` e `/hubs/*` vão ao `web:8080` (hub com `flush_interval -1`, sem timeout de
+Tabela 15.3 da spec: `/api/*`, `/hubs/*` e `/webhooks/*` (callbacks de fornecedor, corpo até 64 KiB, 413 na borda acima disso; ADR-0024) vão ao `web:8080` (hub com `flush_interval -1`, sem timeout de
 requisição e `stream_close_delay 5m` em recarga de config); `/assets/*` é imutável por um ano e caminho inexistente
 dá 404; `index.html` e demais estáticos com `no-cache`; o fallback da SPA só vale para navegação de documento
 (`Sec-Fetch-Mode: navigate` ou `Accept: text/html`); `/health` e `/openapi` respondem 404 na borda.
