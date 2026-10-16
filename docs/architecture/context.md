@@ -78,7 +78,7 @@ o banco, os segredos ou o registry de produção (INV-12, [permissions.md](../au
 
 | Container | Responsabilidade | Exposição | Dados que guarda |
 |---|---|---|---|
-| Caddy | TLS, arquivos estáticos da SPA, proxy de `/api/*` e `/hubs/*`, fallback da SPA | Único serviço com portas públicas (443; 80 só para redirecionamento/ACME) | Certificados e configuração (volume persistente) |
+| Caddy | TLS, arquivos estáticos da SPA, proxy de `/api/*`, `/hubs/*` e `/webhooks/*` (corpo até 64 KiB), fallback da SPA | Único serviço com portas públicas (443; 80 só para redirecionamento/ACME) | Certificados e configuração (volume persistente) |
 | Duora.Web | API HTTP, Identity com cookie e ticket persistente, hub SignalR, publicação da outbox de tempo real, stream de mídia | Só pela rede do proxy; Kestrel nunca publicado | Nenhum em disco local além de temporários limitados |
 | Duora.Worker | Outbox (e-mail, mídia, verificação etária), expiração de rodadas e salas, retenção | Nenhuma; só egress para fornecedores necessários | Temporários limitados |
 | PostgreSQL 18 | Fonte da verdade, filas, outbox, idempotência, tickets de sessão | Só na rede interna de dados; sem `ports` no Compose | Volume dedicado; backup físico e WAL externos |

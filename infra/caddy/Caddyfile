@@ -1,4 +1,4 @@
-# Borda única do Duora (spec 15.3): SPA, /api/* e /hubs/* na mesma origem. Embutido na imagem edge.
+# Borda única do Duora (spec 15.3): SPA, /api/*, /hubs/* e /webhooks/* na mesma origem. Embutido na imagem edge.
 # Variáveis (lidas na carga da configuração):
 #   DUORA_DOMAIN  domínio da aplicação (produção: meetduora.com; "localhost" no smoke local)
 #   DUORA_TLS     e-mail da conta ACME em produção, ou "internal" para a CA local do Caddy (smoke/homologação)
@@ -74,6 +74,16 @@
 	# API: status, cookies e cabeçalhos de cache do backend passam intactos; sem Cache-Control, nada é guardado.
 	handle /api/* {
 		header ?Cache-Control "no-store"
+		reverse_proxy web:8080
+	}
+
+	# Callbacks de fornecedor (verificação etária, ADR-0024): só o web os autentica, pela assinatura sobre os bytes
+	# recebidos. O teto de 64 KiB repete o do backend para o corpo grande morrer na borda, com 413, sem ocupar o web.
+	# Sem cache e sem cookie úteis: o fornecedor não é navegador.
+	handle /webhooks/* {
+		request_body {
+			max_size 64KiB
+		}
 		reverse_proxy web:8080
 	}
 
