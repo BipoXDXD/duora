@@ -111,9 +111,14 @@ validade e o desdobramento "elegível é `VerifiedAdult` cujo `expires_at` é po
   `Active` com uma verificação `VerifiedAdult`, em qualquer instante. O tempo continua sem conceder elegibilidade
   (TM-40): ele só faz uma solicitação `Pending` abandonada (`RequestLifetime`) virar `Expired` e dar lugar a uma
   nova. `Expired` passa a ser só estado de **solicitação** abandonada, nunca de verificação adulta vencida.
-- **A verificação adulta decide.** A elegibilidade lê a `VerifiedAdult` da pessoa, se houver, e só na falta dela a
-  solicitação mais recente. Pelo fluxo não se cria solicitação depois de uma `VerifiedAdult`; a ordem só protege
-  linhas antigas, do tempo da validade de 365 dias.
+- **A decisão mais recente decide, e a conta manda antes dela.** A elegibilidade lê a solicitação mais recente da
+  pessoa, salvo quando ela é só um pedido sem decisão (`Pending` ou `Expired`) posterior a uma `VerifiedAdult`: aí
+  vale a `VerifiedAdult`, que não vence (`AgeEligibility.AdultVerificationPrevails`). Qualquer decisão posterior
+  (`Rejected`, `ManualReview`) prevalece sobre a verificação adulta antiga, e conta fora de `Active` nunca é
+  elegível: na dúvida, não elegível. Pelo fluxo não se cria solicitação depois de uma `VerifiedAdult`; a regra
+  protege linhas antigas, do tempo da validade de 365 dias, e contas devolvidas a `Active` por outro caminho.
+  (Correção da revisão de segurança do PR #59: a primeira versão priorizava sempre a `VerifiedAdult`, o que
+  deixava elegível uma conta ativa com `Rejected` ou `ManualReview` posterior.)
 - **`expires_at` em expand/contract.** Nesta release a coluna não é mais gravada nem lida, e a constraint
   `ck_age_verifications_verified_expiry` sai (migration `AgeVerificationWithoutExpiry`); valores antigos ficam,
   ignorados. **A coluna sai num PR futuro** (contract), depois que nenhuma release em uso a ler. Rollback para a

@@ -86,6 +86,20 @@ public static class AgeEligibility
         };
     }
 
+    /// <summary>Estados em que alguém (fornecedor ou revisão) já se pronunciou sobre a pessoa.</summary>
+    public static IReadOnlyList<AgeVerificationState> Decisions { get; } =
+        [AgeVerificationState.VerifiedAdult, AgeVerificationState.Rejected, AgeVerificationState.ManualReview];
+
+    /// <summary>
+    /// Qual solicitação decide a elegibilidade quando a pessoa tem mais de uma: a mais recente, salvo quando ela é só
+    /// um pedido sem decisão (<c>Pending</c> ou <c>Expired</c>, linha antiga do tempo da validade) feito depois de uma
+    /// <c>VerifiedAdult</c>, porque a verificação adulta não vence. Qualquer decisão posterior (<c>Rejected</c>,
+    /// <c>ManualReview</c>) manda sobre ela: na dúvida, não elegível.
+    /// </summary>
+    public static bool AdultVerificationPrevails(AgeVerificationState latestDecision, AgeVerificationState latest) =>
+        latestDecision == AgeVerificationState.VerifiedAdult
+        && latest is AgeVerificationState.Pending or AgeVerificationState.Expired;
+
     /// <summary>Contas em que a verificação etária ainda decide alguma coisa.</summary>
     private static bool IsInVerificationFlow(AccountStatus account) =>
         account is AccountStatus.PendingEligibility or AccountStatus.Active;
