@@ -14,8 +14,13 @@ internal sealed record AccountLink(Guid UserId, string Token);
 /// Passos de conta pela API, com dados sintéticos únicos por teste (o banco é compartilhado pela suíte). Os links
 /// de e-mail são lidos do payload da outbox, que o teste HTTP não despacha: é o mesmo dado que o worker usaria.
 /// </summary>
-internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory factory)
+internal sealed class IdentityScenario(string connectionString, DuoraWebFactory factory)
 {
+    public IdentityScenario(PostgresFixture postgres, DuoraWebFactory factory)
+        : this(postgres.ConnectionString, factory)
+    {
+    }
+
     public const string ValidPassword = "frase longa o bastante";
 
     public const string TermsVersion = "2026-10-01";
@@ -68,7 +73,7 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
 
     public async Task GrantRoleAsync(Guid userId, string role)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await RoleSeparationTests.GrantAsync(connection, userId, role);
     }
@@ -76,7 +81,7 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
     /// <summary>Sessões da conta como estão no banco: política, prova de MFA e reautenticação.</summary>
     public async Task<IReadOnlyList<(string Policy, DateTimeOffset? MfaVerifiedAt, DateTimeOffset? ReauthenticatedAt, bool Revoked)>> SessionRowsAsync(Guid userId)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
@@ -126,7 +131,7 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
     /// <summary>Todos os e-mails do tipo pedido para o endereço, do mais antigo ao mais novo.</summary>
     public async Task<IReadOnlyList<AccountLink>> ReadLinksAsync(string email, string kind)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
@@ -153,7 +158,7 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
 
     public async Task<AccountLink?> TryReadLatestLinkAsync(string email, string kind)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
@@ -178,7 +183,7 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
     /// <summary>Idioma gravado no pedido de e-mail mais recente do tipo, ou <c>null</c> se o campo faltar.</summary>
     public async Task<string?> ReadLatestLanguageAsync(string email, string kind)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
@@ -196,7 +201,7 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
 
     public async Task<long> ScalarAsync(string sql, params object[] parameters)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         foreach (var parameter in parameters)
@@ -209,7 +214,7 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
 
     public async Task<string> ScalarTextAsync(string sql, params object[] parameters)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         foreach (var parameter in parameters)
