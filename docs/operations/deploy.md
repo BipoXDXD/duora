@@ -28,6 +28,10 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   release que não tenha o #51 (`feat/security-notifications-reader`, leitor) já implantado. Confira que a release
   corrente (`current.json`) já contém o #51; antes de voltar para uma release anterior ao #51, a consulta de
   [rollback](#rollback-de-aplicação) dos tipos `...Notice` precisa devolver zero.
+- [ ] **Reset indisponível (bootstrap administrativo):** a gravação do `PasswordResetUnavailable` (bootstrap
+  administrativo) não vai a deploy numa release que não tenha o leitor (`feat/admin-bootstrap-reader`) já
+  implantado. Antes de voltar para uma release anterior a esse leitor, a consulta do
+  [rollback](#rollback-de-aplicação) desse tipo precisa devolver zero.
 - [ ] **Contato de suporte:** `Duora:SupportContact` traz um placeholder (`suporte@meetduora.com`) nas configurações
   base; a spec ainda não define o canal. Antes de abrir a participantes reais, troque pelo canal definido e confira
   que a caixa recebe.
@@ -223,6 +227,18 @@ select count(*) from ops.outbox_deliveries d
 join ops.outbox_events e on e.id = d.outbox_event_id
 where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
   and e.payload->>'kind' like '%Notice';
+```
+
+**Reset indisponível (bootstrap administrativo).** O tipo `PasswordResetUnavailable` do mesmo evento segue o mesmo
+caminho: o leitor (`feat/admin-bootstrap-reader`, empilhado sobre o leitor dos avisos) vai a deploy sem nenhuma
+gravação, e a gravação vem com o bootstrap administrativo, no deploy seguinte. A consulta acima não o cobre, porque
+o nome não termina em `Notice`. Para voltar a uma release anterior ao leitor, só com esta fila vazia também:
+
+```sql
+select count(*) from ops.outbox_deliveries d
+join ops.outbox_events e on e.id = d.outbox_event_id
+where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
+  and e.payload->>'kind' = 'PasswordResetUnavailable';
 ```
 
 ### Falha no meio do deploy
