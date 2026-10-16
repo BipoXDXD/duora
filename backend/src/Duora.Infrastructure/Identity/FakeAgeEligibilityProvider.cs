@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Duora.Core.Identity;
 
 namespace Duora.Infrastructure.Identity;
@@ -15,7 +16,12 @@ internal sealed class FakeAgeEligibilityProvider(FakeAgeProviderOptions options,
 
     public FakeAgeProviderMode Mode => options.Mode;
 
-    public static string ReferenceFor(Guid verificationId) => $"fake_{verificationId:N}";
+    /// <summary>
+    /// Referência opaca e estável para a solicitação: derivada do id (idempotente), mas sem revelá-lo, porque vai na
+    /// URL do fluxo que o navegador recebe (TM-38).
+    /// </summary>
+    public static string ReferenceFor(Guid verificationId) =>
+        "fake_" + Convert.ToHexStringLower(SHA256.HashData(verificationId.ToByteArray()))[..32];
 
     public async Task<AgeCheckSession> StartAsync(AgeCheckStart request, CancellationToken cancellationToken)
     {
