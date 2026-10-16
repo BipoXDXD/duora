@@ -187,13 +187,35 @@ jobs:
           echo "uname -m: $(uname -m)"
           echo "Runner: $(. /etc/os-release && echo "$PRETTY_NAME"), $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
 
+      # Licença da Six Labors (ADR-0025, docs/operations/deploy.md): o build Release do worker a recebe como secret do
+      # BuildKit, lido da variável do passo, sem ARG nem ENV na imagem. Sem o secret (PR de fork; PR do Dependabot sem o
+      # secret do Dependabot) o job falha com mensagem, em vez de pular: images verde quer dizer imagens de release
+      # construídas e varridas, e um build pulado passaria pelo gate sem a imagem que vai para produção.
       - name: Build web, worker e migrator
         id: build-dotnet
+        env:
+          SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
         run: |
+          license=()
+          if grep -q 'id=sixlabors_license' infra/images/dotnet/Dockerfile; then
+            if [ -z "$SIXLABORS_LICENSE_KEY" ]; then
+              echo "::error::Secret SIXLABORS_LICENSE_KEY ausente: o build Release do worker exige a licença da Six Labors. PR de fork não recebe secrets; PR do Dependabot precisa do secret de mesmo nome em Settings > Secrets > Dependabot (docs/operations/deploy.md)."
+              exit 1
+            fi
+            license=(--secret "id=sixlabors_license,env=SIXLABORS_LICENSE_KEY")
+          fi
           for target in web worker migrator; do
             docker buildx build --file infra/images/dotnet/Dockerfile --target "$target" --platform "$PLATFORM" \
-              --build-arg GIT_COMMIT="$GITHUB_SHA" --tag "duora-$target:ci" --load .
+              --build-arg GIT_COMMIT="$GITHUB_SHA" --tag "duora-$target:ci" "${license[@]}" --load .
           done
+
+      # A chave não pode ter ficado em camada, histórico nem arquivo da imagem (o script nunca a imprime). Só depois que
+      # o Dockerfile passa a usar o secret e o verificador existe no repositório.
+      - name: Conferir que a licença não ficou na imagem do worker
+        if: ${{ hashFiles('scripts/supply-chain/check_image_secret.py') != '' }}
+        env:
+          SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
+        run: python3 scripts/supply-chain/check_image_secret.py duora-worker:ci SIXLABORS_LICENSE_KEY
 
       - name: Build edge e postgres
         id: build-edge-postgres
