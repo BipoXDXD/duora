@@ -1,7 +1,10 @@
+using System.Net;
 using System.Security.Claims;
+using Duora.IntegrationTests.Identity;
 using Duora.Web.Identity;
 using Duora.Web.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -40,6 +43,9 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
         "PUT /api/v1/me/blocks/{targetUserId:guid}",
     ];
 
+    private const string SentinelRoute = "GET /api/v1/test/eligible-participant";
+    private const string SentinelPath = "/api/v1/test/eligible-participant";
+
     private readonly PostgresFixture _postgres;
     private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
     private readonly DuoraWebFactory _factory;
@@ -69,14 +75,20 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
             .ToList();
 
         var unknownAccountRoutes = AccountRoutes.Except(routes.Select(r => r.Name), StringComparer.Ordinal);
-        var unprotected = routes
-            .Where(route => !AccountRoutes.Contains(route.Name))
+        var participation = routes.Where(route => !AccountRoutes.Contains(route.Name)).ToList();
+        var unprotected = participation
             .Where(route => !route.Endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
                 .Any(data => data.Policy == ParticipationPolicies.EligibleParticipant))
             .Select(route => route.Name);
+        var anonymous = participation
+            .Where(route => route.Endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+            .Select(route => route.Name);
 
         Assert.Empty(unknownAccountRoutes);
+        // A sentinela do ambiente de teste garante que a enumeração enxerga ao menos uma rota de participação.
+        Assert.Contains(SentinelRoute, participation.Select(route => route.Name));
         Assert.Empty(unprotected);
+        Assert.Empty(anonymous);
     }
 
     [Fact]
@@ -138,6 +150,80 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     public async Task AnonymousIsNotEligible()
     {
         Assert.False(await AuthorizeAsync(new ClaimsPrincipal(new ClaimsIdentity())));
+    }
+
+    [Fact]
+    public async Task EligibleAccountReachesAParticipationRoute()
+    {
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(30));
+        using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
+
+        using var response = await browser.GetAsync(SentinelPath);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PendingAccountIsForbiddenOnAParticipationRoute()
+    {
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
+
+        using var response = await browser.GetAsync(SentinelPath);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "FORBIDDEN");
+    }
+
+    [Fact]
+    public async Task RestrictedAccountIsForbiddenOnAParticipationRoute()
+    {
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(30));
+        using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
+        await Scenario.ExecuteAsync("update identity.users set status = 'Restricted' where id = $1", account.UserId);
+
+        using var response = await browser.GetAsync(SentinelPath);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "FORBIDDEN");
+    }
+
+    [Fact]
+    public async Task ExpiredVerificationIsForbiddenOnAParticipationRoute()
+    {
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-400), _time.GetUtcNow().AddMinutes(-1));
+        using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
+
+        using var response = await browser.GetAsync(SentinelPath);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "FORBIDDEN");
+    }
+
+    [Fact]
+    public async Task UnreachableDatabaseIsTemporarilyUnavailableNotForbidden()
+    {
+        // Banco fora do ar durante a consulta de elegibilidade: 503, para o cliente tentar de novo, nunca 403 (M7).
+        var dead = new Npgsql.NpgsqlConnectionStringBuilder(_postgres.ConnectionString) { Port = 1, Timeout = 1 }.ConnectionString;
+        await using var factory = new DuoraWebFactory(dead) { Settings = AgeVerificationScenario.FakeProviderSettings() };
+        await using var scope = factory.Services.CreateAsyncScope();
+        var authorization = scope.ServiceProvider.GetRequiredService<IAuthorizationService>();
+        var context = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        context.Response.Body = new MemoryStream();
+        var policy = scope.ServiceProvider.GetRequiredService<IAuthorizationPolicyProvider>();
+
+        var result = await authorization.AuthorizeAsync(Principal(Guid.CreateVersion7(), Guid.CreateVersion7()), ParticipationPolicies.EligibleParticipant);
+        await scope.ServiceProvider.GetRequiredService<IAuthorizationMiddlewareResultHandler>().HandleAsync(
+            _ => Task.CompletedTask,
+            context,
+            (await policy.GetPolicyAsync(ParticipationPolicies.EligibleParticipant))!,
+            Microsoft.AspNetCore.Authorization.Policy.PolicyAuthorizationResult.Forbid(result.Failure));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("TEMPORARILY_UNAVAILABLE", body, StringComparison.Ordinal);
     }
 
     /// <summary>Principal como o ticket de sessão o monta (<see cref="DuoraClaims"/>), com uma sessão qualquer.</summary>

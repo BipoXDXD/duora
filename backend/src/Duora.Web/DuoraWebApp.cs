@@ -65,6 +65,7 @@ internal static class DuoraWebApp
         builder.Services.AddSessionAuthorization();
         builder.Services.AddAuthorizationBuilder().AddEligibleParticipant();
         builder.Services.AddScoped<IAuthorizationHandler, EligibleParticipantHandler>();
+        builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, EligibilityAuthorizationResultHandler>();
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();
@@ -103,6 +104,7 @@ internal static class DuoraWebApp
         api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
         api.MapPhotoEndpoints();
         api.MapAgeVerificationEndpoints();
+        api.MapParticipationTestSentinel(app.Environment);
 
         return app;
     }
