@@ -31,8 +31,18 @@ const PROBLEM_MESSAGES = {
   VALIDATION_FAILED: 'profile.validationFailed',
 } as const
 
+/**
+ * Dado privado não fica em memória depois que a tela desmonta (gcTime 0, como a identidade e as sessões no PR #31):
+ * voltar pelo histórico espera o servidor em vez de reexibir o perfil de uma sessão que pode ter acabado (T-21).
+ */
+const PRIVATE_DATA_GC_TIME_MS = 0
+
 function useOwnProfile(userId: string): UseQueryResult<OwnProfile> {
-  return useQuery({ queryKey: profileQueryKey(userId), queryFn: ({ signal }) => fetchOwnProfile(signal) })
+  return useQuery({
+    queryKey: profileQueryKey(userId),
+    queryFn: ({ signal }) => fetchOwnProfile(signal),
+    gcTime: PRIVATE_DATA_GC_TIME_MS,
+  })
 }
 
 /** Edição do próprio perfil (API-P01/P02). Carregando, erro e formulário são estados distintos (spec 13.2). */
@@ -123,7 +133,12 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
   })
   const reload = useMutation({
     mutationFn: () =>
-      queryClient.query({ queryKey: profileQueryKey(userId), queryFn: () => fetchOwnProfile(), staleTime: 0 }),
+      queryClient.query({
+        queryKey: profileQueryKey(userId),
+        queryFn: () => fetchOwnProfile(),
+        staleTime: 0,
+        gcTime: PRIVATE_DATA_GC_TIME_MS,
+      }),
     onSuccess: (latest) => {
       setBase(latest)
       setReloaded(true)

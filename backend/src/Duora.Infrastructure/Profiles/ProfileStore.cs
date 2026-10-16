@@ -88,8 +88,8 @@ public sealed class ProfileStore
         }
 
         return new OwnProfile(
-            reader.IsDBNull(0) ? null : DisplayName.FromStorage(reader.GetString(0)),
-            reader.IsDBNull(1) ? null : ProfileBio.FromStorage(reader.GetString(1)),
+            reader.IsDBNull(0) ? null : reader.GetString(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1),
             reader.GetInt64(2));
     }
 }

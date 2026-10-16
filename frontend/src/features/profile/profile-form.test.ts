@@ -93,6 +93,8 @@ describe('profileFormSchema: mesma estrutura que o servidor (revisão do PR #24)
     ['começa com CGJ', '\u034FAna'],
     ['dois CGJ', 'a\u034F\u034F'],
     ['seletor depois de espaço', 'Ana \uFE0Fx'],
+    ['seletor suplementar depois de letra latina', 'a\u{E0100}'],
+    ['seletor suplementar depois de emoji', '\u263A\u{E0100}'],
   ])('recusa marca fora do lugar: %s', (_motivo, displayName) => {
     expect(errorsOf({ displayName, bio: '' })).toEqual({ displayName: 'profile.error.invalidCharacters' })
   })
@@ -106,6 +108,7 @@ describe('profileFormSchema: mesma estrutura que o servidor (revisão do PR #24)
     ['emoji com VS16', '\u263A\uFE0F'],
     ['letra com VS15', 'Ana\uFE0E'],
     ['ideograma com seletor suplementar', '\u845B\u{E0100}'],
+    ['ideograma da extensão B com seletor suplementar', '\u{2000B}\u{E0101}'],
     ['mongol com FVS1', '\u1820\u180B'],
     ['CGJ depois da base', 'a\u034Fb'],
   ])('aceita marca logo depois da base: %s', (_motivo, displayName) => {

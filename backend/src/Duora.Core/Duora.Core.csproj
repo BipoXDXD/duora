@@ -1,8 +1,3 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Regras e casos de uso. Sem ASP.NET Core, EF Core nem SDK de fornecedor (verificado em Duora.ArchitectureTests). -->
-  <ItemGroup>
-    <!-- Reconstituição de valores vindos do banco (ex.: DisplayName.FromStorage): só a persistência e os testes. -->
-    <InternalsVisibleTo Include="Duora.Infrastructure" />
-    <InternalsVisibleTo Include="Duora.UnitTests" />
-  </ItemGroup>
 </Project>
