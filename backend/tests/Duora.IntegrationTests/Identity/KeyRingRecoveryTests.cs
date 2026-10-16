@@ -1,7 +1,10 @@
 using System.Net;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -18,10 +21,15 @@ public sealed class KeyRingRecoveryTests : IDisposable
 
     private static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromDays(90);
 
+    private readonly PostgresFixture _postgres;
     private readonly KeyRingHosts _hosts;
     private readonly DirectoryInfo _volume = Directory.CreateTempSubdirectory("duora-keys-volume-");
 
-    public KeyRingRecoveryTests(PostgresFixture postgres) => _hosts = new KeyRingHosts(postgres);
+    public KeyRingRecoveryTests(PostgresFixture postgres)
+    {
+        _postgres = postgres;
+        _hosts = new KeyRingHosts(postgres);
+    }
 
     public void Dispose() => _volume.Delete(recursive: true);
 
@@ -81,18 +89,62 @@ public sealed class KeyRingRecoveryTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// A revogação vale para o host que sobe depois dela: num processo vivo o KeyRingProvider ainda serve o key ring
+    /// em cache até recarregá-lo, então o teste revoga num host e confere no seguinte (docs/security/auth.md).
+    /// </summary>
     [Fact]
     public async Task RevokedKeyRingEndsTheSessionWithUnauthorizedNotServerError()
     {
         var cookie = await _hosts.SignInOnAFreshHostAsync(_volume);
+        await using (var compromised = _hosts.HostOn(_volume))
+        {
+            compromised.Services.GetRequiredService<IKeyManager>()
+                .RevokeAllKeys(DateTimeOffset.UtcNow, "T-15: resposta a comprometimento do key ring");
+        }
 
-        await using var compromised = _hosts.HostOn(_volume);
-        compromised.Services.GetRequiredService<IKeyManager>()
-            .RevokeAllKeys(DateTimeOffset.UtcNow, "T-15: resposta a comprometimento do key ring");
-        using var browser = KeyRingHosts.BrowserWithCookie(compromised, cookie);
+        await using var recreated = _hosts.HostOn(_volume);
+        using var browser = KeyRingHosts.BrowserWithCookie(recreated, cookie);
         using var response = await browser.GetAsync(KeyRingHosts.MePath);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
+    }
+
+    /// <summary>
+    /// Cookie legível e ticket do banco ilegível (chave que protegeu o ticket perdida, ou linha adulterada): o ticket
+    /// store trata a sessão como inexistente, responde 401 e registra o aviso, sem 500.
+    /// </summary>
+    [Fact]
+    public async Task UnreadableTicketInTheDatabaseEndsTheSessionWithUnauthorizedAndAWarning()
+    {
+        var logs = new CapturingLoggerProvider();
+        await using var host = new DuoraWebFactory(_postgres.ConnectionString, logs) { SharedKeyRing = _volume };
+        var scenario = new IdentityScenario(_postgres, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(account);
+
+        var tampered = await scenario.ScalarAsync(
+            "with changed as (update identity.login_sessions set ticket = $2 where user_id = $1 and revoked_at is null "
+            + "returning 1) select count(*) from changed",
+            account.UserId,
+            new byte[] { 0x09, 0xF0, 0xC9, 0xF0, 0x01, 0x02, 0x03 });
+        using var response = await browser.GetAsync(KeyRingHosts.MePath);
+
+        Assert.Equal(1, tampered);
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
+        Assert.Contains(logs.Entries, entry => entry.Level == LogLevel.Warning
+            && entry.Text.Contains("Ticket de sessão ilegível", StringComparison.Ordinal)
+            && entry.Exception is CryptographicException);
+    }
+
+    /// <summary>A política de rotação depende destes dois valores (docs/security/auth.md, Data Protection).</summary>
+    [Fact]
+    public async Task KeysLiveNinetyDaysUnderTheStableApplicationName()
+    {
+        await using var host = _hosts.HostOn(_volume);
+
+        Assert.Equal(DefaultKeyLifetime, host.Services.GetRequiredService<IOptions<KeyManagementOptions>>().Value.NewKeyLifetime);
+        Assert.Equal("Duora", host.Services.GetRequiredService<IOptions<DataProtectionOptions>>().Value.ApplicationDiscriminator);
     }
 
     [Fact]
