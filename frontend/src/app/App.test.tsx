@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIdentityBroadcast } from '@/features/session/identity-broadcast'
 import { LOCALE_STORAGE_KEY } from '@/shared/i18n/locale-preference'
 import { API, problem, server } from '@/test/msw'
-import { waitForRouteChunk } from '@/test/render'
+import { ROUTE_CHUNK_TIMEOUT_MS, waitForRouteChunk } from '@/test/render'
 import { App } from './App'
 
 function useBrowserLanguages(languages: readonly string[]): void {
@@ -175,7 +175,9 @@ describe('troca de identidade em outra aba (T-21)', () => {
     signedIn = false
     createIdentityBroadcast(() => 'outra-aba').announce()
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Entrar' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    ).toBeInTheDocument()
     expect(screen.queryByText('ana@exemplo.com')).not.toBeInTheDocument()
   })
 })
