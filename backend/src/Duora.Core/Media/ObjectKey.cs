@@ -1,0 +1,68 @@
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+
+namespace Duora.Core.Media;
+
+/// <summary>Área do object storage. Originais e derivados ficam separados, com credenciais diferentes (ADR-0025).</summary>
+public enum StorageArea
+{
+    /// <summary>Originais não verificados. Sem rota de leitura na API (TM-44).</summary>
+    Quarantine,
+
+    /// <summary>Variantes reencodadas de fotos aprovadas.</summary>
+    Derivatives,
+}
+
+/// <summary>
+/// Chave de objeto gerada pelo servidor: área + 128 bits aleatórios (+ variante). Nada do cliente entra nela, nem
+/// nome de arquivo (TM-41). É dado interno: nunca vai a DTO, log nem payload de outbox (TM-42), por isso o
+/// <see cref="ToString"/> não mostra o valor.
+/// </summary>
+public readonly partial record struct ObjectKey
+{
+    private const string QuarantinePrefix = "quarantine/";
+    private const string DerivativesPrefix = "derivatives/";
+
+    private ObjectKey(StorageArea area, string value)
+    {
+        Area = area;
+        Value = value;
+    }
+
+    public StorageArea Area { get; }
+
+    /// <summary>Caminho relativo no bucket; só para o adaptador de storage e para a coluna do banco.</summary>
+    public string Value { get; }
+
+    public static ObjectKey NewQuarantine() => new(StorageArea.Quarantine, QuarantinePrefix + RandomToken());
+
+    public static ObjectKey NewDerivative(PhotoVariant variant) =>
+        new(StorageArea.Derivatives, $"{DerivativesPrefix}{RandomToken()}-{PhotoVariants.Name(variant)}");
+
+    /// <summary>Lê uma chave gravada pelo próprio sistema; qualquer outro formato é dado corrompido.</summary>
+    public static ObjectKey Parse(string stored)
+    {
+        ArgumentNullException.ThrowIfNull(stored);
+        if (QuarantineKey().IsMatch(stored))
+        {
+            return new ObjectKey(StorageArea.Quarantine, stored);
+        }
+
+        if (DerivativeKey().IsMatch(stored))
+        {
+            return new ObjectKey(StorageArea.Derivatives, stored);
+        }
+
+        throw new FormatException("Chave de objeto fora do formato gerado pelo servidor.");
+    }
+
+    public override string ToString() => Area == StorageArea.Quarantine ? "ObjectKey(quarantine)" : "ObjectKey(derivatives)";
+
+    private static string RandomToken() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+
+    [GeneratedRegex("^quarantine/[0-9a-f]{32}$", RegexOptions.CultureInvariant)]
+    private static partial Regex QuarantineKey();
+
+    [GeneratedRegex("^derivatives/[0-9a-f]{32}-(thumb|card|full)$", RegexOptions.CultureInvariant)]
+    private static partial Regex DerivativeKey();
+}
