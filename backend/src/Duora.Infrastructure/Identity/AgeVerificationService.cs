@@ -80,12 +80,12 @@ public sealed class AgeVerificationService
             return new AgeVerificationRequestResult.NotAllowed();
         }
 
-        var latest = await FindLatestAsync(userId, cancellationToken);
-        var eligibility = AgeEligibility.Evaluate(account, Snapshot(latest), now, _policy);
-        if (latest is not null && IsStillInProgress(eligibility))
+        var deciding = await FindDecidingAsync(userId, cancellationToken);
+        var eligibility = AgeEligibility.Evaluate(account, Snapshot(deciding), now, _policy);
+        if (deciding is not null && IsStillInProgress(eligibility))
         {
             // Idempotência natural: a aberta (aguardando o fornecedor, no fluxo dele ou em revisão manual).
-            return new AgeVerificationRequestResult.Accepted(ToStatus(latest, eligibility));
+            return new AgeVerificationRequestResult.Accepted(ToStatus(deciding, eligibility));
         }
 
         if (!eligibility.AllowsNewRequest)
@@ -93,9 +93,9 @@ public sealed class AgeVerificationService
             return new AgeVerificationRequestResult.NotAllowed();
         }
 
-        if (latest is { State: AgeVerificationState.Pending })
+        if (deciding is { State: AgeVerificationState.Pending })
         {
-            await ExpireAbandonedAsync(userId, latest, cancellationToken);
+            await ExpireAbandonedAsync(userId, deciding, cancellationToken);
         }
 
         var created = await CreatePendingAsync(userId, loginSessionId, now, cancellationToken);
@@ -109,10 +109,10 @@ public sealed class AgeVerificationService
     /// <summary>API-P06: estado da solicitação que decide a elegibilidade da própria pessoa.</summary>
     public async Task<AgeVerificationStatus> GetCurrentAsync(Guid userId, CancellationToken cancellationToken)
     {
-        var (latest, eligibility) = await EvaluateAsync(userId, cancellationToken);
-        return latest is null
+        var (deciding, eligibility) = await EvaluateAsync(userId, cancellationToken);
+        return deciding is null
             ? new AgeVerificationStatus(AgeVerificationStatus.NotStarted, eligibility.NextStep, ContinueUrl: null)
-            : ToStatus(latest, eligibility);
+            : ToStatus(deciding, eligibility);
     }
 
     /// <summary>
@@ -130,7 +130,7 @@ public sealed class AgeVerificationService
         return eligibility;
     }
 
-    private async Task<(VerificationRow? Latest, AgeEligibilityResult Eligibility)> EvaluateAsync(
+    private async Task<(VerificationRow? Deciding, AgeEligibilityResult Eligibility)> EvaluateAsync(
         Guid userId,
         CancellationToken cancellationToken)
     {
@@ -143,8 +143,8 @@ public sealed class AgeVerificationService
             return (null, new AgeEligibilityResult(IsEligible: false, AgeVerificationNextStep.NotAvailable));
         }
 
-        var latest = await FindLatestAsync(userId, cancellationToken);
-        return (latest, AgeEligibility.Evaluate(account.Value, Snapshot(latest), _time.GetUtcNow(), _policy));
+        var deciding = await FindDecidingAsync(userId, cancellationToken);
+        return (deciding, AgeEligibility.Evaluate(account.Value, Snapshot(deciding), _time.GetUtcNow(), _policy));
     }
 
     /// <summary>
@@ -165,27 +165,42 @@ public sealed class AgeVerificationService
     }
 
     /// <summary>
-    /// A solicitação que decide a elegibilidade: a verificação adulta, se houver, porque ela não vence (ADR-0024,
-    /// adendo de 2026-10-16); senão a mais recente. Pelo fluxo não há solicitação depois de uma <c>VerifiedAdult</c>.
+    /// A solicitação que decide a elegibilidade: a mais recente, ou a decisão mais recente quando a regra a faz
+    /// prevalecer (<see cref="AgeEligibility.AdultVerificationPrevails"/>). Lê as duas numa consulta, com a linha
+    /// da conta travada ou não; quem decide é a regra pura.
     /// </summary>
-    private async Task<VerificationRow?> FindLatestAsync(Guid userId, CancellationToken cancellationToken)
+    private async Task<VerificationRow?> FindDecidingAsync(Guid userId, CancellationToken cancellationToken)
     {
-        var verifiedAdult = nameof(AgeVerificationState.VerifiedAdult);
+        var decisions = AgeEligibility.Decisions.Select(state => state.ToString()).ToArray();
         var rows = await _db.Database.SqlQuery<VerificationRow>(
             $"""
-            select v.id as "Id", v.state as "StateName", v.requested_at as "RequestedAt",
-                   v.provider_flow_url as "FlowUrl", v.version as "Version",
-                   (v.provider_reference is null and exists (
+            with candidates as (
+                (select v.*, true as is_latest from identity.age_verifications v
+                 where v.user_id = {userId}
+                 order by v.requested_at desc, v.id desc
+                 limit 1)
+                union all
+                (select v.*, false from identity.age_verifications v
+                 where v.user_id = {userId} and v.state = any({decisions})
+                 order by v.requested_at desc, v.id desc
+                 limit 1))
+            select c.id as "Id", c.state as "StateName", c.requested_at as "RequestedAt",
+                   c.provider_flow_url as "FlowUrl", c.version as "Version", c.is_latest as "IsLatest",
+                   (c.provider_reference is null and exists (
                        select 1 from ops.outbox_events e
                        join ops.outbox_deliveries d on d.outbox_event_id = e.id
-                       where e.resource_id = v.id and e.type = {AgeVerificationOutbox.EventType}
+                       where e.resource_id = c.id and e.type = {AgeVerificationOutbox.EventType}
                          and d.status in ('Failed', 'Expired'))) as "ProviderGaveUp"
-            from identity.age_verifications v
-            where v.user_id = {userId}
-            order by (v.state = {verifiedAdult}) desc, v.requested_at desc, v.id desc
-            limit 1
+            from candidates c
             """).ToListAsync(cancellationToken);
-        return rows.SingleOrDefault();
+
+        var latest = rows.SingleOrDefault(row => row.IsLatest);
+        var latestDecision = rows.SingleOrDefault(row => !row.IsLatest);
+        return latest is not null
+            && latestDecision is not null
+            && AgeEligibility.AdultVerificationPrevails(latestDecision.State, latest.EffectiveState)
+            ? latestDecision
+            : latest;
     }
 
     /// <summary>A pendente que passou do prazo vira <c>Expired</c> antes da nova, pelo índice de uma aberta por pessoa.</summary>
@@ -234,7 +249,7 @@ public sealed class AgeVerificationService
             new AgeVerificationRequested(id, loginSessionId),
             now,
             now + _policy.RequestLifetime));
-        return new VerificationRow(id, pending, now, FlowUrl: null, Version: 0, ProviderGaveUp: false);
+        return new VerificationRow(id, pending, now, FlowUrl: null, Version: 0, IsLatest: true, ProviderGaveUp: false);
     }
 
     /// <summary>Só uma URL de fluxo https com origem na allowlist vai ao navegador; as demais nem contam como prontas.</summary>
@@ -258,6 +273,7 @@ public sealed class AgeVerificationService
         DateTimeOffset RequestedAt,
         string? FlowUrl,
         long Version,
+        bool IsLatest,
         bool ProviderGaveUp)
     {
         /// <summary>Estado gravado; é o que o UPDATE condicional confere.</summary>

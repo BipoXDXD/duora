@@ -152,6 +152,20 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     }
 
     [Theory]
+    [InlineData("Rejected")]
+    [InlineData("ManualReview")]
+    public async Task LaterDecisionOverridesAnOlderAdultVerification(string laterState)
+    {
+        // Falha fechada: uma decisão posterior à verificação adulta (menor ou inconclusiva, linha antiga ou conta
+        // devolvida a Active por outro caminho) manda, mesmo com a conta ativa.
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-400));
+        await Scenario.AddDecidedVerificationAsync(account.UserId, laterState, _time.GetUtcNow().AddDays(-30));
+
+        Assert.False(await AuthorizeAsync(account.UserId));
+    }
+
+    [Theory]
     [InlineData("Restricted")]
     [InlineData("Suspended")]
     [InlineData("DeletionPending")]
