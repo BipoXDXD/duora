@@ -35,8 +35,9 @@ public static class MediaServiceCollectionExtensions
     /// <summary>
     /// Registra o upload de fotos (ADR-0025): opções da seção <c>Media</c>, o <see cref="IObjectStore"/> de
     /// <c>Media:Storage:Provider</c> e o serviço de recepção. Sem <c>Media:Review</c>, o upload fica desligado e o
-    /// storage não é exigido. O host não sobe com <c>TechnicalOnly</c> nem com o filesystem em <c>Production</c>
-    /// (spec 15.4), nem com o upload ligado e o storage ausente, incompleto ou fora de https.
+    /// storage não é exigido. O host não sobe com <c>TechnicalOnly</c> em <c>Production</c>, nem com o filesystem em
+    /// <c>Production</c> fora de um diretório absoluto que já exista (o volume do host montado; spec 15.4 e adendo do
+    /// ADR-0010), nem com o upload ligado e o storage ausente, incompleto ou fora de https.
     /// </summary>
     public static IServiceCollection AddMediaUploads(
         this IServiceCollection services,
@@ -62,13 +63,14 @@ public static class MediaServiceCollectionExtensions
             .Bind(configuration.GetSection(MediaStorageOptions.Section))
             .Validate<IOptions<MediaOptions>>(
                 (o, media) => !media.Value.UploadsEnabled || o.Provider != MediaStorageProvider.Unset,
-                "Media:Storage:Provider é obrigatório com o upload ligado (FileSystem em desenvolvimento, S3 em produção).")
-            .Validate(
-                o => !(isProduction && o.Provider == MediaStorageProvider.FileSystem),
-                "Media:Storage:Provider=FileSystem não é aceito em Production: o disco do container é efêmero.")
+                "Media:Storage:Provider é obrigatório com o upload ligado (FileSystem ou S3).")
             .Validate(
                 o => o.Provider != MediaStorageProvider.FileSystem || !string.IsNullOrWhiteSpace(o.FileSystemRoot),
                 "Media:Storage:FileSystemRoot é obrigatório com o provedor FileSystem.")
+            .Validate(
+                o => !isProduction || o.Provider != MediaStorageProvider.FileSystem || IsMountedDirectory(o.FileSystemRoot),
+                "Media:Storage:FileSystemRoot em Production precisa ser um caminho absoluto que já exista: o diretório "
+                + "do host montado no container. Sem ele, as fotos iriam para o disco efêmero do container.")
             .Validate<IOptions<MediaOptions>>(
                 (o, media) => o.Provider != MediaStorageProvider.S3 || o.S3.RequestTimeout >= media.Value.UploadTimeout,
                 "Media:Storage:S3:RequestTimeout deve ser pelo menos Media:UploadTimeout: o PUT transmite o corpo do cliente.")
@@ -98,4 +100,8 @@ public static class MediaServiceCollectionExtensions
 
         return services;
     }
+
+    // Em Production o adaptador não cria a raiz: diretório ausente quer dizer volume não montado.
+    private static bool IsMountedDirectory(string root) =>
+        !string.IsNullOrWhiteSpace(root) && Path.IsPathFullyQualified(root) && Directory.Exists(root);
 }

@@ -138,7 +138,7 @@ rode os dois a partir de `backend/`, como nos comandos deste arquivo.
 | `DataProtection:KeysDirectory` (Web) | `../.local/dataprotection-keys` | Key ring; apagá-lo derruba as sessões abertas |
 | `Email:PickupDirectory` (Worker) | `../.local/mail` | Cada e-mail de conta vira um `.eml` com o link de confirmação ou de redefinição |
 | `Media:Review` (Web) | `TechnicalOnly` | Liga o upload de fotos com aprovação só técnica (dados sintéticos; o boot a recusa em Production, ADR-0025) |
-| `Media:Storage:Provider` e `Media:Storage:FileSystemRoot` (Web) | `FileSystem`, `../.local/media` | Quarentena e derivados num diretório local; em Production só `S3` (`Media:Storage:S3:*`) |
+| `Media:Storage:Provider` e `Media:Storage:FileSystemRoot` (Web) | `FileSystem`, `../.local/media` | Quarentena e derivados num diretório local; em Production, `FileSystem` num diretório absoluto já montado (adendo do ADR-0010) ou `S3` (`Media:Storage:S3:*`) |
 
 Sem essas chaves os processos não sobem, salvo as de `Media`: sem `Media:Review`, o upload de fotos fica
 desligado (503) e o storage não é exigido. Fora de Development, defina-as por variável de ambiente. Atrás do Caddy,

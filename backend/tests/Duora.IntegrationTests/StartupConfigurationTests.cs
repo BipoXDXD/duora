@@ -132,17 +132,17 @@ public sealed class StartupConfigurationTests
     }
 
     [Fact]
-    public async Task WebRefusesTheFileSystemPhotoStoreInProduction()
+    public async Task WebRefusesTheFileSystemPhotoStoreInProductionWithoutTheMountedDirectory()
     {
         await using var app = BuildWeb(
             "--environment=Production",
             "--Media:Storage:Provider=FileSystem",
-            $"--Media:Storage:FileSystemRoot={Path.GetTempPath()}");
+            $"--Media:Storage:FileSystemRoot={Path.Combine(Path.GetTempPath(), $"duora-sem-volume-{Guid.NewGuid():N}")}");
 
         var exception = Assert.Throws<OptionsValidationException>(
             () => app.Services.GetRequiredService<IOptions<MediaStorageOptions>>().Value);
 
-        Assert.Contains("FileSystem", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("FileSystemRoot", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
