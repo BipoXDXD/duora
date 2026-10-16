@@ -201,6 +201,10 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
                   f"/api/v1 respondido pelo web via proxy, sem HTML da SPA (status {api.status})")
     checks.expect(api.headers.get("cache-control") == "no-store", "API sem cache por padrão")
 
+    # UUID canário no caminho (como o alvo de um bloqueio): o log não pode guardar quem foi bloqueado.
+    path_canary = str(uuid.uuid4())
+    get(context, f"/api/v1/me/blocks/{path_canary}", {"Accept": "application/json"})
+
     health = get(context, "/health/ready", {"Accept": "*/*"})
     checks.expect(health.status == 404, f"/health fechado na borda (status {health.status})")
 
@@ -212,6 +216,8 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     edge_logs = run(compose + ["logs", "--no-color", "edge"])
     checks.expect(canary not in edge_logs, "log do Caddy sem query string, cookie nem Authorization")
     checks.expect('"uri":"/api/v1?redacted"' in edge_logs, "log do Caddy registra a rota sem a query")
+    checks.expect(path_canary not in edge_logs, "log do Caddy sem UUID no caminho")
+    checks.expect('"uri":"/api/v1/me/blocks/{id}"' in edge_logs, "log do Caddy troca o UUID do caminho por {id}")
 
     history_update = subprocess.run(
         compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "--host", "127.0.0.1", "--username",
