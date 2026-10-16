@@ -12,7 +12,8 @@ namespace Duora.IntegrationTests.AgeVerification;
 public sealed class AgeVerificationRequestTests : IAsyncDisposable
 {
     private readonly PostgresFixture _postgres;
-    private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
+    // Segundo inteiro: o PostgreSQL guarda microssegundos e o .NET no Linux tem ticks de 100 ns.
+    private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
     private readonly DuoraWebFactory _factory;
 
     public AgeVerificationRequestTests(PostgresFixture postgres)
