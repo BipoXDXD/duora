@@ -44,7 +44,7 @@ public enum AgeVerificationNextStep
 }
 
 /// <summary>
-/// Solicitação da pessoa que decide a elegibilidade (<see cref="AgeEligibility.AdultVerificationPrevails"/>).
+/// Solicitação da pessoa que decide a elegibilidade (<see cref="AgeEligibility.Decisions"/>).
 /// <c>ProviderFlowReady</c> diz se o worker já obteve o fluxo do fornecedor.
 /// </summary>
 public sealed record AgeVerificationSnapshot(

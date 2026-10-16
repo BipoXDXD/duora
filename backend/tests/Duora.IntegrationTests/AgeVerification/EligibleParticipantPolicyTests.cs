@@ -166,6 +166,20 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     }
 
     [Theory]
+    [InlineData("Rejected", "Expired")]
+    [InlineData("Rejected", "Pending")]
+    [InlineData("ManualReview", "Expired")]
+    public async Task LaterDecisionStillCountsWhenAnUndecidedRequestFollowsIt(string decision, string request)
+    {
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-400));
+        await Scenario.AddDecidedVerificationAsync(account.UserId, decision, _time.GetUtcNow().AddDays(-100));
+        await Scenario.AddUndecidedRequestAsync(account.UserId, request, _time.GetUtcNow().AddDays(-30));
+
+        Assert.False(await AuthorizeAsync(account.UserId));
+    }
+
+    [Theory]
     [InlineData("Restricted")]
     [InlineData("Suspended")]
     [InlineData("DeletionPending")]

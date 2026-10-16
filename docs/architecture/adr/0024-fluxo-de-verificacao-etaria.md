@@ -111,14 +111,14 @@ validade e o desdobramento "elegível é `VerifiedAdult` cujo `expires_at` é po
   `Active` com uma verificação `VerifiedAdult`, em qualquer instante. O tempo continua sem conceder elegibilidade
   (TM-40): ele só faz uma solicitação `Pending` abandonada (`RequestLifetime`) virar `Expired` e dar lugar a uma
   nova. `Expired` passa a ser só estado de **solicitação** abandonada, nunca de verificação adulta vencida.
-- **A decisão mais recente decide, e a conta manda antes dela.** A elegibilidade lê a solicitação mais recente da
-  pessoa, salvo quando ela é só um pedido sem decisão (`Pending` ou `Expired`) posterior a uma `VerifiedAdult`: aí
-  vale a `VerifiedAdult`, que não vence (`AgeEligibility.AdultVerificationPrevails`). Qualquer decisão posterior
-  (`Rejected`, `ManualReview`) prevalece sobre a verificação adulta antiga, e conta fora de `Active` nunca é
-  elegível: na dúvida, não elegível. Pelo fluxo não se cria solicitação depois de uma `VerifiedAdult`; a regra
-  protege linhas antigas, do tempo da validade de 365 dias, e contas devolvidas a `Active` por outro caminho.
-  (Correção da revisão de segurança do PR #59: a primeira versão priorizava sempre a `VerifiedAdult`, o que
-  deixava elegível uma conta ativa com `Rejected` ou `ManualReview` posterior.)
+- **A decisão mais recente decide, e a conta manda antes dela.** A elegibilidade lê a decisão mais recente da
+  pessoa (`VerifiedAdult`, `Rejected` ou `ManualReview`, `AgeEligibility.Decisions`) e, só sem nenhuma, o pedido mais
+  recente (`Pending` ou `Expired`). Pedido sem decisão nunca apaga uma decisão: a `VerifiedAdult` não vence, e uma
+  `Rejected` ou `ManualReview` posterior prevalece sobre ela mesmo que um pedido venha depois. Conta fora de `Active`
+  nunca é elegível: na dúvida, não elegível. Pelo fluxo não se cria solicitação depois de uma `VerifiedAdult` nem de
+  uma `Rejected`; a regra protege linhas antigas, do tempo da validade de 365 dias, e contas devolvidas a `Active`
+  por outro caminho. (Correção da revisão de segurança do PR #59: a primeira versão priorizava sempre a
+  `VerifiedAdult`, o que deixava elegível uma conta ativa com `Rejected` ou `ManualReview` posterior.)
 - **A sessão sai do contrato.** Sem "verificação a cada acesso", `AgeCheckStart` e `GetEligibility` não recebem
   mais a sessão de login. O pedido ao worker (`identity.age-verification-requested`) sai dela em dois deploys: nesta
   release o worker a ignora (presente ou ausente) e API-P05 ainda a grava, para o worker da release anterior; a
