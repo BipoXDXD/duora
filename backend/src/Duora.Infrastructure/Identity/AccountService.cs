@@ -262,6 +262,18 @@ public sealed class AccountService
     public Task<bool> ExistsAsync(Guid userId, CancellationToken cancellationToken) =>
         _db.Users.AsNoTracking().AnyAsync(user => user.Id == userId, cancellationToken);
 
+    /// <summary>
+    /// Situação da conta, ou <c>null</c> se ela não existe. Para outros módulos decidirem pela regra deles sem ler
+    /// <c>identity.users</c> (Media: reconferir quem envia foto sob a guarda do upload). Usa o mesmo
+    /// <see cref="DuoraDbContext"/> do escopo, então enxerga a transação aberta por quem chama.
+    /// </summary>
+    public Task<AccountStatus?> FindStatusAsync(Guid userId, CancellationToken cancellationToken) =>
+        _db.Users
+            .AsNoTracking()
+            .Where(user => user.Id == userId)
+            .Select(user => (AccountStatus?)user.Status)
+            .SingleOrDefaultAsync(cancellationToken);
+
     /// <summary>Mesmo hasher (e mesmo custo) da senha real, para a conta inexistente custar um hash.</summary>
     private void VerifyDecoy(string password) => _decoy.Verify(_users.PasswordHasher, password);
 
