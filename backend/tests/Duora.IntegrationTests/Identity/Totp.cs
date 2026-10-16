@@ -26,10 +26,13 @@ internal static class Totp
 
     public static string Now(string sharedKey) => Code(sharedKey, DateTimeOffset.UtcNow);
 
-    /// <summary>Um código que certamente não é o do passo atual nem dos vizinhos.</summary>
+    /// <summary>
+    /// Um código que certamente não vale agora: fica fora de três passos de 30 s para cada lado, margem maior que a
+    /// tolerância de relógio do Identity.
+    /// </summary>
     public static string Wrong(string sharedKey)
     {
-        var valid = new[] { -30, 0, 30 }.Select(s => Code(sharedKey, DateTimeOffset.UtcNow.AddSeconds(s))).ToHashSet();
+        var valid = new[] { -90, -60, -30, 0, 30, 60, 90 }.Select(s => Code(sharedKey, DateTimeOffset.UtcNow.AddSeconds(s))).ToHashSet();
         return Enumerable.Range(0, 10).Select(d => new string((char)('0' + d), 6)).First(c => !valid.Contains(c));
     }
 
