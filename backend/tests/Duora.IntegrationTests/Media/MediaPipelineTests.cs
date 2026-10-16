@@ -261,6 +261,40 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.DoesNotContain(photoId.ToString("N"), text, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task AbandoningOneUploadKeepsTheDerivativesOfAnother()
+    {
+        // A limpeza do abandono apaga só as chaves do upload abandonado, nunca as de um aprovado.
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var approved = await UploadAsync(browser, TestImages.WebP(), "image/webp");
+        Assert.Equal(1, await DispatchOnceAsync());
+        var before = new Dictionary<PhotoVariant, byte[]>();
+        foreach (var variant in PhotoVariants.All)
+        {
+            before[variant] = await ReadDerivativeAsync(media, approved, variant);
+        }
+
+        var worker = StartWorker(
+            services =>
+            {
+                var real = services.Single(descriptor => descriptor.ServiceType == typeof(IObjectStore));
+                services.Remove(real);
+                services.AddSingleton<IObjectStore>(provider =>
+                    new DerivativeRefusingStore((IObjectStore)real.ImplementationFactory!(provider)));
+            },
+            "--Media:Processing:MaxAttempts=1");
+        var abandoned = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        Assert.Equal(1, await DispatchOnceAsync(worker));
+
+        Assert.Equal(("Rejected", "PROCESSING_LIMIT"), await StatusAsync(browser, abandoned));
+        Assert.Equal(("Approved", null), await StatusAsync(browser, approved));
+        foreach (var variant in PhotoVariants.All)
+        {
+            Assert.Equal(before[variant], await ReadDerivativeAsync(media, approved, variant));
+        }
+    }
+
     /// <summary>
     /// Falha terminal: upload em <c>Rejected PROCESSING_LIMIT</c> (libera a vaga de pendentes), original fora da
     /// quarentena, nenhum asset nem derivado, e a entrega em <c>Failed</c> com a causa para a operação.
