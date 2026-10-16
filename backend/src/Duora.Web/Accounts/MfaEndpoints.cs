@@ -101,6 +101,11 @@ internal static class MfaEndpoints
                     "Comece o cadastro do autenticador antes de confirmar.");
             case MfaActivation.AlreadyEnabled:
                 return AlreadyEnabled();
+            case MfaActivation.PasswordChangeRequired:
+                return ApiProblems.Problem(
+                    StatusCodes.Status403Forbidden,
+                    ApiProblems.PasswordChangeRequired,
+                    "Troque a senha temporária para continuar.");
             default:
                 throw new InvalidOperationException("Resultado de ativação não mapeado.");
         }
