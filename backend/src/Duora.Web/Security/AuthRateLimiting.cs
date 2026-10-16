@@ -193,7 +193,7 @@ internal static class AuthRateLimitPolicies
         WindowLimit limit) =>
         rateLimiter.AddPolicy(policy, context => RateLimitPartition.GetFixedWindowLimiter(
             // Atrás do proxy, o IP só é o do cliente com Forwarded Headers configurado (pendência de deploy).
-            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            ClientNetwork.RateLimitKey(context.Connection.RemoteIpAddress),
             _ => limit.ToLimiterOptions()));
 
     private static async ValueTask WriteRejectionAsync(

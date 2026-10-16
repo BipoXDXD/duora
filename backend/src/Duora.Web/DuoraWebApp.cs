@@ -54,6 +54,7 @@ internal static class DuoraWebApp
             ProfileEndpoints.ConfigureOpenApi(options);
         });
         builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<System.Diagnostics.DistributedContextPropagator>(new InboundTraceContextDiscarded());
         builder.Services.AddInfrastructure(builder.Configuration, ConnectionShare.Web);
         builder.Services.AddDuoraWebIdentity(builder.Configuration);
         builder.Services.AddDuoraProfiles();

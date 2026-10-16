@@ -78,6 +78,34 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
             account.UserId));
     }
 
+    /// <summary>O reset troca senha e bloqueio da conta: espera a mesma vez que as outras operações de credencial.</summary>
+    [Fact]
+    public async Task APasswordResetThatWaitsTooLongAnswers503AndChangesNothing()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = new Browser(_factory);
+        await browser.FetchCsrfTokenAsync();
+        using (var request = await browser.PostJsonAsync("/api/v1/auth/password-reset-requests", new { email = account.Email }))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, request.StatusCode);
+        }
+
+        var link = await Scenario.ReadLatestLinkAsync(account.Email, "PasswordReset");
+        await using (var holder = await HoldAccountAsync(account.UserId))
+        {
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            using var reset = await browser.PostJsonAsync(
+                "/api/v1/auth/password-resets",
+                new { userId = link.UserId, token = link.Token, newPassword = "uma frase nova e longa" });
+
+            await AssertTemporarilyUnavailableAsync(reset);
+            AssertGaveUpAtTheLockCeiling(waited.Elapsed);
+        }
+
+        using var oldPassword = await IdentityScenario.LoginAsync(new Browser(_factory), account.Email, account.Password);
+        Assert.Equal(HttpStatusCode.NoContent, oldPassword.StatusCode);
+    }
+
     [Fact]
     public async Task QueuedChecksOfTheSameAccountWaitWithoutHoldingDatabaseConnections()
     {
@@ -137,6 +165,13 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
             connection);
         return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    /// <summary>
+    /// Desistiu no teto da conta (300 ms), não no timeout de 30 s do comando, que também responderia 503 (banco
+    /// indisponível), mas segurando a conexão do pool o tempo todo.
+    /// </summary>
+    private static void AssertGaveUpAtTheLockCeiling(TimeSpan waited) =>
+        Assert.True(waited < TimeSpan.FromSeconds(10), $"Esperou {waited}.");
 
     private static async Task AssertTemporarilyUnavailableAsync(HttpResponseMessage response)
     {

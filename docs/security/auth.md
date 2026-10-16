@@ -139,7 +139,7 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 | Recuperação de MFA de conta privilegiada | Não há caminho self-service por e-mail: procedimento operacional auditado, com outra pessoa ou conta privilegiada quando houver (TM-22). O reset de senha não remove nem contorna o MFA (`AdminMfaTests.PasswordResetDoesNotBypassMfaForPrivilegedAccount`) |
 | Armazenamento | Verificado: o Identity 10.0.13 grava chave e códigos em claro em `identity.user_tokens`, e ligar `ProtectPersonalData` exigiria um `ILookupProtector` próprio que também cifraria e-mail e nome de usuário. Decidido em 2026-10-15: **D2**, a chave do autenticador é protegida por Data Protection num `DuoraUserManager` (só no web), com o custo de que perder o key ring invalida o TOTP de todos (a chave ilegível é tratada como ausente); **D3**, os códigos de recuperação ficam só como hash PBKDF2 do `PasswordHasher`, um por código, num `IUserTwoFactorRecoveryCodeStore` próprio (`DuoraUserStore`), com o custo de até 10 verificações PBKDF2 por resgate |
 | Auditoria | `ops.audit_events` na mesma transação: `identity.mfa_enrollment_started`, `mfa_enabled`, `mfa_disabled`, `mfa_recovery_codes_regenerated`, `mfa_recovery_code_used`, `reauthenticated` e `password_changed` |
-| Risco residual | O key ring é ponto único de falha do TOTP (D2). O lock por conta serializa as verificações da mesma conta durante um hash; a espera acontece numa fila em memória por conta (`AccountCheckGate`), sem conexão, e só quem tem a vez abre a transação, então uma fila de verificações não esgota o pool nem o `max_connections` (antes, 25 logins paralelos seguravam 25 conexões, e o servidor respondia 53300 → `500`). A espera tem teto (`Identity:AccountLockTimeout`, **5 s, hipótese**, na fila e no `lock_timeout` da transação, que continua garantindo a exclusão entre processos), e passado o teto a rota responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem gravar nada (A04, A11 a A16; `AccountLockTimeoutTests`). Um `503` só aparece com dezenas de verificações simultâneas da mesma conta, o que o rate limit por conta (`429`, igual para conta existente ou não) impede antes de virar canal de enumeração. **Aceito pelo responsável técnico (residual do I3):** login com código de recuperação ainda libera, por 5 min, o A16 e, para participante, o A15, porque esse é o caminho de quem perdeu o dispositivo; o A14 e as ações administrativas críticas continuam exigindo TOTP |
+| Risco residual | O key ring é ponto único de falha do TOTP (D2). O lock por conta serializa as verificações da mesma conta durante um hash; a espera acontece numa fila em memória por conta (`AccountCheckGate`), sem conexão, e só quem tem a vez abre a transação, então uma fila de verificações não esgota o pool nem o `max_connections` (antes, 25 logins paralelos seguravam 25 conexões, e o servidor respondia 53300 → `500`). A espera tem teto (`Identity:AccountLockTimeout`, **5 s, hipótese**, na fila e no `lock_timeout` da transação, que continua garantindo a exclusão entre processos), e passado o teto a rota responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem gravar nada (A04, A07, A11 a A16; a sessão em A05 e A10; `AccountLockTimeoutTests`, `LoginAuditTests`). Um `503` só aparece com dezenas de verificações simultâneas da mesma conta, o que o rate limit por conta (`429`, igual para conta existente ou não) impede antes de virar canal de enumeração. **Aceito pelo responsável técnico (residual do I3):** login com código de recuperação ainda libera, por 5 min, o A16 e, para participante, o A15, porque esse é o caminho de quem perdeu o dispositivo; o A14 e as ações administrativas críticas continuam exigindo TOTP |
 
 ## CSRF
 
@@ -284,14 +284,14 @@ sessão (`401`); com o mesmo certificado ou depois de uma rotação (atual novo,
 TM-05: cada fato abaixo grava **uma** linha em `ops.audit_events`, na transação do efeito (a mesma da
 `AccountCheck` no login, que também confirma o contador de falhas), inclusive sob pedidos simultâneos (a conta, ou
 a sessão, fica travada durante a verificação). Ator e alvo são a conta (`user`), exceto na revogação e no logout,
-cujo alvo é a sessão (`login_session`), e no login sem conta confirmada, que não aponta para conta nenhuma.
+cujo alvo é a sessão (`login_session`).
 
 | Fato | Ação | Onde |
 |---|---|---|
 | Login com senha (e segundo fator, se houver) certa | `identity.login_succeeded` | A04 |
 | Senha certa numa conta com MFA, sem segundo fator (`MFA_REQUIRED`) | `identity.login_second_factor_required` | A04 |
 | Senha errada numa conta confirmada | `identity.login_failed` | A04 |
-| E-mail sem conta ou com cadastro não confirmado | `identity.login_failed_unknown_account` (ator `System` sem id; alvo `login_attempt` com id novo) | A04 |
+| Senha certa na reautenticação de conta com MFA, sem o código | `identity.reauthentication_second_factor_required` | A13 |
 | Senha errada na reautenticação / senha atual errada na troca | `identity.reauthentication_failed` / `identity.password_change_failed` | A13 / A16 |
 | A falha que levou a conta ao teto e começou o bloqueio | `identity.account_locked_out` | A04 (senha ou segundo fator), A13, A16 |
 | Tentativa recusada porque a conta já estava bloqueada (senha não conferida) | `identity.login_refused_locked_out`, `identity.reauthentication_refused_locked_out`, `identity.password_change_refused_locked_out` | A04, A13, A16 |
@@ -300,15 +300,20 @@ cujo alvo é a sessão (`login_session`), e no login sem conta confirmada, que n
 | Logout com sessão | `identity.logged_out` | A05 |
 | Sessão própria encerrada pela lista (só a primeira vez) | `identity.session_revoked` | A10 |
 
-Decisões (do assistente, a confirmar pelo responsável técnico):
+Decisões:
 
-- **Login sem conta confirmada grava um registro sem conta.** E-mail inexistente e cadastro pendente
-  (`IsNotAllowed`) gravam a mesma linha: ator `System` sem id (a tabela não tem ator anônimo), alvo
-  `login_attempt` com um UUIDv7 novo que não aponta para nada, nenhum e-mail nem id de conta. Assim o volume de
-  tentativas contra contas desconhecidas fica auditável, e nem quem lê a tabela distingue "não existe" de
-  "pendente" (o cadastro pendente pode ser de qualquer pessoa). O `correlation_id` liga a linha ao log. A resposta
-  e o trabalho caro continuam iguais aos da senha errada (um hash e o piso de latência, TM-06). O volume de linhas
-  é limitado pelo rate limit do login.
+- **Login sem conta confirmada não grava linha** (decisão do responsável técnico). E-mail inexistente e cadastro
+  pendente (`IsNotAllowed`) não têm ator legítimo, a linha quase não ajuda contra repúdio, e a tabela append-only
+  cresceria sem teto: o rate limit por IP deixa ~14 mil tentativas por dia de cada IPv4, e um /64 IPv6 é uma só
+  chave, mas um atacante pode ter muitos. Os dois casos, do mesmo jeito, somam no contador
+  `identity.login.failed_unknown_account` (meter `Duora.Identity`, sem rótulo: e-mail, IP ou conta dariam
+  cardinalidade sem limite) e geram o log `Login sem conta confirmada`, sem e-mail nem IP, ligado ao pedido pelo
+  trace id. A resposta e o trabalho caro continuam iguais aos da senha errada (um hash e o piso de latência,
+  TM-06), e nada no banco distingue "não existe" de "pendente".
+- **O `correlation_id` não vem do cliente.** O host descarta `traceparent`, `tracestate` e `baggage` recebidos
+  (`InboundTraceContextDiscarded`): cada pedido começa um trace novo, então ninguém escolhe o id que liga o
+  registro ao log nem o repete de outro registro. Quando houver tracing distribuído com um proxy confiável, o
+  contexto dele entra por decisão própria.
 - **Sem IP nem user agent.** A tabela não tem coluna para a origem, e esta entrega não cria uma (seria migration e
   dado pessoal novo). O "de onde" do TM-05 fica parcial: `correlation_id` (trace id) liga o registro ao log da
   aplicação, e o log de acesso do Caddy guarda o IP já truncado (`ip_mask 24 48`). Uma coluna de prefixo de rede
@@ -316,10 +321,20 @@ Decisões (do assistente, a confirmar pelo responsável técnico):
 - Revogação em massa (troca de senha, reset, ativação/desativação de MFA) não grava uma linha por sessão: o fato
   auditado é a mudança de credencial, e o motivo fica em `login_sessions.revocation_reason`.
 
+Revogação (A10) e logout (A05) travam a sessão com `FOR NO KEY UPDATE` e o mesmo teto de espera da conta
+(`Identity:AccountLockTimeout`): passou do teto, `503` `TEMPORARILY_UNAVAILABLE` sem gravar nada. O reset (A07)
+passa pela mesma fila e pelo mesmo lock da conta que login, A13 e A16.
+
+**Logout com o banco fora do ar falha fechado:** a revogação e o registro vêm antes de o cookie sair, então o
+pedido responde `503` e o cookie **não** é apagado. A sessão continua revogável depois (outro logout, a lista de
+sessões ou a troca de senha); apagar só o cookie deixaria uma sessão válida no servidor sem registro.
+
 Testes: `LoginAuditTests` (um registro por fato; bloqueio e tentativa durante o bloqueio em A04, A13 e A16;
-`MFA_REQUIRED`; desbloqueio; sessão alheia → `404` sem registro; logout sem sessão; e-mail inexistente e cadastro
-pendente com o mesmo registro sem conta e a mesma resposta; logins, falhas, revogações e logouts simultâneos sem
-registro duplicado nem perdido; canário de senha, e-mail e IP fora da tabela).
+segundo fator ausente em A04 e A13; desbloqueio; sessão alheia → `404` sem registro; logout sem sessão; e-mail
+inexistente e cadastro pendente sem linha, com a mesma métrica, o mesmo log sem e-mail e a mesma resposta;
+`traceparent` forjado não vira `correlation_id`; falhas e logins simultâneos sem registro duplicado nem perdido;
+revogações paradas no lock da sessão registram uma vez; espera além do teto → `503`; canário de senha, e-mail e
+IP fora da tabela); `AccountLockTimeoutTests.APasswordResetThatWaitsTooLongAnswers503AndChangesNothing`.
 
 ## Rate limit e lockout
 
@@ -328,16 +343,19 @@ reinício e não depende de IP) e **rate limiter em memória** por IP e por cont
 `PartitionedRateLimiter`, D-AUTH-04), que reinicia com o processo (aceito no piloto, ADR-0009). Os limites
 ficam na seção `RateLimiting` da configuração. O IP do cliente vem de `X-Forwarded-For` só quando o remetente
 está numa rede de `ReverseProxy:KnownNetworks` (em produção, a rede `edge` do Caddy, `172.30.10.0/24`, conforme
-`docs/operations/deploy.md`), com `ForwardLimit = 1`; o middleware roda antes do rate limit. Sem rede
+`docs/operations/deploy.md`), com `ForwardLimit = 1`; o middleware roda antes do rate limit. A chave "IP" é o
+endereço IPv4 ou o **prefixo /64** do IPv6 (um cliente IPv6 costuma ter o /64 inteiro e trocaria de endereço a
+cada pedido); IPv4 mapeado em IPv6 conta como IPv4. Sem rede
 configurada, o processamento fica **desligado**: com as listas vazias o framework aceitaria o header de qualquer
-remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests`,
+remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests` (inclusive
+`IPv6AddressesInTheSameSlash64ShareTheLoginLimit`),
 `StartupConfigurationTests.WebDoesNotStartWithAnInvalidProxyNetwork`.
 
 | Operação | Chave | Limite inicial (hipótese) | Resposta |
 |---|---|---|---|
 | Login (A04): falhas de senha | Conta (banco) | 20 falhas seguidas → bloqueio de 15 min; zera no sucesso e no reset de senha | `401` `INVALID_CREDENTIALS` (sem revelar lockout) |
 | Login (A04) | E-mail normalizado, exista a conta ou não | 10 / 15 min | `429` + `Retry-After` |
-| Login (A04) | IP | 10 / min | `429` + `Retry-After` |
+| Login (A04) | IP (IPv6: prefixo /64) | 10 / min | `429` + `Retry-After` |
 | Cadastro (A02) | E-mail normalizado | 3 / hora | `429` + `Retry-After` |
 | Cadastro (A02) | IP | 20 / hora | `429` + `Retry-After` |
 | Pedido de reset (A06) | E-mail normalizado | 3 / hora | `429` + `Retry-After` |
@@ -384,7 +402,7 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | API-A01 | `GET /auth/csrf` | Pública | — | — | — → `204` + cookie `XSRF-TOKEN` | — | — |
 | API-A02 | `POST /auth/register` | Pública | Sim | — | `email` (≤ 254), `password` (12–128), `acceptedTermsVersion`, `acceptedPrivacyVersion` (1–32, `[A-Za-z0-9._-]`) → `202` sem corpo, igual exista ou não a conta | `400` `VALIDATION_FAILED` (com `errors`) ou `INVALID_REQUEST`; `403` `CSRF_VALIDATION_FAILED`; `429` `RATE_LIMITED` | Pendente |
 | API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token`, `password` (até 128) → `204` (uso único; não abre sessão) | `400` `INVALID_TOKEN` (token inválido ou senha errada, sem distinguir); `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
-| API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128), `twoFactorCode?` (6 dígitos) ou `recoveryCode?` (até 32) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | `identity.login_succeeded`, `login_failed`, `login_failed_unknown_account`, `login_second_factor_required`, `login_refused_locked_out`, `account_locked_out`, `second_factor_failed`, `mfa_recovery_code_used` |
+| API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128), `twoFactorCode?` (6 dígitos) ou `recoveryCode?` (até 32) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | `identity.login_succeeded`, `login_failed`, `login_second_factor_required`, `login_refused_locked_out`, `account_locked_out`, `second_factor_failed`, `mfa_recovery_code_used` |
 | API-A05 | `POST /auth/logout` | Pública (sem sessão também responde `204`) | Sim | — | — → `204` + `XSRF-TOKEN` novo; revoga a sessão no servidor | `403` | `identity.logged_out` (só com sessão) |
 | API-A06 | `POST /auth/password-reset-requests` | Pública | Sim | — | `email` → `202` sem corpo | `400`; `403`; `429` por IP e por e-mail | Pendente |
 | API-A07 | `POST /auth/password-resets` | Pública | Sim | — | `userId`, `token`, `newPassword` (12–128) → `204` | `400` `INVALID_TOKEN`, `400` `VALIDATION_FAILED`; `403`; `429` | `identity.password_reset`, `lockout_cleared` |
@@ -393,7 +411,7 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | API-A10 | `DELETE /me/sessions/{sessionId}` | Cookie | Sim | — | → `204` (também para sessão própria já revogada) | `404` `NOT_FOUND` (alheia ou inexistente); `403`; `401` | `identity.session_revoked` (só na primeira revogação) |
 | API-A11 | `POST /me/mfa/enrollments` | Cookie | Sim | Sim | → `200` `sharedKey`, `authenticatorUri` | `401` `REAUTHENTICATION_REQUIRED`; `409` `MFA_ALREADY_ENABLED`; `429` | `identity.mfa_enrollment_started` |
 | API-A12 | `POST /me/mfa/confirmations` | Cookie | Sim | Sim | `code` (6 dígitos) → `200` `recoveryCodes[]` + sessão renovada | `400` `MFA_CODE_INVALID` ou `VALIDATION_FAILED`; `401`; `409` `MFA_ALREADY_ENABLED`/`MFA_ENROLLMENT_NOT_STARTED`; `429` | `identity.mfa_enabled` |
-| API-A13 | `POST /auth/reauthenticate` | Cookie (inclusive sessão restrita) | Sim | — | `password`, `twoFactorCode?` (obrigatório se a conta tem MFA) → `204` | `401` `INVALID_CREDENTIALS`; `400` | `identity.reauthenticated`, `reauthentication_failed`, `reauthentication_refused_locked_out`, `account_locked_out`, `second_factor_failed` |
+| API-A13 | `POST /auth/reauthenticate` | Cookie (inclusive sessão restrita) | Sim | — | `password`, `twoFactorCode?` (obrigatório se a conta tem MFA) → `204` | `401` `INVALID_CREDENTIALS`; `400` | `identity.reauthenticated`, `reauthentication_second_factor_required`, `reauthentication_failed`, `reauthentication_refused_locked_out`, `account_locked_out`, `second_factor_failed` |
 | API-A14 | `POST /me/mfa/recovery-codes` | Cookie | Sim | Sim | → `200` `recoveryCodes[]` (conjunto anterior revogado) | `409` `MFA_NOT_ENABLED`; `401`; `429` | `identity.mfa_recovery_codes_regenerated` |
 | API-A15 | `DELETE /me/mfa` | Cookie | Sim | Sim | → `204` (também se já estava inativo) + sessão renovada | `403` `MFA_REQUIRED_BY_ROLE`; `401`; `429` | `identity.mfa_disabled` |
 | API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` (12–128) → `204` + sessão renovada; outras sessões revogadas | `400` validação; `401` `INVALID_CREDENTIALS` (senha atual errada, conta no lockout); `429` | `identity.password_changed`, `password_change_failed`, `password_change_refused_locked_out`, `account_locked_out` |
