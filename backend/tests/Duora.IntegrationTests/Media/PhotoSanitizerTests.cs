@@ -279,6 +279,15 @@ public sealed class PhotoSanitizerTests
     }
 
     [Fact]
+    public async Task ACompletePngWithGarbageCompressedDataIsACorruptImage()
+    {
+        var png = TestImages.PngWithGarbageCompressedData();
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Png, png), "A fixture deveria passar pela completude.");
+
+        Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.CorruptImage), await SanitizeAsync(PhotoFormat.Png, png));
+    }
+
+    [Fact]
     public async Task AnImageOverTheMemoryLimitIsAProcessingLimit()
     {
         var tight = new ImageSharpPhotoSanitizer(new PhotoSanitizerOptions { MemoryLimitMegabytes = 1 });
