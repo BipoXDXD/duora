@@ -1260,10 +1260,164 @@
           }
         }
       }
+    },
+    "/api/v1/me/age-verifications": {
+      "post": {
+        "tags": [
+          "Me"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartAgeVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgeVerificationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/age-verifications/current": {
+      "get": {
+        "tags": [
+          "Me"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgeVerificationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AgeVerificationNextStepCode": {
+        "enum": [
+          "None",
+          "StartVerification",
+          "WaitForProvider",
+          "ContinueWithProvider",
+          "WaitForReview",
+          "NotAvailable"
+        ],
+        "description": "Próximo passo da pessoa na verificação etária (API-P06)."
+      },
+      "AgeVerificationResponse": {
+        "required": [
+          "state",
+          "nextStep",
+          "continueUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/AgeVerificationStateCode"
+          },
+          "nextStep": {
+            "$ref": "#/components/schemas/AgeVerificationNextStepCode"
+          },
+          "continueUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Estado mínimo da verificação etária (API-P06). `ContinueUrl` só vem com ContinueWithProvider: o fluxo do\nfornecedor, de uma origem na allowlist. Nenhuma inferência do fornecedor (TM-38)."
+      },
+      "AgeVerificationStateCode": {
+        "enum": [
+          "NotStarted",
+          "Pending",
+          "VerifiedAdult",
+          "Rejected",
+          "Expired",
+          "ManualReview"
+        ],
+        "description": "Estado da verificação etária como a API o expõe (API-P06)."
+      },
       "ChangePasswordRequest": {
         "required": [
           "currentPassword",
@@ -1742,6 +1896,11 @@
           }
         },
         "additionalProperties": false
+      },
+      "StartAgeVerificationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Corpo de API-P05: vazio de propósito. O resultado etário nunca vem do navegador (spec 12.2, TM-35); qualquer\ncampo, inclusive `isAdult`, é recusado com 400."
       },
       "Stream": {
         "type": "string",

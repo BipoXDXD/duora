@@ -20,8 +20,8 @@ namespace Duora.IntegrationTests.AgeVerification;
 public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
 {
     /// <summary>
-    /// Rotas do titular que ficam na política padrão de participante sem exigir elegibilidade: o próprio perfil, o
-    /// bloqueio (segurança) e a verificação etária, que a pessoa precisa justamente enquanto não é elegível (spec 8.2).
+    /// Rotas do titular que ficam na política padrão de participante sem exigir elegibilidade: o próprio perfil e as
+    /// fotos dele, o bloqueio (segurança) e a verificação etária, que a pessoa precisa justamente enquanto não é elegível (spec 8.2).
     /// As rotas públicas (<c>AllowAnonymous</c>) e as que declaram política de conta, de cadastro de MFA ou
     /// administrativa (<see cref="SessionAuthorization"/>) também não são de participação. Toda outra rota de
     /// <c>/api/v1</c> exige <see cref="ParticipationPolicies.EligibleParticipant"/>.
@@ -29,9 +29,11 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     private static readonly string[] TitularRoutes =
     [
         "GET /api/v1/me/age-verifications/current",
+        "GET /api/v1/me/photos/{photoId:guid}/status",
         "GET /api/v1/me/profile",
         "PATCH /api/v1/me/profile",
         "POST /api/v1/me/age-verifications",
+        "POST /api/v1/me/photos",
         "PUT /api/v1/me/blocks/{targetUserId:guid}",
     ];
 

@@ -91,6 +91,104 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Identity.AgeVerificationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<string>("DecisionSource")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("decision_source");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("PolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("policy_version");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderFlowUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("provider_flow_url");
+
+                    b.Property<string>("ProviderReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_reference");
+
+                    b.Property<string>("RequestNonce")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("request_nonce");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_age_verifications");
+
+                    b.HasIndex("RequestNonce")
+                        .IsUnique()
+                        .HasDatabaseName("ux_age_verifications_request_nonce");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_age_verifications_open_user")
+                        .HasFilter("state IN ('Pending', 'ManualReview')");
+
+                    b.HasIndex("Provider", "ProviderReference")
+                        .IsUnique()
+                        .HasDatabaseName("ux_age_verifications_provider_provider_reference");
+
+                    b.HasIndex("UserId", "RequestedAt")
+                        .HasDatabaseName("ix_age_verifications_user_id_requested_at");
+
+                    b.ToTable("age_verifications", "identity", t =>
+                        {
+                            t.HasCheckConstraint("ck_age_verifications_decision_source", "decision_source IS NULL OR decision_source IN ('Callback', 'ProviderQuery', 'ManualReview')");
+
+                            t.HasCheckConstraint("ck_age_verifications_flow_url", "provider_flow_url IS NULL OR provider_flow_url LIKE 'https://%'");
+
+                            t.HasCheckConstraint("ck_age_verifications_state", "state IN ('Pending', 'VerifiedAdult', 'Rejected', 'Expired', 'ManualReview')");
+
+                            t.HasCheckConstraint("ck_age_verifications_verified_expiry", "state <> 'VerifiedAdult' OR expires_at IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_age_verifications_version", "version >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Identity.ConsentRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -573,6 +671,72 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.ToTable("upload_guards", "media");
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Operations.WebhookReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<byte[]>("PayloadSha256")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("payload_sha256");
+
+                    b.Property<DateTimeOffset?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderEventId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_event_id");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<DateTimeOffset>("SignatureVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("signature_verified_at");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("state");
+
+                    b.HasKey("Id")
+                        .HasName("pk_webhook_receipts");
+
+                    b.HasIndex("ReceivedAt")
+                        .HasDatabaseName("ix_webhook_receipts_received_at");
+
+                    b.HasIndex("Provider", "ProviderEventId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_webhook_receipts_provider_provider_event_id");
+
+                    b.ToTable("webhook_receipts", "ops", t =>
+                        {
+                            t.HasCheckConstraint("ck_webhook_receipts_payload_sha256", "octet_length(payload_sha256) = 32");
+
+                            t.HasCheckConstraint("ck_webhook_receipts_payload_size", "octet_length(payload::text) <= 65536");
+
+                            t.HasCheckConstraint("ck_webhook_receipts_state", "state IN ('Received', 'Processed', 'Rejected')");
+                        });
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Outbox.OutboxDelivery", b =>
                 {
                     b.Property<Guid>("Id")
@@ -984,6 +1148,16 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasName("pk_user_tokens");
 
                     b.ToTable("user_tokens", "identity");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Identity.AgeVerificationRecord", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_age_verifications_users");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Identity.ConsentRecord", b =>
