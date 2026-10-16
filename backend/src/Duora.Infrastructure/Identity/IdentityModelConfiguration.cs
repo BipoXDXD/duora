@@ -30,6 +30,7 @@ internal static class IdentityModelConfiguration
     public static void Apply(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<DuoraUser>(ConfigureUser);
+        modelBuilder.Entity<IdentityRole<Guid>>(ConfigureRoles);
 
         foreach (var (entity, table) in IdentityTables)
         {
@@ -38,6 +39,27 @@ internal static class IdentityModelConfiguration
                 ?? throw new InvalidOperationException($"{entity} não está no modelo."), table);
         }
     }
+
+    /// <summary>
+    /// Catálogo fixo de papéis (model.md). Ids fixos para a migration ser determinística; nenhum usuário nem
+    /// permissão vem por seed (spec 17).
+    /// </summary>
+    private static readonly (Guid Id, string Name)[] SeededRoles =
+    [
+        (new Guid("01920000-0000-7000-8000-000000000001"), AccountRoles.Participant),
+        (new Guid("01920000-0000-7000-8000-000000000002"), AccountRoles.Moderator),
+        (new Guid("01920000-0000-7000-8000-000000000003"), AccountRoles.ProductAdmin),
+        (new Guid("01920000-0000-7000-8000-000000000004"), AccountRoles.Operator),
+    ];
+
+    private static void ConfigureRoles(EntityTypeBuilder<IdentityRole<Guid>> role) =>
+        role.HasData(SeededRoles.Select(seed => new IdentityRole<Guid>
+        {
+            Id = seed.Id,
+            Name = seed.Name,
+            NormalizedName = seed.Name.ToUpperInvariant(),
+            ConcurrencyStamp = seed.Id.ToString("D"),
+        }));
 
     private static void ConfigureUser(EntityTypeBuilder<DuoraUser> user)
     {
@@ -142,6 +164,8 @@ internal sealed class LoginSessionConfiguration : IEntityTypeConfiguration<Login
         {
             table.HasCheckConstraint("ck_login_sessions_window", "idle_expires_at <= absolute_expires_at");
             table.HasCheckConstraint("ck_login_sessions_key_hash", "octet_length(key_hash) = 32");
+            var policies = string.Join(", ", Enum.GetNames<SessionPolicy>().Select(name => $"'{name}'"));
+            table.HasCheckConstraint("ck_login_sessions_policy", $"policy IN ({policies})");
         });
         builder.HasKey(s => s.Id).HasName("pk_login_sessions");
 
@@ -155,6 +179,9 @@ internal sealed class LoginSessionConfiguration : IEntityTypeConfiguration<Login
         builder.Property(s => s.LastSeenAt).HasColumnName("last_seen_at");
         builder.Property(s => s.IdleExpiresAt).HasColumnName("idle_expires_at");
         builder.Property(s => s.AbsoluteExpiresAt).HasColumnName("absolute_expires_at");
+        builder.Property(s => s.Policy).HasColumnName("policy").HasConversion<string>().HasMaxLength(16);
+        builder.Property(s => s.ReauthenticatedAt).HasColumnName("reauthenticated_at");
+        builder.Property(s => s.MfaVerifiedAt).HasColumnName("mfa_verified_at");
         builder.Property(s => s.RevokedAt).HasColumnName("revoked_at");
         builder.Property(s => s.RevocationReason).HasColumnName("revocation_reason").HasMaxLength(32);
 
