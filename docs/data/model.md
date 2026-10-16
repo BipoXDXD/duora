@@ -234,6 +234,9 @@ erDiagram
   em API-P05 e no webhook, nessa ordem ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md)).
 - **Solicitação abandonada:** `Pending` além de `RequestLifetime`, ou sem `provider_reference` com a tarefa do worker
   em `Failed`/`Expired`, vira `Expired` quando a pessoa pede de novo (API-P05).
+- **Pedido ao worker:** `identity.age-verification-requested` grava `verificationId` e, até a release seguinte,
+  `loginSessionId` (só para o worker da release anterior; o atual o ignora). A gravação sai na release seguinte e o
+  campo sai do leitor depois que nenhuma entrega com ele puder estar pendente ([deploy.md](../operations/deploy.md)).
 - **Classe:** P3. Sem documento, imagem ou biometria (spec 12.1, 12.2).
 
 ### identity.consent_records

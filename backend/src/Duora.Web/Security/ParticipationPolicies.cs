@@ -49,7 +49,7 @@ internal sealed class EligibleParticipantRequirement : IAuthorizationRequirement
 
 /// <summary>
 /// Pergunta ao Identity (<c>GetEligibility</c>) a cada requisição, sem cache: restrição e suspensão valem na
-/// requisição seguinte. A sessão vai junto, sem efeito por ora (ADR-0024, decisão 3).
+/// requisição seguinte.
 /// </summary>
 internal sealed class EligibleParticipantHandler(AgeVerificationService verifications)
     : AuthorizationHandler<EligibleParticipantRequirement>
@@ -58,8 +58,8 @@ internal sealed class EligibleParticipantHandler(AgeVerificationService verifica
         AuthorizationHandlerContext context,
         EligibleParticipantRequirement requirement)
     {
-        if (DuoraClaims.ReadUserId(context.User) is not { } userId
-            || DuoraClaims.ReadSessionId(context.User) is not { } sessionId)
+        // Sem id de sessão não é um principal de sessão: nega, embora a elegibilidade não dependa da sessão.
+        if (DuoraClaims.ReadUserId(context.User) is not { } userId || DuoraClaims.ReadSessionId(context.User) is null)
         {
             return;
         }
@@ -68,7 +68,7 @@ internal sealed class EligibleParticipantHandler(AgeVerificationService verifica
         AgeEligibilityResult eligibility;
         try
         {
-            eligibility = await verifications.GetEligibilityAsync(userId, sessionId, cancellationToken);
+            eligibility = await verifications.GetEligibilityAsync(userId, cancellationToken);
         }
         catch (Exception exception) when (IsDatabaseUnavailable(exception))
         {

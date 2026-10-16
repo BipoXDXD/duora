@@ -9,7 +9,7 @@ namespace Duora.Infrastructure.Identity;
 /// Pedido ao worker para abrir a verificação no fornecedor, gravado na transação de API-P05. Só ids: o worker relê
 /// a solicitação no banco, e o nonce nunca passa pela outbox.
 /// </summary>
-internal sealed record AgeVerificationRequested(Guid VerificationId, Guid LoginSessionId);
+internal sealed record AgeVerificationRequested(Guid VerificationId);
 
 internal static class AgeVerificationOutbox
 {
@@ -26,12 +26,18 @@ internal static class AgeVerificationOutbox
 
     /// <summary>
     /// Evento e entrega ao worker. O prazo da entrega é o fim do prazo da solicitação: depois dele abrir no
-    /// fornecedor não serve a ninguém.
+    /// fornecedor não serve a ninguém. <paramref name="loginSessionId"/> ainda vai no payload só porque o worker da
+    /// release anterior o exige (expand/contract, deploy.md).
     /// </summary>
-    public static OutboxEvent Create(AgeVerificationRequested message, DateTimeOffset now, DateTimeOffset deadlineAt)
+    public static OutboxEvent Create(
+        AgeVerificationRequested message,
+        Guid loginSessionId,
+        DateTimeOffset now,
+        DateTimeOffset deadlineAt)
     {
         var identity = new EventIdentity(EventType, SchemaVersion, ResourceType, message.VerificationId);
-        var outboxEvent = OutboxEvent.Record(identity, JsonSerializer.Serialize(message, Json), now);
+        var payload = new Payload(message.VerificationId, loginSessionId);
+        var outboxEvent = OutboxEvent.Record(identity, JsonSerializer.Serialize(payload, Json), now);
         outboxEvent.AddDelivery(Consumer, message.VerificationId.ToString("D"), deadlineAt);
         return outboxEvent;
     }
@@ -44,9 +50,10 @@ internal static class AgeVerificationOutbox
             return false;
         }
 
+        Payload? payload;
         try
         {
-            message = JsonSerializer.Deserialize<AgeVerificationRequested>(delivery.Payload, Json);
+            payload = JsonSerializer.Deserialize<Payload>(delivery.Payload, Json);
         }
         catch (JsonException)
         {
@@ -54,6 +61,19 @@ internal static class AgeVerificationOutbox
             return false;
         }
 
-        return message is { VerificationId: var id, LoginSessionId: var session } && id != Guid.Empty && session != Guid.Empty;
+        if (payload is not { VerificationId: var id } || id == Guid.Empty)
+        {
+            return false;
+        }
+
+        message = new AgeVerificationRequested(id);
+        return true;
     }
+
+    /// <summary>
+    /// Forma gravada do evento. <c>LoginSessionId</c> ainda é gravado para o worker da release anterior, que o exige,
+    /// e é ignorado (e aceito ausente) na leitura. Sai em dois passos: a gravação na release seguinte, o campo depois
+    /// que nenhuma entrada com ele puder estar pendente (deploy.md).
+    /// </summary>
+    private sealed record Payload(Guid VerificationId, Guid? LoginSessionId);
 }

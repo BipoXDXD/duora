@@ -119,6 +119,11 @@ validade e o desdobramento "elegível é `VerifiedAdult` cujo `expires_at` é po
   protege linhas antigas, do tempo da validade de 365 dias, e contas devolvidas a `Active` por outro caminho.
   (Correção da revisão de segurança do PR #59: a primeira versão priorizava sempre a `VerifiedAdult`, o que
   deixava elegível uma conta ativa com `Rejected` ou `ManualReview` posterior.)
+- **A sessão sai do contrato.** Sem "verificação a cada acesso", `AgeCheckStart` e `GetEligibility` não recebem
+  mais a sessão de login. O pedido ao worker (`identity.age-verification-requested`) sai dela em dois deploys: nesta
+  release o worker a ignora (presente ou ausente) e API-P05 ainda a grava, para o worker da release anterior; a
+  gravação sai na release seguinte ([deploy.md](../../operations/deploy.md)). A policy e API-P05 continuam exigindo
+  um principal de sessão.
 - **`expires_at` em expand/contract.** Nesta release a coluna não é mais gravada nem lida, e a constraint
   `ck_age_verifications_verified_expiry` sai (migration `AgeVerificationWithoutExpiry`); valores antigos ficam,
   ignorados. **A coluna sai num PR futuro** (contract), depois que nenhuma release em uso a ler. Rollback para a
