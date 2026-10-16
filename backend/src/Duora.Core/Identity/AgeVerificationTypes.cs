@@ -45,12 +45,14 @@ public enum AgeVerificationNextStep
 
 /// <summary>
 /// Solicitação da pessoa que decide a elegibilidade (<see cref="AgeEligibility.Decisions"/>).
-/// <c>ProviderFlowReady</c> diz se o worker já obteve o fluxo do fornecedor.
+/// <c>ProviderFlowReady</c> diz se o worker já obteve o fluxo do fornecedor. <c>MinorSuspected</c> diz se alguma
+/// solicitação da pessoa, esta ou outra, recebeu <c>NotAdult</c> (suspeita durável, spec 12.2).
 /// </summary>
 public sealed record AgeVerificationSnapshot(
     AgeVerificationState State,
     DateTimeOffset RequestedAt,
-    bool ProviderFlowReady);
+    bool ProviderFlowReady,
+    bool MinorSuspected = false);
 
 /// <summary>Elegibilidade etária de uma conta num instante e o próximo passo da pessoa.</summary>
 public sealed record AgeEligibilityResult(bool IsEligible, AgeVerificationNextStep NextStep)
@@ -60,9 +62,13 @@ public sealed record AgeEligibilityResult(bool IsEligible, AgeVerificationNextSt
 }
 
 /// <summary>
-/// Efeito de um resultado do fornecedor: novo estado da solicitação e estado em que a conta deve ficar.
+/// Efeito de um resultado do fornecedor: novo estado da solicitação, estado em que a conta deve ficar e se a
+/// solicitação passa a registrar suspeita de menor.
 /// </summary>
-public sealed record AgeVerificationDecision(AgeVerificationState VerificationState, AccountStatus AccountStatus)
+public sealed record AgeVerificationDecision(
+    AgeVerificationState VerificationState,
+    AccountStatus AccountStatus,
+    bool MinorSuspected)
 {
     public bool ChangesAccountFrom(AccountStatus current) => AccountStatus != current;
 }

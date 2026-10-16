@@ -106,13 +106,16 @@ public sealed class AgeEligibilityPropertyTests
     }
 
     [Fact]
-    public void ADecidedRequestIgnoresEveryLaterResult()
+    public void ADecidedRequestIgnoresEveryLaterResultButASuspicionOfAMinor()
     {
         Gen.Select(AnyAccount, AnyOutcome, AnyOutcome).Sample(
             (account, first, second) =>
             {
                 var decided = AgeEligibility.Decide(account, AgeVerificationState.Pending, first)!;
-                return AgeEligibility.Decide(decided.AccountStatus, decided.VerificationState, second) is null;
+                var later = AgeEligibility.Decide(decided.AccountStatus, decided.VerificationState, second);
+                return second == AgeCheckOutcome.NotAdult
+                    ? later is { MinorSuspected: true } && later.VerificationState == decided.VerificationState
+                    : later is null;
             },
             iter: Iterations);
     }

@@ -64,6 +64,12 @@ internal sealed class AgeVerificationRecord
 
     public AgeDecisionSource? DecisionSource { get; private set; }
 
+    /// <summary>
+    /// Primeira vez que o fornecedor disse <c>NotAdult</c> sobre esta solicitação, em qualquer estado dela: suspeita
+    /// de menor, durável e independente do estado da conta (spec 12.2). Só a revisão humana (M2) a remove.
+    /// </summary>
+    public DateTimeOffset? MinorSuspectedAt { get; private set; }
+
     public long Version { get; private set; }
 }
 
@@ -104,6 +110,7 @@ internal sealed class AgeVerificationRecordConfiguration : IEntityTypeConfigurat
         builder.Property(v => v.RequestedAt).HasColumnName("requested_at");
         builder.Property(v => v.DecidedAt).HasColumnName("decided_at");
         builder.Property(v => v.ExpiresAt).HasColumnName("expires_at");
+        builder.Property(v => v.MinorSuspectedAt).HasColumnName("minor_suspected_at");
         builder.Property(v => v.DecisionSource).HasColumnName("decision_source").HasConversion<string>().HasMaxLength(16);
         builder.Property(v => v.Version).HasColumnName("version");
 
