@@ -79,21 +79,18 @@ public sealed class AgeVerificationValueTests
     public void StartRequestCarriesTheIdsTheAdapterMayNeed()
     {
         var verificationId = Guid.CreateVersion7();
-        var sessionId = Guid.CreateVersion7();
-        var start = new AgeCheckStart(verificationId, "nonce-1", sessionId, new Uri("https://duora.example/verificacao"), "2026-10-15");
+        var start = new AgeCheckStart(verificationId, "nonce-1", new Uri("https://duora.example/verificacao"), "2026-10-15");
 
         Assert.Equal(verificationId, start.VerificationId);
-        Assert.Equal(sessionId, start.LoginSessionId);
         Assert.Equal(verificationId.ToString("N"), start.IdempotencyKey);
     }
 
     [Fact]
-    public void StartRequestRejectsEmptyIds()
+    public void StartRequestRejectsAnEmptyIdOrNonce()
     {
         var returnUrl = new Uri("https://duora.example/verificacao");
 
-        Assert.Throws<ArgumentException>(() => new AgeCheckStart(Guid.Empty, "nonce-1", Guid.CreateVersion7(), returnUrl, "v1"));
-        Assert.Throws<ArgumentException>(() => new AgeCheckStart(Guid.CreateVersion7(), "nonce-1", Guid.Empty, returnUrl, "v1"));
-        Assert.ThrowsAny<ArgumentException>(() => new AgeCheckStart(Guid.CreateVersion7(), "", Guid.CreateVersion7(), returnUrl, "v1"));
+        Assert.Throws<ArgumentException>(() => new AgeCheckStart(Guid.Empty, "nonce-1", returnUrl, "v1"));
+        Assert.ThrowsAny<ArgumentException>(() => new AgeCheckStart(Guid.CreateVersion7(), "", returnUrl, "v1"));
     }
 }

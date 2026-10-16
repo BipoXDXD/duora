@@ -116,16 +116,11 @@ public sealed class AgeVerificationService
     }
 
     /// <summary>
-    /// Elegibilidade etária da conta agora (operação pública <c>GetEligibility</c> do Identity, modules.md). A sessão
-    /// é recebida e ainda não muda nada: o contrato já a carrega para "verificação a cada acesso", se o parecer
-    /// sobre o ECA Digital exigir (ADR-0024, decisão 3).
+    /// Elegibilidade etária da conta agora (operação pública <c>GetEligibility</c> do Identity, modules.md). Não
+    /// depende da sessão: a verificação acontece uma vez, no cadastro (ADR-0024, adendo de 2026-10-16).
     /// </summary>
-    public async Task<AgeEligibilityResult> GetEligibilityAsync(
-        Guid userId,
-        Guid loginSessionId,
-        CancellationToken cancellationToken)
+    public async Task<AgeEligibilityResult> GetEligibilityAsync(Guid userId, CancellationToken cancellationToken)
     {
-        _ = loginSessionId;
         var (_, eligibility) = await EvaluateAsync(userId, cancellationToken);
         return eligibility;
     }
@@ -246,7 +241,8 @@ public sealed class AgeVerificationService
             new AuditRecord(AuditActorKind.User, userId, AuditAction.AgeVerificationRequested, AuditTargetTypes.AgeVerification, id, 0),
             cancellationToken);
         _db.Add(AgeVerificationOutbox.Create(
-            new AgeVerificationRequested(id, loginSessionId),
+            new AgeVerificationRequested(id),
+            loginSessionId,
             now,
             now + _policy.RequestLifetime));
         return new VerificationRow(id, pending, now, FlowUrl: null, Version: 0, IsLatest: true, ProviderGaveUp: false);

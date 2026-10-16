@@ -187,7 +187,6 @@ public sealed partial class AgeVerificationDispatcher
         var request = new AgeCheckStart(
             message.VerificationId,
             verification.RequestNonce,
-            message.LoginSessionId,
             _publicOrigin.Resolve(ReturnPath),
             verification.PolicyVersion);
         using var timeout = new CancellationTokenSource(_dispatch.SendTimeout, _time);
