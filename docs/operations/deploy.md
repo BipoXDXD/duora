@@ -19,6 +19,19 @@ para antes da migração e web/edge são recriados. Escala horizontal exige o AD
 | `duora-backup` | `/usr/local/sbin/` (root, 0755) | Wrapper restrito do pgBackRest: timers de backup e `verify` chamado pelo deploy ([backup-restore.md](backup-restore.md)) |
 | Estado do deploy | `/var/lib/duora/` (root, 0700) | `current.json`, `previous.json`, `.deploy.lock`, `releases/<id>.{env,json}` (só releases implantadas com sucesso) e `staging/` (rascunho do deploy em curso) |
 
+## Checklist da release
+
+Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases (expand/contract,
+[model.md](../data/model.md#convenções)). Cada item cita a consulta que prova que ele vale.
+
+- [ ] **Avisos de credencial (TM-21):** o #52 (`feat/security-notifications`, gravação) não vai a deploy numa
+  release que não tenha o #51 (`feat/security-notifications-reader`, leitor) já implantado. Confira que a release
+  corrente (`current.json`) já contém o #51; antes de voltar para uma release anterior ao #51, a consulta de
+  [rollback](#rollback-de-aplicação) dos tipos `...Notice` precisa devolver zero.
+- [ ] **Contato de suporte:** `Duora:SupportContact` traz um placeholder (`suporte@meetduora.com`) nas configurações
+  base; a spec ainda não define o canal. Antes de abrir a participantes reais, troque pelo canal definido e confira
+  que a caixa recebe.
+
 ## Manifesto da release (spec 17.2)
 
 JSON, até 64 KiB, campos exatamente estes (campo desconhecido ou ausente é recusado):

@@ -73,6 +73,21 @@ public sealed class StartupConfigurationTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("suporte")]
+    [InlineData("suporte@exemplo.com\nBcc: alguem@exemplo.com")]
+    public async Task WebDoesNotStartWithoutAValidSupportContact(string supportContact)
+    {
+        // O contato vai no texto do aviso de segurança: só um endereço de e-mail válido, sem quebra de linha.
+        await using var app = BuildWeb($"--Duora:SupportContact={supportContact}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Duora:SupportContact", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("nao-e-uma-rede")]
     [InlineData("172.30.10.0/99")]
     public async Task WebDoesNotStartWithAnInvalidProxyNetwork(string network)

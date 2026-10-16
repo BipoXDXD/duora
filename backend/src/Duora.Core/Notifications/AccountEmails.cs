@@ -13,12 +13,20 @@ public sealed class AccountEmails
     /// <summary>Página da conta na SPA, onde fica a lista de sessões ativas (API-A09/A10).</summary>
     private const string SessionsPath = "/conta";
 
-    private readonly PublicOrigin _publicOrigin;
+    /// <summary>Separa as duas versões do aviso bilíngue.</summary>
+    private const string LanguageSeparator = "\n\n---\n\n";
 
-    public AccountEmails(PublicOrigin publicOrigin)
+    private readonly PublicOrigin _publicOrigin;
+    private readonly EmailAddress _supportContact;
+
+    /// <param name="publicOrigin">Origem da SPA, base de todos os links.</param>
+    /// <param name="supportContact">Endereço de suporte citado no aviso de MFA ativado (<c>Duora:SupportContact</c>).</param>
+    public AccountEmails(PublicOrigin publicOrigin, EmailAddress supportContact)
     {
         ArgumentNullException.ThrowIfNull(publicOrigin);
+        ArgumentNullException.ThrowIfNull(supportContact);
         _publicOrigin = publicOrigin;
+        _supportContact = supportContact;
     }
 
     public TransactionalEmail EmailConfirmation(EmailAddress to, Guid userId, string token, EmailLanguage language) =>
@@ -44,13 +52,10 @@ public sealed class AccountEmails
     /// <summary>
     /// Aviso ao titular de que uma credencial mudou (TM-21). Texto fixo: o único dado variável é o instante, em UTC e
     /// com precisão de minuto, porque o e-mail não sabe o fuso de quem lê. Não há token: o link leva à área de
-    /// sessões, onde quem não reconhece a mudança encerra as sessões e troca a senha.
+    /// sessões, onde quem não reconhece a mudança encerra as sessões e troca a senha. Sai em pt-BR e depois em en, no
+    /// mesmo e-mail: quem recebe pode não ser quem fez a mudança, e o idioma da requisição seria o de quem a fez.
     /// </summary>
-    public TransactionalEmail SecurityNotice(
-        EmailAddress to,
-        SecurityChange change,
-        DateTimeOffset occurredAt,
-        EmailLanguage language)
+    public TransactionalEmail SecurityNotice(EmailAddress to, SecurityChange change, DateTimeOffset occurredAt)
     {
         if (!Enum.IsDefined(change))
         {
@@ -58,7 +63,13 @@ public sealed class AccountEmails
         }
 
         var occurredAtUtc = occurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
-        return Compose(to, CatalogFor(language).SecurityNotice(change, occurredAtUtc, _publicOrigin.Resolve(SessionsPath)));
+        var sessionsLink = _publicOrigin.Resolve(SessionsPath);
+        var portuguese = BrazilianPortugueseAccountEmails.Instance.SecurityNotice(change, occurredAtUtc, sessionsLink, _supportContact);
+        var english = EnglishAccountEmails.Instance.SecurityNotice(change, occurredAtUtc, sessionsLink, _supportContact);
+        return new TransactionalEmail(
+            to,
+            $"{portuguese.Subject} / {english.Subject}",
+            portuguese.Body + LanguageSeparator + english.Body);
     }
 
     /// <summary>Valor fora do enum (um cast de inteiro) cai no padrão, como uma tag desconhecida.</summary>

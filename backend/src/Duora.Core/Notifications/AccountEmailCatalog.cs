@@ -1,3 +1,5 @@
+using Duora.Core.Identity;
+
 namespace Duora.Core.Notifications;
 
 /// <summary>Assunto e corpo em texto simples de um e-mail, já no idioma de quem o recebe.</summary>
@@ -21,9 +23,9 @@ internal interface IAccountEmailCatalog
 
     /// <summary>
     /// Aviso de mudança de credencial. <paramref name="occurredAtUtc"/> já vem formatado em UTC; é o único dado
-    /// variável do texto, além do link fixo para as sessões.
+    /// variável do texto, além do link fixo para as sessões e do contato de suporte, que vêm da configuração.
     /// </summary>
-    EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink);
+    EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink, EmailAddress supportContact);
 }
 
 internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
@@ -104,7 +106,7 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
             Se você não fez esse pedido, ignore esta mensagem.
             """);
 
-    public EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink)
+    public EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink, EmailAddress supportContact)
     {
         var (subject, sentence) = change switch
         {
@@ -125,6 +127,12 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
                 $"A senha da sua conta do Duora foi redefinida pelo link de recuperação em {occurredAtUtc}."),
             _ => throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida."),
         };
+        var recovery = change == SecurityChange.MfaEnabled
+            ? $"""
+              Se não conseguir entrar, a recuperação de senha não basta: ela não remove a verificação em duas etapas.
+              Responda a este e-mail ou fale com o suporte em {supportContact}.
+              """
+            : "Se não conseguir entrar, use \"Esqueci minha senha\" na tela de entrada para recuperar o acesso.";
         return new(
             subject,
             $"""
@@ -137,10 +145,11 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
 
             {sessionsLink}
 
-            Se não conseguir entrar, use "Esqueci minha senha" na tela de entrada para recuperar o acesso.
+            {recovery}
             """);
     }
 }
+
 
 internal sealed class EnglishAccountEmails : IAccountEmailCatalog
 {
@@ -220,7 +229,7 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
             If you did not make this request, ignore this message.
             """);
 
-    public EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink)
+    public EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink, EmailAddress supportContact)
     {
         var (subject, sentence) = change switch
         {
@@ -241,6 +250,12 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
                 $"The password of your Duora account was reset through the recovery link on {occurredAtUtc}."),
             _ => throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida."),
         };
+        var recovery = change == SecurityChange.MfaEnabled
+            ? $"""
+              If you cannot sign in, a password reset is not enough: it does not remove two-step verification.
+              Reply to this email or contact support at {supportContact}.
+              """
+            : "If you cannot sign in, use \"Forgot your password?\" on the sign-in screen to recover access.";
         return new(
             subject,
             $"""
@@ -253,7 +268,7 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
 
             {sessionsLink}
 
-            If you cannot sign in, use "Forgot your password?" on the sign-in screen to recover access.
+            {recovery}
             """);
     }
 }
