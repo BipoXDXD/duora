@@ -157,7 +157,12 @@ Worker compartilham o `UserSecretsId`, então os dois recebem a configuração:
 cd backend
 dotnet user-secrets set --project src/Duora.Web "AgeVerification:Provider" "Fake"
 dotnet user-secrets set --project src/Duora.Web "AgeVerification:AllowedFlowOrigins:0" "https://age-check.fake.invalid"
+dotnet user-secrets set --project src/Duora.Web "AgeVerification:Fake:SigningSecrets:0" "$(openssl rand -hex 32)"
 ```
+
+O segredo assina os callbacks de `POST /webhooks/fake` (header `Duora-Fake-Signature: t=<unix>,v1=<hex>`, HMAC-SHA256
+de `"{t}." + corpo`). Para rotacionar, configure o novo em `SigningSecrets:1`, troque no fornecedor e remova o
+antigo.
 
 | Configuração | Padrão | Para quê |
 |---|---|---|
@@ -167,6 +172,7 @@ dotnet user-secrets set --project src/Duora.Web "AgeVerification:AllowedFlowOrig
 | `AgeVerification:RequestLifetime` | `1.00:00:00` | Depois disso, uma solicitação sem resultado deixa pedir outra |
 | `AgeVerification:AllowedFlowOrigins` | vazio | Origens aceitas para o fluxo do fornecedor; obrigatória com fornecedor |
 | `AgeVerification:Fake:Mode` | `Succeed` | `Succeed`, `Slow`, `Fail` ou `DuplicateCallback` |
+| `AgeVerification:Fake:SigningSecrets` | vazio | 1 ou 2 segredos HMAC (≥ 32 caracteres), obrigatórios com `Fake` |
 | `AgeVerification:Dispatch:*` | como `Outbox:*`, com `SendTimeout` de 10 s | Lote, lease, timeout e retry do worker que abre no fornecedor |
 
 O fluxo simulado aponta para `https://age-check.fake.invalid`, que não existe: localmente, a pessoa fica em

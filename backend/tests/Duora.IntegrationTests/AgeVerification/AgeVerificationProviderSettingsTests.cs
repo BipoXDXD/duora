@@ -1,5 +1,6 @@
 extern alias worker;
 using System.Net;
+using System.Security.Cryptography;
 using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Identity;
 using Duora.Web;
@@ -90,6 +91,7 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
     [InlineData("--AgeVerification:Validity=00:00:00", "AgeVerification:Validity")]
     [InlineData("--AgeVerification:RequestLifetime=-00:01:00", "AgeVerification:RequestLifetime")]
     [InlineData("--AgeVerification:Provider=Outro", "AgeVerification:Provider")]
+    [InlineData("--AgeVerification:Fake:SigningSecrets:0=curto", "AgeVerification:Fake:SigningSecrets")]
     public async Task WebDoesNotStartWithInvalidAgeVerificationSettings(string invalidSetting, string expectedKey)
     {
         await using var app = BuildWeb("Testing", [.. FakeArgs(), invalidSetting]);
@@ -97,6 +99,18 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
         var exception = await Assert.ThrowsAnyAsync<Exception>(() => app.StartAsync(Ct));
 
         Assert.Contains(expectedKey, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WebDoesNotStartWithMoreThanTwoSigningSecrets()
+    {
+        // Valor sorteado: nada com cara de segredo fica no repositório (o gitleaks varre o histórico).
+        var third = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        await using var app = BuildWeb("Testing", [.. FakeArgs(), $"--AgeVerification:Fake:SigningSecrets:2={third}"]);
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(() => app.StartAsync(Ct));
+
+        Assert.Contains("AgeVerification:Fake:SigningSecrets", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
