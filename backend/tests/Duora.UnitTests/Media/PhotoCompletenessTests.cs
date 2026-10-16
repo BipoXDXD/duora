@@ -93,6 +93,57 @@ public sealed class PhotoCompletenessTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void ASegmentLengthShorterThanItsOwnLengthFieldIsIncomplete(byte length)
+    {
+        // O comprimento conta os próprios dois bytes: 0 e 1 não descrevem segmento nenhum.
+        byte[] impossible = [Marker, App1, 0x00, length];
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), impossible, Scan(), EndOfImage)));
+    }
+
+    [Fact]
+    public void FillBytesBeforeAMarkerAreSkipped()
+    {
+        // Qualquer quantidade de FF pode preceder um marcador (T.81 B.1.1.2), entre segmentos e antes do EOI.
+        byte[] fill = [Marker, Marker];
+
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), fill, Scan(), fill, EndOfImage)));
+    }
+
+    [Fact]
+    public void FillBytesInsideTheScanDoNotEndIt()
+    {
+        // Preenchimento antes de um restart, no meio do dado comprimido.
+        byte[] scan = [.. Scan(), Marker, Marker, 0xD0, 0x55];
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), scan)));
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), scan, EndOfImage)));
+    }
+
+    [Theory]
+    [InlineData(0xD0)]
+    [InlineData(0xD3)]
+    [InlineData(0xD7)]
+    public void EveryRestartMarkerKeepsTheScanOpen(byte restart)
+    {
+        byte[] scan = [.. Scan(), Marker, restart, 0x66, Marker, 0x00];
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), scan)));
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), scan, EndOfImage)));
+    }
+
+    [Fact]
+    public void AProgressiveJpegCutInsideItsSecondScanIsIncomplete()
+    {
+        var tables = Segment(DefineHuffmanTable, new byte[17]);
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), Scan(), tables, Scan())));
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), Scan(), tables, Scan(), EndOfImage)));
+    }
+
+    [Theory]
     [InlineData(new byte[] { })]
     [InlineData(new byte[] { 0xFF, 0xD8 })]
     [InlineData(new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 })]
