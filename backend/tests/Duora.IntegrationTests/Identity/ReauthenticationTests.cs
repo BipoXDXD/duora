@@ -78,7 +78,7 @@ public sealed class ReauthenticationTests : IAsyncDisposable
         await ProblemAssert.IsProblemAsync(passwordOnly, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
         await ProblemAssert.IsProblemAsync(wrongCode, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
         Assert.Equal(HttpStatusCode.NoContent, withCode.StatusCode);
-        var session = (await Scenario.SessionRowsAsync(account.UserId))[^1];
+        var session = Assert.Single(await Scenario.SessionRowsAsync(account.UserId), row => !row.Revoked);
         Assert.Equal(_time.GetUtcNow(), session.MfaVerifiedAt);
         Assert.Equal(_time.GetUtcNow(), session.ReauthenticatedAt);
     }
