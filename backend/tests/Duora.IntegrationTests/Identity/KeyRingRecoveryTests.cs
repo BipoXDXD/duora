@@ -11,8 +11,6 @@ namespace Duora.IntegrationTests.Identity;
 /// </summary>
 public sealed class KeyRingRecoveryTests : IDisposable
 {
-    private const string SessionCookie = "__Host-duora";
-    private const string MePath = "/api/v1/me";
 
     // Formato do payload do Data Protection: 4 bytes de cabeçalho mágico e, em seguida, o id da chave (16 bytes).
     private const int KeyIdOffset = 4;
@@ -20,21 +18,21 @@ public sealed class KeyRingRecoveryTests : IDisposable
 
     private static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromDays(90);
 
-    private readonly PostgresFixture _postgres;
+    private readonly KeyRingHosts _hosts;
     private readonly DirectoryInfo _volume = Directory.CreateTempSubdirectory("duora-keys-volume-");
 
-    public KeyRingRecoveryTests(PostgresFixture postgres) => _postgres = postgres;
+    public KeyRingRecoveryTests(PostgresFixture postgres) => _hosts = new KeyRingHosts(postgres);
 
     public void Dispose() => _volume.Delete(recursive: true);
 
     [Fact]
     public async Task SessionIssuedBeforeTheHostIsRecreatedStillAuthenticatesWithTheSameKeyRing()
     {
-        var cookie = await SignInOnAFreshHostAsync(_volume);
+        var cookie = await _hosts.SignInOnAFreshHostAsync(_volume);
 
-        await using var recreated = HostOn(_volume);
-        using var browser = BrowserWithCookie(recreated, cookie);
-        using var response = await browser.GetAsync(MePath);
+        await using var recreated = _hosts.HostOn(_volume);
+        using var browser = KeyRingHosts.BrowserWithCookie(recreated, cookie);
+        using var response = await browser.GetAsync(KeyRingHosts.MePath);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -44,17 +42,17 @@ public sealed class KeyRingRecoveryTests : IDisposable
     {
         Guid previousKey;
         string cookie;
-        await using (var before = HostOn(_volume))
+        await using (var before = _hosts.HostOn(_volume))
         {
-            cookie = await SignInAsync(before);
+            cookie = await _hosts.SignInAsync(before);
             previousKey = ProtectingKey(before);
             var now = DateTimeOffset.UtcNow;
             before.Services.GetRequiredService<IKeyManager>().CreateNewKey(now, now + DefaultKeyLifetime);
         }
 
-        await using var rotated = HostOn(_volume);
-        using var browser = BrowserWithCookie(rotated, cookie);
-        using var response = await browser.GetAsync(MePath);
+        await using var rotated = _hosts.HostOn(_volume);
+        using var browser = KeyRingHosts.BrowserWithCookie(rotated, cookie);
+        using var response = await browser.GetAsync(KeyRingHosts.MePath);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotEqual(previousKey, ProtectingKey(rotated));
@@ -66,14 +64,14 @@ public sealed class KeyRingRecoveryTests : IDisposable
     [Fact]
     public async Task EmptyKeyRingEndsTheSessionWithUnauthorizedNotServerError()
     {
-        var cookie = await SignInOnAFreshHostAsync(_volume);
+        var cookie = await _hosts.SignInOnAFreshHostAsync(_volume);
         var emptyVolume = Directory.CreateTempSubdirectory("duora-keys-empty-");
 
         try
         {
-            await using var recreated = HostOn(emptyVolume);
-            using var browser = BrowserWithCookie(recreated, cookie);
-            using var response = await browser.GetAsync(MePath);
+            await using var recreated = _hosts.HostOn(emptyVolume);
+            using var browser = KeyRingHosts.BrowserWithCookie(recreated, cookie);
+            using var response = await browser.GetAsync(KeyRingHosts.MePath);
 
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
         }
@@ -86,13 +84,13 @@ public sealed class KeyRingRecoveryTests : IDisposable
     [Fact]
     public async Task RevokedKeyRingEndsTheSessionWithUnauthorizedNotServerError()
     {
-        var cookie = await SignInOnAFreshHostAsync(_volume);
+        var cookie = await _hosts.SignInOnAFreshHostAsync(_volume);
 
-        await using var compromised = HostOn(_volume);
+        await using var compromised = _hosts.HostOn(_volume);
         compromised.Services.GetRequiredService<IKeyManager>()
             .RevokeAllKeys(DateTimeOffset.UtcNow, "T-15: resposta a comprometimento do key ring");
-        using var browser = BrowserWithCookie(compromised, cookie);
-        using var response = await browser.GetAsync(MePath);
+        using var browser = KeyRingHosts.BrowserWithCookie(compromised, cookie);
+        using var response = await browser.GetAsync(KeyRingHosts.MePath);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
     }
@@ -100,15 +98,15 @@ public sealed class KeyRingRecoveryTests : IDisposable
     [Fact]
     public async Task NewLoginWorksAfterTheKeyRingIsLost()
     {
-        await SignInOnAFreshHostAsync(_volume);
+        await _hosts.SignInOnAFreshHostAsync(_volume);
         var emptyVolume = Directory.CreateTempSubdirectory("duora-keys-empty-");
 
         try
         {
-            await using var recreated = HostOn(emptyVolume);
-            var cookie = await SignInAsync(recreated);
-            using var browser = BrowserWithCookie(recreated, cookie);
-            using var response = await browser.GetAsync(MePath);
+            await using var recreated = _hosts.HostOn(emptyVolume);
+            var cookie = await _hosts.SignInAsync(recreated);
+            using var browser = KeyRingHosts.BrowserWithCookie(recreated, cookie);
+            using var response = await browser.GetAsync(KeyRingHosts.MePath);
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
@@ -116,30 +114,6 @@ public sealed class KeyRingRecoveryTests : IDisposable
         {
             emptyVolume.Delete(recursive: true);
         }
-    }
-
-    private DuoraWebFactory HostOn(DirectoryInfo keyRing) =>
-        new(_postgres.ConnectionString) { SharedKeyRing = keyRing };
-
-    private async Task<string> SignInOnAFreshHostAsync(DirectoryInfo keyRing)
-    {
-        await using var host = HostOn(keyRing);
-        return await SignInAsync(host);
-    }
-
-    private async Task<string> SignInAsync(DuoraWebFactory host)
-    {
-        var scenario = new IdentityScenario(_postgres, host);
-        var account = await scenario.CreateConfirmedAccountAsync();
-        using var browser = await scenario.SignedInBrowserAsync(account);
-        return browser.Cookie(SessionCookie) ?? throw new InvalidOperationException("Login sem cookie de sessão.");
-    }
-
-    private static Browser BrowserWithCookie(DuoraWebFactory host, string cookie)
-    {
-        var browser = new Browser(host);
-        browser.Cookies.Add(Browser.BaseAddress, new Cookie(SessionCookie, cookie));
-        return browser;
     }
 
     /// <summary>Chave padrão do host: a que ele usa para proteger payloads novos.</summary>
