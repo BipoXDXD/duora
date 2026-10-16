@@ -30,7 +30,7 @@ internal static class KeyRingMount
     /// </summary>
     public static bool IsPersistentMountPoint(string directory, IEnumerable<string> mountInfo)
     {
-        var target = Normalize(directory);
+        var target = Normalize(ResolveDirectory(directory));
         string? filesystem = null;
         foreach (var line in mountInfo)
         {
@@ -57,6 +57,21 @@ internal static class KeyRingMount
         mountPoint = Normalize(Unescape(fields[MountPointField]));
         filesystem = fields[separator + 1];
         return true;
+    }
+
+    /// <summary>
+    /// Caminho absoluto, sem <c>.</c>/<c>..</c>, e, se o diretório for link simbólico, o destino final: é lá que o Data
+    /// Protection grava. Só o último componente é resolvido; links em diretórios pais não são seguidos.
+    /// </summary>
+    private static string ResolveDirectory(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return "";
+        }
+
+        var full = new DirectoryInfo(Path.GetFullPath(directory));
+        return (full.Exists ? full.ResolveLinkTarget(returnFinalTarget: true)?.FullName : null) ?? full.FullName;
     }
 
     private static string Normalize(string path) =>
