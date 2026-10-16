@@ -251,10 +251,14 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
 
 ### Primeira configuração do host
 
+0. Antes do host: o responsável cria no Backblaze B2 (US East) o bucket de backup com File Lock e as chaves
+   ([backblaze-setup.md](backblaze-setup.md)); sem o bucket com versionamento e Object Lock, ou com a chave do backup
+   com poder demais, o `duora-backup verify` falha e nenhum deploy de produção passa do passo 5. No inventário real
+   entram `duora_b2_backup_bucket` e `duora_backup_s3_cidrs` (blocos IPv4 da Backblaze).
 1. O `ansible-playbook` (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração,
    segredos do banco (`duora-secrets init`), segredos do backup (`duora-secrets init-backup`) e os timers de backup;
    nada disso sobrescreve o que já existe. Depois grave os segredos do repositório de backup
-   (`pgbackrest_repo.conf`, `pgbackrest_cipher.conf`;
+   (`pgbackrest_repo.conf` com `duora-secrets write-backup-repo`, `pgbackrest_cipher.conf`;
    [backup-restore.md](backup-restore.md#segredos-do-repositório-operador-uma-vez)) no `/etc/duora/secrets` que o
    playbook criou.
 2. O primeiro deploy é do operador, com `--accept-missing-backup-check` (a stanza ainda não existe), seguido de

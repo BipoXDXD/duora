@@ -23,8 +23,14 @@ duora_min_free_gib: 10
 
 # Backup (role backup, docs/operations/backup-restore.md). Subnet da rede backup-egress do compose.prod.yml.
 duora_backup_egress_subnet: 172.30.20.0/24
-# CIDRs do endpoint S3 liberados na 443. Vazio = qualquer destino na 443 até o provedor ser escolhido.
+# CIDRs liberados na 443. Vazio = qualquer destino na 443. Com o Backblaze B2, preencher no inventário com os blocos
+# IPv4 da Backblaze (API S3 e api.backblazeb2.com, que o verify consulta; docs/operations/backblaze-setup.md).
 duora_backup_s3_cidrs: []
+
+# Backblaze B2 (decisão do responsável, 2026-10-16; docs/operations/backblaze-setup.md). Nenhum role grava este valor
+# sozinho: é o endpoint que o operador passa ao "duora-secrets write-backup-repo --endpoint". O número da região
+# (us-east-005) é o provável para US East: confirmar no campo Endpoint do bucket e, se for outro, mudar no inventário.
+duora_b2_s3_endpoint: s3.us-east-005.backblazeb2.com
 # Resolvedores DNS (IPv4) liberados na 53 para a rede backup-egress. Vazio = os upstream do systemd-resolved do host
 # (/run/systemd/resolve/resolv.conf), que é para onde o DNS embutido do Docker encaminha; o filtro falha sem nenhum.
 duora_backup_dns_resolvers: []
