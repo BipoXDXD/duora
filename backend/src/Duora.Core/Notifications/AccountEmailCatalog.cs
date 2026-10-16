@@ -150,7 +150,6 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
     }
 }
 
-
 internal sealed class EnglishAccountEmails : IAccountEmailCatalog
 {
     public static readonly EnglishAccountEmails Instance = new();
