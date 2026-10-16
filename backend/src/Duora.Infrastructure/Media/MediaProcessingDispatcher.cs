@@ -109,7 +109,7 @@ public sealed partial class MediaProcessingDispatcher
     {
         if (_time.GetUtcNow() >= delivery.DeadlineAt)
         {
-            await SettleAsync(delivery, OutboxDeliveryStatus.Expired, error: null, cancellationToken);
+            await ExpireAsync(delivery, cancellationToken);
             return;
         }
 
@@ -148,6 +148,25 @@ public sealed partial class MediaProcessingDispatcher
                 LogLeaseLost(_logger, delivery.Id);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Prazo da entrega vencido (o mesmo do abandono do upload): processar já não faz sentido, mas o upload não pode
+    /// ficar em <c>Quarantined</c> ou <c>Processing</c> ocupando vaga de pendente com o original na quarentena.
+    /// </summary>
+    private async Task ExpireAsync(ClaimedDelivery delivery, CancellationToken cancellationToken)
+    {
+        if (MediaProcessingOutbox.TryRead(delivery, out var message))
+        {
+            LogExpired(_logger, delivery.Id, message.UploadId);
+            if (!await AbandonAfterLastAttemptAsync(message.UploadId, cancellationToken))
+            {
+                LogLeaseLost(_logger, delivery.Id);
+                return;
+            }
+        }
+
+        await SettleAsync(delivery, OutboxDeliveryStatus.Expired, error: null, cancellationToken);
     }
 
     private async Task<Settlement> ProcessAsync(Guid uploadId, CancellationToken cancellationToken)
@@ -436,6 +455,11 @@ public sealed partial class MediaProcessingDispatcher
         Level = LogLevel.Error,
         Message = "Processamento da entrega {DeliveryId} falhou na última tentativa {Attempt} ({Cause}); upload rejeitado")]
     private static partial void LogGaveUp(ILogger logger, Guid deliveryId, int attempt, string cause);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Entrega {DeliveryId} de mídia passou do prazo sem processar; upload {UploadId} rejeitado")]
+    private static partial void LogExpired(ILogger logger, Guid deliveryId, Guid uploadId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Entrega {DeliveryId} de mídia não foi encerrada por este worker: lease vencido ou upload já tomado")]
     private static partial void LogLeaseLost(ILogger logger, Guid deliveryId);
