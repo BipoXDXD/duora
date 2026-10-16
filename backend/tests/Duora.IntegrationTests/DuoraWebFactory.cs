@@ -46,8 +46,22 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
         builder.UseSetting("Duora:PublicOrigin", PublicOrigin);
         builder.UseSetting("DataProtection:KeysDirectory", KeyRing.FullName);
         builder.UseSetting("DataProtection:RequireMountedVolume", "false");
+        // Sem certificado por padrão (como em Development); o teste que exige o certificado o passa em Settings.
+        var settings = new Dictionary<string, string?> { ["DataProtection:RequireCertificate"] = "false" };
+        foreach (var (key, value) in Settings)
+        {
+            settings[key] = value;
+        }
+
+        // UseSetting chega à configuração antes do registro de serviços; o ConfigureAppConfiguration abaixo, não. O
+        // certificado do key ring é lido no registro (o Data Protection só o aceita ali).
+        foreach (var (key, value) in settings)
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
-            new Dictionary<string, string?>(Settings)
+            new Dictionary<string, string?>(settings)
             {
                 ["ConnectionStrings:Duora"] = connectionString,
                 ["Duora:PublicOrigin"] = PublicOrigin,
