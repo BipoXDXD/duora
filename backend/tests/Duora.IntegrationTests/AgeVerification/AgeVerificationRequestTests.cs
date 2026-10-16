@@ -169,6 +169,23 @@ public sealed class AgeVerificationRequestTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task OpenRequestTheReadDidNotPickIsAConflictNotAServerError()
+    {
+        // Relógio de outra réplica: a pendente aberta tem requested_at anterior ao de uma expirada. A leitura escolhe a
+        // expirada, oferece nova solicitação e o índice de uma aberta por pessoa recusa: 409, nunca 500.
+        var (account, browser) = await Scenario.SignedInPendingAccountAsync();
+        using var _ = browser;
+        await Scenario.AddUndecidedRequestAsync(account.UserId, "Pending", DateTimeOffset.UtcNow.AddMinutes(-20));
+        await Scenario.AddUndecidedRequestAsync(account.UserId, "Expired", DateTimeOffset.UtcNow.AddMinutes(-10));
+
+        using var response = await AgeVerificationScenario.RequestAsync(browser);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "AGE_VERIFICATION_NOT_AVAILABLE");
+        Assert.Equal(2, (await Scenario.VerificationsAsync(account.UserId)).Count);
+        Assert.Equal(0, await Scenario.CountProviderTasksAsync(account.UserId));
+    }
+
+    [Fact]
     public async Task RequestAbandonedForItsWholeLifetimeIsExpiredAndReplaced()
     {
         var (account, browser) = await Scenario.SignedInPendingAccountAsync();
