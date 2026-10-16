@@ -63,6 +63,8 @@ internal static class DuoraWebApp
         // Negar por padrão: toda rota exige sessão (e MFA, se a conta é privilegiada); as públicas declaram
         // AllowAnonymous.
         builder.Services.AddSessionAuthorization();
+        builder.Services.AddAuthorizationBuilder().AddEligibleParticipant();
+        builder.Services.AddScoped<IAuthorizationHandler, EligibleParticipantHandler>();
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();
