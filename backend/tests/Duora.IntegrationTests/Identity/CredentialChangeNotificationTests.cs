@@ -165,6 +165,61 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AResetForAnUnknownAccountAnswersLikeAnInvalidTokenAndSendsNoNotice()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = new Browser(_factory);
+        var link = await RequestResetLinkAsync(browser, account.Email);
+        var unknownUserId = Guid.CreateVersion7();
+
+        var unknown = await ResetFailureBodyAsync(browser, unknownUserId, link.Token);
+
+        Assert.Equal(await InvalidTokenBodyAsync(browser, link), unknown);
+        Assert.Empty(await NoticesAsync(unknownUserId));
+        Assert.Empty(await NoticesAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task AResetForAPendingAccountAnswersLikeAnInvalidTokenAndSendsNoNotice()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = new Browser(_factory);
+        var link = await RequestResetLinkAsync(browser, account.Email);
+        var pendingEmail = IdentityScenario.NewEmail();
+        using var registered = await IdentityScenario.RegisterAsync(browser, pendingEmail);
+        Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
+        var pendingUserId = Guid.Parse(await Scenario.ScalarTextAsync(
+            "select id::text from identity.users where normalized_email = upper($1) and not email_confirmed",
+            pendingEmail));
+
+        var pending = await ResetFailureBodyAsync(browser, pendingUserId, link.Token);
+
+        Assert.Equal(await InvalidTokenBodyAsync(browser, link), pending);
+        Assert.Empty(await NoticesAsync(pendingUserId));
+        Assert.Empty(await NoticesAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task ReusingAResetTokenKeepsASingleNotice()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = new Browser(_factory);
+        var link = await RequestResetLinkAsync(browser, account.Email);
+        using var first = await browser.PostJsonAsync(
+            PasswordResets,
+            new { userId = link.UserId, token = link.Token, newPassword = "uma frase nova e bem longa" });
+        Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+
+        using var again = await browser.PostJsonAsync(
+            PasswordResets,
+            new { userId = link.UserId, token = link.Token, newPassword = "outra frase nova e bem longa" });
+
+        await ProblemAssert.IsProblemAsync(again, HttpStatusCode.BadRequest, "INVALID_TOKEN");
+        var notice = Assert.Single(await NoticesAsync(account.UserId));
+        Assert.Equal("PasswordResetNotice", notice.Kind);
+    }
+
+    [Fact]
     public async Task NoticePayloadCarriesOnlyTheRequestFields()
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
@@ -192,6 +247,20 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Accepted, request.StatusCode);
         return await Scenario.ReadLatestLinkAsync(email, "PasswordReset");
     }
+
+    /// <summary>Corpo do erro de reset sem o <c>traceId</c>, que muda a cada requisição.</summary>
+    private static async Task<string> ResetFailureBodyAsync(Browser browser, Guid userId, string token)
+    {
+        using var response = await browser.PostJsonAsync(
+            PasswordResets,
+            new { userId, token, newPassword = "uma frase nova e bem longa" });
+        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "INVALID_TOKEN");
+        body.Remove("traceId");
+        return body.ToJsonString();
+    }
+
+    private static Task<string> InvalidTokenBodyAsync(Browser browser, AccountLink link) =>
+        ResetFailureBodyAsync(browser, link.UserId, link.Token + "x");
 
     private async Task<List<Notice>> NoticesAsync(Guid userId)
     {
