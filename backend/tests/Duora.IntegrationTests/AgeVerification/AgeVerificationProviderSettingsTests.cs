@@ -88,7 +88,6 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
     [InlineData("--AgeVerification:AllowedFlowOrigins:0=http://age-check.fake.invalid", "AgeVerification:AllowedFlowOrigins")]
     [InlineData("--AgeVerification:AllowedFlowOrigins:0=https://age-check.fake.invalid/flow", "AgeVerification:AllowedFlowOrigins")]
     [InlineData("--AgeVerification:PolicyVersion=versão inválida", "AgeVerification:PolicyVersion")]
-    [InlineData("--AgeVerification:Validity=00:00:00", "AgeVerification:Validity")]
     [InlineData("--AgeVerification:RequestLifetime=-00:01:00", "AgeVerification:RequestLifetime")]
     [InlineData("--AgeVerification:Provider=Outro", "AgeVerification:Provider")]
     [InlineData("--AgeVerification:Fake:SigningSecrets:0=curto", "AgeVerification:Fake:SigningSecrets")]

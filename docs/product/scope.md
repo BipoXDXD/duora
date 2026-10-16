@@ -127,7 +127,7 @@ Um termo, um significado. A coluna "No código" dá o nome usado em tipos, tabel
 | Conta | `User`, `users` | Identidade local de uma pessoa, com credenciais e estado (ver máquina de estados) |
 | Sessão de login | `LoginSession`, `login_sessions` | Sessão autenticada revogável de uma conta num navegador; tem expiração ociosa e absoluta. Não confundir com sessão de jogo |
 | Elegibilidade | `Eligibility` | Condição de uma conta para participar: estado `Active`, requisito etário satisfeito e ausência de sanção impeditiva |
-| Verificação etária | `AgeVerification` | Procedimento que comprova a maioridade, com resultado mínimo e validade. Evitar: "aferição de idade" |
+| Verificação etária | `AgeVerification` | Procedimento que comprova a maioridade, com resultado mínimo, feito uma vez no cadastro e sem validade (ADR-0024). Evitar: "aferição de idade" |
 | Perfil | `Profile` | Dados exibíveis da conta: nome de exibição, faixa etária, região aproximada, descrição e fotos aprovadas |
 | Preferências | `Preferences` | Critérios privados de compatibilidade informados pela pessoa; nunca aparecem no DTO de outra pessoa |
 | Evento | `Event` | Encontro publicado por administração, com horário, capacidade e rodadas |

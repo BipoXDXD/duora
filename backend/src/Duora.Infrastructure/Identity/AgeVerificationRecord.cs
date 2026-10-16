@@ -50,6 +50,10 @@ internal sealed class AgeVerificationRecord
 
     public DateTimeOffset? DecidedAt { get; private set; }
 
+    /// <summary>
+    /// Obsoleta desde a verificação única no cadastro (ADR-0024, adendo de 2026-10-16): não é mais gravada nem lida.
+    /// Fica no modelo só para a coluna sobreviver a esta release (expand/contract); sai num PR seguinte.
+    /// </summary>
     public DateTimeOffset? ExpiresAt { get; private set; }
 
     public AgeDecisionSource? DecisionSource { get; private set; }
@@ -72,9 +76,6 @@ internal sealed class AgeVerificationRecordConfiguration : IEntityTypeConfigurat
             table.HasCheckConstraint(
                 "ck_age_verifications_decision_source",
                 $"decision_source IS NULL OR decision_source IN ({sources})");
-            table.HasCheckConstraint(
-                "ck_age_verifications_verified_expiry",
-                "state <> 'VerifiedAdult' OR expires_at IS NOT NULL");
             table.HasCheckConstraint(
                 "ck_age_verifications_flow_url",
                 "provider_flow_url IS NULL OR provider_flow_url LIKE 'https://%'");

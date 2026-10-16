@@ -14,10 +14,7 @@ public sealed class AgeEligibilityPropertyTests
 
     private static readonly DateTimeOffset Origin = new(2026, 10, 15, 0, 0, 0, TimeSpan.Zero);
 
-    private static readonly AgeVerificationPolicy Policy = new(
-        "2026-10-15",
-        validity: TimeSpan.FromDays(30),
-        requestLifetime: TimeSpan.FromHours(24));
+    private static readonly AgeVerificationPolicy Policy = new("2026-10-15", requestLifetime: TimeSpan.FromHours(24));
 
     private static readonly Gen<AccountStatus> AnyAccount = Gen.Enum<AccountStatus>();
 
@@ -25,25 +22,27 @@ public sealed class AgeEligibilityPropertyTests
 
     private static readonly Gen<AgeCheckOutcome> AnyOutcome = Gen.Enum<AgeCheckOutcome>();
 
-    /// <summary>Até 60 dias depois da origem, em minutos, para cruzar a validade e o prazo da solicitação.</summary>
+    /// <summary>Até 60 dias depois da origem, em minutos, para cruzar o prazo da solicitação.</summary>
     private static readonly Gen<DateTimeOffset> AnyInstant = Gen.Int[0, 60 * 24 * 60].Select(minutes => Origin.AddMinutes(minutes));
+
+    /// <summary>Até 50 anos, em horas: a verificação adulta não vence (ADR-0024, adendo de 2026-10-16).</summary>
+    private static readonly Gen<TimeSpan> AnyLongDelay = Gen.Int[0, 50 * 366 * 24].Select(hours => TimeSpan.FromHours(hours));
 
     private static readonly Gen<AgeVerificationSnapshot?> AnySnapshot =
         Gen.Frequency(
             (1, Gen.Const((AgeVerificationSnapshot?)null)),
-            (6, Gen.Select(AnyState, AnyInstant, AnyInstant, Gen.Bool, MakeSnapshot)));
+            (6, Gen.Select(AnyState, AnyInstant, Gen.Bool, (state, requestedAt, flowReady) =>
+                (AgeVerificationSnapshot?)new AgeVerificationSnapshot(state, requestedAt, flowReady))));
 
     [Fact]
-    public void EligibilityAlwaysMeansAnActiveAccountWithAnUnexpiredAdultVerification()
+    public void EligibilityAlwaysMeansAnActiveAccountWithAnAdultVerification()
     {
         Gen.Select(AnyAccount, AnySnapshot, AnyInstant).Sample(
             (account, latest, now) =>
             {
                 var result = AgeEligibility.Evaluate(account, latest, now, Policy);
                 return !result.IsEligible
-                    || (account == AccountStatus.Active
-                        && latest is { State: AgeVerificationState.VerifiedAdult, ExpiresAt: { } expiresAt }
-                        && expiresAt > now);
+                    || (account == AccountStatus.Active && latest is { State: AgeVerificationState.VerifiedAdult });
             },
             iter: Iterations);
     }
@@ -65,10 +64,10 @@ public sealed class AgeEligibilityPropertyTests
     [Fact]
     public void NoSequenceOfProviderResultsTurnsARestrictedAccountActive()
     {
-        Gen.Select(AnyAccount, AnyOutcome.Array[1, 8], AnyInstant).Sample(
-            (start, outcomes, now) =>
+        Gen.Select(AnyAccount, AnyOutcome.Array[1, 8]).Sample(
+            (start, outcomes) =>
             {
-                var (account, _) = ApplyInFreshRequests(start, outcomes, now);
+                var account = ApplyInFreshRequests(start, outcomes);
                 return start is not (AccountStatus.Restricted or AccountStatus.Suspended or AccountStatus.DeletionPending)
                     || account == start;
             },
@@ -78,10 +77,10 @@ public sealed class AgeEligibilityPropertyTests
     [Fact]
     public void OnlyAVerifiedAdultResultActivatesAnAccount()
     {
-        Gen.Select(AnyAccount, AnyState, AnyOutcome, AnyInstant).Sample(
-            (account, state, outcome, now) =>
+        Gen.Select(AnyAccount, AnyState, AnyOutcome).Sample(
+            (account, state, outcome) =>
             {
-                var decision = AgeEligibility.Decide(account, state, outcome, now, Policy);
+                var decision = AgeEligibility.Decide(account, state, outcome);
                 var activated = decision is not null && account != AccountStatus.Active && decision.AccountStatus == AccountStatus.Active;
                 return !activated
                     || (outcome == AgeCheckOutcome.VerifiedAdult
@@ -94,10 +93,10 @@ public sealed class AgeEligibilityPropertyTests
     [Fact]
     public void AProviderResultOnlyMovesTheAccountAlongTheAllowedEdges()
     {
-        Gen.Select(AnyAccount, AnyOutcome, AnyInstant).Sample(
-            (account, outcome, now) =>
+        Gen.Select(AnyAccount, AnyOutcome).Sample(
+            (account, outcome) =>
             {
-                var decision = AgeEligibility.Decide(account, AgeVerificationState.Pending, outcome, now, Policy)!;
+                var decision = AgeEligibility.Decide(account, AgeVerificationState.Pending, outcome)!;
                 return decision.AccountStatus == account
                     || (account, decision.AccountStatus) is (AccountStatus.PendingEligibility, AccountStatus.Active)
                         or (AccountStatus.PendingEligibility, AccountStatus.Restricted)
@@ -109,29 +108,42 @@ public sealed class AgeEligibilityPropertyTests
     [Fact]
     public void ADecidedRequestIgnoresEveryLaterResult()
     {
-        Gen.Select(AnyAccount, AnyOutcome, AnyOutcome, AnyInstant).Sample(
-            (account, first, second, now) =>
+        Gen.Select(AnyAccount, AnyOutcome, AnyOutcome).Sample(
+            (account, first, second) =>
             {
-                var decided = AgeEligibility.Decide(account, AgeVerificationState.Pending, first, now, Policy)!;
-                return AgeEligibility.Decide(decided.AccountStatus, decided.VerificationState, second, now, Policy) is null;
+                var decided = AgeEligibility.Decide(account, AgeVerificationState.Pending, first)!;
+                return AgeEligibility.Decide(decided.AccountStatus, decided.VerificationState, second) is null;
             },
             iter: Iterations);
     }
 
     [Fact]
-    public void VerifiedAdultAlwaysCarriesAnExpiryInsideTheValidity()
+    public void AdultVerificationStaysEligibleForever()
     {
-        Gen.Select(AnyAccount, AnyInstant).Sample(
-            (account, now) =>
+        Gen.Select(AnyInstant, AnyLongDelay, Gen.Bool).Sample(
+            (decidedAt, delay, flowReady) =>
             {
-                var decision = AgeEligibility.Decide(account, AgeVerificationState.Pending, AgeCheckOutcome.VerifiedAdult, now, Policy)!;
-                return decision.ExpiresAt == now + Policy.Validity;
+                var latest = new AgeVerificationSnapshot(AgeVerificationState.VerifiedAdult, decidedAt, flowReady);
+                return AgeEligibility.Evaluate(AccountStatus.Active, latest, decidedAt + delay, Policy).IsEligible;
             },
             iter: Iterations);
     }
 
     [Fact]
-    public void ANewRequestIsOfferedOnlyWhenNothingIsOpenOrValid()
+    public void AnAdultVerificationNeverAsksForANewOne()
+    {
+        // Verificação só no cadastro: com VerifiedAdult, nenhum estado de conta e nenhum instante oferece pedir de novo.
+        Gen.Select(AnyAccount, AnyInstant, AnyLongDelay).Sample(
+            (account, decidedAt, delay) =>
+            {
+                var latest = new AgeVerificationSnapshot(AgeVerificationState.VerifiedAdult, decidedAt, ProviderFlowReady: true);
+                return !AgeEligibility.Evaluate(account, latest, decidedAt + delay, Policy).AllowsNewRequest;
+            },
+            iter: Iterations);
+    }
+
+    [Fact]
+    public void ANewRequestIsOfferedOnlyWhenNothingIsOpenOrVerified()
     {
         Gen.Select(AnyAccount, AnySnapshot, AnyInstant).Sample(
             (account, latest, now) =>
@@ -140,36 +152,20 @@ public sealed class AgeEligibilityPropertyTests
                 return !result.AllowsNewRequest
                     || (account is AccountStatus.PendingEligibility or AccountStatus.Active
                         && !result.IsEligible
-                        && latest?.State is not (AgeVerificationState.ManualReview or AgeVerificationState.Rejected));
+                        && latest?.State is not (AgeVerificationState.ManualReview or AgeVerificationState.Rejected
+                            or AgeVerificationState.VerifiedAdult));
             },
             iter: Iterations);
     }
 
     /// <summary>Cada resultado chega numa solicitação nova, como se a pessoa pedisse de novo depois de cada decisão.</summary>
-    private static (AccountStatus Account, AgeVerificationState Last) ApplyInFreshRequests(
-        AccountStatus account,
-        AgeCheckOutcome[] outcomes,
-        DateTimeOffset now)
+    private static AccountStatus ApplyInFreshRequests(AccountStatus account, AgeCheckOutcome[] outcomes)
     {
-        var last = AgeVerificationState.Pending;
         foreach (var outcome in outcomes)
         {
-            var decision = AgeEligibility.Decide(account, AgeVerificationState.Pending, outcome, now, Policy)!;
-            account = decision.AccountStatus;
-            last = decision.VerificationState;
+            account = AgeEligibility.Decide(account, AgeVerificationState.Pending, outcome)!.AccountStatus;
         }
 
-        return (account, last);
+        return account;
     }
-
-    private static AgeVerificationSnapshot? MakeSnapshot(
-        AgeVerificationState state,
-        DateTimeOffset requestedAt,
-        DateTimeOffset expiresAt,
-        bool flowReady) =>
-        new(
-            state,
-            requestedAt,
-            state is AgeVerificationState.VerifiedAdult or AgeVerificationState.Expired ? expiresAt : null,
-            flowReady);
 }

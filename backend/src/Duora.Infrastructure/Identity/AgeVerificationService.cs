@@ -106,7 +106,7 @@ public sealed class AgeVerificationService
         return new AgeVerificationRequestResult.Accepted(ToStatus(created, status));
     }
 
-    /// <summary>API-P06: estado da última solicitação da própria pessoa.</summary>
+    /// <summary>API-P06: estado da solicitação que decide a elegibilidade da própria pessoa.</summary>
     public async Task<AgeVerificationStatus> GetCurrentAsync(Guid userId, CancellationToken cancellationToken)
     {
         var (latest, eligibility) = await EvaluateAsync(userId, cancellationToken);
@@ -164,11 +164,16 @@ public sealed class AgeVerificationService
         return rows.Count == 1 && Enum.TryParse<AccountStatus>(rows[0], out var status) ? status : null;
     }
 
+    /// <summary>
+    /// A solicitação que decide a elegibilidade: a verificação adulta, se houver, porque ela não vence (ADR-0024,
+    /// adendo de 2026-10-16); senão a mais recente. Pelo fluxo não há solicitação depois de uma <c>VerifiedAdult</c>.
+    /// </summary>
     private async Task<VerificationRow?> FindLatestAsync(Guid userId, CancellationToken cancellationToken)
     {
+        var verifiedAdult = nameof(AgeVerificationState.VerifiedAdult);
         var rows = await _db.Database.SqlQuery<VerificationRow>(
             $"""
-            select v.id as "Id", v.state as "StateName", v.requested_at as "RequestedAt", v.expires_at as "ExpiresAt",
+            select v.id as "Id", v.state as "StateName", v.requested_at as "RequestedAt",
                    v.provider_flow_url as "FlowUrl", v.version as "Version",
                    (v.provider_reference is null and exists (
                        select 1 from ops.outbox_events e
@@ -177,7 +182,7 @@ public sealed class AgeVerificationService
                          and d.status in ('Failed', 'Expired'))) as "ProviderGaveUp"
             from identity.age_verifications v
             where v.user_id = {userId}
-            order by v.requested_at desc, v.id desc
+            order by (v.state = {verifiedAdult}) desc, v.requested_at desc, v.id desc
             limit 1
             """).ToListAsync(cancellationToken);
         return rows.SingleOrDefault();
@@ -229,7 +234,7 @@ public sealed class AgeVerificationService
             new AgeVerificationRequested(id, loginSessionId),
             now,
             now + _policy.RequestLifetime));
-        return new VerificationRow(id, pending, now, ExpiresAt: null, FlowUrl: null, Version: 0, ProviderGaveUp: false);
+        return new VerificationRow(id, pending, now, FlowUrl: null, Version: 0, ProviderGaveUp: false);
     }
 
     /// <summary>Só uma URL de fluxo https com origem na allowlist vai ao navegador; as demais nem contam como prontas.</summary>
@@ -239,7 +244,7 @@ public sealed class AgeVerificationService
             : null;
 
     private AgeVerificationSnapshot? Snapshot(VerificationRow? row) =>
-        row is null ? null : new AgeVerificationSnapshot(row.EffectiveState, row.RequestedAt, row.ExpiresAt, ShowableFlow(row) is not null);
+        row is null ? null : new AgeVerificationSnapshot(row.EffectiveState, row.RequestedAt, ShowableFlow(row) is not null);
 
     private AgeVerificationStatus ToStatus(VerificationRow row, AgeEligibilityResult eligibility) =>
         new(
@@ -251,7 +256,6 @@ public sealed class AgeVerificationService
         Guid Id,
         string StateName,
         DateTimeOffset RequestedAt,
-        DateTimeOffset? ExpiresAt,
         string? FlowUrl,
         long Version,
         bool ProviderGaveUp)

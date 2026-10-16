@@ -14,29 +14,24 @@ public sealed class AgeVerificationValueTests
     public void PolicyVersionUsesTheDocumentVersionFormat(string version)
     {
         Assert.ThrowsAny<ArgumentException>(
-            () => new AgeVerificationPolicy(version, TimeSpan.FromDays(1), TimeSpan.FromHours(1)));
+            () => new AgeVerificationPolicy(version, TimeSpan.FromHours(1)));
     }
 
     [Theory]
-    [InlineData(0, 60)]
-    [InlineData(-1, 60)]
-    [InlineData(60, 0)]
-    [InlineData(60, -1)]
-    public void PolicyNeedsPositiveValidityAndRequestLifetime(int validityMinutes, int lifetimeMinutes)
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void PolicyNeedsAPositiveRequestLifetime(int lifetimeMinutes)
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new AgeVerificationPolicy(
-            "2026-10-15",
-            TimeSpan.FromMinutes(validityMinutes),
-            TimeSpan.FromMinutes(lifetimeMinutes)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new AgeVerificationPolicy("2026-10-15", TimeSpan.FromMinutes(lifetimeMinutes)));
     }
 
     [Fact]
     public void PolicyKeepsItsValues()
     {
-        var policy = new AgeVerificationPolicy("v1.2_a-b", TimeSpan.FromDays(30), TimeSpan.FromHours(2));
+        var policy = new AgeVerificationPolicy("v1.2_a-b", TimeSpan.FromHours(2));
 
         Assert.Equal("v1.2_a-b", policy.Version);
-        Assert.Equal(TimeSpan.FromDays(30), policy.Validity);
         Assert.Equal(TimeSpan.FromHours(2), policy.RequestLifetime);
     }
 

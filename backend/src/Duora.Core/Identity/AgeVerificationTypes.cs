@@ -27,7 +27,7 @@ public enum AgeVerificationNextStep
     /// <summary>Elegível: nada a fazer.</summary>
     None,
 
-    /// <summary>Sem solicitação aberta nem verificação válida: pode pedir uma (API-P05).</summary>
+    /// <summary>Sem solicitação aberta nem verificação adulta: pode pedir uma (API-P05).</summary>
     StartVerification,
 
     /// <summary>Solicitação criada; o worker ainda não obteve o fluxo do fornecedor.</summary>
@@ -44,13 +44,12 @@ public enum AgeVerificationNextStep
 }
 
 /// <summary>
-/// Última solicitação da pessoa, como entrada da regra de elegibilidade. <c>ExpiresAt</c> só existe numa verificação
-/// adulta (e na que expirou); <c>ProviderFlowReady</c> diz se o worker já obteve o fluxo do fornecedor.
+/// Solicitação da pessoa que decide a elegibilidade: a verificação adulta, se houver, senão a mais recente.
+/// <c>ProviderFlowReady</c> diz se o worker já obteve o fluxo do fornecedor.
 /// </summary>
 public sealed record AgeVerificationSnapshot(
     AgeVerificationState State,
     DateTimeOffset RequestedAt,
-    DateTimeOffset? ExpiresAt,
     bool ProviderFlowReady);
 
 /// <summary>Elegibilidade etária de uma conta num instante e o próximo passo da pessoa.</summary>
@@ -61,13 +60,9 @@ public sealed record AgeEligibilityResult(bool IsEligible, AgeVerificationNextSt
 }
 
 /// <summary>
-/// Efeito de um resultado do fornecedor: novo estado da solicitação, validade (só para verificação adulta) e estado
-/// em que a conta deve ficar.
+/// Efeito de um resultado do fornecedor: novo estado da solicitação e estado em que a conta deve ficar.
 /// </summary>
-public sealed record AgeVerificationDecision(
-    AgeVerificationState VerificationState,
-    DateTimeOffset? ExpiresAt,
-    AccountStatus AccountStatus)
+public sealed record AgeVerificationDecision(AgeVerificationState VerificationState, AccountStatus AccountStatus)
 {
     public bool ChangesAccountFrom(AccountStatus current) => AccountStatus != current;
 }
