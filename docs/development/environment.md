@@ -146,6 +146,32 @@ defina também `ReverseProxy__KnownNetworks__0=172.30.10.0/24` (rede `edge`); se
 ignorado e o rate limit por IP vê só o IP do proxy. Os e-mails só
 saem com o Worker rodando: o Web grava na outbox e o Worker entrega.
 
+## Verificação etária simulada
+
+Sem configuração, o fluxo etário fica desligado: `POST /api/v1/me/age-verifications` responde 503 e a conta continua
+`PendingEligibility` ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md)). Para exercitá-lo
+localmente, ligue o fornecedor simulado, só em Development (o app não sobe com `Fake` em outro ambiente). Web e
+Worker compartilham o `UserSecretsId`, então os dois recebem a configuração:
+
+```sh
+cd backend
+dotnet user-secrets set --project src/Duora.Web "AgeVerification:Provider" "Fake"
+dotnet user-secrets set --project src/Duora.Web "AgeVerification:AllowedFlowOrigins:0" "https://age-check.fake.invalid"
+```
+
+| Configuração | Padrão | Para quê |
+|---|---|---|
+| `AgeVerification:Provider` | `None` | `None` ou `Fake` (Development e Testing) |
+| `AgeVerification:PolicyVersion` | `synthetic-2026-10` | Versão gravada em cada solicitação (TM-37) |
+| `AgeVerification:Validity` | `365.00:00:00` | Validade da verificação adulta (hipótese; issue #9, item 5) |
+| `AgeVerification:RequestLifetime` | `1.00:00:00` | Depois disso, uma solicitação sem resultado deixa pedir outra |
+| `AgeVerification:AllowedFlowOrigins` | vazio | Origens aceitas para o fluxo do fornecedor; obrigatória com fornecedor |
+| `AgeVerification:Fake:Mode` | `Succeed` | `Succeed`, `Slow`, `Fail` ou `DuplicateCallback` |
+| `AgeVerification:Dispatch:*` | como `Outbox:*`, com `SendTimeout` de 10 s | Lote, lease, timeout e retry do worker que abre no fornecedor |
+
+O fluxo simulado aponta para `https://age-check.fake.invalid`, que não existe: localmente, a pessoa fica em
+`ContinueWithProvider` até o resultado chegar pelo webhook.
+
 ## Migrations
 
 A aplicação nunca migra no startup (spec 2.1). Em desenvolvimento:

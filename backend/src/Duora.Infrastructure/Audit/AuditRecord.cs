@@ -36,6 +36,9 @@ internal sealed record AuditAction
     public static readonly AuditAction Reauthenticated = new("identity.reauthenticated");
 
     public static readonly AuditAction PasswordChanged = new("identity.password_changed");
+    public static readonly AuditAction AgeVerificationRequested = new("identity.age_verification_requested");
+
+    public static readonly AuditAction AgeVerificationExpired = new("identity.age_verification_expired");
 
     private AuditAction(string code) => Code = code;
 
@@ -46,6 +49,8 @@ internal sealed record AuditAction
 internal static class AuditTargetTypes
 {
     public const string User = "user";
+
+    public const string AgeVerification = "age_verification";
 }
 
 /// <summary>
