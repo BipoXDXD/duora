@@ -1,5 +1,6 @@
 using Duora.Infrastructure;
 using Duora.Infrastructure.Email;
+using Duora.Infrastructure.Identity;
 
 namespace Duora.Worker;
 
@@ -20,8 +21,11 @@ internal static class WorkerHost
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddInfrastructure(builder.Configuration);
         builder.Services.AddTransactionalEmailDispatch();
+        builder.Services.AddAgeVerification();
+        builder.Services.AddAgeVerificationDispatch();
         builder.Services.AddHostedService<HeartbeatService>();
         builder.Services.AddHostedService<TransactionalEmailService>();
+        builder.Services.AddHostedService<AgeVerificationProviderService>();
 
         return builder;
     }

@@ -54,6 +54,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             ["DELETE /api/v1/me/sessions/{sessionId:guid}"] = null,
             ["PATCH /api/v1/me/profile"] = new { displayName = "Sem token" },
             ["PUT /api/v1/me/blocks/{targetUserId:guid}"] = null,
+            ["POST /api/v1/me/age-verifications"] = new { },
         };
         string[] emails = [account.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
@@ -92,7 +93,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             .Where(route => route.Method is not ("GET" or "HEAD" or "OPTIONS")),
     ];
 
-    /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails, sessões ativas e perfis.</summary>
+    /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails, sessões ativas, perfis, bloqueios e verificações etárias.</summary>
     private async Task<string> SnapshotAsync(string[] emails)
     {
         await using var connection = new NpgsqlConnection(postgres.ConnectionString);
@@ -110,6 +111,8 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                 (select count(*) from profiles.profiles p join identity.users u on u.id = p.user_id
                    where u.email = any($1)),
                 (select count(*) from safety.blocks b join identity.users u on u.id = b.blocker_id
+                   where u.email = any($1)),
+                (select count(*) from identity.age_verifications v join identity.users u on u.id = v.user_id
                    where u.email = any($1)))
             """,
             connection);
