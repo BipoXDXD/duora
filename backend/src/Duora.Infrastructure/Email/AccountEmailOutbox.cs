@@ -18,6 +18,12 @@ internal enum AccountEmailKind
     RecoveryCodesRegeneratedNotice,
     PasswordChangedNotice,
     PasswordResetNotice,
+
+    /// <summary>
+    /// Aviso sem link ao pedido de reset de conta privilegiada sem MFA. Leitor em deploy antes do gravador
+    /// (expand/contract, model.md): nenhuma versão desta release grava o tipo.
+    /// </summary>
+    PasswordResetUnavailable,
 }
 
 /// <summary>
@@ -52,7 +58,8 @@ internal static class AccountEmailOutbox
         AccountEmailKind.PasswordReset => TimeSpan.FromMinutes(15),
         AccountEmailKind.RegistrationAttemptOnExistingAccount
             or AccountEmailKind.PendingRegistrationReminder
-            or AccountEmailKind.PasswordResetForUnknownAddress => TimeSpan.FromHours(24),
+            or AccountEmailKind.PasswordResetForUnknownAddress
+            or AccountEmailKind.PasswordResetUnavailable => TimeSpan.FromHours(24),
 
         // Aviso de credencial não tem link que expire e continua útil enquanto a pessoa puder reagir: 72 h
         // (hipótese) cobrem um fim de semana de worker parado sem mandar um aviso velho demais para fazer sentido.

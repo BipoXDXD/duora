@@ -72,6 +72,17 @@ public sealed class AccountEmails
             portuguese.Body + LanguageSeparator + english.Body);
     }
 
+    /// <summary>
+    /// Pedido de redefinição para conta privilegiada que ainda não ativou o MFA: sem link, porque o e-mail não prova
+    /// o segundo fator que a conta ainda não tem. Quem administra resolve pelo procedimento operacional.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Performance",
+        "CA1822:Mark members as static",
+        Justification = "Mesma forma dos outros e-mails, chamados pela instância injetada no dispatcher; não ter link é a regra, não falta de dado.")]
+    public TransactionalEmail PasswordResetUnavailable(EmailAddress to, EmailLanguage language) =>
+        Compose(to, CatalogFor(language).PasswordResetUnavailable());
+
     /// <summary>Valor fora do enum (um cast de inteiro) cai no padrão, como uma tag desconhecida.</summary>
     private static IAccountEmailCatalog CatalogFor(EmailLanguage language) => language switch
     {
