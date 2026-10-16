@@ -50,6 +50,50 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
         return new TestAccount(link.UserId, email, password);
     }
 
+    /// <summary>
+    /// Conta confirmada com um papel privilegiado. O papel entra por fixture em SQL: o bootstrap administrativo
+    /// (comando operacional) fica para outro PR, e não existe rota pública que conceda papel.
+    /// </summary>
+    public async Task<TestAccount> CreatePrivilegedAccountAsync(string role = Duora.Core.Identity.AccountRoles.Moderator)
+    {
+        var account = await CreateConfirmedAccountAsync();
+        await GrantRoleAsync(account.UserId, role);
+        return account;
+    }
+
+    public async Task GrantRoleAsync(Guid userId, string role)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await RoleSeparationTests.GrantAsync(connection, userId, role);
+    }
+
+    /// <summary>Sessões da conta como estão no banco: política, prova de MFA e reautenticação.</summary>
+    public async Task<IReadOnlyList<(string Policy, DateTimeOffset? MfaVerifiedAt, DateTimeOffset? ReauthenticatedAt, bool Revoked)>> SessionRowsAsync(Guid userId)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            select policy, mfa_verified_at, reauthenticated_at, revoked_at is not null
+            from identity.login_sessions where user_id = $1 order by created_at, id
+            """,
+            connection);
+        command.Parameters.AddWithValue(userId);
+        var rows = new List<(string, DateTimeOffset?, DateTimeOffset?, bool)>();
+        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+        while (await reader.ReadAsync(TestContext.Current.CancellationToken))
+        {
+            rows.Add((
+                reader.GetString(0),
+                reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1),
+                reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetBoolean(3)));
+        }
+
+        return rows;
+    }
+
     public static async Task<HttpResponseMessage> LoginAsync(Browser browser, string email, string password)
     {
         if (browser.Cookie("XSRF-TOKEN") is null)

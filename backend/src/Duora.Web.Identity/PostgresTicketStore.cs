@@ -43,8 +43,15 @@ internal sealed partial class PostgresTicketStore(
         var securityStamp = identity.FindFirst(DuoraClaims.SecurityStamp)?.Value
             ?? throw new InvalidOperationException("Ticket sem security stamp.");
 
+        var principal = ticket.Principal;
+        var policy = DuoraClaims.ReadSession(principal)?.Policy
+            ?? throw new InvalidOperationException("Ticket sem política de sessão.");
+        var reauthenticatedAt = DuoraClaims.ReadInstant(principal, DuoraClaims.ReauthenticatedAt);
+        var mfaVerifiedAt = DuoraClaims.ReadInstant(principal, DuoraClaims.MfaVerifiedAt);
+        RemoveSessionState(identity);
+
         var now = time.GetUtcNow();
-        var window = sessions.Lifetime.Open(now);
+        var window = SessionLifetime.For(policy).Open(now);
         var sessionId = Guid.CreateVersion7(now);
         identity.AddClaim(new Claim(DuoraClaims.SessionId, sessionId.ToString("D")));
         ticket.Properties.IssuedUtc = now;
@@ -53,22 +60,60 @@ internal sealed partial class PostgresTicketStore(
         var key = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(KeyBytes));
         var description = SessionDescription.FromUserAgent(httpContext?.Request.Headers.UserAgent.ToString());
         await sessions.CreateAsync(
-            new NewLoginSession(sessionId, userId, key, Protect(ticket), securityStamp, description, now, window),
+            new NewLoginSession(
+                sessionId,
+                userId,
+                key,
+                Protect(ticket),
+                securityStamp,
+                description,
+                now,
+                window,
+                policy,
+                reauthenticatedAt,
+                mfaVerifiedAt),
             cancellationToken);
         return key;
     }
 
     public Task RenewAsync(string key, AuthenticationTicket ticket) => RenewAsync(key, ticket, CancellationToken.None);
 
-    public Task RenewAsync(string key, AuthenticationTicket ticket, CancellationToken cancellationToken) =>
-        sessions.ReplaceTicketAsync(key, Protect(ticket), cancellationToken);
+    public Task RenewAsync(string key, AuthenticationTicket ticket, CancellationToken cancellationToken)
+    {
+        RemoveSessionState(ticket.Principal.Identities.Single(identity => identity.IsAuthenticated));
+        return sessions.ReplaceTicketAsync(key, Protect(ticket), cancellationToken);
+    }
 
     public Task<AuthenticationTicket?> RetrieveAsync(string key) => RetrieveAsync(key, CancellationToken.None);
 
     public async Task<AuthenticationTicket?> RetrieveAsync(string key, CancellationToken cancellationToken)
     {
-        var protectedTicket = await sessions.TouchAsync(key, cancellationToken);
-        return protectedTicket is null ? null : Unprotect(protectedTicket);
+        if (await sessions.TouchAsync(key, cancellationToken) is not { } session
+            || Unprotect(session.ProtectedTicket) is not { } ticket)
+        {
+            return null;
+        }
+
+        var identity = ticket.Principal.Identities.Single(identity => identity.IsAuthenticated);
+        RemoveSessionState(identity);
+        var state = new List<Claim>
+        {
+            new(DuoraClaims.Policy, session.Policy.ToString()),
+            new(DuoraClaims.AccountIsPrivileged, session.AccountIsPrivileged.ToString()),
+        };
+        DuoraClaims.AddInstant(state, DuoraClaims.ReauthenticatedAt, session.ReauthenticatedAt);
+        DuoraClaims.AddInstant(state, DuoraClaims.MfaVerifiedAt, session.MfaVerifiedAt);
+        identity.AddClaims(state);
+        return ticket;
+    }
+
+    /// <summary>O estado da sessão vale pelo banco; uma cópia antiga dentro do ticket nunca é lida.</summary>
+    private static void RemoveSessionState(ClaimsIdentity identity)
+    {
+        foreach (var claim in identity.Claims.Where(claim => DuoraClaims.SessionStateTypes.Contains(claim.Type)).ToList())
+        {
+            identity.RemoveClaim(claim);
+        }
     }
 
     public Task RemoveAsync(string key) => RemoveAsync(key, CancellationToken.None);
