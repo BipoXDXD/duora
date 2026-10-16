@@ -13,11 +13,35 @@ public sealed class MediaStorageConfigurationTests : IDisposable
     public void Dispose() => _root.Delete(recursive: true);
 
     [Fact]
-    public void WithoutAProviderTheHostRefusesToStart()
+    public void WithUploadsOnAndNoProviderTheHostRefusesToStart()
     {
-        var error = Assert.Throws<OptionsValidationException>(() => Resolve("Development", new()));
+        var error = Assert.Throws<OptionsValidationException>(() => Resolve("Development", new()
+        {
+            ["Media:Review"] = "TechnicalOnly",
+        }));
 
         Assert.Contains("Media:Storage:Provider", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WithUploadsOffNoStorageIsRequired()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        using var provider = new ServiceCollection().AddLogging().AddMediaUploads(configuration, "Production").BuildServiceProvider();
+
+        Assert.False(provider.GetRequiredService<IOptions<MediaOptions>>().Value.UploadsEnabled);
+        _ = provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value;
+    }
+
+    [Fact]
+    public void TechnicalOnlyReviewIsRefusedInProduction()
+    {
+        var settings = CompleteS3();
+        settings["Media:Review"] = "TechnicalOnly";
+
+        var error = Assert.Throws<OptionsValidationException>(() => Resolve("Production", settings));
+
+        Assert.Contains("Media:Review", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -25,6 +49,7 @@ public sealed class MediaStorageConfigurationTests : IDisposable
     {
         var store = Resolve("Development", new()
         {
+            ["Media:Review"] = "TechnicalOnly",
             ["Media:Storage:Provider"] = "FileSystem",
             ["Media:Storage:FileSystemRoot"] = _root.FullName,
         });
@@ -100,8 +125,9 @@ public sealed class MediaStorageConfigurationTests : IDisposable
     private static IObjectStore Resolve(string environment, Dictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
-        var services = new ServiceCollection().AddLogging().AddMediaStorage(configuration, environment);
+        var services = new ServiceCollection().AddLogging().AddMediaUploads(configuration, environment);
         using var provider = services.BuildServiceProvider();
+        _ = provider.GetRequiredService<IOptions<MediaOptions>>().Value;
         _ = provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value;
         return provider.GetRequiredService<IObjectStore>();
     }

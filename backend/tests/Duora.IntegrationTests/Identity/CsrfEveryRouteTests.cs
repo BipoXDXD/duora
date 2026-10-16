@@ -64,6 +64,8 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                 currentPassword = account.Password,
                 newPassword = "uma frase nova e longa",
             },
+            // O corpo de verdade é a imagem crua; sem token, a recusa vem antes de olhar o corpo.
+            ["POST /api/v1/me/photos"] = null,
         };
         string[] emails = [account.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
@@ -124,6 +126,8 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                 (select count(*) from identity.user_tokens t join identity.users u on u.id = t.user_id
                    where u.email = any($1)),
                 (select count(*) from ops.audit_events a join identity.users u on u.id = a.target_id
+                   where u.email = any($1)),
+                (select count(*) from media.uploads m join identity.users u on u.id = m.owner_id
                    where u.email = any($1)))
             """,
             connection);
