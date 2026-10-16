@@ -27,6 +27,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Configuração de desenvolvimento (key ring sem volume) não vai para a imagem; o boot também a recusaria em
+         Production. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Os testes de integração sobem a app pelo mesmo DuoraWebApp do Program. -->
     <InternalsVisibleTo Include="Duora.IntegrationTests" />
   </ItemGroup>

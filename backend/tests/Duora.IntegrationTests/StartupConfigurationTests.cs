@@ -83,6 +83,21 @@ public sealed class StartupConfigurationTests
         Assert.Contains("volume persistente", exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Desligar a exigência do volume é coisa de desenvolvimento e teste: em Production o boot recusa, venha o
+    /// <c>false</c> do Compose, de variável esquecida no host ou de um appsettings que foi junto na imagem.
+    /// </summary>
+    [Fact]
+    public async Task ProductionRefusesToTurnOffTheMountedVolumeRequirement()
+    {
+        await using var app = BuildWeb("--environment=Production", "--DataProtection:RequireMountedVolume=false");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("DataProtection:RequireMountedVolume", exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void MountedVolumeIsRequiredUnlessConfigurationTurnsItOff()
     {
@@ -94,7 +109,7 @@ public sealed class StartupConfigurationTests
     /// validação falhar em barrar o boot, o teste não disputa porta com ninguém. O banco nunca é contatado, porque
     /// a validação falha antes; os valores padrão são válidos para que cada teste invalide só o que testa.
     /// </summary>
-    private static WebApplication BuildWeb(string invalidSetting) =>
+    private static WebApplication BuildWeb(params string[] invalidSettings) =>
         DuoraWebApp.Build(
         [
             "--environment=Testing",
@@ -103,6 +118,6 @@ public sealed class StartupConfigurationTests
             $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
             $"--DataProtection:KeysDirectory={Path.Combine(Path.GetTempPath(), "duora-keys-unused")}",
             "--DataProtection:RequireMountedVolume=false",
-            invalidSetting,
+            .. invalidSettings,
         ]);
 }

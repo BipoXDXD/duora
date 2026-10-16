@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -138,6 +139,10 @@ public static class WebIdentityServiceCollectionExtensions
             .Validate(
                 o => !string.IsNullOrWhiteSpace(o.KeysDirectory),
                 "DataProtection:KeysDirectory é obrigatório: o key ring precisa sobreviver à recriação do processo.")
+            .Validate<IHostEnvironment>(
+                (o, environment) => o.RequireMountedVolume || !environment.IsProduction(),
+                "DataProtection:RequireMountedVolume=false é proibido em Production: só desenvolvimento, testes e a "
+                + "geração do OpenAPI rodam sem volume para o key ring.")
             .Validate(
                 o => o.IsPersistent(),
                 "DataProtection:KeysDirectory precisa ser o ponto de montagem de um volume persistente: na camada do "

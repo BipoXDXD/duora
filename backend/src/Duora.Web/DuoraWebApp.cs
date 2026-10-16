@@ -22,7 +22,7 @@ internal static class DuoraWebApp
 
     public static WebApplication Build(string[] args)
     {
-        var builder = WebApplication.CreateBuilder(args);
+        var builder = WebApplication.CreateBuilder(BuildTimeOpenApi.BuilderOptions(args));
         builder.Configuration.AddSecretFiles();
         BuildTimeOpenApi.UsePlaceholderConfigurationWhenGenerating(builder.Configuration);
 
