@@ -3,6 +3,7 @@ using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Duora.Core.Media;
+using Microsoft.Extensions.Logging;
 
 namespace Duora.Infrastructure.Media;
 
@@ -34,6 +35,16 @@ internal sealed record S3StorageOptions
         && RequestTimeout > TimeSpan.Zero
         && (string.IsNullOrWhiteSpace(ServiceUrl) || HasAllowedScheme(ServiceUrl));
 
+    /// <summary>Para log e mensagem de assert: só onde fica o bucket, nunca a chave de acesso nem o segredo.</summary>
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append("ServiceUrl = ").Append(ServiceUrl)
+            .Append(", Region = ").Append(Region)
+            .Append(", Bucket = ").Append(Bucket)
+            .Append(", RequestTimeout = ").Append(RequestTimeout);
+        return true;
+    }
+
     private bool HasAllowedScheme(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri)
         && (uri.Scheme == Uri.UriSchemeHttps || (AllowInsecureHttp && uri.Scheme == Uri.UriSchemeHttp));
@@ -44,9 +55,12 @@ internal sealed record S3StorageOptions
 /// ACL pública, nenhuma URL assinada. Retry fica com o SDK, com teto baixo; um PUT de fluxo não pesquisável não é
 /// repetido por ele, e quem decide repetir é a fila.
 /// </summary>
-internal sealed class S3ObjectStore(S3StorageOptions options) : IObjectStore, IDisposable
+internal sealed partial class S3ObjectStore(S3StorageOptions options, ILogger<S3ObjectStore> logger) : IObjectStore, IDisposable
 {
     private const int MaxSdkRetries = 2;
+
+    /// <summary>Erros que dizem "credencial ou política do bucket errada", não "objeto ausente".</summary>
+    private static readonly string[] CredentialErrors = ["AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch"];
 
     private readonly IAmazonS3 _client = CreateClient(options);
 
@@ -87,7 +101,15 @@ internal sealed class S3ObjectStore(S3StorageOptions options) : IObjectStore, ID
             AutoCloseStream = false,
         };
         request.Headers.ContentLength = length;
-        await _client.PutObjectAsync(request, cancellationToken);
+        try
+        {
+            await _client.PutObjectAsync(request, cancellationToken);
+        }
+        catch (AmazonS3Exception exception) when (IsCredentialError(exception))
+        {
+            LogCredentialError(logger, "PutObject", key.Area, exception.ErrorCode);
+            throw;
+        }
     }
 
     public async Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken)
@@ -101,6 +123,11 @@ internal sealed class S3ObjectStore(S3StorageOptions options) : IObjectStore, ID
         {
             return null;
         }
+        catch (AmazonS3Exception exception) when (IsCredentialError(exception))
+        {
+            LogCredentialError(logger, "GetObject", key.Area, exception.ErrorCode);
+            throw;
+        }
     }
 
     public async Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken)
@@ -113,6 +140,11 @@ internal sealed class S3ObjectStore(S3StorageOptions options) : IObjectStore, ID
         {
             // Alguns fornecedores respondem 404 em vez de 204: o objeto já não existe, que é o estado pedido.
         }
+        catch (AmazonS3Exception exception) when (IsCredentialError(exception))
+        {
+            LogCredentialError(logger, "DeleteObject", key.Area, exception.ErrorCode);
+            throw;
+        }
     }
 
     public void Dispose() => _client.Dispose();
@@ -120,6 +152,14 @@ internal sealed class S3ObjectStore(S3StorageOptions options) : IObjectStore, ID
     /// <summary>Só "objeto ausente"; bucket ausente é configuração errada e precisa subir como erro.</summary>
     private static bool IsMissingObject(AmazonS3Exception exception) =>
         exception.StatusCode == HttpStatusCode.NotFound && exception.ErrorCode == "NoSuchKey";
+
+    private static bool IsCredentialError(AmazonS3Exception exception) => CredentialErrors.Contains(exception.ErrorCode);
+
+    /// <summary>Sem a chave do objeto (TM-42): a área e o código bastam para achar a política errada.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Storage de mídia recusou {Operation} na área {Area} ({ErrorCode}): credencial ou política do bucket")]
+    private static partial void LogCredentialError(ILogger logger, string operation, StorageArea area, string errorCode);
 
     /// <summary>Fecha a resposta HTTP junto com o fluxo do corpo.</summary>
     private sealed class ResponseOwningStream(GetObjectResponse response) : Stream

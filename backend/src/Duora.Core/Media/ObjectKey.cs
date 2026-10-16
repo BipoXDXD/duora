@@ -60,9 +60,10 @@ public readonly partial record struct ObjectKey
 
     private static string RandomToken() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
 
-    [GeneratedRegex("^quarantine/[0-9a-f]{32}$", RegexOptions.CultureInvariant)]
+    // \z e não $: o $ do .NET aceita um "\n" no fim, e uma chave com quebra de linha não é chave nossa.
+    [GeneratedRegex(@"\Aquarantine/[0-9a-f]{32}\z", RegexOptions.CultureInvariant)]
     private static partial Regex QuarantineKey();
 
-    [GeneratedRegex("^derivatives/[0-9a-f]{32}-(thumb|card|full)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\Aderivatives/[0-9a-f]{32}-(thumb|card|full)\z", RegexOptions.CultureInvariant)]
     private static partial Regex DerivativeKey();
 }

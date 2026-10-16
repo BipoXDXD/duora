@@ -2,6 +2,8 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Duora.IntegrationTests.Media;
 
@@ -33,7 +35,7 @@ public sealed class FileSystemObjectStoreContractTests : ObjectStoreContract, ID
 
 public sealed class S3ObjectStoreContractTests(MinioFixture minio) : ObjectStoreContract, IClassFixture<MinioFixture>
 {
-    protected override IObjectStore Store { get; } = new S3ObjectStore(minio.Options);
+    protected override IObjectStore Store { get; } = new S3ObjectStore(minio.Options, NullLogger<S3ObjectStore>.Instance);
 
     [Fact]
     public async Task ObjectsLandInTheConfiguredBucketUnderTheKeyAndNeverPublic()
@@ -53,9 +55,25 @@ public sealed class S3ObjectStoreContractTests(MinioFixture minio) : ObjectStore
     public async Task ABucketThatDoesNotExistIsAnErrorNotAMissingObject()
     {
         // Configuração errada não pode parecer "foto apagada": o erro sobe para o retry e o alerta.
-        var misconfigured = new S3ObjectStore(minio.Options with { Bucket = "bucket-que-nao-existe" });
+        var misconfigured = new S3ObjectStore(minio.Options with { Bucket = "bucket-que-nao-existe" }, NullLogger<S3ObjectStore>.Instance);
 
         await Assert.ThrowsAsync<AmazonS3Exception>(
             () => misconfigured.OpenReadAsync(ObjectKey.NewQuarantine(), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task AWrongCredentialIsAnErrorLoggedWithoutTheKey()
+    {
+        using var logs = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(logs));
+        var wrongSecret = new S3ObjectStore(minio.Options with { SecretAccessKey = "segredo-errado" }, loggerFactory.CreateLogger<S3ObjectStore>());
+        var key = ObjectKey.NewQuarantine();
+
+        await Assert.ThrowsAsync<AmazonS3Exception>(() => wrongSecret.DeleteAsync(key, TestContext.Current.CancellationToken));
+
+        var error = Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Error);
+        Assert.Contains("DeleteObject", error.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(key.Value, error.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("segredo-errado", error.Text, StringComparison.Ordinal);
     }
 }
