@@ -25,6 +25,7 @@ import argparse
 import os
 import re
 import secrets
+import string
 import subprocess
 import sys
 import tempfile
@@ -78,6 +79,7 @@ CERTIFICATE_BLOCK = re.compile(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIF
 PAYLOAD_LIFETIME = timedelta(hours=24)
 
 PASSWORD_BYTES = 32  # token_urlsafe → 43 caracteres, só [A-Za-z0-9_-]: seguro dentro da connection string
+_PASSWORD_FIRST_CHARACTERS = string.ascii_letters + string.digits
 DATABASE_HOST = "postgres"
 DATABASE_NAME = "duora"
 
@@ -125,7 +127,7 @@ def init_backup(directory: Path, *, change_owner: bool) -> bool:
     # A chave da CA só existe neste diretório temporário: ninguém emite certificado novo com ela depois.
     with tempfile.TemporaryDirectory(prefix="duora-tls-") as scratch:
         generated = _generate_tls(Path(scratch))
-    password = secrets.token_urlsafe(PASSWORD_BYTES)
+    password = generate_password()
     generated["db_backup_password"] = password
     generated["pgbackrest_db_pgpass"] = f"{DATABASE_HOST}:5432:{BACKUP_DATABASE}:{BACKUP_ROLE}:{password}\n"
     for name in BACKUP_FILES:
@@ -155,6 +157,12 @@ def _generate_tls(scratch: Path) -> dict[str, str]:
         files[f"pgbackrest_tls_{role}.crt"] = cert.read_text(encoding="utf-8")
         files[f"pgbackrest_tls_{role}.key"] = key.read_text(encoding="utf-8")
     return files
+
+
+def generate_password() -> str:
+    """44 caracteres de [A-Za-z0-9_-], o primeiro alfanumérico: uma senha começando com "-" vira opção quando passa
+    por uma linha de comando (o mc do drill falhava com "flag provided but not defined")."""
+    return secrets.choice(_PASSWORD_FIRST_CHARACTERS) + secrets.token_urlsafe(PASSWORD_BYTES)
 
 
 def _openssl(*args: str) -> None:
@@ -272,9 +280,9 @@ def _sync_directory(directory: Path) -> None:
 
 
 def _generate() -> dict[str, str]:
-    superuser = secrets.token_urlsafe(PASSWORD_BYTES)
-    migrator = secrets.token_urlsafe(PASSWORD_BYTES)
-    app = secrets.token_urlsafe(PASSWORD_BYTES)
+    superuser = generate_password()
+    migrator = generate_password()
+    app = generate_password()
     return {
         "postgres_superuser_password": superuser,
         "db_migrator_password": migrator,

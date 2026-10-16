@@ -17,6 +17,42 @@ def read(directory: Path, name: str) -> str:
     return (directory / name).read_text(encoding="utf-8")
 
 
+class GeneratePasswordTests(unittest.TestCase):
+    """Senha gerada nunca começa com "-": uma CLI (o mc do drill) a leria como opção ("flag provided but not
+    defined")."""
+
+    URLSAFE = re.compile(r"[A-Za-z0-9_-]+")
+
+    def test_never_starts_with_a_dash_even_when_the_random_part_does(self) -> None:
+        with mock.patch.object(secrets_cli.secrets, "token_urlsafe", return_value="-Awrz3x" + "a" * 36):
+            password = secrets_cli.generate_password()
+
+        self.assertRegex(password[0], r"[A-Za-z0-9]")
+        self.assertTrue(password.endswith("-Awrz3x" + "a" * 36))
+
+    def test_uses_only_the_url_safe_alphabet_with_the_expected_length(self) -> None:
+        for _ in range(500):
+            password = secrets_cli.generate_password()
+
+            self.assertEqual(44, len(password))
+            self.assertRegex(password, self.URLSAFE)
+            self.assertNotEqual("-", password[0])
+
+    def test_generated_passwords_are_different(self) -> None:
+        self.assertEqual(100, len({secrets_cli.generate_password() for _ in range(100)}))
+
+    def test_every_generated_secret_file_uses_it(self) -> None:
+        with mock.patch.object(secrets_cli, "generate_password", return_value="PSENHA") as generator, \
+                TemporaryDirectory() as tmp:
+            target = Path(tmp) / "secrets"
+            target.mkdir(mode=0o700)
+            secrets_cli.init_secrets(target, change_owner=False)
+            secrets_cli.init_backup(target, change_owner=False)
+
+        # superusuário, migrador, aplicação e duora_backup.
+        self.assertEqual(4, generator.call_count)
+
+
 class InitSecretsTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = TemporaryDirectory()
