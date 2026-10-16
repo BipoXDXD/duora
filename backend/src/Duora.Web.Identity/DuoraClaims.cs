@@ -20,7 +20,8 @@ public sealed record SessionGrant(
 
 /// <summary>
 /// Estado da sessão corrente como o banco o tem agora (lido a cada requisição pelo ticket store, nunca pelo
-/// cliente): política, últimas provas e se a conta tem papel privilegiado neste momento.
+/// cliente): política, últimas provas, se a conta tem papel privilegiado neste momento e se ela ainda usa a senha
+/// temporária do bootstrap (D4).
 /// </summary>
 public sealed record SessionState(
     SessionPolicy Policy,
@@ -28,7 +29,8 @@ public sealed record SessionState(
     DateTimeOffset? MfaVerifiedAt,
     DateTimeOffset? TotpVerifiedAt,
     DateTimeOffset? AbsoluteExpiresAt,
-    bool AccountIsPrivileged)
+    bool AccountIsPrivileged,
+    bool AwaitsPasswordChange)
 {
     /// <summary>Conta privilegiada sem segundo fator nesta sessão: só pode cadastrar o MFA (ADR-0017).</summary>
     public bool AwaitsMfaEnrollment => AccountIsPrivileged && MfaVerifiedAt is null;
@@ -57,9 +59,11 @@ public static class DuoraClaims
 
     public const string AccountIsPrivileged = "duora:privileged";
 
+    public const string AwaitsPasswordChange = "duora:awaits_password_change";
+
     /// <summary>Claims de estado: valem pelo que está no banco, então o ticket store as tira antes de gravar e as repõe ao ler.</summary>
     internal static IReadOnlyList<string> SessionStateTypes { get; } =
-        [Policy, ReauthenticatedAt, MfaVerifiedAt, TotpVerifiedAt, AbsoluteExpiresAt, AccountIsPrivileged];
+        [Policy, ReauthenticatedAt, MfaVerifiedAt, TotpVerifiedAt, AbsoluteExpiresAt, AccountIsPrivileged, AwaitsPasswordChange];
 
     public static Guid? ReadUserId(ClaimsPrincipal principal) =>
         Guid.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
@@ -81,7 +85,8 @@ public static class DuoraClaims
             ReadInstant(principal, MfaVerifiedAt),
             ReadInstant(principal, TotpVerifiedAt),
             ReadInstant(principal, AbsoluteExpiresAt),
-            principal.FindFirstValue(AccountIsPrivileged) == bool.TrueString);
+            principal.FindFirstValue(AccountIsPrivileged) == bool.TrueString,
+            principal.FindFirstValue(AwaitsPasswordChange) == bool.TrueString);
     }
 
     /// <summary>Principal de uma sessão nova; o id da sessão é acrescentado ao gravá-la.</summary>

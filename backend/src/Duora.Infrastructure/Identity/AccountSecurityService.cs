@@ -87,6 +87,9 @@ public abstract record MfaActivation
     public sealed record NotStarted : MfaActivation;
 
     public sealed record AlreadyEnabled : MfaActivation;
+
+    /// <summary>A conta ainda usa a senha temporária do bootstrap: primeiro troca a senha, depois ativa o MFA.</summary>
+    public sealed record PasswordChangeRequired : MfaActivation;
 }
 
 /// <summary>Novo conjunto de códigos de recuperação (API-A14).</summary>
@@ -130,6 +133,9 @@ public abstract record PasswordChange
 
     /// <summary>Senha atual errada ou conta bloqueada, sem distinguir.</summary>
     public sealed record WrongPassword : PasswordChange;
+
+    /// <summary>A senha nova repete a temporária do bootstrap (D4), que precisa ser trocada de fato.</summary>
+    public sealed record TemporaryPasswordReused : PasswordChange;
 }
 
 /// <summary>Prova de segundo fator enviada no login ou na reautenticação.</summary>
@@ -306,6 +312,12 @@ public sealed class AccountSecurityService
         await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
+        if (user.HasTemporaryPassword)
+        {
+            // A rota já barra essa sessão; o serviço não depende disso para manter a ordem troca de senha, depois MFA.
+            return new MfaActivation.PasswordChangeRequired();
+        }
+
         if (user.TwoFactorEnabled)
         {
             return new MfaActivation.AlreadyEnabled();
@@ -529,7 +541,9 @@ public sealed class AccountSecurityService
 
     /// <summary>
     /// Troca a senha conferindo a atual. Senha errada conta para o bloqueio da conta, como no login: quem tem só a
-    /// sessão não pode testar senhas à vontade. A troca avisa o titular; a senha errada, não.
+    /// sessão não pode testar senhas à vontade. A troca avisa o titular; a senha errada, não. Trocar a senha
+    /// temporária do bootstrap (D4) encerra essa fase: a marca sai no mesmo commit, e a sessão seguinte já é a
+    /// restrita do cadastro de MFA.
     /// </summary>
     public async Task<PasswordChange> ChangePasswordAsync(
         Guid userId,
@@ -548,7 +562,21 @@ public sealed class AccountSecurityService
             return new PasswordChange.WrongPassword();
         }
 
-        var result = await _users.ChangePasswordAsync(user, currentPassword, newPassword);
+        if (user.HasExpiredTemporaryPassword(_time.GetUtcNow()))
+        {
+            // Sob o lock: a sessão pode ter sido aberta antes do prazo, e a senha temporária vencida não vale mais.
+            await RecordPasswordFailureAsync(user, PasswordCheck.PasswordChange, wasLockedOut: false, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new PasswordChange.WrongPassword();
+        }
+
+        var current = user.PasswordToVerify(currentPassword);
+        if (KeepsTemporaryPassword(user, current, newPassword))
+        {
+            return new PasswordChange.TemporaryPasswordReused();
+        }
+
+        var result = await _users.ChangePasswordAsync(user, current, newPassword);
         if (result.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.PasswordMismatch)))
         {
             EnsureSucceeded(await _users.AccessFailedAsync(user), "contar a falha de senha");
@@ -558,12 +586,25 @@ public sealed class AccountSecurityService
         }
 
         EnsureSucceeded(result, "trocar a senha");
+        await _db.Database.ExecuteSqlAsync(
+            $"update identity.users set temporary_password_expires_at = null where id = {user.Id}",
+            cancellationToken);
         await RevokeAllSessionsAsync(user.Id, PasswordChangeReason, cancellationToken);
         await AppendAuditAsync(user.Id, AuditAction.PasswordChanged, cancellationToken);
         await NotifyHolderAsync(user, SecurityChange.PasswordChanged, language, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new PasswordChange.Changed(user.SecurityStamp ?? "");
     }
+
+    /// <summary>
+    /// A senha nova repete a temporária do bootstrap? Só responde depois de conferir a senha atual: com ela errada, a
+    /// troca segue e falha como senha errada, contando no bloqueio, sem dizer nada sobre a nova.
+    /// </summary>
+    private bool KeepsTemporaryPassword(DuoraUser user, string current, string newPassword) =>
+        user.HasTemporaryPassword
+        && string.Equals(TemporaryPassword.Normalize(newPassword), current, StringComparison.Ordinal)
+        && user.PasswordHash is { } hash
+        && _users.PasswordHasher.VerifyHashedPassword(user, hash, current) != PasswordVerificationResult.Failed;
 
     /// <summary>
     /// Aceita o código do autenticador só se o passo dele for posterior ao último aceito: um UPDATE condicional que

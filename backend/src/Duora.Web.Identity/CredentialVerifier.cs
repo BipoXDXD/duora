@@ -73,6 +73,7 @@ public sealed partial class CredentialVerifier
     private readonly AccountSecurityService _security;
     private readonly LoginMetrics _metrics;
     private readonly ILogger<CredentialVerifier> _logger;
+    private readonly TimeProvider _time;
 
     internal CredentialVerifier(
         UserManager<DuoraUser> users,
@@ -81,7 +82,8 @@ public sealed partial class CredentialVerifier
         IOptions<LoginTimingOptions> timing,
         AccountSecurityService security,
         LoginMetrics metrics,
-        ILogger<CredentialVerifier> logger)
+        ILogger<CredentialVerifier> logger,
+        TimeProvider time)
     {
         _users = users;
         _signIn = signIn;
@@ -90,6 +92,7 @@ public sealed partial class CredentialVerifier
         _security = security;
         _metrics = metrics;
         _logger = logger;
+        _time = time;
     }
 
     /// <summary>
@@ -197,7 +200,7 @@ public sealed partial class CredentialVerifier
     {
         // Lido da entidade já relida sob o lock, sem ida ao banco: o caminho da falha continua com o mesmo trabalho.
         var wasLockedOut = await _users.IsLockedOutAsync(user);
-        var result = await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
+        var result = await _signIn.CheckPasswordSignInAsync(user, user.PasswordToVerify(password), lockoutOnFailure: true);
         if (result.IsNotAllowed)
         {
             // Cadastro pendente: pode ser de qualquer pessoa, então conta como o e-mail sem conta.
@@ -214,6 +217,13 @@ public sealed partial class CredentialVerifier
             }
 
             await _security.RecordPasswordFailureAsync(user, PasswordCheck.Login, wasLockedOut, cancellationToken);
+            return new LoginOutcome.InvalidCredentials();
+        }
+
+        if (user.HasExpiredTemporaryPassword(_time.GetUtcNow()))
+        {
+            // Senha temporária do bootstrap vencida (D4): responde e audita como senha errada; o operador reemite.
+            await _security.RecordPasswordFailureAsync(user, PasswordCheck.Login, wasLockedOut: false, cancellationToken);
             return new LoginOutcome.InvalidCredentials();
         }
 

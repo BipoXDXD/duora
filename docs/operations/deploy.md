@@ -247,6 +247,32 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
   and e.payload->>'kind' = 'PasswordResetUnavailable';
 ```
 
+**Bootstrap administrativo: rollback proibido com conta privilegiada sem MFA.** Uma release anterior ao bootstrap
+(migration `AdminBootstrap`) não conhece `users.temporary_password_expires_at` nem o bloqueio do reset por e-mail
+antes do MFA (I5). Lá, qualquer conta privilegiada sem MFA, ainda com a senha temporária ou já com a própria, seria
+tomada por quem pedisse o reset com acesso à caixa dela, porque o reset da release antiga não depende da senha
+atual: invalidar a senha não fecha o buraco. Por isso:
+
+- o `duora-deploy` recusa, antes de parar qualquer serviço, o rollback que volta para antes de `AdminBootstrap`
+  enquanto a consulta abaixo devolver mais que zero (`test_duora_deploy.py`,
+  `test_rollback_across_the_bootstrap_with_privileged_account_without_mfa_is_refused_before_stopping_anything`);
+- não há flag que relaxe a recusa. O caminho é **corrigir para frente**: uma release nova a partir da corrente, com
+  a correção, implantada pelo fluxo normal. Se a falha for grave a ponto de exigir a release anterior, primeiro
+  cada conta privilegiada ativa o MFA (ou perde o papel por decisão registrada do responsável técnico), e só então
+  o rollback passa.
+
+Conta privilegiada, para a guarda, é toda conta sem MFA com algum papel que não seja `participant`: um papel
+novo entra contado sem mudar o script.
+
+```sql
+select count(*) from identity.users u where not u.two_factor_enabled and exists (
+  select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
+  where ur.user_id = u.id and r.name is distinct from 'participant');
+```
+
+O aviso de senha redefinida da reemissão usa o tipo `PasswordResetNotice`, que o leitor dos avisos já entrega; ele
+não muda a ordem de deploy.
+
 **Verificação etária sem validade** (migration `AgeVerificationWithoutExpiry`, ADR-0024 adendo de 2026-10-16): a
 release nova grava `VerifiedAdult` sem `expires_at`. Um rollback para a release anterior funciona, mas falha
 fechado para essas pessoas: o código anterior lê a verificação sem `expires_at` como vencida, nega a participação e
@@ -290,6 +316,58 @@ para a anterior não tem restrição por esse campo.
    Ele cria os volumes; o PostgreSQL roda `10-duora-roles.sh` e `20-duora-config.sh` uma única vez e cria
    `duora_migrator` (dono do banco `duora`) e `duora_app` (só DML via default privileges; regras completas e
    convenção de tabela append-only em [model.md](../data/model.md#permissões-de-banco-spec-107)).
+
+3. Crie a primeira conta administrativa ([abaixo](#conta-administrativa-bootstrap-spec-111)).
+
+### Conta administrativa (bootstrap, spec 11.1)
+
+Conta privilegiada (`moderator`, `product_admin` ou `operator`) só nasce por este comando, rodado pelo operador no
+host, **dentro do container do web em execução** da release corrente (mesma configuração, banco e key ring; nenhuma
+rota da API concede papel). O primeiro administrador e os seguintes saem do mesmo jeito:
+
+```sh
+S=/var/lib/duora
+ID=$(sudo python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["releaseId"])' $S/current.json)
+sudo docker compose -f /opt/duora/compose.prod.yml --env-file /etc/duora/duora.env --env-file $S/releases/$ID.env \
+  exec -T web dotnet Duora.Web.dll admin grant --email ana@exemplo.com.br --role product_admin --operator "$(logname)"
+```
+
+- **`exec -T`, nunca `run`.** A saída do `docker compose exec` volta só para o terminal de quem rodou; a de um
+  container novo (`run`) passa pelo log driver do Docker, e a senha ficaria no `json-file` do host. O comando é um
+  segundo processo no container do web, com uma ou duas conexões do banco durante segundos.
+- A senha temporária é **gerada** pelo comando: nenhum argumento, variável de ambiente ou arquivo a recebe, então ela
+  não aparece em `ps`, no histórico do shell nem no `docker inspect`.
+- `--operator` é obrigatório e vai para a auditoria (`actor_kind = 'TerminalOperator'`, `actor_label` = o nome dado;
+  ações `identity.admin_granted.<papel>` e `identity.admin_temporary_password_reissued`): use o seu usuário no host
+  (`logname` devolve quem entrou por SSH, mesmo sob `sudo`). Formato de usuário de sistema: minúsculas, dígitos,
+  `.`, `_` e `-`, até 32 caracteres. **É um rótulo, não uma identidade:** o Duora não o confere; quem responde pelo
+  comando é quem tem SSH e `sudo` no host, e o log de autenticação do host é a prova.
+- A saída mostra a **senha temporária uma única vez** (linha `Senha temporária: …`). O Duora guarda só o hash:
+  não há como reexibi-la. Entregue-a à pessoa por um canal separado do e-mail dela e não cole em ticket, chat
+  gravado ou arquivo. Ela vale **24 h**. Caixa e letras parecidas não importam ao digitá-la (`o`/`O` = `0`,
+  `l`/`I` = `1`).
+- **Onde a saída pode vazar fora do Duora**, e o que conferir antes de rodar:
+  - log de I/O do `sudo` (`Defaults log_output` ou `log_input`/`log_output` no sudoers, gravado em
+    `/var/log/sudo-io`): ele guarda a saída do terminal. Confira com `sudo -l` e o sudoers; se estiver ligado,
+    rode a partir de uma sessão sem esse log ou trate o arquivo como segredo e apague a sessão depois;
+  - `auditd` com `pam_tty_audit`: registra o que é digitado, não a saída, mas não cole a senha de volta no terminal;
+  - gravação de terminal (`tmux` com log, `script`, `asciinema`, histórico de scrollback salvo pelo cliente SSH);
+  - execução não interativa com log (Ansible, CI, cron, `ssh host comando` com a saída redirecionada para
+    arquivo): não rode o comando assim. Ele é para um operador num terminal interativo.
+- No primeiro login, a sessão só aceita trocar a senha (`POST /me/password-changes`; qualquer outra rota responde
+  `403` `PASSWORD_CHANGE_REQUIRED`); a nova não pode repetir a temporária. Depois da troca, a sessão é a restrita
+  do cadastro de MFA ([auth.md](../security/auth.md#mfa)), e só com o MFA ativo a conta abre `/admin`.
+- Até a primeira ativação do MFA, a conta não redefine senha por e-mail (o pedido recebe um aviso sem link; I5).
+- **Reemitir** (senha vencida ou perdida, ou a pessoa trocou a senha e não chegou ao MFA): o mesmo comando com
+  `--reissue` e o mesmo `--role`. A senha atual e as sessões deixam de valer, a conta volta à troca de senha, e o
+  titular recebe por e-mail o aviso de senha redefinida. Sem `--reissue`, o comando nunca mexe numa conta existente.
+  Conta com MFA ativo não é reemitida: siga a recuperação de MFA de conta privilegiada (TM-22).
+- O comando recusa (saída `1`) qualquer outra conta com o e-mail: participante, cadastro pendente, conta privilegiada
+  com MFA ou de outro papel. Participante nunca vira conta privilegiada (D13); use outro e-mail. Argumento
+  inválido sai com `2` e não toca o banco.
+- **Cadastro pendente no caminho:** se alguém cadastrou o e-mail do futuro administrador pelo site e não confirmou,
+  o comando recusa (o pendente pode ser de outra pessoa, e o comando não o substitui). Espere o prazo do pendente
+  (72 h, hipótese) e a limpeza, ou use outro e-mail. Registre o caso: é um bloqueio barato de provocar.
 
 ### Certificado do key ring (spec 11.2)
 

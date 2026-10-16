@@ -19,6 +19,8 @@ import unittest
 import uuid
 from pathlib import Path
 
+import duora_deploy as deploy
+
 IMAGE = os.environ.get("DUORA_POSTGRES_IMAGE", "")
 READY_TIMEOUT_SECONDS = 60
 SECRETS = {
@@ -168,6 +170,39 @@ class AppRolePrivilegesTests(unittest.TestCase):
         ]:
             with self.subTest(sql=sql):
                 self.assert_denied(sql)
+
+    def test_rollback_guard_counts_every_account_without_mfa_that_is_not_only_participant(self) -> None:
+        # Tabelas do Identity no formato real (roles.name anulável) num schema próprio do teste. Um papel novo que só
+        # existe no C# (auditor) e um sem nome contam como privilegiados: a guarda não pode depender de uma lista.
+        roles = {"participant": "11111111-0000-0000-0000-000000000001", "moderator": "11111111-0000-0000-0000-000000000002",
+                 "operator": "11111111-0000-0000-0000-000000000003", "auditor": "11111111-0000-0000-0000-000000000004",
+                 None: "11111111-0000-0000-0000-000000000005"}
+        accounts = [  # (id, MFA, papéis); contam 2, 3, 4, 6 e 7
+            ("22222222-0000-0000-0000-000000000001", False, ["participant"]),
+            ("22222222-0000-0000-0000-000000000002", False, ["moderator"]),
+            ("22222222-0000-0000-0000-000000000003", False, ["auditor"]),
+            ("22222222-0000-0000-0000-000000000004", False, [None]),
+            ("22222222-0000-0000-0000-000000000005", True, ["moderator"]),
+            ("22222222-0000-0000-0000-000000000006", False, ["participant", "auditor"]),
+            ("22222222-0000-0000-0000-000000000007", False, ["moderator", "operator"]),
+            ("22222222-0000-0000-0000-000000000008", False, []),
+        ]
+        statements = [
+            "CREATE SCHEMA identity",
+            "CREATE TABLE identity.roles (id uuid PRIMARY KEY, name varchar(256) NULL)",
+            "CREATE TABLE identity.users (id uuid PRIMARY KEY, two_factor_enabled boolean NOT NULL)",
+            "CREATE TABLE identity.user_roles (user_id uuid NOT NULL REFERENCES identity.users, "
+            "role_id uuid NOT NULL REFERENCES identity.roles, PRIMARY KEY (user_id, role_id))",
+        ]
+        statements += [f"INSERT INTO identity.roles VALUES ('{role_id}', {'NULL' if name is None else repr(name)})"
+                       for name, role_id in roles.items()]
+        for user_id, mfa, names in accounts:
+            statements.append(f"INSERT INTO identity.users VALUES ('{user_id}', {str(mfa).lower()})")
+            statements += [f"INSERT INTO identity.user_roles VALUES ('{user_id}', '{roles[name]}')" for name in names]
+        _run(self._psql_superuser() + ["--command", "; ".join(statements)])
+        self.addCleanup(_run, self._psql_superuser() + ["--command", "DROP SCHEMA identity CASCADE"])
+
+        self.assertEqual("5", self.superuser_query(deploy.PRIVILEGED_ACCOUNTS_WITHOUT_MFA_SQL))
 
     def superuser_query(self, sql: str) -> str:
         result = subprocess.run(self._psql_superuser() + ["--tuples-only", "--no-align", "--command", sql],

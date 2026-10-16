@@ -20,6 +20,7 @@ internal static class ParticipationPolicies
             .RequireAuthenticatedUser()
             // Os mesmos requisitos da política padrão de participante (SessionAuthorization), mais a elegibilidade.
             .AddRequirements(
+                new PasswordChangeCompleteRequirement(),
                 new MfaEnrollmentCompleteRequirement(),
                 new ParticipantAccountRequirement(),
                 new EligibleParticipantRequirement()));

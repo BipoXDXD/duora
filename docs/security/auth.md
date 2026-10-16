@@ -27,14 +27,38 @@ Valores numéricos marcados **(hipótese)** são iniciais e configuráveis, vers
 **Decidido (D13, Accepted em 2026-10-15):** conta privilegiada nunca recebe o papel `participant`, e
 vice-versa (spec 1.3). A regra é de dados: um trigger em `identity.user_roles` recusa a mistura e serializa
 concessões simultâneas da mesma conta ([model.md](../data/model.md)). Assim a política de sessão é decidida pela
-conta no login, sem "elevar" uma sessão de participante. Bootstrap e concessão de papel privilegiado: comando
-operacional único, auditado, fora da API pública, com credencial temporária que expira e exige configurar MFA
-(spec 11.1). **Pré-condição do bootstrap (I5):** até a primeira ativação do MFA, o reset de senha de conta
-privilegiada fica bloqueado (o e-mail não pode virar caminho para tomar uma conta que ainda não tem segundo
-fator); o PR do bootstrap implementa o bloqueio e o teste. **Decisão I2 (revisão do #38):** conta privilegiada
+conta no login, sem "elevar" uma sessão de participante. **Decisão I2 (revisão do #38):** conta privilegiada
 não acessa rota de participante (perfil, bloqueio, salas): a política padrão das rotas responde `403` a ela, e só
-as rotas da própria conta (sessões, MFA, senha) e as `/admin` a aceitam. **Pendente (PR seguinte, decisão D4):** o comando, com senha temporária mostrada uma vez no terminal
-do operador; até lá, papéis só entram por fixture nos testes e não existe rota que conceda papel.
+as rotas da própria conta (sessões, MFA, senha) e as `/admin` a aceitam.
+
+### Bootstrap administrativo (D4)
+
+Conta privilegiada só nasce pelo comando operacional `duora-web admin grant --email … --role … --operator …
+[--reissue]` (spec 11.1), rodado pelo operador no host, dentro do container do web da release corrente
+([deploy.md](../operations/deploy.md#conta-administrativa-bootstrap-spec-111)). Não existe rota que conceda papel.
+
+| Regra | Especificação |
+|---|---|
+| Conta nova, nunca promovida | Sem `--reissue`, só cria: `INSERT ... ON CONFLICT (normalized_email) DO NOTHING` com o papel na mesma transação. E-mail com conta (participante, cadastro pendente, privilegiada de qualquer papel) é recusado sem tocar nada, saída `1`. Dois comandos simultâneos com o mesmo e-mail se serializam no índice único: um cria, o outro recusa. O trigger D13 continua sendo a garantia de dados |
+| Senha temporária | 24 símbolos do base32 de Crockford (120 bits, `RandomNumberGenerator`), gerada pelo comando, nunca recebida por argumento, variável de ambiente ou arquivo. Mostrada **uma vez** na saída padrão e nunca gravada em log, arquivo nem banco (lá fica o hash do `PasswordHasher`). Vale **24 h** (`users.temporary_password_expires_at`). Enquanto a conta tem a marca, o login e a troca de senha normalizam a entrada como o Crockford define (caixa, espaços, hífens, `O`→`0`, `I`/`L`→`1`); a senha própria nunca é normalizada |
+| Conta | Já confirmada (o operador responde pelo endereço), `Active`, sem MFA. CHECK `ck_users_temporary_password_requires_confirmed_email`: com senha temporária a conta é sempre confirmada, então o upsert do cadastro (que só substitui conta não confirmada) nunca a toca (TM-66) |
+| Primeira sessão | Login com a senha temporária abre a sessão administrativa restrita à troca de senha (API-A16, política `password-change`); toda outra rota com sessão, inclusive as do cadastro de MFA, responde `403` `PASSWORD_CHANGE_REQUIRED`. A senha atual é conferida primeiro (errada → `401` e conta no bloqueio); só depois a nova é comparada à temporária (`400`, `SAME_AS_TEMPORARY_PASSWORD`). A troca limpa a marca no mesmo commit do aviso `PasswordChanged` e renova a sessão, que passa a ser a restrita do [MFA](#mfa) |
+| Prazo da troca | O A16 exige autenticação recente (5 min). A sessão temporária não alcança o A13, então, passados 5 min do login sem trocar a senha, o A16 responde `401` `REAUTHENTICATION_REQUIRED`: a saída é logout (A05) e novo login com a mesma senha temporária, que segue valendo até as 24 h |
+| Expiração | Passadas as 24 h, o login com a senha temporária responde `401` `INVALID_CREDENTIALS` e é auditado como `identity.login_failed`, igual à senha errada (depois do hash e do piso de latência). A sessão aberta com ela deixa de valer na requisição seguinte (o ticket store confere o prazo), e o serviço da troca de senha também recusa a senha vencida, sob o lock da conta. A confirmação do MFA (A12) é recusada enquanto houver a marca, mesmo que a rota deixasse passar |
+| Reemissão (`--reissue`) | Só com a flag explícita, e só para a conta confirmada, `Active`, **sem MFA** e com o mesmo papel, inclusive depois de a pessoa trocar a senha sem chegar ao MFA. Um único UPDATE condicional grava senha, stamp e prazo novos e zera o lockout; as sessões são revogadas (`temporary_password_reissued`) e a conta volta à fase da troca de senha. Conta com MFA, de outro papel, de participante ou inexistente → recusado, saída `1`, nada muda (conta com MFA segue a recuperação de TM-22) |
+| Aviso (TM-21) | A reemissão grava o aviso `PasswordReset` ao endereço gravado da conta na mesma transação da troca: falha antes do commit não deixa nem aviso nem troca. O aviso não leva a senha. A criação não avisa: a conta não existia |
+| Auditoria | Na transação da conta, em `ops.audit_events`: `identity.admin_granted.<papel>` (`moderator`, `product_admin`, `operator`) na criação e `identity.admin_temporary_password_reissued` na reemissão, com `actor_kind = 'TerminalOperator'` (não confundir com o papel `operator`), sem `actor_id` (quem roda não tem conta) e `actor_label` = `--operator`. CHECKs no banco: só `TerminalOperator` tem rótulo, sempre, sem id, no formato `^[a-z0-9_][a-z0-9._-]{0,31}$` |
+| Recusas do comando | Argumento inválido (saída `2`) e e-mail que não serve (saída `1`) não gravam nada em `ops.audit_events`: a auditoria do produto registra só o que mudou. A prova de uma tentativa recusada é o log do host (SSH, `sudo`, `journald`) |
+| `--operator` é rótulo | O nome é o que quem rodou declarou: ninguém o confere contra o sistema operacional, e dentro do container o usuário é o da imagem. Quem responde pelo comando é quem tem acesso ao host (SSH e `sudo`), registrado fora do Duora |
+| Reset antes do MFA (I5) | Até a primeira ativação do MFA, conta privilegiada não redefine senha por e-mail: o pedido (A06) grava o aviso `PasswordResetUnavailable`, sem link, com o mesmo trabalho dos outros casos, e a conclusão (A07) responde `INVALID_TOKEN` mesmo com token válido. Conta privilegiada não desativa o MFA (A15), então "MFA inativo" é "ainda não ativou" |
+| Cadastro pendente com o e-mail | Um cadastro público pendente com o e-mail do futuro administrador faz o comando recusar (o pendente pode ser de outra pessoa, e o comando não o substitui). Contorno: esperar o prazo do pendente (72 h, hipótese) e o job de limpeza, ou usar outro e-mail. É um DoS de baixo custo, aceito porque o bootstrap é raro e operado à mão |
+
+Rollback para uma release anterior ao bootstrap é recusado pelo `duora-deploy` enquanto houver conta privilegiada sem
+MFA ([deploy.md](../operations/deploy.md#rollback-de-aplicação)).
+
+Testes: `AdminBootstrapTests`, `AuditTrailTests` (CHECKs do rótulo em SQL cru), `test_duora_deploy.py` (rollback),
+`CredentialChangeRollbackTests.AFailedTemporaryPasswordReissueLeavesNoNoticeAndNoChange`,
+`EnumerationTimingTests.PasswordResetRequestDoesTheSameWorkForEveryKindOfAddress`.
 
 ## Ticket no servidor
 
@@ -133,7 +157,7 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 | Cadastro (API-A11) | Exige autenticação recente; gera nova chave do autenticador e devolve `sharedKey` e URI `otpauth://` uma única vez, com `no-store`; MFA ainda **inativo**. Trocar a chave troca o security stamp (comportamento do Identity): a sessão que pediu o cadastro adota o stamp novo e as outras caem. MFA já ativo → `409` `MFA_ALREADY_ENABLED` |
 | Confirmação (API-A12) | Código TOTP válido ativa o MFA, gera 10 códigos de recuperação **(hipótese)** mostrados uma vez, revoga as sessões da conta e abre uma nova para quem confirmou, já com a prova de MFA. Código errado → `400` `MFA_CODE_INVALID`; sem cadastro → `409` `MFA_ENROLLMENT_NOT_STARTED`. Avisa o titular por e-mail ([avisos de credencial](#avisos-de-mudança-de-credencial)) |
 | Login com MFA (API-A04) | Mesmo corpo com `twoFactorCode` (6 dígitos; espaços aceitos) ou `recoveryCode` (até 32 caracteres; caixa, espaços e hífen ignorados), nunca os dois (`400`). Senha correta sem segundo fator → `401` `MFA_REQUIRED`, **sem** criar sessão. Segundo fator errado → `401` `INVALID_CREDENTIALS`, conta no mesmo lockout da senha e é auditado (`identity.second_factor_failed`); o lockout só zera depois do segundo fator certo. Toda a verificação roda com a linha da conta travada (`FOR NO KEY UPDATE`), para o contador não perder falhas sob logins paralelos (B1). **TOTP de uso único:** o passo aceito é gravado em `users.last_totp_step` por UPDATE condicional (`last_totp_step is null or last_totp_step < passo`), e o mesmo código, ou um passo anterior ainda na tolerância, é recusado em A04, A12 e A13 (B2). Código de recuperação é de uso único e o resgate é auditado |
-| Conta privilegiada sem MFA confirmado | Login abre sessão administrativa restrita ao cadastro de MFA: A08, A11, A12 e A13 (a reautenticação entra porque A11 e A12 exigem autenticação recente); A05 e as rotas públicas não exigem sessão. Toda outra rota, inclusive `/admin/*` → `403` `MFA_ENROLLMENT_REQUIRED` |
+| Conta privilegiada sem MFA confirmado | Login (na conta do [bootstrap](#bootstrap-administrativo-d4), a troca da senha temporária) abre sessão administrativa restrita ao cadastro de MFA: A08, A11, A12 e A13 (a reautenticação entra porque A11 e A12 exigem autenticação recente); A05 e as rotas públicas não exigem sessão. Toda outra rota, inclusive `/admin/*` → `403` `MFA_ENROLLMENT_REQUIRED` |
 | Novos códigos (API-A14) | Exige **TOTP** provado há menos de 5 min (`totp_verified_at`; login com código de recuperação não basta, decisão I3); troca o conjunto inteiro no mesmo commit, com a conta travada (pedidos simultâneos se serializam, sem `500`); mostra o novo uma vez; nada em log. Sem MFA ativo não há TOTP recente, então a resposta é `401` `REAUTHENTICATION_REQUIRED`; o `409` `MFA_NOT_ENABLED` fica como defesa do serviço |
 | Desativar (API-A15) | Autenticação recente; recusado (`403` `MFA_REQUIRED_BY_ROLE`) se a conta é privilegiada; para participante, desativa, troca a chave por uma que ninguém viu, esvazia os códigos, revoga as sessões e abre uma nova para quem desativou. MFA já inativo → `204` sem efeito (e sem aviso). Avisa o titular por e-mail |
 | Recuperação de MFA de conta privilegiada | Não há caminho self-service por e-mail: procedimento operacional auditado, com outra pessoa ou conta privilegiada quando houver (TM-22). O reset de senha não remove nem contorna o MFA (`AdminMfaTests.PasswordResetDoesNotBypassMfaForPrivilegedAccount`) |
@@ -170,7 +194,7 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 | Token | `GeneratePasswordResetTokenAsync` do Identity (Data Protection, ligado ao security stamp). Provedor próprio para reset com vida de **30 min (hipótese)**, separado do token de confirmação de e-mail (**24 h, hipótese**). A entrega do e-mail expira antes (15 min e 12 h) para o link não chegar morto |
 | Link | Rota da SPA com as credenciais no **fragmento**: `/redefinir-senha#userId=…&token=…` e `/confirmar-email#userId=…&token=…`. O fragmento não vai a servidor, log de proxy nem `Referer`. O token é o base64url dos bytes do token do Identity. **Pendente (frontend):** `Referrer-Policy: no-referrer` nas páginas de conta |
 | Conclusão (API-A07) | `POST` com `userId`, `token` e `newPassword`. Sucesso: troca a senha, atualiza o security stamp (o token deixa de valer), zera o bloqueio por tentativas, revoga **todas** as sessões e não emite sessão nova, tudo num commit com o aviso ao titular. Falha: `400` `INVALID_TOKEN`, igual para conta inexistente, sem aviso |
-| Conta privilegiada | Reset troca a senha, mas não remove nem contorna o MFA (TM-22) |
+| Conta privilegiada | Reset troca a senha, mas não remove nem contorna o MFA (TM-22). Antes da primeira ativação do MFA, não há reset (I5): o pedido recebe um aviso sem link e a conclusão responde `INVALID_TOKEN` ([bootstrap](#bootstrap-administrativo-d4)) |
 | Conta com MFA | Reset **não** zera o lockout (I4): o e-mail não prova o segundo fator, e destravar reabriria a força bruta do TOTP. Conta sem MFA continua destravada pelo reset |
 | Política de senha | Comprimento mínimo de 12 caracteres e máximo de 128 **(hipótese)**, sem regras de composição forçada; colar e gerenciador de senhas permitidos (A11Y-01); verificação contra senhas vazadas fica como evolução, se houver serviço aprovado |
 
@@ -217,6 +241,7 @@ do atacante chega à caixa da vítima, que clica achando que é o dela.
 | Uso único e corrida | Confirmar grava só se o stamp ainda for o verificado e troca o stamp: o link morre na hora, e depois da confirmação nenhuma senha (certa ou errada) muda a resposta, então o link não vira oráculo de senha. A conta pendente não tem sessão, então a troca do stamp não derruba ninguém. Recadastro concorrente faz a confirmação falhar como `INVALID_TOKEN`, sem `500` |
 | Cadastro sobre conta pendente | Substitui o pendente: senha, aceites, e-mail digitado, data e security stamp novos. O stamp novo invalida todo link de confirmação anterior. Um único `INSERT ... ON CONFLICT (normalized_email) DO UPDATE` na mesma transação dos aceites e da outbox, o que também serializa cadastros simultâneos |
 | Cadastro sobre conta confirmada | Nada muda na conta; o titular recebe um aviso pela outbox |
+| Cadastro sobre conta do bootstrap | A conta privilegiada com senha temporária é sempre confirmada (CHECK), então cai no caso acima: senha, stamp, prazo e papéis ficam intactos, e nenhum aceite ou papel de participante é gravado (`AdminBootstrapTests.APublicRegistrationWithTheSameEmailDoesNotTouchTheAccount`) |
 | Prazo do pendente | `Identity:PendingAccountLifetime`, **72 h (hipótese)**, contado do último cadastro. Vencido, a confirmação é recusada (`400` `INVALID_TOKEN`); login de conta não confirmada já falha sempre. Um cadastro novo substitui o pendente vencido. **Pendente:** job de limpeza dos pendentes vencidos |
 | Nome de usuário | É o próprio e-mail; `CHECK (normalized_user_name IS NOT DISTINCT FROM normalized_email)` deixa a unicidade só no índice do e-mail, o único que o upsert arbitra |
 
@@ -248,7 +273,7 @@ comando do cliente falha no `RetrieveAsync` (spec 9.2; T-14).
 |---|---|
 | API-A02 cadastro | `202` com corpo vazio. E-mail já cadastrado e confirmado: o titular recebe "alguém tentou se cadastrar com este e-mail"; pendente: o cadastro substitui o pendente e manda um link novo; novo: cria a conta. **Tempo:** os três casos fazem o mesmo trabalho (um hash, o mesmo upsert, os mesmos comandos de aceite, uma leitura, um token e uma linha de outbox), verificado por `EnumerationTimingTests` comparando comandos SQL e hashes |
 | API-A04 login | `401` com `code = INVALID_CREDENTIALS` para e-mail inexistente, senha errada, e-mail não confirmado e conta bloqueada. **Tempo:** todo caminho de falha custa exatamente um hash (o `SignInManager` decide conta não confirmada e bloqueada antes do hash, então esses casos e a conta inexistente verificam um hash de isca pelo mesmo hasher); a senha errada numa conta existente ainda grava a falha para o lockout, e essa diferença fica encoberta por um piso de latência: nenhuma falha responde antes de `Identity:FailedLoginMinimumDuration` (**350 ms, hipótese**) mais até `FailedLoginJitter` (**100 ms**). `MFA_REQUIRED` só aparece depois da senha certa |
-| API-A06 pedido de reset | `202` neutro. **Tempo:** os três casos (confirmada, pendente, sem conta) fazem uma leitura e gravam um e-mail na outbox |
+| API-A06 pedido de reset | `202` neutro. **Tempo:** os casos (confirmada, pendente, sem conta, privilegiada sem MFA) fazem as mesmas leituras (conta e papel) e gravam um e-mail na outbox |
 | API-A03 e A07 | Token inválido, expirado ou de conta inexistente → mesmo erro |
 
 `429` (rate limit) pode ser distinguível, porque depende de origem e volume, não da existência da conta
@@ -290,7 +315,7 @@ cujo alvo é a sessão (`login_session`).
 |---|---|---|
 | Login com senha (e segundo fator, se houver) certa | `identity.login_succeeded` | A04 |
 | Senha certa numa conta com MFA, sem segundo fator (`MFA_REQUIRED`) | `identity.login_second_factor_required` | A04 |
-| Senha errada numa conta confirmada | `identity.login_failed` | A04 |
+| Senha errada numa conta confirmada, ou senha temporária vencida | `identity.login_failed` | A04 |
 | Senha certa na reautenticação de conta com MFA, sem o código | `identity.reauthentication_second_factor_required` | A13 |
 | Senha errada na reautenticação / senha atual errada na troca | `identity.reauthentication_failed` / `identity.password_change_failed` | A13 / A16 |
 | A falha que levou a conta ao teto e começou o bloqueio | `identity.account_locked_out` | A04 (senha ou segundo fator), A13, A16 |
@@ -299,6 +324,7 @@ cujo alvo é a sessão (`login_session`).
 | Senha redefinida pelo link | `identity.password_reset` | A07 |
 | Logout com sessão | `identity.logged_out` | A05 |
 | Sessão própria encerrada pela lista (só a primeira vez) | `identity.session_revoked` | A10 |
+| Conta privilegiada criada / senha temporária reemitida, pelo terminal | `identity.admin_granted.<papel>` / `identity.admin_temporary_password_reissued` (`actor_kind = 'TerminalOperator'`) | `admin grant` ([bootstrap](#bootstrap-administrativo-d4)) |
 
 Decisões:
 
@@ -385,8 +411,10 @@ por e-mail ao titular quando a conta é bloqueada. Métricas: contagem de `401`/
 
 ### Avisos de mudança de credencial
 
-TM-21: ativar o MFA (A12), gerar novos códigos de recuperação (A14), desativar o MFA (A15), trocar a senha (A16) e
-redefinir a senha pelo link (A07) gravam **um** aviso ao titular na outbox, na mesma transação do efeito: se a
+TM-21: ativar o MFA (A12), gerar novos códigos de recuperação (A14), desativar o MFA (A15), trocar a senha (A16),
+redefinir a senha pelo link (A07) e reemitir a senha temporária pelo terminal (`admin grant --reissue`, aviso de senha
+redefinida; [bootstrap](#bootstrap-administrativo-d4)) gravam **um** aviso ao titular na outbox, na mesma transação
+do efeito: se a
 mudança volta atrás, o aviso some junto, e tentativa que não muda nada (código ou senha errados, MFA já inativo)
 não avisa. O aviso vai para o endereço gravado e sai bilíngue (pt-BR e en): quem recebe pode não ser quem fez a
 mudança, então o `Accept-Language` da requisição vai no payload (`language`), como nos outros e-mails de conta, mas
@@ -418,7 +446,7 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | API-A13 | `POST /auth/reauthenticate` | Cookie (inclusive sessão restrita) | Sim | — | `password`, `twoFactorCode?` (obrigatório se a conta tem MFA) → `204` | `401` `INVALID_CREDENTIALS`; `400` | `identity.reauthenticated`, `reauthentication_second_factor_required`, `reauthentication_failed`, `reauthentication_refused_locked_out`, `account_locked_out`, `second_factor_failed` |
 | API-A14 | `POST /me/mfa/recovery-codes` | Cookie | Sim | Sim | → `200` `recoveryCodes[]` (conjunto anterior revogado) | `409` `MFA_NOT_ENABLED`; `401`; `429` | `identity.mfa_recovery_codes_regenerated` |
 | API-A15 | `DELETE /me/mfa` | Cookie | Sim | Sim | → `204` (também se já estava inativo) + sessão renovada | `403` `MFA_REQUIRED_BY_ROLE`; `401`; `429` | `identity.mfa_disabled` |
-| API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` (12–128) → `204` + sessão renovada; outras sessões revogadas | `400` validação; `401` `INVALID_CREDENTIALS` (senha atual errada, conta no lockout); `429` | `identity.password_changed`, `password_change_failed`, `password_change_refused_locked_out`, `account_locked_out` |
+| API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` (12–128) → `204` + sessão renovada; outras sessões revogadas | `400` validação (inclusive `SAME_AS_TEMPORARY_PASSWORD`); `401` `INVALID_CREDENTIALS` (senha atual errada, conta no lockout); `403` `MFA_ENROLLMENT_REQUIRED` (conta privilegiada que já trocou a senha temporária e ainda deve o MFA); `429` | `identity.password_changed`, `password_change_failed`, `password_change_refused_locked_out`, `account_locked_out` |
 
 Regras comuns: DTO estrito (campo desconhecido ou repetido → `400` `INVALID_REQUEST`); corpo até 32 KiB; erros
 em `application/problem+json` com `type` (`urn:duora:problem:<código>`), `title`, `status`, `code` e `traceId`;
@@ -457,6 +485,7 @@ sem artefato do CI (spec 25.19).
 | Revogação (A05, A10, troca de senha, reset) e fechamento do hub | A05, A10 e reset implementados; troca de senha e hub pendentes | `SessionTests` (T-14, parte HTTP), `PasswordResetTests` | feat/m1-identity |
 | Anti-enumeração (resposta e tempo) | implementado | `RegistrationTests`, `LoginTests`, `PasswordResetTests`, `EnumerationTimingTests` | feat/m1-identity |
 | Pré-sequestro de conta (TM-66) | implementado | `AccountTakeoverTests` | feat/m1-identity |
+| Bootstrap administrativo (D4) e reset bloqueado antes do MFA (I5) | implementado | `AdminBootstrapTests`, `CredentialChangeRollbackTests` | feat/admin-bootstrap-v2 |
 | Data Protection persistente e protegido | implementado: volume e certificado exigidos no boot; nome por ambiente pendente | `StartupConfigurationTests`, `KeyRingRecoveryTests`, `KeyRingCertificateTests`, `KeyRingMountTests`, `ComposeFileTests` | feat/dataprotection-cert |
 | Rate limit e lockout | implementado | `LoginTests`, `RegistrationTests` | feat/m1-identity |
 | Contrato A01 a A16 no OpenAPI gerado | publicado | `docs/api/openapi.json` | feat/m1-identity, feat/m1-admin-mfa |
@@ -519,3 +548,16 @@ sem artefato do CI (spec 25.19).
   lock segurando uma conexão, a suíte em paralelo esgotou o `max_connections` (53300). A espera passa a ser numa fila
   em memória por conta, sem conexão; o lock no banco continua. Teste:
   `AccountLockTimeoutTests.QueuedChecksOfTheSameAccountWaitWithoutHoldingDatabaseConnections` (25 na main, 1 aqui).
+- **2026-10-16, feat/admin-bootstrap-v2.** Bootstrap administrativo (D4: senha temporária mostrada uma vez no
+  terminal do operador) e a pré-condição I5:
+  - `duora-web admin grant` cria conta privilegiada nova, confirmada, com senha temporária de 24 h que só serve para
+    a troca (A16); depois da troca, a sessão é a restrita do MFA. Recusa qualquer conta existente com o e-mail.
+  - `--reissue`, explícito, emite outra senha para a conta do mesmo papel ainda sem MFA, mesmo depois de a pessoa
+    trocar a senha, e grava o aviso `PasswordReset` ao titular na mesma transação (TM-21, decisão do dono na issue
+    #68). O texto desse aviso deixou de citar o link de recuperação como único meio.
+  - Auditoria com `actor_kind = 'TerminalOperator'` e `actor_label` = `--operator` (rótulo, não identidade), ações
+    `identity.admin_granted.<papel>` e `identity.admin_temporary_password_reissued`.
+  - Senha atual conferida antes da comparação com a temporária; entrada da temporária normalizada (Crockford).
+  - Login com a senha temporária vencida auditado como `identity.login_failed`.
+  - I5: reset bloqueado para conta privilegiada sem MFA; o pedido manda o aviso `PasswordResetUnavailable`.
+  - Novo código `403` `PASSWORD_CHANGE_REQUIRED` e erro de validação `SAME_AS_TEMPORARY_PASSWORD` no A16.

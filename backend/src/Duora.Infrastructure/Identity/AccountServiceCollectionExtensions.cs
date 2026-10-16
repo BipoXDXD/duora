@@ -55,6 +55,10 @@ public static class AccountServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<IOptions<AccountLockOptions>>().Value,
             provider.GetRequiredService<AccountCheckGate>()));
+        services.AddScoped(provider => new AdministratorBootstrap(
+            provider.GetRequiredService<DuoraDbContext>(),
+            provider.GetRequiredService<UserManager<DuoraUser>>(),
+            provider.GetRequiredService<TimeProvider>()));
 
         return identity;
     }
