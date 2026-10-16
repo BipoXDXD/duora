@@ -269,7 +269,9 @@ public sealed partial class MediaProcessingDispatcher
 
     /// <summary>
     /// Derivados primeiro, depois o commit que os referencia: se o commit falhar, eles ficam órfãos e a próxima
-    /// tentativa os sobrescreve nas mesmas chaves (spec 16.2). Nunca se publica por ter gravado no storage.
+    /// tentativa os sobrescreve nas mesmas chaves (spec 16.2). Nunca se publica por ter gravado no storage. Antes de
+    /// gravar, confere que o upload continua nesta tentativa: outra que o retomou ou decidiu durante a sanitização é
+    /// dona das chaves, e esta só se retira.
     /// </summary>
     private async Task<Settlement> PublishAsync(
         Upload upload,
@@ -280,6 +282,11 @@ public sealed partial class MediaProcessingDispatcher
     {
         var verdict = MediaReview.VerdictAfterSanitizing(
             _media.Review ?? throw new InvalidOperationException("Processamento de mídia sem política de revisão."));
+        if (!await IsStillProcessingAtAsync(upload.Id, version, cancellationToken))
+        {
+            return Settlement.LeaseLost;
+        }
+
         foreach (var variant in sanitized.Variants)
         {
             await using var content = new MemoryStream(variant.Content, writable: false);
@@ -327,6 +334,15 @@ public sealed partial class MediaProcessingDispatcher
         await DeleteQuietlyAsync(ObjectKey.Parse(upload.QuarantineKey), upload.Id);
         return Settlement.Delivered;
     }
+
+    /// <summary>
+    /// Toda tentativa que toma o upload incrementa a versão (<see cref="MoveAsync"/>), então a versão que esta tentativa
+    /// gravou só continua lá se nenhuma outra o retomou nem decidiu.
+    /// </summary>
+    private Task<bool> IsStillProcessingAtAsync(Guid uploadId, long version, CancellationToken cancellationToken) =>
+        _db.Set<Upload>().AnyAsync(
+            u => u.Id == uploadId && u.Version == version && u.State == UploadState.Processing,
+            cancellationToken);
 
     /// <summary>Transição condicional pela versão (spec 4.2); falso quando outra tentativa já mexeu no upload.</summary>
     private async Task<bool> MoveAsync(Guid uploadId, long version, UploadState to, string? rejection, CancellationToken cancellationToken)
