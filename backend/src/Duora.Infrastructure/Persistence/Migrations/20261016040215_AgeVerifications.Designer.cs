@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Duora.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DuoraDbContext))]
-    [Migration("20261016034525_AgeVerifications")]
+    [Migration("20261016040215_AgeVerifications")]
     partial class AgeVerifications
     {
         /// <inheritdoc />
@@ -427,6 +427,251 @@ namespace Duora.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_login_sessions_window", "idle_expires_at <= absolute_expires_at");
                         });
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.MediaAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approved_at");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("DetectedType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("detected_type");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer")
+                        .HasColumnName("height");
+
+                    b.Property<string>("OriginalKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("original_key");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<byte[]>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("sha256");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("UploadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("upload_id");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer")
+                        .HasColumnName("width");
+
+                    b.HasKey("Id")
+                        .HasName("pk_media_assets");
+
+                    b.HasIndex("OwnerId")
+                        .HasDatabaseName("ix_media_assets_owner_id");
+
+                    b.HasIndex("UploadId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_media_assets_upload_id");
+
+                    b.ToTable("media_assets", "media", t =>
+                        {
+                            t.HasCheckConstraint("ck_media_assets_detected_type", "detected_type IN ('image/jpeg', 'image/png', 'image/webp')");
+
+                            t.HasCheckConstraint("ck_media_assets_dimensions", "width > 0 AND height > 0");
+
+                            t.HasCheckConstraint("ck_media_assets_pixels", "width::bigint * height <= 20000000");
+
+                            t.HasCheckConstraint("ck_media_assets_sha256", "octet_length(sha256) = 32");
+
+                            t.HasCheckConstraint("ck_media_assets_state", "state IN ('Approved', 'Rejected', 'Deleted')");
+
+                            t.HasCheckConstraint("ck_media_assets_version", "version >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.MediaVariant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer")
+                        .HasColumnName("height");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("MediaAssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("media_asset_id");
+
+                    b.Property<string>("ObjectKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("object_key");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer")
+                        .HasColumnName("width");
+
+                    b.HasKey("Id")
+                        .HasName("pk_media_variants");
+
+                    b.HasIndex("ObjectKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_media_variants_object_key");
+
+                    b.HasIndex("MediaAssetId", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("ux_media_variants_media_asset_id_kind");
+
+                    b.ToTable("media_variants", "media", t =>
+                        {
+                            t.HasCheckConstraint("ck_media_variants_dimensions", "width > 0 AND height > 0");
+
+                            t.HasCheckConstraint("ck_media_variants_kind", "kind IN ('thumb', 'card', 'full')");
+
+                            t.HasCheckConstraint("ck_media_variants_size_bytes", "size_bytes > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.Upload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AbandonAfter")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("abandon_after");
+
+                    b.Property<string>("ClientKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("client_key");
+
+                    b.Property<byte[]>("ContentSha256")
+                        .HasColumnType("bytea")
+                        .HasColumnName("content_sha256");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DeclaredContentType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("declared_content_type");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<string>("QuarantineKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("quarantine_key");
+
+                    b.Property<string>("RejectionCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("rejection_code");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("state");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_uploads");
+
+                    b.HasIndex("AbandonAfter")
+                        .HasDatabaseName("ix_uploads_abandon_after")
+                        .HasFilter("state IN ('Pending', 'Quarantined')");
+
+                    b.HasIndex("OwnerId")
+                        .HasDatabaseName("ix_uploads_pending_owner")
+                        .HasFilter("state IN ('Pending', 'Quarantined', 'Processing')");
+
+                    b.HasIndex("QuarantineKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_uploads_quarantine_key");
+
+                    b.HasIndex("OwnerId", "ClientKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_uploads_owner_id_client_key");
+
+                    b.ToTable("uploads", "media", t =>
+                        {
+                            t.HasCheckConstraint("ck_uploads_client_key", "client_key ~ '^[A-Za-z0-9_-]{1,64}$'");
+
+                            t.HasCheckConstraint("ck_uploads_content_sha256", "(content_sha256 IS NULL OR octet_length(content_sha256) = 32) AND (state IN ('Pending', 'Deleted') OR content_sha256 IS NOT NULL) AND (state <> 'Pending' OR content_sha256 IS NULL)");
+
+                            t.HasCheckConstraint("ck_uploads_declared_content_type", "declared_content_type IN ('image/jpeg', 'image/png', 'image/webp')");
+
+                            t.HasCheckConstraint("ck_uploads_rejection_code", "(rejection_code IS NULL OR rejection_code IN ('UNSUPPORTED_FORMAT', 'TYPE_MISMATCH', 'TOO_MANY_PIXELS', 'ANIMATED', 'CORRUPT_IMAGE', 'PROCESSING_LIMIT')) AND (state <> 'Rejected' OR rejection_code IS NOT NULL) AND (rejection_code IS NULL OR state IN ('Rejected', 'Deleted'))");
+
+                            t.HasCheckConstraint("ck_uploads_size_bytes", "size_bytes BETWEEN 1 AND 5242880");
+
+                            t.HasCheckConstraint("ck_uploads_state", "state IN ('Pending', 'Quarantined', 'Processing', 'Approved', 'Rejected', 'Deleted')");
+
+                            t.HasCheckConstraint("ck_uploads_version", "version >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.UploadGuard", b =>
+                {
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.HasKey("OwnerId")
+                        .HasName("pk_upload_guards");
+
+                    b.ToTable("upload_guards", "media");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Outbox.OutboxDelivery", b =>
@@ -870,6 +1115,53 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_login_sessions_users");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.MediaAsset", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_media_assets_users_owner_id");
+
+                    b.HasOne("Duora.Infrastructure.Media.Upload", null)
+                        .WithOne()
+                        .HasForeignKey("Duora.Infrastructure.Media.MediaAsset", "UploadId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_media_assets_uploads_upload_id");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.MediaVariant", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Media.MediaAsset", null)
+                        .WithMany()
+                        .HasForeignKey("MediaAssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_media_variants_media_assets_media_asset_id");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.Upload", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_uploads_users_owner_id");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.UploadGuard", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithOne()
+                        .HasForeignKey("Duora.Infrastructure.Media.UploadGuard", "OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_upload_guards_users_owner_id");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Outbox.OutboxDelivery", b =>
