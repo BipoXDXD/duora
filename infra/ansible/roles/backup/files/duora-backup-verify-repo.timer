@@ -1,7 +1,9 @@
-# Gerenciado pelo Ansible (infra/ansible/roles/backup). pgbackrest verify nativo: checksum e tamanho de cada arquivo
-# do repositório e continuidade do WAL desde o backup mais novo (spec 18.5 e 19.1). Depois dos backups das 03:00.
+# Gerenciado pelo Ansible (infra/ansible/roles/backup). Verificação diária leve (spec 18.5 e 19.1): continuidade do
+# WAL pela listagem do archive (sem baixar) e pgbackrest verify --set só do backup mais novo e do WAL dele. O
+# repositório inteiro é conferido uma vez por semana (duora-backup-verify-repo-full.timer). Depois dos backups das
+# 03:00.
 [Unit]
-Description=Duora: verificação diária do repositório e da cadeia de WAL
+Description=Duora: verificação diária da cadeia de WAL e do backup mais novo
 
 [Timer]
 OnCalendar=*-*-* 05:00:00 UTC
