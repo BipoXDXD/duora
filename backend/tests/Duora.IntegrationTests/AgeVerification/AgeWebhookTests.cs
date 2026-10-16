@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Identity;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -415,6 +416,7 @@ public sealed class AgeWebhookTests : IAsyncDisposable
         Assert.Equal("Expired", Assert.Single(await Verification.VerificationsAsync(open.Account.UserId)).State);
         Assert.Equal("Processed", await Scenario.ReceiptStateAsync(eventId));
         Assert.Equal(1, await Verification.CountAuditAsync("identity.account_restricted", open.Account.UserId));
+        Assert.Equal(1, await Verification.CountAuditAsync("identity.age_verification_late_not_adult", open.VerificationId));
     }
 
     [Theory]
@@ -431,6 +433,112 @@ public sealed class AgeWebhookTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal("PendingEligibility", await Verification.AccountStatusAsync(open.Account.UserId));
         Assert.Equal("Rejected", await Scenario.ReceiptStateAsync(eventId));
+    }
+
+    [Fact]
+    public async Task SameEventIdWithDifferentBodyIsFlaggedAndHasNoEffect()
+    {
+        // Decisão do responsável (I3): 204 sem efeito, para o fornecedor não ficar repetindo; alerta no log, sem o
+        // corpo, e métrica webhook_event_conflict.
+        var logs = new CapturingLoggerProvider();
+        await using var factory = new DuoraWebFactory(_postgres.ConnectionString, logs)
+        {
+            Time = _time,
+            Settings = AgeVerificationScenario.FakeProviderSettings(),
+        };
+        var scenario = new AgeWebhookScenario(_postgres, factory, _time);
+        var open = await scenario.OpenVerificationAsync();
+        var eventId = $"evt_{Guid.NewGuid():N}";
+        using var conflicts = new WebhookConflictCounter();
+        using (await scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "inconclusive", eventId)))
+        {
+        }
+
+        var forged = AgeWebhookScenario.Body(open, "verified_adult", eventId);
+        using var response = await scenario.SendSignedAsync(forged);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(1, await scenario.CountReceiptsAsync(eventId));
+        Assert.Equal("ManualReview", Assert.Single(await scenario.Verification.VerificationsAsync(open.Account.UserId)).State);
+        Assert.Equal("PendingEligibility", await scenario.Verification.AccountStatusAsync(open.Account.UserId));
+        Assert.Equal(1, conflicts.Count);
+        var warning = Assert.Single(logs.Entries, entry => entry.Level == LogLevel.Warning && entry.Text.Contains(eventId, StringComparison.Ordinal));
+        Assert.DoesNotContain(open.Nonce, warning.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("verified_adult", warning.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SameEventIdWithTheSameBodyIsNotAConflict()
+    {
+        var open = await Scenario.OpenVerificationAsync();
+        var body = AgeWebhookScenario.Body(open, "verified_adult");
+        using var conflicts = new WebhookConflictCounter();
+
+        using (await Scenario.SendSignedAsync(body))
+        using (await Scenario.SendSignedAsync(body))
+        {
+        }
+
+        Assert.Equal(0, conflicts.Count);
+    }
+
+    [Fact]
+    public async Task RepeatedSignatureHeaderIsRejected()
+    {
+        var open = await Scenario.OpenVerificationAsync();
+        var body = AgeWebhookScenario.Body(open, "verified_adult");
+        var signature = Scenario.Sign(body);
+
+        using var response = await Scenario.SendAsync(body, [signature, signature]);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "WEBHOOK_SIGNATURE_INVALID");
+        Assert.Equal("PendingEligibility", await Verification.AccountStatusAsync(open.Account.UserId));
+    }
+
+    [Fact]
+    public async Task DuplicatedTimestampInTheSignatureIsRejected()
+    {
+        var open = await Scenario.OpenVerificationAsync();
+        var body = AgeWebhookScenario.Body(open, "verified_adult");
+        var signature = Scenario.Sign(body);
+        var timestamp = signature[..signature.IndexOf(',', StringComparison.Ordinal)];
+
+        using var response = await Scenario.SendAsync(body, $"{timestamp},{signature}");
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "WEBHOOK_SIGNATURE_INVALID");
+    }
+
+    [Theory]
+    [InlineData("text/plain")]
+    [InlineData("application/xml")]
+    [InlineData("multipart/form-data; boundary=x")]
+    [InlineData(null)]
+    public async Task UnexpectedContentTypeIsABadRequestNeverAnUnsupportedMediaType(string? contentType)
+    {
+        var open = await Scenario.OpenVerificationAsync();
+        var body = AgeWebhookScenario.Body(open, "verified_adult");
+
+        using var response = await Scenario.SendAsync(body, [Scenario.Sign(body)], contentType: contentType);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "WEBHOOK_PAYLOAD_INVALID");
+        Assert.Equal("PendingEligibility", await Verification.AccountStatusAsync(open.Account.UserId));
+    }
+
+    [Theory]
+    [InlineData("/webhooks/fake%20")]
+    [InlineData("/webhooks/fake.json")]
+    [InlineData("/webhooks/fake/extra")]
+    [InlineData("/webhooks/%C3%A7")]
+    public async Task ProviderNameMustMatchExactly(string path)
+    {
+        var open = await Scenario.OpenVerificationAsync();
+        var body = AgeWebhookScenario.Body(open, "verified_adult");
+
+        using var response = await Scenario.SendAsync(body, Scenario.Sign(body), path);
+
+        // Nome fora do adaptador é 404; caminho que nem casa com a rota cai na política padrão e é 401. Nunca efeito.
+        Assert.Contains(response.StatusCode, new[] { HttpStatusCode.NotFound, HttpStatusCode.Unauthorized });
+        Assert.Equal("PendingEligibility", await Verification.AccountStatusAsync(open.Account.UserId));
     }
 
     private async Task AssertNothingChangedAsync(OpenVerification open, string eventId)

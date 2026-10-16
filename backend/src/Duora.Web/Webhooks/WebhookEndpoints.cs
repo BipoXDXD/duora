@@ -3,6 +3,7 @@ using Duora.Web.Http;
 using Duora.Web.Security;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Net.Http.Headers;
 
 namespace Duora.Web.Webhooks;
 
@@ -36,9 +37,16 @@ internal static class WebhookEndpoints
             return ApiProblems.Problem(StatusCodes.Status404NotFound, "NOT_FOUND", "Recurso não encontrado.");
         }
 
-        if (await ReadBoundedAsync(request.Body, AgeVerificationWebhook.MaxBodyBytes, cancellationToken) is not { } body)
+        if (request.ContentLength > AgeVerificationWebhook.MaxBodyBytes
+            || await ReadBoundedAsync(request.Body, AgeVerificationWebhook.MaxBodyBytes, cancellationToken) is not { } body)
         {
             return ApiProblems.Problem(StatusCodes.Status413PayloadTooLarge, "PAYLOAD_TOO_LARGE", "Corpo grande demais.");
+        }
+
+        // O fornecedor manda JSON; outro tipo é 400 do contrato do webhook, nunca 415 do framework.
+        if (!IsJson(request.ContentType))
+        {
+            return ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.WebhookPayloadInvalid, "Corpo inválido.");
         }
 
         var signature = request.Headers[AgeVerificationWebhook.SignatureHeader];
@@ -61,8 +69,27 @@ internal static class WebhookEndpoints
         };
     }
 
-    /// <summary>Lê os bytes crus até o teto; nulo se passar dele (a assinatura é sobre estes bytes, spec 16.4).</summary>
+    private static bool IsJson(string? contentType) =>
+        MediaTypeHeaderValue.TryParse(contentType, out var parsed)
+        && string.Equals(parsed.MediaType.Value, "application/json", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Lê os bytes crus até o teto; nulo se passar dele (a assinatura é sobre estes bytes, spec 16.4). Sob o Kestrel, o
+    /// limite da rota recusa o corpo chunked grande com <see cref="BadHttpRequestException"/> 413, que vira o mesmo nulo.
+    /// </summary>
     private static async Task<byte[]?> ReadBoundedAsync(Stream body, int maxBytes, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ReadUpToAsync(body, maxBytes, cancellationToken);
+        }
+        catch (BadHttpRequestException exception) when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<byte[]?> ReadUpToAsync(Stream body, int maxBytes, CancellationToken cancellationToken)
     {
         using var buffer = new MemoryStream();
         var chunk = new byte[ReadBufferBytes];
