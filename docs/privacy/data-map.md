@@ -92,6 +92,11 @@ na avaliação jurídica de cada contrato.
 A Backblaze guarda só blocos cifrados e não tem as chaves; ainda assim, o backup é cópia de dado pessoal fora do
 Brasil e conta como transferência internacional.
 
+Limite da proteção contra exclusão das fotos: o restic deduplica, e os pacotes antigos (mais de 21 dias) que os
+snapshots recentes ainda usam ficam fora do File Lock, protegidos só pelas capacidades das chaves. A mitigação
+(`restic check` independente com chave só de leitura de `media/`) é lacuna registrada, sem implementação
+([backup-restore.md](../operations/backup-restore.md#backup-das-fotos-restic)).
+
 ## Acessos por papel
 
 Leitura (L), escrita (E) e sem acesso (—). "Próprio" = só dados do titular; "contexto" = só em sala, conexão
