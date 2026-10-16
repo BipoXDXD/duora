@@ -1,26 +1,24 @@
 // Gerado por tools/visual/process.py a partir de tools/visual/catalog.json; não edite à mão.
-import cardPair1x from './illustrations/card-pair.webp'
-import cardPair2x from './illustrations/card-pair@2x.webp'
-import compass1x from './illustrations/compass.webp'
-import compass2x from './illustrations/compass@2x.webp'
-import constellation1x from './illustrations/constellation.webp'
-import constellation2x from './illustrations/constellation@2x.webp'
-import envelope1x from './illustrations/envelope.webp'
-import envelope2x from './illustrations/envelope@2x.webp'
-import foldedMap1x from './illustrations/folded-map.webp'
-import foldedMap2x from './illustrations/folded-map@2x.webp'
-import lantern1x from './illustrations/lantern.webp'
-import lantern2x from './illustrations/lantern@2x.webp'
-import padlock1x from './illustrations/padlock.webp'
-import padlock2x from './illustrations/padlock@2x.webp'
-import placeholder1x from './illustrations/placeholder.webp'
-import placeholder2x from './illustrations/placeholder@2x.webp'
-import shield1x from './illustrations/shield.webp'
-import shield2x from './illustrations/shield@2x.webp'
-import speechBubbles1x from './illustrations/speech-bubbles.webp'
-import speechBubbles2x from './illustrations/speech-bubbles@2x.webp'
-import ticket1x from './illustrations/ticket.webp'
-import ticket2x from './illustrations/ticket@2x.webp'
+import cardPair1x from './illustrations/card-pair.webp?no-inline'
+import cardPair2x from './illustrations/card-pair@2x.webp?no-inline'
+import compass1x from './illustrations/compass.webp?no-inline'
+import compass2x from './illustrations/compass@2x.webp?no-inline'
+import constellation1x from './illustrations/constellation.webp?no-inline'
+import constellation2x from './illustrations/constellation@2x.webp?no-inline'
+import envelope1x from './illustrations/envelope.webp?no-inline'
+import envelope2x from './illustrations/envelope@2x.webp?no-inline'
+import foldedMap1x from './illustrations/folded-map.webp?no-inline'
+import foldedMap2x from './illustrations/folded-map@2x.webp?no-inline'
+import lantern1x from './illustrations/lantern.webp?no-inline'
+import lantern2x from './illustrations/lantern@2x.webp?no-inline'
+import padlock1x from './illustrations/padlock.webp?no-inline'
+import padlock2x from './illustrations/padlock@2x.webp?no-inline'
+import shield1x from './illustrations/shield.webp?no-inline'
+import shield2x from './illustrations/shield@2x.webp?no-inline'
+import speechBubbles1x from './illustrations/speech-bubbles.webp?no-inline'
+import speechBubbles2x from './illustrations/speech-bubbles@2x.webp?no-inline'
+import ticket1x from './illustrations/ticket.webp?no-inline'
+import ticket2x from './illustrations/ticket@2x.webp?no-inline'
 
 export const ILLUSTRATIONS = {
   'card-pair': { cssPx: 200, src1x: cardPair1x, src2x: cardPair2x },
@@ -30,7 +28,6 @@ export const ILLUSTRATIONS = {
   'folded-map': { cssPx: 200, src1x: foldedMap1x, src2x: foldedMap2x },
   lantern: { cssPx: 240, src1x: lantern1x, src2x: lantern2x },
   padlock: { cssPx: 128, src1x: padlock1x, src2x: padlock2x },
-  placeholder: { cssPx: 160, src1x: placeholder1x, src2x: placeholder2x },
   shield: { cssPx: 128, src1x: shield1x, src2x: shield2x },
   'speech-bubbles': { cssPx: 160, src1x: speechBubbles1x, src2x: speechBubbles2x },
   ticket: { cssPx: 160, src1x: ticket1x, src2x: ticket2x },

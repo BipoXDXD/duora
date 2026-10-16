@@ -1,6 +1,9 @@
 """Testes do processamento das fontes com imagens sintéticas (não dependem de out/source)."""
 
+import contextlib
 import dataclasses
+import io
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +18,7 @@ from process import (
     draw_placeholder,
     estimate_key_color,
     frame,
+    main,
     process_object,
     render,
     render_manifest,
@@ -209,6 +213,7 @@ class ProcessObjectTest(unittest.TestCase):
     def setUp(self):
         self.catalog = load_catalog()
         self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
         self.source_dir = self.tmp / "source"
         self.output_dir = self.tmp / "assets"
         self.source_dir.mkdir()
@@ -247,6 +252,17 @@ class ProcessObjectTest(unittest.TestCase):
 
         self.assertEqual([webp_chunks(path)[-1] for path in written], [b"VP8L", b"VP8L"])
 
+    def test_same_source_produces_the_same_bytes(self):
+        on_green(size=256, box=(60, 60, 200, 200)).save(self.source_dir / "compass.png")
+
+        first = [path.read_bytes() for path in self.process_compass()]
+        second = [path.read_bytes() for path in self.process_compass()]
+
+        self.assertEqual(first, second)
+
+    def process_compass(self):
+        return process_object(self.catalog, self.generated(), ROLES, self.source_dir, self.output_dir)
+
     def test_missing_source_names_the_object(self):
         with self.assertRaisesRegex(ProcessError, "compass"):
             process_object(self.catalog, self.generated(), ROLES, self.source_dir, self.output_dir)
@@ -272,23 +288,56 @@ class ManifestTest(unittest.TestCase):
     def test_manifest_imports_both_densities_and_carries_the_css_size(self):
         text = render_manifest(load_catalog())
 
-        self.assertIn("import cardPair1x from './illustrations/card-pair.webp'", text)
-        self.assertIn("import cardPair2x from './illustrations/card-pair@2x.webp'", text)
+        self.assertIn("import cardPair1x from './illustrations/card-pair.webp?no-inline'", text)
+        self.assertIn("import cardPair2x from './illustrations/card-pair@2x.webp?no-inline'", text)
         self.assertIn("'card-pair': { cssPx: 200, src1x: cardPair1x, src2x: cardPair2x },", text)
         self.assertIn("compass: { cssPx: 200, src1x: compass1x, src2x: compass2x },", text)
 
-    def test_manifest_lists_every_catalog_object_in_name_order(self):
+    def test_every_import_opts_out_of_vite_inlining(self):
+        # Abaixo de 4 KiB o Vite embutiria o WebP como data:, que a CSP img-src 'self' do Caddy bloqueia.
+        imports = [line for line in render_manifest(load_catalog()).splitlines() if line.startswith("import ")]
+
+        self.assertTrue(imports)
+        self.assertTrue(all(line.endswith(".webp?no-inline'") for line in imports))
+
+    def test_manifest_lists_every_generated_object_in_name_order(self):
         catalog = load_catalog()
         text = render_manifest(catalog)
+        generated = [item for item in catalog.objects if item.source == "generated"]
 
-        positions = [text.index(f"src1x: {_camel(item.name)}1x") for item in catalog.objects]
-        names = [item.name for item in catalog.objects]
+        positions = [text.index(f"src1x: {_camel(item.name)}1x") for item in generated]
+        names = [item.name for item in generated]
         self.assertEqual([n for _, n in sorted(zip(positions, names))], sorted(names))
+
+    def test_procedural_placeholder_stays_out_of_the_production_manifest(self):
+        self.assertNotIn("placeholder", render_manifest(load_catalog()))
 
     def test_committed_manifest_matches_the_catalog(self):
         from process import MANIFEST_PATH
 
         self.assertEqual(MANIFEST_PATH.read_text(encoding="utf-8"), render_manifest(load_catalog()))
+
+
+class MainTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.manifest = self.tmp / "illustrations.generated.ts"
+
+    def run_main(self, *names):
+        argv = [*names, "--source-dir", str(self.tmp / "source"), "--output-dir", str(self.tmp / "assets")]
+        return main([*argv, "--manifest", str(self.manifest)])
+
+    def test_failure_returns_nonzero_and_leaves_the_manifest_alone(self):
+        self.assertEqual(self.run_main("compass"), 1)
+        self.assertFalse(self.manifest.exists())
+
+    def test_procedural_object_is_rejected_by_name(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            self.run_main("placeholder")
+
+        self.assertIn("'placeholder' é procedural", stderr.getvalue())
 
 
 def object_box(image):
