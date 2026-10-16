@@ -4,6 +4,7 @@
     sudo duora-secrets init /etc/duora/secrets
     sudo duora-secrets init-backup /etc/duora/secrets
     sudo duora-secrets write-backup-repo /etc/duora/secrets --bucket <bucket> --endpoint <host S3> [--replace]
+    sudo duora-secrets write-media-backup-repo /etc/duora/secrets --bucket <bucket> --endpoint <host S3> [--replace]
     sudo duora-secrets rotate-certificate /etc/duora/secrets
     sudo duora-secrets retire-previous-certificates /etc/duora/secrets \\
         --keys-directory /var/lib/docker/volumes/duora_dataprotection/_data
@@ -17,6 +18,10 @@ openssl do sistema. A chave da CA é descartada: rotação = gerar o conjunto in
 Backblaze B2, lida do stdin para não ir ao histórico do shell; docs/operations/backblaze-setup.md). A região sai do
 nome do endpoint (s3.<região>.backblazeb2.com) se --region não for dado. Só troca um arquivo existente com --replace,
 na rotação da chave.
+
+`write-media-backup-repo` grava os três arquivos do restic das fotos (root, 0400): o destino
+(s3:https://<endpoint>/<bucket>/media), a senha do repositório e a chave B2 presa a media/ no formato de credenciais
+compartilhadas, todos lidos do stdin (key id, application key e senha, uma por linha).
 
 `init` cria as senhas e connection strings do banco e o certificado que cifra o key ring do Data Protection em
 repouso (spec 11.2). Nunca sobrescreve: com um grupo inteiro presente não faz nada; com um grupo incompleto, recusa
@@ -208,6 +213,62 @@ def write_backup_repository(directory: Path, repository: BackupRepository, *, re
     staged.unlink(missing_ok=True)
     _write_secret(staged, repository.to_conf(), owner=POSTGRES_UID if change_owner else None)
     os.replace(staged, target)
+    _sync_directory(directory)
+
+
+MEDIA_REPOSITORY_FILE = "restic_media_repository"
+MEDIA_PASSWORD_FILE = "restic_media_password"
+MEDIA_CREDENTIALS_FILE = "restic_media_credentials"
+MEDIA_BACKUP_FILES = (MEDIA_REPOSITORY_FILE, MEDIA_PASSWORD_FILE, MEDIA_CREDENTIALS_FILE)
+# Senha do repositório restic: gerada fora da VPS (openssl rand -base64 48), sem espaço (uma linha do arquivo).
+_RESTIC_PASSWORD = re.compile(r"[\x21-\x7e]{32,256}")
+
+
+@dataclass(frozen=True)
+class MediaBackupRepository:
+    endpoint: str
+    bucket: str
+    key: str
+    secret: str = field(repr=False)
+    password: str = field(repr=False)
+
+    def files(self) -> dict[str, str]:
+        return {
+            MEDIA_REPOSITORY_FILE: f"s3:https://{self.endpoint}/{self.bucket}/media\n",
+            MEDIA_PASSWORD_FILE: f"{self.password}\n",
+            MEDIA_CREDENTIALS_FILE: (f"[default]\naws_access_key_id = {self.key}\n"
+                                     f"aws_secret_access_key = {self.secret}\n"),
+        }
+
+
+def parse_media_backup_repository(*, bucket: str, endpoint: str, lines: str) -> MediaBackupRepository:
+    """Key id, application key (presa a media/) e senha do restic, uma por linha, como no write-backup-repo."""
+    if _REGION_IN_ENDPOINT.fullmatch(endpoint) is None:
+        raise SecretsError(f"endpoint inválido: {endpoint!r} (só o host, com a região: s3.<região>.backblazeb2.com)")
+    parts = lines.splitlines()
+    if len(parts) != 3:
+        raise SecretsError("o stdin precisa ter exatamente três linhas: key id, application key e senha do restic")
+    key, secret, password = parts
+    repository = parse_backup_repository(bucket=bucket, region="", endpoint=endpoint, uri_style="host",
+                                         credentials=f"{key}\n{secret}\n")
+    if _RESTIC_PASSWORD.fullmatch(password) is None:
+        raise SecretsError("senha do restic inválida (32 a 256 caracteres visíveis, sem espaço)")
+    return MediaBackupRepository(endpoint=repository.endpoint, bucket=repository.bucket, key=repository.key,
+                                 secret=repository.secret, password=password)
+
+
+def write_media_backup_repository(directory: Path, repository: MediaBackupRepository, *, replace: bool) -> None:
+    """Grava os três arquivos (root, 0400); sem replace, recusa se algum já existir. Troca cada um por rename."""
+    existing = [name for name in MEDIA_BACKUP_FILES if (directory / name).exists()]
+    if existing and not replace:
+        raise SecretsError(f"{', '.join(existing)} já existe em {directory}; para trocar (rotação) use --replace")
+    staged = {}
+    for name, content in repository.files().items():
+        staged[name] = directory / f".{name}.new"
+        staged[name].unlink(missing_ok=True)
+        _write_secret(staged[name], content, owner=None)
+    for name, path in staged.items():
+        os.replace(path, directory / name)
     _sync_directory(directory)
 
 
@@ -415,6 +476,15 @@ def main(argv: list[str] | None = None) -> int:
     repository.add_argument("--uri-style", choices=S3_URI_STYLES, default="host")
     repository.add_argument("--replace", action="store_true", help="troca um arquivo existente (rotação da chave)")
     repository.add_argument("--no-chown", action="store_true", help="não troca o dono dos arquivos")
+    media = subcommands.add_parser("write-media-backup-repo",
+                                   help="grava os arquivos do restic das fotos; key id, application key e senha no "
+                                        "stdin, uma por linha")
+    media.add_argument("directory", type=Path)
+    media.add_argument("--bucket", required=True)
+    media.add_argument("--endpoint", required=True, help="host S3 do bucket, sem esquema (s3.<região>.backblazeb2.com)")
+    media.add_argument("--replace", action="store_true", help="troca os arquivos existentes (rotação)")
+    media.add_argument("--no-chown", action="store_true",
+                       help="não exige root (os arquivos ficam com o dono de quem roda; na VPS, root)")
     args = parser.parse_args(argv)
 
     change_owner = not args.no_chown
@@ -430,6 +500,11 @@ def main(argv: list[str] | None = None) -> int:
                                              uri_style=args.uri_style, credentials=sys.stdin.read())
             write_backup_repository(args.directory, parsed, replace=args.replace, change_owner=change_owner)
             message = "pgbackrest_repo.conf gravado; recrie backup e rode duora-backup verify"
+        elif args.command == "write-media-backup-repo":
+            media_repository = parse_media_backup_repository(bucket=args.bucket, endpoint=args.endpoint,
+                                                             lines=sys.stdin.read())
+            write_media_backup_repository(args.directory, media_repository, replace=args.replace)
+            message = "arquivos do restic das fotos gravados; rode duora-backup media-init uma vez"
         elif args.command == "retire-previous-certificates":
             retire_previous_certificates(args.directory, args.keys_directory, change_owner=change_owner)
             message = "certificados anteriores do key ring retirados; recrie o web"
