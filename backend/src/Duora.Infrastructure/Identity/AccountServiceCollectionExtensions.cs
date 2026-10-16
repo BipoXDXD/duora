@@ -26,7 +26,8 @@ public static class AccountServiceCollectionExtensions
     {
         var identity = services.AddIdentityCore<DuoraUser>(ConfigureIdentity)
             .AddRoles<IdentityRole<Guid>>()
-            .AddEntityFrameworkStores<DuoraDbContext>();
+            .AddEntityFrameworkStores<DuoraDbContext>()
+            .AddUserStore<DuoraUserStore>();
 
         services.AddSingleton(provider => new LoginSessions(
             provider.GetRequiredService<NpgsqlDataSource>(),
@@ -42,6 +43,10 @@ public static class AccountServiceCollectionExtensions
             provider.GetRequiredService<LoginSessions>(),
             provider.GetRequiredService<DecoyPasswordHash>(),
             provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddScoped(provider => new AccountSecurityService(
+            provider.GetRequiredService<DuoraDbContext>(),
+            provider.GetRequiredService<UserManager<DuoraUser>>(),
             provider.GetRequiredService<TimeProvider>()));
 
         return identity;

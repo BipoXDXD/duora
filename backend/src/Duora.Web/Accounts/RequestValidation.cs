@@ -21,6 +21,8 @@ internal sealed class RequestValidation
     public const int MaxTokenLength = 1024;
 
     private const int MaxVersionLength = 32;
+    private const int AuthenticatorCodeLength = 6;
+    private const int MaxRecoveryCodeLength = 32;
 
     private readonly Dictionary<string, string[]> _errors = [];
 
@@ -110,6 +112,38 @@ internal sealed class RequestValidation
 
         return !value.Any(char.IsControl) || Fail(field, InvalidCharacters);
     }
+
+    /// <summary>Código do autenticador TOTP: exatamente 6 dígitos ASCII.</summary>
+    public bool AuthenticatorCode(string field, string? value, [NotNullWhen(true)] out string? code)
+    {
+        code = value;
+        if (string.IsNullOrEmpty(value))
+        {
+            return Fail(field, Required);
+        }
+
+        return (value.Length == AuthenticatorCodeLength && value.All(char.IsAsciiDigit)) || Fail(field, InvalidFormat);
+    }
+
+    /// <summary>Código de recuperação: até 32 caracteres, sem caractere de controle.</summary>
+    public bool RecoveryCode(string field, string? value, [NotNullWhen(true)] out string? code)
+    {
+        code = value;
+        if (string.IsNullOrEmpty(value))
+        {
+            return Fail(field, Required);
+        }
+
+        if (value.Length > MaxRecoveryCodeLength)
+        {
+            return Fail(field, TooLong);
+        }
+
+        return !value.Any(char.IsControl) || Fail(field, InvalidCharacters);
+    }
+
+    /// <summary>Campo que não pode vir junto com outro (ex.: código do autenticador e de recuperação).</summary>
+    public bool Exclusive(string field, bool bothPresent) => !bothPresent || Fail(field, InvalidFormat);
 
     public bool Present<T>(string field, T? value, out T present)
         where T : struct

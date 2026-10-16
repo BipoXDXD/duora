@@ -1,6 +1,7 @@
 using Duora.Contracts.Identity;
 using Duora.Infrastructure.Identity;
 using Duora.Web.Identity;
+using Duora.Web.Security;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Duora.Web.Accounts;
@@ -12,7 +13,9 @@ internal static class MeEndpoints
     {
         var me = api.MapGroup("/me").WithTags("Me");
 
-        me.MapGet("", GetMeAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
+        me.MapGet("", GetMeAsync)
+            .AllowDuringMfaEnrollment()
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
         me.MapGet("/sessions", ListSessionsAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
         me.MapDelete("/sessions/{sessionId:guid}", RevokeSessionAsync)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
