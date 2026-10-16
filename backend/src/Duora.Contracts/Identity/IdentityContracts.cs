@@ -11,7 +11,19 @@ public sealed record RegisterRequest(
 
 public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 
-public sealed record LoginRequest(string? Email, string? Password);
+/// <summary>
+/// Login (API-A04). Conta com MFA ativo manda também <c>TwoFactorCode</c> (6 dígitos do autenticador) ou
+/// <c>RecoveryCode</c>, nunca os dois.
+/// </summary>
+public sealed record LoginRequest(string? Email, string? Password, string? TwoFactorCode = null, string? RecoveryCode = null);
+
+/// <summary>Reautenticação (API-A13): senha e, se a conta tem MFA, o código do autenticador.</summary>
+public sealed record ReauthenticateRequest(string? Password, string? TwoFactorCode = null);
+
+/// <summary>Prova de posse do autenticador que ativa o MFA (API-A12).</summary>
+public sealed record ConfirmMfaRequest(string? Code);
+
+public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 
 public sealed record CreatePasswordResetRequest(string? Email);
 
@@ -30,6 +42,12 @@ public sealed record MeResponse(
     bool EmailConfirmed,
     bool MfaEnabled,
     IReadOnlyList<string> Roles);
+
+/// <summary>Cadastro do TOTP (API-A11): mostrado uma vez, com <c>Cache-Control: no-store</c>.</summary>
+public sealed record MfaEnrollmentResponse(string SharedKey, string AuthenticatorUri);
+
+/// <summary>Códigos de recuperação (API-A12 e A14): mostrados uma vez; o servidor guarda só o hash.</summary>
+public sealed record RecoveryCodesResponse(IReadOnlyList<string> RecoveryCodes);
 
 public sealed record SessionResponse(Guid Id, DateTime CreatedAt, DateTime LastSeenAt, bool Current, string Description);
 

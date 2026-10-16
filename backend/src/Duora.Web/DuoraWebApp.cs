@@ -8,7 +8,6 @@ using Duora.Web.Identity;
 using Duora.Web.Profiles;
 using Duora.Web.Safety;
 using Duora.Web.Security;
-using Microsoft.AspNetCore.Authorization;
 
 namespace Duora.Web;
 
@@ -53,9 +52,9 @@ internal static class DuoraWebApp
         builder.Services.AddDuoraSafety();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
-        // Negar por padrão: toda rota exige sessão, e as públicas declaram AllowAnonymous.
-        builder.Services.AddAuthorizationBuilder()
-            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+        // Negar por padrão: toda rota exige sessão (e MFA, se a conta é privilegiada); as públicas declaram
+        // AllowAnonymous.
+        builder.Services.AddSessionAuthorization();
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();
@@ -87,6 +86,7 @@ internal static class DuoraWebApp
         api.MapMeEndpoints();
         api.MapProfileEndpoints();
         api.MapBlockEndpoints();
+        api.MapMfaEndpoints();
 
         return app;
     }

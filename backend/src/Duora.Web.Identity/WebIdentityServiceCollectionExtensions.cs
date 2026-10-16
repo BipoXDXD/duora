@@ -101,6 +101,7 @@ public static class WebIdentityServiceCollectionExtensions
         services.AddDuoraDataProtection(configuration);
 
         services.AddDuoraAccounts()
+            .AddUserManager<DuoraUserManager>()
             .AddSignInManager()
             .AddDefaultTokenProviders()
             .AddTokenProvider<PasswordResetTokenProvider>(AccountTokenProviders.PasswordReset);

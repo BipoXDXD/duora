@@ -20,6 +20,20 @@ internal sealed record AuditAction
 {
     public static readonly AuditAction SafetyBlockCreated = new("safety.block_created");
 
+    public static readonly AuditAction MfaEnrollmentStarted = new("identity.mfa_enrollment_started");
+
+    public static readonly AuditAction MfaEnabled = new("identity.mfa_enabled");
+
+    public static readonly AuditAction MfaDisabled = new("identity.mfa_disabled");
+
+    public static readonly AuditAction MfaRecoveryCodesRegenerated = new("identity.mfa_recovery_codes_regenerated");
+
+    public static readonly AuditAction MfaRecoveryCodeUsed = new("identity.mfa_recovery_code_used");
+
+    public static readonly AuditAction Reauthenticated = new("identity.reauthenticated");
+
+    public static readonly AuditAction PasswordChanged = new("identity.password_changed");
+
     private AuditAction(string code) => Code = code;
 
     public string Code { get; }
