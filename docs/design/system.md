@@ -150,6 +150,38 @@ por nível.
   seção 15.1). O estado final continua visível; nada depende de ver a animação.
 - Nada pisca mais de três vezes por segundo; o tempo restante não anima a cada segundo.
 
+## Ilustração
+
+Direção escolhida pelo responsável pelo produto: **objetos simbólicos** em WebP estático, com dois tons
+recoloridos para `action` e `text-muted` (spec 13.3, "Ilustração e fotografia"). Componente e assets estão
+**implementados** (`frontend/src/shared/ui/illustration.tsx`); a colocação nas telas entra com cada tela.
+
+### Regra de conteúdo
+
+- **Nenhuma pessoa, rosto, mão, parte do corpo ou silhueta humana**, nem realista nem estilizada. A spec 13.3
+  proíbe sugerir identidade falsa ou presença fictícia, e o [brief](../product/experience-brief.md) pede
+  ilustração sem casal-padrão; objeto não tem gênero, idade nem corpo.
+- **Nenhum texto, letra, número, símbolo ou logo** dentro da imagem: texto vem do catálogo de idiomas, ao lado.
+- O prefixo de prompt em `tools/visual/catalog.json` carrega essas proibições, e um teste confere que elas
+  continuam lá. Fonte que viola a regra é descartada e gerada de novo, nunca retocada.
+- Só modelos aprovados (GPT Image 2.5 ou Nano Banana Pro, via Tripo) e só com linha em
+  [assets-licenses.md](assets-licenses.md). Processo em [tools/visual/README.md](../../tools/visual/README.md).
+
+### Uso
+
+| Uso (`catalog.json`) | Tamanho CSS | Onde |
+|---|---|---|
+| `onboarding` | 240 px | Boas-vindas e primeira visita |
+| `experience` | 200 px | Introdução e conclusão de uma experiência |
+| `emptyState` | 160 px | Estado vazio de lista (spec 13.2) |
+| `screen` | 128 px | Cabeçalho de tela de conteúdo |
+
+- No máximo uma ilustração por tela; ela nunca é o único portador de informação (RUI cap. 5, "Don't rely on
+  color alone", vale também para imagem).
+- `<Illustration name alt>` quando a imagem acrescenta algo ao texto ao lado; `decorative` quando só enfeita
+  (`alt=""` e `aria-hidden`). `alt` em branco sem `decorative` falha no render.
+- Largura e altura fixas pelo uso, para não haver layout shift; `max-w-full` reduz no mobile.
+
 ## Hierarquia de ações
 
 As quatro variantes já existem em `frontend/src/shared/ui/button.tsx` (alvo mínimo de 44 px, foco sólido,
@@ -213,7 +245,8 @@ e seguem as mesmas regras; eles entram no Storybook quando a primeira experiênc
 
 ## Pendências
 
-- Identidade visual final (matiz, fonte, raio, ilustração): decisão do responsável pelo produto.
+- Identidade visual final (matiz, fonte, raio): decisão do responsável pelo produto. A direção de ilustração já
+  foi escolhida (seção [Ilustração](#ilustração)).
 - Tokens propostos (`success`, `warning`, `*-surface`, `surface-raised`, `overlay`, sombras e movimento) entram
   no código junto com o primeiro componente que os usar, com teste de contraste.
 - Storybook ainda não existe no repositório (`frontend/.storybook/` está na estrutura da spec 21.1).
