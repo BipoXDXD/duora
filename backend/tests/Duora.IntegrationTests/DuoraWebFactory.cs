@@ -27,6 +27,7 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
     public DirectoryInfo? SharedKeyRing { get; init; }
 
     private DirectoryInfo KeyRing => SharedKeyRing ?? (_ownKeyRing ??= Directory.CreateTempSubdirectory("duora-keys-"));
+    private readonly DirectoryInfo _media = Directory.CreateTempSubdirectory("duora-media-");
 
     /// <summary>Relógio da aplicação; nulo usa o do sistema.</summary>
     public TimeProvider? Time { get; init; }
@@ -36,8 +37,14 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
     /// <summary>Troca pontual de serviços (contadores, interceptadores); nunca de banco ou de regra.</summary>
     public Action<IServiceCollection>? TestServices { get; init; }
 
-    /// <summary>Configuração extra, aplicada por último (vence user-secrets em Development).</summary>
+    /// <summary>
+    /// Configuração extra, aplicada por último (vence user-secrets em Development) e também sobre os padrões de mídia
+    /// abaixo; um valor <c>null</c> apaga o padrão.
+    /// </summary>
     public IReadOnlyDictionary<string, string?> Settings { get; init; } = new Dictionary<string, string?>();
+
+    /// <summary>Diretório do object storage de teste (adaptador de filesystem), apagado no fim.</summary>
+    public string MediaRoot => _media.FullName;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -47,7 +54,14 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
         builder.UseSetting("DataProtection:KeysDirectory", KeyRing.FullName);
         builder.UseSetting("DataProtection:RequireMountedVolume", "false");
         // Sem certificado por padrão (como em Development); o teste que exige o certificado o passa em Settings.
-        var settings = new Dictionary<string, string?> { ["DataProtection:RequireCertificate"] = "false" };
+        // Upload ligado com storage em diretório temporário e aprovação técnica (dados sintéticos, ADR-0025).
+        var settings = new Dictionary<string, string?>
+        {
+            ["DataProtection:RequireCertificate"] = "false",
+            ["Media:Review"] = "TechnicalOnly",
+            ["Media:Storage:Provider"] = "FileSystem",
+            ["Media:Storage:FileSystemRoot"] = _media.FullName,
+        };
         foreach (var (key, value) in Settings)
         {
             settings[key] = value;
@@ -89,5 +103,6 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
     {
         await base.DisposeAsync();
         _ownKeyRing?.Delete(recursive: true);
+        _media.Delete(recursive: true);
     }
 }

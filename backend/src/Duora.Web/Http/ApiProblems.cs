@@ -12,10 +12,15 @@ internal static class ApiProblems
     public const string AccountNotEligible = "ACCOUNT_NOT_ELIGIBLE";
     public const string AccountRestricted = "ACCOUNT_RESTRICTED";
     public const string CsrfValidationFailed = "CSRF_VALIDATION_FAILED";
+    public const string IdempotencyKeyReused = "IDEMPOTENCY_KEY_REUSED";
+    public const string IdempotencyRequestInProgress = "IDEMPOTENCY_REQUEST_IN_PROGRESS";
     public const string InvalidCredentials = "INVALID_CREDENTIALS";
     public const string InvalidRequest = "INVALID_REQUEST";
     public const string InvalidToken = "INVALID_TOKEN";
+    public const string LengthRequired = "LENGTH_REQUIRED";
+    public const string MediaUploadsDisabled = "MEDIA_UPLOADS_DISABLED";
     public const string MfaRequired = "MFA_REQUIRED";
+    public const string PayloadTooLarge = "PAYLOAD_TOO_LARGE";
     public const string PreconditionFailed = "PRECONDITION_FAILED";
     public const string PreconditionRequired = "PRECONDITION_REQUIRED";
     public const string MfaCodeInvalid = "MFA_CODE_INVALID";
@@ -27,7 +32,11 @@ internal static class ApiProblems
     public const string ReauthenticationRequired = "REAUTHENTICATION_REQUIRED";
     public const string RateLimited = "RATE_LIMITED";
     public const string SelfBlock = "SELF_BLOCK";
+    public const string StorageUnavailable = "STORAGE_UNAVAILABLE";
     public const string TemporarilyUnavailable = "TEMPORARILY_UNAVAILABLE";
+    public const string UnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE";
+    public const string UploadIncomplete = "UPLOAD_INCOMPLETE";
+    public const string UploadPendingLimit = "UPLOAD_PENDING_LIMIT";
     public const string ValidationFailed = "VALIDATION_FAILED";
 
     public static ProblemHttpResult Problem(int status, string code, string title) =>
@@ -69,8 +78,9 @@ internal static class ApiProblems
             StatusCodes.Status403Forbidden => "FORBIDDEN",
             StatusCodes.Status404NotFound => "NOT_FOUND",
             StatusCodes.Status405MethodNotAllowed => "METHOD_NOT_ALLOWED",
-            StatusCodes.Status413PayloadTooLarge => "PAYLOAD_TOO_LARGE",
-            StatusCodes.Status415UnsupportedMediaType => "UNSUPPORTED_MEDIA_TYPE",
+            StatusCodes.Status411LengthRequired => LengthRequired,
+            StatusCodes.Status413PayloadTooLarge => PayloadTooLarge,
+            StatusCodes.Status415UnsupportedMediaType => UnsupportedMediaType,
             StatusCodes.Status429TooManyRequests => RateLimited,
             StatusCodes.Status500InternalServerError => "INTERNAL_ERROR",
             var other => $"HTTP_{other}",
