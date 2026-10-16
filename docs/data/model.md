@@ -93,7 +93,7 @@ detalhar este modelo. Todas **Proposta — confirmar**.
 | D10 | Uma conexão por par para sempre | `UNIQUE (user_low, user_high)` em `social.connections` vale também para conexões encerradas (reconexão fora do MVP, spec 7.1); o pareamento exclui pares com conexão `Ended` ou `Blocked` | Unicidade só de conexão ativa: permitiria reconexão implícita, que a spec deixa fora do MVP |
 | D11 | Sequência de mensagens | `social.conversations.next_sequence bigint`, incrementado sob o lock da conversa no envio | `SEQUENCE` global ou `max(sequence)+1`: a primeira não é por conversa; a segunda é read-modify-write |
 | D12 | Data de nascimento | `identity.users.birth_date date` (classe P3), nunca exposta; o perfil guarda só a faixa etária derivada | Só faixa etária autodeclarada: a faixa precisa ser recalculada com o tempo e conferida com a verificação etária |
-| D13 | Conta privilegiada separada | Constraint de atribuição: conta com papel privilegiado não tem papel `participant` ([auth.md](../security/auth.md#papéis-e-contas)) | Elevação de sessão de participante |
+| D13 | Conta privilegiada separada (**Accepted**, 2026-10-15) | Trigger de atribuição: conta com papel privilegiado não tem papel `participant` ([auth.md](../security/auth.md#papéis-e-contas)) | Elevação de sessão de participante |
 
 ## Schema `identity`
 
@@ -159,9 +159,15 @@ erDiagram
 
 - `roles`: `id`, `name`, `normalized_name` (`UNIQUE`); papéis fixos `participant`, `moderator`,
   `product_admin`, `operator`. `role_claims` guarda as permissões específicas por papel (spec 8.5).
-- `user_roles`: PK `(user_id, role_id)`; FKs `CASCADE` para ambos; índice em `role_id`. **D13:** a regra
-  "privilegiado não é participante" fica num `CHECK` via função ou trigger de atribuição **(Proposta —
-  confirmar)**, testada em integração.
+- `roles` nasce por seed da migration `AdminMfa`, com ids fixos; nenhum usuário nem permissão vem por seed
+  (spec 17).
+- `user_roles`: PK `(user_id, role_id)`; FKs `CASCADE` para ambos; índice em `role_id`. **D13 (Accepted,
+  2026-10-15):** "privilegiado não é participante" é garantido pelo trigger
+  `trg_user_roles_privileged_is_not_participant` (`BEFORE INSERT OR UPDATE`), que trava a linha da conta
+  (`FOR NO KEY UPDATE`) para serializar concessões simultâneas e recusa com `check_violation` e constraint
+  `ck_user_roles_privileged_is_not_participant`. Testes: `RoleSeparationTests`. O cadastro ainda não grava o
+  papel `participant`: conta sem papel é participante por omissão, e o bootstrap administrativo (PR seguinte)
+  cria contas privilegiadas novas.
 - `user_claims`: não usado no M1 (claims ficam no servidor); existe porque o modelo do Identity o inclui.
 - `user_logins`: vazio (login externo fora do escopo, spec 1.1).
 - **Classe:** P2.
@@ -171,8 +177,11 @@ erDiagram
 - **Colunas:** `user_id`, `login_provider`, `name`, `value` (chave do autenticador TOTP, códigos de
   recuperação).
 - **Chaves:** PK `(user_id, login_provider, name)`; FK `user_id` `CASCADE`.
-- **Classe:** S. **A verificar:** se o Identity guarda `value` em claro, decidir proteção adicional
-  ([auth.md](../security/auth.md#mfa)).
+- **Classe:** S. O Identity 10.0.13 grava `value` em claro; por isso (decisões D2 e D3 de
+  [auth.md](../security/auth.md#mfa)): a chave do autenticador fica protegida por Data Protection
+  (`DuoraUserManager`, purpose `Duora.Identity.AuthenticatorKey.v1`), e os códigos de recuperação ficam só como
+  hash PBKDF2 do `PasswordHasher`, um por código, na linha `([DuoraUserStore], RecoveryCodeHashes)`
+  (`DuoraUserStore`). Teste: `MfaEnrollmentTests.TheDatabaseNeverHoldsTheKeyOrTheRecoveryCodesInClear`.
 
 ### identity.login_sessions
 

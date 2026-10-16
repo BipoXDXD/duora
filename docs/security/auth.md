@@ -24,11 +24,13 @@ Valores numéricos marcados **(hipótese)** são iniciais e configuráveis, vers
 | Participante | `participant` | Opcional, TOTP (ADR-0017) | Normal: 30 min ociosa, 12 h absoluta |
 | Privilegiada | `moderator`, `product_admin`, `operator` (um ou mais) | Obrigatório e confirmado antes da primeira sessão administrativa | Administrativa: 15 min ociosa, 8 h absoluta |
 
-**Proposta — confirmar:** conta privilegiada nunca recebe o papel `participant`, e vice-versa. A spec 1.3 já
-exige contas distintas para responsabilidades distintas; tornar isso regra de dados (constraint na atribuição
-de papel) permite decidir a política de sessão pela conta, sem "elevar" uma sessão de participante. Bootstrap
-e concessão de papel privilegiado: comando operacional único, auditado, fora da API pública, com convite que
-expira e exige configurar MFA (spec 11.1).
+**Decidido (D13, Accepted em 2026-10-15):** conta privilegiada nunca recebe o papel `participant`, e
+vice-versa (spec 1.3). A regra é de dados: um trigger em `identity.user_roles` recusa a mistura e serializa
+concessões simultâneas da mesma conta ([model.md](../data/model.md)). Assim a política de sessão é decidida pela
+conta no login, sem "elevar" uma sessão de participante. Bootstrap e concessão de papel privilegiado: comando
+operacional único, auditado, fora da API pública, com credencial temporária que expira e exige configurar MFA
+(spec 11.1). **Pendente (PR seguinte, decisão D4):** o comando, com senha temporária mostrada uma vez no terminal
+do operador; até lá, papéis só entram por fixture nos testes e não existe rota que conceda papel.
 
 ## Ticket no servidor
 
@@ -71,7 +73,7 @@ mostrar custo.
 | Política | Ociosa | Absoluta | Aplicação |
 |---|---|---|---|
 | Normal | 30 min | 12 h | Contas de participante |
-| Administrativa | 15 min | 8 h | Contas privilegiadas (**pendente:** chega com os papéis e o MFA) |
+| Administrativa | 15 min | 8 h | Contas privilegiadas: a política é gravada em `login_sessions.policy` no login, pelos papéis da conta |
 
 - No login: `absolute_expires_at = agora + absoluta` (imutável) e `idle_expires_at = min(agora + ociosa,
   absolute_expires_at)`.
@@ -97,8 +99,11 @@ identidade nova.
 
 ## Reautenticação e step-up
 
-API-A13 grava `login_sessions.reauthenticated_at`. A janela de autenticação recente é **5 min (hipótese)**,
-verificada no servidor; o frontend não concede privilégio (spec 8.2).
+API-A13 grava `login_sessions.reauthenticated_at` e, quando a prova inclui o TOTP, também `mfa_verified_at`. O
+login grava os dois (o segundo só com MFA). A janela de autenticação recente é **5 min (hipótese)**, intervalo
+semiaberto, verificada no servidor a cada requisição; o frontend não concede privilégio (spec 8.2). O ticket store
+lê esses instantes, a política e os papéis atuais da conta do banco em cada requisição, nunca do ticket nem do
+cliente: tirar um papel fecha as rotas `/admin` na requisição seguinte.
 
 | Exige autenticação recente | Prova exigida |
 |---|---|
@@ -106,7 +111,9 @@ verificada no servidor; o frontend não concede privilégio (spec 8.2).
 | API-D01, D03, D04 (exportação e exclusão) | Senha; TOTP quando houver |
 | Ações administrativas críticas: decisão de moderação (ADM14, ADM15), leitura de evidência (ADM13), publicar/cancelar evento (ADM04, ADM05), publicar/aposentar catálogo (ADM09, ADM10), pausas operacionais (ADM17, ADM18), reprocessar job (ADM20) | TOTP obrigatório |
 
-Faltando autenticação recente: `401` com `code = REAUTHENTICATION_REQUIRED`, sem efeito.
+Faltando autenticação recente: `401` com `code = REAUTHENTICATION_REQUIRED`, sem efeito. Implementação: filtros
+`RequireRecentAuthentication()` (A11, A12, A14, A15, A16) e `RequireRecentMfa()` (ações administrativas
+críticas, conferindo `mfa_verified_at`). As rotas ADM ainda não existem; cada uma acrescenta o filtro ao nascer.
 
 ## MFA
 
@@ -116,14 +123,16 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 | Tema | Especificação |
 |---|---|
 | Método | TOTP do Identity (`AuthenticatorTokenProvider`); passkeys só depois, pelo suporte oficial e com teste (spec 11.1) |
-| Cadastro (API-A11) | Exige autenticação recente; gera nova chave do autenticador e devolve `sharedKey` e URI `otpauth://` uma única vez, com `no-store`; MFA ainda **inativo** |
-| Confirmação (API-A12) | Código TOTP válido ativa o MFA, gera 10 códigos de recuperação **(hipótese)** mostrados uma vez, renova a sessão e notifica o titular |
-| Login com MFA (API-A04) | Mesmo corpo com `twoFactorCode` ou `recoveryCode`. Senha correta sem segundo fator → `401` `MFA_REQUIRED`, **sem** criar sessão. Falhas de TOTP contam no mesmo lockout da senha |
-| Conta privilegiada sem MFA confirmado | Login só abre sessão restrita ao cadastro de MFA (A11, A12, A05, A08); toda rota `/admin/*` → `403` `MFA_ENROLLMENT_REQUIRED` |
-| Novos códigos (API-A14) | Autenticação recente; revoga o conjunto anterior; mostra o novo uma vez; nada em log |
-| Desativar (API-A15) | Autenticação recente; recusado (`403` `MFA_REQUIRED_BY_ROLE`) se a conta é privilegiada; para participante, desativa, revoga as outras sessões e notifica |
-| Recuperação de MFA de conta privilegiada | Não há caminho self-service por e-mail: procedimento operacional auditado, com outra pessoa ou conta privilegiada quando houver (TM-22) |
-| Armazenamento | Chave do autenticador e códigos de recuperação ficam em `identity.user_tokens` (classe S). **Pendente, antes de implementar o MFA:** verificar se o Identity 10.0.13 os grava em claro; se sim, avaliar `ProtectPersonalData`/proteção por Data Protection, porque um dump do banco daria o segundo fator |
+| Cadastro (API-A11) | Exige autenticação recente; gera nova chave do autenticador e devolve `sharedKey` e URI `otpauth://` uma única vez, com `no-store`; MFA ainda **inativo**. Trocar a chave troca o security stamp (comportamento do Identity): a sessão que pediu o cadastro adota o stamp novo e as outras caem. MFA já ativo → `409` `MFA_ALREADY_ENABLED` |
+| Confirmação (API-A12) | Código TOTP válido ativa o MFA, gera 10 códigos de recuperação **(hipótese)** mostrados uma vez, revoga as sessões da conta e abre uma nova para quem confirmou, já com a prova de MFA. Código errado → `400` `MFA_CODE_INVALID`; sem cadastro → `409` `MFA_ENROLLMENT_NOT_STARTED`. **Pendente:** notificar o titular por e-mail |
+| Login com MFA (API-A04) | Mesmo corpo com `twoFactorCode` (6 dígitos) ou `recoveryCode` (até 32 caracteres), nunca os dois (`400`). Senha correta sem segundo fator → `401` `MFA_REQUIRED`, **sem** criar sessão. Segundo fator errado → `401` `INVALID_CREDENTIALS` e conta no mesmo lockout da senha; o lockout só zera depois do segundo fator certo. Código de recuperação é de uso único (dois resgates simultâneos: um vence, pelo concurrency stamp da conta) e o resgate é auditado. Aceita minúsculas e espaços em volta |
+| Conta privilegiada sem MFA confirmado | Login abre sessão administrativa restrita ao cadastro de MFA: A08, A11, A12 e A13 (a reautenticação entra porque A11 e A12 exigem autenticação recente); A05 e as rotas públicas não exigem sessão. Toda outra rota, inclusive `/admin/*` → `403` `MFA_ENROLLMENT_REQUIRED` |
+| Novos códigos (API-A14) | Autenticação recente; troca o conjunto inteiro no mesmo commit; mostra o novo uma vez; nada em log. MFA inativo → `409` `MFA_NOT_ENABLED` |
+| Desativar (API-A15) | Autenticação recente; recusado (`403` `MFA_REQUIRED_BY_ROLE`) se a conta é privilegiada; para participante, desativa, troca a chave por uma que ninguém viu, esvazia os códigos, revoga as sessões e abre uma nova para quem desativou. MFA já inativo → `204` sem efeito. **Pendente:** notificar o titular |
+| Recuperação de MFA de conta privilegiada | Não há caminho self-service por e-mail: procedimento operacional auditado, com outra pessoa ou conta privilegiada quando houver (TM-22). O reset de senha não remove nem contorna o MFA (`AdminMfaTests.PasswordResetDoesNotBypassMfaForPrivilegedAccount`) |
+| Armazenamento | Verificado: o Identity 10.0.13 grava chave e códigos em claro em `identity.user_tokens`, e ligar `ProtectPersonalData` exigiria um `ILookupProtector` próprio que também cifraria e-mail e nome de usuário. Decidido em 2026-10-15: **D2**, a chave do autenticador é protegida por Data Protection num `DuoraUserManager` (só no web), com o custo de que perder o key ring invalida o TOTP de todos (a chave ilegível é tratada como ausente); **D3**, os códigos de recuperação ficam só como hash PBKDF2 do `PasswordHasher`, um por código, num `IUserTwoFactorRecoveryCodeStore` próprio (`DuoraUserStore`), com o custo de até 10 verificações PBKDF2 por resgate |
+| Auditoria | `ops.audit_events` na mesma transação: `identity.mfa_enrollment_started`, `mfa_enabled`, `mfa_disabled`, `mfa_recovery_codes_regenerated`, `mfa_recovery_code_used`, `reauthenticated` e `password_changed` |
+| Risco residual | O TOTP aceito numa janela de tolerância pode ser reaproveitado dentro dela (o Identity não guarda o último passo usado); contido pelo TLS, pelo lockout e pelo rate limit. Registrar o último passo fica para uma revisão com medição |
 
 ## CSRF
 
@@ -284,8 +293,8 @@ remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests`,
 | Pedido de reset (A06) | E-mail normalizado | 3 / hora | `429` + `Retry-After` |
 | Pedido de reset (A06) | IP | 10 / hora | `429` + `Retry-After` |
 | Conclusão de reset (A07), confirmação (A03) | IP | 20 / 10 min | `429` + `Retry-After` |
-| Reautenticação (A13) | Sessão | Mesmo lockout da conta | `401` |
-| MFA (A11, A12, A14, A15), troca de senha (A16) | Sessão | 10 / hora | `429` + `Retry-After` |
+| Reautenticação (A13) | Conta (banco) | Mesmo lockout da conta | `401` |
+| MFA (A11, A12, A14, A15), troca de senha (A16) | Sessão (um contador para as cinco rotas, `RateLimiting:AccountSecurityPerSession`) | 10 / hora | `429` + `Retry-After` |
 | Revogar sessão (A10) | Sessão | 30 / hora | `429` + `Retry-After` |
 | Bloquear (API-S01) | Conta (id da sessão; vale para todas as sessões e IPs da conta) | 30 / hora (`RateLimiting:BlockPerAccount`, decisão G6) | `429` + `Retry-After` |
 
@@ -311,19 +320,19 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | API-A01 | `GET /auth/csrf` | Pública | — | — | — → `204` + cookie `XSRF-TOKEN` | — | — |
 | API-A02 | `POST /auth/register` | Pública | Sim | — | `email` (≤ 254), `password` (12–128), `acceptedTermsVersion`, `acceptedPrivacyVersion` (1–32, `[A-Za-z0-9._-]`) → `202` sem corpo, igual exista ou não a conta | `400` `VALIDATION_FAILED` (com `errors`) ou `INVALID_REQUEST`; `403` `CSRF_VALIDATION_FAILED`; `429` `RATE_LIMITED` | Pendente |
 | API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token`, `password` (até 128) → `204` (uso único; não abre sessão) | `400` `INVALID_TOKEN` (token inválido ou senha errada, sem distinguir); `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
-| API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo. `twoFactorCode`/`recoveryCode` chegam com o MFA | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | Pendente |
+| API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128), `twoFactorCode?` (6 dígitos) ou `recoveryCode?` (até 32) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | Resgate de código de recuperação; login pendente |
 | API-A05 | `POST /auth/logout` | Pública (sem sessão também responde `204`) | Sim | — | — → `204` + `XSRF-TOKEN` novo; revoga a sessão no servidor | `403` | Pendente |
 | API-A06 | `POST /auth/password-reset-requests` | Pública | Sim | — | `email` → `202` sem corpo | `400`; `403`; `429` por IP e por e-mail | Pendente |
 | API-A07 | `POST /auth/password-resets` | Pública | Sim | — | `userId`, `token`, `newPassword` (12–128) → `204` | `400` `INVALID_TOKEN`, `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
 | API-A08 | `GET /me` | Cookie (inclusive conta restrita) | — | — | → `id`, `email`, `status` (`PendingEmail`, `PendingEligibility`, `Active`, `Restricted`, `Suspended`, `DeletionPending`), `emailConfirmed`, `mfaEnabled`, `roles` | `401` `UNAUTHENTICATED` | — |
 | API-A09 | `GET /me/sessions` | Cookie | — | Só para detalhes (pendente) | → `items[]`: `id`, `createdAt`, `lastSeenAt`, `current`, `description` (só família de navegador e sistema; o User-Agent não é guardado); até 100 sessões ativas | `401` | — |
 | API-A10 | `DELETE /me/sessions/{sessionId}` | Cookie | Sim | — | → `204` (também para sessão própria já revogada) | `404` `NOT_FOUND` (alheia ou inexistente); `403`; `401` | Pendente |
-| API-A11 | `POST /me/mfa/enrollments` | Cookie | Sim | Sim | → `sharedKey`, `authenticatorUri` | `401` `REAUTHENTICATION_REQUIRED`; `409` MFA já ativo | Início de cadastro |
-| API-A12 | `POST /me/mfa/confirmations` | Cookie | Sim | Sim | `code` → `recoveryCodes[]` + sessão renovada | `400` `MFA_CODE_INVALID` | MFA ativado |
-| API-A13 | `POST /auth/reauthenticate` | Cookie | Sim | — | `password`, `twoFactorCode?` → `204` | `401` `INVALID_CREDENTIALS`; `429` | Reautenticação |
-| API-A14 | `POST /me/mfa/recovery-codes` | Cookie | Sim | Sim | → `recoveryCodes[]` (conjunto anterior revogado) | `409` MFA inativo | Códigos regenerados |
-| API-A15 | `DELETE /me/mfa` | Cookie | Sim | Sim | → `204` | `403` `MFA_REQUIRED_BY_ROLE` | MFA desativado |
-| API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` → `204` + sessão renovada | `400` validação; `401` senha atual errada | Senha trocada |
+| API-A11 | `POST /me/mfa/enrollments` | Cookie | Sim | Sim | → `200` `sharedKey`, `authenticatorUri` | `401` `REAUTHENTICATION_REQUIRED`; `409` `MFA_ALREADY_ENABLED`; `429` | `identity.mfa_enrollment_started` |
+| API-A12 | `POST /me/mfa/confirmations` | Cookie | Sim | Sim | `code` (6 dígitos) → `200` `recoveryCodes[]` + sessão renovada | `400` `MFA_CODE_INVALID` ou `VALIDATION_FAILED`; `401`; `409` `MFA_ALREADY_ENABLED`/`MFA_ENROLLMENT_NOT_STARTED`; `429` | `identity.mfa_enabled` |
+| API-A13 | `POST /auth/reauthenticate` | Cookie (inclusive sessão restrita) | Sim | — | `password`, `twoFactorCode?` (obrigatório se a conta tem MFA) → `204` | `401` `INVALID_CREDENTIALS`; `400` | `identity.reauthenticated` |
+| API-A14 | `POST /me/mfa/recovery-codes` | Cookie | Sim | Sim | → `200` `recoveryCodes[]` (conjunto anterior revogado) | `409` `MFA_NOT_ENABLED`; `401`; `429` | `identity.mfa_recovery_codes_regenerated` |
+| API-A15 | `DELETE /me/mfa` | Cookie | Sim | Sim | → `204` (também se já estava inativo) + sessão renovada | `403` `MFA_REQUIRED_BY_ROLE`; `401`; `429` | `identity.mfa_disabled` |
+| API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` (12–128) → `204` + sessão renovada; outras sessões revogadas | `400` validação; `401` `INVALID_CREDENTIALS` (senha atual errada, conta no lockout); `429` | `identity.password_changed` |
 
 Regras comuns: DTO estrito (campo desconhecido ou repetido → `400` `INVALID_REQUEST`); corpo até 32 KiB; erros
 em `application/problem+json` com `type` (`urn:duora:problem:<código>`), `title`, `status`, `code` e `traceId`;
@@ -351,10 +360,11 @@ sem artefato do CI (spec 25.19).
 | Item | Status | Teste / evidência | PR |
 |---|---|---|---|
 | Cookie `__Host-duora` e `ITicketStore` PostgreSQL | implementado | `SessionTests` (atributos, revogação) | feat/m1-identity |
-| Expiração ociosa e absoluta, normal e administrativa | normal implementada; administrativa pendente | `SessionTests.IdleSessionExpiresAfterThirtyMinutes`, `ActivitySlidesTheIdleLimitButNeverPastTwelveHours` | feat/m1-identity |
-| Fixação: nova sessão no login e nas mudanças de privilégio | login implementado; mudança de privilégio pendente | `SessionTests.SessionIdChangesOnLoginAndThePreviousCookieStopsWorking` | feat/m1-identity |
-| Reautenticação e step-up | não implementado | — | — |
-| MFA TOTP (A11, A12, A14, A15) e política por papel | não implementado | — | — |
+| Expiração ociosa e absoluta, normal e administrativa | implementado | `SessionTests.IdleSessionExpiresAfterThirtyMinutes`, `ActivitySlidesTheIdleLimitButNeverPastTwelveHours`, `AdminSessionTests` | feat/m1-identity, feat/m1-admin-mfa |
+| Fixação: nova sessão no login e nas mudanças de privilégio | login, ativação e desativação de MFA e troca de senha implementados; mudança de papel exige login novo (sessão normal não abre `/admin`) | `SessionTests.SessionIdChangesOnLoginAndThePreviousCookieStopsWorking`, `MfaEnrollmentTests.ConfirmationActivatesMfaReturnsTenCodesAndRenewsTheSession`, `ReauthenticationTests.ChangingThePasswordRenewsThisSessionAndEndsTheOthers`, `AdminRouteTests.ARoleGrantedDuringANormalSessionNeedsANewAdministrativeLogin` | feat/m1-admin-mfa |
+| Reautenticação e step-up | implementado (A13, filtros de recência); rotas ADM ainda não existem | `ReauthenticationTests`, `AdminRouteTests.ACriticalActionNeedsASecondFactorProvedInTheLastFiveMinutes` | feat/m1-admin-mfa |
+| MFA TOTP (A11, A12, A14, A15) e política por papel | implementado; notificação por e-mail pendente | `MfaEnrollmentTests`, `MfaLoginTests`, `AdminMfaTests`, `AdminRouteTests`, `RoleSeparationTests`, `SecretLeakTests.MfaSecretsAppearOnlyInTheResponsesThatProvisionThem` | feat/m1-admin-mfa |
+| Troca de senha (A16) | implementado; notificação por e-mail pendente | `ReauthenticationTests` | feat/m1-admin-mfa |
 | Antiforgery, cookie `XSRF-TOKEN` e checagem de origem | implementado | `CsrfProtectionTests` (T-13) | feat/m1-identity |
 | Recuperação de senha e confirmação de e-mail | implementado (e-mail pela outbox; adaptador de desenvolvimento em arquivo) | `RegistrationTests`, `PasswordResetTests`, `TransactionalEmailDispatchTests` | feat/m1-identity |
 | Revogação (A05, A10, troca de senha, reset) e fechamento do hub | A05, A10 e reset implementados; troca de senha e hub pendentes | `SessionTests` (T-14, parte HTTP), `PasswordResetTests` | feat/m1-identity |
@@ -362,7 +372,7 @@ sem artefato do CI (spec 25.19).
 | Pré-sequestro de conta (TM-66) | implementado | `AccountTakeoverTests` | feat/m1-identity |
 | Data Protection persistente e protegido | implementado: volume e certificado exigidos no boot; nome por ambiente pendente | `StartupConfigurationTests`, `KeyRingRecoveryTests`, `KeyRingCertificateTests`, `KeyRingMountTests`, `ComposeFileTests` | feat/dataprotection-cert |
 | Rate limit e lockout | implementado | `LoginTests`, `RegistrationTests` | feat/m1-identity |
-| Contrato A01 a A16 no OpenAPI gerado | A01 a A10 publicados; A11 a A16 pendentes | `docs/api/openapi.json` | feat/m1-identity |
+| Contrato A01 a A16 no OpenAPI gerado | publicado | `docs/api/openapi.json` | feat/m1-identity, feat/m1-admin-mfa |
 
 ## Histórico
 
@@ -395,3 +405,14 @@ sem artefato do CI (spec 25.19).
 - **2026-10-15, feat/dataprotection-cert.** Proteção em repouso (decisão do responsável técnico: certificado X.509
   como Docker secret): `ProtectKeysWithCertificate` com o certificado do `duora-secrets`, anteriores só para
   decifrar durante a rotação (`rotate-certificate`, `retire-previous-certificates`), boot falha sem certificado.
+- **2026-10-15, feat/m1-admin-mfa.** MFA administrativo, com as decisões do responsável técnico:
+  - D1 (= D13 do model.md): contas privilegiada e de participante disjuntas, por trigger no banco.
+  - D2: chave TOTP protegida por Data Protection no `DuoraUserManager`; D3: códigos de recuperação com hash
+    PBKDF2, um por código, no `DuoraUserStore`.
+  - D4: bootstrap administrativo fora deste PR (o seguinte traz a senha temporária).
+  - D5: empilhado sobre o PR da auditoria (`ops.audit_events`).
+  - D6: grupo `/admin` com a política de sessão administrativa, testado com sondas registradas pelo mesmo ponto de
+    extensão que os módulos usarão; nenhuma rota ADM de produto entra aqui.
+  - Mudanças em relação ao texto anterior: segundo fator errado no login é `INVALID_CREDENTIALS`; a sessão restrita
+    inclui A13; A11 troca o security stamp (outras sessões caem); A15 em conta sem MFA é `204`; os limites de
+    A11, A12 e A14 a A16 dividem um contador por sessão.
