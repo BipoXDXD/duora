@@ -30,6 +30,8 @@ internal sealed record AuditAction
 
     public static readonly AuditAction AccountRestricted = new("identity.account_restricted");
 
+    public static readonly AuditAction AgeVerificationLateNotAdult = new("identity.age_verification_late_not_adult");
+
     private AuditAction(string code) => Code = code;
 
     public string Code { get; }
