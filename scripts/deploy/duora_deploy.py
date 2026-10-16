@@ -44,10 +44,13 @@ COMMAND_TIMEOUT_SECONDS = 15 * 60
 # anterior a ela deixaria conta privilegiada sem MFA ser tomada pelo reset; o rollback que a cruza só segue sem
 # nenhuma conta assim (docs/operations/deploy.md, "Bootstrap administrativo").
 ADMIN_BOOTSTRAP_MIGRATION = "20261016102312_AdminBootstrap"
+# Privilegiada = qualquer papel que não seja participant, sem lista dos privilegiados: um papel novo no AccountRoles.cs
+# faz a guarda recusar em vez de passar. "is distinct from" conta também o papel de nome nulo (roles.name é anulável);
+# o exists conta cada conta uma vez, tenha ela quantos papéis tiver.
 PRIVILEGED_ACCOUNTS_WITHOUT_MFA_SQL = (
     "select count(*) from identity.users u where not u.two_factor_enabled and exists ("
     "select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id "
-    "where ur.user_id = u.id and r.name in ('moderator', 'product_admin', 'operator'))"
+    "where ur.user_id = u.id and r.name is distinct from 'participant')"
 )
 
 _RELEASE_ID = re.compile(r"[0-9A-Za-z][0-9A-Za-z._-]{0,63}")
