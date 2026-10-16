@@ -45,6 +45,9 @@ public sealed class PostgresFixture : IAsyncLifetime
     // O initdb também cria o papel duora_backup do pgBackRest; os testes não o usam, mas o script exige a senha.
     private readonly string _backupPassword = Guid.NewGuid().ToString("N");
 
+    /// <summary>Teto de conexões do servidor de teste (ver o construtor); conferido por um teste.</summary>
+    public const int MaxConnections = 400;
+
     private readonly PostgreSqlContainer _container;
 
     public PostgresFixture()
@@ -61,6 +64,10 @@ public sealed class PostgresFixture : IAsyncLifetime
             .WithEnvironment("DUORA_MIGRATOR_PASSWORD_FILE", MigratorPasswordTarget)
             .WithEnvironment("DUORA_APP_PASSWORD_FILE", AppPasswordTarget)
             .WithEnvironment("DUORA_BACKUP_PASSWORD_FILE", BackupPasswordTarget)
+            // A suíte sobe dezenas de hosts web em paralelo contra este servidor, cada um com o próprio pool do
+            // Npgsql (conexões ociosas ficam abertas); com o padrão de 100 o pico já passava de 90 e os testes de
+            // concorrência recebiam 53300. Vale só para o servidor de teste: produção segue o compose.prod.yml.
+            .WithCommand("-c", $"max_connections={MaxConnections}")
             .Build();
     }
 
