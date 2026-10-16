@@ -69,8 +69,9 @@ public static class MediaServiceCollectionExtensions
                 "Media:Storage:FileSystemRoot é obrigatório com o provedor FileSystem.")
             .Validate(
                 o => !isProduction || o.Provider != MediaStorageProvider.FileSystem || IsMountedDirectory(o.FileSystemRoot),
-                "Media:Storage:FileSystemRoot em Production precisa ser um caminho absoluto que já exista: o diretório "
-                + "do host montado no container. Sem ele, as fotos iriam para o disco efêmero do container.")
+                "Media:Storage:FileSystemRoot em Production precisa ser um caminho absoluto, com o marcador "
+                + $"{FileSystemObjectStore.AreaMarkerFileName} em cada área (quarantine e derivatives) gravado pelo "
+                + "Ansible no diretório do host montado. Sem ele, as fotos iriam para o disco efêmero do container.")
             .Validate<IOptions<MediaOptions>>(
                 (o, media) => o.Provider != MediaStorageProvider.S3 || o.S3.RequestTimeout >= media.Value.UploadTimeout,
                 "Media:Storage:S3:RequestTimeout deve ser pelo menos Media:UploadTimeout: o PUT transmite o corpo do cliente.")
@@ -84,7 +85,7 @@ public static class MediaServiceCollectionExtensions
             var options = provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value;
             return options.Provider switch
             {
-                MediaStorageProvider.FileSystem => new FileSystemObjectStore(options.FileSystemRoot),
+                MediaStorageProvider.FileSystem => new FileSystemObjectStore(options.FileSystemRoot, createMissingDirectories: !isProduction),
                 MediaStorageProvider.S3 => new S3ObjectStore(options.S3, provider.GetRequiredService<ILogger<S3ObjectStore>>()),
                 // Só com o upload desligado (a validação garante): o serviço de upload existe, mas não grava nada.
                 _ => new UnconfiguredObjectStore(),
@@ -101,7 +102,7 @@ public static class MediaServiceCollectionExtensions
         return services;
     }
 
-    // Em Production o adaptador não cria a raiz: diretório ausente quer dizer volume não montado.
+    // Em Production o adaptador não cria nada: área sem o marcador do Ansible quer dizer montagem faltando.
     private static bool IsMountedDirectory(string root) =>
-        !string.IsNullOrWhiteSpace(root) && Path.IsPathFullyQualified(root) && Directory.Exists(root);
+        !string.IsNullOrWhiteSpace(root) && Path.IsPathFullyQualified(root) && FileSystemObjectStore.HasMountedAreas(root);
 }

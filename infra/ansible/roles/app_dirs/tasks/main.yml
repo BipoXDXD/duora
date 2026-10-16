@@ -35,6 +35,19 @@
     - { path: "{{ duora_media_dir }}/quarantine", owner: "1654", mode: "0700" }
     - { path: "{{ duora_media_dir }}/derivatives", owner: "1654", mode: "0700" }
 
+# O web e o worker só sobem em Production se cada área montada tiver este marcador (FileSystemObjectStore): sem a
+# montagem, a pasta do container não o tem e o boot falha em vez de gravar fotos no disco efêmero.
+- name: Marcar cada área das fotos como montagem do host
+  ansible.builtin.copy:
+    dest: "{{ duora_media_dir }}/{{ item }}/.duora-media-area"
+    content: "Gerenciado pelo Ansible (role app_dirs): prova de montagem para o boot do Duora.\n"
+    owner: "1654"
+    group: "1654"
+    mode: "0400"
+  loop:
+    - quarantine
+    - derivatives
+
 - name: Instalar o compose de produção desta versão do repositório
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../compose/compose.prod.yml"
