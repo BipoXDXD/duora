@@ -100,6 +100,52 @@ export function TextAreaField({
   )
 }
 
+interface SelectOption {
+  readonly value: string
+  readonly label: string
+}
+
+type SelectFieldProps = FieldTextProps & {
+  /** Opções na ordem de exibição, já traduzidas. */
+  readonly options: readonly SelectOption[]
+} & Omit<ComponentProps<'select'>, 'id' | 'aria-invalid' | 'aria-describedby' | 'children'>
+
+/** Lista nativa (teclado, leitor de tela e seletor do celular de graça), com o label, a ajuda e o erro do TextField. */
+export function SelectField({
+  label,
+  hint,
+  error,
+  options,
+  className,
+  ...selectProps
+}: SelectFieldProps): React.JSX.Element {
+  const { inputId, hintId, errorId, inputAria } = useFieldIds(hint, error)
+  return (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={inputId}>{label}</Label>
+      <FieldHint id={hintId} text={hint} />
+      <select
+        id={inputId}
+        className={cn(
+          'min-h-11 w-full min-w-0 rounded-md border border-border bg-surface px-3 py-2 text-base text-text',
+          'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
+          'aria-invalid:border-2 aria-invalid:border-danger',
+          className,
+        )}
+        {...inputAria}
+        {...selectProps}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <FieldError id={errorId} text={error} />
+    </div>
+  )
+}
+
 type PasswordFieldProps = FieldTextProps &
   Omit<ComponentProps<'input'>, 'id' | 'type' | 'aria-invalid' | 'aria-describedby'>
 

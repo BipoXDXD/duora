@@ -23,6 +23,9 @@ internal sealed class ProfileRecord
 
     public string? Bio { get; private set; }
 
+    /// <summary>UF em ISO 3166-2:BR (<see cref="Core.Profiles.RegionCode"/>); <c>null</c> quando não informada.</summary>
+    public string? RegionCode { get; private set; }
+
     /// <summary>Token de concorrência exposto como ETag; sobe a cada gravação.</summary>
     public long Version { get; private set; }
 
@@ -41,12 +44,15 @@ internal sealed class ProfileRecordConfiguration : IEntityTypeConfiguration<Prof
                 $"char_length(display_name) BETWEEN 1 AND {DisplayName.MaxLength}");
             table.HasCheckConstraint("ck_profiles_bio", $"char_length(bio) BETWEEN 1 AND {ProfileBio.MaxLength}");
             table.HasCheckConstraint("ck_profiles_version", "version >= 1");
+            // Conjunto fixo (27 UFs, muda só por emenda constitucional): CHECK, não lookup table (SQL 6 em model.md).
+            table.HasCheckConstraint("ck_profiles_region_code", $"region_code IN ({RegionCodeList()})");
         });
         builder.HasKey(p => p.UserId).HasName("pk_profiles");
 
         builder.Property(p => p.UserId).HasColumnName("user_id").ValueGeneratedNever();
         builder.Property(p => p.DisplayName).HasColumnName("display_name");
         builder.Property(p => p.Bio).HasColumnName("bio");
+        builder.Property(p => p.RegionCode).HasColumnName("region_code");
         builder.Property(p => p.Version).HasColumnName("version");
         builder.Property(p => p.UpdatedAt).HasColumnName("updated_at");
 
@@ -57,4 +63,8 @@ internal sealed class ProfileRecordConfiguration : IEntityTypeConfiguration<Prof
             // D6 (docs/data/model.md): a exclusão de conta do Privacy apaga módulo por módulo, sem cascata silenciosa.
             .OnDelete(DeleteBehavior.Restrict);
     }
+
+    /// <summary>Os códigos vêm da mesma lista do domínio; são constantes, sem aspas internas a escapar.</summary>
+    private static string RegionCodeList() =>
+        string.Join(", ", Core.Profiles.RegionCode.All.Select(code => $"'{code}'"));
 }

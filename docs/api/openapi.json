@@ -472,7 +472,7 @@
         "tags": [
           "Profile"
         ],
-        "description": "Edição parcial com If-Match obrigatório (o ETag da leitura). Campo ausente fica como está; bio null apaga a descrição. Sem If-Match: 428. Versão desatualizada: 412, sem gravar nada.",
+        "description": "Edição parcial com If-Match obrigatório (o ETag da leitura). Campo ausente fica como está; bio null apaga a descrição; regionCode null volta a região para não informada. Sem If-Match: 428. Versão desatualizada: 412, sem gravar nada.",
         "parameters": [
           {
             "name": "If-Match",
@@ -1642,6 +1642,7 @@
         "required": [
           "displayName",
           "bio",
+          "regionCode",
           "version"
         ],
         "type": "object",
@@ -1658,12 +1659,49 @@
               "string"
             ]
           },
+          "regionCode": {
+            "enum": [
+              "BR-AC",
+              "BR-AL",
+              "BR-AM",
+              "BR-AP",
+              "BR-BA",
+              "BR-CE",
+              "BR-DF",
+              "BR-ES",
+              "BR-GO",
+              "BR-MA",
+              "BR-MG",
+              "BR-MS",
+              "BR-MT",
+              "BR-PA",
+              "BR-PB",
+              "BR-PE",
+              "BR-PI",
+              "BR-PR",
+              "BR-RJ",
+              "BR-RN",
+              "BR-RO",
+              "BR-RR",
+              "BR-RS",
+              "BR-SC",
+              "BR-SE",
+              "BR-SP",
+              "BR-TO",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "UF em ISO 3166-2:BR, na forma canônica; null quando não informada."
+          },
           "version": {
             "type": "string"
           }
         },
         "additionalProperties": false,
-        "description": "Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec\n8.1); `\"0\"` quando o perfil ainda não foi salvo. Nome e descrição vêm `null` enquanto não preenchidos."
+        "description": "Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec\n8.1); `\"0\"` quando o perfil ainda não foi salvo. Nome, descrição e região vêm `null` enquanto não\npreenchidos. `RegionCode` é a UF em ISO 3166-2:BR (`BR-SP`)."
       },
       "PhotoStatusResponse": {
         "required": [
@@ -1924,10 +1962,47 @@
               "null",
               "string"
             ]
+          },
+          "regionCode": {
+            "enum": [
+              "BR-AC",
+              "BR-AL",
+              "BR-AM",
+              "BR-AP",
+              "BR-BA",
+              "BR-CE",
+              "BR-DF",
+              "BR-ES",
+              "BR-GO",
+              "BR-MA",
+              "BR-MG",
+              "BR-MS",
+              "BR-MT",
+              "BR-PA",
+              "BR-PB",
+              "BR-PE",
+              "BR-PI",
+              "BR-PR",
+              "BR-RJ",
+              "BR-RN",
+              "BR-RO",
+              "BR-RR",
+              "BR-RS",
+              "BR-SC",
+              "BR-SE",
+              "BR-SP",
+              "BR-TO",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "UF em ISO 3166-2:BR, na forma canônica; null quando não informada."
           }
         },
         "additionalProperties": false,
-        "description": "Edição parcial do próprio perfil (API-P02), com `If-Match` obrigatório. Campo ausente fica como está;\n`bio: null` apaga a descrição; `displayName: null` é recusado, porque o nome não se apaga, só se troca.\nCampo desconhecido (inclusive id, dono, versão ou estado) é recusado pelo serializador. Os limites de tamanho valem\ndepois da normalização NFC e de aparar as bordas, contados em caracteres Unicode (code points)."
+        "description": "Edição parcial do próprio perfil (API-P02), com `If-Match` obrigatório. Campo ausente fica como está;\n`bio: null` apaga a descrição; `regionCode: null` volta a região para \"não informada\";\n`displayName: null` é recusado, porque o nome não se apaga, só se troca. `regionCode` aceita só uma das 27\nUFs em ISO 3166-2:BR, na forma canônica (`BR-SP`; `br-sp` é recusado).\nCampo desconhecido (inclusive id, dono, versão ou estado) é recusado pelo serializador. Os limites de tamanho valem\ndepois da normalização NFC e de aparar as bordas, contados em caracteres Unicode (code points)."
       }
     }
   },
