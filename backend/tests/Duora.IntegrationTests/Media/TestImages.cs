@@ -190,6 +190,31 @@ internal static class TestImages
         return Png16(garbage);
     }
 
+    private static readonly byte[] DefineHuffmanTable = [0xFF, 0xC4];
+
+    /// <summary>PNG válido com o CRC do IDAT invertido: estrutura completa, dado que não confere.</summary>
+    public static byte[] PngWithWrongCrc()
+    {
+        var png = Png(64, 32);
+        var type = png.AsSpan().IndexOf("IDAT"u8);
+        var length = BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(type - 4));
+        png[type + 4 + length] ^= 0xFF;
+        return png;
+    }
+
+    /// <summary>
+    /// JPEG válido com a primeira DHT adulterada: 255 códigos de 1 bit, uma tabela de Huffman impossível. O resto do
+    /// arquivo (SOS, scan e EOI) fica intacto, então a completude passa.
+    /// </summary>
+    public static byte[] JpegWithTamperedHuffmanTable()
+    {
+        const int FirstCodeCountOffset = 5;
+        var jpeg = Jpeg(64, 32);
+        var dht = jpeg.AsSpan().IndexOf(DefineHuffmanTable);
+        jpeg[dht + FirstCodeCountOffset] = 0xFF;
+        return jpeg;
+    }
+
     /// <summary>JPEG válido seguido de HTML com script: o sniff aceita, o reencode descarta o resto.</summary>
     public static byte[] JpegHtmlPolyglot() =>
         [.. Jpeg(), .. Encoding.ASCII.GetBytes("<html><script>alert('duora-canary')</script></html>")];

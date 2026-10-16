@@ -278,14 +278,34 @@ public sealed class PhotoSanitizerTests
             await SanitizeAsync(format, TestImages.Truncated(complete)));
     }
 
-    [Fact]
-    public async Task ACompletePngWithGarbageCompressedDataIsACorruptImage()
+    /// <summary>
+    /// Arquivos completos (passam pela completude) mas corrompidos por dentro: só o decoder percebe. Prova o caminho de
+    /// falha fechada: o desfecho é rejeição, nunca o original publicado nem uma exceção que vire nova tentativa.
+    /// </summary>
+    public static TheoryData<string, PhotoFormat> CompleteButCorrupt => new()
     {
-        var png = TestImages.PngWithGarbageCompressedData();
-        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Png, png), "A fixture deveria passar pela completude.");
+        { "png-wrong-crc", PhotoFormat.Png },
+        { "png-garbage-idat", PhotoFormat.Png },
+        { "jpeg-tampered-dht", PhotoFormat.Jpeg },
+    };
 
-        Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.CorruptImage), await SanitizeAsync(PhotoFormat.Png, png));
+    [Theory]
+    [MemberData(nameof(CompleteButCorrupt))]
+    public async Task ACompleteButCorruptFileIsACorruptImage(string fixture, PhotoFormat format)
+    {
+        var bytes = CorruptFixture(fixture);
+        Assert.True(PhotoCompleteness.IsComplete(format, bytes), "A fixture deveria passar pela completude.");
+
+        Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.CorruptImage), await SanitizeAsync(format, bytes));
     }
+
+    internal static byte[] CorruptFixture(string fixture) => fixture switch
+    {
+        "png-wrong-crc" => TestImages.PngWithWrongCrc(),
+        "png-garbage-idat" => TestImages.PngWithGarbageCompressedData(),
+        "jpeg-tampered-dht" => TestImages.JpegWithTamperedHuffmanTable(),
+        _ => throw new ArgumentOutOfRangeException(nameof(fixture), fixture, "Fixture sem gerador."),
+    };
 
     [Fact]
     public async Task AnImageOverTheMemoryLimitIsAProcessingLimit()
