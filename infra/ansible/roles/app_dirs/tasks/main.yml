@@ -23,6 +23,18 @@
     # Estado do deploy: current.json, previous.json, .deploy.lock e releases/<id>.{env,json}.
     - { path: "{{ duora_state_dir }}", mode: "0700" }
 
+- name: Criar o diretório das fotos (root) e as áreas de quarentena e derivados (usuário do web e do worker)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ duora_media_dir }}", owner: "0", mode: "0755" }
+    - { path: "{{ duora_media_dir }}/quarantine", owner: "1654", mode: "0700" }
+    - { path: "{{ duora_media_dir }}/derivatives", owner: "1654", mode: "0700" }
+
 - name: Instalar o compose de produção desta versão do repositório
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../compose/compose.prod.yml"

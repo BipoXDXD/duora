@@ -31,6 +31,12 @@ duora_backup_s3_cidrs: []
 # sozinho: é o endpoint que o operador passa ao "duora-secrets write-backup-repo --endpoint". O número da região
 # (us-east-005) é o provável para US East: confirmar no campo Endpoint do bucket e, se for outro, mudar no inventário.
 duora_b2_s3_endpoint: s3.us-east-005.backblazeb2.com
+
+# Fotos no disco da VPS (adendo do ADR-0010): quarentena e derivados, montados no web e no worker (dono 1654). O
+# backup dos derivados (restic, prefixo media/ do bucket B2) só liga com o repositório criado
+# (docs/operations/backup-restore.md, "Backup das fotos"); ligado, é pré-requisito para o upload em produção.
+duora_media_dir: /var/lib/duora-media
+duora_media_backup_enabled: false
 # Resolvedores DNS (IPv4) liberados na 53 para a rede backup-egress. Vazio = os upstream do systemd-resolved do host
 # (/run/systemd/resolve/resolv.conf), que é para onde o DNS embutido do Docker encaminha; o filtro falha sem nenhum.
 duora_backup_dns_resolvers: []

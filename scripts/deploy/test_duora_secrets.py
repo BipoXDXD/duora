@@ -492,5 +492,86 @@ class WriteBackupRepositoryTests(unittest.TestCase):
         self.assertIn(f"repo1-s3-key-secret={self.SECRET}", self.path.read_text(encoding="utf-8"))
 
 
+class WriteMediaBackupRepositoryTests(unittest.TestCase):
+    """Os três arquivos do restic das fotos: destino, senha do repositório e chave B2 presa a media/."""
+
+    KEY = "005a1b2c3d4e5f60000000002"
+    SECRET = "K005SinteticoMidia/NaoReal+0000"
+    PASSWORD = "Senha+Sintetica/DoRestic0000000000000000000000000000="
+    ENDPOINT = "s3.us-east-005.backblazeb2.com"
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.directory = Path(self._tmp.name) / "secrets"
+        self.directory.mkdir(mode=0o700)
+
+    def write(self, *, stdin: str | None = None, bucket: str = "duora-backup-exemplo", endpoint: str | None = None,
+              replace: bool = False) -> None:
+        stdin = stdin if stdin is not None else f"{self.KEY}\n{self.SECRET}\n{self.PASSWORD}\n"
+        repository = secrets_cli.parse_media_backup_repository(bucket=bucket, endpoint=endpoint or self.ENDPOINT,
+                                                               lines=stdin)
+        secrets_cli.write_media_backup_repository(self.directory, repository, replace=replace)
+
+    def test_the_backup_wrapper_reads_back_what_was_written(self) -> None:
+        self.write()
+
+        media = duora_backup.read_media_settings(self.directory)
+
+        self.assertEqual((self.ENDPOINT, "duora-backup-exemplo", "us-east-005", self.KEY, self.SECRET),
+                         (media.settings.endpoint, media.settings.bucket, media.settings.region, media.settings.key,
+                          media.settings.secret))
+        self.assertEqual(self.PASSWORD, media.password_file.read_text(encoding="utf-8").strip())
+
+    def test_every_file_is_0400(self) -> None:
+        self.write()
+
+        for name in secrets_cli.MEDIA_BACKUP_FILES:
+            with self.subTest(name=name):
+                self.assertEqual(0o400, stat.S_IMODE((self.directory / name).stat().st_mode))
+
+    def test_existing_files_are_kept_without_replace(self) -> None:
+        self.write()
+        before = (self.directory / "restic_media_password").read_text(encoding="utf-8")
+
+        with self.assertRaisesRegex(secrets_cli.SecretsError, "--replace"):
+            self.write(stdin=f"{self.KEY}\n{self.SECRET}\n{'Outra' * 10}\n")
+        self.assertEqual(before, (self.directory / "restic_media_password").read_text(encoding="utf-8"))
+
+    def test_replace_rotates_the_key_and_leaves_no_staging_file(self) -> None:
+        self.write()
+
+        self.write(stdin=f"005a1b2c3d4e5f60000000003\n{self.SECRET}\n{self.PASSWORD}\n", replace=True)
+
+        self.assertEqual("005a1b2c3d4e5f60000000003", duora_backup.read_media_settings(self.directory).settings.key)
+        self.assertEqual(sorted(secrets_cli.MEDIA_BACKUP_FILES), sorted(p.name for p in self.directory.iterdir()))
+
+    def test_refuses_invalid_input_without_echoing_secrets(self) -> None:
+        cases = {
+            "duas linhas": f"{self.KEY}\n{self.SECRET}\n",
+            "quatro linhas": f"{self.KEY}\n{self.SECRET}\n{self.PASSWORD}\nmais\n",
+            "senha curta": f"{self.KEY}\n{self.SECRET}\ncurta\n",
+            "senha com espaço": f"{self.KEY}\n{self.SECRET}\n{self.PASSWORD} x\n",
+            "chave com espaço": f"{self.KEY}\n{self.SECRET} x\n{self.PASSWORD}\n",
+        }
+        for name, stdin in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(secrets_cli.SecretsError) as raised:
+                    self.write(stdin=stdin)
+                self.assertNotIn(self.SECRET, str(raised.exception))
+                self.assertNotIn(self.PASSWORD, str(raised.exception))
+        for bucket, endpoint in (("Duora", self.ENDPOINT), ("duora-ok", "https://x.test"), ("duora-ok", "x.test")):
+            with self.subTest(bucket=bucket, endpoint=endpoint), self.assertRaises(secrets_cli.SecretsError):
+                self.write(bucket=bucket, endpoint=endpoint)
+
+    def test_command_reads_the_three_lines_from_stdin(self) -> None:
+        with mock.patch.object(secrets_cli.sys, "stdin") as stdin:
+            stdin.read.return_value = f"{self.KEY}\n{self.SECRET}\n{self.PASSWORD}\n"
+            code = secrets_cli.main(["write-media-backup-repo", str(self.directory), "--bucket",
+                                     "duora-backup-exemplo", "--endpoint", self.ENDPOINT, "--no-chown"])
+
+        self.assertEqual(0, code)
+        self.assertEqual("duora-backup-exemplo", duora_backup.read_media_settings(self.directory).settings.bucket)
+
 if __name__ == "__main__":
     unittest.main()

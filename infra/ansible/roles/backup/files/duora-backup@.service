@@ -1,6 +1,7 @@
 # Gerenciado pelo Ansible (infra/ansible/roles/backup). Uma ação do duora-backup por instância:
 # duora-backup@full, duora-backup@diff, duora-backup@verify, duora-backup@verify-repo,
-# duora-backup@verify-repo-full. Saída diferente de 0
+# duora-backup@verify-repo-full e, das fotos, duora-backup@media-backup, duora-backup@media-verify e
+# duora-backup@media-check. Saída diferente de 0
 # (inclusive erro inesperado ou resposta que o verify não sabe avaliar) deixa a unit em failed e dispara
 # duora-backup-failed@.
 [Unit]
