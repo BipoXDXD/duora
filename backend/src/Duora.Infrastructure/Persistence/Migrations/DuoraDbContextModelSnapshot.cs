@@ -259,6 +259,20 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_seen_at");
 
+                    b.Property<DateTimeOffset?>("MfaVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("mfa_verified_at");
+
+                    b.Property<string>("Policy")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("policy");
+
+                    b.Property<DateTimeOffset?>("ReauthenticatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reauthenticated_at");
+
                     b.Property<string>("RevocationReason")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
@@ -299,6 +313,8 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.ToTable("login_sessions", "identity", t =>
                         {
                             t.HasCheckConstraint("ck_login_sessions_key_hash", "octet_length(key_hash) = 32");
+
+                            t.HasCheckConstraint("ck_login_sessions_policy", "policy IN ('Normal', 'Administrative')");
 
                             t.HasCheckConstraint("ck_login_sessions_window", "idle_expires_at <= absolute_expires_at");
                         });
@@ -555,6 +571,36 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ux_roles_normalized_name");
 
                     b.ToTable("roles", "identity");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000001"),
+                            ConcurrencyStamp = "01920000-0000-7000-8000-000000000001",
+                            Name = "participant",
+                            NormalizedName = "PARTICIPANT"
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000002"),
+                            ConcurrencyStamp = "01920000-0000-7000-8000-000000000002",
+                            Name = "moderator",
+                            NormalizedName = "MODERATOR"
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000003"),
+                            ConcurrencyStamp = "01920000-0000-7000-8000-000000000003",
+                            Name = "product_admin",
+                            NormalizedName = "PRODUCT_ADMIN"
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000004"),
+                            ConcurrencyStamp = "01920000-0000-7000-8000-000000000004",
+                            Name = "operator",
+                            NormalizedName = "OPERATOR"
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

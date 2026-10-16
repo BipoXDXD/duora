@@ -1,3 +1,5 @@
+using Duora.Core.Identity;
+
 namespace Duora.Infrastructure.Identity;
 
 /// <summary>
@@ -26,6 +28,15 @@ internal sealed class LoginSession
     public string SecurityStamp { get; private set; } = "";
 
     public string Description { get; private set; } = "";
+
+    /// <summary>Política decidida no login pelos papéis da conta; fixa a janela ociosa e a absoluta.</summary>
+    public SessionPolicy Policy { get; private set; }
+
+    /// <summary>Última prova de credencial nesta sessão (login ou API-A13), para o step-up.</summary>
+    public DateTimeOffset? ReauthenticatedAt { get; private set; }
+
+    /// <summary>Última prova de segundo fator nesta sessão; nula numa sessão aberta só com senha.</summary>
+    public DateTimeOffset? MfaVerifiedAt { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
