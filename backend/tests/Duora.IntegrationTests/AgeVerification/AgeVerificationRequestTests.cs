@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.Time.Testing;
 
@@ -169,20 +170,25 @@ public sealed class AgeVerificationRequestTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task OpenRequestTheReadDidNotPickIsAConflictNotAServerError()
+    public async Task OpenRequestWinsOverALaterExpiredOneWhenTheClockWentBack()
     {
-        // Relógio de outra réplica: a pendente aberta tem requested_at anterior ao de uma expirada. A leitura escolhe a
-        // expirada, oferece nova solicitação e o índice de uma aberta por pessoa recusa: 409, nunca 500.
+        // Relógio de outra réplica voltou: a pendente aberta (P2) tem requested_at anterior ao da expirada (P1). A
+        // leitura prioriza a aberta: a pessoa segue no fluxo dela e não fica travada.
         var (account, browser) = await Scenario.SignedInPendingAccountAsync();
         using var _ = browser;
-        await Scenario.AddUndecidedRequestAsync(account.UserId, "Pending", DateTimeOffset.UtcNow.AddMinutes(-20));
         await Scenario.AddUndecidedRequestAsync(account.UserId, "Expired", DateTimeOffset.UtcNow.AddMinutes(-10));
+        var open = await Scenario.AddUndecidedRequestAsync(account.UserId, "Pending", DateTimeOffset.UtcNow.AddMinutes(-20));
+        var flowUrl = $"{AgeVerificationScenario.FakeFlowOrigin}/flow/{FakeAgeEligibilityProvider.ReferenceFor(open)}";
+        await Scenario.MarkProviderFlowReadyAsync(open, flowUrl);
 
-        using var response = await AgeVerificationScenario.RequestAsync(browser);
+        var current = await AgeVerificationScenario.CurrentAsync(browser);
+        using var again = await AgeVerificationScenario.RequestAsync(browser);
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "AGE_VERIFICATION_NOT_AVAILABLE");
+        Assert.Equal("Pending", (string?)current["state"]);
+        Assert.Equal("ContinueWithProvider", (string?)current["nextStep"]);
+        Assert.Equal(flowUrl, (string?)current["continueUrl"]);
+        Assert.Equal(HttpStatusCode.Accepted, again.StatusCode);
         Assert.Equal(2, (await Scenario.VerificationsAsync(account.UserId)).Count);
-        Assert.Equal(0, await Scenario.CountProviderTasksAsync(account.UserId));
     }
 
     [Fact]

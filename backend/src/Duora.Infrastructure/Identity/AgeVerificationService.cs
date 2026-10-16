@@ -109,8 +109,8 @@ public sealed class AgeVerificationService
         }
         catch (Exception exception) when (IsAnotherOpenRequest(exception))
         {
-            // Há uma aberta que a leitura não escolheu (requested_at de outro relógio): recusa, sem 500. A transação
-            // desfaz tudo, inclusive a expiração acima.
+            // Defesa: a leitura sempre escolhe a aberta, e a conta está travada; só um caminho de escrita sem a trava
+            // criaria outra aberta agora. Recusa (409), nunca 500; a transação desfaz tudo, inclusive a expiração acima.
             return new AgeVerificationRequestResult.NotAllowed();
         }
 
@@ -189,12 +189,14 @@ public sealed class AgeVerificationService
     /// <summary>
     /// A solicitação que decide a elegibilidade: a decisão mais recente (<see cref="AgeEligibility.Decisions"/>), se
     /// houver, porque a verificação adulta não vence e uma decisão negativa posterior manda sobre ela; sem decisão, a
-    /// solicitação mais recente. Pedido sem decisão depois de uma decisão nunca a apaga (falha fechada). Leva junto se
+    /// solicitação aberta (<c>Pending</c>, no máximo uma) ou, sem ela, a mais recente: um relógio que voltou não esconde
+    /// a aberta. Pedido sem decisão depois de uma decisão nunca a apaga (falha fechada). Leva junto se
     /// alguma solicitação da pessoa tem suspeita de menor, que nega qualquer que seja a escolhida.
     /// </summary>
     private async Task<VerificationRow?> FindDecidingAsync(Guid userId, CancellationToken cancellationToken)
     {
         var decisions = AgeEligibility.Decisions.Select(state => state.ToString()).ToArray();
+        var pending = nameof(AgeVerificationState.Pending);
         var rows = await _db.Database.SqlQuery<VerificationRow>(
             $"""
             select v.id as "Id", v.state as "StateName", v.requested_at as "RequestedAt",
@@ -208,7 +210,7 @@ public sealed class AgeVerificationService
                          and d.status in ('Failed', 'Expired'))) as "ProviderGaveUp"
             from identity.age_verifications v
             where v.user_id = {userId}
-            order by (v.state = any({decisions})) desc, v.requested_at desc, v.seq desc
+            order by (v.state = any({decisions})) desc, (v.state = {pending}) desc, v.requested_at desc, v.seq desc
             limit 1
             """).ToListAsync(cancellationToken);
         return rows.SingleOrDefault();

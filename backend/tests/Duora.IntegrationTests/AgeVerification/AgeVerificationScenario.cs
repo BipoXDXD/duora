@@ -194,16 +194,21 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
             id ?? Guid.NewGuid());
 
     /// <summary>Solicitação sem decisão (<c>Pending</c> ou <c>Expired</c>) e sem fluxo do fornecedor.</summary>
-    public Task AddUndecidedRequestAsync(Guid userId, string state, DateTimeOffset requestedAt) =>
-        ExecuteAsync(
+    public async Task<Guid> AddUndecidedRequestAsync(Guid userId, string state, DateTimeOffset requestedAt)
+    {
+        var id = Guid.NewGuid();
+        await ExecuteAsync(
             """
             insert into identity.age_verifications
                 (id, user_id, state, policy_version, provider, request_nonce, requested_at, version)
-            values (gen_random_uuid(), $1, $2, 'test-2026-10', 'fake', 'nonce-' || gen_random_uuid(), $3, 0)
+            values ($4, $1, $2, 'test-2026-10', 'fake', 'nonce-' || gen_random_uuid(), $3, 0)
             """,
             userId,
             state,
-            requestedAt);
+            requestedAt,
+            id);
+        return id;
+    }
 
     /// <summary>Instante da suspeita de menor gravada na solicitação, ou <c>null</c>.</summary>
     public async Task<DateTimeOffset?> MinorSuspectedAtAsync(Guid verificationId)
