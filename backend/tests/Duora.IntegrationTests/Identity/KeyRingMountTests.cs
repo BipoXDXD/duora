@@ -84,6 +84,41 @@ public sealed class KeyRingMountTests
     }
 
     [Theory]
+    [InlineData(@"/srv/duora\134keys", "/srv/duora\\keys")]
+    [InlineData(@"/srv/duora\011keys", "/srv/duora\tkeys")]
+    [InlineData(@"/srv/duora\04xkeys", @"/srv/duora\04xkeys")]
+    public void OctalEscapesOfBackslashAndTabAreDecodedAndInvalidOnesKeptLiterally(string field, string directory)
+    {
+        var line = $"657 640 8:1 /data {field} rw - ext4 /dev/sda1 rw";
+
+        Assert.True(KeyRingMount.IsPersistentMountPoint(directory, [Overlay, line]));
+    }
+
+    [Fact]
+    public void DotSegmentsInTheConfiguredDirectoryAreResolved()
+    {
+        Assert.True(KeyRingMount.IsPersistentMountPoint("/home/app/.aspnet/x/../DataProtection-Keys", [Overlay, NamedVolume]));
+    }
+
+    [Fact]
+    public void SymbolicLinkIsJudgedByTheDirectoryItPointsTo()
+    {
+        var root = Directory.CreateTempSubdirectory("duora-mount-");
+        try
+        {
+            var target = root.CreateSubdirectory("volume");
+            var link = Directory.CreateSymbolicLink(Path.Combine(root.FullName, "keys"), target.FullName);
+            var line = $"658 640 8:1 /data {target.FullName} rw - ext4 /dev/sda1 rw";
+
+            Assert.True(KeyRingMount.IsPersistentMountPoint(link.FullName, [Overlay, line]));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("lixo")]
     [InlineData("1 2 3 4 /home/app/.aspnet/DataProtection-Keys rw sem-separador ext4")]
