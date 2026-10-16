@@ -91,31 +91,52 @@ public sealed class WorkerHostTests
         Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(connection.Password, StringComparison.Ordinal));
     }
 
-    [Theory]
-    [InlineData("--Media:Review=TechnicalOnly", "--Media:Storage:Provider=S3", "Media:Review")]
-    [InlineData("--Media:Processing:LeaseDuration=00:02:00", "--Media:Storage:Provider=FileSystem", "FileSystem")]
-    public async Task WorkerDoesNotStartInProductionWithTechnicalOnlyReviewOrTheFileSystemStore(
-        string review,
-        string provider,
-        string expected)
+    [Fact]
+    public async Task WorkerDoesNotStartInProductionWithTechnicalOnlyReview()
     {
-        // ADR-0025: nenhum dos dois serve a fotos reais.
+        // ADR-0025: aprovação só técnica não serve a fotos reais.
         using var host = BuildHost(
             new CanaryConnectionString().Value,
             logs: null,
             "--environment", "Production",
-            review,
-            provider,
-            $"--Media:Storage:FileSystemRoot={Path.GetTempPath()}",
+            "--Media:Review=TechnicalOnly",
+            "--Media:Storage:Provider=S3",
             "--Media:Storage:S3:ServiceUrl=https://storage.example.com",
             "--Media:Storage:S3:Region=us-east-1",
             "--Media:Storage:S3:Bucket=duora-media",
             "--Media:Storage:S3:AccessKeyId=synthetic-access",
             "--Media:Storage:S3:SecretAccessKey=synthetic-secret");
 
+        // O host junta as falhas de validação num AggregateException.
         var exception = await Assert.ThrowsAnyAsync<Exception>(() => host.StartAsync(TestContext.Current.CancellationToken));
 
-        Assert.Contains(expected, exception.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Media:Review não é aceito em Production", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkerDoesNotStartInProductionWithAFileSystemRootMissingTheAreaMarker()
+    {
+        // Adendo do ADR-0010: sem o marcador do Ansible em cada área, o diretório não é o volume do host montado.
+        var root = Directory.CreateTempSubdirectory("duora-media-unmounted-");
+        try
+        {
+            using var host = BuildHost(
+                new CanaryConnectionString().Value,
+                logs: null,
+                "--environment", "Production",
+                "--Media:Storage:Provider=FileSystem",
+                $"--Media:Storage:FileSystemRoot={root.FullName}");
+
+            var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+                () => host.StartAsync(TestContext.Current.CancellationToken));
+
+            Assert.Contains("Media:Storage:FileSystemRoot em Production", exception.Message, StringComparison.Ordinal);
+            Assert.Contains(".duora-media-area", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
     }
 
     [Fact]
