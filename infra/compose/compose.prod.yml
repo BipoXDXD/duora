@@ -30,6 +30,16 @@ services:
     # Roda direto como o usuário postgres da imagem: o diretório do volume já é dele (modo 1777 na imagem), então o
     # entrypoint não precisa de root nem de capabilities para preparar o PGDATA.
     user: "999:999"
+    # init: o tini do Docker é o PID 1 e adota os processos órfãos. Sem ele o postmaster é PID 1, adota o processo
+    # assíncrono do archive-push do pgBackRest e, quando ele sai com erro (repositório fora do ar), trata como filho
+    # desconhecido e faz crash-restart do cluster inteiro. O tini repassa o sinal de parada (SIGINT) ao postgres.
+    # Provado pelo drill (fase "repositório fora do ar sem derrubar o banco").
+    init: true
+    # O backup recebe o WAL: o Compose sobe o backup antes e para o postgres antes dele (o archive-push do fast
+    # shutdown ainda encontra o servidor TLS de pé).
+    depends_on:
+      backup:
+        condition: service_started
     command:
       - postgres
       - -c
@@ -65,9 +75,10 @@ services:
     stop_grace_period: 60s
     logging: *logging
     healthcheck:
-      # -h 127.0.0.1: o servidor temporário da inicialização só ouve no socket; pelo TCP o banco só fica pronto
-      # depois que os scripts de initdb terminaram.
-      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"]
+      # Sonda TCP em 127.0.0.1: o servidor temporário da inicialização só ouve no socket, então a porta só abre
+      # depois que os scripts de initdb terminaram. Sem login: o pg_isready como postgres pela rede era recusado
+      # pelo pg_hba e gerava um FATAL no log a cada 5 s.
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/5432"]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -90,6 +101,8 @@ services:
     image: ${DUORA_POSTGRES_IMAGE:?defina DUORA_POSTGRES_IMAGE (digest da release)}
     <<: *hardened
     user: "999:999"
+    # init: como no postgres, o PID 1 é o tini, que colhe os processos filhos do pgbackrest server.
+    init: true
     command: ["pgbackrest", "server"]
     environment:
       PGBACKREST_CONFIG: /etc/pgbackrest/pgbackrest-repo.conf
@@ -139,6 +152,7 @@ services:
     profiles: [restore]
     <<: *hardened
     restart: "no"
+    init: true
     user: "999:999"
     entrypoint: ["pgbackrest", "--stanza=duora"]
     environment:

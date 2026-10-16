@@ -24,7 +24,8 @@ backup (scripts/backup/compose.drill.yml; nunca produção), e então:
   9. confere que as linhas "before" existem, as "after" não, e que a timeline avançou;
  10. o operador desfaz a exclusão com credencial administrativa fora da VPS (remove os delete markers; aqui, mc undo
      no dublê) e o duora-backup verify volta a passar, com o banco restaurado arquivando na timeline nova;
- 11. duora-backup verify-repo passa e, com um segmento de WAL apagado no meio da cadeia, falha.
+ 11. duora-backup verify-repo (diário) e verify-repo-full (semanal) passam e, com um segmento de WAL apagado no
+     meio da cadeia, o verify-repo falha.
 
 RTO observado = da destruição do volume até os dados conferidos (passos 7 a 9). Dados sintéticos; tudo é
 derrubado no fim (--keep mantém para inspeção). Só biblioteca padrão; precisa de docker e openssl.
@@ -57,11 +58,18 @@ PROJECT = "duora-drill"
 BUCKET = "duora-drill"
 # Como a produção exige (ADR-0023): Object Lock com retenção padrão que cobre a janela de 21 dias.
 BUCKET_LOCK = ("COMPLIANCE", "21d")
+# Alias do mc criado pelo próprio drill: o setup da Bitnami às vezes não cria o "local" a tempo.
+MC_ALIAS = "drill"
+MC_ALIAS_ATTEMPTS = 60
 ROWS_PER_PHASE = 100
 # Espera entre as escritas e o ponto de recuperação: o alvo cai com folga entre os dois commits.
 TARGET_MARGIN_SECONDS = 2
 # archive_timeout é 60 s; acima disso com folga o arquivamento natural falhou.
 ARCHIVE_WAIT_SECONDS = 180
+# Repositório fora do ar por este tempo: o arquivamento falha várias vezes (archive-async tenta de novo).
+S3_OUTAGE_SECONDS = 30
+# Mensagem do postmaster ao fazer crash-restart do cluster (ex.: filho não rastreado saindo com erro).
+CRASH_RESTART_MARKER = "terminating any other active server processes"
 PROMOTION_WAIT_SECONDS = 300
 CONNECT_TIMEOUT_SECONDS = 5
 COMMAND_TIMEOUT_SECONDS = 15 * 60
@@ -143,6 +151,7 @@ class Drill:
         target = self._phase("escrita before/after e ponto de recuperação", self._write_rows)
         self._phase("RPO natural (archive_timeout)", lambda: self._measure_rpo(target))
         self._phase("duora-backup verify", lambda: self._duora_backup("verify"))
+        self._phase("repositório fora do ar sem derrubar o banco", self._survive_repository_outage)
         repo_target_time = self._phase("postgres comprometido apaga o repositório", self._attack_repository)
 
         started = time.monotonic()
@@ -156,6 +165,7 @@ class Drill:
         self._phase("operador desfaz a exclusão (delete markers)", self._undo_attack)
         self._phase("duora-backup verify pós-restore", lambda: self._duora_backup("verify"))
         self._phase("duora-backup verify-repo", lambda: self._duora_backup("verify-repo"))
+        self._phase("duora-backup verify-repo-full", lambda: self._duora_backup("verify-repo-full"))
         self._phase("verify-repo detecta lacuna de WAL", self._check_wal_gap_detection)
         return self.report
 
@@ -205,9 +215,24 @@ class Drill:
     def _create_locked_bucket(self) -> None:
         # Versionamento + Object Lock: sem eles o duora-backup verify recusa o repositório.
         mode, retention = BUCKET_LOCK
-        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "mb", "--with-lock", f"local/{BUCKET}"], capture=True)
+        self._create_mc_alias()
+        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "mb", "--with-lock", f"{MC_ALIAS}/{BUCKET}"], capture=True)
         _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "retention", "set", "--default", mode, retention,
-                              f"local/{BUCKET}"], capture=True)
+                              f"{MC_ALIAS}/{BUCKET}"], capture=True)
+
+    def _create_mc_alias(self) -> None:
+        # Credenciais pelo ambiente do próprio container (sintéticas), não pela linha de comando do host.
+        alias = (f'mc alias set {MC_ALIAS} https://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" '
+                 f'> /dev/null && mc ls {MC_ALIAS} > /dev/null')
+        result = None
+        for _ in range(MC_ALIAS_ATTEMPTS):
+            result = subprocess.run(self._compose + ["exec", "--no-TTY", "s3", "sh", "-c", alias],
+                                    capture_output=True, text=True, check=False, timeout=COMMAND_TIMEOUT_SECONDS)
+            if result.returncode == 0:
+                return
+            time.sleep(2)
+        detail = result.stderr.strip() if result is not None else ""
+        raise DrillFailure(f"mc alias no dublê S3 falhou {MC_ALIAS_ATTEMPTS} vezes: {detail}")
 
     @staticmethod
     def _write_secrets(secrets_dir: Path, s3_key: str, s3_secret: str) -> None:
@@ -351,6 +376,39 @@ class Drill:
 
     # --- Ataque ao repositório -------------------------------------------------------------------------------------
 
+    def _survive_repository_outage(self) -> None:
+        """Com o S3 parado, o arquivamento falha, mas o PostgreSQL não pode reiniciar.
+
+        Sem init no container o postmaster é PID 1, adota o processo assíncrono do pgBackRest e, quando ele sai com
+        erro ("untracked child process"), faz crash-restart do cluster inteiro. Com init: true o tini adota.
+        """
+        since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        _run(self._compose + ["stop", "s3"], capture=True)
+        try:
+            deadline = time.monotonic() + S3_OUTAGE_SECONDS
+            while time.monotonic() < deadline:
+                # Escreve e troca o segmento: cada troca dispara um archive-push que vai falhar.
+                answered = subprocess.run(
+                    self._compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "--quiet",
+                                     "--tuples-only", "--no-align", "--username", "postgres", "--dbname", "postgres",
+                                     "--command", "create table if not exists drill_outage (at timestamptz); "
+                                     "insert into drill_outage values (now()); select pg_switch_wal() is not null"],
+                    capture_output=True, text=True, check=False, timeout=COMMAND_TIMEOUT_SECONDS)
+                if answered.returncode != 0:
+                    raise DrillFailure(f"o banco parou de responder com o repositório fora do ar: "
+                                       f"{answered.stderr.strip()}")
+                time.sleep(1)
+        finally:
+            _run(self._compose + ["start", "s3"], capture=True)
+        logs = _run(self._compose + ["logs", "--no-color", "--since", since, "postgres"], capture=True)
+        restarts = logs.count(CRASH_RESTART_MARKER)
+        self.report.isolation["crash-restart do postgres com o S3 fora do ar"] = restarts > 0
+        if restarts:
+            raise DrillFailure(f"o postgres fez crash-restart {restarts} vez(es) com o repositório fora do ar")
+        # O s3 voltou: o check troca o segmento e espera ele chegar (o arquivamento se recuperou sozinho).
+        _run(self._compose + ["up", "--detach", "--wait", "--no-deps", "s3"], capture=True)
+        self._duora_backup("verify")
+
     def _attack_repository(self) -> str:
         """O certificado de cliente do postgres não se limita ao archive-push: lista e apaga o repositório.
 
@@ -376,19 +434,40 @@ class Drill:
         self.report.isolation["postgres apaga o repositório (repo-rm --recurse)"] = deleted
         if not deleted:
             raise DrillFailure(f"repositório ainda íntegro depois do repo-rm do postgres: {info[0]['status']}")
+        self._check_locked_version_cannot_be_deleted()
         self.report.repo_target_time = repo_target_time
         return repo_target_time
+
+    def _check_locked_version_cannot_be_deleted(self) -> None:
+        """Nem o usuário root do dublê apaga uma versão travada em COMPLIANCE (o que o ataque deixou para trás)."""
+        target = f"{MC_ALIAS}/{BUCKET}/duora/backup/duora/backup.info"
+        listing = _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "ls", "--versions", "--json", target],
+                       capture=True)
+        versions = [entry["versionId"] for entry in map(json.loads, listing.splitlines())
+                    if entry.get("versionId") and not entry.get("isDeleteMarker")]
+        if not versions:
+            raise DrillFailure(f"nenhuma versão de {target} sobrou depois da exclusão:\n{listing}")
+        removal = subprocess.run(self._compose + ["exec", "--no-TTY", "s3", "mc", "rm", "--version-id", versions[0],
+                                                  target], capture_output=True, text=True, check=False,
+                                 timeout=COMMAND_TIMEOUT_SECONDS)
+        refused = removal.returncode != 0
+        self.report.isolation["versão travada recusa exclusão (mc rm --version-id)"] = refused
+        if not refused:
+            raise DrillFailure(f"o dublê apagou a versão travada {versions[0]} de {target}")
 
     def _undo_attack(self) -> None:
         # Na produção: remover os delete markers posteriores ao ataque com a credencial administrativa do bucket (a do
         # backup não tem s3:DeleteObjectVersion). --action DELETE: só desfaz exclusões, nunca o WAL novo.
         _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "undo", "--recursive", "--force", "--action", "DELETE",
-                              f"local/{BUCKET}/duora/"], capture=True)
+                              f"{MC_ALIAS}/{BUCKET}/duora/"], capture=True)
 
     # --- Desastre e restore -----------------------------------------------------------------------------------------
 
     def _destroy(self) -> None:
-        # O backup monta o PGDATA só leitura: sai junto para o volume poder ser removido.
+        # Primeiro o postgres: o fast shutdown ainda arquiva o último segmento no backup. Parar os dois juntos fazia o
+        # postgres esperar o archive_command contra um servidor TLS já parado (RTO ~60 s a mais e drill instável).
+        # O backup monta o PGDATA só leitura: sai em seguida para o volume poder ser removido.
+        _run(self._compose + ["stop", "postgres"])
         _run(self._compose + ["rm", "--stop", "--force", "postgres", "backup"])
         _run(["docker", "volume", "rm", f"{PROJECT}_pgdata"])
 
@@ -424,7 +503,7 @@ class Drill:
         for _ in range(3):  # cada check troca o segmento e espera ele chegar ao repositório
             self._duora_backup("verify")
         listing = _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "ls", "--recursive",
-                                        f"local/{BUCKET}/duora/archive/duora/"], capture=True)
+                                        f"{MC_ALIAS}/{BUCKET}/duora/archive/duora/"], capture=True)
         timeline = f"{self.report.timeline_after_restore:08X}"
         segments = sorted(name for name in (line.split()[-1] for line in listing.splitlines())
                           if name.endswith(".zst") and name.split("/")[-1].startswith(timeline))
@@ -432,7 +511,7 @@ class Drill:
             raise DrillFailure(f"esperado ao menos 3 segmentos na timeline {timeline} do repositório: {segments}")
         # O penúltimo: depois do início do full novo (as três trocas acima vêm depois dele) e antes do último.
         victim = segments[-2]
-        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "rm", f"local/{BUCKET}/duora/archive/duora/{victim}"],
+        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "rm", f"{MC_ALIAS}/{BUCKET}/duora/archive/duora/{victim}"],
              capture=True)
         result = subprocess.run([sys.executable, str(BACKUP_SCRIPT), "verify-repo", "--compose-project", PROJECT,
                                  "--state-dir", str(self._state_dir), "--skip-egress-check"],
