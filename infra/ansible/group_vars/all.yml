@@ -37,6 +37,9 @@ duora_b2_s3_endpoint: s3.us-east-005.backblazeb2.com
 # (docs/operations/backup-restore.md, "Backup das fotos"); ligado, é pré-requisito para o upload em produção.
 duora_media_dir: /var/lib/duora-media
 duora_media_backup_enabled: false
+# Upload de fotos em produção: vazio = desligado. Só se preenche depois do backup das fotos inicializado e verificado;
+# o duora-deploy recusa a release sem isso (DUORA_MEDIA_REVIEW no duora.env).
+duora_media_review: ""
 # Resolvedores DNS (IPv4) liberados na 53 para a rede backup-egress. Vazio = os upstream do systemd-resolved do host
 # (/run/systemd/resolve/resolv.conf), que é para onde o DNS embutido do Docker encaminha; o filtro falha sem nenhum.
 duora_backup_dns_resolvers: []

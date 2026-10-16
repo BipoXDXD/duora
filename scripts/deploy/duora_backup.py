@@ -88,6 +88,8 @@ DAYS_PER_YEAR = 365
 REPO_CONF_IN_CONTAINER = "/etc/pgbackrest/conf.d/repo.conf"
 SYSTEM_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 EMPTY_PAYLOAD_SHA256 = hashlib.sha256(b"").hexdigest()
+# Teto de cada consulta TLS (conexão + resposta): um endpoint que não responde não pode prender o verify de 15 min.
+TLS_QUERY_TIMEOUT_SECONDS = 30
 # Backblaze B2 (ADR-0023, adendo de 2026-10-16; docs/operations/backblaze-setup.md). Com endpoint do B2, o verify
 # também confere pela API nativa (b2_authorize_account) o que a chave do backup pode fazer, já que o B2 não tem
 # política de bucket: a restrição mora toda na chave.
@@ -121,6 +123,10 @@ MEDIA_HOST = "duora"
 MEDIA_KEEP_WITHIN = "14d"
 # Backup diário: um dia perdido já alerta no verify da manhã (o timer tem até 15 min de atraso aleatório).
 MAX_MEDIA_SNAPSHOT_AGE_HOURS = 26
+# Marcador do último media-verify bom (epoch), no state dir: o duora-deploy o lê para liberar o upload de fotos.
+MEDIA_VERIFY_OK_FILE = ".media-verify-ok"
+# Um timer do restic esperando o lock de outro (backup x check) em vez de falhar na hora.
+MEDIA_RETRY_LOCK = "15m"
 _MEDIA_REPOSITORY = re.compile(r"s3:https://(?P<endpoint>[a-z0-9.-]+)/(?P<bucket>[a-z0-9][a-z0-9-]{1,61}[a-z0-9])/"
                                + MEDIA_NAME_PREFIX.rstrip("/"))
 _REGION_IN_ENDPOINT = re.compile(r"s3\.(?P<region>[a-z]{2}(?:-[a-z]+)+-[0-9]+)\..+")
@@ -450,7 +456,7 @@ def run_action(action: str, run: Runner, *, project: str, state_dir: Path, egres
     """
     if action in MEDIA_ACTIONS:
         run_media_action(action, run, secrets_dir=media_secrets_dir, media_root=media_root,
-                         restore_target=restore_target, now=clock())
+                         restore_target=restore_target, now=clock(), state_dir=state_dir)
         return
     if action in _LOCKED_ACTIONS:
         # Um deploy recria o postgres; backup no meio dele falharia. O verify não pega o lock porque o próprio
@@ -474,7 +480,8 @@ def run_action(action: str, run: Runner, *, project: str, state_dir: Path, egres
     else:
         _check_egress_filter(run, egress_env)
     container = _find_backup(run, project)
-    _check_bucket_protection(run, container, clock())
+    # Só o drill local (sem o filtro do host) aceita um S3 que não seja o B2, como o MinIO de teste.
+    _check_bucket_protection(run, container, clock(), allow_any_endpoint=egress_env is None)
     _verify(run, container)
     _record_verify_success(state_dir, clock())
 
@@ -738,7 +745,7 @@ def _xml_text(xml_text: str, local_name: str) -> str | None:
     return None
 
 
-def _check_bucket_protection(run: Runner, container: str, now: float) -> None:
+def _check_bucket_protection(run: Runner, container: str, now: float, *, allow_any_endpoint: bool) -> None:
     """Fail closed: o bucket precisa provar versionamento e Object Lock (spec 18.3, ADR-0023).
 
     A consulta sai do próprio container backup (mesma rede, DNS, CA e filtro de saída do pgBackRest) por openssl
@@ -746,7 +753,11 @@ def _check_bucket_protection(run: Runner, container: str, now: float) -> None:
     """
     conf = _check(run(["docker", "exec", container, "cat", REPO_CONF_IN_CONTAINER], capture=True),
                   "leitura do pgbackrest_repo.conf")
-    _prove_bucket_protection(run, parse_repo_settings(conf.stdout), now, via=["docker", "exec", "-i", container],
+    settings = parse_repo_settings(conf.stdout)
+    if not settings.is_backblaze_b2 and not allow_any_endpoint:
+        raise BackupError(f"repo1-s3-endpoint {settings.endpoint} fora do Backblaze B2: em produção a chave do backup "
+                          "precisa ser provada pela API do B2 (outro S3 só no drill, com --skip-egress-check)")
+    _prove_bucket_protection(run, settings, now, via=["docker", "exec", "-i", container],
                              name_prefix=B2_BACKUP_NAME_PREFIX)
 
 
@@ -791,7 +802,7 @@ def _check_b2_key(run: Runner, via: list[str], settings: S3Settings, name_prefix
 
 def _tls_query(via: list[str], host: str, port: int, ca_file: str) -> list[str]:
     """openssl s_client (no container backup: mesma rede, DNS e filtro de saída do pgBackRest), verificando o host."""
-    return [*via, "openssl", "s_client", "-quiet", "-ign_eof",
+    return [*via, "timeout", "--kill-after=5", str(TLS_QUERY_TIMEOUT_SECONDS), "openssl", "s_client", "-quiet", "-ign_eof",
             "-connect", f"{host}:{port}", "-servername", host, "-verify_hostname", host, "-verify_return_error",
             "-CAfile", ca_file]
 
@@ -821,6 +832,8 @@ def read_media_settings(secrets_dir: Path) -> MediaRepository:
     region = _REGION_IN_ENDPOINT.fullmatch(match["endpoint"])
     if region is None:
         raise BackupError(f"{MEDIA_REPOSITORY_FILE}: endpoint sem s3.<região>. no nome")
+    if not match["endpoint"].endswith(B2_ENDPOINT_SUFFIX):
+        raise BackupError(f"{MEDIA_REPOSITORY_FILE}: endpoint fora do Backblaze B2 ({match['endpoint']})")
     key, secret = _read_shared_credentials(paths[MEDIA_CREDENTIALS_FILE])
     settings = S3Settings(endpoint=match["endpoint"], bucket=match["bucket"], region=region["region"], key=key,
                           secret=secret)
@@ -860,7 +873,7 @@ def media_snapshot_problems(listing: str, now: float) -> list[str]:
 
 
 def run_media_action(action: str, run: Runner, *, secrets_dir: Path, media_root: Path, restore_target: Path | None,
-                     now: float) -> None:
+                     now: float, state_dir: Path) -> None:
     repository = read_media_settings(secrets_dir)
     if action == "media-init":
         _prove_bucket_protection(run, repository.settings, now, via=[], name_prefix=MEDIA_NAME_PREFIX)
@@ -881,6 +894,8 @@ def run_media_action(action: str, run: Runner, *, secrets_dir: Path, media_root:
         if problems:
             raise BackupError("backup das fotos não saudável:\n  - " + "\n  - ".join(problems))
         _restic(run, repository, ["check"], QUERY_TIMEOUT_SECONDS)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / MEDIA_VERIFY_OK_FILE).write_text(f"{now}\n", encoding="utf-8")
     elif action == "media-check":
         _restic(run, repository, ["check", "--read-data"], BACKUP_TIMEOUT_SECONDS)
     elif action == "media-restore":
@@ -913,7 +928,8 @@ def _restic(run: Runner, repository: MediaRepository, args: list[str], timeout_s
     command = ["env", f"RESTIC_REPOSITORY_FILE={repository.repository_file}",
                f"RESTIC_PASSWORD_FILE={repository.password_file}",
                f"AWS_SHARED_CREDENTIALS_FILE={repository.credentials_file}", "restic", "--option",
-               f"s3.region={repository.settings.region}", "--cache-dir", MEDIA_CACHE_DIR, *args]
+               f"s3.region={repository.settings.region}", "--retry-lock", MEDIA_RETRY_LOCK, "--cache-dir",
+               MEDIA_CACHE_DIR, *args]
     return _check(run(command, capture=capture, timeout_seconds=timeout_seconds), f"restic {args[0]}")
 
 

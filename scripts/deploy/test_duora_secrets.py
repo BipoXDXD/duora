@@ -1,5 +1,7 @@
 """Testes do gerador de segredos. Rodar da raiz: python3 -m unittest discover -s scripts/deploy -v"""
 
+import contextlib
+import io
 import os
 import re
 import stat
@@ -563,6 +565,25 @@ class WriteMediaBackupRepositoryTests(unittest.TestCase):
         for bucket, endpoint in (("Duora", self.ENDPOINT), ("duora-ok", "https://x.test"), ("duora-ok", "x.test")):
             with self.subTest(bucket=bucket, endpoint=endpoint), self.assertRaises(secrets_cli.SecretsError):
                 self.write(bucket=bucket, endpoint=endpoint)
+
+    def test_missing_secrets_directory_is_a_clear_error_for_both_commands(self) -> None:
+        missing = Path(self._tmp.name) / "nao-existe"
+        stdin_by_command = {
+            "write-media-backup-repo": f"{self.KEY}\n{self.SECRET}\n{self.PASSWORD}\n",
+            "write-backup-repo": f"{self.KEY}\n{self.SECRET}\n",
+        }
+        for command, text in stdin_by_command.items():
+            with self.subTest(command=command):
+                with mock.patch.object(secrets_cli.sys, "stdin") as stdin, \
+                        contextlib.redirect_stderr(io.StringIO()) as stderr:
+                    stdin.read.return_value = text
+                    code = secrets_cli.main([command, str(missing), "--bucket", "duora-backup-exemplo",
+                                             "--endpoint", self.ENDPOINT, "--no-chown"])
+
+                self.assertEqual(1, code)
+                self.assertIn("não existe", stderr.getvalue())
+                self.assertNotIn(self.SECRET, stderr.getvalue())
+                self.assertFalse(missing.exists())
 
     def test_command_reads_the_three_lines_from_stdin(self) -> None:
         with mock.patch.object(secrets_cli.sys, "stdin") as stdin:

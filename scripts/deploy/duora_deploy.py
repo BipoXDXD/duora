@@ -70,11 +70,19 @@ class Release:
     raw: dict
 
 
+# Upload de fotos ligado (DUORA_MEDIA_REVIEW no duora.env) exige o backup das fotos verificado (adendo do ADR-0010):
+# o timer do media-verify ativo e o último verify bom (marcador gravado pelo duora-backup) com no máximo 30 h.
+MEDIA_VERIFY_TIMER = "duora-backup-media-verify.timer"
+MEDIA_VERIFY_OK_FILE = ".media-verify-ok"
+MAX_MEDIA_VERIFY_AGE_HOURS = 30
+
+
 @dataclass(frozen=True)
 class HostConfig:
     image_prefix: str
     min_free_gib: int
     disk_check_path: Path
+    media_uploads_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -223,7 +231,8 @@ def parse_host_config(text: str) -> HostConfig:
     except ValueError as error:
         raise DeployError("DUORA_MIN_FREE_GIB deve ser inteiro") from error
     disk_check_path = Path(values.get("DUORA_DISK_CHECK_PATH", "/var/lib/docker"))
-    return HostConfig(prefix, min_free_gib, disk_check_path)
+    return HostConfig(prefix, min_free_gib, disk_check_path,
+                      media_uploads_enabled=bool(values.get("DUORA_MEDIA_REVIEW", "")))
 
 
 def docker_architecture(kernel_machine: str) -> str:
@@ -245,7 +254,8 @@ def require_free_space(*, free_bytes: int, minimum_gib: int) -> None:
 def deploy(release: Release, paths: Paths, run: Runner, *,
            verify_backup: bool = True,
            readiness_timeout_seconds: int = DEFAULT_READINESS_TIMEOUT_SECONDS,
-           sleep: Callable[[float], None] = time.sleep) -> None:
+           sleep: Callable[[float], None] = time.sleep, media_uploads_enabled: bool = False,
+           clock: Callable[[], float] = time.time) -> None:
     """Executa a release. Qualquer falha interrompe; a release corrente só muda depois do smoke de readiness.
 
     Tudo que pode recusar a release (manifesto, imagens, backup/WAL, schema do banco, elegibilidade de rollback) roda
@@ -253,6 +263,8 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     vive em staging/, que nunca é lido para decidir nada.
     """
     _require_release_not_rewritten(release, paths.state_dir)
+    if media_uploads_enabled:
+        _require_media_backup(run, paths.state_dir, clock())
     release_env = _stage_release_files(release, paths.state_dir)
     compose = _compose_command(paths, release_env)
 
@@ -307,6 +319,23 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     _record_release(release, paths.state_dir)
     _mark_current(release, paths.state_dir)
     _step(f"release {release.release_id} implantada")
+
+
+def _require_media_backup(run: Runner, state_dir: Path, now: float) -> None:
+    """Fail closed: com o upload de fotos ligado, sem timer do media-verify ativo e verify bom recente não há deploy."""
+    if run(["systemctl", "is-active", "--quiet", MEDIA_VERIFY_TIMER]).returncode != 0:
+        raise DeployError(f"upload de fotos ligado sem o backup das fotos: {MEDIA_VERIFY_TIMER} inativo "
+                          "(duora_media_backup_enabled e duora-backup media-init; docs/operations/backup-restore.md)")
+    marker = state_dir / MEDIA_VERIFY_OK_FILE
+    try:
+        verified_at = float(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise DeployError(f"upload de fotos ligado sem verify bom do backup das fotos ({marker} ausente ou ilegível; "
+                          "sudo duora-backup media-verify)") from error
+    age_hours = (now - verified_at) / 3600
+    if not 0 <= age_hours <= MAX_MEDIA_VERIFY_AGE_HOURS:
+        raise DeployError(f"upload de fotos ligado com o último verify do backup das fotos há {age_hours:.1f} h "
+                          f"(aceito: 0 a {MAX_MEDIA_VERIFY_AGE_HOURS} h; sudo duora-backup media-verify)")
 
 
 def _is_rollback(release: Release, head: str, state_dir: Path) -> bool:
@@ -509,7 +538,8 @@ def main(argv: list[str] | None = None) -> int:
             release = parse_manifest(read_manifest(args.manifest), image_prefix=host.image_prefix)
             preflight(release, host)
             deploy(release, Paths(args.compose_file, args.host_env, args.state_dir), run_command,
-                   verify_backup=not args.accept_missing_backup_check)
+                   verify_backup=not args.accept_missing_backup_check,
+                   media_uploads_enabled=host.media_uploads_enabled)
     except DeployError as error:
         print(f"[duora-deploy] ERRO: {error}", file=sys.stderr)
         return 1
