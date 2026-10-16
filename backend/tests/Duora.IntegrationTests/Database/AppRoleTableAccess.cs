@@ -46,6 +46,10 @@ internal static class AppRoleTableAccess
 
             // profiles (dono: Profiles)
             ["profiles.profiles"] = AppTableAccess.ReadWrite,
+
+            // safety (dono: Safety)
+            ["safety.blocks"] = AppTableAccess.ReadWrite,
+            ["safety.user_guards"] = AppTableAccess.ReadWrite,
         };
 
     /// <summary>Privilégios de tabela do PostgreSQL 18, na grafia de <c>has_table_privilege</c>.</summary>
