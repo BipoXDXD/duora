@@ -247,6 +247,31 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
   and e.payload->>'kind' = 'PasswordResetUnavailable';
 ```
 
+**Bootstrap administrativo (senha temporária).** Uma release anterior ao bootstrap não conhece
+`users.temporary_password_expires_at`: a senha temporária viraria senha comum, sem prazo e sem a sessão restrita à
+troca, e o bloqueio do reset por e-mail antes do MFA (I5) também não existe lá. Antes de voltar para ela, invalide as
+contas que ainda estão na fase temporária (senha nula, que nenhuma entrada confere; stamp novo; sessões revogadas) e,
+depois de voltar à release com o bootstrap, reemita a senha com `--reissue`. Registre a operação no log de
+incidente: o SQL manual não passa pela auditoria do produto.
+
+```sql
+begin;
+update identity.login_sessions s set revoked_at = now(), revocation_reason = 'rollback_bootstrap'
+from identity.users u
+where u.id = s.user_id and s.revoked_at is null and u.temporary_password_expires_at is not null;
+update identity.users
+set password_hash = null,
+    security_stamp = upper(replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '')),
+    concurrency_stamp = gen_random_uuid()::text
+where temporary_password_expires_at is not null;
+commit;
+```
+
+Contas privilegiadas que já trocaram a senha mas ainda não ativaram o MFA ficam, na release anterior, sem o I5: o
+reset por e-mail volta a valer para elas. Mantenha a janela de rollback curta ou invalide-as do mesmo jeito
+(`not two_factor_enabled` e papel privilegiado). O aviso de senha redefinida da reemissão usa o tipo
+`PasswordResetNotice`, que o leitor dos avisos já entrega; ele não muda a ordem de deploy.
+
 **Verificação etária sem validade** (migration `AgeVerificationWithoutExpiry`, ADR-0024 adendo de 2026-10-16): a
 release nova grava `VerifiedAdult` sem `expires_at`. Um rollback para a release anterior funciona, mas falha
 fechado para essas pessoas: o código anterior lê a verificação sem `expires_at` como vencida, nega a participação e
@@ -290,6 +315,50 @@ para a anterior não tem restrição por esse campo.
    Ele cria os volumes; o PostgreSQL roda `10-duora-roles.sh` e `20-duora-config.sh` uma única vez e cria
    `duora_migrator` (dono do banco `duora`) e `duora_app` (só DML via default privileges; regras completas e
    convenção de tabela append-only em [model.md](../data/model.md#permissões-de-banco-spec-107)).
+
+3. Crie a primeira conta administrativa ([abaixo](#conta-administrativa-bootstrap-spec-111)).
+
+### Conta administrativa (bootstrap, spec 11.1)
+
+Conta privilegiada (`moderator`, `product_admin` ou `operator`) só nasce por este comando, rodado pelo operador no
+host, **dentro do container do web em execução** da release corrente (mesma configuração, banco e key ring; nenhuma
+rota da API concede papel). O primeiro administrador e os seguintes saem do mesmo jeito:
+
+```sh
+S=/var/lib/duora
+ID=$(sudo python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["releaseId"])' $S/current.json)
+sudo docker compose -f /opt/duora/compose.prod.yml --env-file /etc/duora/duora.env --env-file $S/releases/$ID.env \
+  exec -T web dotnet Duora.Web.dll admin grant --email ana@exemplo.com.br --role product_admin --operator "$(logname)"
+```
+
+- **`exec -T`, nunca `run`.** A saída do `docker compose exec` volta só para o terminal de quem rodou; a de um
+  container novo (`run`) passa pelo log driver do Docker, e a senha ficaria no `json-file` do host. O comando é um
+  segundo processo no container do web, com uma ou duas conexões do banco durante segundos.
+- A senha temporária é **gerada** pelo comando: nenhum argumento, variável de ambiente ou arquivo a recebe, então ela
+  não aparece em `ps`, no histórico do shell nem no `docker inspect`.
+- `--operator` é obrigatório e vai para a auditoria (`actor_kind = 'TerminalOperator'`, `actor_label` = o nome dado;
+  ações `identity.admin_granted.<papel>` e `identity.admin_temporary_password_reissued`): use o seu usuário no host
+  (`logname` devolve quem entrou por SSH, mesmo sob `sudo`). Formato de usuário de sistema: minúsculas, dígitos,
+  `.`, `_` e `-`, até 32 caracteres. **É um rótulo, não uma identidade:** o Duora não o confere; quem responde pelo
+  comando é quem tem SSH e `sudo` no host, e o log de autenticação do host é a prova.
+- A saída mostra a **senha temporária uma única vez** (linha `Senha temporária: …`). O Duora guarda só o hash:
+  não há como reexibi-la. Entregue-a à pessoa por um canal separado do e-mail dela e não cole em ticket, chat
+  gravado ou arquivo; limpe o scrollback de terminal gravado (`tmux`, `script`). Ela vale **24 h**. Caixa e letras
+  parecidas não importam ao digitá-la (`o`/`O` = `0`, `l`/`I` = `1`).
+- No primeiro login, a sessão só aceita trocar a senha (`POST /me/password-changes`; qualquer outra rota responde
+  `403` `PASSWORD_CHANGE_REQUIRED`); a nova não pode repetir a temporária. Depois da troca, a sessão é a restrita
+  do cadastro de MFA ([auth.md](../security/auth.md#mfa)), e só com o MFA ativo a conta abre `/admin`.
+- Até a primeira ativação do MFA, a conta não redefine senha por e-mail (o pedido recebe um aviso sem link; I5).
+- **Reemitir** (senha vencida ou perdida, ou a pessoa trocou a senha e não chegou ao MFA): o mesmo comando com
+  `--reissue` e o mesmo `--role`. A senha atual e as sessões deixam de valer, a conta volta à troca de senha, e o
+  titular recebe por e-mail o aviso de senha redefinida. Sem `--reissue`, o comando nunca mexe numa conta existente.
+  Conta com MFA ativo não é reemitida: siga a recuperação de MFA de conta privilegiada (TM-22).
+- O comando recusa (saída `1`) qualquer outra conta com o e-mail: participante, cadastro pendente, conta privilegiada
+  com MFA ou de outro papel. Participante nunca vira conta privilegiada (D13); use outro e-mail. Argumento
+  inválido sai com `2` e não toca o banco.
+- **Cadastro pendente no caminho:** se alguém cadastrou o e-mail do futuro administrador pelo site e não confirmou,
+  o comando recusa (o pendente pode ser de outra pessoa, e o comando não o substitui). Espere o prazo do pendente
+  (72 h, hipótese) e a limpeza, ou use outro e-mail. Registre o caso: é um bloqueio barato de provocar.
 
 ### Certificado do key ring (spec 11.2)
 
