@@ -18,6 +18,12 @@ internal interface IAccountEmailCatalog
     EmailText PendingRegistrationReminder(Uri registrationLink);
 
     EmailText PasswordResetForUnknownAddress(Uri registrationLink);
+
+    /// <summary>
+    /// Aviso de mudança de credencial. <paramref name="occurredAtUtc"/> já vem formatado em UTC; é o único dado
+    /// variável do texto, além do link fixo para as sessões.
+    /// </summary>
+    EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink);
 }
 
 internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
@@ -97,6 +103,43 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
 
             Se você não fez esse pedido, ignore esta mensagem.
             """);
+
+    public EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink)
+    {
+        var (subject, sentence) = change switch
+        {
+            SecurityChange.MfaEnabled => (
+                "Verificação em duas etapas ativada no Duora",
+                $"A verificação em duas etapas foi ativada na sua conta do Duora em {occurredAtUtc}."),
+            SecurityChange.MfaDisabled => (
+                "Verificação em duas etapas desativada no Duora",
+                $"A verificação em duas etapas foi desativada na sua conta do Duora em {occurredAtUtc}."),
+            SecurityChange.RecoveryCodesRegenerated => (
+                "Novos códigos de recuperação no Duora",
+                $"Novos códigos de recuperação foram gerados para a sua conta do Duora em {occurredAtUtc}; os anteriores deixaram de valer."),
+            SecurityChange.PasswordChanged => (
+                "Senha alterada no Duora",
+                $"A senha da sua conta do Duora foi alterada em {occurredAtUtc}."),
+            SecurityChange.PasswordReset => (
+                "Senha redefinida no Duora",
+                $"A senha da sua conta do Duora foi redefinida pelo link de recuperação em {occurredAtUtc}."),
+            _ => throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida."),
+        };
+        return new(
+            subject,
+            $"""
+            Olá,
+
+            {sentence}
+
+            Se foi você, nenhuma ação é necessária. Se não foi, entre no Duora, encerre as sessões que você não
+            reconhece e troque a senha:
+
+            {sessionsLink}
+
+            Se não conseguir entrar, use "Esqueci minha senha" na tela de entrada para recuperar o acesso.
+            """);
+    }
 }
 
 internal sealed class EnglishAccountEmails : IAccountEmailCatalog
@@ -176,4 +219,41 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
 
             If you did not make this request, ignore this message.
             """);
+
+    public EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink)
+    {
+        var (subject, sentence) = change switch
+        {
+            SecurityChange.MfaEnabled => (
+                "Two-step verification turned on for Duora",
+                $"Two-step verification was turned on for your Duora account on {occurredAtUtc}."),
+            SecurityChange.MfaDisabled => (
+                "Two-step verification turned off for Duora",
+                $"Two-step verification was turned off for your Duora account on {occurredAtUtc}."),
+            SecurityChange.RecoveryCodesRegenerated => (
+                "New recovery codes for Duora",
+                $"New recovery codes were generated for your Duora account on {occurredAtUtc}; the previous ones no longer work."),
+            SecurityChange.PasswordChanged => (
+                "Duora password changed",
+                $"The password of your Duora account was changed on {occurredAtUtc}."),
+            SecurityChange.PasswordReset => (
+                "Duora password reset completed",
+                $"The password of your Duora account was reset through the recovery link on {occurredAtUtc}."),
+            _ => throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida."),
+        };
+        return new(
+            subject,
+            $"""
+            Hi,
+
+            {sentence}
+
+            If it was you, no action is needed. If it was not, sign in to Duora, end the sessions you do not
+            recognize and change your password:
+
+            {sessionsLink}
+
+            If you cannot sign in, use "Forgot your password?" on the sign-in screen to recover access.
+            """);
+    }
 }
