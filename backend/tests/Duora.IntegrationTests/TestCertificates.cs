@@ -18,6 +18,17 @@ internal static class TestCertificates
             certificate.ExportCertificatePem() + "\n" + rsa.ExportPkcs8PrivateKeyPem() + "\n",
             Convert.ToBase64String(certificate.RawData));
     }
+
+    public static TestCertificate CreateEcdsa(string name)
+    {
+        using var ecdsa = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest($"CN={name}", ecdsa, HashAlgorithmName.SHA256);
+        var now = DateTimeOffset.UtcNow;
+        using var certificate = request.CreateSelfSigned(now.AddMinutes(-5), now.AddYears(1));
+        return new TestCertificate(
+            certificate.ExportCertificatePem() + "\n" + ecdsa.ExportPkcs8PrivateKeyPem() + "\n",
+            Convert.ToBase64String(certificate.RawData));
+    }
 }
 
 /// <param name="Pem">Conteúdo do arquivo de segredo.</param>

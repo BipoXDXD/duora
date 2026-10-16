@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.DataProtection.Repositories;
+using Microsoft.AspNetCore.DataProtection.XmlEncryption;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
@@ -184,9 +185,9 @@ public static class WebIdentityServiceCollectionExtensions
                 "DataProtection:KeysDirectory precisa ser o ponto de montagem de um volume persistente: na camada do "
                 + "container ou em memória, a chave some no próximo deploy e todas as sessões caem.")
             .Validate<IHostEnvironment>(
-                (o, environment) => o.RequireCertificate || !environment.IsProduction(),
-                "DataProtection:RequireCertificate=false é proibido em Production: o key ring ficaria em claro no "
-                + "volume e nos backups.")
+                (o, environment) => o.RequireCertificate || DuoraEnvironments.RunsOutsideTheContainer(environment),
+                "DataProtection:RequireCertificate=false só vale em Development, Testing e BuildTimeOpenApi: fora "
+                + "deles o key ring ficaria em claro no volume e nos backups.")
             .Validate(
                 o => !o.RequireCertificate || !string.IsNullOrWhiteSpace(o.Certificate),
                 "DataProtection:Certificate é obrigatório: sem ele o key ring fica em claro no volume e nos backups.")
@@ -209,7 +210,14 @@ public static class WebIdentityServiceCollectionExtensions
             .Configure<IOptions<DataProtectionStorageOptions>, ILoggerFactory>((keys, storage, loggers) =>
                 keys.XmlRepository = new FileSystemXmlRepository(
                     new DirectoryInfo(storage.Value.KeysDirectory),
-                    loggers));
+                    loggers))
+            // O registro do certificado (abaixo) lê a configuração do momento do registro; as options leem a final.
+            // Validar aqui, sobre o que o Data Protection recebeu, pega a divergência em vez de gravar em claro.
+            .Validate<IOptions<DataProtectionStorageOptions>>(
+                (keys, storage) => !storage.Value.RequireCertificate || keys.XmlEncryptor is CertificateXmlEncryptor,
+                "DataProtection:Certificate não chegou ao Data Protection: ele é registrado com a configuração do "
+                + "momento do registro, e uma fonte acrescentada depois deixaria o key ring em claro.")
+            .ValidateOnStart();
 
         // Spec 11.2: o atual cifra as chaves novas; o atual e os anteriores decifram as chaves que cada um cifrou. O
         // framework só aceita os certificados no registro, então eles são lidos aqui; se o PEM for inválido, nada
