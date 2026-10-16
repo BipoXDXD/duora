@@ -57,6 +57,14 @@ depois de comprometimento é condição de lançamento (spec 18.5), com custo de
 - Negativas: um container a mais; CA e certificados para rotacionar (825 dias); o provedor precisa suportar Object
   Lock na criação do bucket; versões não correntes ocupam espaço até o lifecycle (até perto do dobro); o verify faz
   duas consultas assinadas ao bucket a cada execução.
+- Custo de leitura (decisão do usuário, 2026-10-15: verificação diária leve e completa semanal): por dia, a listagem
+  do archive e o `pgbackrest verify --set` do backup mais novo (um full ou diferencial baixado e decifrado); por
+  semana, o repositório inteiro (no pior momento 3 fulls, 18 diferenciais e 21 dias de WAL, ~29 GB no exemplo de
+  dimensionamento do manual). Com tarifa de egress, isso entra na escolha do provedor.
+- O Object Lock conta desde a criação de cada versão, não desde a exclusão: objeto gravado há mais de 21 dias já
+  está fora do lock. Por isso a **defesa principal é a negação no IAM** (a credencial do `backup`, a única na VPS, não
+  apaga versão nem altera retenção, versionamento, lock ou lifecycle). O lock é defesa em profundidade para os
+  últimos 21 dias, caso a negação falhe.
 - Trade-off: a topologia não impede o postgres de apagar o repositório; ela só garante que a exclusão é
   recuperável. Restaurar depois de um ataque exige a credencial administrativa fora da VPS para remover os delete
   markers.
@@ -70,8 +78,9 @@ roda o ataque e a recuperação no CI.
 
 ## Compliance
 
-- `duora-backup verify` recusa bucket sem versionamento, sem Object Lock ou com retenção menor que 21 dias
-  (`BucketProtectionTests`, `BucketProtectionActionTests`).
+- `duora-backup verify` recusa bucket sem versionamento, sem Object Lock, com modo diferente de `COMPLIANCE` ou com
+  retenção menor que 21 dias (`BucketProtectionTests`, `BucketProtectionActionTests`).
+- Drill: uma versão travada recusa `mc rm --version-id` mesmo do usuário root do dublê.
 - Drill de restore no job `images` do CI: isolamento de rede, `repo-ls` e `repo-rm --recurse` do postgres funcionando
   (documenta o poder), restore por `--repo-target-time` depois da exclusão e `verify-repo` acusando lacuna de WAL.
 - Filtro de saída conferido pelo verify no host (`EgressFilterCheckTests`); prova no host real pendente (M3).
