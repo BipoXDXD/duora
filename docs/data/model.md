@@ -287,8 +287,9 @@ erDiagram
 - **Implementado (migração `ProfileRegion`, aditiva):** `region_code text null` com
   `ck_profiles_region_code` (`region_code IN ('BR-AC', ..., 'BR-TO')`, as 27 UFs). `null` é "não informada".
   - **CHECK, não lookup table** (regra de Estados acima, *SQL Antipatterns* cap. 11): as 27 UFs são um conjunto
-    fixo, que só muda por emenda constitucional (o último ajuste foi em 1988), e não há atributo por UF a guardar.
-    Uma tabela de referência traria FK, índice e seed para um conjunto que o negócio não altera. Se um dia a região
+    fixo, que muda raramente e exige processo legislativo (e revisão do ISO 3166-2:BR; o último ajuste foi em
+    1988), e não há atributo por UF a guardar. Uma tabela de referência traria FK, índice e seed para um conjunto que
+    o negócio não altera. Se um dia a região
     passar a ser editável pelo negócio (outro país, microrregião), a troca é uma migração expand/contract para
     lookup table.
   - A lista vem de `RegionCode.All` (Core), a mesma que gera o CHECK, o `enum` do OpenAPI e, pelo tipo gerado, o

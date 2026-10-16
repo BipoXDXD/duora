@@ -12,8 +12,9 @@ namespace Duora.Core.Profiles;
 public sealed record RegionCode
 {
     /// <summary>
-    /// As 27 UFs. O conjunto só muda por emenda constitucional (o último ajuste foi em 1988, com a criação do
-    /// Tocantins e de Roraima e Amapá como estados), por isso é CHECK e não tabela de referência (docs/data/model.md).
+    /// As 27 UFs. O conjunto muda raramente e exige processo legislativo (e revisão do ISO 3166-2:BR); o último ajuste
+    /// foi em 1988, com a criação do Tocantins e de Roraima e Amapá como estados. Por isso é CHECK e não tabela de
+    /// referência (docs/data/model.md).
     /// </summary>
     public static IReadOnlyList<string> All { get; } =
     [
