@@ -53,7 +53,8 @@
 - name: Gerar os segredos uma única vez (nunca sobrescreve; spec 15.5)
   ansible.builtin.command:
     cmd: "/usr/local/sbin/duora-secrets init {{ duora_secrets_dir }}"
-    creates: "{{ duora_secrets_dir }}/duora_app_connection"
+    # O último arquivo que o init cria: host que já tinha as senhas ganha o certificado do key ring.
+    creates: "{{ duora_secrets_dir }}/dataprotection_previous_certificates"
 
 - name: Criar o usuário de deploy sem senha e sem grupos privilegiados
   ansible.builtin.user:
