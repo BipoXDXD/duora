@@ -64,7 +64,7 @@ sequenceDiagram
 | `RetrieveAsync` | Um único `UPDATE ... RETURNING ticket` que confere sessão + `users.security_stamp` e desliza a expiração ociosa. Devolve nada (→ `401`) se: sessão revogada, `idle_expires_at <= agora`, `absolute_expires_at <= agora` ou stamp da sessão diferente do atual. **Pendente:** recusar conta `DeletionPending` (hoje a sessão continua válida, e `/me` informa o estado) |
 | Conta restrita ou suspensa | Sessão válida, mas a política de autorização limita a conta própria, segurança e recurso (spec 8.2) |
 | Respostas da API | `401`/`403` em Problem Details; `OnRedirectToLogin` e `OnRedirectToAccessDenied` substituídos para nunca redirecionar a API para HTML (spec 8.2; D-AUTH-01) |
-| Banco indisponível | Falha fechada: nunca aceita ticket sem consulta (TM-16). Hoje a resposta é `500` `INTERNAL_ERROR` sem detalhe; **pendente:** mapear para `503` |
+| Banco indisponível | Falha fechada: nunca aceita ticket sem consulta (TM-16). Banco inacessível, pool esgotado (`Database:PoolTimeout`, 5 s) ou servidor sem conexões (53300) respondem `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem detalhe; outras falhas inesperadas continuam `500` `INTERNAL_ERROR` (`ServerErrorTests`) |
 | Relógio | `TimeProvider` injetado em toda decisão de expiração; `FakeTimeProvider` nos testes |
 | Negar por padrão | Política de fallback exige usuário autenticado; rotas públicas numa allowlist explícita (API-A01 a A07, `/health/live`, `/health/ready`; webhooks quando existirem) (TM-64). O teste `EndpointAuthorizationTests` falha se uma rota nova nascer pública |
 

@@ -40,6 +40,7 @@ internal static class DuoraWebApp
 
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ApiProblems.AddDefaultCode);
         builder.Services.AddExceptionHandler<AccountBusyExceptionHandler>();
+        builder.Services.AddExceptionHandler<DatabaseUnavailableExceptionHandler>();
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
             // DTO estrito (spec 8.1): campo desconhecido ou repetido é 400, nunca ignorado.
@@ -53,7 +54,7 @@ internal static class DuoraWebApp
             ProfileEndpoints.ConfigureOpenApi(options);
         });
         builder.Services.AddSingleton(TimeProvider.System);
-        builder.Services.AddInfrastructure(builder.Configuration);
+        builder.Services.AddInfrastructure(builder.Configuration, ConnectionShare.Web);
         builder.Services.AddDuoraWebIdentity(builder.Configuration);
         builder.Services.AddDuoraProfiles();
         builder.Services.AddDuoraSafety();

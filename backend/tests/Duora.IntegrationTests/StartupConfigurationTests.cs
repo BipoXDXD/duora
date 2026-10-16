@@ -30,6 +30,34 @@ public sealed class StartupConfigurationTests
     }
 
     [Theory]
+    [InlineData("--Database:MaxPoolSize=0")]
+    [InlineData("--Database:MaxPoolSize=41")]
+    [InlineData("--Database:PoolTimeout=00:00:00")]
+    [InlineData("--Database:PoolTimeout=00:00:31")]
+    [InlineData("--Database:PoolTimeout=00:00:01.500")]
+    public async Task WebDoesNotStartWithAPoolOutsideItsShareOfTheConnectionBudget(string setting)
+    {
+        await using var app = BuildWeb(setting);
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Database:", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheWebPoolIsFortyConnectionsWaitingAtMostFiveSecondsByDefault()
+    {
+        await using var app = BuildWeb();
+
+        var connection = new Npgsql.NpgsqlConnectionStringBuilder(
+            app.Services.GetRequiredService<Npgsql.NpgsqlDataSource>().ConnectionString);
+
+        Assert.Equal(40, connection.MaxPoolSize);
+        Assert.Equal(5, connection.Timeout);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("duora.app")]
     [InlineData("http://duora.app")]

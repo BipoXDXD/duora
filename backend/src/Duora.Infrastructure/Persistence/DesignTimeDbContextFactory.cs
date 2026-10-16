@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Npgsql;
 
 namespace Duora.Infrastructure.Persistence;
 
@@ -52,6 +53,11 @@ internal sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<D
             throw new InvalidOperationException($"{ConnectionFileVariable} aponta para um arquivo vazio: {file}");
         }
 
-        return connectionString;
+        // A fatia do migrador no orçamento de conexões vale mesmo que o arquivo peça mais (deploy.md).
+        return new NpgsqlConnectionStringBuilder(connectionString)
+        {
+            MaxPoolSize = ConnectionShare.Migrator.MaxPoolSize,
+            Timeout = (int)DatabaseOptions.DefaultPoolTimeout.TotalSeconds,
+        }.ConnectionString;
     }
 }

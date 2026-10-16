@@ -1087,6 +1087,9 @@ erDiagram
 
 ## Permissões de banco (spec 10.7)
 
+Conexões: cada processo tem fatia fixa no `max_connections=100` (web 40, worker 10, migrador 5; conta completa em
+[deploy.md](../operations/deploy.md#orçamento-de-conexões-spec-107)).
+
 | Papel do banco | Permissões |
 |---|---|
 | `duora_app` (web e worker) | `SELECT`, `INSERT`, `UPDATE`, `DELETE` nos schemas da aplicação, exceto `ops.audit_events` (só `INSERT`, `SELECT`); sem DDL, sem superuser |

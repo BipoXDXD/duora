@@ -104,6 +104,28 @@ então a SPA recarrega uma vez (guarda de 60 s na sessão da aba) e, se ainda fa
 pede para recarregar. Não há aviso proativo nem compatibilidade entre versões de chunks
 ([frontend/README.md](../../frontend/README.md#divisão-do-bundle-por-rota)).
 
+## Orçamento de conexões (spec 10.7)
+
+O PostgreSQL de produção tem `max_connections=100` (`compose.prod.yml`). Cada processo tem uma fatia fixa, com o
+`Maximum Pool Size` do Npgsql explícito e validado no boot (`ConnectionShare`; `Database:MaxPoolSize` só pode
+baixar a fatia, nunca passar dela). Valores iniciais (**hipótese**, a medir):
+
+| Consumidor | Conexões | Onde |
+|---|---|---|
+| Web | 40 | `ConnectionShare.Web`; `Database:MaxPoolSize` de 1 a 40 |
+| Worker | 10 | `ConnectionShare.Worker`; de 1 a 10 |
+| Migrador (bundle) | 5 | `ConnectionShare.Migrator`, imposto sobre o arquivo de conexão |
+| Sondas de saúde (readiness do web, heartbeat do worker) | 2 | `DatabaseProbe`, sem pool, uma por verificação |
+| Backup (pgBackRest) e monitoramento | 5 | papéis próprios |
+| Reserva do superusuário | 3 | `superuser_reserved_connections` padrão |
+| **Soma** | **65** | sobram 35 para acesso administrativo e imprevistos |
+
+O deploy para o web antigo antes de subir o novo (não há sobreposição de pools; ver o topo deste arquivo). Quem
+espera conexão espera no máximo `Database:PoolTimeout` (**5 s**, de 1 a 30 s): pool esgotado, conexão recusada ou
+servidor sem conexões (53300) respondem `503 TEMPORARILY_UNAVAILABLE` com `Retry-After`, nunca `500`
+(`ServerErrorTests`). Transação esquecida aberta cai em 60 s (`idle_in_transaction_session_timeout`). Mudar uma
+fatia exige refazer a soma aqui e o teste de boot correspondente (`StartupConfigurationTests`, `WorkerHostTests`).
+
 ## Proxy confiável (Forwarded Headers)
 
 O Caddy é o único proxy. Ele fala com o web pela rede `edge`, que tem subnet fixa no `compose.prod.yml`:
