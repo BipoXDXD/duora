@@ -39,6 +39,20 @@ updates:
       actions-patches:
         update-types: [patch]
 
+  # Lockfiles com hashes gerados por `uv pip compile` a partir do requirements.in de cada diretório (comando no
+  # cabeçalho do .in). A versão direta muda no .in e o lockfile é regenerado com o mesmo comando.
+  - package-ecosystem: pip
+    directories:
+      - /scripts/deploy
+      - /tools/visual
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      pip-patches:
+        update-types: [patch]
+
   - package-ecosystem: docker-compose
     directory: /infra/compose
     schedule:
