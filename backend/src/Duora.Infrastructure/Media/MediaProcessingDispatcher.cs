@@ -45,6 +45,7 @@ public sealed partial class MediaProcessingDispatcher
     private const string InvalidPayloadError = "InvalidPayload";
     private const string OriginalMissingError = "OriginalMissing";
     private const string OriginalMismatchError = "OriginalMismatch";
+    private const string AttemptsExhaustedError = "AttemptsExhausted";
 
     private readonly OutboxDeliveryQueue _queue;
     private readonly DuoraDbContext _db;
@@ -117,6 +118,14 @@ public sealed partial class MediaProcessingDispatcher
         {
             LogInvalidPayload(_logger, delivery.Id);
             await SettleAsync(delivery, OutboxDeliveryStatus.Failed, InvalidPayloadError, cancellationToken);
+            return;
+        }
+
+        if (delivery.Attempts > _options.MaxAttempts)
+        {
+            // Nenhuma tentativa anterior chegou ao catch: o processo caiu no meio (uma imagem que derruba o decoder,
+            // por exemplo) e o lease venceu. Decodificar de novo seria laço de crash; encerra o upload sem tocar nele.
+            await GiveUpAsync(delivery, message.UploadId, AttemptsExhaustedError, cancellationToken);
             return;
         }
 
@@ -343,18 +352,7 @@ public sealed partial class MediaProcessingDispatcher
         var cause = exception.GetType().Name;
         if (delivery.Attempts >= _options.MaxAttempts)
         {
-            LogGaveUp(_logger, delivery.Id, delivery.Attempts, cause);
-            // Se o banco ainda estiver fora, isto lança e a entrega fica sem encerrar: o lease vence, outro worker a
-            // retoma já acima do teto de tentativas e tenta encerrar o upload de novo.
-            if (await AbandonAfterLastAttemptAsync(uploadId, cancellationToken))
-            {
-                await SettleAsync(delivery, OutboxDeliveryStatus.Failed, cause, cancellationToken);
-            }
-            else
-            {
-                LogLeaseLost(_logger, delivery.Id);
-            }
-
+            await GiveUpAsync(delivery, uploadId, cause, cancellationToken);
             return;
         }
 
@@ -362,6 +360,24 @@ public sealed partial class MediaProcessingDispatcher
         var retryAt = now + _options.Backoff.DelayAfter(delivery.Attempts, Random.Shared.NextDouble());
         LogWillRetry(_logger, delivery.Id, delivery.Attempts, cause, retryAt);
         if (!await _queue.RescheduleAsync(delivery, retryAt, cause, now, cancellationToken))
+        {
+            LogLeaseLost(_logger, delivery.Id);
+        }
+    }
+
+    /// <summary>
+    /// Última tentativa: encerra o upload e a entrega como <c>Failed</c> com a causa. Se o banco ainda estiver fora,
+    /// isto lança e a entrega fica sem encerrar: o lease vence, outro worker a retoma já acima do teto de tentativas e
+    /// chega aqui de novo sem decodificar.
+    /// </summary>
+    private async Task GiveUpAsync(ClaimedDelivery delivery, Guid uploadId, string cause, CancellationToken cancellationToken)
+    {
+        LogGaveUp(_logger, delivery.Id, delivery.Attempts, cause);
+        if (await AbandonAfterLastAttemptAsync(uploadId, cancellationToken))
+        {
+            await SettleAsync(delivery, OutboxDeliveryStatus.Failed, cause, cancellationToken);
+        }
+        else
         {
             LogLeaseLost(_logger, delivery.Id);
         }
