@@ -84,13 +84,29 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
         Assert.Equal(before, await SnapshotAsync(emails));
     }
 
+    /// <summary>Rotas que dispensam CSRF por não serem de navegador; a lista é fechada (ADR-0024).</summary>
+    private static readonly string[] CsrfExemptRoutes = ["POST /webhooks/{provider}"];
+
+    [Fact]
+    public void OnlyProviderWebhooksAreExemptFromCsrf()
+    {
+        var exempt = _factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.Metadata.GetMetadata<Duora.Web.Security.CsrfExemptEndpoint>() is not null)
+            .SelectMany(endpoint => (endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? ["GET"])
+                .Select(method => $"{method} /{(endpoint.RoutePattern.RawText ?? "").Trim('/')}"));
+
+        Assert.Equal(CsrfExemptRoutes, exempt.Order(StringComparer.Ordinal));
+    }
+
     private List<(string Method, string Pattern)> MutatingRoutes() =>
     [
         .. _factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
             .SelectMany(endpoint => (endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? ["GET"])
                 .Select(method => (Method: method, Pattern: "/" + (endpoint.RoutePattern.RawText ?? "").Trim('/'))))
-            .Where(route => route.Method is not ("GET" or "HEAD" or "OPTIONS")),
+            .Where(route => route.Method is not ("GET" or "HEAD" or "OPTIONS"))
+            .Where(route => !CsrfExemptRoutes.Contains($"{route.Method} {route.Pattern}")),
     ];
 
     /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails, sessões ativas, perfis, bloqueios e verificações etárias.</summary>

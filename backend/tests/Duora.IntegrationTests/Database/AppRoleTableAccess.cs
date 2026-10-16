@@ -44,6 +44,8 @@ internal static class AppRoleTableAccess
             ["ops.audit_events"] = AppTableAccess.AppendOnly,
             ["ops.outbox_deliveries"] = AppTableAccess.ReadWrite,
             ["ops.outbox_events"] = AppTableAccess.ReadWrite,
+            // Não é append-only: o processamento muda o estado na mesma transação e a retenção apaga em lote.
+            ["ops.webhook_receipts"] = AppTableAccess.ReadWrite,
 
             // profiles (dono: Profiles)
             ["profiles.profiles"] = AppTableAccess.ReadWrite,

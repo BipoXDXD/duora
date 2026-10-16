@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Identity;
@@ -31,9 +32,16 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
     public const string CurrentPath = "/api/v1/me/age-verifications/current";
     public const string FakeFlowOrigin = "https://age-check.fake.invalid";
 
+    /// <summary>Segredos de assinatura do fornecedor simulado, sorteados por execução (nada fixo no repositório).</summary>
+    public static readonly string CurrentSigningSecret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
+    public static readonly string NextSigningSecret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+
     /// <summary>Configuração do fornecedor simulado que os testes usam; segredos sintéticos, só de teste.</summary>
     public static Dictionary<string, string?> FakeProviderSettings(string mode = "Succeed") => new()
     {
+        ["AgeVerification:Fake:SigningSecrets:0"] = CurrentSigningSecret,
+        ["AgeVerification:Fake:SigningSecrets:1"] = NextSigningSecret,
         ["AgeVerification:Provider"] = "Fake",
         ["AgeVerification:PolicyVersion"] = "test-2026-10",
         ["AgeVerification:AllowedFlowOrigins:0"] = FakeFlowOrigin,
@@ -146,7 +154,7 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
     /// <summary>Simula o worker: grava a referência e o fluxo do fornecedor na solicitação aberta.</summary>
     public Task MarkProviderFlowReadyAsync(Guid verificationId, string flowUrl) =>
         ExecuteAsync(
-            "update identity.age_verifications set provider_reference = $2, provider_flow_url = $3 where id = $1",
+            "update identity.age_verifications set provider_reference = $2, provider_flow_url = $3, version = version + 1 where id = $1",
             verificationId,
             $"{FakeAgeEligibilityProvider.ReferenceFor(verificationId)}",
             flowUrl);
