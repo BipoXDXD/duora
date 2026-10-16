@@ -163,8 +163,9 @@ public sealed partial class AgeVerificationWebhook
         }
         else
         {
-            // NotAdult numa solicitação já expirada: a solicitação fica como estava, e a trilha diz qual solicitação
-            // levou à restrição (M8).
+            // NotAdult numa solicitação já expirada ou decidida: o estado fica, a suspeita é gravada e a trilha diz qual
+            // solicitação levou à restrição (M8).
+            await RecordMinorSuspicionAsync(verificationId, now, cancellationToken);
             await Audit(AuditAction.AgeVerificationLateNotAdult, AuditTargetTypes.AgeVerification, verificationId, verification.Version, cancellationToken);
         }
 
@@ -190,6 +191,7 @@ public sealed partial class AgeVerificationWebhook
             $"""
             update identity.age_verifications
             set state = {state}, decided_at = {now}, decision_source = {source},
+                minor_suspected_at = case when {decision.MinorSuspected} then {now} else minor_suspected_at end,
                 version = version + 1
             where id = {verificationId} and state = {pending}
             """,
@@ -201,6 +203,16 @@ public sealed partial class AgeVerificationWebhook
 
         await Audit(AuditAction.AgeVerificationDecided, AuditTargetTypes.AgeVerification, verificationId, version + 1, cancellationToken);
     }
+
+    /// <summary>Grava a primeira suspeita; uma repetida mantém o instante original e não muda nada.</summary>
+    private async Task RecordMinorSuspicionAsync(Guid verificationId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            update identity.age_verifications
+            set minor_suspected_at = {now}, version = version + 1
+            where id = {verificationId} and minor_suspected_at is null
+            """,
+            cancellationToken);
 
     private async Task MoveAccountAsync(Guid userId, AccountStatus from, AccountStatus to, CancellationToken cancellationToken)
     {

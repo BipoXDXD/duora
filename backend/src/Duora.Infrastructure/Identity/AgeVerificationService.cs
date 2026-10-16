@@ -189,7 +189,8 @@ public sealed class AgeVerificationService
     /// <summary>
     /// A solicitação que decide a elegibilidade: a decisão mais recente (<see cref="AgeEligibility.Decisions"/>), se
     /// houver, porque a verificação adulta não vence e uma decisão negativa posterior manda sobre ela; sem decisão, a
-    /// solicitação mais recente. Pedido sem decisão depois de uma decisão nunca a apaga (falha fechada).
+    /// solicitação mais recente. Pedido sem decisão depois de uma decisão nunca a apaga (falha fechada). Leva junto se
+    /// alguma solicitação da pessoa tem suspeita de menor, que nega qualquer que seja a escolhida.
     /// </summary>
     private async Task<VerificationRow?> FindDecidingAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -198,6 +199,8 @@ public sealed class AgeVerificationService
             $"""
             select v.id as "Id", v.state as "StateName", v.requested_at as "RequestedAt",
                    v.provider_flow_url as "FlowUrl", v.version as "Version",
+                   exists (select 1 from identity.age_verifications s
+                           where s.user_id = v.user_id and s.minor_suspected_at is not null) as "MinorSuspected",
                    (v.provider_reference is null and exists (
                        select 1 from ops.outbox_events e
                        join ops.outbox_deliveries d on d.outbox_event_id = e.id
@@ -258,7 +261,7 @@ public sealed class AgeVerificationService
             loginSessionId,
             now,
             now + _policy.RequestLifetime));
-        return new VerificationRow(id, pending, now, FlowUrl: null, Version: 0, ProviderGaveUp: false);
+        return new VerificationRow(id, pending, now, FlowUrl: null, Version: 0, MinorSuspected: false, ProviderGaveUp: false);
     }
 
     /// <summary>Só uma URL de fluxo https com origem na allowlist vai ao navegador; as demais nem contam como prontas.</summary>
@@ -268,7 +271,7 @@ public sealed class AgeVerificationService
             : null;
 
     private AgeVerificationSnapshot? Snapshot(VerificationRow? row) =>
-        row is null ? null : new AgeVerificationSnapshot(row.EffectiveState, row.RequestedAt, ShowableFlow(row) is not null);
+        row is null ? null : new AgeVerificationSnapshot(row.EffectiveState, row.RequestedAt, ShowableFlow(row) is not null, row.MinorSuspected);
 
     private AgeVerificationStatus ToStatus(VerificationRow row, AgeEligibilityResult eligibility) =>
         new(
@@ -282,6 +285,7 @@ public sealed class AgeVerificationService
         DateTimeOffset RequestedAt,
         string? FlowUrl,
         long Version,
+        bool MinorSuspected,
         bool ProviderGaveUp)
     {
         /// <summary>Estado gravado; é o que o UPDATE condicional confere.</summary>

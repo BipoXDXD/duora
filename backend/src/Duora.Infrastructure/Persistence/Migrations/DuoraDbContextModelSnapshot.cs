@@ -110,6 +110,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
 
+                    b.Property<DateTimeOffset?>("MinorSuspectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("minor_suspected_at");
+
                     b.Property<string>("PolicyVersion")
                         .IsRequired()
                         .HasMaxLength(32)
