@@ -22,7 +22,8 @@ de nome e capacidades). Por isso o `duora-backup verify` confere a chave da VPS 
 ## 0. Pré-requisitos (máquina do responsável)
 
 - CLI oficial do B2, versão 4 (`pipx install b2` ou `brew install b2-tools`). Confira com `b2 version`; os comandos
-  abaixo seguem a documentação do CLI 4 e podem mudar de nome em outra versão (`b2 --help`).
+  abaixo seguem a documentação **estável** do CLI 4 (por exemplo, `b2 file hide <bucket> <arquivo>`; a forma
+  `b2 file hide b2://...` só existe no ramo master). Se um comando mudar de forma, confira em `b2 <comando> --help`.
 - Login da conta com **2FA ligado** na web da Backblaze. Para o CLI, use uma chave temporária criada na web
   (*Application Keys → Add a New Application Key*, todas as capacidades, sem restrição de bucket, com validade
   curta) e apague-a no fim. A master key não serve para a API S3 e não deve ficar em disco.
@@ -201,7 +202,7 @@ b2 key create --bucket "$BUCKET" --name-prefix duora/ --duration 3600 duora-test
   b2 file upload "$BUCKET" /tmp/canario.txt duora/canary/lock-test     # esperado: sucesso
   b2 rm b2://"$BUCKET"/duora/canary/lock-test                         # esperado: recusa (sem deleteFiles)
   b2 ls b2://"$BUCKET"/media/                                         # esperado: recusa (fora do prefixo)
-  b2 file hide b2://"$BUCKET"/duora/canary/lock-test                  # esperado: sucesso (só hide marker)
+  b2 file hide "$BUCKET" duora/canary/lock-test                       # esperado: sucesso (só hide marker)
   rm /tmp/canario.txt
 )
 b2 account clear
@@ -213,27 +214,41 @@ Com a `duora-backup-admin` criada só para isso (passo 3):
 2. `b2 rm b2id://<fileId do upload>` → recusa pelo File Lock `compliance`, mesmo com `deleteFiles`.
 3. `b2 rm b2id://<fileId do hide marker>` → sucesso: é o caminho da recuperação depois de uma exclusão (o canário volta
    a ser a versão corrente).
-4. `b2 file hide b2://"$BUCKET"/duora/canary/lock-test` de novo, para o lifecycle apagar o canário 30 dias depois de o
+4. `b2 file hide "$BUCKET" duora/canary/lock-test` de novo, para o lifecycle apagar o canário 30 dias depois de o
    lock vencer. Sem esse hide final o canário ficaria para sempre: o lifecycle só apaga versão oculta.
 5. Apague a chave admin e a de teste (`b2 key delete`) e rode `b2 account clear`.
 
 **Em homologação, antes da produção** (prova do caminho S3 que o pgBackRest e o restic usam com chave sem
-`deleteFiles`), com o ambiente de homolog já fazendo backup:
+`deleteFiles`). O `expire` só chama o `DeleteObjects` quando há o que expirar, então force: dois fulls e um `expire`
+com retenção de **um** full só naquele comando (apaga o full mais antigo e o WAL dele; em homolog, e recuperável pelos
+hide markers):
 
 ```sh
+sudo duora-backup full && sudo duora-backup full                               # dois fulls (na VPS de homolog)
 b2 ls --versions --recursive --json b2://"$BUCKET"/ > /tmp/antes.json        # chave duora-backup-verify
-$C exec --no-TTY backup pgbackrest --stanza=duora expire     # na VPS de homolog ($C de backup-restore.md)
+$C exec --no-TTY backup pgbackrest --stanza=duora --repo1-retention-full=1 expire   # $C de backup-restore.md
 sudo duora-backup media-backup                                                # roda o restic forget --prune
 b2 ls --versions --recursive --json b2://"$BUCKET"/ > /tmp/depois.json
-python3 -c 'import json,sys; a,d=(json.load(open(f)) for f in sys.argv[1:3])
-ups=lambda xs: {x["fileId"] for x in xs if x["action"] == "upload"}
-print("versões apagadas:", len(ups(a) - ups(d)), "| hide markers novos:",
-      sum(x["action"] == "hide" for x in d) - sum(x["action"] == "hide" for x in a))' /tmp/antes.json /tmp/depois.json
+python3 -c 'import json,sys
+a,d=(json.load(open(f)) for f in sys.argv[1:3])
+def current(xs):
+    latest={}
+    for x in xs:
+        if x["fileName"] not in latest or x["uploadTimestamp"] > latest[x["fileName"]]["uploadTimestamp"]:
+            latest[x["fileName"]]=x
+    return {x["fileId"] for x in latest.values() if x["action"] == "upload"}
+ids=lambda xs: {x["fileId"] for x in xs if x["action"] == "upload"}
+gone=ids(a)-ids(d)
+print("versões correntes apagadas:", len(gone & current(a)), "| antigas limpas pelo lifecycle:", len(gone - current(a)),
+      "| hide markers novos (saldo):", sum(x["action"] == "hide" for x in d) - sum(x["action"] == "hide" for x in a))' \
+  /tmp/antes.json /tmp/depois.json
 ```
 
-Esperado: `versões apagadas: 0`, hide markers novos > 0 quando o `expire` ou o `prune` tiverem algo a remover, e nenhum
-erro de autorização nos logs do pgBackRest e do restic. Rode `b2 account clear` no fim. **Hipóteses que esta prova
-confirma** (não verificadas sem conta):
+Esperado: `versões correntes apagadas: 0` e hide markers novos > 0 (o `expire` ocultou o full antigo e o WAL dele), sem
+erro de autorização nos logs do pgBackRest e do restic. O lifecycle pode apagar, entre as duas listagens, versões
+**já ocultas** há mais de 30 dias: elas aparecem em "antigas limpas pelo lifecycle" e não contam como falha, porque o
+lifecycle nunca apaga a versão corrente. Só uma versão que era a corrente em `antes.json` e sumiu indica exclusão
+real. Rode `b2 account clear` no fim. **Hipóteses que esta prova confirma** (não verificadas sem conta):
 
 - `PutObject` num bucket com File Lock aceito sem `Content-MD5` (a AWS exige `Content-MD5` ou checksum quando há
   retenção padrão; se o B2 também exigir, o pgBackRest ou o restic falham ao gravar e o backup alerta);
