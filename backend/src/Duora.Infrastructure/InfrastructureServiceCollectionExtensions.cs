@@ -13,22 +13,42 @@ public static class InfrastructureServiceCollectionExtensions
 {
     /// <summary>
     /// Registra banco, origem pública e adaptadores comuns a web e worker. O host não sobe sem
-    /// <c>ConnectionStrings:Duora</c> nem sem uma <c>Duora:PublicOrigin</c> https válida (falha no start).
+    /// <c>ConnectionStrings:Duora</c> nem sem uma <c>Duora:PublicOrigin</c> https válida (falha no start), nem com um
+    /// pool fora da fatia do processo no orçamento de conexões.
     /// </summary>
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        ConnectionShare share)
     {
+        ArgumentNullException.ThrowIfNull(share);
         services.AddOptions<DatabaseOptions>()
+            .Configure(o => o.MaxPoolSize = share.MaxPoolSize)
+            .Bind(configuration.GetSection(DatabaseOptions.Section))
             .Configure(o => o.ConnectionString =
                 configuration.GetConnectionString(DatabaseOptions.ConnectionStringName) ?? "")
             .Validate(
                 o => !string.IsNullOrWhiteSpace(o.ConnectionString),
                 $"ConnectionStrings:{DatabaseOptions.ConnectionStringName} é obrigatória. "
                 + "Em desenvolvimento, defina-a com dotnet user-secrets (docs/development/environment.md).")
+            .Validate(
+                o => o.FitsIn(share),
+                $"Database:MaxPoolSize do {share.Process} precisa ficar entre 1 e {share.MaxPoolSize} (orçamento de "
+                + "conexões, deploy.md) e Database:PoolTimeout entre 1 e 30 s, em segundos inteiros.")
             .ValidateOnStart();
 
-        // Um pool só para o EF e para o SQL direto (fila da outbox, sessões), para a conta de conexões da spec 10.7.
+        // Um pool só para o EF e para o SQL direto (fila da outbox, sessões), dentro da fatia do processo no
+        // orçamento de conexões (spec 10.7).
         services.AddSingleton(provider =>
-            NpgsqlDataSource.Create(provider.GetRequiredService<IOptions<DatabaseOptions>>().Value.ConnectionString));
+        {
+            var database = provider.GetRequiredService<IOptions<DatabaseOptions>>().Value;
+            var connection = new NpgsqlConnectionStringBuilder(database.ConnectionString)
+            {
+                MaxPoolSize = database.MaxPoolSize,
+                Timeout = (int)database.PoolTimeout.TotalSeconds,
+            };
+            return NpgsqlDataSource.Create(connection.ConnectionString);
+        });
         services.AddDbContext<DuoraDbContext>((provider, options) =>
             options.UseDuoraNpgsql(provider.GetRequiredService<NpgsqlDataSource>()));
 
