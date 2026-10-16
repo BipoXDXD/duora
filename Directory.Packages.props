@@ -5,6 +5,8 @@
   </PropertyGroup>
 
   <ItemGroup Label="Aplicação">
+    <!-- Cliente S3 oficial (Apache-2.0) do adaptador de object storage de mídia (ADR-0025); assina SigV4 por nós. -->
+    <PackageVersion Include="AWSSDK.S3" Version="4.0.104" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.13" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
@@ -32,6 +34,8 @@
     <PackageVersion Include="CsCheck" Version="4.9.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+    <!-- Contêiner genérico (MinIO do contrato de storage, ADR-0025); mesma versão que o Testcontainers.PostgreSql traz. -->
+    <PackageVersion Include="Testcontainers" Version="4.16.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>

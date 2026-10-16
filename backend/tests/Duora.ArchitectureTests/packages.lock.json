@@ -11,6 +11,11 @@
           "xunit.v3.mtp-v2": "[4.0.2]"
         }
       },
+      "AWSSDK.Core": {
+        "type": "Transitive",
+        "resolved": "4.0.102.8",
+        "contentHash": "90B9Skhl+ORbtWNXrrmGdGhGvAfZiPmZafRYrB/xHelZjePIwPvXioqz9UiiF1vo21eDLzTnXh5EC4RjbNWsFQ=="
+      },
       "Microsoft.ApplicationInsights": {
         "type": "Transitive",
         "resolved": "2.23.0",
@@ -463,6 +468,7 @@
       "duora.infrastructure": {
         "type": "Project",
         "dependencies": {
+          "AWSSDK.S3": "[4.0.104, )",
           "Duora.Core": "[1.0.0, )",
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.13, )",
           "Microsoft.Extensions.Configuration.KeyPerFile": "[10.0.13, )",
@@ -495,6 +501,15 @@
           "Duora.Core": "[1.0.0, )",
           "Duora.Infrastructure": "[1.0.0, )",
           "Microsoft.Extensions.Hosting": "[10.0.13, )"
+        }
+      },
+      "AWSSDK.S3": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.104, )",
+        "resolved": "4.0.104",
+        "contentHash": "azHSmQV9wPfPIy7WvaiHIlU4/Gw/u4QZGV2xFiys9LX10eYbX/F9oxklMLjh8RKRyeKsookPp15v3g2ab8GvpQ==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
         }
       },
       "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
