@@ -1,4 +1,6 @@
+using Duora.Core.Notifications;
 using Duora.Infrastructure.Email;
+using Npgsql;
 
 namespace Duora.IntegrationTests.Outbox;
 
@@ -41,6 +43,48 @@ public sealed class SecurityNoticeDispatchTests(PostgresFixture postgres)
         Assert.Contains("em 2030-01-02 03:04 UTC", mail, StringComparison.Ordinal);
         Assert.Contains("on 2030-01-02 03:04 UTC", mail, StringComparison.Ordinal);
         Assert.Contains($"{EmailOutboxHarness.PublicOrigin}/conta\n", mail, StringComparison.Ordinal);
+    }
+
+    public static TheoryData<SecurityChange, EmailLanguage> WrittenNotices()
+    {
+        var data = new TheoryData<SecurityChange, EmailLanguage>();
+        foreach (var change in Enum.GetValues<SecurityChange>())
+        {
+            foreach (var language in Enum.GetValues<EmailLanguage>())
+            {
+                data.Add(change, language);
+            }
+        }
+
+        return data;
+    }
+
+    /// <summary>
+    /// Rollback da release com a gravação para a do leitor: o worker da release anterior lê o payload que o gravador
+    /// grava (mesma serialização, sem campo a mais) e entrega. A consulta de drenagem do deploy.md conta o aviso
+    /// enquanto ele está na fila e deixa de contar depois da entrega.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(WrittenNotices))]
+    public async Task EveryNoticeTheWriterRecordsIsDeliveredByTheReader(SecurityChange change, EmailLanguage language)
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var written = AccountEmailOutbox.CreateSecurityNotice(
+            change,
+            "titular@example.com",
+            Guid.CreateVersion7(),
+            language,
+            harness.Time.GetUtcNow());
+        var deliveryId = await harness.EnqueueAsync(written, Ct);
+        Assert.Equal(1, await CountNoticesToDrainAsync(harness));
+        var dispatcher = harness.StartWorker();
+
+        await dispatcher.DispatchBatchAsync(Ct);
+
+        Assert.Equal("Delivered", (await harness.ReadDeliveryAsync(deliveryId, Ct)).Status);
+        var mail = await File.ReadAllTextAsync(Assert.Single(harness.MailFiles()), Ct);
+        Assert.Contains("titular@example.com", mail, StringComparison.Ordinal);
+        Assert.Equal(0, await CountNoticesToDrainAsync(harness));
     }
 
     [Fact]
@@ -105,5 +149,21 @@ public sealed class SecurityNoticeDispatchTests(PostgresFixture postgres)
 
         Assert.Equal("Expired", (await harness.ReadDeliveryAsync(deliveryId, Ct)).Status);
         Assert.Empty(harness.MailFiles());
+    }
+
+    /// <summary>A consulta de drenagem dos avisos, igual à do deploy.md (rollback de aplicação).</summary>
+    private static async Task<long> CountNoticesToDrainAsync(EmailOutboxHarness harness)
+    {
+        await using var connection = new NpgsqlConnection(harness.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var command = new NpgsqlCommand(
+            """
+            select count(*) from ops.outbox_deliveries d
+            join ops.outbox_events e on e.id = d.outbox_event_id
+            where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
+              and e.payload->>'kind' like '%Notice';
+            """,
+            connection);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(Ct), System.Globalization.CultureInfo.InvariantCulture);
     }
 }
