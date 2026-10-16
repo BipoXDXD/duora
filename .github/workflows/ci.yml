@@ -301,39 +301,52 @@ jobs:
           persist-credentials: false
 
       # Python 3.12 do próprio Ubuntu 24.04: a mesma versão que roda o duora-deploy na VPS.
+      # Os passos abaixo dependem só da instalação de que precisam (if com steps.*.outcome): uma falha no venv
+      # visual não esconde o resultado das ferramentas de operação, e vice-versa. A falha continua reprovando o job.
       - name: Ferramentas fixadas
+        id: ops-tools
         run: |
           python3 --version
           python3 -m venv "$RUNNER_TEMP/venv"
           # Lockfile com hashes (scripts/deploy/requirements.txt): pacote ou dependência transitiva com hash
-          # diferente do versionado aborta a instalação.
-          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes -r scripts/deploy/requirements.txt
+          # diferente do versionado aborta a instalação. --only-binary: só wheels, nenhum build de sdist roda no job.
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes --only-binary=:all: \
+            -r scripts/deploy/requirements.txt
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
 
       # Venv próprio: o Pillow do tooling visual não se mistura com as ferramentas de operação (e vice-versa).
       - name: Dependências do pipeline de ilustrações
+        id: visual-deps
+        if: ${{ !cancelled() }}
         run: |
           python3 -m venv "$RUNNER_TEMP/venv-visual"
-          "$RUNNER_TEMP/venv-visual/bin/pip" install --quiet --require-hashes -r tools/visual/requirements.txt
+          "$RUNNER_TEMP/venv-visual/bin/pip" install --quiet --require-hashes --only-binary=:all: \
+            -r tools/visual/requirements.txt
 
       - name: Testes do pipeline de ilustrações
+        if: ${{ !cancelled() && steps.visual-deps.outcome == 'success' }}
         run: |
           "$RUNNER_TEMP/venv-visual/bin/python" -m unittest discover -s tools/visual -v
 
       # --pythonpath: o pyright resolve o Pillow pelo venv do tooling visual, não pelo das ferramentas de operação.
       - name: Pyright do pipeline de ilustrações
+        if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' && steps.visual-deps.outcome == 'success' }}
         run: pyright -p tools/visual/pyrightconfig.json --pythonpath "$RUNNER_TEMP/venv-visual/bin/python" tools/visual
 
       - name: Testes dos scripts de deploy
+        if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' }}
         run: python3 -m unittest discover -s scripts/deploy -v
 
       - name: Testes do validador da chave do apt (role docker)
+        if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' }}
         run: python3 -m unittest discover -s infra/ansible/roles/docker/files -v
 
       - name: Pyright
+        if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' }}
         run: pyright -p scripts/deploy/pyrightconfig.json scripts/deploy scripts/backup infra/ansible/roles/docker/files
 
       - name: ansible-lint e syntax-check
+        if: ${{ !cancelled() && steps.ops-tools.outcome == 'success' }}
         working-directory: infra/ansible
         run: |
           ansible-galaxy collection install -r requirements.yml
