@@ -1,0 +1,8 @@
+# Modelos, imagens de origem e renders sem licença registrada nunca entram no repositório
+# (docs/design/assets-licenses.md). Só o WebP final, copiado para o frontend, é versionado.
+out/
+*.glb
+*.png
+*.jpg
+*.jpeg
+*.webp
