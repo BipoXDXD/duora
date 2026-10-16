@@ -24,7 +24,8 @@ class RealCatalogTest(unittest.TestCase):
     def test_prompt_prefix_forbids_people_and_text(self):
         prefix = load_catalog().prompt_prefix
 
-        for term in ("no people", "no faces", "no body parts", "no text", "no letters", "no numbers"):
+        forbidden = ("no people", "no faces", "no hands", "no body parts", "no text", "no letters", "no numbers")
+        for term in (*forbidden, "no symbols", "no logos"):
             self.assertIn(term, prefix)
 
     def test_roles_resolve_against_the_real_stylesheet(self):
