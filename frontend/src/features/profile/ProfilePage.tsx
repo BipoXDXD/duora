@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useAccount } from '@/features/session/account-context'
 import { meQueryKey, profileQueryKey } from '@/features/session/query-keys'
@@ -106,11 +106,13 @@ function toFormValues(profile: OwnProfile): ProfileFormInput {
 /** "Não informar" primeiro; as UFs pelo nome no idioma ativo, em ordem alfabética desse idioma. */
 function useRegionOptions(): readonly { readonly value: string; readonly label: string }[] {
   const { t, locale } = useI18n()
-  const collator = new Intl.Collator(locale)
-  const regions = REGION_CODES.map((code) => ({ value: code, label: t(REGION_LABEL_KEYS[code]) })).sort((a, b) =>
-    collator.compare(a.label, b.label),
-  )
-  return [{ value: '', label: t('profile.regionNotInformed') }, ...regions]
+  return useMemo(() => {
+    const collator = new Intl.Collator(locale)
+    const regions = REGION_CODES.map((code) => ({ value: code, label: t(REGION_LABEL_KEYS[code]) })).sort((a, b) =>
+      collator.compare(a.label, b.label),
+    )
+    return [{ value: '', label: t('profile.regionNotInformed') }, ...regions]
+  }, [t, locale])
 }
 
 /**
