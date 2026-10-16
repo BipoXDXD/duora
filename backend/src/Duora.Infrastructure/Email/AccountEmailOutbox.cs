@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Duora.Core.Notifications;
 using Duora.Infrastructure.Outbox;
 
 namespace Duora.Infrastructure.Email;
@@ -62,6 +63,20 @@ internal static class AccountEmailOutbox
             or AccountEmailKind.PasswordResetNotice => TimeSpan.FromHours(72),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Tipo de e-mail desconhecido."),
     };
+
+    /// <summary>Tipo de cada aviso de credencial no payload; a única tabela entre os dois enums.</summary>
+    private static readonly Dictionary<SecurityChange, AccountEmailKind> NoticeKinds = new()
+    {
+        [SecurityChange.MfaEnabled] = AccountEmailKind.MfaEnabledNotice,
+        [SecurityChange.MfaDisabled] = AccountEmailKind.MfaDisabledNotice,
+        [SecurityChange.RecoveryCodesRegenerated] = AccountEmailKind.RecoveryCodesRegeneratedNotice,
+        [SecurityChange.PasswordChanged] = AccountEmailKind.PasswordChangedNotice,
+        [SecurityChange.PasswordReset] = AccountEmailKind.PasswordResetNotice,
+    };
+
+    /// <summary>A mudança de credencial que o tipo avisa, ou <c>null</c> se o tipo não é aviso.</summary>
+    public static SecurityChange? SecurityChangeOf(AccountEmailKind kind) =>
+        NoticeKinds.Where(pair => pair.Value == kind).Select(pair => (SecurityChange?)pair.Key).SingleOrDefault();
 
     public static OutboxEvent Create(AccountEmailRequested message, DateTimeOffset now)
     {
