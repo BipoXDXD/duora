@@ -215,6 +215,22 @@ describe('perfil: região', () => {
     expect(await screen.findByRole('combobox', { name: 'Região' })).toHaveValue('')
   })
 
+  it('código de região que esta versão não conhece aparece como "Não informar" e não é apagado', async () => {
+    const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-ZZ', version: 1 })
+    const { user } = await renderApp('/conta/perfil')
+
+    const region = await screen.findByRole('combobox', { name: 'Região' })
+    expect(region).toHaveValue('')
+    expect(screen.getByRole('textbox', { name: 'Nome de exibição' })).toHaveValue('Ana')
+
+    await user.clear(screen.getByRole('textbox', { name: 'Nome de exibição' }))
+    await user.type(screen.getByRole('textbox', { name: 'Nome de exibição' }), 'Bia')
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+
+    expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
+    expect(backend.patches).toEqual([{ ifMatch: '"1"', body: { displayName: 'Bia' } }])
+  })
+
   it('escolher uma UF manda só o código da região', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
     const { user } = await renderApp('/conta/perfil')

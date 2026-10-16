@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { apiClient, sendMutationForJson } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
-import { REGION_CODES } from './profile-region'
+import { isRegionCode } from './profile-region'
 
 type OwnProfileResponse = components['schemas']['OwnProfileResponse']
 type UpdateProfileRequest = components['schemas']['UpdateProfileRequest']
@@ -11,7 +11,14 @@ const PROFILE_PATH = '/api/v1/me/profile'
 const ownProfileSchema = z.object({
   displayName: z.string().nullable(),
   bio: z.string().nullable(),
-  regionCode: z.enum(REGION_CODES).nullable(),
+  /**
+   * Leitura tolerante: um código que esta versão do frontend não conhece (o servidor ganhou uma UF antes do deploy
+   * daqui) é exibido como "não informada" em vez de derrubar a tela. A escrita continua só com as 27 do select.
+   */
+  regionCode: z
+    .string()
+    .nullable()
+    .transform((code) => (code !== null && isRegionCode(code) ? code : null)),
   version: z.string().regex(/^\d+$/),
 }) satisfies z.ZodType<OwnProfileResponse>
 
