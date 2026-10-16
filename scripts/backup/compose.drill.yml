@@ -18,14 +18,15 @@ services:
       MINIO_ROOT_USER: ${DRILL_S3_KEY:?defina DRILL_S3_KEY}
       MINIO_ROOT_PASSWORD: ${DRILL_S3_SECRET:?defina DRILL_S3_SECRET}
       MINIO_SCHEME: https
-      # O setup da Bitnami cria o alias "local" do mc (Go) em https://localhost:9000: confia só na CA do dublê.
+      # O mc (Go) do container fala com https://localhost:9000 confiando só na CA do dublê.
       SSL_CERT_FILE: /certs/public.crt
     volumes:
       - ${DRILL_CERTS_DIR:?defina DRILL_CERTS_DIR}:/certs:ro
     networks: [backup-egress]
     healthcheck:
-      # Saudável só depois que o setup da Bitnami criou o alias "local" (o servidor responde antes).
-      test: ["CMD-SHELL", "mc ls local > /dev/null"]
+      # Saudável quando o servidor responde por HTTPS. O alias do mc e o bucket são criados pelo drill, com retry:
+      # o setup da Bitnami às vezes não criava o alias "local" a tempo (1 falha em 5 execuções).
+      test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/certs/public.crt", "https://localhost:9000/minio/health/live"]
       interval: 2s
       timeout: 3s
       retries: 60
