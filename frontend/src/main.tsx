@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
+import { reloadWhenRestoredFromBackForwardCache } from './app/back-forward-cache'
 import { reloadOnceForNewVersion } from './app/new-version-reload'
 import { reloadPage } from './shared/ui/reload-page'
 import './index.css'
@@ -9,6 +10,15 @@ import './index.css'
 // O erro segue para o error boundary da área, que oferece recarregar se a recarga automática não acontecer.
 window.addEventListener('vite:preloadError', () => {
   reloadOnceForNewVersion({ storage: () => window.sessionStorage, now: Date.now(), reload: reloadPage })
+})
+
+// Voltar no navegador não pode reexibir a tela de outra identidade a partir do bfcache (T-21, T-14).
+reloadWhenRestoredFromBackForwardCache({
+  target: window,
+  hide: () => {
+    document.body.hidden = true
+  },
+  reload: reloadPage,
 })
 
 const rootElement = document.getElementById('root')

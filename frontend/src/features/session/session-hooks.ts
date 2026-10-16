@@ -7,23 +7,35 @@ import {
 } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { apiClient, isUnauthorized, refreshAntiforgeryToken } from '@/shared/api'
+import { apiClient, refreshAntiforgeryToken } from '@/shared/api'
 import { paths } from '@/shared/paths'
+import { identityBroadcast } from './identity-broadcast'
 import type { LoginNotice, LoginState } from './login-state'
 import { meQueryKey, sessionsQueryKey } from './query-keys'
 import { fetchMe, fetchSessions, logout, revokeSession, type AccountSession, type Me } from './session-api'
 
+/**
+ * Dado privado não fica em memória depois que a área autenticada desmonta (gcTime 0): ao voltar a ela,
+ * pelo histórico ou por link, a tela espera o servidor em vez de mostrar o que ficou de uma sessão que pode
+ * ter expirado, e sem rede não reexibe a pessoa anterior (T-14, T-21).
+ */
+const PRIVATE_DATA_GC_TIME_MS = 0
+
 export function useMe(): UseQueryResult<Me> {
-  return useQuery({ queryKey: meQueryKey, queryFn: ({ signal }) => fetchMe(signal) })
+  return useQuery({ queryKey: meQueryKey, queryFn: ({ signal }) => fetchMe(signal), gcTime: PRIVATE_DATA_GC_TIME_MS })
 }
 
 export function useSessions(userId: string): UseQueryResult<readonly AccountSession[]> {
-  return useQuery({ queryKey: sessionsQueryKey(userId), queryFn: ({ signal }) => fetchSessions(signal) })
+  return useQuery({
+    queryKey: sessionsQueryKey(userId),
+    queryFn: ({ signal }) => fetchSessions(signal),
+    gcTime: PRIVATE_DATA_GC_TIME_MS,
+  })
 }
 
 /**
- * Troca de identidade no navegador (T-21): todo o cache do QueryClient é descartado e o token
- * antiforgery, que o ASP.NET Core liga à identidade, é renovado.
+ * Troca de identidade no navegador (T-21): todo o cache do QueryClient é descartado, as outras abas
+ * são avisadas e o token antiforgery, que o ASP.NET Core liga à identidade, é renovado.
  */
 export interface SessionTransitions {
   /** Depois de entrar: descarta o cache, renova o CSRF e segue para `destination`. */
@@ -41,11 +53,13 @@ export function useSessionTransitions(): SessionTransitions {
   return {
     signedIn: async (destination: string): Promise<void> => {
       queryClient.clear()
+      identityBroadcast.announce()
       await renewAntiforgeryTokenAfterIdentityChange()
       void navigate(destination, { replace: true })
     },
     signedOut: async (notice: LoginNotice): Promise<void> => {
       void navigate(paths.login, { replace: true, state: { notice } satisfies LoginState })
+      identityBroadcast.announce()
       await renewAntiforgeryTokenAfterIdentityChange()
     },
   }
@@ -90,11 +104,6 @@ export function useRevokeSession(userId: string): UseMutationResult<void, Error,
       session.current
         ? transitions.signedOut('signed-out')
         : queryClient.invalidateQueries({ queryKey: sessionsQueryKey(userId) }),
-    onError: (error) => {
-      if (isUnauthorized(error)) {
-        // A sessão acabou no servidor: reconsultar a identidade leva à entrada com o aviso certo.
-        void queryClient.invalidateQueries({ queryKey: meQueryKey })
-      }
-    },
+    // 401 aqui (sessão encerrada no servidor) é tratado para toda escrita no MutationCache (query-client.ts).
   })
 }

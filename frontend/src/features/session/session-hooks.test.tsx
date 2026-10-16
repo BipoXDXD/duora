@@ -1,13 +1,14 @@
 import { act, renderHook, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { createTestQueryClient, TestProviders } from '@/test/render'
+import { identityBroadcast } from './identity-broadcast'
 import type { AccountSession, Me } from './session-api'
 import { meQueryKey, sessionsQueryKey } from './query-keys'
-import { useLogout, useRevokeSession } from './session-hooks'
+import { useLogout, useMe, useRevokeSession, useSessions } from './session-hooks'
 
 const ME: Me = {
   id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
@@ -66,6 +67,17 @@ describe('useLogout', () => {
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/entrar$/)
   })
 
+  it('avisa as outras abas de que a identidade mudou (T-21)', async () => {
+    useAntiforgeryEndpoint()
+    server.use(http.post(`${API}/auth/logout`, () => new HttpResponse(null, { status: 204 })))
+    const announce = vi.spyOn(identityBroadcast, 'announce')
+    const { result } = renderSessionHook(useLogout)
+
+    await act(() => result.current.mutateAsync())
+
+    expect(announce).toHaveBeenCalledOnce()
+  })
+
   it('mantém o cache quando o servidor não confirma a saída', async () => {
     useAntiforgeryEndpoint()
     server.use(http.post(`${API}/auth/logout`, () => HttpResponse.error()))
@@ -121,5 +133,34 @@ describe('useRevokeSession', () => {
     await act(() => result.current.mutateAsync(session({ id: 'outra' })).catch(() => undefined))
 
     expect(queryClient.getQueryState(meQueryKey)?.isInvalidated).toBe(true)
+  })
+})
+
+describe('dados privados fora da área autenticada (T-14, T-21)', () => {
+  it.each([
+    ['identidade', (): unknown => useMe(), meQueryKey],
+    ['lista de sessões', (): unknown => useSessions(ME.id), sessionsQueryKey(ME.id)],
+  ])('a %s sai da memória quando a área desmonta; voltar a ela pergunta ao servidor', async (_caso, hook, queryKey) => {
+    server.use(
+      http.get(`${API}/me`, () => HttpResponse.json(ME)),
+      http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [session({ current: true })] })),
+    )
+    const queryClient = createTestQueryClient()
+    const view = renderHook(hook, {
+      wrapper: ({ children }) => (
+        <TestProviders queryClient={queryClient} initialPath="/conta">
+          {children}
+        </TestProviders>
+      ),
+    })
+    await waitFor(() => {
+      expect(queryClient.getQueryData(queryKey)).toBeDefined()
+    })
+
+    view.unmount()
+
+    await waitFor(() => {
+      expect(queryClient.getQueryCache().find({ queryKey })).toBeUndefined()
+    })
   })
 })
