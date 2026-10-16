@@ -27,7 +27,8 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
 - [ ] **Avisos de credencial (TM-21):** o #52 (`feat/security-notifications`, gravação) não vai a deploy numa
   release que não tenha o #51 (`feat/security-notifications-reader`, leitor) já implantado. Confira que a release
   corrente (`current.json`) já contém o #51; antes de voltar para uma release anterior ao #51, a consulta de
-  [rollback](#rollback-de-aplicação) dos tipos `...Notice` precisa devolver zero.
+  [rollback](#rollback-de-aplicação) dos tipos `...Notice` precisa devolver zero (rollback em dois passos, passando
+  pela release do leitor).
 - [ ] **Reset indisponível (bootstrap administrativo):** a gravação do `PasswordResetUnavailable` (bootstrap
   administrativo) não vai a deploy numa release que não tenha o leitor (`feat/admin-bootstrap-reader`) já
   implantado. Antes de voltar para uma release anterior a esse leitor, a consulta do
@@ -219,8 +220,13 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
 o leitor (`feat/security-notifications-reader`, sem nenhuma gravação), depois a gravação
 (`feat/security-notifications`). O instante citado no e-mail é o `occurred_at` do evento, não um campo do payload.
 Um worker anterior ao leitor encerra esses tipos como `Failed` (`InvalidPayload`), sem retry: o aviso se perde.
-Rollback da release com a gravação para a do leitor é seguro; para uma release anterior ao leitor, só com a fila
-desses tipos vazia:
+Rollback da release com a gravação para a do leitor é seguro: o leitor entrega tudo o que a gravação grava
+(`SecurityNoticeDispatchTests.EveryNoticeTheWriterRecordsIsDeliveredByTheReader`). Para uma release anterior ao
+leitor, em dois passos, porque o web com a gravação continua gravando avisos enquanto estiver no ar:
+
+1. volte primeiro para a release do leitor (sem gravação) e deixe o worker dela esvaziar a fila;
+2. só com a consulta abaixo devolvendo zero, volte para a release anterior ao leitor. Entregas que ainda estejam em
+   `Pending` por falha transitória (SMTP fora) contam: espere-as ou aceite perdê-las, e registre a decisão.
 
 ```sql
 select count(*) from ops.outbox_deliveries d

@@ -324,8 +324,9 @@ por e-mail ao titular quando a conta é bloqueada. Métricas: contagem de `401`/
 TM-21: ativar o MFA (A12), gerar novos códigos de recuperação (A14), desativar o MFA (A15), trocar a senha (A16) e
 redefinir a senha pelo link (A07) gravam **um** aviso ao titular na outbox, na mesma transação do efeito: se a
 mudança volta atrás, o aviso some junto, e tentativa que não muda nada (código ou senha errados, MFA já inativo)
-não avisa. O aviso vai para o endereço gravado, no idioma do `Accept-Language` da requisição que fez a mudança (como
-nos outros e-mails de conta; a conta ainda não guarda preferência de idioma). O texto é fixo, sem token, código,
+não avisa. O aviso vai para o endereço gravado e sai bilíngue (pt-BR e en): quem recebe pode não ser quem fez a
+mudança, então o `Accept-Language` da requisição vai no payload (`language`), como nos outros e-mails de conta, mas
+não decide o texto. O texto é fixo, sem token, código,
 senha, e-mail, IP ou aparelho: diz o que mudou, quando (o `occurred_at` do evento, em UTC, com minuto) e leva à
 página da conta (`/conta`), onde ficam as sessões. Janela de entrega de 72 h (**hipótese**). Leitor e gravação
 entraram em deploys separados ([deploy.md](../operations/deploy.md#rollback-de-aplicação)).
@@ -386,7 +387,7 @@ sem artefato do CI (spec 25.19).
 | Reautenticação e step-up | implementado (A13, filtros de recência); rotas ADM ainda não existem | `ReauthenticationTests`, `AdminRouteTests.ACriticalActionNeedsASecondFactorProvedInTheLastFiveMinutes` | feat/m1-admin-mfa |
 | MFA TOTP (A11, A12, A14, A15) e política por papel | implementado, com aviso por e-mail (A12, A14, A15) | `MfaEnrollmentTests`, `MfaLoginTests`, `AdminMfaTests`, `AdminRouteTests`, `RoleSeparationTests`, `SecretLeakTests.MfaSecretsAppearOnlyInTheResponsesThatProvisionThem` | feat/m1-admin-mfa |
 | Troca de senha (A16) | implementado, com aviso por e-mail | `ReauthenticationTests` | feat/m1-admin-mfa |
-| Avisos de mudança de credencial (TM-21) | implementado (leitor e gravação em PRs separados) | `CredentialChangeNotificationTests`, `SecurityNoticeDispatchTests`, `SecurityNoticeEmailsTests` | feat/security-notifications-reader, feat/security-notifications |
+| Avisos de mudança de credencial (TM-21) | implementado (leitor e gravação em PRs separados) | `CredentialChangeNotificationTests`, `CredentialChangeRollbackTests`, `SecurityNoticeDispatchTests`, `SecurityNoticeEmailsTests` | feat/security-notifications-reader, feat/security-notifications |
 | Antiforgery, cookie `XSRF-TOKEN` e checagem de origem | implementado | `CsrfProtectionTests` (T-13) | feat/m1-identity |
 | Recuperação de senha e confirmação de e-mail | implementado (e-mail pela outbox; adaptador de desenvolvimento em arquivo) | `RegistrationTests`, `PasswordResetTests`, `TransactionalEmailDispatchTests` | feat/m1-identity |
 | Revogação (A05, A10, troca de senha, reset) e fechamento do hub | A05, A10 e reset implementados; troca de senha e hub pendentes | `SessionTests` (T-14, parte HTTP), `PasswordResetTests` | feat/m1-identity |
