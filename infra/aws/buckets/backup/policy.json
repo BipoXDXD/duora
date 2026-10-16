@@ -1,0 +1,47 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyWithoutTls",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::{{BACKUP_BUCKET}}", "arn:aws:s3:::{{BACKUP_BUCKET}}/*"],
+      "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+    },
+    {
+      "Sid": "DenyTlsBelow12",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::{{BACKUP_BUCKET}}", "arn:aws:s3:::{{BACKUP_BUCKET}}/*"],
+      "Condition": {"NumericLessThan": {"s3:TlsVersion": "1.2"}}
+    },
+    {
+      "Sid": "DenyProtectionChangesExceptAdminRole",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": [
+        "s3:DeleteObjectVersion",
+        "s3:BypassGovernanceRetention",
+        "s3:PutObjectRetention",
+        "s3:PutObjectLegalHold",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketObjectLockConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:DeleteBucket",
+        "s3:PutBucketAcl",
+        "s3:PutObjectAcl",
+        "s3:PutObjectVersionAcl",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutReplicationConfiguration"
+      ],
+      "Resource": ["arn:aws:s3:::{{BACKUP_BUCKET}}", "arn:aws:s3:::{{BACKUP_BUCKET}}/*"],
+      "Condition": {"ArnNotEquals": {"aws:PrincipalArn": "arn:aws:iam::{{ACCOUNT_ID}}:role/duora-backup-admin"}}
+    }
+  ]
+}

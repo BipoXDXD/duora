@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 from tempfile import TemporaryDirectory
 
+import duora_backup
 import duora_secrets as secrets_cli
 
 
@@ -379,6 +380,103 @@ class KeyRingCertificateTests(unittest.TestCase):
                 f'</X509Certificate></X509Data></KeyInfo></EncryptedKey></KeyInfo></EncryptedData>'
                 f'</encryptedSecret></descriptor></descriptor></key>', encoding="utf-8")
         return directory
+
+
+class WriteBackupRepositoryTests(unittest.TestCase):
+    """pgbackrest_repo.conf com a credencial do duora-backup, digitada no stdin (docs/operations/aws-setup.md)."""
+
+    KEY = "AKIAEXEMPLO000000000"
+    SECRET = "exemplo/Segredo+NaoReal0000000000000000="
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.directory = Path(self._tmp.name) / "secrets"
+        self.directory.mkdir(mode=0o700)
+        self.path = self.directory / secrets_cli.BACKUP_REPOSITORY_FILE
+
+    def repository(self, **overrides: str) -> secrets_cli.BackupRepository:
+        values = {"bucket": "duora-backup-exemplo", "region": "us-east-1", "endpoint": "",
+                  "uri_style": "host", "credentials": f"{self.KEY}\n{self.SECRET}\n"}
+        values.update(overrides)
+        return secrets_cli.parse_backup_repository(**values)
+
+    def test_writes_a_file_that_the_verify_reads_back_with_the_aws_endpoint_of_the_region(self) -> None:
+        secrets_cli.write_backup_repository(self.directory, self.repository(), replace=False, change_owner=False)
+
+        settings = duora_backup.parse_repo_settings(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(("s3.us-east-1.amazonaws.com", "duora-backup-exemplo", "us-east-1", self.KEY, self.SECRET,
+                          False, 443),
+                         (settings.endpoint, settings.bucket, settings.region, settings.key, settings.secret,
+                          settings.path_style, settings.port))
+        self.assertEqual("duora-backup-exemplo.s3.us-east-1.amazonaws.com", settings.host)
+        self.assertRegex(self.path.read_text(encoding="utf-8"), r"(?m)^repo1-s3-uri-style=host$")
+
+    def test_file_is_0400(self) -> None:
+        secrets_cli.write_backup_repository(self.directory, self.repository(), replace=False, change_owner=False)
+
+        self.assertEqual(0o400, stat.S_IMODE(self.path.stat().st_mode))
+
+    def test_existing_file_is_kept_without_replace(self) -> None:
+        self.path.write_text("antigo", encoding="utf-8")
+
+        with self.assertRaisesRegex(secrets_cli.SecretsError, "--replace"):
+            secrets_cli.write_backup_repository(self.directory, self.repository(), replace=False, change_owner=False)
+        self.assertEqual("antigo", self.path.read_text(encoding="utf-8"))
+
+    def test_replace_swaps_the_file_atomically_and_leaves_no_staging_file(self) -> None:
+        self.path.write_text("antigo", encoding="utf-8")
+
+        secrets_cli.write_backup_repository(self.directory, self.repository(), replace=True, change_owner=False)
+
+        self.assertIn(self.KEY, self.path.read_text(encoding="utf-8"))
+        self.assertEqual([self.path.name], [p.name for p in self.directory.iterdir()])
+        self.assertEqual(0o400, stat.S_IMODE(self.path.stat().st_mode))
+
+    def test_explicit_endpoint_and_path_style_are_kept(self) -> None:
+        repository = self.repository(endpoint="s3.us-east-1.amazonaws.com", uri_style="path")
+
+        secrets_cli.write_backup_repository(self.directory, repository, replace=False, change_owner=False)
+
+        settings = duora_backup.parse_repo_settings(self.path.read_text(encoding="utf-8"))
+        self.assertTrue(settings.path_style)
+
+    def test_refuses_invalid_input(self) -> None:
+        cases = {
+            "endpoint com esquema": {"endpoint": "https://s3.us-east-1.amazonaws.com"},
+            "endpoint com caminho": {"endpoint": "s3.us-east-1.amazonaws.com/x"},
+            "bucket com ponto": {"bucket": "duora.backup"},
+            "bucket maiúsculo": {"bucket": "Duora-Backup"},
+            "região inválida": {"region": "us_east_1"},
+            "uri style": {"uri_style": "virtual"},
+            "uma linha só": {"credentials": f"{self.KEY}\n"},
+            "três linhas": {"credentials": f"{self.KEY}\n{self.SECRET}\nmais\n"},
+            "chave com espaço": {"credentials": f"AKIA EXEMPLO\n{self.SECRET}\n"},
+            "segredo injeta linha": {"credentials": f"{self.KEY}\n{self.SECRET}\\nrepo1-type=posix\n"},
+            "segredo curto": {"credentials": f"{self.KEY}\ncurto\n"},
+            "segredo vazio": {"credentials": f"{self.KEY}\n\n"},
+        }
+        for name, override in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(secrets_cli.SecretsError):
+                    self.repository(**override)
+
+    def test_error_messages_never_carry_the_secret(self) -> None:
+        with self.assertRaises(secrets_cli.SecretsError) as raised:
+            self.repository(credentials=f"{self.KEY}\n{self.SECRET} \n")
+
+        self.assertNotIn(self.SECRET, str(raised.exception))
+        self.assertNotIn(self.SECRET, repr(self.repository()))
+
+    def test_command_reads_the_credentials_from_stdin(self) -> None:
+        with mock.patch.object(secrets_cli.sys, "stdin") as stdin:
+            stdin.read.return_value = f"{self.KEY}\n{self.SECRET}\n"
+            code = secrets_cli.main(["write-backup-repo", str(self.directory), "--bucket", "duora-backup-exemplo",
+                                     "--no-chown"])
+
+        self.assertEqual(0, code)
+        self.assertIn(f"repo1-s3-key-secret={self.SECRET}", self.path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

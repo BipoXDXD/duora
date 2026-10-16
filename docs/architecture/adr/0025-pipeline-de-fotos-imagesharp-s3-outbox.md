@@ -184,3 +184,35 @@ no porte atual.
   check `supply-chain` as barra até a licença ser relida.
 - **Antes de dados reais (gate manual):** revisão editorial implementada; `media-sanitizer` sem rede em produção;
   bucket de mídia com as políticas de credencial acima conferidas por teste de permissão no fornecedor escolhido.
+
+## Adendo (2026-10-16): provedor AWS S3 em `us-east-1`
+
+Decisão do responsável: o bucket de mídia é **AWS S3 em `us-east-1`**, separado do bucket de backup, **sem
+versionamento e sem Object Lock** (o `DELETE` apaga de fato). Criação e validação:
+[aws-setup.md](../../operations/aws-setup.md); JSON versionado em `infra/aws/`.
+
+- **Credenciais por processo** (item 5): IAM users `duora-media-web` (`PutObject` e `DeleteObject` em
+  `quarantine/*`, `GetObject` em `derivatives/*`) e `duora-media-worker` (`GetObject` e `DeleteObject` em
+  `quarantine/*`; `PutObject`, `GetObject` e `DeleteObject` em `derivatives/*`). Nenhum lista o bucket. Todo `Allow`
+  exige `aws:SecureTransport`, e tudo fora do IPv4 público da VPS é negado. As chaves só são criadas quando o upload
+  for ligado em produção; até lá o `compose.prod.yml` não as monta e nenhuma existe.
+- **Bucket:** acesso público bloqueado, ACLs desligadas, SSE-S3, política que recusa HTTP e TLS < 1.2, lifecycle que
+  apaga o que sobrar em `quarantine/` depois de 3 dias (rede de segurança para o original com EXIF, enquanto o job
+  de limpeza não existe) e aborta multipart incompleto em 1 dia.
+- **Adaptador:** `Media:Storage:S3:Region=us-east-1` e `ServiceUrl` vazio, para o SDK usar o endpoint regional com
+  host virtual; um `ServiceUrl` explícito liga o path style, que a AWS mantém só por compatibilidade.
+- **Egress:** cada foto exibida é lida do S3 pela VPS (ADR-0010), e a VPS fica fora da AWS: custo = visualizações
+  por mês × tamanho médio do derivado, a US$ 0,09/GB depois da franquia de 100 GB/mês que a mídia divide com o
+  backup. Hipótese do piloto (300 pessoas, 100 fotos vistas por dia, 60 KB) ≈ 54 GB/mês, cerca de US$ 5. É o custo
+  que cresce com o uso; cache de derivados na VPS é a alavanca.
+- **Lacuna encontrada (decisão pendente):** sem `s3:ListBucket`, a AWS responde `403 AccessDenied`, e não `404
+  NoSuchKey`, a um `GetObject` de chave inexistente. O `S3ObjectStore` trata `AccessDenied` como erro de configuração
+  (registra Error e propaga), então a leitura de um derivado ausente (item "Backup" acima: assets apontando para
+  objetos que sumiram) vira erro em vez de `404`. Opções: conceder `s3:ListBucket` com `s3:prefix` em `derivatives/`
+  ao web (contraria "nenhuma credencial lista o bucket" e precisa de prova na conta de que a condição de prefixo
+  basta para o `404`), ou tratar a leitura de derivado registrado e ausente como inconsistência explícita no
+  domínio. Fica para o PR que ligar o upload em produção, com o teste de permissão no fornecedor do gate abaixo.
+
+Compliance acrescentado: `scripts/deploy/test_duora_aws.py` compara as permissões de cada credencial com a lista
+exata acima (qualquer ação ou prefixo a mais falha), confere que o web não lê a quarentena, que os prefixos batem
+com `ObjectKey` do Core e que o bucket de mídia não tem arquivo de versionamento nem de Object Lock.

@@ -1,0 +1,33 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteAndCompensateQuarantine",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::{{MEDIA_BUCKET}}/quarantine/*",
+      "Condition": {"Bool": {"aws:SecureTransport": "true"}}
+    },
+    {
+      "Sid": "ReadDerivatives",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::{{MEDIA_BUCKET}}/derivatives/*",
+      "Condition": {"Bool": {"aws:SecureTransport": "true"}}
+    },
+    {
+      "Sid": "DenyWithoutTls",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": "*",
+      "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+    },
+    {
+      "Sid": "DenyOutsideTheVps",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": "*",
+      "Condition": {"NotIpAddress": {"aws:SourceIp": "{{VPS_IPV4}}/32"}}
+    }
+  ]
+}

@@ -84,3 +84,41 @@ roda o ataque e a recuperação no CI.
 - Drill de restore no job `images` do CI: isolamento de rede, `repo-ls` e `repo-rm --recurse` do postgres funcionando
   (documenta o poder), restore por `--repo-target-time` depois da exclusão e `verify-repo` acusando lacuna de WAL.
 - Filtro de saída conferido pelo verify no host (`EgressFilterCheckTests`); prova no host real pendente (M3).
+
+## Adendo (2026-10-16): provedor AWS S3 em `us-east-1`
+
+Decisão do responsável: o repositório fica num bucket **AWS S3 em `us-east-1`**, criado com
+`--object-lock-enabled-for-bucket`. A decisão acima não muda; o adendo fixa como ela fica na AWS. Criação, ordem dos
+passos e validação: [aws-setup.md](../../operations/aws-setup.md); JSON versionado em `infra/aws/`.
+
+- **Credencial na VPS:** IAM user `duora-backup` com access key (a VPS fica fora da AWS e o verify só assina com chave
+  compartilhada). Política inline `infra/aws/iam/duora-backup.json`: listagem e objetos só no prefixo `duora/`,
+  leitura do versionamento e do lock, nenhuma ação de proteção (negação explícita), `aws:SecureTransport` em todo
+  `Allow` e negação de tudo fora do IPv4 público da VPS (`aws:SourceIp`). Chave vazada fora da VPS não serve.
+- **Política do bucket:** recusa HTTP e TLS < 1.2 para todos e repete as negações de proteção (apagar versão,
+  retenção, versionamento, lock, lifecycle, política, ACL, bloqueio público, cifra, posse, replicação) para **todo**
+  principal, inclusive o root, menos o papel `duora-backup-admin`. O papel só é assumido com MFA de até 1 h e é a
+  "credencial administrativa fora da VPS" da recuperação (remover delete markers). Limite da AWS: o root sempre pode
+  apagar a política do bucket; o lock `COMPLIANCE` continua valendo para ele.
+- **Bucket:** versionamento, lock `COMPLIANCE` de 21 dias (`infra/aws/buckets/backup/object-lock.json`), lifecycle
+  que expira versões não correntes em 30 dias, remove delete markers órfãos e aborta multipart em 7 dias, acesso
+  público bloqueado, ACLs desligadas e SSE-S3 (além da cifra do pgBackRest no cliente).
+- **pgBackRest:** `repo1-s3-endpoint=s3.us-east-1.amazonaws.com`, `repo1-s3-region=us-east-1`,
+  `repo1-s3-uri-style=host`; nome de bucket sem ponto, para o certificado do endpoint cobrir o host virtual. O
+  arquivo é gravado por `duora-secrets write-backup-repo`, com a chave lida do stdin.
+- **Filtro de saída:** `duora_backup_s3_cidrs` com os prefixos IPv4 do S3 em `us-east-1` do `ip-ranges.json` da AWS
+  (`duora_aws.py s3-cidrs`). Ele libera o S3 da região inteiro, não só o nosso bucket: a contenção contra
+  exfiltração continua sendo o pgBackRest cifrar no cliente.
+- **Custo de leitura (egress):** a VPS fica fora da AWS, então o `verify-repo` diário, o `verify-repo-full` semanal e
+  os ensaios de restore são saída para a internet. No exemplo de dimensionamento, ~165 GB por mês: cerca de US$ 6
+  acima da franquia de 100 GB/mês da conta (US$ 0,09/GB, preço de tabela a conferir na criação) e cerca de US$ 1,35
+  de armazenamento com as versões não correntes. Conta completa em
+  [aws-setup.md](../../operations/aws-setup.md#custo-esperado).
+- **Jurisdição:** `us-east-1` fica nos EUA. O backup sai cifrado no cliente, mas a transferência internacional
+  (LGPD) precisa ser registrada no mapa de dados com a salvaguarda escolhida; pendência de privacidade.
+
+Compliance acrescentado: `scripts/deploy/test_duora_aws.py` falha se a política do `duora-backup` ganhar uma ação,
+um curinga ou um recurso fora de `duora/*`, se uma negação de proteção sumir de qualquer das duas políticas, se o
+lock cair abaixo de `MIN_OBJECT_LOCK_DAYS` do verify ou se o lifecycle expirar versões antes do lock. A prova
+contra a conta real (simulação de políticas, canário com lock, chave recusada fora da VPS) está no passo 8 do
+aws-setup e fica com o responsável.

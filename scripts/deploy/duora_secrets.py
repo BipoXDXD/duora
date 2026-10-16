@@ -3,6 +3,7 @@
 
     sudo duora-secrets init /etc/duora/secrets
     sudo duora-secrets init-backup /etc/duora/secrets
+    sudo duora-secrets write-backup-repo /etc/duora/secrets --bucket <bucket> [--region us-east-1] [--replace]
     sudo duora-secrets rotate-certificate /etc/duora/secrets
     sudo duora-secrets retire-previous-certificates /etc/duora/secrets \\
         --keys-directory /var/lib/docker/volumes/duora_dataprotection/_data
@@ -11,6 +12,10 @@
 do servidor TLS do container backup (CN e SAN "backup") e do cliente do postgres (CN "duora-postgres"), com o
 openssl do sistema. A chave da CA é descartada: rotação = gerar o conjunto inteiro de novo
 (docs/operations/backup-restore.md).
+
+`write-backup-repo` grava o pgbackrest_repo.conf (endpoint, bucket, região e a credencial do usuário duora-backup,
+lida do stdin para não ir ao histórico do shell; docs/operations/aws-setup.md). Só troca um arquivo existente com
+--replace, na rotação da chave.
 
 `init` cria as senhas e connection strings do banco e o certificado que cifra o key ring do Data Protection em
 repouso (spec 11.2). Nunca sobrescreve: com um grupo inteiro presente não faz nada; com um grupo incompleto, recusa
@@ -29,6 +34,7 @@ import string
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from xml.etree import ElementTree
@@ -64,6 +70,18 @@ TLS_SERVER_HOST = "backup"  # nome do serviço no compose.prod.yml; o postgres c
 TLS_CLIENT_CN = "duora-postgres"  # autorizado em tls-server-auth (pgbackrest-repo.conf)
 TLS_CA_DAYS = 3650
 TLS_LEAF_DAYS = 825
+
+# Repositório S3 do pgBackRest (montado como /etc/pgbackrest/conf.d/repo.conf no backup e no restore). Formatos
+# conferidos antes de gravar: o arquivo é INI, então quebra de linha ou espaço num valor viraria outra opção.
+BACKUP_REPOSITORY_FILE = "pgbackrest_repo.conf"
+DEFAULT_S3_REGION = "us-east-1"
+S3_URI_STYLES = ("host", "path")
+_S3_HOSTNAME = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
+# Sem ponto: com host virtual, o certificado curinga do endpoint não cobre um bucket com ponto no nome.
+_S3_BUCKET = re.compile(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]")
+_S3_REGION = re.compile(r"[a-z]{2}(-[a-z]+)+-[0-9]+")
+_S3_ACCESS_KEY = re.compile(r"[A-Za-z0-9]{16,128}")
+_S3_SECRET_KEY = re.compile(r"[A-Za-z0-9/+=]{16,128}")
 
 # Certificado do key ring: o atual cifra as chaves novas; os anteriores, em pares PEM do mais novo ao mais antigo, só
 # decifram as chaves que cifraram (DataProtection__Certificate e DataProtection__PreviousCertificates no Compose).
@@ -133,6 +151,59 @@ def init_backup(directory: Path, *, change_owner: bool) -> bool:
     for name in BACKUP_FILES:
         _write_secret(directory / name, generated[name], owner=POSTGRES_UID if change_owner else None)
     return True
+
+
+@dataclass(frozen=True)
+class BackupRepository:
+    endpoint: str
+    bucket: str
+    region: str
+    uri_style: str
+    key: str
+    secret: str = field(repr=False)
+
+    def to_conf(self) -> str:
+        return (f"[global]\nrepo1-s3-endpoint={self.endpoint}\nrepo1-s3-bucket={self.bucket}\n"
+                f"repo1-s3-region={self.region}\nrepo1-s3-uri-style={self.uri_style}\n"
+                f"repo1-s3-key={self.key}\nrepo1-s3-key-secret={self.secret}\n")
+
+
+def parse_backup_repository(*, bucket: str, region: str, endpoint: str, uri_style: str,
+                            credentials: str) -> BackupRepository:
+    """Valida o destino e a credencial (access key na 1a linha, secret na 2a). Endpoint vazio = o da AWS na região."""
+    if _S3_BUCKET.fullmatch(bucket) is None:
+        raise SecretsError(f"bucket inválido: {bucket!r} (3 a 63 caracteres [a-z0-9-], sem ponto)")
+    if _S3_REGION.fullmatch(region) is None:
+        raise SecretsError(f"região inválida: {region!r} (ex.: us-east-1)")
+    endpoint = endpoint or f"s3.{region}.amazonaws.com"
+    if _S3_HOSTNAME.fullmatch(endpoint) is None:
+        raise SecretsError(f"endpoint inválido: {endpoint!r} (só o nome do host, sem https:// nem caminho)")
+    if uri_style not in S3_URI_STYLES:
+        raise SecretsError(f"uri style inválido: {uri_style!r} (host ou path)")
+    lines = credentials.splitlines()
+    if len(lines) != 2:
+        raise SecretsError("o stdin precisa ter exatamente duas linhas: access key id e secret access key")
+    key, secret = lines
+    if _S3_ACCESS_KEY.fullmatch(key) is None:
+        raise SecretsError("access key id inválido (16 a 128 caracteres [A-Za-z0-9])")
+    if _S3_SECRET_KEY.fullmatch(secret) is None:
+        # A mensagem nunca repete o valor: ele é o segredo.
+        raise SecretsError("secret access key inválido (16 a 128 caracteres [A-Za-z0-9/+=], sem espaço)")
+    return BackupRepository(endpoint=endpoint, bucket=bucket, region=region, uri_style=uri_style, key=key,
+                            secret=secret)
+
+
+def write_backup_repository(directory: Path, repository: BackupRepository, *, replace: bool,
+                            change_owner: bool) -> None:
+    """Grava o pgbackrest_repo.conf 0400 (dono 999); com replace, troca o existente por rename atômico."""
+    target = directory / BACKUP_REPOSITORY_FILE
+    if target.exists() and not replace:
+        raise SecretsError(f"{target} já existe; para trocar a credencial (rotação) use --replace")
+    staged = directory / f".{BACKUP_REPOSITORY_FILE}.new"
+    staged.unlink(missing_ok=True)
+    _write_secret(staged, repository.to_conf(), owner=POSTGRES_UID if change_owner else None)
+    os.replace(staged, target)
+    _sync_directory(directory)
 
 
 def _generate_tls(scratch: Path) -> dict[str, str]:
@@ -328,6 +399,16 @@ def main(argv: list[str] | None = None) -> int:
     retire.add_argument("--keys-directory", type=Path, required=True,
                         help="diretório do key ring (no host: /var/lib/docker/volumes/duora_dataprotection/_data)")
     retire.add_argument("--no-chown", action="store_true", help="não troca o dono dos arquivos")
+    repository = subcommands.add_parser("write-backup-repo",
+                                        help="grava o pgbackrest_repo.conf; credencial no stdin (key e secret, uma "
+                                             "por linha)")
+    repository.add_argument("directory", type=Path)
+    repository.add_argument("--bucket", required=True)
+    repository.add_argument("--region", default=DEFAULT_S3_REGION)
+    repository.add_argument("--endpoint", default="", help="host do S3, sem esquema (padrão: s3.<região>.amazonaws.com)")
+    repository.add_argument("--uri-style", choices=S3_URI_STYLES, default="host")
+    repository.add_argument("--replace", action="store_true", help="troca um arquivo existente (rotação da chave)")
+    repository.add_argument("--no-chown", action="store_true", help="não troca o dono dos arquivos")
     args = parser.parse_args(argv)
 
     change_owner = not args.no_chown
@@ -338,6 +419,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "rotate-certificate":
             rotate_certificate(args.directory, change_owner=change_owner)
             message = "certificado do key ring trocado; recrie o web para usar o novo"
+        elif args.command == "write-backup-repo":
+            parsed = parse_backup_repository(bucket=args.bucket, region=args.region, endpoint=args.endpoint,
+                                             uri_style=args.uri_style, credentials=sys.stdin.read())
+            write_backup_repository(args.directory, parsed, replace=args.replace, change_owner=change_owner)
+            message = "pgbackrest_repo.conf gravado; recrie backup e rode duora-backup verify"
         elif args.command == "retire-previous-certificates":
             retire_previous_certificates(args.directory, args.keys_directory, change_owner=change_owner)
             message = "certificados anteriores do key ring retirados; recrie o web"

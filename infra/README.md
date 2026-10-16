@@ -11,8 +11,9 @@ deploy, manifesto e runbooks: [docs/operations/deploy.md](../docs/operations/dep
 | `images/edge/Dockerfile` | Caddy com a SPA e o Caddyfile embutidos |
 | `images/postgres/` | PostgreSQL 18.6 + pgBackRest 2.59.3, configuração de WAL e do pgBackRest (lado postgres e lado repositório) e os scripts da 1a inicialização |
 | `caddy/Caddyfile` | Borda: TLS, SPA, `/api`, `/hubs`, cabeçalhos de segurança e logs |
+| `aws/` | Políticas IAM e configuração dos buckets S3 (backup e mídia) em JSON, preenchidas por `scripts/deploy/duora_aws.py` e aplicadas pelo responsável ([aws-setup.md](../docs/operations/aws-setup.md)) |
 | `ansible/` | Configuração do host (roles `base`, `ssh`, `firewall`, `docker`, `app_dirs`, `backup`) |
-| `../scripts/deploy/` | `duora-deploy`, `duora-secrets`, `duora-backup` e o smoke local (Python 3.12, só biblioteca padrão) |
+| `../scripts/deploy/` | `duora-deploy`, `duora-secrets`, `duora-backup`, `duora_aws.py` (só na máquina do responsável) e o smoke local (Python 3.12, só biblioteca padrão) |
 | `../scripts/backup/` | Drill de restore PITR com MinIO de teste ([backup-restore.md](../docs/operations/backup-restore.md)) |
 
 Sem OpenTofu por enquanto: provedor e arquitetura da VPS não foram escolhidos (spec 2.3, "não inventar provider").

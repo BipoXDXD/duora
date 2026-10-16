@@ -1,0 +1,12 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-noncurrent-after-lock",
+      "Status": "Enabled",
+      "Filter": {},
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 30},
+      "Expiration": {"ExpiredObjectDeleteMarker": true},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
+    }
+  ]
+}
