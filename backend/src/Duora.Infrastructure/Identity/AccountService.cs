@@ -50,6 +50,7 @@ public sealed class AccountService
     private readonly DuoraDbContext _db;
     private readonly UserManager<DuoraUser> _users;
     private readonly AuditTrail _audit;
+    private readonly AccountSecurityService _security;
     private readonly DecoyPasswordHash _decoy;
     private readonly AccountLifecycleOptions _lifecycle;
     private readonly TimeProvider _time;
@@ -57,12 +58,14 @@ public sealed class AccountService
     internal AccountService(
         DuoraDbContext db,
         UserManager<DuoraUser> users,
+        AccountSecurityService security,
         DecoyPasswordHash decoy,
         AccountLifecycleOptions lifecycle,
         TimeProvider time)
     {
         _db = db;
         _users = users;
+        _security = security;
         _audit = new AuditTrail(db, time);
         _decoy = decoy;
         _lifecycle = lifecycle;
@@ -199,9 +202,11 @@ public sealed class AccountService
     /// a revogação explícita deixa o motivo registrado. O bloqueio por tentativas é zerado, para quem foi
     /// bloqueado por um atacante recuperar o acesso pelo e-mail, exceto em conta com MFA: o e-mail não prova o
     /// segundo fator, e destravar ali reabriria a força bruta do TOTP. Só vale para conta confirmada. Troca,
-    /// desbloqueio, revogação, auditoria (TM-05) e aviso ao titular (TM-21) vão num commit só: sem troca, nada é
-    /// gravado.
+    /// desbloqueio, revogação, auditoria (TM-05) e aviso ao titular (TM-21) vão num commit só, com a conta travada
+    /// como nas outras operações de credencial: sem troca, nada é gravado, e uma falha de login simultânea não se
+    /// perde nem derruba o reset.
     /// </summary>
+    /// <exception cref="AccountBusyException">A espera pela conta passou do teto; nada foi gravado.</exception>
     public async Task<bool> ResetPasswordAsync(
         Guid userId,
         string linkToken,
@@ -215,7 +220,7 @@ public sealed class AccountService
             return false;
         }
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        await using var check = await _security.LockAccountAsync(user, cancellationToken);
         var wasLockedOut = await _users.IsLockedOutAsync(user);
         var result = await _users.ResetPasswordAsync(user, token, newPassword);
         if (!result.Succeeded)
@@ -242,7 +247,7 @@ public sealed class AccountService
             language,
             _time.GetUtcNow()));
         await _db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        await check.CommitAsync(cancellationToken);
         return true;
     }
 

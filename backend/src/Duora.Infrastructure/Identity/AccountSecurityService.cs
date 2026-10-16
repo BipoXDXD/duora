@@ -144,16 +144,7 @@ public abstract record SecondFactorProof
     public sealed record RecoveryCode(string Code) : SecondFactorProof;
 }
 
-/// <summary>Login com a senha certa numa conta confirmada, para a auditoria (TM-05).</summary>
-public enum LoginAttempt
-{
-    Succeeded,
-
-    /// <summary>Conta com MFA e pedido sem segundo fator: nenhuma sessão é aberta.</summary>
-    SecondFactorRequired,
-}
-
-/// <summary>Onde a senha de uma conta confirmada foi conferida e falhou, para a auditoria (TM-05).</summary>
+/// <summary>Onde a senha de uma conta confirmada foi conferida, para a auditoria (TM-05).</summary>
 public enum PasswordCheck
 {
     /// <summary>API-A04.</summary>
@@ -430,18 +421,29 @@ public sealed class AccountSecurityService
     }
 
     /// <summary>
-    /// Registra na auditoria um login de senha certa numa conta confirmada, dentro da <see cref="AccountCheck"/> que
-    /// o verificou: o registro confirma junto com o contador de falhas.
+    /// Registra na auditoria o login que abre sessão, dentro da <see cref="AccountCheck"/> que o verificou: o registro
+    /// confirma junto com o contador de falhas.
     /// </summary>
-    public Task RecordLoginAttemptAsync(DuoraUser user, LoginAttempt attempt, CancellationToken cancellationToken)
+    public Task RecordLoginSucceededAsync(DuoraUser user, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(user);
         RequireAccountCheck();
-        var action = attempt switch
+        return AppendAuditAsync(user.Id, AuditAction.LoginSucceeded, cancellationToken);
+    }
+
+    /// <summary>
+    /// Registra a senha certa de uma conta com MFA num pedido sem o segundo fator (A04 ou A13), dentro da
+    /// <see cref="AccountCheck"/>: nada foi aberto, mas a senha conferiu, o que importa se ela tiver vazado.
+    /// </summary>
+    public Task RecordSecondFactorRequiredAsync(DuoraUser user, PasswordCheck check, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        RequireAccountCheck();
+        var action = check switch
         {
-            LoginAttempt.Succeeded => AuditAction.LoginSucceeded,
-            LoginAttempt.SecondFactorRequired => AuditAction.LoginSecondFactorRequired,
-            _ => throw new ArgumentOutOfRangeException(nameof(attempt), attempt, "Tentativa de login desconhecida."),
+            PasswordCheck.Login => AuditAction.LoginSecondFactorRequired,
+            PasswordCheck.Reauthentication => AuditAction.ReauthenticationSecondFactorRequired,
+            _ => throw new ArgumentOutOfRangeException(nameof(check), check, "Só login e reautenticação pedem o segundo fator."),
         };
         return AppendAuditAsync(user.Id, action, cancellationToken);
     }
@@ -475,30 +477,6 @@ public sealed class AccountSecurityService
 
         await AppendAuditAsync(user.Id, failed, cancellationToken);
         await RecordLockoutIfStartedAsync(user, cancellationToken);
-    }
-
-    /// <summary>
-    /// Registra um login com e-mail sem conta ou com cadastro não confirmado, sem a conta: o ator é o sistema e o alvo
-    /// é a própria tentativa, com um id novo. Roda na transação aberta (a <see cref="AccountCheck"/> da conta pendente)
-    /// ou numa própria, curta, quando não há conta para travar.
-    /// </summary>
-    public async Task RecordLoginWithoutConfirmedAccountAsync(CancellationToken cancellationToken)
-    {
-        var record = new AuditRecord(
-            AuditActorKind.System,
-            actorId: null,
-            AuditAction.LoginFailedUnknownAccount,
-            AuditTargetTypes.LoginAttempt,
-            Guid.CreateVersion7(_time.GetUtcNow()));
-        if (_db.Database.CurrentTransaction is not null)
-        {
-            await _audit.AppendAsync(record, cancellationToken);
-            return;
-        }
-
-        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        await _audit.AppendAsync(record, cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
     }
 
     /// <summary>
@@ -643,23 +621,43 @@ public sealed class AccountSecurityService
     /// <exception cref="AccountBusyException">A espera passou do teto; a transação não gravou nada.</exception>
     private async Task LockAndReloadAsync(DuoraUser user, CancellationToken cancellationToken)
     {
+        await WithLockCeilingAsync(
+            () => _db.Database.ExecuteSqlAsync(
+                $"select 1 from identity.users where id = {user.Id} for no key update",
+                cancellationToken),
+            cancellationToken);
+        await _db.Entry(user).ReloadAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Roda <paramref name="takeLock"/> com <c>lock_timeout</c> só desta transação, no teto da conta. Passou do teto,
+    /// <see cref="AccountBusyException"/> (503) em vez de segurar a conexão até o timeout do comando.
+    /// </summary>
+    private async Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken)
+    {
         var lockTimeout = $"{(long)_lock.AccountLockTimeout.TotalMilliseconds}ms";
         await _db.Database.ExecuteSqlAsync(
             $"select set_config('lock_timeout', {lockTimeout}, true)",
             cancellationToken);
         try
         {
-            await _db.Database.ExecuteSqlAsync(
-                $"select 1 from identity.users where id = {user.Id} for no key update",
-                cancellationToken);
+            return await takeLock();
         }
-        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.LockNotAvailable)
+        catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
-            throw new AccountBusyException(_lock.AccountLockTimeout, error);
+            throw new AccountBusyException(_lock.AccountLockTimeout, timeout);
         }
-
-        await _db.Entry(user).ReloadAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// O 55P03 chega cru de um comando e embrulhado pelo EF (falha transitória) de uma query; os dois são a espera
+    /// que passou do teto.
+    /// </summary>
+    private static PostgresException? LockTimeoutIn(Exception error) =>
+        (error as PostgresException ?? error.InnerException as PostgresException) is
+        { SqlState: PostgresErrorCodes.LockNotAvailable } timeout
+            ? timeout
+            : null;
 
     /// <summary>
     /// Registra o início do bloqueio quando a falha recém-contada levou ao teto uma conta que não estava bloqueada.
@@ -725,8 +723,9 @@ public sealed class AccountSecurityService
     /// Revoga a sessão da conta e registra o fato, na mesma transação, só se ela ainda estava ativa. A linha é
     /// travada na leitura: dois pedidos simultâneos para a mesma sessão registram uma revogação, não duas.
     /// <c>FOR NO KEY UPDATE</c> basta, porque só colunas que não são chave mudam, e não espera por quem só
-    /// referencia a sessão.
+    /// referencia a sessão. A espera tem o mesmo teto da conta.
     /// </summary>
+    /// <exception cref="AccountBusyException">A espera passou do teto; nada foi gravado.</exception>
     private async Task<bool> RevokeAndAuditAsync(
         Guid userId,
         Guid sessionId,
@@ -735,14 +734,16 @@ public sealed class AccountSecurityService
         CancellationToken cancellationToken)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var state = await _db.Database
-            .SqlQuery<bool>(
-                $"""
-                select revoked_at is null as "Value" from identity.login_sessions
-                where id = {sessionId} and user_id = {userId}
-                for no key update
-                """)
-            .ToListAsync(cancellationToken);
+        var state = await WithLockCeilingAsync(
+            () => _db.Database
+                .SqlQuery<bool>(
+                    $"""
+                    select revoked_at is null as "Value" from identity.login_sessions
+                    where id = {sessionId} and user_id = {userId}
+                    for no key update
+                    """)
+                .ToListAsync(cancellationToken),
+            cancellationToken);
         if (state is not [var active])
         {
             return false;

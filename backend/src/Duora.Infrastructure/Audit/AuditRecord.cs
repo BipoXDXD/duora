@@ -45,17 +45,15 @@ internal sealed record AuditAction
     /// <summary>Senha errada numa conta confirmada (conta no bloqueio).</summary>
     public static readonly AuditAction LoginFailed = new("identity.login_failed");
 
-    /// <summary>
-    /// Login com e-mail sem conta ou com cadastro não confirmado. Os dois casos gravam o mesmo registro, sem a conta
-    /// como ator nem como alvo: o registro não revela, nem a quem lê a tabela, se existe um cadastro (TM-06).
-    /// </summary>
-    public static readonly AuditAction LoginFailedUnknownAccount = new("identity.login_failed_unknown_account");
-
     /// <summary>Senha certa numa conta com MFA, sem segundo fator no pedido (<c>MFA_REQUIRED</c>).</summary>
     public static readonly AuditAction LoginSecondFactorRequired = new("identity.login_second_factor_required");
 
     /// <summary>Tentativa de login recusada sem conferir a senha, porque a conta está bloqueada.</summary>
     public static readonly AuditAction LoginRefusedLockedOut = new("identity.login_refused_locked_out");
+
+    /// <summary>Senha certa na reautenticação de conta com MFA, sem o código do autenticador.</summary>
+    public static readonly AuditAction ReauthenticationSecondFactorRequired =
+        new("identity.reauthentication_second_factor_required");
 
     /// <summary>Senha errada na reautenticação (API-A13; conta no bloqueio).</summary>
     public static readonly AuditAction ReauthenticationFailed = new("identity.reauthentication_failed");
@@ -107,12 +105,6 @@ internal static class AuditTargetTypes
     public const string AgeVerification = "age_verification";
 
     public const string LoginSession = "login_session";
-
-    /// <summary>
-    /// Uma tentativa de login sem conta conhecida: o id é novo a cada tentativa e não aponta para nada; quem liga o
-    /// registro ao pedido é o <c>correlation_id</c>.
-    /// </summary>
-    public const string LoginAttempt = "login_attempt";
 }
 
 /// <summary>

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Duora.Web.Identity;
@@ -63,26 +64,32 @@ internal sealed class LoginTimingOptions
 /// piso de latência (TM-06): conta inexistente, e-mail não confirmado e conta bloqueada verificam um hash de isca,
 /// porque nesses casos o SignInManager decide antes de calcular o hash.
 /// </summary>
-public sealed class CredentialVerifier
+public sealed partial class CredentialVerifier
 {
     private readonly UserManager<DuoraUser> _users;
     private readonly SignInManager<DuoraUser> _signIn;
     private readonly DecoyPasswordHash _decoy;
     private readonly LoginTimingOptions _timing;
     private readonly AccountSecurityService _security;
+    private readonly LoginMetrics _metrics;
+    private readonly ILogger<CredentialVerifier> _logger;
 
     internal CredentialVerifier(
         UserManager<DuoraUser> users,
         SignInManager<DuoraUser> signIn,
         DecoyPasswordHash decoy,
         IOptions<LoginTimingOptions> timing,
-        AccountSecurityService security)
+        AccountSecurityService security,
+        LoginMetrics metrics,
+        ILogger<CredentialVerifier> logger)
     {
         _users = users;
         _signIn = signIn;
         _decoy = decoy;
         _timing = timing.Value;
         _security = security;
+        _metrics = metrics;
+        _logger = logger;
     }
 
     /// <summary>
@@ -147,6 +154,7 @@ public sealed class CredentialVerifier
 
         if (authenticatorCode is null)
         {
+            await _security.RecordSecondFactorRequiredAsync(user, PasswordCheck.Reauthentication, cancellationToken);
             return new ReauthenticationOutcome.Invalid();
         }
 
@@ -169,7 +177,7 @@ public sealed class CredentialVerifier
         if (user is null)
         {
             _decoy.Verify(_users.PasswordHasher, password);
-            await _security.RecordLoginWithoutConfirmedAccountAsync(cancellationToken);
+            RecordLoginWithoutConfirmedAccount();
             return new LoginOutcome.InvalidCredentials();
         }
 
@@ -192,9 +200,9 @@ public sealed class CredentialVerifier
         var result = await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
         if (result.IsNotAllowed)
         {
-            // Cadastro pendente: pode ser de qualquer pessoa, então o registro é o mesmo do e-mail sem conta.
+            // Cadastro pendente: pode ser de qualquer pessoa, então conta como o e-mail sem conta.
             _decoy.Verify(_users.PasswordHasher, password);
-            await _security.RecordLoginWithoutConfirmedAccountAsync(cancellationToken);
+            RecordLoginWithoutConfirmedAccount();
             return new LoginOutcome.InvalidCredentials();
         }
 
@@ -214,7 +222,7 @@ public sealed class CredentialVerifier
         {
             if (secondFactor is null)
             {
-                await _security.RecordLoginAttemptAsync(user, LoginAttempt.SecondFactorRequired, cancellationToken);
+                await _security.RecordSecondFactorRequiredAsync(user, PasswordCheck.Login, cancellationToken);
                 return new LoginOutcome.MfaRequired();
             }
 
@@ -226,13 +234,27 @@ public sealed class CredentialVerifier
         }
 
         var policy = AccountRoles.SessionPolicyFor(await _users.GetRolesAsync(user));
-        await _security.RecordLoginAttemptAsync(user, LoginAttempt.Succeeded, cancellationToken);
+        await _security.RecordLoginSucceededAsync(user, cancellationToken);
         return new LoginOutcome.Verified(new VerifiedAccount(
             user.Id,
             await _users.GetSecurityStampAsync(user),
             policy,
             proved));
     }
+
+    /// <summary>
+    /// E-mail sem conta ou cadastro pendente: métrica e log, nunca linha na auditoria (não há ator legítimo, e a tabela
+    /// append-only cresceria sem limite). Os dois casos fazem o mesmo, sem e-mail nem IP; o trace id do log liga ao
+    /// pedido.
+    /// </summary>
+    private void RecordLoginWithoutConfirmedAccount()
+    {
+        _metrics.RecordFailedUnknownAccount();
+        LogLoginWithoutConfirmedAccount(_logger);
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Login sem conta confirmada")]
+    private static partial void LogLoginWithoutConfirmedAccount(ILogger logger);
 
     /// <summary>
     /// Espera em tempo real, não no <see cref="TimeProvider"/> da aplicação: o piso protege contra quem mede a

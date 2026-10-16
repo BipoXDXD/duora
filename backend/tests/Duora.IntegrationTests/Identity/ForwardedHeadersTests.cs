@@ -61,6 +61,34 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
     }
 
+    /// <summary>
+    /// Um cliente IPv6 costuma ter um /64 inteiro: contar por endereço daria a ele cotas sem fim. Endereços do mesmo
+    /// /64 dividem a cota; outro /64 tem a sua.
+    /// </summary>
+    [Fact]
+    public async Task IPv6AddressesInTheSameSlash64ShareTheLoginLimit()
+    {
+        await using var factory = Factory(trustProxyNetwork: false);
+        using var browser = new Browser(factory);
+        await browser.FetchCsrfTokenAsync();
+
+        using var first = await LoginFromAsync(browser, "2001:db8:a:b::1");
+        using var second = await LoginFromAsync(browser, "2001:db8:a:b:ffff:ffff:ffff:fffe");
+        using var third = await LoginFromAsync(browser, "2001:db8:a:b::2");
+        using var otherNetwork = await LoginFromAsync(browser, "2001:db8:a:c::1");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
+        await ProblemAssert.IsProblemAsync(third, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
+        Assert.Equal(HttpStatusCode.Unauthorized, otherNetwork.StatusCode);
+    }
+
+    private static Task<HttpResponseMessage> LoginFromAsync(Browser browser, string from) =>
+        browser.PostJsonAsync(
+            "/api/v1/auth/login",
+            new { email = IdentityScenario.NewEmail(), password = "senha que nao confere com nada" },
+            new MutationHeaders(Extra: new Dictionary<string, string> { [RemoteAddressFromTestHeader.Header] = from }));
+
     private DuoraWebFactory Factory(bool trustProxyNetwork)
     {
         var settings = new Dictionary<string, string?> { ["RateLimiting:LoginPerIp:PermitLimit"] = "2" };
