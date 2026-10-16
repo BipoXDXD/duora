@@ -450,6 +450,13 @@ segredo de **build**, não de runtime: o Worker em execução não a lê.
 Para um build local da imagem do Worker, exporte a chave numa variável só da sessão do shell (lida do gerenciador de
 senhas) e passe `--secret id=sixlabors_license,env=SIXLABORS_LICENSE_KEY`; nunca grave `sixlabors.lic` no clone.
 
+### Storage de mídia fora do ar
+
+Um upload em processamento tem 8 tentativas, com espera dobrando de 15 s até o teto de 15 min e jitter na metade de
+cima: entre ~15 e ~31 min no total. Storage fora do ar por mais que isso rejeita esses uploads com
+`PROCESSING_LIMIT`, apaga o original da quarentena e deixa a entrega `media-processing` em `Failed` com a causa; a
+pessoa vê a foto recusada e reenvia. Não há reprocessamento manual: o original já não existe.
+
 ### Rotação de senha do banco
 
 O script de inicialização só roda com o volume vazio. Para trocar a senha de `duora_app` (idem `duora_migrator`):
