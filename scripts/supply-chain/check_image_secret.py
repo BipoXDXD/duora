@@ -4,11 +4,12 @@
 Uso: check_image_secret.py <imagem> <VARIAVEL_DE_AMBIENTE>
 
 Lê o segredo da variável de ambiente (nunca de argumento, para não aparecer na lista de processos) e procura por ele,
-e por cada pedaço longo dele, no histórico da imagem (`docker history --no-trunc`) e no filesystem achatado de um
+e por cada pedaço longo dele, em UTF-8, UTF-16LE (strings de .NET em recursos) e base64 (padrão e URL), no histórico da imagem (`docker history --no-trunc`) e no filesystem achatado de um
 container criado a partir dela (`docker export`, tar sem compressão). Sai com 1 se achar, 2 se o segredo faltar.
 Nunca imprime o segredo nem o trecho encontrado. Só biblioteca padrão.
 """
 
+import base64
 import os
 import subprocess
 import sys
@@ -19,11 +20,31 @@ MIN_FRAGMENT = 16
 
 
 def needles(secret):
-    """O segredo inteiro e cada campo dele (separados por ; = | :) longo o bastante para ser seu."""
+    """O segredo inteiro e cada campo dele (separados por ; = | :) longo o bastante para ser seu, em cada codificação."""
     parts = {secret}
     for separator in ";=|:":
         parts = {piece for part in parts for piece in part.split(separator)} | parts
-    return sorted({part.encode() for part in parts if len(part) >= MIN_FRAGMENT}, key=len, reverse=True)
+    found = set()
+    for part in (p for p in parts if len(p) >= MIN_FRAGMENT):
+        raw = part.encode()
+        found.update({raw, part.encode("utf-16-le")})
+        found.update(base64_cores(raw))
+    return sorted((n for n in found if len(n) >= MIN_FRAGMENT), key=len, reverse=True)
+
+
+def base64_cores(data):
+    """Trechos do base64 de `data` que não dependem do que vem antes ou depois dele, para cada alinhamento (mod 3).
+
+    Cada caractere carrega 6 bits: com `offset` bytes antes, o primeiro caractere só do dado é o ceil(8*offset/6) e o
+    último é o floor(8*(offset+len)/6) - 1; o resto mistura bits vizinhos e muda com o contexto.
+    """
+    cores = set()
+    for offset in range(3):
+        start = -(-8 * offset // 6)
+        end = 8 * (offset + len(data)) // 6
+        for encode in (base64.b64encode, base64.urlsafe_b64encode):
+            cores.add(encode(b"\0" * offset + data)[start:end])
+    return cores
 
 
 def stream_contains(stream, patterns):
