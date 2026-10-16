@@ -158,12 +158,22 @@ public enum SecondFactorKind
 public sealed class AccountCheck : IAsyncDisposable
 {
     private readonly IDbContextTransaction _transaction;
+    private readonly IAsyncDisposable _turn;
 
-    internal AccountCheck(IDbContextTransaction transaction) => _transaction = transaction;
+    internal AccountCheck(IDbContextTransaction transaction, IAsyncDisposable turn)
+    {
+        _transaction = transaction;
+        _turn = turn;
+    }
 
     public Task CommitAsync(CancellationToken cancellationToken) => _transaction.CommitAsync(cancellationToken);
 
-    public ValueTask DisposeAsync() => _transaction.DisposeAsync();
+    /// <summary>Encerra a transação (desfaz se não houve commit) e só então libera a vez da conta na fila.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        await _transaction.DisposeAsync();
+        await _turn.DisposeAsync();
+    }
 }
 
 /// <summary>
@@ -187,13 +197,16 @@ public sealed class AccountSecurityService
     private readonly AuditTrail _audit;
     private readonly TimeProvider _time;
     private readonly AccountLockOptions _lock;
+    private readonly AccountCheckGate _gate;
 
     internal AccountSecurityService(
         DuoraDbContext db,
         UserManager<DuoraUser> users,
         TimeProvider time,
-        AccountLockOptions accountLock)
+        AccountLockOptions accountLock,
+        AccountCheckGate gate)
     {
+        _gate = gate;
         _db = db;
         _users = users;
         _audit = new AuditTrail(db, time);
@@ -208,9 +221,27 @@ public sealed class AccountSecurityService
     public async Task<AccountCheck> LockAccountAsync(DuoraUser user, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(user);
-        var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        await LockAndReloadAsync(user, cancellationToken);
-        return new AccountCheck(transaction);
+        var turn = await _gate.EnterAsync(user.Id, _lock.AccountLockTimeout, cancellationToken);
+        try
+        {
+            var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+            try
+            {
+                await LockAndReloadAsync(user, cancellationToken);
+            }
+            catch
+            {
+                await transaction.DisposeAsync();
+                throw;
+            }
+
+            return new AccountCheck(transaction, turn);
+        }
+        catch
+        {
+            await turn.DisposeAsync();
+            throw;
+        }
     }
 
     /// <summary>
@@ -222,6 +253,7 @@ public sealed class AccountSecurityService
         Guid sessionId,
         CancellationToken cancellationToken)
     {
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if (user.TwoFactorEnabled)
@@ -244,6 +276,7 @@ public sealed class AccountSecurityService
     /// </summary>
     public async Task<MfaActivation> ConfirmMfaEnrollmentAsync(Guid userId, string code, CancellationToken cancellationToken)
     {
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if (user.TwoFactorEnabled)
@@ -272,6 +305,7 @@ public sealed class AccountSecurityService
     /// <summary>Troca o conjunto inteiro: os códigos anteriores deixam de valer no mesmo commit.</summary>
     public async Task<RecoveryCodesRegeneration> RegenerateRecoveryCodesAsync(Guid userId, CancellationToken cancellationToken)
     {
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if (!user.TwoFactorEnabled)
@@ -287,6 +321,7 @@ public sealed class AccountSecurityService
 
     public async Task<MfaDeactivation> DisableMfaAsync(Guid userId, CancellationToken cancellationToken)
     {
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if ((await _users.GetRolesAsync(user)).Any(AccountRoles.IsPrivileged))
@@ -392,6 +427,7 @@ public sealed class AccountSecurityService
         string newPassword,
         CancellationToken cancellationToken)
     {
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if (await _users.IsLockedOutAsync(user))

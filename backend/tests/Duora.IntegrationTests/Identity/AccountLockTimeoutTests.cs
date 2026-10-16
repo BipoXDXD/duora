@@ -78,6 +78,66 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
             account.UserId));
     }
 
+    [Fact]
+    public async Task QueuedChecksOfTheSameAccountWaitWithoutHoldingDatabaseConnections()
+    {
+        // Sem a fila em memória, cada login esperando o lock segura uma conexão; 25 contas assim esgotam o
+        // max_connections do servidor (53300) e viram 500 (visto no CI do #43).
+        await using var factory = new DuoraWebFactory(_postgres.ConnectionString)
+        {
+            Time = _time,
+            Settings = new Dictionary<string, string?>
+            {
+                ["Identity:AccountLockTimeout"] = "00:00:02",
+                ["RateLimiting:LoginPerAccount:PermitLimit"] = "1000",
+                ["RateLimiting:LoginPerAccount:Window"] = "00:15:00",
+                ["RateLimiting:LoginPerIp:PermitLimit"] = "1000",
+                ["RateLimiting:LoginPerIp:Window"] = "00:01:00",
+            },
+        };
+        var account = await new IdentityScenario(_postgres, factory).CreateConfirmedAccountAsync();
+        var browsers = new List<Browser>();
+        for (var i = 0; i < 25; i++)
+        {
+            var browser = new Browser(factory);
+            await browser.FetchCsrfTokenAsync();
+            browsers.Add(browser);
+        }
+
+        await using var holder = await HoldAccountAsync(account.UserId);
+        var logins = browsers.Select(browser => IdentityScenario.LoginAsync(browser, account.Email, account.Password)).ToList();
+        var mostWaiting = 0L;
+        while (!logins.All(login => login.IsCompleted))
+        {
+            mostWaiting = Math.Max(mostWaiting, await CountConnectionsWaitingForTheAccountLockAsync());
+            await Task.Delay(TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
+        }
+
+        var responses = await Task.WhenAll(logins);
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode));
+        Assert.InRange(mostWaiting, 0, 1);
+        foreach (var response in responses)
+        {
+            response.Dispose();
+        }
+
+        browsers.ForEach(browser => browser.Dispose());
+    }
+
+    private async Task<long> CountConnectionsWaitingForTheAccountLockAsync()
+    {
+        await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            select count(*) from pg_stat_activity
+            where datname = current_database() and wait_event_type = 'Lock'
+              and query like '%from identity.users where id =%for no key update%'
+            """,
+            connection);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     private static async Task AssertTemporarilyUnavailableAsync(HttpResponseMessage response)
     {
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
