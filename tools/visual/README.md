@@ -16,7 +16,7 @@ de uso de cada asset: [docs/design/assets-licenses.md](../../docs/design/assets-
 | `palette.py` | OKLCH/OKLab, rampas de luminosidade e verificação de matiz (Python puro) |
 | `recolor.py` | Recoloração por pixel e alfa do chroma key (Python puro) |
 | `process.py` | Pipeline com Pillow: fonte PNG → WebP 1x/2x + manifesto TypeScript |
-| `requirements-visual.in/.txt` | Pillow fixado, lockfile com hashes |
+| `requirements.in` / `requirements.txt` | Pillow fixado, lockfile com hashes (o nome `requirements.txt` é o que o Trivy lê) |
 | `out/` | Fontes e intermediários; **fora do Git** (`.gitignore`) |
 
 ## 1. Gerar a fonte
@@ -46,7 +46,7 @@ A partir da raiz do repositório, com Python 3.12+:
 
 ```sh
 python3 -m venv tools/visual/out/venv           # out/ fica fora do Git
-tools/visual/out/venv/bin/pip install --require-hashes -r tools/visual/requirements-visual.txt
+tools/visual/out/venv/bin/pip install --require-hashes -r tools/visual/requirements.txt
 tools/visual/out/venv/bin/python tools/visual/process.py            # todos os objetos
 tools/visual/out/venv/bin/python tools/visual/process.py compass    # só os nomes indicados
 ```
