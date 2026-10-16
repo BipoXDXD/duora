@@ -60,7 +60,10 @@ public sealed class MediaStorageConfigurationTests : IDisposable
     [Fact]
     public void TheFileSystemStoreServesProductionFromAMountedDirectory()
     {
-        // Adendo do ADR-0010 (2026-10-16): fotos no disco da VPS, num diretório do host montado no container.
+        // Adendo do ADR-0010 (2026-10-16): fotos no disco da VPS, num diretório do host montado no container, com o
+        // marcador que o Ansible grava em cada área.
+        MarkAreas("quarantine", "derivatives");
+
         var store = Resolve("Production", new()
         {
             ["Media:Storage:Provider"] = "FileSystem",
@@ -84,6 +87,24 @@ public sealed class MediaStorageConfigurationTests : IDisposable
 
         Assert.Contains("FileSystemRoot", error.Message, StringComparison.Ordinal);
         Assert.False(Directory.Exists(missing));
+    }
+
+    [Theory]
+    [InlineData("quarantine")]
+    [InlineData("derivatives")]
+    public void TheFileSystemStoreRefusesAnAreaWithoutTheMountMarkerInProduction(string unmarkedArea)
+    {
+        // Raiz montada, mas uma área sem o marcador: aquela área é a camada efêmera do container (montagem faltando).
+        MarkAreas(FileSystemObjectStore.AreaDirectories.Where(area => area != unmarkedArea).ToArray());
+        Directory.CreateDirectory(Path.Combine(_root.FullName, unmarkedArea));
+
+        var error = Assert.Throws<OptionsValidationException>(() => Resolve("Production", new()
+        {
+            ["Media:Storage:Provider"] = "FileSystem",
+            ["Media:Storage:FileSystemRoot"] = _root.FullName,
+        }));
+
+        Assert.Contains(FileSystemObjectStore.AreaMarkerFileName, error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -152,6 +173,15 @@ public sealed class MediaStorageConfigurationTests : IDisposable
         Assert.DoesNotContain(options.SecretAccessKey, printed, StringComparison.Ordinal);
         Assert.DoesNotContain("synthetic-access", printed, StringComparison.Ordinal);
         Assert.Contains("duora-media", printed, StringComparison.Ordinal);
+    }
+
+    private void MarkAreas(params string[] areas)
+    {
+        foreach (var area in areas)
+        {
+            var directory = Directory.CreateDirectory(Path.Combine(_root.FullName, area));
+            File.WriteAllText(Path.Combine(directory.FullName, FileSystemObjectStore.AreaMarkerFileName), "");
+        }
     }
 
     private static Dictionary<string, string?> CompleteS3() => new()
