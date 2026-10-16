@@ -84,3 +84,42 @@ roda o ataque e a recuperação no CI.
 - Drill de restore no job `images` do CI: isolamento de rede, `repo-ls` e `repo-rm --recurse` do postgres funcionando
   (documenta o poder), restore por `--repo-target-time` depois da exclusão e `verify-repo` acusando lacuna de WAL.
 - Filtro de saída conferido pelo verify no host (`EgressFilterCheckTests`); prova no host real pendente (M3).
+
+## Adendo (2026-10-16): provedor Backblaze B2, região US East
+
+Decisão do responsável: o repositório fica num bucket **Backblaze B2 na região US East**, próprio do Duora (a conta
+B2 é compartilhada com outro projeto), criado com File Lock (o Object Lock do B2). A AWS foi descartada. A decisão
+acima não muda; o adendo fixa como ela fica no B2. Criação, chaves e validação:
+[backblaze-setup.md](../../operations/backblaze-setup.md).
+
+- **Sem política de bucket nem IAM.** O B2 restringe acesso só pela application key (bucket, prefixo de nome e
+  capacidades). A "negação no IAM" desta decisão vira: a chave `duora-backup`, a única na VPS, presa ao bucket e ao
+  prefixo `duora/`, com `listFiles`, `readFiles`, `writeFiles`, `readBuckets` e `readBucketRetentions`, **sem**
+  `deleteFiles` (apagar versão), sem capacidade de retenção, legal hold, bucket, chaves ou compartilhamento. Uma chave
+  só de leitura (`duora-backup-verify`) fica no cofre para conferência fora da VPS; a administrativa (com
+  `deleteFiles` e `writeBuckets`) nasce sob demanda com validade curta, porque application key no B2 não tem 2FA.
+- **Prova a cada verify.** Como a restrição mora toda na chave e nada a versiona como código, o `duora-backup verify`
+  chama o `b2_authorize_account` (API nativa v4) com a chave da VPS e falha fechado se ela tiver capacidade fora da
+  allowlist, faltar uma necessária, não estiver presa só a este bucket e ao prefixo `duora/`, ou se o endpoint gravado
+  não for o da conta. O resto do verify (versionamento `Enabled`, lock `COMPLIANCE` ≥ 21 dias) segue pela API S3.
+- **Bucket:** File Lock na criação, retenção padrão `compliance` de 21 dias, lifecycle `daysFromHidingToDeleting: 30`
+  nos prefixos `duora/` e `media/`, SSE-B2, privado. Todo bucket do B2 guarda versões.
+- **pgBackRest:** `repo1-s3-endpoint=s3.us-east-005.backblazeb2.com` (número provável; **confirmar no bucket**, fica em
+  `duora_b2_s3_endpoint`), `repo1-s3-region` = o segundo rótulo do endpoint, `repo1-s3-uri-style=host`, nome de bucket
+  sem ponto. O arquivo é gravado por `duora-secrets write-backup-repo`, com a chave lida do stdin.
+- **Filtro de saída:** os blocos IPv4 que a Backblaze publica (central de ajuda), conferidos contra o DNS na VPS. Eles
+  liberam a Backblaze inteira, não só o nosso bucket; a contenção contra exfiltração continua sendo a cifra no cliente.
+- **Limites novos em relação à AWS:** a chave do B2 não pode ser presa ao IP da VPS (vazada, funciona de qualquer
+  lugar até ser apagada) e não há política de bucket que repita as negações para toda chave da conta: uma chave do
+  outro projeto sem restrição de bucket e com `deleteFiles` apagaria versões do Duora fora do lock. O runbook manda
+  conferir as chaves da conta (passo 2).
+- **Custo:** armazenamento de poucos dólares por TB-mês e download gratuito até 3× o volume armazenado; o verify
+  semanal completo fica perto dessa franquia no exemplo de dimensionamento
+  ([backblaze-setup.md](../../operations/backblaze-setup.md#custo-esperado)).
+- **Jurisdição:** a região fica nos EUA. O backup sai cifrado no cliente, mas a transferência internacional (LGPD)
+  precisa ser registrada no mapa de dados com a salvaguarda escolhida; pendência de privacidade.
+
+Compliance acrescentado: `B2KeyProblemsTests` e `B2BucketProtectionActionTests` (respostas no formato do B2:
+capacidade proibida, chave sem restrição de bucket ou prefixo, região errada, 401, bucket sem File Lock, modo
+`GOVERNANCE`) e `B2RepositoryPrefixTests` (o prefixo da chave é o `repo1-path` da imagem). A prova contra a conta real
+(canário recusado sem `deleteFiles` e pelo lock) está no passo 6 do runbook e fica com o responsável.

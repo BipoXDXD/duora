@@ -11,6 +11,7 @@ deploy, manifesto e runbooks: [docs/operations/deploy.md](../docs/operations/dep
 | `images/edge/Dockerfile` | Caddy com a SPA e o Caddyfile embutidos |
 | `images/postgres/` | PostgreSQL 18.6 + pgBackRest 2.59.3, configuração de WAL e do pgBackRest (lado postgres e lado repositório) e os scripts da 1a inicialização |
 | `caddy/Caddyfile` | Borda: TLS, SPA, `/api`, `/hubs`, cabeçalhos de segurança e logs |
+| `../docs/operations/backblaze-setup.md` | Bucket de backup e application keys no Backblaze B2, criados pelo responsável com o CLI `b2` (sem OpenTofu por enquanto, como o resto da infraestrutura) |
 | `ansible/` | Configuração do host (roles `base`, `ssh`, `firewall`, `docker`, `app_dirs`, `backup`) |
 | `../scripts/deploy/` | `duora-deploy`, `duora-secrets`, `duora-backup` e o smoke local (Python 3.12, só biblioteca padrão) |
 | `../scripts/backup/` | Drill de restore PITR com MinIO de teste ([backup-restore.md](../docs/operations/backup-restore.md)) |
