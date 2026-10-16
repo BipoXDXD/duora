@@ -4,7 +4,7 @@ Etapas por objeto: chroma key com despill, enquadramento quadrado com margem, re
 `cssPx` do uso, recoloração para os tokens, verificação de matiz sobre o WebP já decodificado e gravação.
 O manifesto TypeScript do frontend é gerado do catálogo, para os nomes do componente não divergirem dele.
 
-Uso (a partir da raiz do repositório, com o venv de requirements-visual.txt):
+Uso (a partir da raiz do repositório, com o venv de tools/visual/requirements.txt):
     python tools/visual/process.py            # todos os objetos do catálogo
     python tools/visual/process.py compass    # só os nomes indicados
 """
