@@ -87,6 +87,7 @@ internal static class DuoraWebApp
         api.MapProfileEndpoints();
         api.MapBlockEndpoints();
         api.MapMfaEndpoints();
+        api.MapReauthenticationEndpoints();
 
         return app;
     }
