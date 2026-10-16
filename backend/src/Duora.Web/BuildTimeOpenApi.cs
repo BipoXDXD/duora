@@ -15,9 +15,20 @@ internal static class BuildTimeOpenApi
     // Registrar os mesmos serviços de produção mantém o documento igual ao que a app expõe em runtime.
     private const string PlaceholderConnectionString = "Host=build-time-openapi.invalid";
 
+    /// <summary>
+    /// Ambiente próprio da geração: sem ele o host sobe como Production, que recusa os atalhos abaixo (key ring sem
+    /// volume). Não é Development, para não ler appsettings.Development.json nem user-secrets da máquina de build.
+    /// </summary>
+    public const string EnvironmentName = "BuildTimeOpenApi";
+
+    private static bool IsGenerating => Assembly.GetEntryAssembly()?.GetName().Name == GeneratorAssemblyName;
+
+    public static WebApplicationOptions BuilderOptions(string[] args) =>
+        IsGenerating ? new WebApplicationOptions { Args = args, EnvironmentName = EnvironmentName } : new() { Args = args };
+
     public static void UsePlaceholderConfigurationWhenGenerating(ConfigurationManager configuration)
     {
-        if (Assembly.GetEntryAssembly()?.GetName().Name != GeneratorAssemblyName)
+        if (!IsGenerating)
         {
             return;
         }
