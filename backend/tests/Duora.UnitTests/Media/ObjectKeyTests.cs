@@ -48,6 +48,8 @@ public sealed class ObjectKeyTests
     [InlineData("quarantine/abc/def")]
     [InlineData("quarantine/foto.jpg")]
     [InlineData("quarantine\\abc")]
+    [InlineData("quarantine/0123456789abcdef0123456789abcdef\n")]
+    [InlineData("derivatives/0123456789abcdef0123456789abcdef-card\n")]
     public void AnythingElseIsNotAKey(string stored)
     {
         Assert.Throws<FormatException>(() => ObjectKey.Parse(stored));
