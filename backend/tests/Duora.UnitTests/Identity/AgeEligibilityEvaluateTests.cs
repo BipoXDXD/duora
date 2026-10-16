@@ -69,7 +69,7 @@ public sealed class AgeEligibilityEvaluateTests
     [Fact]
     public void OpenRequestWithoutTheProviderFlowWaitsForTheProvider()
     {
-        var latest = new AgeVerificationSnapshot(AgeVerificationState.Pending, Now.AddMinutes(-1), ProviderFlowReady: false);
+        var latest = new AgeVerificationSnapshot(AgeVerificationState.Pending, Now.AddMinutes(-1), ProviderFlowReady: false, MinorSuspected: false);
 
         var eligibility = AgeEligibility.Evaluate(AccountStatus.PendingEligibility, latest, Now, Policy);
 
@@ -80,7 +80,7 @@ public sealed class AgeEligibilityEvaluateTests
     [Fact]
     public void OpenRequestWithTheProviderFlowContinuesThere()
     {
-        var latest = new AgeVerificationSnapshot(AgeVerificationState.Pending, Now.AddMinutes(-1), ProviderFlowReady: true);
+        var latest = new AgeVerificationSnapshot(AgeVerificationState.Pending, Now.AddMinutes(-1), ProviderFlowReady: true, MinorSuspected: false);
 
         var eligibility = AgeEligibility.Evaluate(AccountStatus.PendingEligibility, latest, Now, Policy);
 
@@ -90,7 +90,7 @@ public sealed class AgeEligibilityEvaluateTests
     [Fact]
     public void RequestAbandonedForTheWholeLifetimeCanBeStartedAgain()
     {
-        var latest = new AgeVerificationSnapshot(AgeVerificationState.Pending, Now.AddHours(-24), ProviderFlowReady: true);
+        var latest = new AgeVerificationSnapshot(AgeVerificationState.Pending, Now.AddHours(-24), ProviderFlowReady: true, MinorSuspected: false);
 
         var eligibility = AgeEligibility.Evaluate(AccountStatus.PendingEligibility, latest, Now, Policy);
 
@@ -101,7 +101,7 @@ public sealed class AgeEligibilityEvaluateTests
     [Fact]
     public void RequestOneTickYoungerThanTheLifetimeIsStillOpen()
     {
-        var latest = new AgeVerificationSnapshot(AgeVerificationState.Pending, Now.AddHours(-24).AddTicks(1), ProviderFlowReady: false);
+        var latest = new AgeVerificationSnapshot(AgeVerificationState.Pending, Now.AddHours(-24).AddTicks(1), ProviderFlowReady: false, MinorSuspected: false);
 
         Assert.Equal(
             AgeVerificationNextStep.WaitForProvider,
@@ -111,7 +111,7 @@ public sealed class AgeEligibilityEvaluateTests
     [Fact]
     public void ManualReviewWaitsForTheReviewAndNeverExpiresIntoANewRequest()
     {
-        var latest = new AgeVerificationSnapshot(AgeVerificationState.ManualReview, Now.AddDays(-30), ProviderFlowReady: true);
+        var latest = new AgeVerificationSnapshot(AgeVerificationState.ManualReview, Now.AddDays(-30), ProviderFlowReady: true, MinorSuspected: false);
 
         var eligibility = AgeEligibility.Evaluate(AccountStatus.PendingEligibility, latest, Now, Policy);
 
@@ -122,7 +122,7 @@ public sealed class AgeEligibilityEvaluateTests
     [Fact]
     public void ExpiredRequestCanBeStartedAgain()
     {
-        var latest = new AgeVerificationSnapshot(AgeVerificationState.Expired, Now.AddDays(-2), ProviderFlowReady: true);
+        var latest = new AgeVerificationSnapshot(AgeVerificationState.Expired, Now.AddDays(-2), ProviderFlowReady: true, MinorSuspected: false);
 
         Assert.Equal(
             AgeVerificationNextStep.StartVerification,
@@ -145,7 +145,7 @@ public sealed class AgeEligibilityEvaluateTests
     [Fact]
     public void RejectedRequestOffersNoNewRequest()
     {
-        var latest = new AgeVerificationSnapshot(AgeVerificationState.Rejected, Now.AddDays(-1), ProviderFlowReady: true);
+        var latest = new AgeVerificationSnapshot(AgeVerificationState.Rejected, Now.AddDays(-1), ProviderFlowReady: true, MinorSuspected: false);
 
         var eligibility = AgeEligibility.Evaluate(AccountStatus.PendingEligibility, latest, Now, Policy);
 
@@ -178,5 +178,5 @@ public sealed class AgeEligibilityEvaluateTests
     }
 
     private static AgeVerificationSnapshot Verified(DateTimeOffset requestedAt) =>
-        new(AgeVerificationState.VerifiedAdult, requestedAt, ProviderFlowReady: true);
+        new(AgeVerificationState.VerifiedAdult, requestedAt, ProviderFlowReady: true, MinorSuspected: false);
 }
