@@ -8,8 +8,8 @@
 3. Roda o duora-deploy de verdade (pull por digest, migrator, up, readiness), com Caddy em "tls internal".
 4. Confere pela borda HTTPS: SPA, cache, CSP, 404 de assets, fallback só para navegação, /api e /hubs (upgrade
    WebSocket) chegando ao web, /health fechado, logs sem query/cookie, e o endurecimento dos containers.
-5. Recria o container web e confere que um token antiforgery emitido antes continua válido: o key ring do Data
-   Protection mora no volume, não na camada do container (T-15).
+5. Confere que o key ring no volume está cifrado com o certificado, recria o container web e confere que um token
+   antiforgery emitido antes continua válido: o key ring mora no volume, não na camada do container (T-15).
 6. Derruba tudo com "down -v" e remove o registry (a menos que --keep).
 
 Usa as portas 80 e 443 do host. Só biblioteca padrão; os segredos gerados nunca saem do diretório temporário.
@@ -280,6 +280,9 @@ def check_key_ring_survives_recreation(compose: list[str], context: ssl.SSLConte
     """
     cookies, token = csrf_pair(context)
     checks.expect(login_status(context, cookies, token) == 401, "token antiforgery válido antes de recriar o web (401)")
+    keys = key_ring_files(compose)
+    checks.expect("EncryptedData" in keys and "<value>" not in keys,
+                  "key ring no volume cifrado com o certificado (spec 11.2), sem chave em claro")
     checks.expect(login_status(context, cookies, "CfDJ8-forjado") == 403, "token antiforgery forjado = 403")
 
     before = run(compose + ["ps", "--quiet", "web"]).strip()
@@ -291,6 +294,15 @@ def check_key_ring_survives_recreation(compose: list[str], context: ssl.SSLConte
 
     status = login_status(context, cookies, token)
     checks.expect(status == 401, f"token emitido antes da recriação continua válido: key ring no volume (status {status})")
+
+
+def key_ring_files(compose: list[str]) -> str:
+    """Conteúdo das chaves no volume, lido por um container descartável: a imagem do web não tem shell."""
+    postgres = run(compose + ["ps", "--quiet", "postgres"]).strip()
+    image = json.loads(run(["docker", "inspect", postgres]))[0]["Config"]["Image"]
+    return run(["docker", "run", "--rm", "--user", "1654:1654", "--network", "none",
+                "--volume", "duora_dataprotection:/keys:ro", "--entrypoint", "sh", image,
+                "-c", "cat /keys/key-*.xml"])
 
 
 def csrf_pair(context: ssl.SSLContext) -> tuple[str, str]:
