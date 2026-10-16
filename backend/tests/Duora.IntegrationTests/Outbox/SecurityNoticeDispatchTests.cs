@@ -53,7 +53,7 @@ public sealed class SecurityNoticeDispatchTests(PostgresFixture postgres)
 
         await dispatcher.DispatchBatchAsync(Ct);
 
-        // Decisão M5: quem recebe pode não ser quem fez a mudança, então o idioma da requisição não decide o aviso.
+        // Quem recebe pode não ser quem fez a mudança, então o idioma da requisição não decide o aviso.
         var mail = await File.ReadAllTextAsync(Assert.Single(harness.MailFiles()), Ct);
         Assert.Contains("Subject: Senha alterada no Duora / Duora password changed\n", mail, StringComparison.Ordinal);
         Assert.Contains("A senha da sua conta do Duora foi alterada em 2030-01-02 03:04 UTC.", mail, StringComparison.Ordinal);

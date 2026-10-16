@@ -109,14 +109,13 @@ public sealed partial class TransactionalEmailDispatcher
             (AccountEmailKind.PendingRegistrationReminder, _) => _emails.PendingRegistrationReminder(to, language),
             (AccountEmailKind.PasswordResetForUnknownAddress, _) => _emails.PasswordResetForUnknownAddress(to, language),
             // Aviso nunca leva credencial: com token, o payload é defeito de quem gravou e não sai. O aviso é
-            // bilíngue, então o idioma do pedido não conta (M5).
+            // bilíngue, então o idioma do pedido não conta.
             (_, null) when AccountEmailOutbox.SecurityChangeOf(message.Kind) is { } change =>
                 _emails.SecurityNotice(to, change, delivery.OccurredAt),
             _ => null,
         };
         return email is not null;
     }
-
 
     private async Task SendWithTimeoutAsync(
         TransactionalEmail email,
