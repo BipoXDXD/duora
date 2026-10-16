@@ -28,6 +28,7 @@ internal static class AppRoleTableAccess
         new Dictionary<string, AppTableAccess>(StringComparer.Ordinal)
         {
             // identity (dono: Identity)
+            ["identity.age_verifications"] = AppTableAccess.ReadWrite,
             ["identity.consent_records"] = AppTableAccess.ReadWrite,
             ["identity.login_sessions"] = AppTableAccess.ReadWrite,
             ["identity.role_claims"] = AppTableAccess.ReadWrite,
@@ -40,6 +41,7 @@ internal static class AppRoleTableAccess
 
             // ops (dono: Operations; outbox de propriedade comum, modules.md nota 4)
             ["ops.__ef_migrations_history"] = AppTableAccess.None,
+            ["ops.audit_events"] = AppTableAccess.AppendOnly,
             ["ops.outbox_deliveries"] = AppTableAccess.ReadWrite,
             ["ops.outbox_events"] = AppTableAccess.ReadWrite,
         };

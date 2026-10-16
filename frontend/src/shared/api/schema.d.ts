@@ -558,10 +558,140 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/age-verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StartAgeVerificationRequest"];
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgeVerificationResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/age-verifications/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgeVerificationResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description Estado mínimo da verificação etária (API-P06). `State`: NotStarted | Pending | VerifiedAdult | Rejected |
+         *     Expired | ManualReview. `NextStep`: None | StartVerification | WaitForProvider | ContinueWithProvider |
+         *     WaitForReview | NotAvailable. `ContinueUrl` só vem com ContinueWithProvider: o fluxo do fornecedor, de uma
+         *     origem na allowlist. Nenhuma inferência do fornecedor (TM-38).
+         */
+        AgeVerificationResponse: {
+            state: string;
+            nextStep: string;
+            continueUrl: null | string;
+        };
         ConfirmEmailRequest: {
             /** Format: uuid */
             userId: null | string;
@@ -632,6 +762,11 @@ export interface components {
             current: boolean;
             description: string;
         };
+        /**
+         * @description Corpo de API-P05: vazio de propósito. O resultado etário nunca vem do navegador (spec 12.2, TM-35); qualquer
+         *     campo, inclusive `isAdult`, é recusado com 400.
+         */
+        StartAgeVerificationRequest: Record<string, never>;
     };
     responses: never;
     parameters: never;

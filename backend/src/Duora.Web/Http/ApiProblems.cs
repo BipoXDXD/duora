@@ -9,6 +9,8 @@ namespace Duora.Web.Http;
 /// </summary>
 internal static class ApiProblems
 {
+    public const string AgeVerificationNotAvailable = "AGE_VERIFICATION_NOT_AVAILABLE";
+    public const string AgeVerificationUnavailable = "AGE_VERIFICATION_UNAVAILABLE";
     public const string CsrfValidationFailed = "CSRF_VALIDATION_FAILED";
     public const string InvalidCredentials = "INVALID_CREDENTIALS";
     public const string InvalidToken = "INVALID_TOKEN";

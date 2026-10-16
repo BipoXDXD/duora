@@ -51,6 +51,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                 newPassword = "uma frase nova e longa",
             },
             ["DELETE /api/v1/me/sessions/{sessionId:guid}"] = null,
+            ["POST /api/v1/me/age-verifications"] = new { },
         };
         string[] emails = [account.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
@@ -83,7 +84,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             .Where(route => route.Method is not ("GET" or "HEAD" or "OPTIONS")),
     ];
 
-    /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails e sessões ativas.</summary>
+    /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails, sessões ativas e verificações etárias.</summary>
     private async Task<string> SnapshotAsync(string[] emails)
     {
         await using var connection = new NpgsqlConnection(postgres.ConnectionString);
@@ -97,7 +98,9 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                    from identity.users where email = any($1)),
                 (select count(*) from ops.outbox_events where payload->>'to' = any($1)),
                 (select count(*) from identity.login_sessions s join identity.users u on u.id = s.user_id
-                   where u.email = any($1) and s.revoked_at is null))
+                   where u.email = any($1) and s.revoked_at is null),
+                (select count(*) from identity.age_verifications v join identity.users u on u.id = v.user_id
+                   where u.email = any($1)))
             """,
             connection);
         command.Parameters.AddWithValue(emails);

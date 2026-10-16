@@ -20,6 +20,10 @@ internal sealed record AuditAction
 {
     public static readonly AuditAction SafetyBlockCreated = new("safety.block_created");
 
+    public static readonly AuditAction AgeVerificationRequested = new("identity.age_verification_requested");
+
+    public static readonly AuditAction AgeVerificationExpired = new("identity.age_verification_expired");
+
     private AuditAction(string code) => Code = code;
 
     public string Code { get; }
