@@ -66,3 +66,14 @@ autoaprovar. Remover o label volta a reprovar.
 - Mudança de semântica sem mudança de schema (um campo que passa a significar outra coisa). Isso é revisão.
 - Compatibilidade entre releases implantadas lado a lado: fica com o manifesto da release (spec 17.2).
 - Os tipos gerados não validam respostas em runtime (D-API-03); o cliente HTTP continua tratando o inesperado.
+
+## Códigos de problema fora do OpenAPI
+
+O documento gerado lista os status de cada rota, não o valor de `code` no corpo (`application/problem+json`). Os
+códigos novos entram aqui e no contrato de rotas do [auth.md](../security/auth.md#contrato-de-rotas-api-a01-a16),
+para a SPA tratá-los:
+
+| Código | Status | Onde | Significado |
+|---|---|---|---|
+| `PASSWORD_CHANGE_REQUIRED` | `403` | toda rota com sessão, menos A16 | A conta entrou com a senha temporária do bootstrap administrativo e só pode trocá-la ([auth.md](../security/auth.md#bootstrap-administrativo-d4)) |
+| `SAME_AS_TEMPORARY_PASSWORD` | `400` (`VALIDATION_FAILED`, em `errors.newPassword`) | A16 | A senha nova repete a temporária |
