@@ -6,7 +6,7 @@ namespace Duora.UnitTests.Notifications;
 
 /// <summary>
 /// Avisos de mudança de credencial ao titular (TM-21): texto fixo, sem dado da requisição além do instante em UTC,
-/// com link para a área de sessões, em pt-BR e depois em en no mesmo e-mail (decisão M5 da revisão).
+/// com link para a área de sessões, em pt-BR e depois em en no mesmo e-mail.
 /// </summary>
 public sealed class SecurityNoticeEmailsTests
 {
