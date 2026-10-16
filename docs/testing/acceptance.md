@@ -67,7 +67,7 @@ Não são cenários T-NN da spec, mas entram no aceite do marco indicado.
 | Origem | Verificação | Camada | Marco | Status |
 |---|---|---|---|---|
 | [ADR-0016](../architecture/adr/0016-sala-e-sessao-de-jogo.md) | Rotas `/rooms/{roomId}` resolvem a `game_session` pelo mesmo ID; decisão única por `(game_session_id, user_id)` (coberto junto com T-02, T-04, T-05 e T-09) | Integração, HTTP | M2 | não implementado |
-| [ADR-0017](../architecture/adr/0017-mfa-por-papel.md) | Moderador/administrador sem MFA confirmado é negado em `/admin/*`; API-A15 não remove o único método de conta privilegiada; participante ativa e desativa TOTP | HTTP | M1 | não implementado (em PR aberto: #38, ainda fora da `main`) |
+| [ADR-0017](../architecture/adr/0017-mfa-por-papel.md) | Moderador/administrador sem MFA confirmado é negado em `/admin/*`; API-A15 não remove o único método de conta privilegiada; participante ativa e desativa TOTP | HTTP | M1 | implementado (`AdminRouteTests`, `AdminMfaTests.APrivilegedAccountCannotDisableItsMfa`, `MfaLoginTests.AParticipantCanDisableMfaAndLogInWithThePasswordAgain`; feat/m1-admin-mfa) |
 | [ADR-0018](../architecture/adr/0018-contrato-openapi-code-first.md) | OpenAPI versionado igual ao gerado; `oasdiff breaking` sem aprovação falha; tipos do frontend sem diff após regenerar | CI | M0/M1 | parcial: o job `contract` (`.github/workflows/ci.yml`) regenera o OpenAPI e os tipos e falha se divergirem do commit; passou na `main` em `cc92912` (run 38837068022). O `oasdiff breaking` só roda em PR e nenhum teste o força a falhar sem o label `breaking-change-approved` |
 
 ## Evidência por release
