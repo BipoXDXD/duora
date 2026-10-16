@@ -71,6 +71,30 @@ public sealed class PhotoUploadTests : IAsyncDisposable
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
     }
 
+    [Theory]
+    [InlineData("Quarantined", null)]
+    [InlineData("Processing", null)]
+    [InlineData("Approved", null)]
+    [InlineData("Rejected", "ANIMATED")]
+    [InlineData("Deleted", null)]
+    public async Task TheStatusIsExactlyTheStoredState(string state, string? rejectionCode)
+    {
+        var account = await NewAccountAsync();
+        using var browser = await SignInAsync(account);
+        var photoId = await UploadAndReadIdAsync(browser);
+        await _media.ExecuteAsync(
+            "update media.uploads set state = $2, rejection_code = $3 where id = $1",
+            photoId,
+            state,
+            (object?)rejectionCode ?? DBNull.Value);
+
+        using var response = await browser.GetAsync($"/api/v1/me/photos/{photoId}/status");
+
+        var body = await MediaScenario.ReadObjectAsync(response);
+        Assert.Equal(state, (string?)body["status"]);
+        Assert.Equal(rejectionCode, (string?)body["rejectionCode"]);
+    }
+
     [Fact]
     public async Task SomeoneElsesPhotoAndAMissingPhotoAnswerTheSame404()
     {

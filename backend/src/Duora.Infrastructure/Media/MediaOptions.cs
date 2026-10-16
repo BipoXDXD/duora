@@ -18,6 +18,14 @@ internal sealed class MediaOptions
     /// <summary>Tempo máximo para receber o corpo de um upload (spec 16.1: limitar tamanho e tempo).</summary>
     public TimeSpan UploadTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>
+    /// Taxa mínima de recepção do corpo do upload, aplicada na rota (Kestrel corta quem fica abaixo depois do período
+    /// de tolerância). Contra cliente lento segurando conexão e reserva (spec 16.1).
+    /// </summary>
+    public double MinUploadBytesPerSecond { get; set; } = 1024;
+
+    public TimeSpan MinUploadRateGracePeriod { get; set; } = TimeSpan.FromSeconds(5);
+
     public bool UploadsEnabled => Review is not null;
 
     /// <summary>

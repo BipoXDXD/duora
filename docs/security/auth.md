@@ -305,10 +305,12 @@ remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests`,
 | Reautenticação e MFA (A11 a A15), troca de senha (A16) | Conta (um contador para as seis rotas, `RateLimiting:AccountSecurityPerAccount`; abrir outra sessão não renova) | 10 / hora | `429` + `Retry-After` |
 | Revogar sessão (A10) | Sessão | 30 / hora | `429` + `Retry-After` |
 | Bloquear (API-S01) | Conta (id da sessão; vale para todas as sessões e IPs da conta) | 30 / hora (`RateLimiting:BlockPerAccount`, decisão G6) | `429` + `Retry-After` |
+| Enviar foto (API-M01) | Conta e IP, cada um com o seu limite | 20 / hora em cada um (`RateLimiting:PhotoUploadPerAccount` e `PhotoUploadPerIp`, **hipótese**, ADR-0025) | `429` + `Retry-After`, antes de ler o corpo |
 
 O limite do bloqueio fica no handler, depois da autenticação (o middleware de rate limit roda antes dela e não
 conhece a conta), e também é em memória: nenhuma quota crítica depende dele (spec 11.5). Testes:
-`BlockRateLimitTests`.
+`BlockRateLimitTests`. O do envio de foto segue o mesmo modelo, no handler e antes de ler o corpo; a trava que
+sobrevive ao restart é o teto de pendentes no banco. Testes: `PhotoUploadRateLimitTests`.
 
 Valores calibrados pelo uso real e versionados; nunca bloquear permanentemente uma conta por falhas de terceiros
 (TM-09). Trade-off aceito ([ADR-0019](../architecture/adr/0019-implementacao-identidade-sessao-outbox.md)):

@@ -1,8 +1,11 @@
+using Duora.Core.Identity;
 using Duora.Core.Media;
+using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 namespace Duora.Infrastructure.Media;
 
@@ -24,6 +27,9 @@ public abstract record PhotoUploadResult
     /// <summary>A conta da sessão não existe mais.</summary>
     public sealed record OwnerMissing : PhotoUploadResult;
 
+    /// <summary>A conta mudou de situação depois da checagem da borda (relida sob a guarda).</summary>
+    public sealed record AccountRestricted : PhotoUploadResult;
+
     /// <summary>O corpo chegou curto, longo, tarde demais ou a conexão caiu.</summary>
     public sealed record BodyIncomplete : PhotoUploadResult;
 
@@ -41,6 +47,8 @@ public sealed record PhotoStatus(Guid PhotoId, UploadState State, string? Reject
 /// </summary>
 public sealed partial class PhotoUploads
 {
+    private static readonly TimeSpan CompensationTimeout = TimeSpan.FromSeconds(5);
+
     private readonly DuoraDbContext _db;
     private readonly IObjectStore _store;
     private readonly TimeProvider _time;
@@ -63,6 +71,10 @@ public sealed partial class PhotoUploads
 
     /// <summary>Falso sem <c>Media:Review</c>: a API responde 503 e nada é gravado (ADR-0025).</summary>
     public bool UploadsEnabled => Options.UploadsEnabled;
+
+    public double MinUploadBytesPerSecond => Options.MinUploadBytesPerSecond;
+
+    public TimeSpan MinUploadRateGracePeriod => Options.MinUploadRateGracePeriod;
 
     private MediaOptions Options => _options.Value;
 
@@ -90,15 +102,24 @@ public sealed partial class PhotoUploads
         var now = _time.GetUtcNow();
         var abandonedBefore = now - Options.AbandonedReservationAfter;
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-
-        // FOR NO KEY UPDATE: dois uploads da mesma conta esperam um pelo outro aqui, então a contagem abaixo sempre vê
-        // a reserva do anterior (sem write skew). Não bloqueia as checagens de FK, que tomam FOR KEY SHARE.
-        var owner = await _db.Database
-            .SqlQuery<Guid>($"select id as \"Value\" from identity.users where id = {command.OwnerId} for no key update")
-            .ToListAsync(cancellationToken);
-        if (owner.Count == 0)
+        if (!await LockGuardAsync(command.OwnerId, cancellationToken))
         {
             return new Reservation.Refused(new PhotoUploadResult.OwnerMissing());
+        }
+
+        // Relida sob a guarda: uma restrição aplicada entre a checagem da borda e aqui vale para este envio.
+        var status = await _db.Set<DuoraUser>()
+            .Where(user => user.Id == command.OwnerId)
+            .Select(user => (AccountStatus?)user.Status)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (status is not { } current)
+        {
+            return new Reservation.Refused(new PhotoUploadResult.OwnerMissing());
+        }
+
+        if (!PhotoUploadPolicy.Allows(current))
+        {
+            return new Reservation.Refused(new PhotoUploadResult.AccountRestricted());
         }
 
         var uploads = _db.Set<Upload>();
@@ -148,6 +169,30 @@ public sealed partial class PhotoUploads
         return new Reservation.Reserved(reserved);
     }
 
+    /// <summary>
+    /// Guarda do Media por dono (ADR-0025, concurrency.md): cria a linha se faltar e a trava com <c>FOR UPDATE</c>.
+    /// Dois envios da mesma conta esperam um pelo outro aqui, então a contagem do teto sempre vê a reserva do anterior
+    /// (sem write skew), sem travar tabela de outro módulo. Conta inexistente é a FK recusando o insert (23503).
+    /// </summary>
+    private async Task<bool> LockGuardAsync(Guid ownerId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _db.Database.ExecuteSqlAsync(
+                $"insert into media.upload_guards (owner_id) values ({ownerId}) on conflict do nothing",
+                cancellationToken);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+        {
+            return false;
+        }
+
+        var locked = await _db.Database
+            .SqlQuery<Guid>($"select owner_id as \"Value\" from media.upload_guards where owner_id = {ownerId} for update")
+            .ToListAsync(cancellationToken);
+        return locked.Count == 1;
+    }
+
     private async Task<PhotoUploadResult> StoreAsync(
         Upload upload,
         PhotoUploadCommand command,
@@ -165,7 +210,9 @@ public sealed partial class PhotoUploads
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // Compensação (spec 16.2): a reserva e o objeto parcial saem; o erro não some, vira o resultado e o log.
-            var clientFailed = counted.ClientFailed || linked.IsCancellationRequested;
+            var clientFailed = counted.ClientFailed
+                || linked.IsCancellationRequested
+                || (IsTimeout(exception) && !counted.IsComplete);
             LogStreamingFailed(_logger, upload.Id, clientFailed, exception.GetType().Name);
             await DiscardReservationAsync(upload, key);
             return clientFailed ? new PhotoUploadResult.BodyIncomplete() : new PhotoUploadResult.StorageFailed();
@@ -235,6 +282,22 @@ public sealed partial class PhotoUploads
             : new PhotoUploadResult.KeyReused();
     }
 
+    /// <summary>
+    /// Timeout do SDK enquanto o corpo ainda não chegou inteiro: quem estava lento era o cliente, não o storage.
+    /// </summary>
+    private static bool IsTimeout(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is TimeoutException or OperationCanceledException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private async Task DiscardReservationAsync(Upload upload, ObjectKey key)
     {
         await _db.Set<Upload>()
@@ -249,9 +312,11 @@ public sealed partial class PhotoUploads
     /// </summary>
     private async Task DeleteQuietlyAsync(ObjectKey key, Guid uploadId)
     {
+        // Timeout curto: a compensação não pode prender a resposta (nem o Worker) num storage travado.
+        using var timeout = new CancellationTokenSource(CompensationTimeout, _time);
         try
         {
-            await _store.DeleteAsync(key, CancellationToken.None);
+            await _store.DeleteAsync(key, timeout.Token);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
