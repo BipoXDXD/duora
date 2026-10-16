@@ -16,12 +16,17 @@ public sealed class KeyRingCertificateTests : IDisposable
 
     private static readonly TimeSpan DefaultKeyLifetime = TimeSpan.FromDays(90);
 
+    private readonly PostgresFixture _postgres;
     private readonly KeyRingHosts _hosts;
     private readonly DirectoryInfo _volume = Directory.CreateTempSubdirectory("duora-keys-volume-");
     private readonly TestCertificate _first = TestCertificates.Create("duora-key-ring-1");
     private readonly TestCertificate _second = TestCertificates.Create("duora-key-ring-2");
 
-    public KeyRingCertificateTests(PostgresFixture postgres) => _hosts = new KeyRingHosts(postgres);
+    public KeyRingCertificateTests(PostgresFixture postgres)
+    {
+        _postgres = postgres;
+        _hosts = new KeyRingHosts(postgres);
+    }
 
     public void Dispose() => _volume.Delete(recursive: true);
 
@@ -95,6 +100,37 @@ public sealed class KeyRingCertificateTests : IDisposable
         var newKey = File.ReadAllText(Assert.Single(_volume.GetFiles("key-*.xml"), file => file.Name != firstKey).FullName);
         Assert.Contains(_second.RawBase64, newKey, StringComparison.Ordinal);
         Assert.DoesNotContain(_first.RawBase64, newKey, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Retirada antes da hora (docs/operations/deploy.md): sem o certificado que cifrou a chave, a sessão e os links
+    /// emitidos com ela falham de forma limpa, 401 e 400, nunca 500.
+    /// </summary>
+    [Fact]
+    public async Task RetiringThePreviousCertificateTooEarlyEndsSessionsAndLinksCleanly()
+    {
+        var email = IdentityScenario.NewEmail();
+        string cookie;
+        AccountLink link;
+        await using (var before = _hosts.HostOn(_volume, With(_first)))
+        {
+            cookie = await _hosts.SignInAsync(before);
+            using var registering = new Browser(before);
+            using var registered = await IdentityScenario.RegisterAsync(registering, email);
+            Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
+            link = await new IdentityScenario(_postgres, before).ReadLatestLinkAsync(email, "EmailConfirmation");
+        }
+
+        await using var retired = _hosts.HostOn(_volume, With(_second));
+        using var session = await GetMeAsync(retired, cookie);
+        using var confirming = new Browser(retired);
+        await confirming.FetchCsrfTokenAsync();
+        using var confirmation = await confirming.PostJsonAsync(
+            "/api/v1/auth/confirm-email",
+            new { userId = link.UserId, token = link.Token, password = IdentityScenario.ValidPassword });
+
+        await ProblemAssert.IsProblemAsync(session, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
+        await ProblemAssert.IsProblemAsync(confirmation, HttpStatusCode.BadRequest, "INVALID_TOKEN");
     }
 
     [Fact]
