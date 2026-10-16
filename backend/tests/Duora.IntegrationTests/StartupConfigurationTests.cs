@@ -1,6 +1,7 @@
 using Duora.Web;
 using Duora.Web.Identity;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Duora.IntegrationTests;
@@ -150,15 +151,63 @@ public sealed class StartupConfigurationTests
         Assert.Contains("DataProtection:Certificate", exception.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task ProductionRefusesToTurnOffTheCertificateRequirement()
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    [InlineData("Homologacao")]
+    public async Task OnlyDevelopmentTestsAndBuildMayTurnOffTheCertificateRequirement(string environment)
     {
-        await using var app = BuildWeb("--environment=Production", "--DataProtection:RequireCertificate=false");
+        await using var app = BuildWeb($"--environment={environment}", "--DataProtection:RequireCertificate=false");
 
         var exception = await Assert.ThrowsAsync<OptionsValidationException>(
             () => app.StartAsync(TestContext.Current.CancellationToken));
 
         Assert.Contains("DataProtection:RequireCertificate", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// O certificado é registrado com a configuração do momento do registro, e as options leem a configuração final.
+    /// Uma fonte acrescentada depois (aqui, direto no ConfigurationManager já construído) faz a validação ver o
+    /// certificado que o Data Protection não recebeu: o boot precisa falhar em vez de gravar o key ring em claro.
+    /// </summary>
+    [Fact]
+    public async Task CertificateSeenOnlyByTheOptionsFailsTheBoot()
+    {
+        await using var app = BuildWeb();
+        ((IConfigurationBuilder)app.Configuration).AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["DataProtection:RequireCertificate"] = "true",
+            ["DataProtection:Certificate"] = TestCertificates.Create("so-nas-options").Pem,
+        });
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("não chegou ao Data Protection", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WebDoesNotStartWithTwoPairsAsTheCurrentCertificate()
+    {
+        var pems = TestCertificates.Create("um").Pem + TestCertificates.Create("dois").Pem;
+        await using var app = BuildWeb($"--DataProtection:Certificate={pems}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("DataProtection:Certificate", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>O EncryptedXml do Data Protection cifra a chave com RSA; um certificado ECDSA é recusado no boot.</summary>
+    [Fact]
+    public async Task WebDoesNotStartWithANonRsaCertificate()
+    {
+        await using var app = BuildWeb($"--DataProtection:Certificate={TestCertificates.CreateEcdsa("ecdsa").Pem}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("DataProtection:Certificate", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

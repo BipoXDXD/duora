@@ -90,12 +90,15 @@ internal sealed class KeyRingCertificates : IDisposable
             throw new FormatException("cada certificado precisa vir seguido da sua chave privada");
         }
 
-        // CreateFromPem recusa chave que não corresponde à chave pública do certificado.
+        // CreateFromPem recusa chave que não corresponde à chave pública do certificado e sempre devolve o par com
+        // a chave privada; certificado sem chave nem chega aqui (blocos ímpares). O EncryptedXml do Data Protection
+        // cifra a chave do key ring com RSA.
         var pair = X509Certificate2.CreateFromPem(certificate.Text, key.Text);
-        if (!pair.HasPrivateKey)
+        using var rsa = pair.GetRSAPrivateKey();
+        if (rsa is null)
         {
             pair.Dispose();
-            throw new FormatException("certificado sem chave privada");
+            throw new FormatException("o certificado do key ring precisa ser RSA");
         }
 
         return pair;
