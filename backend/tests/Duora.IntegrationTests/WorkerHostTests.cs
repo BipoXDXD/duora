@@ -91,6 +91,48 @@ public sealed class WorkerHostTests
         Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(connection.Password, StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("--Media:Review=TechnicalOnly", "--Media:Storage:Provider=S3", "Media:Review")]
+    [InlineData("--Media:Processing:LeaseDuration=00:02:00", "--Media:Storage:Provider=FileSystem", "FileSystem")]
+    public async Task WorkerDoesNotStartInProductionWithTechnicalOnlyReviewOrTheFileSystemStore(
+        string review,
+        string provider,
+        string expected)
+    {
+        // ADR-0025: nenhum dos dois serve a fotos reais.
+        using var host = BuildHost(
+            new CanaryConnectionString().Value,
+            logs: null,
+            "--environment", "Production",
+            review,
+            provider,
+            $"--Media:Storage:FileSystemRoot={Path.GetTempPath()}",
+            "--Media:Storage:S3:ServiceUrl=https://storage.example.com",
+            "--Media:Storage:S3:Region=us-east-1",
+            "--Media:Storage:S3:Bucket=duora-media",
+            "--Media:Storage:S3:AccessKeyId=synthetic-access",
+            "--Media:Storage:S3:SecretAccessKey=synthetic-secret");
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => host.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains(expected, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WorkerDoesNotStartWithALeaseShorterThanTheSanitizer()
+    {
+        using var host = BuildHost(
+            new CanaryConnectionString().Value,
+            logs: null,
+            "--Media:Processing:LeaseDuration=00:00:30",
+            "--Media:Processing:Sanitizer:Timeout=00:00:30");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("LeaseDuration", exception.Message, StringComparison.Ordinal);
+    }
+
     private static IHost BuildHost(string connectionString, CapturingLoggerProvider? logs, params string[] overrides)
     {
         // Linha de comando tem a maior precedência: nada da máquina (env, user-secrets) interfere.
