@@ -1,0 +1,14 @@
+# Gerenciado pelo Ansible (infra/ansible/roles/backup). Backup diário das fotos aprovadas (derivados) com restic para
+# o prefixo media/ do bucket B2, e esquecimento dos snapshots com mais de 14 dias (adendo do ADR-0010). Antes dos
+# backups do PostgreSQL das 03:00.
+[Unit]
+Description=Duora: backup diário das fotos (restic)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=15min
+Persistent=true
+Unit=duora-backup@media-backup.service
+
+[Install]
+WantedBy=timers.target

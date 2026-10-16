@@ -192,8 +192,9 @@ class FakeRunner:
     def __init__(self, *, containers: str = CONTAINER_ID + "\n", fail_on: str | None = None,
                  info: str | None = None, archiver_line: str | None = None, verify: RepoCheck | None = None,
                  bucket: dict[str, str] | None = None, repo_conf: str = REPO_CONF,
-                 b2_authorize: str | None = None) -> None:
+                 b2_authorize: str | None = None, snapshots: str | None = None) -> None:
         self.commands: list[list[str]] = []
+        self._snapshots = snapshots
         self._repo_conf = repo_conf
         self._b2_authorize = b2_authorize
         self.stdins: list[str | None] = []
@@ -214,6 +215,10 @@ class FakeRunner:
         joined = " ".join(command)
         if self._fail_on is not None and (self._fail_on in joined or self._fail_on in (stdin or "")):
             return subprocess.CompletedProcess(command, 1, "", "falha simulada")
+        if "restic" in command and "snapshots" in command:
+            return subprocess.CompletedProcess(command, 0, self._snapshots or "[]", "")
+        if "restic" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
         if command[:2] == ["docker", "ps"]:
             return subprocess.CompletedProcess(command, 0, self._containers, "")
         if "cat" in command:
@@ -236,6 +241,15 @@ class FakeRunner:
 
     def pgbackrest_calls(self) -> list[list[str]]:
         return [command[command.index("pgbackrest"):] for command in self.commands if "pgbackrest" in command]
+
+    def restic_calls(self) -> list[list[str]]:
+        """Só os argumentos depois das opções globais do wrapper (--option, --cache-dir)."""
+        calls = []
+        for command in self.commands:
+            if "restic" in command:
+                args = command[command.index("restic") + 1:]
+                calls.append(args[args.index("--cache-dir") + 2:])
+        return calls
 
 
 EGRESS_SUBNET = "172.30.20.0/24"
@@ -1264,6 +1278,235 @@ class B2RepositoryPrefixTests(unittest.TestCase):
             encoding="utf-8")
 
         self.assertIn(f"repo1-path=/{backup.B2_BACKUP_NAME_PREFIX.rstrip('/')}\n", conf)
+
+
+# --- Backup das fotos com restic (adendo do ADR-0010; docs/operations/backup-restore.md) ---------------------------
+
+MEDIA_BUCKET = "duora-prod-backup-x7k2q9"
+MEDIA_KEY_ID = "005a1b2c3d4e5f60000000002"
+MEDIA_SECRET = "K005SinteticoDaMidiaNaoReal00000"
+MEDIA_PASSWORD = "senha-sintetica-do-restic-nao-real-0000000000"
+
+
+def write_media_secrets(directory: Path, *, repository: str | None = None,
+                        credentials: str | None = None) -> Path:
+    """Os três arquivos que o duora-secrets write-media-backup-repo grava."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "restic_media_repository").write_text(
+        repository if repository is not None else f"s3:https://{B2_ENDPOINT}/{MEDIA_BUCKET}/media\n", encoding="utf-8")
+    (directory / "restic_media_password").write_text(MEDIA_PASSWORD + "\n", encoding="utf-8")
+    (directory / "restic_media_credentials").write_text(
+        credentials if credentials is not None else
+        f"[default]\naws_access_key_id = {MEDIA_KEY_ID}\naws_secret_access_key = {MEDIA_SECRET}\n", encoding="utf-8")
+    return directory
+
+
+def snapshot(at: float) -> str:
+    from datetime import datetime, timezone
+    # Nanossegundos como o restic grava; zerados para o teste da fronteira cair exatamente no limite.
+    stamp = datetime.fromtimestamp(at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000000000Z")
+    return json.dumps([{"time": stamp, "hostname": "duora", "paths": ["/var/lib/duora-media/derivatives"],
+                        "tags": ["derivatives"], "id": "4bba301e", "short_id": "4bba301e"}])
+
+
+def media_runner(*, prefix: str | None = "media/", snapshots: str | None = None,
+                 object_lock_xml: str = B2_OBJECT_LOCK) -> FakeRunner:
+    return FakeRunner(b2_authorize=b2_authorize(name_prefix=prefix),
+                      bucket={"versioning": http(200, B2_VERSIONING), "object-lock": http(200, object_lock_xml)},
+                      snapshots=snapshots if snapshots is not None else snapshot(NOW - 3 * HOUR))
+
+
+class MediaBackupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.state_dir = root / "state"
+        self.secrets = write_media_secrets(root / "secrets")
+        self.media_root = root / "media"
+        (self.media_root / "derivatives").mkdir(parents=True)
+
+    def run_media(self, action: str, runner: FakeRunner, *, target: Path | None = None) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            backup.run_action(action, runner, project="duora", state_dir=self.state_dir, egress_env=None,
+                              clock=lambda: NOW, media_secrets_dir=self.secrets, media_root=self.media_root,
+                              restore_target=target)
+
+    def test_backup_copies_only_the_derivatives_and_keeps_14_days(self) -> None:
+        runner = media_runner()
+
+        self.run_media("media-backup", runner)
+
+        self.assertEqual([["backup", "--tag", "derivatives", "--host", "duora", "--one-file-system",
+                           str(self.media_root / "derivatives")],
+                          ["forget", "--tag", "derivatives", "--host", "duora", "--keep-within", "14d", "--prune"]],
+                         runner.restic_calls())
+
+    def test_restic_reads_every_secret_from_a_file_and_never_from_the_command_line(self) -> None:
+        runner = media_runner()
+
+        self.run_media("media-backup", runner)
+
+        command = next(command for command in runner.commands if "restic" in command)
+        self.assertEqual(["env", f"RESTIC_REPOSITORY_FILE={self.secrets / 'restic_media_repository'}",
+                          f"RESTIC_PASSWORD_FILE={self.secrets / 'restic_media_password'}",
+                          f"AWS_SHARED_CREDENTIALS_FILE={self.secrets / 'restic_media_credentials'}", "restic",
+                          "--option", "s3.region=us-east-005"], command[:command.index("--cache-dir")])
+        for secret in (MEDIA_SECRET, MEDIA_PASSWORD):
+            self.assertFalse(any(secret in " ".join(c) for c in runner.commands))
+            self.assertFalse(any(secret in (stdin or "") for stdin in runner.stdins))
+
+    def test_backup_without_the_mounted_directory_fails_before_restic(self) -> None:
+        (self.media_root / "derivatives").rmdir()
+        runner = media_runner()
+
+        with self.assertRaisesRegex(backup.BackupError, "derivatives"):
+            self.run_media("media-backup", runner)
+        self.assertEqual([], runner.restic_calls())
+
+    def test_failed_backup_does_not_prune(self) -> None:
+        runner = FakeRunner(fail_on="--one-file-system")
+
+        with self.assertRaisesRegex(backup.BackupError, "restic backup"):
+            self.run_media("media-backup", runner)
+        self.assertFalse(any("forget" in call for call in runner.restic_calls()))
+
+    def test_verify_proves_bucket_and_key_from_the_host_then_snapshot_age_and_structure(self) -> None:
+        runner = media_runner()
+
+        self.run_media("media-verify", runner)
+
+        queries = [command for command in runner.commands if "s_client" in command]
+        self.assertEqual(3, len(queries))
+        self.assertTrue(all(command[0] == "openssl" for command in queries))
+        self.assertEqual("api.backblazeb2.com:443", queries[0][queries[0].index("-connect") + 1])
+        self.assertEqual(f"{MEDIA_BUCKET}.{B2_ENDPOINT}:443", queries[1][queries[1].index("-connect") + 1])
+        self.assertEqual([["snapshots", "--json", "--latest", "1", "--tag", "derivatives", "--host", "duora"],
+                          ["check"]], runner.restic_calls())
+
+    def test_verify_refuses_a_key_outside_the_media_prefix(self) -> None:
+        # A chave do pgBackRest (prefixo duora/) não serve para as fotos, e vice-versa.
+        runner = media_runner(prefix="duora/")
+
+        with self.assertRaisesRegex(backup.BackupError, "prefixo media/"):
+            self.run_media("media-verify", runner)
+        self.assertEqual([], runner.restic_calls())
+
+    def test_verify_refuses_an_unlocked_bucket_before_touching_the_repository(self) -> None:
+        runner = media_runner(object_lock_xml=B2_OBJECT_LOCK.replace("COMPLIANCE", "GOVERNANCE"))
+
+        with self.assertRaisesRegex(backup.BackupError, "GOVERNANCE"):
+            self.run_media("media-verify", runner)
+        self.assertEqual([], runner.restic_calls())
+
+    def test_verify_accepts_a_snapshot_on_the_age_limit_and_refuses_one_past_it(self) -> None:
+        limit = backup.MAX_MEDIA_SNAPSHOT_AGE_HOURS * HOUR
+        self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - limit)))
+
+        with self.assertRaisesRegex(backup.BackupError, "snapshot mais novo das fotos"):
+            self.run_media("media-verify", media_runner(snapshots=snapshot(NOW - limit - 1)))
+
+    def test_verify_refuses_no_snapshot_or_an_unreadable_listing(self) -> None:
+        for listing in ("[]", "not json", '[{"id": "x"}]', '[{"time": "ontem"}]', '[{"time": "2026-10-16T02:00:00"}]',
+                        "{}"):
+            with self.subTest(listing=listing), self.assertRaises(backup.BackupError):
+                self.run_media("media-verify", media_runner(snapshots=listing))
+
+    def test_weekly_check_reads_all_the_data(self) -> None:
+        runner = media_runner()
+
+        self.run_media("media-check", runner)
+
+        self.assertEqual([["check", "--read-data"]], runner.restic_calls())
+
+    def test_init_only_runs_on_a_protected_bucket(self) -> None:
+        runner = media_runner()
+        self.run_media("media-init", runner)
+        self.assertEqual([["init"]], runner.restic_calls())
+
+        unprotected = media_runner(object_lock_xml='<ObjectLockConfiguration/>')
+        with self.assertRaises(backup.BackupError):
+            self.run_media("media-init", unprotected)
+        self.assertEqual([], unprotected.restic_calls())
+
+    def test_restore_goes_to_an_empty_staging_directory(self) -> None:
+        target = Path(self._tmp.name) / "restore-fotos"
+        runner = media_runner()
+
+        self.run_media("media-restore", runner, target=target)
+
+        self.assertEqual([["restore", "latest", "--tag", "derivatives", "--host", "duora", "--target", str(target.resolve())]],
+                         runner.restic_calls())
+
+    def test_restore_refuses_unsafe_targets(self) -> None:
+        busy = Path(self._tmp.name) / "ocupado"
+        busy.mkdir()
+        (busy / "arquivo").write_text("x", encoding="utf-8")
+        for target in (None, Path("relativo"), busy, self.media_root / "derivatives", self.media_root / "novo"):
+            with self.subTest(target=target):
+                runner = media_runner()
+                with self.assertRaises(backup.BackupError):
+                    self.run_media("media-restore", runner, target=target)
+                self.assertEqual([], runner.restic_calls())
+
+    def test_repository_files_out_of_shape_fail_closed(self) -> None:
+        cases = {
+            "outro prefixo": {"repository": f"s3:https://{B2_ENDPOINT}/{MEDIA_BUCKET}/duora\n"},
+            "sem s3:": {"repository": f"https://{B2_ENDPOINT}/{MEDIA_BUCKET}/media\n"},
+            "endpoint sem região": {"repository": f"s3:https://storage.example.test/{MEDIA_BUCKET}/media\n"},
+            "credencial sem segredo": {"credentials": f"[default]\naws_access_key_id = {MEDIA_KEY_ID}\n"},
+            "credencial ilegível": {"credentials": "sem seção"},
+        }
+        for name, override in cases.items():
+            with self.subTest(case=name):
+                secrets = write_media_secrets(Path(self._tmp.name) / name.replace(" ", "-"), **override)
+                with self.assertRaises(backup.BackupError) as raised:
+                    backup.read_media_settings(secrets)
+                self.assertNotIn(MEDIA_SECRET, str(raised.exception))
+
+    def test_missing_secret_files_fail_closed(self) -> None:
+        (self.secrets / "restic_media_password").unlink()
+
+        with self.assertRaisesRegex(backup.BackupError, "restic_media_password"):
+            self.run_media("media-backup", media_runner())
+
+    def test_cli_requires_target_only_for_restore(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(1, backup.main(["media-restore", "--media-secrets-dir", str(self.secrets),
+                                             "--media-root", str(self.media_root)], run=media_runner()))
+
+
+class MediaBackupUnitsTests(unittest.TestCase):
+    role = Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup"
+
+    def test_timers_run_backup_daily_verify_after_it_and_full_read_weekly(self) -> None:
+        expected = {
+            "duora-backup-media.timer": ("Unit=duora-backup@media-backup.service", "OnCalendar=*-*-* 02:30:00 UTC"),
+            "duora-backup-media-verify.timer": ("Unit=duora-backup@media-verify.service",
+                                                "OnCalendar=*-*-* 05:30:00 UTC"),
+            "duora-backup-media-check.timer": ("Unit=duora-backup@media-check.service",
+                                               "OnCalendar=Thu *-*-* 06:30:00 UTC"),
+        }
+        tasks = (self.role / "tasks" / "main.yml").read_text(encoding="utf-8")
+        for timer, lines in expected.items():
+            with self.subTest(timer=timer):
+                text = (self.role / "files" / timer).read_text(encoding="utf-8")
+                for line in lines:
+                    self.assertIn(line, text)
+                self.assertIn("Persistent=true", text)
+                # Instalado e ligado (ou desligado) pelo role.
+                self.assertEqual(2, tasks.count(timer))
+
+    def test_failure_of_any_media_action_alerts_through_the_shared_unit(self) -> None:
+        unit = (self.role / "files" / "duora-backup@.service").read_text(encoding="utf-8")
+
+        self.assertIn("OnFailure=duora-backup-failed@%n.service", unit)
+
+    def test_media_root_and_switch_match_the_inventory_defaults(self) -> None:
+        group_vars = (self.role.parents[1] / "group_vars" / "all.yml").read_text(encoding="utf-8")
+
+        self.assertIn(f"duora_media_dir: {backup.MEDIA_ROOT}\n", group_vars)
+        self.assertIn("duora_media_backup_enabled: false\n", group_vars)
 
 
 def _without(entry: dict, *path: str) -> dict:

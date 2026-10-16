@@ -2,6 +2,8 @@
 """Wrapper restrito do pgBackRest do Duora na VPS (spec 18.2 e 18.5).
 
     duora-backup stanza-create | full | diff | verify | verify-repo | verify-repo-full | info  [--scheduled]
+    duora-backup media-init | media-backup | media-verify | media-check
+    duora-backup media-restore --target <diretório vazio>
 
 Roda o pgBackRest dentro do container backup (repository host: credenciais do S3, PGDATA só leitura, SQL como
 duora_backup por TCP) por `docker exec`, como root do host, chamado pelos timers systemd e pelo duora-deploy. Só as
@@ -25,6 +27,12 @@ Os dois falham se faltar WAL na cadeia a partir do backup mais novo: o pgbackres
 e com --set nem olha a cadeia; quem decide é este wrapper. Lacuna acontece, por exemplo, quando o
 archive-push-queue-max descarta a fila: o arquivamento volta a dar sucesso e o verify de 15 min não vê o buraco.
 
+`media-*` faz o backup das fotos aprovadas (derivados) com restic, no host, para o prefixo media/ do mesmo bucket B2
+(adendo do ADR-0010). Segredos só por arquivo em /etc/duora/secrets (restic_media_repository, restic_media_password,
+restic_media_credentials), nunca na linha de comando nem no ambiente. `media-backup` (diário) guarda 14 dias de
+snapshots; `media-verify` (diário) prova bucket e chave como o verify, a idade do snapshot mais novo e a estrutura do
+repositório; `media-check` (semanal) lê todos os dados; `media-restore` restaura num diretório vazio de staging.
+
 Instalado pelo Ansible como /usr/local/sbin/duora-backup (root, 0755). Só biblioteca padrão do Python 3.12.
 Manual: docs/operations/backup-restore.md.
 """
@@ -33,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import configparser
 import fcntl
 import hashlib
 import hmac
@@ -46,6 +55,7 @@ import time
 import xml.etree.ElementTree as ElementTree
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator, Protocol
 
@@ -96,13 +106,33 @@ B2_BACKUP_ALLOWED_CAPABILITIES = B2_BACKUP_REQUIRED_CAPABILITIES | {"listBuckets
                                                                     "readBucketEncryption", "readFileRetentions",
                                                                     "readFileLegalHolds"}
 
+# Backup das fotos (restic no host; adendo do ADR-0010). MEDIA_ROOT é o duora_media_dir do inventário.
+MEDIA_ROOT = Path("/var/lib/duora-media")
+MEDIA_AREA = "derivatives"  # a quarentena (original com EXIF, transitória) não entra no backup
+MEDIA_SECRETS_DIR = Path("/etc/duora/secrets")
+MEDIA_REPOSITORY_FILE = "restic_media_repository"
+MEDIA_PASSWORD_FILE = "restic_media_password"
+MEDIA_CREDENTIALS_FILE = "restic_media_credentials"
+MEDIA_NAME_PREFIX = "media/"
+MEDIA_CACHE_DIR = "/var/cache/duora-restic"
+MEDIA_TAG = "derivatives"
+MEDIA_HOST = "duora"
+# Retenção decidida em 2026-10-16: 14 dias de snapshots (+ 21 de lock e 30 do lifecycle no bucket).
+MEDIA_KEEP_WITHIN = "14d"
+# Backup diário: um dia perdido já alerta no verify da manhã (o timer tem até 15 min de atraso aleatório).
+MAX_MEDIA_SNAPSHOT_AGE_HOURS = 26
+_MEDIA_REPOSITORY = re.compile(r"s3:https://(?P<endpoint>[a-z0-9.-]+)/(?P<bucket>[a-z0-9][a-z0-9-]{1,61}[a-z0-9])/"
+                               + MEDIA_NAME_PREFIX.rstrip("/"))
+_REGION_IN_ENDPOINT = re.compile(r"s3\.(?P<region>[a-z]{2}(?:-[a-z]+)+-[0-9]+)\..+")
+
 _PGBACKREST_ARGS = {
     "stanza-create": ["stanza-create"],
     "full": ["backup", "--type=full"],
     "diff": ["backup", "--type=diff"],
 }
 _REPOSITORY_VERIFY_ACTIONS = ("verify-repo", "verify-repo-full")
-ACTIONS = (*_PGBACKREST_ARGS, "verify", *_REPOSITORY_VERIFY_ACTIONS, "info")
+MEDIA_ACTIONS = ("media-init", "media-backup", "media-verify", "media-check", "media-restore")
+ACTIONS = (*_PGBACKREST_ARGS, "verify", *_REPOSITORY_VERIFY_ACTIONS, "info", *MEDIA_ACTIONS)
 # Esperam o deploy terminar e marcam backup em curso (o verify de 15 min continua rodando durante eles).
 _LOCKED_ACTIONS = frozenset((*_PGBACKREST_ARGS, *_REPOSITORY_VERIFY_ACTIONS))
 
@@ -411,12 +441,17 @@ def _unexpected_type(where: str, key: str, value: object) -> _InfoShapeError:
 
 def run_action(action: str, run: Runner, *, project: str, state_dir: Path, egress_env: Path | None,
                scheduled: bool = False, lock_wait_seconds: int = LOCK_WAIT_SECONDS,
-               clock: Callable[[], float] = time.time) -> None:
+               clock: Callable[[], float] = time.time, media_secrets_dir: Path = MEDIA_SECRETS_DIR,
+               media_root: Path = MEDIA_ROOT, restore_target: Path | None = None) -> None:
     """egress_env None pula a checagem do filtro de saída: só no drill local, que não tem a chain do host.
 
     scheduled: chamado por timer. Só muda o verify, que pula durante um deploy (veja _should_skip_scheduled_verify);
-    full e diff já esperam o lock.
+    full e diff já esperam o lock. As ações media-* não dependem do deploy nem do container backup.
     """
+    if action in MEDIA_ACTIONS:
+        run_media_action(action, run, secrets_dir=media_secrets_dir, media_root=media_root,
+                         restore_target=restore_target, now=clock())
+        return
     if action in _LOCKED_ACTIONS:
         # Um deploy recria o postgres; backup no meio dele falharia. O verify não pega o lock porque o próprio
         # deploy o chama segurando-o.
@@ -601,7 +636,8 @@ def b2_authorize_request(settings: S3Settings) -> str:
             "Connection: close\r\n\r\n")
 
 
-def b2_key_problems(authorize_body: str, settings: S3Settings) -> list[str]:
+def b2_key_problems(authorize_body: str, settings: S3Settings, *, name_prefix: str = B2_BACKUP_NAME_PREFIX
+                    ) -> list[str]:
     """Vazia só se a chave estiver presa a este bucket e ao prefixo do repositório, com as capacidades mínimas.
 
     Nunca repete o corpo: ele traz o authorizationToken.
@@ -616,7 +652,7 @@ def b2_key_problems(authorize_body: str, settings: S3Settings) -> list[str]:
             raise TypeError("capabilities e buckets são listas")
         granted = {str(capability) for capability in capabilities}
         bucket_names = [bucket.get("name") if isinstance(bucket, dict) else None for bucket in buckets]
-        name_prefix = allowed.get("namePrefix")
+        granted_prefix = allowed.get("namePrefix")
     except (ValueError, KeyError, TypeError, AttributeError):
         return ["resposta do b2_authorize_account em formato inesperado"]
     problems = []
@@ -626,9 +662,8 @@ def b2_key_problems(authorize_body: str, settings: S3Settings) -> list[str]:
         problems.append(f"chave do backup sem as capacidades: {', '.join(missing)}")
     if bucket_names != [settings.bucket]:
         problems.append(f"chave do backup não está restrita só ao bucket {settings.bucket}")
-    if name_prefix != B2_BACKUP_NAME_PREFIX:
-        problems.append(f"chave do backup sem a restrição de prefixo {B2_BACKUP_NAME_PREFIX} (namePrefix "
-                        f"{name_prefix!r})")
+    if granted_prefix != name_prefix:
+        problems.append(f"chave do backup sem a restrição de prefixo {name_prefix} (namePrefix {granted_prefix!r})")
     if s3_api_url != f"https://{settings.endpoint}":
         problems.append(f"repo1-s3-endpoint {settings.endpoint} não é o da conta (s3ApiUrl {s3_api_url}): confira o "
                         "número da região no bucket")
@@ -711,12 +746,18 @@ def _check_bucket_protection(run: Runner, container: str, now: float) -> None:
     """
     conf = _check(run(["docker", "exec", container, "cat", REPO_CONF_IN_CONTAINER], capture=True),
                   "leitura do pgbackrest_repo.conf")
-    settings = parse_repo_settings(conf.stdout)
+    _prove_bucket_protection(run, parse_repo_settings(conf.stdout), now, via=["docker", "exec", "-i", container],
+                             name_prefix=B2_BACKUP_NAME_PREFIX)
+
+
+def _prove_bucket_protection(run: Runner, settings: S3Settings, now: float, *, via: list[str],
+                             name_prefix: str) -> None:
+    """via: prefixo do comando que sai para a rede ([] no host, docker exec no container backup)."""
     if settings.is_backblaze_b2:
-        _check_b2_key(run, container, settings)
+        _check_b2_key(run, via, settings, name_prefix)
     bodies = {}
     for subresource in ("versioning", "object-lock"):
-        result = _check(run(_tls_query(container, settings.host, settings.port, settings.ca_file), capture=True,
+        result = _check(run(_tls_query(via, settings.host, settings.port, settings.ca_file), capture=True,
                             stdin=signed_bucket_request(settings, subresource, now)),
                         f"consulta ?{subresource} do bucket")
         status, body = parse_http_response(result.stdout)
@@ -734,25 +775,146 @@ def _check_bucket_protection(run: Runner, container: str, now: float) -> None:
                           "docs/operations/backup-restore.md):\n  - " + "\n  - ".join(problems))
 
 
-def _check_b2_key(run: Runner, container: str, settings: S3Settings) -> None:
+def _check_b2_key(run: Runner, via: list[str], settings: S3Settings, name_prefix: str) -> None:
     """Fail closed: a chave do backup no B2 não pode apagar versão nem mexer em retenção, bucket ou chaves."""
-    result = _check(run(_tls_query(container, B2_API_HOST, 443, SYSTEM_CA_BUNDLE), capture=True,
+    result = _check(run(_tls_query(via, B2_API_HOST, 443, SYSTEM_CA_BUNDLE), capture=True,
                         stdin=b2_authorize_request(settings)), "consulta b2_authorize_account")
     status, body = parse_http_response(result.stdout)
     if status != 200:
         raise BackupError(f"b2_authorize_account respondeu HTTP {status} (chave do backup inválida, revogada ou "
                           "expirada)")
-    problems = b2_key_problems(body, settings)
+    problems = b2_key_problems(body, settings, name_prefix=name_prefix)
     if problems:
         raise BackupError("chave do backup no B2 fora da política mínima (docs/operations/backblaze-setup.md):\n  - "
                           + "\n  - ".join(problems))
 
 
-def _tls_query(container: str, host: str, port: int, ca_file: str) -> list[str]:
-    """openssl s_client de dentro do container backup (mesma rede, DNS e filtro de saída), verificando o host."""
-    return ["docker", "exec", "-i", container, "openssl", "s_client", "-quiet", "-ign_eof",
+def _tls_query(via: list[str], host: str, port: int, ca_file: str) -> list[str]:
+    """openssl s_client (no container backup: mesma rede, DNS e filtro de saída do pgBackRest), verificando o host."""
+    return [*via, "openssl", "s_client", "-quiet", "-ign_eof",
             "-connect", f"{host}:{port}", "-servername", host, "-verify_hostname", host, "-verify_return_error",
             "-CAfile", ca_file]
+
+
+# --- Backup das fotos (restic) --------------------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class MediaRepository:
+    """O repositório restic das fotos: o destino S3 (para o verify) e os arquivos que o restic lê."""
+    settings: S3Settings
+    repository_file: Path
+    password_file: Path
+    credentials_file: Path
+
+
+def read_media_settings(secrets_dir: Path) -> MediaRepository:
+    """Lê os arquivos do duora-secrets write-media-backup-repo; formato inesperado é erro (fail closed)."""
+    paths = {name: secrets_dir / name for name in (MEDIA_REPOSITORY_FILE, MEDIA_PASSWORD_FILE, MEDIA_CREDENTIALS_FILE)}
+    missing = [name for name, path in paths.items() if not path.is_file()]
+    if missing:
+        raise BackupError(f"backup das fotos sem {', '.join(missing)} em {secrets_dir} "
+                          "(duora-secrets write-media-backup-repo)")
+    match = _MEDIA_REPOSITORY.fullmatch(paths[MEDIA_REPOSITORY_FILE].read_text(encoding="utf-8").strip())
+    if match is None:
+        raise BackupError(f"{MEDIA_REPOSITORY_FILE} fora do formato s3:https://<endpoint>/<bucket>/"
+                          f"{MEDIA_NAME_PREFIX.rstrip('/')}")
+    region = _REGION_IN_ENDPOINT.fullmatch(match["endpoint"])
+    if region is None:
+        raise BackupError(f"{MEDIA_REPOSITORY_FILE}: endpoint sem s3.<região>. no nome")
+    key, secret = _read_shared_credentials(paths[MEDIA_CREDENTIALS_FILE])
+    settings = S3Settings(endpoint=match["endpoint"], bucket=match["bucket"], region=region["region"], key=key,
+                          secret=secret)
+    return MediaRepository(settings=settings, repository_file=paths[MEDIA_REPOSITORY_FILE],
+                           password_file=paths[MEDIA_PASSWORD_FILE], credentials_file=paths[MEDIA_CREDENTIALS_FILE])
+
+
+def _read_shared_credentials(path: Path) -> tuple[str, str]:
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(path.read_text(encoding="utf-8"))
+        profile = parser["default"]
+        return profile["aws_access_key_id"], profile["aws_secret_access_key"]
+    except (configparser.Error, KeyError) as error:
+        # A mensagem não repete o conteúdo: ele é o segredo.
+        raise BackupError(f"{MEDIA_CREDENTIALS_FILE} sem [default] com aws_access_key_id e aws_secret_access_key"
+                          ) from error
+
+
+def media_snapshot_problems(listing: str, now: float) -> list[str]:
+    """Vazia só com um snapshot das fotos de no máximo MAX_MEDIA_SNAPSHOT_AGE_HOURS."""
+    try:
+        snapshots = json.loads(listing)
+        if not isinstance(snapshots, list):
+            raise TypeError("lista de snapshots")
+        if not snapshots:
+            return ["nenhum snapshot das fotos no repositório"]
+        taken = datetime.fromisoformat(snapshots[-1]["time"])
+        if taken.tzinfo is None:
+            raise ValueError("horário sem fuso")
+    except (ValueError, KeyError, TypeError) as error:
+        return [f"listagem de snapshots do restic em formato inesperado ({type(error).__name__})"]
+    age_hours = (now - taken.timestamp()) / 3600
+    if age_hours > MAX_MEDIA_SNAPSHOT_AGE_HOURS:
+        return [f"snapshot mais novo das fotos tem {age_hours:.1f} h (máximo {MAX_MEDIA_SNAPSHOT_AGE_HOURS} h)"]
+    return []
+
+
+def run_media_action(action: str, run: Runner, *, secrets_dir: Path, media_root: Path, restore_target: Path | None,
+                     now: float) -> None:
+    repository = read_media_settings(secrets_dir)
+    if action == "media-init":
+        _prove_bucket_protection(run, repository.settings, now, via=[], name_prefix=MEDIA_NAME_PREFIX)
+        _restic(run, repository, ["init"], QUERY_TIMEOUT_SECONDS)
+    elif action == "media-backup":
+        source = media_root / MEDIA_AREA
+        if not source.is_dir():
+            raise BackupError(f"{source} não existe: diretório das fotos não montado (role app_dirs)")
+        _restic(run, repository, ["backup", "--tag", MEDIA_TAG, "--host", MEDIA_HOST, "--one-file-system",
+                                  str(source)], BACKUP_TIMEOUT_SECONDS)
+        _restic(run, repository, ["forget", "--tag", MEDIA_TAG, "--host", MEDIA_HOST, "--keep-within",
+                                  MEDIA_KEEP_WITHIN, "--prune"], BACKUP_TIMEOUT_SECONDS)
+    elif action == "media-verify":
+        _prove_bucket_protection(run, repository.settings, now, via=[], name_prefix=MEDIA_NAME_PREFIX)
+        listing = _restic(run, repository, ["snapshots", "--json", "--latest", "1", "--tag", MEDIA_TAG, "--host",
+                                            MEDIA_HOST], QUERY_TIMEOUT_SECONDS, capture=True)
+        problems = media_snapshot_problems(listing.stdout, now)
+        if problems:
+            raise BackupError("backup das fotos não saudável:\n  - " + "\n  - ".join(problems))
+        _restic(run, repository, ["check"], QUERY_TIMEOUT_SECONDS)
+    elif action == "media-check":
+        _restic(run, repository, ["check", "--read-data"], BACKUP_TIMEOUT_SECONDS)
+    elif action == "media-restore":
+        target = _restore_target(restore_target, media_root)
+        _restic(run, repository, ["restore", "latest", "--tag", MEDIA_TAG, "--host", MEDIA_HOST, "--target",
+                                  str(target)], BACKUP_TIMEOUT_SECONDS)
+        _step(f"fotos restauradas em {target}{media_root / MEDIA_AREA}: aplique as exclusões do banco antes de "
+              "copiar para o diretório das fotos (docs/operations/backup-restore.md)")
+    else:
+        raise BackupError(f"ação de mídia desconhecida: {action}")
+    _step(f"{action} concluído")
+
+
+def _restore_target(target: Path | None, media_root: Path) -> Path:
+    """Só um diretório de staging absoluto, vazio ou inexistente, fora do diretório das fotos em uso."""
+    if target is None:
+        raise BackupError("media-restore exige --target <diretório vazio>")
+    if not target.is_absolute():
+        raise BackupError(f"--target precisa ser absoluto: {target}")
+    resolved = target.resolve()
+    if resolved == media_root.resolve() or media_root.resolve() in resolved.parents:
+        raise BackupError(f"--target dentro de {media_root}: restaure num staging e confira antes de copiar")
+    if resolved.exists() and (not resolved.is_dir() or any(resolved.iterdir())):
+        raise BackupError(f"--target {resolved} já tem conteúdo")
+    return resolved
+
+
+def _restic(run: Runner, repository: MediaRepository, args: list[str], timeout_seconds: int, *,
+            capture: bool = False) -> subprocess.CompletedProcess[str]:
+    command = ["env", f"RESTIC_REPOSITORY_FILE={repository.repository_file}",
+               f"RESTIC_PASSWORD_FILE={repository.password_file}",
+               f"AWS_SHARED_CREDENTIALS_FILE={repository.credentials_file}", "restic", "--option",
+               f"s3.region={repository.settings.region}", "--cache-dir", MEDIA_CACHE_DIR, *args]
+    return _check(run(command, capture=capture, timeout_seconds=timeout_seconds), f"restic {args[0]}")
 
 
 def _verify_repository(run: Runner, container: str, *, whole_repository: bool) -> None:
@@ -919,12 +1081,17 @@ def main(argv: list[str] | None = None, *, run: Runner = run_command) -> int:
                         help="política do filtro de saída que o verify confere no iptables")
     parser.add_argument("--skip-egress-check", action="store_true",
                         help="não confere o filtro de saída: só no drill local (Docker Desktop não tem a DOCKER-USER)")
+    parser.add_argument("--media-secrets-dir", type=Path, default=MEDIA_SECRETS_DIR,
+                        help="onde ficam os arquivos do repositório restic das fotos")
+    parser.add_argument("--media-root", type=Path, default=MEDIA_ROOT, help="diretório das fotos no host")
+    parser.add_argument("--target", type=Path, help="media-restore: diretório de staging vazio")
     args = parser.parse_args(argv)
 
     egress_env = None if args.skip_egress_check else args.egress_env
     try:
         run_action(args.action, run, project=args.compose_project, state_dir=args.state_dir, egress_env=egress_env,
-                   scheduled=args.scheduled)
+                   scheduled=args.scheduled, media_secrets_dir=args.media_secrets_dir, media_root=args.media_root,
+                   restore_target=args.target)
     except BackupError as error:
         print(f"[duora-backup] ERRO: {error}", file=sys.stderr)
         return 1
