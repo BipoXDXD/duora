@@ -27,7 +27,8 @@ SECRETS = {
     "db_app_password": "app-synthetic",
 }
 
-# O que uma migration faz, como duora_migrator. audit_events segue a convenção de tabela append-only.
+# O que uma migration faz, como duora_migrator. audit_events nasce aqui SEM o REVOKE da convenção: o teste prova que
+# reconcile-privileges.sql sozinho deixa a tabela append-only.
 MIGRATION_SQL = """
 SET ROLE duora_migrator;
 CREATE SCHEMA ops;
@@ -37,7 +38,6 @@ INSERT INTO ops.__ef_migrations_history VALUES ('20261015175752_Baseline', '10.0
 CREATE SCHEMA rooms;
 CREATE TABLE rooms.rooms (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name text NOT NULL);
 CREATE TABLE ops.audit_events (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, action text NOT NULL);
-REVOKE UPDATE, DELETE, TRUNCATE ON ops.audit_events FROM duora_app;
 CREATE FUNCTION rooms.room_count() RETURNS bigint LANGUAGE sql AS 'SELECT count(*) FROM rooms.rooms';
 """
 
@@ -137,6 +137,18 @@ class AppRolePrivilegesTests(unittest.TestCase):
                     "TRUNCATE ops.audit_events"]:
             with self.subTest(sql=sql):
                 self.assert_denied(sql)
+
+    def test_reconcile_fails_when_app_can_still_rewrite_the_audit_trail(self) -> None:
+        # Privilégio herdado (PUBLIC) não sai com o REVOKE de duora_app: a checagem final tem de barrar o deploy.
+        _run(self._psql_superuser() + ["--command", "GRANT UPDATE ON ops.audit_events TO PUBLIC"])
+        try:
+            result = subprocess.run(
+                self._psql_superuser() + ["--file", "/usr/local/share/duora/reconcile-privileges.sql"],
+                capture_output=True, text=True, check=False)
+            self.assertNotEqual(0, result.returncode, "o reconcile devia falhar")
+            self.assertIn("append-only", result.stderr)
+        finally:
+            _run(self._psql_superuser() + ["--command", "REVOKE UPDATE ON ops.audit_events FROM PUBLIC"])
 
     def test_app_has_full_dml_on_business_tables(self) -> None:
         self.assert_allowed("INSERT INTO rooms.rooms (name) VALUES ('sala 1')")

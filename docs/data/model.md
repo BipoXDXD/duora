@@ -1049,4 +1049,6 @@ imagem real):
   deploy roda `reconcile-privileges.sql` como `postgres` logo depois de cada migração.
 - **Convenção para tabela append-only** (`ops.audit_events` e futuras): a migration que cria a tabela termina com
   `REVOKE UPDATE, DELETE, TRUNCATE ON <tabela> FROM duora_app;` (em `migrationBuilder.Sql`). Revisão de migration
-  confere a linha; o teste de privilégios cobre o mecanismo.
+  confere a linha; o teste de privilégios cobre o mecanismo. `reconcile-privileges.sql` repete o REVOKE de
+  `ops.audit_events` a cada deploy e **falha** se `has_table_privilege('duora_app', ..., 'UPDATE'|'DELETE'|'TRUNCATE')`
+  ainda for verdadeiro (por exemplo, por um GRANT a `PUBLIC`), antes de a release subir.
