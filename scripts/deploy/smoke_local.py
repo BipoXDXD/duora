@@ -53,6 +53,7 @@ BUILDS = {
     "postgres": ("infra/images/postgres/Dockerfile", None),
 }
 LOGIN_PATH = "/api/v1/auth/login"
+SIXLABORS_LICENSE_ENV = "SIXLABORS_LICENSE_KEY"
 READY_TIMEOUT_SECONDS = 90
 # Lista do repositório; o smoke confere que nenhuma delas falta no banco.
 MIGRATIONS = sorted(path.name.removesuffix(".cs") for path in
@@ -170,6 +171,12 @@ def build_and_push(name: str, architecture: str, commit: str, workdir: Path) -> 
                "--metadata-file", str(metadata), "--quiet"]
     if target is not None:
         command += ["--target", target]
+    if name == "worker":
+        # Licença da Six Labors (ADR-0025, deploy.md): secret do BuildKit lido da variável, nunca argumento nem arquivo.
+        if not os.environ.get(SIXLABORS_LICENSE_ENV, "").strip():
+            raise SystemExit(f"[smoke] defina {SIXLABORS_LICENSE_ENV} na sessão: o build Release do worker exige a "
+                             "licença da Six Labors (docs/operations/deploy.md).")
+        command += ["--secret", f"id=sixlabors_license,env={SIXLABORS_LICENSE_ENV}"]
     print(f"[smoke] build {name} (linux/{architecture})", flush=True)
     run(command + [str(REPO_ROOT)])
     digest = json.loads(metadata.read_text(encoding="utf-8"))["containerimage.digest"]
