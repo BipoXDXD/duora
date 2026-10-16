@@ -100,6 +100,23 @@ public sealed class AgeVerificationStatusTests : IAsyncDisposable
         Assert.Null(current["continueUrl"]);
     }
 
+    [Theory]
+    [InlineData("Rejected", "NotAvailable")]
+    [InlineData("ManualReview", "WaitForReview")]
+    public async Task LaterDecisionIsWhatThePersonSeesOverAnOlderAdultVerification(string laterState, string nextStep)
+    {
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, DateTimeOffset.UtcNow.AddDays(-400));
+        await Scenario.AddDecidedVerificationAsync(account.UserId, laterState, DateTimeOffset.UtcNow.AddDays(-30));
+        using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
+
+        var current = await AgeVerificationScenario.CurrentAsync(browser);
+
+        Assert.Equal(laterState, (string?)current["state"]);
+        Assert.Equal(nextStep, (string?)current["nextStep"]);
+        Assert.Null(current["continueUrl"]);
+    }
+
     [Fact]
     public async Task StatusWithoutSessionIsUnauthenticated()
     {
