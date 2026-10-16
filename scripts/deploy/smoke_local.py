@@ -246,7 +246,11 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     checks.expect(subnets == [EDGE_SUBNET], f"rede edge na subnet fixa {EDGE_SUBNET} (recebido {subnets})")
 
     check_hardening(compose, checks)
-    check_key_ring_survives_recreation(compose, context, checks)
+    # Por último e isolada: ela recria o web, e um erro aqui (rede, docker) não pode apagar as falhas de cima.
+    try:
+        check_key_ring_survives_recreation(compose, context, checks)
+    except (SmokeFailure, OSError, http.client.HTTPException) as error:
+        checks.expect(False, f"key ring sobrevive à recriação do web: {type(error).__name__}: {error}")
     return checks.failures
 
 
@@ -279,7 +283,8 @@ def check_key_ring_survives_recreation(compose: list[str], context: ssl.SSLConte
     checks.expect(login_status(context, cookies, "CfDJ8-forjado") == 403, "token antiforgery forjado = 403")
 
     before = run(compose + ["ps", "--quiet", "web"]).strip()
-    run(compose + ["up", "--detach", "--no-deps", "--force-recreate", "web"])
+    # --renew-anon-volumes: um volume anônimo no lugar do nomeado seria reaproveitado e mascararia a perda.
+    run(compose + ["up", "--detach", "--no-deps", "--force-recreate", "--renew-anon-volumes", "web"])
     after = run(compose + ["ps", "--quiet", "web"]).strip()
     checks.expect(bool(after) and after != before, "web recriado (container novo)")
     wait_ready(compose)

@@ -241,18 +241,21 @@ comando do cliente falha no `RetrieveAsync` (spec 9.2; T-14).
 
 | Item | Especificação (spec 11.2, 15.4; D-AUTH-02) |
 |---|---|
-| Persistência | Repositório em arquivo no diretório de `DataProtection:KeysDirectory` (em dev, `.local/dataprotection-keys/`, fora do git). Em produção, volume nomeado `dataprotection` (`0700`, dono = usuário do container web), fora da camada gravável do container. O boot confere em `/proc/self/mountinfo` que o diretório é ponto de montagem de um volume (nem `overlay`, nem `tmpfs`/`ramfs`); `DataProtection:RequireMountedVolume=false` só em Development, nos testes e na geração do OpenAPI |
+| Persistência | Repositório em arquivo no diretório de `DataProtection:KeysDirectory` (em dev, `.local/dataprotection-keys/`, fora do git). Em produção, volume nomeado `dataprotection` (`0700`, dono = usuário do container web), fora da camada gravável do container. O boot confere em `/proc/self/mountinfo` que o diretório é ponto de montagem de um volume (nem `overlay`, nem `tmpfs`/`ramfs`); `DataProtection:RequireMountedVolume=false` só em Development, nos testes e na geração do OpenAPI (ambiente `BuildTimeOpenApi`); em Production o boot recusa o `false`, e o `appsettings.Development.json` não vai para o publish. Caminho absoluto e link simbólico resolvidos antes da checagem. **Limite:** a checagem prova que há um volume, não que ele é durável nem que tem backup: um volume anônimo do Docker (ou um `emptyDir`, se um dia houver Kubernetes) passa e some com `down -v`, `--renew-anon-volumes` ou a troca do pod; quem garante o volume nomeado é o `ComposeFileTests` |
 | Proteção em repouso | **Pendente (M3):** `ProtectKeysWithCertificate` com certificado lido de arquivo de segredo; persistir não é criptografar |
 | Nome da aplicação | `SetApplicationName("Duora")`, estável entre deploys. **Pendente (M3):** nome por ambiente; hoje homologação e produção se separam por volumes e certificados diferentes |
 | Vida da chave | 90 dias (`SetDefaultKeyLifetime`, igual ao padrão, explícito) com rotação automática; o framework nunca apaga chave antiga, então ela continua lendo o que protegeu (cookies de no máximo 12 h, tokens de no máximo 24 h) |
 | Worker | Não recebe o key ring de cookies; usa referências de conta e jobs. Se um dia precisar desproteger algo, usa purpose próprio e o ADR registra |
 | Backup | Key ring e certificado no inventário de backup, com custódia separada do backup do banco (spec 18.3) |
 | Startup | Web falha ao subir sem `DataProtection:KeysDirectory` (`WebDoesNotStartWithoutAPersistentKeyRing`) ou com ele fora de um volume montado (`WebDoesNotStartWithTheKeyRingOutsideAMountedVolume`, `KeyRingMountTests`); exigir o certificado entra com a proteção em repouso (spec 11.4) |
-| Comprometimento | Novo key ring, revogação de todas as sessões e invalidação de tokens pendentes |
+| Comprometimento | Novo key ring, revogação de todas as sessões e invalidação de tokens pendentes. Revogar chaves (`IKeyManager.RevokeAllKeys`) num processo vivo só vale depois que o `KeyRingProvider` recarrega o key ring (cache de até 24 h, ou ao perceber a mudança no repositório): na resposta a incidente, revogar e **reiniciar o web** |
 
 Teste: T-15. `KeyRingRecoveryTests` recria o host sobre o mesmo banco: com o mesmo diretório a sessão continua
 válida; depois de uma rotação a chave antiga segue lendo a sessão e a nova protege o que é novo; com diretório vazio
-ou chaves revogadas a sessão termina em `401 UNAUTHENTICATED`, nunca `500`, e um login novo funciona.
+ou chaves revogadas a sessão termina em `401 UNAUTHENTICATED`, nunca `500`, e um login novo funciona; ticket
+ilegível no banco também dá `401` com aviso no log. `KeyRingLossTests`: o par antiforgery anterior dá `403
+CSRF_VALIDATION_FAILED`, `GET /auth/csrf` com o cookie antigo emite um par novo que funciona, e links de
+confirmação e reset dão `400 INVALID_TOKEN`. Vida da chave e nome da aplicação fixados por teste.
 `ComposeFileTests` confere que o diretório do `compose.prod.yml` é o volume montado só no web, e o smoke local
 recria o container web e confere que um token antiforgery emitido antes continua válido.
 
