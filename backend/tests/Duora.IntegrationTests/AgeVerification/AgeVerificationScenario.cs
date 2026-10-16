@@ -159,20 +159,22 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
             $"{FakeAgeEligibilityProvider.ReferenceFor(verificationId)}",
             flowUrl);
 
-    /// <summary>Estado de uma conta que já passou pela verificação, gravado direto (o webhook vem no PR seguinte).</summary>
-    public async Task MakeVerifiedAdultAsync(Guid userId, DateTimeOffset requestedAt, DateTimeOffset expiresAt)
+    /// <summary>
+    /// Estado de uma conta que já passou pela verificação, gravado direto como o webhook o grava: sem
+    /// <c>expires_at</c>, porque a verificação adulta não vence.
+    /// </summary>
+    public async Task MakeVerifiedAdultAsync(Guid userId, DateTimeOffset decidedAt)
     {
         await ExecuteAsync(
             """
             insert into identity.age_verifications
                 (id, user_id, state, policy_version, provider, provider_reference, request_nonce, requested_at,
-                 decided_at, expires_at, decision_source, version)
+                 decided_at, decision_source, version)
             values (gen_random_uuid(), $1, 'VerifiedAdult', 'test-2026-10', 'fake', 'ref-' || gen_random_uuid(),
-                    'nonce-' || gen_random_uuid(), $2, $2, $3, 'Callback', 1)
+                    'nonce-' || gen_random_uuid(), $2, $2, 'Callback', 1)
             """,
             userId,
-            requestedAt,
-            expiresAt);
+            decidedAt);
         await ExecuteAsync("update identity.users set status = 'Active' where id = $1", userId);
     }
 

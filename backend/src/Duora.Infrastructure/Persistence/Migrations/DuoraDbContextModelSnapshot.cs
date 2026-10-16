@@ -183,8 +183,6 @@ namespace Duora.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_age_verifications_state", "state IN ('Pending', 'VerifiedAdult', 'Rejected', 'Expired', 'ManualReview')");
 
-                            t.HasCheckConstraint("ck_age_verifications_verified_expiry", "state <> 'VerifiedAdult' OR expires_at IS NOT NULL");
-
                             t.HasCheckConstraint("ck_age_verifications_version", "version >= 0");
                         });
                 });

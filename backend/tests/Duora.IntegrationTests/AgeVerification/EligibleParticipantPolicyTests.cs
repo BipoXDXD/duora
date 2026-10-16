@@ -14,7 +14,7 @@ namespace Duora.IntegrationTests.AgeVerification;
 
 /// <summary>
 /// Policy <c>EligibleParticipant</c> (T-01, parcial; INV-01; ADR-0024): só conta <c>Active</c> com verificação
-/// adulta dentro da validade participa. Pendente, restrita, suspensa ou com verificação vencida, não.
+/// adulta participa, e a verificação adulta não vence. Pendente, restrita ou suspensa, não.
 /// </summary>
 [Trait("Acceptance", "T-01")]
 public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
@@ -100,10 +100,10 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ActiveAccountWithAValidVerificationIsEligible()
+    public async Task ActiveAccountWithAnAdultVerificationIsEligible()
     {
         var account = await Scenario.Identity.CreateConfirmedAccountAsync();
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(30));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow());
 
         Assert.True(await AuthorizeAsync(account.UserId));
     }
@@ -117,29 +117,48 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task VerificationPastItsValidityIsNotEligibleAndNeverComesBackByItself()
+    public async Task AdultVerificationStaysEligibleYearsLater()
     {
+        // Verificação só no cadastro (decisão do dono, 2026-10-16): nada vence com o tempo.
         var account = await Scenario.Identity.CreateConfirmedAccountAsync();
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(1));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow());
 
-        var before = await AuthorizeAsync(account.UserId);
-        _time.Advance(TimeSpan.FromDays(1));
-        var atExpiry = await AuthorizeAsync(account.UserId);
-        _time.Advance(TimeSpan.FromDays(400));
+        var right = await AuthorizeAsync(account.UserId);
+        _time.Advance(TimeSpan.FromDays(366));
+        var yearLater = await AuthorizeAsync(account.UserId);
+        _time.Advance(TimeSpan.FromDays(10 * 366));
 
-        Assert.True(before);
-        Assert.False(atExpiry);
-        Assert.False(await AuthorizeAsync(account.UserId));
+        Assert.True(right);
+        Assert.True(yearLater);
+        Assert.True(await AuthorizeAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task AdultVerificationStillCountsWhenALaterRequestExists()
+    {
+        // Linha antiga (do tempo da validade de 365 dias): pedido aberto ou expirado depois da verificação adulta não
+        // apaga a verificação.
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-400));
+        await Scenario.ExecuteAsync(
+            """
+            insert into identity.age_verifications (id, user_id, state, policy_version, provider, request_nonce, requested_at, version)
+            values (gen_random_uuid(), $1, 'Expired', 'test-2026-10', 'fake', 'nonce-' || gen_random_uuid(), $2, 1)
+            """,
+            account.UserId,
+            _time.GetUtcNow().AddDays(-30));
+
+        Assert.True(await AuthorizeAsync(account.UserId));
     }
 
     [Theory]
     [InlineData("Restricted")]
     [InlineData("Suspended")]
     [InlineData("DeletionPending")]
-    public async Task AccountOutsideTheFlowIsNotEligibleEvenWithAValidVerification(string status)
+    public async Task AccountOutsideTheFlowIsNotEligibleEvenWithAnAdultVerification(string status)
     {
         var account = await Scenario.Identity.CreateConfirmedAccountAsync();
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(30));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow());
         await Scenario.ExecuteAsync("update identity.users set status = $2 where id = $1", account.UserId, status);
 
         Assert.False(await AuthorizeAsync(account.UserId));
@@ -149,7 +168,7 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     public async Task PrincipalWithoutSessionClaimIsNotEligible()
     {
         var account = await Scenario.Identity.CreateConfirmedAccountAsync();
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(30));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow());
 
         Assert.False(await AuthorizeAsync(Principal(account.UserId, sessionId: null)));
     }
@@ -164,7 +183,7 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     public async Task EligibleAccountReachesAParticipationRoute()
     {
         var account = await Scenario.Identity.CreateConfirmedAccountAsync();
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(30));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow());
         using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
 
         using var response = await browser.GetAsync(SentinelPath);
@@ -187,7 +206,7 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     public async Task RestrictedAccountIsForbiddenOnAParticipationRoute()
     {
         var account = await Scenario.Identity.CreateConfirmedAccountAsync();
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(30));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow());
         using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
         await Scenario.ExecuteAsync("update identity.users set status = 'Restricted' where id = $1", account.UserId);
 
@@ -197,15 +216,15 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ExpiredVerificationIsForbiddenOnAParticipationRoute()
+    public async Task AdultVerifiedYearsAgoReachesAParticipationRoute()
     {
         var account = await Scenario.Identity.CreateConfirmedAccountAsync();
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-400), _time.GetUtcNow().AddMinutes(-1));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-10 * 366));
         using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
 
         using var response = await browser.GetAsync(SentinelPath);
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "FORBIDDEN");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]

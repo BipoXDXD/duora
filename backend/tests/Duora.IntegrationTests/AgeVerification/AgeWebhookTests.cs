@@ -14,8 +14,6 @@ namespace Duora.IntegrationTests.AgeVerification;
 /// </summary>
 public sealed class AgeWebhookTests : IAsyncDisposable
 {
-    private static readonly TimeSpan Validity = TimeSpan.FromDays(365);
-
     private readonly PostgresFixture _postgres;
     // Segundo inteiro: o header leva segundos Unix, e a borda da janela (±300 s) fica exata.
     private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
@@ -110,7 +108,7 @@ public sealed class AgeWebhookTests : IAsyncDisposable
 
     [Fact]
     [Trait("Threat", "TM-37")]
-    public async Task AgeVerificationResultRecordsPolicyVersionAndExpiry()
+    public async Task AgeVerificationResultRecordsPolicyVersionWithoutExpiry()
     {
         var open = await Scenario.OpenVerificationAsync();
         var eventId = $"evt_{Guid.NewGuid():N}";
@@ -125,7 +123,7 @@ public sealed class AgeWebhookTests : IAsyncDisposable
         Assert.Equal("fake", verification.Provider);
         Assert.Equal(open.Reference, verification.ProviderReference);
         Assert.Equal(decidedAt, verification.DecidedAt);
-        Assert.Equal(decidedAt + Validity, verification.ExpiresAt);
+        Assert.Null(verification.ExpiresAt);
         Assert.Equal("Callback", verification.DecisionSource);
         Assert.Equal(2, verification.Version);
         Assert.Equal("Active", await Verification.AccountStatusAsync(open.Account.UserId));
@@ -416,6 +414,21 @@ public sealed class AgeWebhookTests : IAsyncDisposable
         Assert.Equal("Expired", Assert.Single(await Verification.VerificationsAsync(open.Account.UserId)).State);
         Assert.Equal("Processed", await Scenario.ReceiptStateAsync(eventId));
         Assert.Equal(1, await Verification.CountAuditAsync("identity.account_restricted", open.Account.UserId));
+        Assert.Equal(1, await Verification.CountAuditAsync("identity.age_verification_late_not_adult", open.VerificationId));
+    }
+
+    [Fact]
+    public async Task LateNotAdultRestrictsEvenAVerifiedAdult()
+    {
+        // A verificação adulta não vence, mas também não blinda: suspeita de menor sempre restringe (spec 12.2, M8).
+        var open = await Scenario.OpenVerificationAsync();
+        await Verification.ExecuteAsync("update identity.age_verifications set state = 'Expired' where id = $1", open.VerificationId);
+        await Verification.MakeVerifiedAdultAsync(open.Account.UserId, _time.GetUtcNow());
+
+        using var response = await Scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "not_adult"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("Restricted", await Verification.AccountStatusAsync(open.Account.UserId));
         Assert.Equal(1, await Verification.CountAuditAsync("identity.age_verification_late_not_adult", open.VerificationId));
     }
 

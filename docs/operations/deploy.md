@@ -247,6 +247,11 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
   and e.payload->>'kind' = 'PasswordResetUnavailable';
 ```
 
+**Verificação etária sem validade** (migration `AgeVerificationWithoutExpiry`, ADR-0024 adendo de 2026-10-16): a
+release nova grava `VerifiedAdult` sem `expires_at`. Um rollback para a release anterior funciona, mas falha
+fechado para essas pessoas: o código anterior lê a verificação sem `expires_at` como vencida, nega a participação e
+oferece nova verificação. Ninguém ganha acesso indevido; quem foi verificada depois do deploy refaz a verificação.
+
 ### Falha no meio do deploy
 
 | Onde falhou | Estado | O que fazer |

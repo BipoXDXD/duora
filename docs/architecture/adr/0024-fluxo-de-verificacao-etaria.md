@@ -4,8 +4,8 @@
 - **Origem:** spec 4.2, 8.2 (API-P05, API-P06), 8.5 (webhooks), 12.2, 16.3 e 16.4; threat model TM-35 a TM-40 e
   TM-64; [ADR-0003](0003-monolito-modular-web-worker.md), [ADR-0019](0019-implementacao-identidade-sessao-outbox.md)
   e [ADR-0021](0021-jobs-duraveis-e-leases-no-postgresql.md); issue #9, item 5 (ECA Digital)
-- **Revisar quando:** houver fornecedor contratado (protocolo real de assinatura, consulta de reconciliação), parecer
-  jurídico sobre o ECA Digital art. 9º § 1º ("a cada acesso"), ou o caso de revisão de `NotAdult` entrar no M2
+- **Revisar quando:** houver fornecedor contratado (protocolo real de assinatura, consulta de reconciliação) ou o
+  caso de revisão de `NotAdult` entrar no M2 (o parecer sobre o ECA Digital não será feito: adendo de 2026-10-16)
 
 ## Contexto
 
@@ -100,11 +100,41 @@ Detalhes decididos na revisão, sem mudar as decisões acima:
   com `RequireEligibleParticipant()` aplicado no grupo, e não rota a rota.
 - **Rate limit** de API-P05 e do webhook: aceito sem limite próprio por ora (TM-39).
 
+## Adendo: verificação única no cadastro, decisão do dono 2026-10-16
+
+Decisão do dono na issue #9 (2026-10-16): não haverá análise jurídica do ECA Digital (item 5 encerrado); a
+verificação etária acontece só no cadastro da conta; uma `VerifiedAdult` não expira e não há reverificação por
+acesso nem por sessão. O status continua **Accepted**; este adendo substitui a parte da decisão 3 que tratava da
+validade e o desdobramento "elegível é `VerifiedAdult` cujo `expires_at` é posterior ao instante".
+
+- **Sem validade.** `AgeVerification:Validity` e `AgeVerificationPolicy.Validity` deixam de existir. Elegível é conta
+  `Active` com uma verificação `VerifiedAdult`, em qualquer instante. O tempo continua sem conceder elegibilidade
+  (TM-40): ele só faz uma solicitação `Pending` abandonada (`RequestLifetime`) virar `Expired` e dar lugar a uma
+  nova. `Expired` passa a ser só estado de **solicitação** abandonada, nunca de verificação adulta vencida.
+- **A verificação adulta decide.** A elegibilidade lê a `VerifiedAdult` da pessoa, se houver, e só na falta dela a
+  solicitação mais recente. Pelo fluxo não se cria solicitação depois de uma `VerifiedAdult`; a ordem só protege
+  linhas antigas, do tempo da validade de 365 dias.
+- **`expires_at` em expand/contract.** Nesta release a coluna não é mais gravada nem lida, e a constraint
+  `ck_age_verifications_verified_expiry` sai (migration `AgeVerificationWithoutExpiry`); valores antigos ficam,
+  ignorados. **A coluna sai num PR futuro** (contract), depois que nenhuma release em uso a ler. Rollback para a
+  release anterior falha fechado: o código antigo trata `VerifiedAdult` sem `expires_at` como vencida e oferece
+  nova verificação (a pessoa refaz; ninguém ganha participação).
+- **`PendingEligibility` com `VerifiedAdult` (revisão do M4 do PR #37).** O fluxo não produz esse par: o mesmo
+  callback grava `VerifiedAdult` e leva `PendingEligibility` a `Active`. Se aparecer, a conta não participa e o
+  próximo passo é `NotAvailable`: nenhuma verificação nova é oferecida, porque nada volta a exigir verificação.
+  Regra para o futuro: toda transição que devolver uma conta ao fluxo (revisão de restrição, M2) ou que gravar
+  `VerifiedAdult` por outro caminho (revisão manual) leva a conta a `Active` na mesma transação se já houver
+  `VerifiedAdult`.
+- **`NotAdult` tardio (revisão do M8 do PR #39).** Continua restringindo a conta em verificação, mesmo a de quem já
+  é adulta verificada: a verificação permanente não blinda contra suspeita de menor (spec 12.2), e só a revisão do
+  M2 tira a restrição. `VerifiedAdult` e `Inconclusive` tardios numa `Expired` seguem sem efeito (falha fechada; a
+  pessoa pede de novo se ainda não for adulta verificada).
+
 ## Consequências
 
 - Positivas: a liberação de participação depende só de callback autenticado associado a solicitação criada pelo
-  servidor; repetir, atrasar ou reordenar callbacks não duplica efeito; a política de validade muda por
-  configuração.
+  servidor; repetir, atrasar ou reordenar callbacks não duplica efeito; a verificação é feita uma vez, no cadastro
+  (adendo de 2026-10-16).
 - Negativas: a pessoa vê um passo intermediário ("aguardando o fornecedor") até o worker obter o fluxo; o
   fornecedor simulado não exercita o protocolo real, que pode exigir outro esquema de assinatura e consulta de
   reconciliação.
@@ -123,6 +153,10 @@ Detalhes decididos na revisão, sem mudar as decisões acima:
 
 - Regra pura: `Duora.UnitTests.Identity.AgeEligibility*Tests` e `AgeEligibilityPropertyTests` (mutantes da regra
   vistos falhando).
+- Verificação única (adendo de 2026-10-16): `AgeEligibilityPropertyTests.AdultVerificationStaysEligibleForever` e
+  `AnAdultVerificationNeverAsksForANewOne`; `EligibleParticipantPolicyTests.AdultVerificationStaysEligibleYearsLater`
+  (`FakeTimeProvider`, 11 anos); `AgeVerificationRequestTests.VerifiedAdultCannotOpenAnotherRequestYearsLater` e
+  `PendingEligibilityWithAnAdultVerificationIsNeverAskedToVerifyAgain`; `AgeWebhookTests.LateNotAdultRestrictsEvenAVerifiedAdult`.
 - TM-35, TM-38, T-17 (fornecedor lento ou falhando), boot sem `Fake` fora de Development/Testing: testes de
   integração do PR da API e do worker (A2).
 - TM-36 (assinatura inválida, replay fora da janela, callback duplicado, dois callbacks concorrentes): testes de

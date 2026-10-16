@@ -33,7 +33,6 @@ public sealed partial class AgeVerificationWebhook
 
     private readonly DuoraDbContext _db;
     private readonly AgeVerificationOptions _options;
-    private readonly AgeVerificationPolicy _policy;
     private readonly string _providerName;
     private readonly TimeProvider _time;
     private readonly WebhookMetrics _metrics;
@@ -51,7 +50,6 @@ public sealed partial class AgeVerificationWebhook
         _logger = logger;
         _db = db;
         _options = options;
-        _policy = options.ToPolicy();
         _providerName = providerName;
         _time = time;
     }
@@ -154,7 +152,7 @@ public sealed partial class AgeVerificationWebhook
         }
 
         var account = Enum.Parse<AccountStatus>(accountName);
-        if (AgeEligibility.Decide(account, verification.State, callback.Outcome, now, _policy) is not { } decision)
+        if (AgeEligibility.Decide(account, verification.State, callback.Outcome) is not { } decision)
         {
             return false;
         }
@@ -191,7 +189,7 @@ public sealed partial class AgeVerificationWebhook
         var updated = await _db.Database.ExecuteSqlAsync(
             $"""
             update identity.age_verifications
-            set state = {state}, decided_at = {now}, expires_at = {decision.ExpiresAt}, decision_source = {source},
+            set state = {state}, decided_at = {now}, decision_source = {source},
                 version = version + 1
             where id = {verificationId} and state = {pending}
             """,

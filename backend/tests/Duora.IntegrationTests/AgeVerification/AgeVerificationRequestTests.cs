@@ -143,7 +143,7 @@ public sealed class AgeVerificationRequestTests : IAsyncDisposable
     {
         var (account, browser) = await Scenario.SignedInPendingAccountAsync();
         using var _ = browser;
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow(), _time.GetUtcNow().AddDays(30));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow());
 
         using var response = await AgeVerificationScenario.RequestAsync(browser);
 
@@ -291,17 +291,35 @@ public sealed class AgeVerificationRequestTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task PendingEligibilityWithAValidVerificationMayRequestAgain()
+    public async Task PendingEligibilityWithAnAdultVerificationIsNeverAskedToVerifyAgain()
     {
+        // Estado que o fluxo não produz (o callback ativa a conta junto); se surgir, nega sem abrir verificação nova.
         var (account, browser) = await Scenario.SignedInPendingAccountAsync();
         using var _ = browser;
-        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-1), _time.GetUtcNow().AddDays(30));
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-1));
         await Scenario.ExecuteAsync("update identity.users set status = 'PendingEligibility' where id = $1", account.UserId);
 
         using var response = await AgeVerificationScenario.RequestAsync(browser);
 
-        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Equal(["VerifiedAdult", "Pending"], (await Scenario.VerificationsAsync(account.UserId)).Select(r => r.State));
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "AGE_VERIFICATION_NOT_AVAILABLE");
+        Assert.Equal(["VerifiedAdult"], (await Scenario.VerificationsAsync(account.UserId)).Select(r => r.State));
+        Assert.Equal(0, await Scenario.CountProviderTasksAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task VerifiedAdultCannotOpenAnotherRequestYearsLater()
+    {
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow());
+
+        _time.Advance(TimeSpan.FromDays(10 * 366));
+        using var fresh = await Scenario.Identity.SignedInBrowserAsync(account);
+        using var response = await AgeVerificationScenario.RequestAsync(fresh);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "AGE_VERIFICATION_NOT_AVAILABLE");
+        Assert.Single(await Scenario.VerificationsAsync(account.UserId));
+        Assert.Equal(0, await Scenario.CountProviderTasksAsync(account.UserId));
+        Assert.Equal("Active", await Scenario.AccountStatusAsync(account.UserId));
     }
 
     [Fact]
