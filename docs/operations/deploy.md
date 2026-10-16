@@ -13,9 +13,9 @@ para antes da migração e web/edge são recriados. Escala horizontal exige o AD
 |---|---|---|
 | `compose.prod.yml` | `/opt/duora/` (Ansible) | Serviços, redes, volumes, secrets e limites |
 | `duora.env` | `/etc/duora/` (Ansible, 0640) | Configuração **não sensível** do host |
-| Segredos | `/etc/duora/secrets/` (0700; arquivos 0400) | Senhas e connection strings, gerados uma vez |
+| Segredos | `/etc/duora/secrets/` (0700; arquivos 0400) | Senhas, connection strings e o certificado do key ring do Data Protection, gerados uma vez |
 | `duora-deploy` | `/usr/local/sbin/` (root, 0755) | Único comando que o executor de deploy pode rodar |
-| `duora-secrets` | `/usr/local/sbin/` | Gera os segredos do banco (`init`) e os do backup (`init-backup`: certificados do pgBackRest e senha do `duora_backup`) na primeira configuração |
+| `duora-secrets` | `/usr/local/sbin/` | Gera os segredos do banco (`init`) e os do backup (`init-backup`: certificados do pgBackRest e senha do `duora_backup`) na primeira configuração; troca e retira o certificado do key ring (`rotate-certificate`, `retire-previous-certificates`) |
 | `duora-backup` | `/usr/local/sbin/` (root, 0755) | Wrapper restrito do pgBackRest: timers de backup e `verify` chamado pelo deploy ([backup-restore.md](backup-restore.md)) |
 | Estado do deploy | `/var/lib/duora/` (root, 0700) | `current.json`, `previous.json`, `.deploy.lock`, `releases/<id>.{env,json}` (só releases implantadas com sucesso) e `staging/` (rascunho do deploy em curso) |
 
@@ -196,6 +196,35 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
    Ele cria os volumes; o PostgreSQL roda `10-duora-roles.sh` e `20-duora-config.sh` uma única vez e cria
    `duora_migrator` (dono do banco `duora`) e `duora_app` (só DML via default privileges; regras completas e
    convenção de tabela append-only em [model.md](../data/model.md#permissões-de-banco-spec-107)).
+
+### Certificado do key ring (spec 11.2)
+
+O key ring do Data Protection (volume `dataprotection`) fica cifrado com um certificado X.509 autoassinado (RSA
+3072, 10 anos), gerado pelo `duora-secrets init` em `dataprotection_certificate`: o certificado seguido da chave
+privada PKCS#8, em PEM, 0400 e dono 1654. O web o recebe como `DataProtection__Certificate` e não sobe em
+Production sem ele. `dataprotection_previous_certificates` (vazio fora de uma rotação) chega como
+`DataProtection__PreviousCertificates` e só decifra chaves antigas. O framework nunca recifra uma chave: cada uma
+continua precisando do certificado que a cifrou.
+
+**Custódia separada.** Volume e certificado juntos abrem as sessões e os tokens. Logo depois do `init` e de cada
+rotação, copiar `dataprotection_certificate` (e os anteriores, se houver) para o cofre do responsável técnico, fora
+da VPS e fora do repositório de backup do banco e do volume (spec 18.3). Registrar no inventário de segredos a
+impressão digital (`openssl x509 -noout -fingerprint -sha256 -in ...`), a data e o motivo. Restaurar o volume
+sem o certificado equivale a perder o key ring: as sessões terminam em `401` e todo mundo entra de novo.
+
+**Rotação** (planejada, nunca resposta a comprometimento):
+
+1. `sudo duora-secrets rotate-certificate /etc/duora/secrets`: gera o certificado novo e põe o atual na frente de
+   `dataprotection_previous_certificates`.
+2. Copiar os dois arquivos para o cofre e recriar o web (`docker compose ... up -d --no-deps --force-recreate web`).
+   As sessões seguem válidas: as chaves antigas são lidas com o certificado anterior, e as novas nascem cifradas
+   com o novo.
+3. Só depois que a última chave cifrada pelo certificado anterior expirar (vida da chave de 90 dias, mais 24 h do
+   token mais longo): `sudo duora-secrets retire-previous-certificates /etc/duora/secrets` e recriar o web.
+
+**Comprometimento** do certificado ou do volume: não basta rotacionar. Gerar key ring novo, revogar todas as
+sessões e invalidar tokens pendentes ([auth.md](../security/auth.md#data-protection)); a rotação acima só troca a
+proteção em repouso.
 
 ### Rotação de senha do banco
 
