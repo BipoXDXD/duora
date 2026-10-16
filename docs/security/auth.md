@@ -282,15 +282,19 @@ sessão (`401`); com o mesmo certificado ou depois de uma rotação (atual novo,
 ## Auditoria de login e de sessão
 
 TM-05: cada fato abaixo grava **uma** linha em `ops.audit_events`, na transação do efeito (a mesma da
-`AccountCheck` no login, que também confirma o contador de falhas). Ator e alvo são a conta (`user`), exceto na
-revogação e no logout, cujo alvo é a sessão (`login_session`).
+`AccountCheck` no login, que também confirma o contador de falhas), inclusive sob pedidos simultâneos (a conta, ou
+a sessão, fica travada durante a verificação). Ator e alvo são a conta (`user`), exceto na revogação e no logout,
+cujo alvo é a sessão (`login_session`), e no login sem conta confirmada, que não aponta para conta nenhuma.
 
 | Fato | Ação | Onde |
 |---|---|---|
 | Login com senha (e segundo fator, se houver) certa | `identity.login_succeeded` | A04 |
-| Senha errada numa conta existente | `identity.login_failed` | A04 |
+| Senha certa numa conta com MFA, sem segundo fator (`MFA_REQUIRED`) | `identity.login_second_factor_required` | A04 |
+| Senha errada numa conta confirmada | `identity.login_failed` | A04 |
+| E-mail sem conta ou com cadastro não confirmado | `identity.login_failed_unknown_account` (ator `System` sem id; alvo `login_attempt` com id novo) | A04 |
+| Senha errada na reautenticação / senha atual errada na troca | `identity.reauthentication_failed` / `identity.password_change_failed` | A13 / A16 |
 | A falha que levou a conta ao teto e começou o bloqueio | `identity.account_locked_out` | A04 (senha ou segundo fator), A13, A16 |
-| Tentativa recusada porque a conta já estava bloqueada (senha não conferida) | `identity.login_refused_locked_out` | A04 |
+| Tentativa recusada porque a conta já estava bloqueada (senha não conferida) | `identity.login_refused_locked_out`, `identity.reauthentication_refused_locked_out`, `identity.password_change_refused_locked_out` | A04, A13, A16 |
 | Bloqueio ativo encerrado pelo reset (conta sem MFA) | `identity.lockout_cleared` | A07 |
 | Senha redefinida pelo link | `identity.password_reset` | A07 |
 | Logout com sessão | `identity.logged_out` | A05 |
@@ -298,11 +302,13 @@ revogação e no logout, cujo alvo é a sessão (`login_session`).
 
 Decisões (do assistente, a confirmar pelo responsável técnico):
 
-- **E-mail sem conta não grava nada.** Não há conta para ser alvo (`target_id` é obrigatório), e gravar um evento
-  sem ator nem alvo não ajudaria a moderação nem o titular. A resposta e o trabalho continuam iguais aos da senha
-  errada (um hash e o piso de latência, TM-06); o volume fica no rate limit e no log de acesso do Caddy.
-- **Conta com e-mail não confirmado** (`IsNotAllowed`) também não grava: o cadastro pendente pode ser de qualquer
-  pessoa, e o login dela nunca abre sessão.
+- **Login sem conta confirmada grava um registro sem conta.** E-mail inexistente e cadastro pendente
+  (`IsNotAllowed`) gravam a mesma linha: ator `System` sem id (a tabela não tem ator anônimo), alvo
+  `login_attempt` com um UUIDv7 novo que não aponta para nada, nenhum e-mail nem id de conta. Assim o volume de
+  tentativas contra contas desconhecidas fica auditável, e nem quem lê a tabela distingue "não existe" de
+  "pendente" (o cadastro pendente pode ser de qualquer pessoa). O `correlation_id` liga a linha ao log. A resposta
+  e o trabalho caro continuam iguais aos da senha errada (um hash e o piso de latência, TM-06). O volume de linhas
+  é limitado pelo rate limit do login.
 - **Sem IP nem user agent.** A tabela não tem coluna para a origem, e esta entrega não cria uma (seria migration e
   dado pessoal novo). O "de onde" do TM-05 fica parcial: `correlation_id` (trace id) liga o registro ao log da
   aplicação, e o log de acesso do Caddy guarda o IP já truncado (`ip_mask 24 48`). Uma coluna de prefixo de rede
@@ -310,9 +316,10 @@ Decisões (do assistente, a confirmar pelo responsável técnico):
 - Revogação em massa (troca de senha, reset, ativação/desativação de MFA) não grava uma linha por sessão: o fato
   auditado é a mudança de credencial, e o motivo fica em `login_sessions.revocation_reason`.
 
-Testes: `LoginAuditTests` (um registro por fato, tentativa durante o bloqueio, desbloqueio, sessão alheia → `404`
-sem registro, logout sem sessão, e-mail inexistente sem registro e com a mesma resposta, canário de senha, e-mail
-e IP fora da tabela).
+Testes: `LoginAuditTests` (um registro por fato; bloqueio e tentativa durante o bloqueio em A04, A13 e A16;
+`MFA_REQUIRED`; desbloqueio; sessão alheia → `404` sem registro; logout sem sessão; e-mail inexistente e cadastro
+pendente com o mesmo registro sem conta e a mesma resposta; logins, falhas, revogações e logouts simultâneos sem
+registro duplicado nem perdido; canário de senha, e-mail e IP fora da tabela).
 
 ## Rate limit e lockout
 
@@ -377,7 +384,7 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | API-A01 | `GET /auth/csrf` | Pública | — | — | — → `204` + cookie `XSRF-TOKEN` | — | — |
 | API-A02 | `POST /auth/register` | Pública | Sim | — | `email` (≤ 254), `password` (12–128), `acceptedTermsVersion`, `acceptedPrivacyVersion` (1–32, `[A-Za-z0-9._-]`) → `202` sem corpo, igual exista ou não a conta | `400` `VALIDATION_FAILED` (com `errors`) ou `INVALID_REQUEST`; `403` `CSRF_VALIDATION_FAILED`; `429` `RATE_LIMITED` | Pendente |
 | API-A03 | `POST /auth/confirm-email` | Pública | Sim | — | `userId`, `token`, `password` (até 128) → `204` (uso único; não abre sessão) | `400` `INVALID_TOKEN` (token inválido ou senha errada, sem distinguir); `400` `VALIDATION_FAILED`; `403`; `429` | Pendente |
-| API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128), `twoFactorCode?` (6 dígitos) ou `recoveryCode?` (até 32) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | `identity.login_succeeded`, `login_failed`, `login_refused_locked_out`, `account_locked_out`, `second_factor_failed`, `mfa_recovery_code_used` |
+| API-A04 | `POST /auth/login` | Pública | Sim | — | `email`, `password` (até 128), `twoFactorCode?` (6 dígitos) ou `recoveryCode?` (até 32) → `204` + cookie `__Host-duora` + `XSRF-TOKEN` novo | `401` `INVALID_CREDENTIALS`, `401` `MFA_REQUIRED`; `400`; `403`; `429` | `identity.login_succeeded`, `login_failed`, `login_failed_unknown_account`, `login_second_factor_required`, `login_refused_locked_out`, `account_locked_out`, `second_factor_failed`, `mfa_recovery_code_used` |
 | API-A05 | `POST /auth/logout` | Pública (sem sessão também responde `204`) | Sim | — | — → `204` + `XSRF-TOKEN` novo; revoga a sessão no servidor | `403` | `identity.logged_out` (só com sessão) |
 | API-A06 | `POST /auth/password-reset-requests` | Pública | Sim | — | `email` → `202` sem corpo | `400`; `403`; `429` por IP e por e-mail | Pendente |
 | API-A07 | `POST /auth/password-resets` | Pública | Sim | — | `userId`, `token`, `newPassword` (12–128) → `204` | `400` `INVALID_TOKEN`, `400` `VALIDATION_FAILED`; `403`; `429` | `identity.password_reset`, `lockout_cleared` |
@@ -386,10 +393,10 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | API-A10 | `DELETE /me/sessions/{sessionId}` | Cookie | Sim | — | → `204` (também para sessão própria já revogada) | `404` `NOT_FOUND` (alheia ou inexistente); `403`; `401` | `identity.session_revoked` (só na primeira revogação) |
 | API-A11 | `POST /me/mfa/enrollments` | Cookie | Sim | Sim | → `200` `sharedKey`, `authenticatorUri` | `401` `REAUTHENTICATION_REQUIRED`; `409` `MFA_ALREADY_ENABLED`; `429` | `identity.mfa_enrollment_started` |
 | API-A12 | `POST /me/mfa/confirmations` | Cookie | Sim | Sim | `code` (6 dígitos) → `200` `recoveryCodes[]` + sessão renovada | `400` `MFA_CODE_INVALID` ou `VALIDATION_FAILED`; `401`; `409` `MFA_ALREADY_ENABLED`/`MFA_ENROLLMENT_NOT_STARTED`; `429` | `identity.mfa_enabled` |
-| API-A13 | `POST /auth/reauthenticate` | Cookie (inclusive sessão restrita) | Sim | — | `password`, `twoFactorCode?` (obrigatório se a conta tem MFA) → `204` | `401` `INVALID_CREDENTIALS`; `400` | `identity.reauthenticated` |
+| API-A13 | `POST /auth/reauthenticate` | Cookie (inclusive sessão restrita) | Sim | — | `password`, `twoFactorCode?` (obrigatório se a conta tem MFA) → `204` | `401` `INVALID_CREDENTIALS`; `400` | `identity.reauthenticated`, `reauthentication_failed`, `reauthentication_refused_locked_out`, `account_locked_out`, `second_factor_failed` |
 | API-A14 | `POST /me/mfa/recovery-codes` | Cookie | Sim | Sim | → `200` `recoveryCodes[]` (conjunto anterior revogado) | `409` `MFA_NOT_ENABLED`; `401`; `429` | `identity.mfa_recovery_codes_regenerated` |
 | API-A15 | `DELETE /me/mfa` | Cookie | Sim | Sim | → `204` (também se já estava inativo) + sessão renovada | `403` `MFA_REQUIRED_BY_ROLE`; `401`; `429` | `identity.mfa_disabled` |
-| API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` (12–128) → `204` + sessão renovada; outras sessões revogadas | `400` validação; `401` `INVALID_CREDENTIALS` (senha atual errada, conta no lockout); `429` | `identity.password_changed` |
+| API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` (12–128) → `204` + sessão renovada; outras sessões revogadas | `400` validação; `401` `INVALID_CREDENTIALS` (senha atual errada, conta no lockout); `429` | `identity.password_changed`, `password_change_failed`, `password_change_refused_locked_out`, `account_locked_out` |
 
 Regras comuns: DTO estrito (campo desconhecido ou repetido → `400` `INVALID_REQUEST`); corpo até 32 KiB; erros
 em `application/problem+json` com `type` (`urn:duora:problem:<código>`), `title`, `status`, `code` e `traceId`;
