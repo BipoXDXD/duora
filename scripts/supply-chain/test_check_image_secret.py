@@ -1,10 +1,12 @@
 """Testes do verificador de segredo em imagem. Rodar: python3 -m unittest discover -s scripts/supply-chain"""
 
 import base64
+import gzip
 import io
+import tarfile
 import unittest
 
-from check_image_secret import CHUNK, needles, stream_contains
+from check_image_secret import CHUNK, UnsupportedLayer, archive_contains, needles, stream_contains
 
 # Licença sintética de baixa entropia, montada em partes: com cara de chave de verdade, o Gitleaks a apontaria.
 ID = "i" * 20
@@ -63,6 +65,47 @@ class StreamContainsTests(unittest.TestCase):
 
     def test_empty_stream_has_no_needle(self):
         self.assertFalse(stream_contains(io.BytesIO(b""), needles(SECRET)))
+
+
+def tar_bytes(files):
+    """Tar sem compressão com os arquivos dados (nome -> conteúdo), como uma camada ou o próprio `docker save`."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as archive:
+        for name, content in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+    return buffer.getvalue()
+
+
+def saved_image(*layers):
+    """Arquivo de `docker save` no layout OCI: um blob por camada, mais manifesto e índice."""
+    files = {f"blobs/sha256/{index:064x}": layer for index, layer in enumerate(layers)}
+    files["index.json"] = b'{"schemaVersion": 2}'
+    files["manifest.json"] = b"[]"
+    return tar_bytes(files)
+
+
+class ArchiveContainsTests(unittest.TestCase):
+    """Camada por camada (`docker save`), e não o filesystem achatado: um arquivo apagado depois continua na imagem."""
+
+    def test_finds_the_secret_in_a_layer_whose_file_a_later_layer_deleted(self):
+        written = tar_bytes({"app/sixlabors.lic": SECRET.encode()})
+        deleted = tar_bytes({"app/.wh.sixlabors.lic": b""})
+        self.assertTrue(archive_contains(io.BytesIO(saved_image(written, deleted)), needles(SECRET)))
+
+    def test_finds_the_secret_in_a_gzip_layer(self):
+        layer = gzip.compress(tar_bytes({"app/config.json": b'{"license": "' + SECRET.encode() + b'"}'}))
+        self.assertTrue(archive_contains(io.BytesIO(saved_image(layer)), needles(SECRET)))
+
+    def test_a_clean_image_has_no_needle(self):
+        layer = gzip.compress(tar_bytes({"app/Duora.Worker.dll": b"z" * 4096}))
+        self.assertFalse(archive_contains(io.BytesIO(saved_image(tar_bytes({"etc/os-release": b"x"}), layer)), needles(SECRET)))
+
+    def test_a_zstd_layer_fails_closed_instead_of_passing_unread(self):
+        layer = b"\x28\xb5\x2f\xfd" + b"\0" * 64
+        with self.assertRaises(UnsupportedLayer):
+            archive_contains(io.BytesIO(saved_image(layer)), needles(SECRET))
 
 
 if __name__ == "__main__":
