@@ -258,6 +258,22 @@ public sealed class SecondFactorHardeningTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task APrivilegedAccountIsForbiddenOnThePhotoRoutes()
+    {
+        // API-M01 e API-M02 são de participante (fallback policy): moderação não envia nem consulta foto de perfil.
+        var account = await Scenario.CreatePrivilegedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        await MfaScenario.EnableAsync(browser, _time);
+
+        using var upload = await Media.MediaScenario.UploadAsync(browser, Media.MediaScenario.JpegLike());
+        using var status = await browser.GetAsync($"/api/v1/me/photos/{Guid.NewGuid()}/status");
+
+        await ProblemAssert.IsProblemAsync(upload, HttpStatusCode.Forbidden, "FORBIDDEN");
+        await ProblemAssert.IsProblemAsync(status, HttpStatusCode.Forbidden, "FORBIDDEN");
+        Assert.Equal(0, await Scenario.ScalarAsync("select count(*) from media.uploads where owner_id = $1", account.UserId));
+    }
+
+    [Fact]
     public async Task ALoginWithARecoveryCodeIsNotARecentAuthenticatorProof()
     {
         var (account, mfa) = await AccountWithMfaAsync();
