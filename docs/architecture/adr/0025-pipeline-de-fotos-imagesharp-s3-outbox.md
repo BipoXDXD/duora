@@ -107,6 +107,9 @@ na outbox e sanitizá-la no Worker com ImageSharp, publicando só derivados reen
 8. **Revisão.** Política `Media:Review = TechnicalOnly`: passou na sanitização, vai a `Approved`. É a única
    política implementada, e o boot do Web e do Worker a recusa em `Production`: com ela, fotos reais não entram.
    **Pendência antes de dados reais:** revisão editorial (spec 12.3), com fila de quarentena e decisão humana.
+   Sem `Media:Review` configurado, o upload fica desligado (fail closed): API-M01 responde `503
+   MEDIA_UPLOADS_DISABLED`, o Worker não consome `media-processing` e o storage não é exigido no boot. É o estado
+   da produção até existir uma política além da `TechnicalOnly`, e é o que deixa o deploy atual subir.
 9. **Isolamento.** A sanitização roda dentro do Worker agora. **Gate obrigatório antes de dados reais:** mover o
    decode para um container `media-sanitizer` sem rede, sem credencial de storage, com limite de memória e CPU,
    recebendo os bytes e devolvendo os derivados por volume ou pipe. O processo Web nunca decodifica imagem: o
