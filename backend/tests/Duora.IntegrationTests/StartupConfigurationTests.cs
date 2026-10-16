@@ -1,7 +1,9 @@
+using Duora.Infrastructure.Media;
 using Duora.Web;
 using Duora.Web.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace Duora.IntegrationTests;
@@ -69,31 +71,35 @@ public sealed class StartupConfigurationTests
     }
 
     [Fact]
-    public async Task WebDoesNotStartInProductionWithTechnicalOnlyPhotoReview()
+    public async Task WebRefusesTechnicalOnlyPhotoReviewInProduction()
     {
-        // ADR-0025: sem revisão editorial, foto real não pode ser aprovada só pela checagem técnica.
+        // ADR-0025: sem revisão editorial, foto real não pode ser aprovada só pela checagem técnica. Em Production o
+        // boot já cai antes no Data Protection (volume e certificado), então a opção de mídia é conferida direto no
+        // container do Web: é a mesma validação que o ValidateOnStart executa.
         await using var app = BuildWeb([
             "--environment=Production",
             "--Media:Review=TechnicalOnly",
             .. CompleteS3Storage,
         ]);
 
-        var exception = await Assert.ThrowsAnyAsync<Exception>(() => app.StartAsync(TestContext.Current.CancellationToken));
+        var exception = Assert.Throws<OptionsValidationException>(
+            () => app.Services.GetRequiredService<IOptions<MediaOptions>>().Value);
 
-        Assert.Contains("Media:Review", exception.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Media:Review", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task WebDoesNotStartInProductionWithTheFileSystemPhotoStore()
+    public async Task WebRefusesTheFileSystemPhotoStoreInProduction()
     {
         await using var app = BuildWeb(
             "--environment=Production",
             "--Media:Storage:Provider=FileSystem",
             $"--Media:Storage:FileSystemRoot={Path.GetTempPath()}");
 
-        var exception = await Assert.ThrowsAnyAsync<Exception>(() => app.StartAsync(TestContext.Current.CancellationToken));
+        var exception = Assert.Throws<OptionsValidationException>(
+            () => app.Services.GetRequiredService<IOptions<MediaStorageOptions>>().Value);
 
-        Assert.Contains("FileSystem", exception.ToString(), StringComparison.Ordinal);
+        Assert.Contains("FileSystem", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

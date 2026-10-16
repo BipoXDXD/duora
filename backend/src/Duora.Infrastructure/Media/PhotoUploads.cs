@@ -1,4 +1,3 @@
-using Duora.Core.Identity;
 using Duora.Core.Media;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Persistence;
@@ -50,6 +49,7 @@ public sealed partial class PhotoUploads
     private static readonly TimeSpan CompensationTimeout = TimeSpan.FromSeconds(5);
 
     private readonly DuoraDbContext _db;
+    private readonly AccountService _accounts;
     private readonly IObjectStore _store;
     private readonly TimeProvider _time;
     private readonly IOptions<MediaOptions> _options;
@@ -57,12 +57,14 @@ public sealed partial class PhotoUploads
 
     internal PhotoUploads(
         DuoraDbContext db,
+        AccountService accounts,
         IObjectStore store,
         TimeProvider time,
         IOptions<MediaOptions> options,
         ILogger<PhotoUploads> logger)
     {
         _db = db;
+        _accounts = accounts;
         _store = store;
         _time = time;
         _options = options;
@@ -108,10 +110,7 @@ public sealed partial class PhotoUploads
         }
 
         // Relida sob a guarda: uma restrição aplicada entre a checagem da borda e aqui vale para este envio.
-        var status = await _db.Set<DuoraUser>()
-            .Where(user => user.Id == command.OwnerId)
-            .Select(user => (AccountStatus?)user.Status)
-            .SingleOrDefaultAsync(cancellationToken);
+        var status = await _accounts.FindStatusAsync(command.OwnerId, cancellationToken);
         if (status is not { } current)
         {
             return new Reservation.Refused(new PhotoUploadResult.OwnerMissing());

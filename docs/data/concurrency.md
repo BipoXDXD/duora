@@ -212,7 +212,8 @@ version = $etag` → 0 linhas → `412` e nada gravado (spec 8.1).
 API-M01, ADR-0025, teste `PendingUploadsPerAccountAreCapped`. Teto de pendentes por conta (spec 11.5) com
 "contar e inserir" na mesma transação, que sozinho seria write skew em READ COMMITTED. A reserva toma a guarda do
 Media: `INSERT INTO media.upload_guards (owner_id) VALUES ($o) ON CONFLICT DO NOTHING`, depois `SELECT ... FROM
-media.upload_guards WHERE owner_id = $o FOR UPDATE`; só então relê a situação da conta, procura a chave de
+media.upload_guards WHERE owner_id = $o FOR UPDATE`; só então relê a situação da conta (pela operação pública
+`AccountService.FindStatusAsync` do Identity, na mesma transação, sem ler `identity.users` direto), procura a chave de
 idempotência, conta os pendentes e insere o `Pending`. O segundo envio espera o commit do primeiro e o conta. Conta
 inexistente: a FK recusa o insert da guarda (`23503`) e a reserva responde "dono ausente". O streaming para o
 storage acontece depois do commit, sem lock; a promoção a `Quarantined` é `UPDATE` condicional por estado e versão

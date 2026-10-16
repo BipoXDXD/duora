@@ -1,4 +1,5 @@
 using Duora.Core.Media;
+using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -89,6 +90,7 @@ public static class MediaServiceCollectionExtensions
         });
         services.AddScoped(provider => new PhotoUploads(
             provider.GetRequiredService<DuoraDbContext>(),
+            provider.GetRequiredService<AccountService>(),
             provider.GetRequiredService<IObjectStore>(),
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<IOptions<MediaOptions>>(),
