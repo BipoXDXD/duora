@@ -76,7 +76,7 @@ com proposta em [model.md](../data/model.md#decisões-de-modelagem-propostas), D
 - Invariantes que precisam valer imediatamente ficam na **mesma transação** (bloqueio, decisão mútua, reserva).
   Efeitos posteriores (notificação, e-mail, processamento de mídia) saem por **evento interno via outbox**.
 - Safety é consultado por Events, Matching, Experiences, Connections e Messaging antes de qualquer interação
-  (`CheckInteraction`); Identity responde elegibilidade (`GetEligibility`) para todos.
+  (`CheckInteraction`); Identity responde elegibilidade (`GetEligibility`) para todos. No HTTP, a policy `EligibleParticipant` (`ParticipationPolicies`) consulta `GetEligibility` a cada requisição, e toda rota de `/api/v1` fora das de conta, sessão e verificação etária precisa dela (`EligibleParticipantPolicyTests`).
 - Dados de outro módulo entram como projeção mínima, nunca como entidade compartilhada.
 
 ## Ordem global de locks (spec 10.4)
