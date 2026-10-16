@@ -227,6 +227,30 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
     }
 
     [Fact]
+    public async Task AnUploadDecidedDuringTheSanitizingGetsNoDerivativesFromTheStaleAttempt()
+    {
+        // Outra tentativa (depois de um lease vencido) decide o upload enquanto esta ainda decodifica: esta não pode
+        // gravar derivados por cima de um upload que já não é dela.
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        var upload = (await media.UploadsOfAsync(await OwnerOfAsync(photoId))).Single();
+        var worker = StartWorker(services => services.AddSingleton<IPhotoSanitizer>(new DecidedMeanwhileSanitizer(
+            () => ExecuteAsync(
+                """
+                update media.uploads set state = 'Rejected', rejection_code = 'PROCESSING_LIMIT', version = version + 1
+                where id = $1
+                """,
+                photoId))));
+
+        Assert.Equal(1, await DispatchOnceAsync(worker));
+
+        Assert.Equal(("Rejected", "PROCESSING_LIMIT"), await StatusAsync(browser, photoId));
+        Assert.All(PhotoVariants.All, variant => Assert.False(File.Exists(DerivativePath(upload.QuarantineKey, variant))));
+        Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id = $1", photoId));
+    }
+
+    [Fact]
     public async Task ADeliveryAlreadyPastTheAttemptCeilingIsAbandonedWithoutDecoding()
     {
         // Imagem que derruba o processo: nenhuma tentativa chega ao catch, o lease vence e a entrega volta com mais
@@ -613,6 +637,20 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
             throw new DecoderBugException();
 
         public sealed class DecoderBugException() : Exception("Defeito sintético do decoder.");
+    }
+
+    /// <summary>Decoder que, enquanto "decodifica", deixa outra tentativa decidir o upload, e depois devolve derivados.</summary>
+    private sealed class DecidedMeanwhileSanitizer(Func<Task> decideElsewhere) : IPhotoSanitizer
+    {
+        public async Task<SanitizeOutcome> SanitizeAsync(PhotoFormat declared, ReadOnlyMemory<byte> original, CancellationToken cancellationToken)
+        {
+            await decideElsewhere();
+            return new SanitizeOutcome.Sanitized(
+                declared,
+                64,
+                32,
+                [.. PhotoVariants.All.Select(kind => new SanitizedVariant(kind, [1, 2, 3], 64, 32))]);
+        }
     }
 
     /// <summary>Decoder que só conta as chamadas: o teste prova que ele nunca foi alcançado.</summary>
