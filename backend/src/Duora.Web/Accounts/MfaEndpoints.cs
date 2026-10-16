@@ -85,7 +85,7 @@ internal static class MfaEndpoints
         }
 
         var (userId, _) = CurrentSession.Require(context);
-        switch (await security.ConfirmMfaEnrollmentAsync(userId, code, cancellationToken))
+        switch (await security.ConfirmMfaEnrollmentAsync(userId, code, EmailLanguageNegotiation.FromRequest(context.Request), cancellationToken))
         {
             case MfaActivation.Activated activated:
                 // Acabou de provar o TOTP: a sessão nova nasce com a prova de MFA e a autenticação recente.
@@ -112,7 +112,7 @@ internal static class MfaEndpoints
         CancellationToken cancellationToken)
     {
         var (userId, _) = CurrentSession.Require(context);
-        return await security.RegenerateRecoveryCodesAsync(userId, cancellationToken) switch
+        return await security.RegenerateRecoveryCodesAsync(userId, EmailLanguageNegotiation.FromRequest(context.Request), cancellationToken) switch
         {
             RecoveryCodesRegeneration.Regenerated regenerated =>
                 TypedResults.Ok(new RecoveryCodesResponse(regenerated.RecoveryCodes)),
@@ -128,7 +128,7 @@ internal static class MfaEndpoints
         CancellationToken cancellationToken)
     {
         var (userId, _) = CurrentSession.Require(context);
-        switch (await security.DisableMfaAsync(userId, cancellationToken))
+        switch (await security.DisableMfaAsync(userId, EmailLanguageNegotiation.FromRequest(context.Request), cancellationToken))
         {
             case MfaDeactivation.Disabled disabled:
                 var session = CurrentSession.State(context);

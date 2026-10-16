@@ -48,7 +48,6 @@ public sealed class AccountService
 
     private readonly DuoraDbContext _db;
     private readonly UserManager<DuoraUser> _users;
-    private readonly LoginSessions _sessions;
     private readonly DecoyPasswordHash _decoy;
     private readonly AccountLifecycleOptions _lifecycle;
     private readonly TimeProvider _time;
@@ -56,14 +55,12 @@ public sealed class AccountService
     internal AccountService(
         DuoraDbContext db,
         UserManager<DuoraUser> users,
-        LoginSessions sessions,
         DecoyPasswordHash decoy,
         AccountLifecycleOptions lifecycle,
         TimeProvider time)
     {
         _db = db;
         _users = users;
-        _sessions = sessions;
         _decoy = decoy;
         _lifecycle = lifecycle;
         _time = time;
@@ -199,12 +196,13 @@ public sealed class AccountService
     /// a revogação explícita deixa o motivo registrado. O bloqueio por tentativas é zerado, para quem foi
     /// bloqueado por um atacante recuperar o acesso pelo e-mail, exceto em conta com MFA: o e-mail não prova o
     /// segundo fator, e destravar ali reabriria a força bruta do TOTP (I4 da revisão do #38). Só vale para conta
-    /// confirmada.
+    /// confirmada. Troca, revogação e aviso ao titular (TM-21) vão num commit só: sem troca, nada é gravado.
     /// </summary>
     public async Task<bool> ResetPasswordAsync(
         Guid userId,
         string linkToken,
         string newPassword,
+        EmailLanguage language,
         CancellationToken cancellationToken)
     {
         var user = await _users.FindByIdAsync(userId.ToString("D"));
@@ -213,6 +211,7 @@ public sealed class AccountService
             return false;
         }
 
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var result = await _users.ResetPasswordAsync(user, token, newPassword);
         if (!result.Succeeded)
         {
@@ -225,8 +224,30 @@ public sealed class AccountService
             EnsureSucceeded(await _users.SetLockoutEndDateAsync(user, lockoutEnd: null), "encerrar o bloqueio");
         }
 
-        await _sessions.RevokeAllAsync(user.Id, "password-reset", cancellationToken);
+        await RevokeAllSessionsAsync(user.Id, "password-reset", cancellationToken);
+        _db.Add(AccountEmailOutbox.CreateSecurityNotice(
+            SecurityChange.PasswordReset,
+            StoredAddress(user),
+            user.Id,
+            language,
+            _time.GetUtcNow()));
+        await _db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return true;
+    }
+
+    /// <summary>
+    /// O stamp novo já invalida as sessões; a revogação explícita deixa o motivo registrado, na transação da troca.
+    /// </summary>
+    private async Task RevokeAllSessionsAsync(Guid userId, string reason, CancellationToken cancellationToken)
+    {
+        var now = _time.GetUtcNow();
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            update identity.login_sessions set revoked_at = {now}, revocation_reason = {reason}
+            where user_id = {userId} and revoked_at is null
+            """,
+            cancellationToken);
     }
 
     private static void EnsureSucceeded(IdentityResult result, string operation)

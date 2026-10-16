@@ -40,7 +40,6 @@ public static class AccountServiceCollectionExtensions
         services.AddScoped(provider => new AccountService(
             provider.GetRequiredService<DuoraDbContext>(),
             provider.GetRequiredService<UserManager<DuoraUser>>(),
-            provider.GetRequiredService<LoginSessions>(),
             provider.GetRequiredService<DecoyPasswordHash>(),
             provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
             provider.GetRequiredService<TimeProvider>()));

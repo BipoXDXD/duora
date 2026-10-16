@@ -216,6 +216,7 @@ internal static class AuthEndpoints
 
     private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> ResetPasswordAsync(
         ResetPasswordRequest request,
+        HttpContext context,
         AccountService accounts,
         CancellationToken cancellationToken)
     {
@@ -228,7 +229,12 @@ internal static class AuthEndpoints
             return ApiProblems.Validation(validation.Errors);
         }
 
-        return await accounts.ResetPasswordAsync(userId, token, newPassword, cancellationToken)
+        return await accounts.ResetPasswordAsync(
+                userId,
+                token,
+                newPassword,
+                EmailLanguageNegotiation.FromRequest(context.Request),
+                cancellationToken)
             ? TypedResults.NoContent()
             : InvalidToken();
     }

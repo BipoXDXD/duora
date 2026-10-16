@@ -85,6 +85,18 @@ internal static class AccountEmailOutbox
     public static SecurityChange? SecurityChangeOf(AccountEmailKind kind) =>
         NoticeKinds.Where(pair => pair.Value == kind).Select(pair => (SecurityChange?)pair.Key).SingleOrDefault();
 
+    /// <summary>
+    /// Aviso de credencial ao titular (TM-21), gravado na transação da mudança. Sem token: o aviso nunca leva
+    /// credencial, e o worker recusa o que levar.
+    /// </summary>
+    public static OutboxEvent CreateSecurityNotice(
+        SecurityChange change,
+        string to,
+        Guid userId,
+        EmailLanguage language,
+        DateTimeOffset now) =>
+        Create(new AccountEmailRequested(NoticeKinds[change], to, userId, Token: null, EmailLanguageTag.Format(language)), now);
+
     public static OutboxEvent Create(AccountEmailRequested message, DateTimeOffset now)
     {
         var identity = new EventIdentity(EventType, SchemaVersion, ResourceType, message.UserId);
