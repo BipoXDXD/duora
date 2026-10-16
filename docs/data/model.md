@@ -157,6 +157,11 @@ erDiagram
 - **Índices:** o da unicidade de e-mail; `ix_users_state` só se uma consulta medida pedir.
 - **`last_totp_step bigint null`:** último passo TOTP (RFC 6238) aceito; gravado só por UPDATE condicional que
   exige passo maior, para o mesmo código não valer duas vezes (auth.md, "MFA").
+- **`temporary_password_expires_at timestamptz null`:** fim da validade da senha temporária do bootstrap
+  administrativo (D4); com valor, a sessão só troca a senha, e a troca o limpa. `CHECK
+  ck_users_temporary_password_requires_confirmed_email (temporary_password_expires_at IS NULL OR
+  email_confirmed)`: conta com senha temporária é confirmada, e o upsert do cadastro nunca a substitui (TM-66;
+  auth.md, "Bootstrap administrativo").
 - **Classe:** S (`password_hash`, `security_stamp`); P3 (`birth_date`); P2 (e-mail).
 - **Exclusão:** a linha é anonimizada (e-mail substituído por valor não reversível, hash e stamp zerados) e,
   depois das etapas do Privacy, apagada; nenhuma FK de outro módulo cascateia.
@@ -998,9 +1003,13 @@ Protocolo e regras em [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases
 Dono: Operations (D3).
 
 - **Colunas (implementadas):** `id bigint generated always as identity`; `occurred_at timestamptz`; `actor_kind
-  varchar(16)` (`User`, `Moderator`, `Admin`, `Operator`, `System`); `actor_id uuid` (nulo só para `System`);
+  varchar(16)` (`User`, `Moderator`, `Admin`, `Operator`, `TerminalOperator`, `System`); `actor_id uuid` (nulo só
+  para `System` e `TerminalOperator`); `actor_label varchar(32)` (só com `TerminalOperator`: o rótulo `--operator` de
+  quem rodou um comando no host, como o bootstrap administrativo; formato de usuário de sistema, `CHECK
+  ck_audit_events_actor_label`);
   `action varchar(64)` (catálogo fechado `AuditAction` no código: `safety.block_created`, as ações `identity.*` de
-  conta, MFA, login e sessão listadas no [auth.md](../security/auth.md#auditoria-de-login-e-de-sessão); próximas:
+  conta, MFA, login e sessão listadas no [auth.md](../security/auth.md#auditoria-de-login-e-de-sessão), as do
+  bootstrap `identity.admin_granted.<papel>` e `identity.admin_temporary_password_reissued`; próximas:
   `moderation.evidence_read`...);
   `target_type varchar(32)`; `target_id uuid`; `target_version bigint`; `correlation_id varchar(32)` (trace id
   W3C da requisição).
@@ -1008,7 +1017,8 @@ Dono: Operations (D3).
   `policy_version text`; `metadata jsonb` (allowlist de campos, sem senha, ticket nem corpo de conversa,
   spec 10.2).
 - **Constraints:** sem FKs de propósito (o registro sobrevive ao alvo e ao autor; exceção documentada à regra
-  de associação polimórfica); `CHECK` de `actor_kind`, de ator com id e do formato de `action` e `target_type`;
+  de associação polimórfica); `CHECK` de `actor_kind`, de ator com id (salvo `System` e `TerminalOperator`), do
+  rótulo (só e sempre no `TerminalOperator`, sem id) e do formato de `action`, `target_type` e `actor_label`;
   permissões: conta da aplicação só com `INSERT` e `SELECT` (`REVOKE UPDATE, DELETE, TRUNCATE` na migration
   `AuditEvents`; teste `AuditPrivilegesTests`).
 - **Escrita:** só por `AuditTrail.AppendAsync`, que exige a transação aberta do efeito auditado: rollback do
