@@ -186,6 +186,32 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
     }
 
     [Fact]
+    public async Task ADeliveryAlreadyPastTheAttemptCeilingIsAbandonedWithoutDecoding()
+    {
+        // Imagem que derruba o processo: nenhuma tentativa chega ao catch, o lease vence e a entrega volta com mais
+        // uma tentativa. Acima do teto, o Worker encerra o upload sem decodificar de novo, em vez de cair em laço.
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        var upload = (await media.UploadsOfAsync(await OwnerOfAsync(photoId))).Single();
+        await ExecuteAsync(
+            """
+            update ops.outbox_deliveries set attempts = 2
+            where outbox_event_id in (select id from ops.outbox_events where resource_id = $1)
+            """,
+            photoId);
+        var sanitizer = new CountingSanitizer();
+        var worker = StartWorker(
+            services => services.AddSingleton<IPhotoSanitizer>(sanitizer),
+            "--Media:Processing:MaxAttempts=2");
+
+        Assert.Equal(1, await DispatchOnceAsync(worker));
+
+        Assert.Equal(0, sanitizer.Calls);
+        await AssertAbandonedAsync(media, browser, upload, "AttemptsExhausted");
+    }
+
+    [Fact]
     public async Task ADeliveryPastItsDeadlineEndsTheUploadRejectedAndLogsIt()
     {
         // Issue #66: a entrega vencida (24 h) não pode deixar o upload em Quarantined ocupando vaga de pendente.
@@ -524,6 +550,20 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
             throw new DecoderBugException();
 
         public sealed class DecoderBugException() : Exception("Defeito sintético do decoder.");
+    }
+
+    /// <summary>Decoder que só conta as chamadas: o teste prova que ele nunca foi alcançado.</summary>
+    private sealed class CountingSanitizer : IPhotoSanitizer
+    {
+        private int _calls;
+
+        public int Calls => _calls;
+
+        public Task<SanitizeOutcome> SanitizeAsync(PhotoFormat declared, ReadOnlyMemory<byte> original, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _calls);
+            return Task.FromResult<SanitizeOutcome>(new SanitizeOutcome.Rejected(PhotoRejection.CorruptImage));
+        }
     }
 
     /// <summary>Storage que grava o primeiro derivado e recusa os seguintes, como uma queda no meio da publicação.</summary>
