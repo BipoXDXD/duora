@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
 using Microsoft.OpenApi;
 
 namespace Duora.Web.Media;
@@ -58,6 +60,7 @@ internal static class PhotoEndpoints
         [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey,
         AccountService accounts,
         PhotoUploads uploads,
+        PhotoUploadLimiter limiter,
         CancellationToken cancellationToken)
     {
         if (!uploads.UploadsEnabled)
@@ -87,7 +90,12 @@ internal static class PhotoEndpoints
                 "A situação da conta não permite enviar fotos.");
         }
 
-        AllowPhotoSizedBody(context);
+        if (limiter.TryConsume(userId, context.Connection.RemoteIpAddress) is { } retryAfter)
+        {
+            return ApiProblems.TooManyRequests(context, retryAfter);
+        }
+
+        AllowPhotoSizedBody(context, uploads);
         var result = await uploads.ReceiveAsync(command with { OwnerId = userId }, context.Request.Body, cancellationToken);
         return Respond(context, result);
     }
@@ -153,12 +161,20 @@ internal static class PhotoEndpoints
             });
     }
 
-    /// <summary>O teto global do Kestrel é o do JSON comum (32 KiB); só esta rota aceita até 5 MiB.</summary>
-    private static void AllowPhotoSizedBody(HttpContext context)
+    /// <summary>
+    /// O teto global do Kestrel é o do JSON comum (32 KiB); só esta rota aceita até 5 MiB. A taxa mínima também é
+    /// fixada aqui, de propósito, em vez de herdar o padrão do servidor: cliente lento é cortado e a reserva desfeita.
+    /// </summary>
+    private static void AllowPhotoSizedBody(HttpContext context, PhotoUploads uploads)
     {
         if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
         {
             limit.MaxRequestBodySize = PhotoLimits.MaxBytes;
+        }
+
+        if (context.Features.Get<IHttpMinRequestBodyDataRateFeature>() is { } rate)
+        {
+            rate.MinDataRate = new MinDataRate(uploads.MinUploadBytesPerSecond, uploads.MinUploadRateGracePeriod);
         }
     }
 
@@ -184,6 +200,10 @@ internal static class PhotoEndpoints
             ApiProblems.UploadPendingLimit,
             "Há fotos demais em processamento. Aguarde o resultado delas."),
         PhotoUploadResult.OwnerMissing => TypedResults.Unauthorized(),
+        PhotoUploadResult.AccountRestricted => ApiProblems.Problem(
+            StatusCodes.Status403Forbidden,
+            ApiProblems.AccountRestricted,
+            "A situação da conta não permite enviar fotos."),
         PhotoUploadResult.BodyIncomplete => ApiProblems.Problem(
             StatusCodes.Status400BadRequest,
             ApiProblems.UploadIncomplete,

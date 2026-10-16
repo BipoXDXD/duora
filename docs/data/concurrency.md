@@ -49,6 +49,10 @@ Todo caso de uso coordenado adquire locks nesta ordem (spec 10.4). Quem descobre
 | 3 | Guarda de relação | `INSERT ... ON CONFLICT DO NOTHING` e `SELECT ... FROM social.relationship_guards WHERE (user_low, user_high) = ($l, $h) FOR UPDATE` | Criada sob demanda; vários pares em ordem `(user_low, user_high)` |
 | 4 | Sala (`game_session`) e conversa | `SELECT ... FOR UPDATE` | Sala antes de conversa; várias em ordem de `id` |
 
+Guardas próprias de um módulo, que serializam só operações daquele módulo e de uma conta (como
+`media.upload_guards`, C14), ficam fora desta ordem: o caso de uso que as toma não adquire nenhum outro lock de
+negócio na mesma transação.
+
 Linhas filhas (registros, decisões, mensagens, reservas) são escritas depois do coordenador que as protege;
 inserções em índice único também esperam a transação concorrente, o que é desejado. Operações em lote
 (pareamento de uma rodada inteira, cancelamento de evento) obedecem à mesma ordem: primeiro todas as guardas
@@ -202,6 +206,17 @@ $v` → 0 linhas → `409`. Não há retry automático: a segunda pessoa revê o
 
 API-P02/P03 e N02. Teste T-19. `If-Match` obrigatório (ausente → `428`); `UPDATE ... WHERE user_id = $u AND
 version = $etag` → 0 linhas → `412` e nada gravado (spec 8.1).
+
+### C14. Uploads simultâneos da mesma conta (M1)
+
+API-M01, ADR-0025, teste `PendingUploadsPerAccountAreCapped`. Teto de pendentes por conta (spec 11.5) com
+"contar e inserir" na mesma transação, que sozinho seria write skew em READ COMMITTED. A reserva toma a guarda do
+Media: `INSERT INTO media.upload_guards (owner_id) VALUES ($o) ON CONFLICT DO NOTHING`, depois `SELECT ... FROM
+media.upload_guards WHERE owner_id = $o FOR UPDATE`; só então relê a situação da conta, procura a chave de
+idempotência, conta os pendentes e insere o `Pending`. O segundo envio espera o commit do primeiro e o conta. Conta
+inexistente: a FK recusa o insert da guarda (`23503`) e a reserva responde "dono ausente". O streaming para o
+storage acontece depois do commit, sem lock; a promoção a `Quarantined` é `UPDATE` condicional por estado e versão
+(0 linhas = reserva perdida, compensada). Sabotado sem o `FOR UPDATE`, o teste falha.
 
 ## Idempotência
 

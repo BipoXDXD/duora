@@ -142,3 +142,18 @@ internal sealed class MediaVariantConfiguration : IEntityTypeConfiguration<Media
         builder.HasIndex(v => v.ObjectKey).IsUnique().HasDatabaseName("ux_media_variants_object_key");
     }
 }
+
+internal sealed class UploadGuardConfiguration : IEntityTypeConfiguration<UploadGuard>
+{
+    public void Configure(EntityTypeBuilder<UploadGuard> builder)
+    {
+        builder.ToTable("upload_guards", DatabaseSchemas.Media);
+        builder.HasKey(g => g.OwnerId).HasName("pk_upload_guards");
+        builder.Property(g => g.OwnerId).HasColumnName("owner_id").ValueGeneratedNever();
+
+        // A guarda não sobrevive à conta: sem dono, não há envio a serializar.
+        builder.HasOne<DuoraUser>().WithOne().HasForeignKey<UploadGuard>(g => g.OwnerId)
+            .HasConstraintName("fk_upload_guards_users_owner_id")
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}

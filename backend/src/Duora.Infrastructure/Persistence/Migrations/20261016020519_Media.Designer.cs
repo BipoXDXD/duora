@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Duora.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DuoraDbContext))]
-    [Migration("20261016015407_Media")]
+    [Migration("20261016020519_Media")]
     partial class Media
     {
         /// <inheritdoc />
@@ -540,6 +540,18 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Media.UploadGuard", b =>
+                {
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.HasKey("OwnerId")
+                        .HasName("pk_upload_guards");
+
+                    b.ToTable("upload_guards", "media");
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Outbox.OutboxDelivery", b =>
                 {
                     b.Property<Guid>("Id")
@@ -978,6 +990,16 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_uploads_users_owner_id");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Media.UploadGuard", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithOne()
+                        .HasForeignKey("Duora.Infrastructure.Media.UploadGuard", "OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_upload_guards_users_owner_id");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Outbox.OutboxDelivery", b =>

@@ -21,8 +21,12 @@ internal sealed record S3StorageOptions
 
     public string SecretAccessKey { get; init; } = "";
 
-    /// <summary>Teto de cada chamada ao storage (spec 16.4: toda chamada externa tem timeout).</summary>
-    public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// Teto de cada chamada ao storage (spec 16.4: toda chamada externa tem timeout). Cobre o PUT da quarentena, que
+    /// transmite o corpo do cliente, então não fica abaixo de <c>Media:UploadTimeout</c> (conferido no boot); leitura e
+    /// exclusão de compensação usam prazos próprios, mais curtos.
+    /// </summary>
+    public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(90);
 
     /// <summary>Só o dublê de teste fala HTTP; fora dele, o endpoint tem de ser https.</summary>
     public bool AllowInsecureHttp { get; init; }

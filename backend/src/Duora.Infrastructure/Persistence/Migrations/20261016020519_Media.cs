@@ -15,6 +15,25 @@ namespace Duora.Infrastructure.Persistence.Migrations
                 name: "media");
 
             migrationBuilder.CreateTable(
+                name: "upload_guards",
+                schema: "media",
+                columns: table => new
+                {
+                    owner_id = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_upload_guards", x => x.owner_id);
+                    table.ForeignKey(
+                        name: "fk_upload_guards_users_owner_id",
+                        column: x => x.owner_id,
+                        principalSchema: "identity",
+                        principalTable: "users",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "uploads",
                 schema: "media",
                 columns: table => new
@@ -183,6 +202,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.DropTable(
                 name: "media_variants",
+                schema: "media");
+
+            migrationBuilder.DropTable(
+                name: "upload_guards",
                 schema: "media");
 
             migrationBuilder.DropTable(
