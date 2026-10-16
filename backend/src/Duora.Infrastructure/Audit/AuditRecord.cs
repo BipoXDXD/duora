@@ -36,6 +36,29 @@ internal sealed record AuditAction
     public static readonly AuditAction Reauthenticated = new("identity.reauthenticated");
 
     public static readonly AuditAction PasswordChanged = new("identity.password_changed");
+
+    /// <summary>Senha redefinida pelo link de recuperação (API-A07).</summary>
+    public static readonly AuditAction PasswordReset = new("identity.password_reset");
+
+    public static readonly AuditAction LoginSucceeded = new("identity.login_succeeded");
+
+    /// <summary>Senha errada numa conta existente (conta no bloqueio). E-mail sem conta não é registrado.</summary>
+    public static readonly AuditAction LoginFailed = new("identity.login_failed");
+
+    /// <summary>Tentativa de login recusada sem conferir a senha, porque a conta está bloqueada.</summary>
+    public static readonly AuditAction LoginRefusedLockedOut = new("identity.login_refused_locked_out");
+
+    /// <summary>A falha que fez a conta atingir o teto e entrar no bloqueio temporário.</summary>
+    public static readonly AuditAction AccountLockedOut = new("identity.account_locked_out");
+
+    /// <summary>Bloqueio ativo encerrado antes do prazo (hoje, só pelo reset de senha de conta sem MFA).</summary>
+    public static readonly AuditAction LockoutCleared = new("identity.lockout_cleared");
+
+    public static readonly AuditAction LoggedOut = new("identity.logged_out");
+
+    /// <summary>O titular encerrou uma sessão pela lista de sessões (API-A10).</summary>
+    public static readonly AuditAction SessionRevoked = new("identity.session_revoked");
+
     public static readonly AuditAction AgeVerificationRequested = new("identity.age_verification_requested");
 
     public static readonly AuditAction AgeVerificationExpired = new("identity.age_verification_expired");
@@ -59,6 +82,8 @@ internal static class AuditTargetTypes
     public const string User = "user";
 
     public const string AgeVerification = "age_verification";
+
+    public const string LoginSession = "login_session";
 }
 
 /// <summary>

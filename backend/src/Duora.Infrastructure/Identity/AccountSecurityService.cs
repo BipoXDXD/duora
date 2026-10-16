@@ -144,6 +144,18 @@ public abstract record SecondFactorProof
     public sealed record RecoveryCode(string Code) : SecondFactorProof;
 }
 
+/// <summary>Resultado de uma tentativa de login numa conta existente, para a auditoria (TM-05).</summary>
+public enum LoginAttempt
+{
+    Succeeded,
+
+    /// <summary>Senha errada: conta no bloqueio.</summary>
+    WrongPassword,
+
+    /// <summary>Recusada sem conferir a senha, porque a conta já estava bloqueada.</summary>
+    RefusedWhileLockedOut,
+}
+
 /// <summary>Que segundo fator uma sessão provou: o código de recuperação não vale como TOTP recente.</summary>
 public enum SecondFactorKind
 {
@@ -193,6 +205,10 @@ public sealed class AccountSecurityService
     private const string AuditTargetType = "user";
     private const string MfaChangeReason = "mfa_change";
     private const string PasswordChangeReason = "password_change";
+
+    // Os mesmos motivos que a revogação pela chave (ticket store) e a de A10 já gravavam.
+    private const string LogoutReason = "logout";
+    private const string RevokedByOwnerReason = "revoked-by-owner";
 
     private readonly DuoraDbContext _db;
     private readonly UserManager<DuoraUser> _users;
@@ -387,8 +403,10 @@ public sealed class AccountSecurityService
 
         if (proved == SecondFactorKind.None)
         {
+            // A senha acabou de conferir, então a conta não estava bloqueada antes desta falha.
             EnsureSucceeded(await _users.AccessFailedAsync(user), "contar a falha do segundo fator");
             await AppendAuditAsync(user.Id, AuditAction.SecondFactorFailed, cancellationToken);
+            await RecordLockoutIfStartedAsync(user, wasLockedOut: false, cancellationToken);
             return SecondFactorKind.None;
         }
 
@@ -400,6 +418,53 @@ public sealed class AccountSecurityService
 
         return proved;
     }
+
+    /// <summary>
+    /// Registra na auditoria o resultado de um login numa conta existente, dentro da <see cref="AccountCheck"/> que
+    /// o verificou: o registro confirma junto com o contador de falhas. E-mail sem conta não chega aqui (TM-06).
+    /// </summary>
+    public Task RecordLoginAttemptAsync(DuoraUser user, LoginAttempt attempt, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        RequireAccountCheck();
+        var action = attempt switch
+        {
+            LoginAttempt.Succeeded => AuditAction.LoginSucceeded,
+            LoginAttempt.WrongPassword => AuditAction.LoginFailed,
+            LoginAttempt.RefusedWhileLockedOut => AuditAction.LoginRefusedLockedOut,
+            _ => throw new ArgumentOutOfRangeException(nameof(attempt), attempt, "Tentativa de login desconhecida."),
+        };
+        return AppendAuditAsync(user.Id, action, cancellationToken);
+    }
+
+    /// <summary>
+    /// Registra o início do bloqueio quando a falha recém-contada levou a conta ao teto. Quem chama informa se a
+    /// conta já estava bloqueada antes da falha, para o bloqueio ser registrado uma vez, não a cada tentativa.
+    /// </summary>
+    public async Task RecordLockoutIfStartedAsync(DuoraUser user, bool wasLockedOut, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        RequireAccountCheck();
+        if (!wasLockedOut && await _users.IsLockedOutAsync(user))
+        {
+            await AppendAuditAsync(user.Id, AuditAction.AccountLockedOut, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Encerra uma sessão do próprio titular (API-A10) e registra a revogação, com a sessão como alvo. Falso quando a
+    /// sessão não existe ou é de outra pessoa, casos que a API não distingue (404). Revogar de novo é sucesso, sem
+    /// novo registro.
+    /// </summary>
+    public Task<bool> RevokeOwnSessionAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken) =>
+        RevokeAndAuditAsync(userId, sessionId, RevokedByOwnerReason, AuditAction.SessionRevoked, cancellationToken);
+
+    /// <summary>
+    /// Registra o logout (API-A05) da sessão corrente, revogando-a na mesma transação. O host ainda apaga o cookie e
+    /// revoga pela chave, o que não muda uma sessão já revogada.
+    /// </summary>
+    public Task RecordLogoutAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken) =>
+        RevokeAndAuditAsync(userId, sessionId, LogoutReason, AuditAction.LoggedOut, cancellationToken);
 
     /// <summary>
     /// Registra uma reautenticação (API-A13) na sessão corrente. Com TOTP, conta também como prova recente de TOTP,
@@ -454,6 +519,7 @@ public sealed class AccountSecurityService
         if (result.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.PasswordMismatch)))
         {
             EnsureSucceeded(await _users.AccessFailedAsync(user), "contar a falha de senha");
+            await RecordLockoutIfStartedAsync(user, wasLockedOut: false, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new PasswordChange.WrongPassword();
         }
@@ -590,6 +656,49 @@ public sealed class AccountSecurityService
         var to = user.Email ?? throw new InvalidOperationException("Conta sem e-mail gravado.");
         _db.Add(AccountEmailOutbox.CreateSecurityNotice(change, to, user.Id, language, _time.GetUtcNow()));
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Revoga a sessão da conta e registra o fato, na mesma transação, só se ela ainda estava ativa. A linha é
+    /// travada na leitura: dois pedidos simultâneos para a mesma sessão registram uma revogação, não duas.
+    /// </summary>
+    private async Task<bool> RevokeAndAuditAsync(
+        Guid userId,
+        Guid sessionId,
+        string reason,
+        AuditAction action,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        var state = await _db.Database
+            .SqlQuery<bool>(
+                $"""
+                select revoked_at is null as "Value" from identity.login_sessions
+                where id = {sessionId} and user_id = {userId}
+                for update
+                """)
+            .ToListAsync(cancellationToken);
+        if (state is not [var active])
+        {
+            return false;
+        }
+
+        if (active)
+        {
+            var now = _time.GetUtcNow();
+            await _db.Database.ExecuteSqlAsync(
+                $"""
+                update identity.login_sessions set revoked_at = {now}, revocation_reason = {reason}
+                where id = {sessionId} and user_id = {userId}
+                """,
+                cancellationToken);
+            await _audit.AppendAsync(
+                new AuditRecord(AuditActorKind.User, userId, action, AuditTargetTypes.LoginSession, sessionId),
+                cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     private Task AppendAuditAsync(Guid userId, AuditAction action, CancellationToken cancellationToken) =>

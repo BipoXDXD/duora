@@ -999,8 +999,9 @@ Dono: Operations (D3).
 
 - **Colunas (implementadas):** `id bigint generated always as identity`; `occurred_at timestamptz`; `actor_kind
   varchar(16)` (`User`, `Moderator`, `Admin`, `Operator`, `System`); `actor_id uuid` (nulo só para `System`);
-  `action varchar(64)` (catálogo fechado `AuditAction` no código: `safety.block_created`; próximas:
-  `auth.login_succeeded`, `auth.login_failed`, `session.revoked`, `moderation.evidence_read`...);
+  `action varchar(64)` (catálogo fechado `AuditAction` no código: `safety.block_created`, as ações `identity.*` de
+  conta, MFA, login e sessão listadas no [auth.md](../security/auth.md#auditoria-de-login-e-de-sessão); próximas:
+  `moderation.evidence_read`...);
   `target_type varchar(32)`; `target_id uuid`; `target_version bigint`; `correlation_id varchar(32)` (trace id
   W3C da requisição).
 - **Colunas previstas, por migration aditiva quando o primeiro uso chegar (moderação, T-10):** `reason text`;

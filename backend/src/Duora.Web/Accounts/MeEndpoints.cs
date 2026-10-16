@@ -71,7 +71,7 @@ internal static class MeEndpoints
     private static async Task<Results<NoContent, NotFound, UnauthorizedHttpResult>> RevokeSessionAsync(
         Guid sessionId,
         HttpContext context,
-        LoginSessions sessions,
+        AccountSecurityService security,
         CancellationToken cancellationToken)
     {
         if (DuoraClaims.ReadUserId(context.User) is not { } userId)
@@ -79,7 +79,7 @@ internal static class MeEndpoints
             return TypedResults.Unauthorized();
         }
 
-        return await sessions.RevokeOwnAsync(userId, sessionId, cancellationToken)
+        return await security.RevokeOwnSessionAsync(userId, sessionId, cancellationToken)
             ? TypedResults.NoContent()
             : TypedResults.NotFound();
     }

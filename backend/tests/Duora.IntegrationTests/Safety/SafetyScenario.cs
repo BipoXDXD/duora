@@ -55,14 +55,18 @@ internal sealed class SafetyScenario(PostgresFixture postgres, DuoraWebFactory f
         return new BlockState(reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3));
     }
 
-    /// <summary>Tudo o que um pedido de bloqueio de <paramref name="userId"/> poderia ter deixado no banco.</summary>
+    /// <summary>
+    /// Tudo o que um pedido de bloqueio de <paramref name="userId"/> poderia ter deixado no banco. Da auditoria, só as
+    /// ações do Safety contam: o login que abriu a sessão do teste também deixa registro (TM-05), e não é do bloqueio.
+    /// </summary>
     public async Task<long> CountTracesOfAsync(Guid userId)
     {
         await using var connection = await OpenAsync();
         await using var command = new NpgsqlCommand(
             """
             select (select count(*) from safety.blocks where blocker_id = $1 or blocked_id = $1)
-                 + (select count(*) from ops.audit_events where actor_id = $1 or target_id = $1)
+                 + (select count(*) from ops.audit_events
+                    where action like 'safety.%' and (actor_id = $1 or target_id = $1))
                  + (select count(*) from safety.user_guards where user_id = $1 and security_version > 0)
             """,
             connection);

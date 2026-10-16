@@ -133,8 +133,10 @@ public sealed class CredentialVerifier
         string? authenticatorCode,
         CancellationToken cancellationToken)
     {
+        var wasLockedOut = await _users.IsLockedOutAsync(user);
         if (!(await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true)).Succeeded)
         {
+            await _security.RecordLockoutIfStartedAsync(user, wasLockedOut, cancellationToken);
             return new ReauthenticationOutcome.Invalid();
         }
 
@@ -184,15 +186,19 @@ public sealed class CredentialVerifier
         SecondFactorProof? secondFactor,
         CancellationToken cancellationToken)
     {
+        // Lido da entidade já relida sob o lock, sem ida ao banco: o caminho da falha continua com o mesmo trabalho.
+        var wasLockedOut = await _users.IsLockedOutAsync(user);
         var result = await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
         if (result.IsNotAllowed || result.IsLockedOut)
         {
             _decoy.Verify(_users.PasswordHasher, password);
+            await RecordRefusalAsync(user, result, wasLockedOut, cancellationToken);
             return new LoginOutcome.InvalidCredentials();
         }
 
         if (!result.Succeeded)
         {
+            await _security.RecordLoginAttemptAsync(user, LoginAttempt.WrongPassword, cancellationToken);
             return new LoginOutcome.InvalidCredentials();
         }
 
@@ -212,11 +218,38 @@ public sealed class CredentialVerifier
         }
 
         var policy = AccountRoles.SessionPolicyFor(await _users.GetRolesAsync(user));
+        await _security.RecordLoginAttemptAsync(user, LoginAttempt.Succeeded, cancellationToken);
         return new LoginOutcome.Verified(new VerifiedAccount(
             user.Id,
             await _users.GetSecurityStampAsync(user),
             policy,
             proved));
+    }
+
+    /// <summary>
+    /// Conta bloqueada antes da tentativa: recusa sem conferir a senha. Bloqueio novo: esta senha errada atingiu o
+    /// teto. Conta com e-mail não confirmado (<c>IsNotAllowed</c>) não é registrada: o cadastro pendente pode ser de
+    /// qualquer pessoa, e o login dela nunca abre sessão.
+    /// </summary>
+    private async Task RecordRefusalAsync(
+        DuoraUser user,
+        SignInResult result,
+        bool wasLockedOut,
+        CancellationToken cancellationToken)
+    {
+        if (!result.IsLockedOut)
+        {
+            return;
+        }
+
+        if (wasLockedOut)
+        {
+            await _security.RecordLoginAttemptAsync(user, LoginAttempt.RefusedWhileLockedOut, cancellationToken);
+            return;
+        }
+
+        await _security.RecordLoginAttemptAsync(user, LoginAttempt.WrongPassword, cancellationToken);
+        await _security.RecordLockoutIfStartedAsync(user, wasLockedOut: false, cancellationToken);
     }
 
     /// <summary>
