@@ -219,6 +219,37 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
    `duora_migrator` (dono do banco `duora`) e `duora_app` (só DML via default privileges; regras completas e
    convenção de tabela append-only em [model.md](../data/model.md#permissões-de-banco-spec-107)).
 
+3. Crie a primeira conta administrativa ([abaixo](#conta-administrativa-bootstrap-spec-111)).
+
+### Conta administrativa (bootstrap, spec 11.1)
+
+Conta privilegiada (`moderator`, `product_admin` ou `operator`) só nasce por este comando, rodado pelo operador no
+host, dentro de um container do web da release corrente (mesma configuração, banco e key ring; nenhuma rota da API
+concede papel). O primeiro administrador e os seguintes saem do mesmo jeito:
+
+```sh
+S=/var/lib/duora
+ID=$(sudo python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["releaseId"])' $S/current.json)
+sudo docker compose -f /opt/duora/compose.prod.yml --env-file /etc/duora/duora.env --env-file $S/releases/$ID.env \
+  run --rm --no-deps web admin grant --email ana@exemplo.com.br --role product_admin --operator "$(logname)"
+```
+
+- `--operator` é obrigatório e vai para a auditoria (`identity.admin_granted`, `actor_kind = 'Operator'`,
+  `actor_label` = o nome dado): use o seu usuário no host (`logname` devolve quem entrou por SSH, mesmo sob `sudo`).
+  Formato de usuário de sistema: minúsculas, dígitos, `.`, `_` e `-`, até 32 caracteres.
+- A saída mostra a **senha temporária uma única vez** (linha `Senha temporária: …`). O Duora guarda só o hash:
+  não há como reexibi-la. Entregue-a à pessoa por um canal separado do e-mail dela e não cole em ticket, chat
+  gravado ou arquivo. Ela vale **24 h**.
+- No primeiro login, a sessão só aceita trocar a senha (`POST /me/password-changes`; qualquer outra rota responde
+  `403` `PASSWORD_CHANGE_REQUIRED`); a nova não pode repetir a temporária. Depois da troca, a sessão é a restrita
+  do cadastro de MFA ([auth.md](../security/auth.md#mfa)), e só com o MFA ativo a conta abre `/admin`.
+- Até a primeira ativação do MFA, a conta não redefine senha por e-mail (o pedido recebe um aviso sem link; I5).
+- Venceu ou se perdeu antes da troca: rode o mesmo comando, com o mesmo `--role`. Ele reemite a senha temporária
+  (a anterior e as sessões abertas com ela deixam de valer) e audita de novo.
+- O comando recusa (saída `1`) qualquer outra conta com o e-mail: participante, cadastro pendente, conta privilegiada
+  já ativada ou de outro papel. Participante nunca vira conta privilegiada (D13); use outro e-mail. Argumento
+  inválido sai com `2` e não toca o banco.
+
 ### Certificado do key ring (spec 11.2)
 
 O key ring do Data Protection (volume `dataprotection`) fica cifrado com um certificado X.509 autoassinado (RSA
