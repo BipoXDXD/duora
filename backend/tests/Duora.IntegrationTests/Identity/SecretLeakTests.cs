@@ -50,6 +50,59 @@ public sealed class SecretLeakTests : IAsyncDisposable
         Assert.DoesNotContain(_logs.Entries, entry => entry.Text.Contains(realToken, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task MfaSecretsAppearOnlyInTheResponsesThatProvisionThem()
+    {
+        var canary = $"CANARY-{Guid.NewGuid():N}";
+        var scenario = new IdentityScenario(_postgres, _factory);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(account);
+
+        var provisioning = new List<string>();
+        using (var enrollment = await browser.PostJsonAsync(MfaScenario.Enrollments, body: null))
+        {
+            provisioning.Add(await enrollment.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        }
+
+        var sharedKey = (string)System.Text.Json.Nodes.JsonNode.Parse(provisioning[0])!["sharedKey"]!;
+        using (var confirmed = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Now(sharedKey) }))
+        {
+            provisioning.Add(await confirmed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        }
+
+        await browser.FetchCsrfTokenAsync();
+        using (var regenerated = await browser.PostJsonAsync(MfaScenario.RecoveryCodes, body: null))
+        {
+            provisioning.Add(await regenerated.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        }
+
+        var codes = System.Text.Json.Nodes.JsonNode.Parse(provisioning[2])!["recoveryCodes"]!.AsArray()
+            .Select(code => (string)code!)
+            .ToList();
+        await RecordAsync(await browser.GetAsync("/api/v1/me"));
+        await RecordAsync(await browser.GetAsync("/api/v1/me/sessions"));
+        await RecordAsync(await browser.PostJsonAsync(
+            MfaScenario.Reauthenticate,
+            new { password = canary, twoFactorCode = Totp.Now(sharedKey) }));
+        await RecordAsync(await browser.PostJsonAsync(
+            "/api/v1/me/password-changes",
+            new { currentPassword = canary, newPassword = canary + canary }));
+        using var other = new Browser(_factory);
+        await RecordAsync(await MfaScenario.LoginAsync(other, account, recoveryCode: canary));
+        await RecordAsync(await MfaScenario.LoginAsync(other, account, recoveryCode: codes[0]));
+        await RecordAsync(await MfaScenario.LoginAsync(new Browser(_factory), account, twoFactorCode: Totp.Now(sharedKey)));
+
+        string[] secrets = [sharedKey, canary, .. codes];
+        Assert.NotEmpty(_logs.Entries);
+        foreach (var secret in secrets)
+        {
+            Assert.DoesNotContain(_responses, response => response.Contains(secret, StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(_logs.Entries, entry => entry.Text.Contains(secret, StringComparison.OrdinalIgnoreCase));
+        }
+
+        Assert.DoesNotContain(provisioning, response => response.Contains(canary, StringComparison.Ordinal));
+    }
+
     private async Task RecordAsync(HttpResponseMessage response)
     {
         using (response)

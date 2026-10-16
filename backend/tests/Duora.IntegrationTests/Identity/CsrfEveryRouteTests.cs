@@ -54,6 +54,16 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             ["DELETE /api/v1/me/sessions/{sessionId:guid}"] = null,
             ["PATCH /api/v1/me/profile"] = new { displayName = "Sem token" },
             ["PUT /api/v1/me/blocks/{targetUserId:guid}"] = null,
+            ["POST /api/v1/auth/reauthenticate"] = new { password = account.Password },
+            ["POST /api/v1/me/mfa/enrollments"] = null,
+            ["POST /api/v1/me/mfa/confirmations"] = new { code = "123456" },
+            ["POST /api/v1/me/mfa/recovery-codes"] = null,
+            ["DELETE /api/v1/me/mfa"] = null,
+            ["POST /api/v1/me/password-changes"] = new
+            {
+                currentPassword = account.Password,
+                newPassword = "uma frase nova e longa",
+            },
         };
         string[] emails = [account.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
@@ -110,6 +120,10 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                 (select count(*) from profiles.profiles p join identity.users u on u.id = p.user_id
                    where u.email = any($1)),
                 (select count(*) from safety.blocks b join identity.users u on u.id = b.blocker_id
+                   where u.email = any($1)),
+                (select count(*) from identity.user_tokens t join identity.users u on u.id = t.user_id
+                   where u.email = any($1)),
+                (select count(*) from ops.audit_events a join identity.users u on u.id = a.target_id
                    where u.email = any($1)))
             """,
             connection);
