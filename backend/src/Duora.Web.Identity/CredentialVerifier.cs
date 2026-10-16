@@ -24,8 +24,21 @@ public abstract record LoginOutcome
     /// <summary>Conta inexistente, senha errada, e-mail não confirmado ou bloqueio temporário: a mesma resposta.</summary>
     public sealed record InvalidCredentials : LoginOutcome;
 
-    /// <summary>Senha correta numa conta com MFA; a segunda etapa ainda não existe (ADR-0017).</summary>
+    /// <summary>Senha correta numa conta com MFA, sem segundo fator na requisição (ADR-0017).</summary>
     public sealed record MfaRequired : LoginOutcome;
+}
+
+/// <summary>Resultado da reautenticação (API-A13).</summary>
+public abstract record ReauthenticationOutcome
+{
+    private ReauthenticationOutcome()
+    {
+    }
+
+    /// <summary>Credencial provada; <paramref name="WithSecondFactor"/> diz se o TOTP também foi.</summary>
+    public sealed record Verified(bool WithSecondFactor) : ReauthenticationOutcome;
+
+    public sealed record Invalid : ReauthenticationOutcome;
 }
 
 /// <summary>Tempos do login com falha (seção <c>Identity</c>).</summary>
@@ -56,23 +69,34 @@ public sealed class CredentialVerifier
     private readonly SignInManager<DuoraUser> _signIn;
     private readonly DecoyPasswordHash _decoy;
     private readonly LoginTimingOptions _timing;
+    private readonly AccountSecurityService _security;
 
     internal CredentialVerifier(
         UserManager<DuoraUser> users,
         SignInManager<DuoraUser> signIn,
         DecoyPasswordHash decoy,
-        IOptions<LoginTimingOptions> timing)
+        IOptions<LoginTimingOptions> timing,
+        AccountSecurityService security)
     {
         _users = users;
         _signIn = signIn;
         _decoy = decoy;
         _timing = timing.Value;
+        _security = security;
     }
 
-    public async Task<LoginOutcome> VerifyAsync(EmailAddress email, string password, CancellationToken cancellationToken)
+    /// <summary>
+    /// Login: senha e, se a conta tem MFA ativo, o segundo fator na mesma requisição. Segundo fator errado responde
+    /// como senha errada e conta no mesmo bloqueio (TM-01); o bloqueio só zera depois do segundo fator certo.
+    /// </summary>
+    public async Task<LoginOutcome> VerifyAsync(
+        EmailAddress email,
+        string password,
+        SecondFactorProof? secondFactor,
+        CancellationToken cancellationToken)
     {
         var startedAt = Stopwatch.GetTimestamp();
-        var outcome = await CheckAsync(email, password);
+        var outcome = await CheckAsync(email, password, secondFactor, cancellationToken);
         if (outcome is LoginOutcome.InvalidCredentials)
         {
             await WaitForFailureFloorAsync(startedAt, cancellationToken);
@@ -81,7 +105,41 @@ public sealed class CredentialVerifier
         return outcome;
     }
 
-    private async Task<LoginOutcome> CheckAsync(EmailAddress email, string password)
+    /// <summary>
+    /// Reautenticação da sessão corrente (API-A13): senha e, com MFA ativo, o código do autenticador. Falhas contam
+    /// no bloqueio da conta, como no login.
+    /// </summary>
+    public async Task<ReauthenticationOutcome> ReauthenticateAsync(
+        Guid userId,
+        string password,
+        string? authenticatorCode,
+        CancellationToken cancellationToken)
+    {
+        var user = await _users.FindByIdAsync(userId.ToString("D"));
+        if (user is null || !(await _signIn.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true)).Succeeded)
+        {
+            return new ReauthenticationOutcome.Invalid();
+        }
+
+        if (!user.TwoFactorEnabled)
+        {
+            return new ReauthenticationOutcome.Verified(WithSecondFactor: false);
+        }
+
+        if (authenticatorCode is null
+            || !await VerifySecondFactorAsync(user, new SecondFactorProof.AuthenticatorCode(authenticatorCode), cancellationToken))
+        {
+            return new ReauthenticationOutcome.Invalid();
+        }
+
+        return new ReauthenticationOutcome.Verified(WithSecondFactor: true);
+    }
+
+    private async Task<LoginOutcome> CheckAsync(
+        EmailAddress email,
+        string password,
+        SecondFactorProof? secondFactor,
+        CancellationToken cancellationToken)
     {
         var user = await _users.FindByEmailAsync(email.Value);
         if (user is null)
@@ -104,12 +162,36 @@ public sealed class CredentialVerifier
 
         if (user.TwoFactorEnabled)
         {
-            return new LoginOutcome.MfaRequired();
+            if (secondFactor is null)
+            {
+                return new LoginOutcome.MfaRequired();
+            }
+
+            if (!await VerifySecondFactorAsync(user, secondFactor, cancellationToken))
+            {
+                return new LoginOutcome.InvalidCredentials();
+            }
         }
 
         var policy = AccountRoles.SessionPolicyFor(await _users.GetRolesAsync(user));
-        return new LoginOutcome.Verified(
-            new VerifiedAccount(user.Id, await _users.GetSecurityStampAsync(user), policy, SecondFactorVerified: false));
+        return new LoginOutcome.Verified(new VerifiedAccount(
+            user.Id,
+            await _users.GetSecurityStampAsync(user),
+            policy,
+            SecondFactorVerified: user.TwoFactorEnabled));
+    }
+
+    /// <summary>Confere o segundo fator; o erro soma no bloqueio e o acerto zera as falhas da senha e do código.</summary>
+    private async Task<bool> VerifySecondFactorAsync(DuoraUser user, SecondFactorProof proof, CancellationToken cancellationToken)
+    {
+        if (!await _security.VerifySecondFactorAsync(user, proof, cancellationToken))
+        {
+            await _users.AccessFailedAsync(user);
+            return false;
+        }
+
+        await _users.ResetAccessFailedCountAsync(user);
+        return true;
     }
 
     /// <summary>
