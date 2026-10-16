@@ -58,7 +58,7 @@ PROJECT = "duora-drill"
 BUCKET = "duora-drill"
 # Como a produção exige (ADR-0023): Object Lock com retenção padrão que cobre a janela de 21 dias.
 BUCKET_LOCK = ("COMPLIANCE", "21d")
-# Alias do mc criado pelo próprio drill: o setup da Bitnami às vezes não cria o "local" a tempo.
+# Alias do mc, definido por MC_HOST_<alias> a cada chamada (sem "mc alias set").
 MC_ALIAS = "drill"
 MC_ALIAS_ATTEMPTS = 60
 ROWS_PER_PHASE = 100
@@ -186,7 +186,7 @@ class Drill:
             directory.mkdir(exist_ok=True)
             directory.chmod(0o755)
         s3_key = "drill" + secrets.token_hex(8)
-        s3_secret = secrets.token_urlsafe(24)
+        s3_secret = duora_secrets.generate_password()
         self._write_secrets(secrets_dir, s3_key, s3_secret)
         self._own_secrets_like_the_vps(secrets_dir)
         self._write_s3_certificate(certs_dir)
@@ -215,33 +215,40 @@ class Drill:
     def _create_locked_bucket(self) -> None:
         # Versionamento + Object Lock: sem eles o duora-backup verify recusa o repositório.
         mode, retention = BUCKET_LOCK
-        self._create_mc_alias()
-        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "mb", "--with-lock", f"{MC_ALIAS}/{BUCKET}"], capture=True)
-        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "retention", "set", "--default", mode, retention,
-                              f"{MC_ALIAS}/{BUCKET}"], capture=True)
+        self._wait_for_s3()
+        _run(self._mc("mb", "--with-lock", f"{MC_ALIAS}/{BUCKET}"), capture=True)
+        _run(self._mc("retention", "set", "--default", mode, retention, f"{MC_ALIAS}/{BUCKET}"), capture=True)
 
-    def _create_mc_alias(self) -> None:
-        # Credenciais pelo ambiente do próprio container (sintéticas), não pela linha de comando do host.
-        alias = (f'mc alias set {MC_ALIAS} https://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" '
-                 f'> /dev/null && mc ls {MC_ALIAS} > /dev/null')
+    def _mc(self, *args: str) -> list[str]:
+        """mc no container s3 com o host do alias em MC_HOST_<alias>, montado do ambiente do próprio container.
+
+        A credencial nunca vira argumento: nem do host (ps) nem do mc, que leria uma senha começando com "-" como
+        opção ("flag provided but not defined"). As senhas sintéticas só têm [A-Za-z0-9_-], que não precisa de
+        escape na URL.
+        """
+        script = (f'MC_HOST_{MC_ALIAS}="https://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@localhost:9000" '
+                  'exec mc "$@"')
+        return self._compose + ["exec", "--no-TTY", "s3", "sh", "-c", script, "mc", *args]
+
+    def _wait_for_s3(self) -> None:
         result = None
         for _ in range(MC_ALIAS_ATTEMPTS):
-            result = subprocess.run(self._compose + ["exec", "--no-TTY", "s3", "sh", "-c", alias],
-                                    capture_output=True, text=True, check=False, timeout=COMMAND_TIMEOUT_SECONDS)
+            result = subprocess.run(self._mc("ls", MC_ALIAS), capture_output=True, text=True, check=False,
+                                    timeout=COMMAND_TIMEOUT_SECONDS)
             if result.returncode == 0:
                 return
             time.sleep(2)
         detail = result.stderr.strip() if result is not None else ""
-        raise DrillFailure(f"mc alias no dublê S3 falhou {MC_ALIAS_ATTEMPTS} vezes: {detail}")
+        raise DrillFailure(f"mc no dublê S3 falhou {MC_ALIAS_ATTEMPTS} vezes: {detail}")
 
     @staticmethod
     def _write_secrets(secrets_dir: Path, s3_key: str, s3_secret: str) -> None:
         # Certificados pelo mesmo gerador da VPS (duora-secrets init-backup).
         duora_secrets.init_backup(secrets_dir, change_owner=False)
         synthetic = {
-            "postgres_superuser_password": secrets.token_urlsafe(24),
-            "db_migrator_password": secrets.token_urlsafe(24),
-            "db_app_password": secrets.token_urlsafe(24),
+            "postgres_superuser_password": duora_secrets.generate_password(),
+            "db_migrator_password": duora_secrets.generate_password(),
+            "db_app_password": duora_secrets.generate_password(),
             "duora_app_connection": "unused",
             "duora_migrator_connection": "unused",
             "pgbackrest_repo.conf": "\n".join([
@@ -256,7 +263,7 @@ class Drill:
                 f"repo1-storage-port={S3_PORT}",
                 "repo1-storage-ca-file=/etc/pgbackrest/drill-ca.crt",
             ]) + "\n",
-            "pgbackrest_cipher.conf": f"[global]\nrepo1-cipher-pass={secrets.token_urlsafe(48)}\n",
+            "pgbackrest_cipher.conf": f"[global]\nrepo1-cipher-pass={duora_secrets.generate_password()}\n",
         }
         for name, content in synthetic.items():
             (secrets_dir / name).write_text(content, encoding="utf-8")
@@ -447,15 +454,13 @@ class Drill:
     def _check_locked_version_cannot_be_deleted(self) -> None:
         """Nem o usuário root do dublê apaga uma versão travada em COMPLIANCE (o que o ataque deixou para trás)."""
         target = f"{MC_ALIAS}/{BUCKET}/duora/backup/duora/backup.info"
-        listing = _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "ls", "--versions", "--json", target],
-                       capture=True)
+        listing = _run(self._mc("ls", "--versions", "--json", target), capture=True)
         versions = [entry["versionId"] for entry in map(json.loads, listing.splitlines())
                     if entry.get("versionId") and not entry.get("isDeleteMarker")]
         if not versions:
             raise DrillFailure(f"nenhuma versão de {target} sobrou depois da exclusão:\n{listing}")
-        removal = subprocess.run(self._compose + ["exec", "--no-TTY", "s3", "mc", "rm", "--version-id", versions[0],
-                                                  target], capture_output=True, text=True, check=False,
-                                 timeout=COMMAND_TIMEOUT_SECONDS)
+        removal = subprocess.run(self._mc("rm", "--version-id", versions[0], target), capture_output=True,
+                                 text=True, check=False, timeout=COMMAND_TIMEOUT_SECONDS)
         refused = removal.returncode != 0
         self.report.isolation["versão travada recusa exclusão (mc rm --version-id)"] = refused
         if not refused:
@@ -464,8 +469,8 @@ class Drill:
     def _undo_attack(self) -> None:
         # Na produção: remover os delete markers posteriores ao ataque com a credencial administrativa do bucket (a do
         # backup não tem s3:DeleteObjectVersion). --action DELETE: só desfaz exclusões, nunca o WAL novo.
-        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "undo", "--recursive", "--force", "--action", "DELETE",
-                              f"{MC_ALIAS}/{BUCKET}/duora/"], capture=True)
+        _run(self._mc("undo", "--recursive", "--force", "--action", "DELETE", f"{MC_ALIAS}/{BUCKET}/duora/"),
+             capture=True)
 
     # --- Desastre e restore -----------------------------------------------------------------------------------------
 
@@ -508,8 +513,7 @@ class Drill:
         """Apaga um segmento no meio da cadeia (depois do full novo) e exige que o verify-repo falhe."""
         for _ in range(3):  # cada check troca o segmento e espera ele chegar ao repositório
             self._duora_backup("verify")
-        listing = _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "ls", "--recursive",
-                                        f"{MC_ALIAS}/{BUCKET}/duora/archive/duora/"], capture=True)
+        listing = _run(self._mc("ls", "--recursive", f"{MC_ALIAS}/{BUCKET}/duora/archive/duora/"), capture=True)
         timeline = f"{self.report.timeline_after_restore:08X}"
         segments = sorted(name for name in (line.split()[-1] for line in listing.splitlines())
                           if name.endswith(".zst") and name.split("/")[-1].startswith(timeline))
@@ -517,8 +521,7 @@ class Drill:
             raise DrillFailure(f"esperado ao menos 3 segmentos na timeline {timeline} do repositório: {segments}")
         # O penúltimo: depois do início do full novo (as três trocas acima vêm depois dele) e antes do último.
         victim = segments[-2]
-        _run(self._compose + ["exec", "--no-TTY", "s3", "mc", "rm", f"{MC_ALIAS}/{BUCKET}/duora/archive/duora/{victim}"],
-             capture=True)
+        _run(self._mc("rm", f"{MC_ALIAS}/{BUCKET}/duora/archive/duora/{victim}"), capture=True)
         result = subprocess.run([sys.executable, str(BACKUP_SCRIPT), "verify-repo", "--compose-project", PROJECT,
                                  "--state-dir", str(self._state_dir), "--skip-egress-check"],
                                 capture_output=True, text=True, check=False, timeout=COMMAND_TIMEOUT_SECONDS)
