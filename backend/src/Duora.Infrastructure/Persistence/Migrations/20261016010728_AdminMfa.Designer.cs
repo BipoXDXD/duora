@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Duora.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DuoraDbContext))]
-    [Migration("20261016000210_AdminMfa")]
+    [Migration("20261016010728_AdminMfa")]
     partial class AdminMfa
     {
         /// <inheritdoc />
@@ -454,6 +454,41 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.ToTable("outbox_events", "ops");
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.ProfileRecord", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Bio")
+                        .HasColumnType("text")
+                        .HasColumnName("bio");
+
+                    b.Property<string>("DisplayName")
+                        .HasColumnType("text")
+                        .HasColumnName("display_name");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_profiles");
+
+                    b.ToTable("profiles", "profiles", t =>
+                        {
+                            t.HasCheckConstraint("ck_profiles_bio", "char_length(bio) BETWEEN 1 AND 500");
+
+                            t.HasCheckConstraint("ck_profiles_display_name", "char_length(display_name) BETWEEN 1 AND 40");
+
+                            t.HasCheckConstraint("ck_profiles_version", "version >= 1");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole<System.Guid>", b =>
                 {
                     b.Property<Guid>("Id")
@@ -674,6 +709,16 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_outbox_deliveries_outbox_events");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.ProfileRecord", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithOne()
+                        .HasForeignKey("Duora.Infrastructure.Profiles.ProfileRecord", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_profiles_users");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
