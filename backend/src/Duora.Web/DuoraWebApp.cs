@@ -3,6 +3,7 @@ using Duora.Infrastructure;
 using Duora.Infrastructure.Media;
 using Duora.Infrastructure.Profiles;
 using Duora.Infrastructure.Safety;
+using Duora.Infrastructure.Identity;
 using Duora.Web.Accounts;
 using Duora.Web.Admin;
 using Duora.Web.Http;
@@ -55,6 +56,7 @@ internal static class DuoraWebApp
         builder.Services.AddDuoraProfiles();
         builder.Services.AddDuoraSafety();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
+        builder.Services.AddAgeVerification();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
         // Negar por padrão: toda rota exige sessão (e MFA, se a conta é privilegiada); as públicas declaram
@@ -96,6 +98,7 @@ internal static class DuoraWebApp
         api.MapReauthenticationEndpoints();
         api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
         api.MapPhotoEndpoints();
+        api.MapAgeVerificationEndpoints();
 
         return app;
     }

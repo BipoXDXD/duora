@@ -66,6 +66,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             },
             // O corpo de verdade é a imagem crua; sem token, a recusa vem antes de olhar o corpo.
             ["POST /api/v1/me/photos"] = null,
+            ["POST /api/v1/me/age-verifications"] = new { },
         };
         string[] emails = [account.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
@@ -104,7 +105,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             .Where(route => route.Method is not ("GET" or "HEAD" or "OPTIONS")),
     ];
 
-    /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails, sessões ativas e perfis.</summary>
+    /// <summary>Estado das contas do teste: existência, confirmação, senha e stamp, e-mails, sessões ativas, perfis, bloqueios e verificações etárias.</summary>
     private async Task<string> SnapshotAsync(string[] emails)
     {
         await using var connection = new NpgsqlConnection(postgres.ConnectionString);
@@ -128,6 +129,8 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
                 (select count(*) from ops.audit_events a join identity.users u on u.id = a.target_id
                    where u.email = any($1)),
                 (select count(*) from media.uploads m join identity.users u on u.id = m.owner_id
+                   where u.email = any($1)),
+                (select count(*) from identity.age_verifications v join identity.users u on u.id = v.user_id
                    where u.email = any($1)))
             """,
             connection);
