@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Duora.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DuoraDbContext))]
-    [Migration("20261016010728_AdminMfa")]
+    [Migration("20261016013428_AdminMfa")]
     partial class AdminMfa
     {
         /// <inheritdoc />
@@ -489,6 +489,61 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Safety.StoredBlock", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BlockedId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("blocked_id");
+
+                    b.Property<Guid>("BlockerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("blocker_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_blocks");
+
+                    b.HasIndex("BlockedId")
+                        .HasDatabaseName("ix_blocks_blocked_id");
+
+                    b.HasIndex("BlockerId", "BlockedId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_blocks_pair");
+
+                    b.ToTable("blocks", "safety", t =>
+                        {
+                            t.HasCheckConstraint("ck_blocks_not_self", "blocker_id <> blocked_id");
+                        });
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Safety.UserGuard", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<long>("SecurityVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("security_version");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_user_guards");
+
+                    b.ToTable("user_guards", "safety", t =>
+                        {
+                            t.HasCheckConstraint("ck_user_guards_security_version", "security_version >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole<System.Guid>", b =>
                 {
                     b.Property<Guid>("Id")
@@ -719,6 +774,33 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_profiles_users");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Safety.StoredBlock", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithMany()
+                        .HasForeignKey("BlockedId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_blocks_blocked");
+
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithMany()
+                        .HasForeignKey("BlockerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_blocks_blocker");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Safety.UserGuard", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithOne()
+                        .HasForeignKey("Duora.Infrastructure.Safety.UserGuard", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_guards_users");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
