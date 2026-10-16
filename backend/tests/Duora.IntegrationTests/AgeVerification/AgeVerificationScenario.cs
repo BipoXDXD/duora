@@ -179,18 +179,19 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
     }
 
     /// <summary>Solicitação já decidida (<c>Rejected</c>, <c>ManualReview</c>...), sem mexer na conta.</summary>
-    public Task AddDecidedVerificationAsync(Guid userId, string state, DateTimeOffset decidedAt) =>
+    public Task AddDecidedVerificationAsync(Guid userId, string state, DateTimeOffset decidedAt, Guid? id = null) =>
         ExecuteAsync(
             """
             insert into identity.age_verifications
                 (id, user_id, state, policy_version, provider, provider_reference, request_nonce, requested_at,
                  decided_at, decision_source, version)
-            values (gen_random_uuid(), $1, $2, 'test-2026-10', 'fake', 'ref-' || gen_random_uuid(),
+            values ($4, $1, $2, 'test-2026-10', 'fake', 'ref-' || gen_random_uuid(),
                     'nonce-' || gen_random_uuid(), $3, $3, 'Callback', 1)
             """,
             userId,
             state,
-            decidedAt);
+            decidedAt,
+            id ?? Guid.NewGuid());
 
     /// <summary>Solicitação sem decisão (<c>Pending</c> ou <c>Expired</c>) e sem fluxo do fornecedor.</summary>
     public Task AddUndecidedRequestAsync(Guid userId, string state, DateTimeOffset requestedAt) =>

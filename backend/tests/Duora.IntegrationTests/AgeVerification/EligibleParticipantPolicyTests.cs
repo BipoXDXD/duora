@@ -179,6 +179,20 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
         Assert.False(await AuthorizeAsync(account.UserId));
     }
 
+    [Fact]
+    public async Task DecisionsAtTheSameInstantAreOrderedByInsertionNotById()
+    {
+        // O relógio da aplicação empata ou volta; o id (aleatório ou UUIDv7 de outro relógio) não diz a ordem. A
+        // ordem de gravação (seq) desempata: a Rejected gravada depois manda, mesmo com id menor.
+        var account = await Scenario.Identity.CreateConfirmedAccountAsync();
+        var instant = _time.GetUtcNow().AddDays(-1);
+        await Scenario.AddDecidedVerificationAsync(account.UserId, "VerifiedAdult", instant, Guid.Parse("ffffffff-ffff-4fff-bfff-ffffffffffff"));
+        await Scenario.ExecuteAsync("update identity.users set status = 'Active' where id = $1", account.UserId);
+        await Scenario.AddDecidedVerificationAsync(account.UserId, "Rejected", instant, Guid.Parse("00000000-0000-4000-8000-000000000001"));
+
+        Assert.False(await AuthorizeAsync(account.UserId));
+    }
+
     [Theory]
     [InlineData("Restricted")]
     [InlineData("Suspended")]

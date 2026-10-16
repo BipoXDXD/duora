@@ -29,6 +29,12 @@ internal sealed class AgeVerificationRecord
 
     public Guid Id { get; private set; }
 
+    /// <summary>
+    /// Ordem de gravação, dada pelo banco: desempata solicitações da mesma pessoa sem depender do relógio da
+    /// aplicação (que pode empatar ou voltar entre réplicas). Só ordem interna, nunca na API.
+    /// </summary>
+    public long Seq { get; private set; }
+
     public Guid UserId { get; private set; }
 
     public AgeVerificationState State { get; private set; }
@@ -84,6 +90,7 @@ internal sealed class AgeVerificationRecordConfiguration : IEntityTypeConfigurat
         builder.HasKey(v => v.Id).HasName("pk_age_verifications");
 
         builder.Property(v => v.Id).HasColumnName("id").ValueGeneratedNever();
+        builder.Property(v => v.Seq).HasColumnName("seq").UseIdentityAlwaysColumn();
         builder.Property(v => v.UserId).HasColumnName("user_id");
         builder.Property(v => v.State).HasColumnName("state").HasConversion<string>().HasMaxLength(16);
         builder.Property(v => v.PolicyVersion).HasColumnName("policy_version")

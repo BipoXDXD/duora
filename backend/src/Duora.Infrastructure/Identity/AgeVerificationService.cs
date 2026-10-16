@@ -4,6 +4,7 @@ using Duora.Core.Identity;
 using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Duora.Infrastructure.Identity;
 
@@ -39,6 +40,7 @@ public abstract record AgeVerificationRequestResult
 public sealed class AgeVerificationService
 {
     private const int NonceBytes = 32;
+    private const string OpenRequestIndex = "ux_age_verifications_open_user";
 
     private readonly DuoraDbContext _db;
     private readonly AgeVerificationOptions _options;
@@ -98,9 +100,19 @@ public sealed class AgeVerificationService
             await ExpireAbandonedAsync(userId, deciding, cancellationToken);
         }
 
-        var created = await CreatePendingAsync(userId, loginSessionId, now, cancellationToken);
-        await _db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        VerificationRow created;
+        try
+        {
+            created = await CreatePendingAsync(userId, loginSessionId, now, cancellationToken);
+            await _db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception exception) when (IsAnotherOpenRequest(exception))
+        {
+            // Há uma aberta que a leitura não escolheu (requested_at de outro relógio): recusa, sem 500. A transação
+            // desfaz tudo, inclusive a expiração acima.
+            return new AgeVerificationRequestResult.NotAllowed();
+        }
 
         var status = AgeEligibility.Evaluate(account, Snapshot(created), now, _policy);
         return new AgeVerificationRequestResult.Accepted(ToStatus(created, status));
@@ -151,6 +163,21 @@ public sealed class AgeVerificationService
             or AgeVerificationNextStep.ContinueWithProvider
             or AgeVerificationNextStep.WaitForReview;
 
+    /// <summary>O índice de uma aberta por pessoa recusou a nova; o EF pode embrulhar a <see cref="PostgresException"/>.</summary>
+    private static bool IsAnotherOpenRequest(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } unique
+                && unique.ConstraintName == OpenRequestIndex)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private async Task<AccountStatus?> LockAccountStatusAsync(Guid userId, CancellationToken cancellationToken)
     {
         var rows = await _db.Database
@@ -178,7 +205,7 @@ public sealed class AgeVerificationService
                          and d.status in ('Failed', 'Expired'))) as "ProviderGaveUp"
             from identity.age_verifications v
             where v.user_id = {userId}
-            order by (v.state = any({decisions})) desc, v.requested_at desc, v.id desc
+            order by (v.state = any({decisions})) desc, v.requested_at desc, v.seq desc
             limit 1
             """).ToListAsync(cancellationToken);
         return rows.SingleOrDefault();
