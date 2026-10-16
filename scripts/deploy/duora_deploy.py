@@ -40,6 +40,16 @@ DEFAULT_READINESS_TIMEOUT_SECONDS = 90
 # Teto de qualquer comando (o migrador é o mais longo); estourou, o deploy para.
 COMMAND_TIMEOUT_SECONDS = 15 * 60
 
+# Primeira migration com o bootstrap administrativo e o bloqueio do reset por e-mail antes do MFA (I5). Uma release
+# anterior a ela deixaria conta privilegiada sem MFA ser tomada pelo reset; o rollback que a cruza só segue sem
+# nenhuma conta assim (docs/operations/deploy.md, "Bootstrap administrativo").
+ADMIN_BOOTSTRAP_MIGRATION = "20261016102312_AdminBootstrap"
+PRIVILEGED_ACCOUNTS_WITHOUT_MFA_SQL = (
+    "select count(*) from identity.users u where not u.two_factor_enabled and exists ("
+    "select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id "
+    "where ur.user_id = u.id and r.name in ('moderator', 'product_admin', 'operator'))"
+)
+
 _RELEASE_ID = re.compile(r"[0-9A-Za-z][0-9A-Za-z._-]{0,63}")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _MIGRATION_ID = re.compile(r"\d{14}_[A-Za-z0-9_]+")
@@ -288,6 +298,7 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     rollback = _is_rollback(release, head, paths.state_dir)
 
     if rollback:
+        _require_no_privileged_account_without_mfa(release, head, compose, run)
         # Rollback de aplicação: o banco já está à frente (expand/contract garante que a release anterior aceita o
         # schema). O migrador não roda: ele não desfaz migrations e nunca roda Down (spec 17.4).
         _step(f"rollback para {release.release_id}: banco em {head}, migrador não roda")
@@ -431,6 +442,18 @@ def _require_image_architectures(release: Release, run: Runner) -> None:
             raise DeployError(f"imagem {name} com arquitetura {actual}, manifesto pede {release.architecture}")
 
 
+def _require_no_privileged_account_without_mfa(release: Release, head: str, compose: list[str], run: Runner) -> None:
+    """Rollback para antes do bootstrap só sem conta privilegiada sem MFA: lá o reset por e-mail a tomaria (I5)."""
+    crosses_bootstrap = release.latest_migration < ADMIN_BOOTSTRAP_MIGRATION <= head
+    if not crosses_bootstrap:
+        return
+    count = _query(compose, run, PRIVILEGED_ACCOUNTS_WITHOUT_MFA_SQL, "contagem de contas privilegiadas sem MFA")
+    if count != "0":
+        raise DeployError(f"{count or '?'} conta(s) privilegiada(s) sem MFA: a release {release.release_id} é anterior "
+                          "ao bootstrap administrativo e reabriria o reset por e-mail delas (I5). Rollback recusado; "
+                          "corrija para frente. Nada foi parado.")
+
+
 def _read_migration_head(compose: list[str], run: Runner) -> str:
     """Última migration aplicada, ou "" com o banco ainda sem histórico (primeiro deploy)."""
     exists = _query(compose, run, "select to_regclass('ops.__ef_migrations_history') is not null")
@@ -439,12 +462,12 @@ def _read_migration_head(compose: list[str], run: Runner) -> str:
     return _query(compose, run, 'select coalesce(max("MigrationId"), \'\') from ops.__ef_migrations_history')
 
 
-def _query(compose: list[str], run: Runner, sql: str) -> str:
+def _query(compose: list[str], run: Runner, sql: str, what: str = "leitura do histórico de migrations") -> str:
     result = _check(
         run(compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "--quiet", "--tuples-only",
                        "--no-align", "--username", "postgres", "--dbname", "duora", "--command", sql],
             capture=True),
-        "leitura do histórico de migrations")
+        what)
     return result.stdout.strip()
 
 
