@@ -49,29 +49,47 @@ class ProcessError(RuntimeError):
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parse_args(argv)
+    parser = _argument_parser()
+    args = parser.parse_args(argv)
     catalog = load_catalog()
+    selected = _select_generated(parser, catalog, args.names)
     roles = resolve_roles(catalog, tokens=None)
-    selected = [catalog.find(name) for name in args.names] if args.names else list(catalog.objects)
-    failures = []
+    failed = []
     for item in selected:
         try:
             written = process_object(catalog, item, roles, args.source_dir, args.output_dir)
         except ProcessError as error:
-            failures.append(str(error))
+            failed.append(item.name)
             print(f"FALHOU {item.name}: {error}", file=sys.stderr)
             continue
-        print(f"ok {item.name}: {', '.join(str(path.relative_to(REPO_ROOT)) for path in written)}")
-    MANIFEST_PATH.write_text(render_manifest(catalog), encoding="utf-8")
-    return 1 if failures else 0
+        print(f"ok {item.name}: {', '.join(str(path) for path in written)}")
+    if failed:
+        print(f"manifesto não atualizado: {', '.join(failed)} falharam", file=sys.stderr)
+        return 1
+    args.manifest.write_text(render_manifest(catalog), encoding="utf-8")
+    return 0
 
 
-def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+def _argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("names", nargs="*", help="objetos do catálogo (padrão: todos)")
+    parser.add_argument("names", nargs="*", help="objetos gerados do catálogo (padrão: todos)")
     parser.add_argument("--source-dir", type=Path, default=SOURCE_DIR)
     parser.add_argument("--output-dir", type=Path, default=ASSETS_DIR)
-    return parser.parse_args(argv)
+    parser.add_argument("--manifest", type=Path, default=MANIFEST_PATH)
+    return parser
+
+
+def _select_generated(
+    parser: argparse.ArgumentParser, catalog: Catalog, names: Sequence[str]
+) -> list[CatalogObject]:
+    """Só objetos gerados vão para o frontend; o procedural existe para os testes do pipeline."""
+    if not names:
+        return [item for item in catalog.objects if item.source == "generated"]
+    selected = [catalog.find(name) for name in names]
+    for item in selected:
+        if item.source != "generated":
+            parser.error(f"'{item.name}' é procedural: só serve aos testes do pipeline e não vai para o frontend")
+    return selected
 
 
 def process_object(
@@ -278,7 +296,7 @@ def _scaled_box(side: int, fractions: tuple[float, float, float, float]) -> tupl
 
 def render_manifest(catalog: Catalog) -> str:
     """Módulo TypeScript com os imports das duas densidades e o tamanho CSS de cada objeto."""
-    names = sorted(item.name for item in catalog.objects)
+    names = sorted(item.name for item in catalog.objects if item.source == "generated")
     lines = [
         "// Gerado por tools/visual/process.py a partir de tools/visual/catalog.json; não edite à mão.",
         *_manifest_imports(names),
@@ -297,7 +315,8 @@ def _manifest_imports(names: Iterable[str]) -> list[str]:
     imports = []
     for name in names:
         for suffix, scale in DENSITIES:
-            imports.append(f"import {_camel_case(name)}{scale}x from './illustrations/{name}{suffix}.webp'")
+            # ?no-inline: abaixo de 4 KiB o Vite embutiria o arquivo como data:, que a CSP img-src 'self' bloqueia.
+            imports.append(f"import {_camel_case(name)}{scale}x from './illustrations/{name}{suffix}.webp?no-inline'")
     return imports
 
 
