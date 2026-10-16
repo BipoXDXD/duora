@@ -151,6 +151,8 @@ erDiagram
 - **Chaves e constraints:** PK `id`; `UNIQUE (normalized_email)` (`RequireUniqueEmail`; normalização do
   Identity, explícita e testada); `CHECK` de estado; `CHECK (access_failed_count >= 0)`.
 - **Índices:** o da unicidade de e-mail; `ix_users_state` só se uma consulta medida pedir.
+- **`last_totp_step bigint null`:** último passo TOTP (RFC 6238) aceito; gravado só por UPDATE condicional que
+  exige passo maior, para o mesmo código não valer duas vezes (auth.md, "MFA").
 - **Classe:** S (`password_hash`, `security_stamp`); P3 (`birth_date`); P2 (e-mail).
 - **Exclusão:** a linha é anonimizada (e-mail substituído por valor não reversível, hash e stamp zerados) e,
   depois das etapas do Privacy, apagada; nenhuma FK de outro módulo cascateia.
@@ -165,9 +167,9 @@ erDiagram
   2026-10-15):** "privilegiado não é participante" é garantido pelo trigger
   `trg_user_roles_privileged_is_not_participant` (`BEFORE INSERT OR UPDATE`), que trava a linha da conta
   (`FOR NO KEY UPDATE`) para serializar concessões simultâneas e recusa com `check_violation` e constraint
-  `ck_user_roles_privileged_is_not_participant`. Testes: `RoleSeparationTests`. O cadastro ainda não grava o
-  papel `participant`: conta sem papel é participante por omissão, e o bootstrap administrativo (PR seguinte)
-  cria contas privilegiadas novas.
+  `ck_user_roles_privileged_is_not_participant`. O cadastro grava o papel `participant` na mesma transação
+  (só se a conta ainda não tem papel), e a migration `AdminMfa` fez o backfill das contas existentes. Testes:
+  `RoleSeparationTests`, `SecondFactorHardeningTests.RegistrationGrantsTheParticipantRoleSoNoPrivilegedRoleCanBeAdded`.
 - `user_claims`: não usado no M1 (claims ficam no servidor); existe porque o modelo do Identity o inclui.
 - `user_logins`: vazio (login externo fora do escopo, spec 1.1).
 - **Classe:** P2.
@@ -187,7 +189,8 @@ erDiagram
 
 - **Colunas:** `id uuid` (= `sessionId` de API-A09/A10); `user_id`; `policy text` (`Normal`,
   `Administrative`); `security_stamp text` (stamp do login); `created_at`, `last_seen_at`,
-  `idle_expires_at`, `absolute_expires_at`, `reauthenticated_at`, `mfa_verified_at timestamptz`;
+  `idle_expires_at`, `absolute_expires_at`, `reauthenticated_at`, `mfa_verified_at`, `totp_verified_at timestamptz`
+  (`mfa_verified_at`: qualquer segundo fator; `totp_verified_at`: só TOTP, exigido no step-up);
   `revoked_at timestamptz`, `revoke_reason text` (`logout`, `user`, `password_change`, `reset`, `mfa_change`,
   `suspension`, `deletion`, `restore`, `key_compromise`); `device_summary text` (≤ 120); `network_prefix
   text` (IP truncado: /24 IPv4, /48 IPv6); `version bigint`.

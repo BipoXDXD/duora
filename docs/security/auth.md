@@ -29,7 +29,11 @@ vice-versa (spec 1.3). A regra é de dados: um trigger em `identity.user_roles` 
 concessões simultâneas da mesma conta ([model.md](../data/model.md)). Assim a política de sessão é decidida pela
 conta no login, sem "elevar" uma sessão de participante. Bootstrap e concessão de papel privilegiado: comando
 operacional único, auditado, fora da API pública, com credencial temporária que expira e exige configurar MFA
-(spec 11.1). **Pendente (PR seguinte, decisão D4):** o comando, com senha temporária mostrada uma vez no terminal
+(spec 11.1). **Pré-condição do bootstrap (I5):** até a primeira ativação do MFA, o reset de senha de conta
+privilegiada fica bloqueado (o e-mail não pode virar caminho para tomar uma conta que ainda não tem segundo
+fator); o PR do bootstrap implementa o bloqueio e o teste. **Decisão I2 (revisão do #38):** conta privilegiada
+não acessa rota de participante (perfil, bloqueio, salas): a política padrão das rotas responde `403` a ela, e só
+as rotas da própria conta (sessões, MFA, senha) e as `/admin` a aceitam. **Pendente (PR seguinte, decisão D4):** o comando, com senha temporária mostrada uma vez no terminal
 do operador; até lá, papéis só entram por fixture nos testes e não existe rota que conceda papel.
 
 ## Ticket no servidor
@@ -112,8 +116,11 @@ cliente: tirar um papel fecha as rotas `/admin` na requisição seguinte.
 | Ações administrativas críticas: decisão de moderação (ADM14, ADM15), leitura de evidência (ADM13), publicar/cancelar evento (ADM04, ADM05), publicar/aposentar catálogo (ADM09, ADM10), pausas operacionais (ADM17, ADM18), reprocessar job (ADM20) | TOTP obrigatório |
 
 Faltando autenticação recente: `401` com `code = REAUTHENTICATION_REQUIRED`, sem efeito. Implementação: filtros
-`RequireRecentAuthentication()` (A11, A12, A14, A15, A16) e `RequireRecentMfa()` (ações administrativas
-críticas, conferindo `mfa_verified_at`). As rotas ADM ainda não existem; cada uma acrescenta o filtro ao nascer.
+`RequireRecentAuthentication()` (A11, A12, A15, A16) e `RequireRecentMfa()` (A14 e ações administrativas
+críticas, conferindo `totp_verified_at`: só TOTP conta, código de recuperação não; decisão I3). A sessão guarda
+três provas: `reauthenticated_at` (credencial), `mfa_verified_at` (qualquer segundo fator, que completa a sessão
+privilegiada) e `totp_verified_at` (TOTP). Renovar a sessão (A12, A15, A16) herda o `absolute_expires_at` da
+anterior: nunca estende a vida desde o login. As rotas ADM ainda não existem; cada uma acrescenta o filtro ao nascer.
 
 ## MFA
 
@@ -122,17 +129,17 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 
 | Tema | Especificação |
 |---|---|
-| Método | TOTP do Identity (`AuthenticatorTokenProvider`); passkeys só depois, pelo suporte oficial e com teste (spec 11.1) |
+| Método | TOTP RFC 6238 (HMAC-SHA1, 30 s, 6 dígitos) sobre a chave do Identity, verificado por `Duora.Core.Identity.Totp` com tolerância de um passo para cada lado. O provider do Identity não diz qual passo aceitou, e sem o passo não há como recusar reuso (B2 da revisão do #38). Passkeys só depois, pelo suporte oficial e com teste (spec 11.1) |
 | Cadastro (API-A11) | Exige autenticação recente; gera nova chave do autenticador e devolve `sharedKey` e URI `otpauth://` uma única vez, com `no-store`; MFA ainda **inativo**. Trocar a chave troca o security stamp (comportamento do Identity): a sessão que pediu o cadastro adota o stamp novo e as outras caem. MFA já ativo → `409` `MFA_ALREADY_ENABLED` |
 | Confirmação (API-A12) | Código TOTP válido ativa o MFA, gera 10 códigos de recuperação **(hipótese)** mostrados uma vez, revoga as sessões da conta e abre uma nova para quem confirmou, já com a prova de MFA. Código errado → `400` `MFA_CODE_INVALID`; sem cadastro → `409` `MFA_ENROLLMENT_NOT_STARTED`. **Pendente:** notificar o titular por e-mail |
-| Login com MFA (API-A04) | Mesmo corpo com `twoFactorCode` (6 dígitos) ou `recoveryCode` (até 32 caracteres), nunca os dois (`400`). Senha correta sem segundo fator → `401` `MFA_REQUIRED`, **sem** criar sessão. Segundo fator errado → `401` `INVALID_CREDENTIALS` e conta no mesmo lockout da senha; o lockout só zera depois do segundo fator certo. Código de recuperação é de uso único (dois resgates simultâneos: um vence, pelo concurrency stamp da conta) e o resgate é auditado. Aceita minúsculas e espaços em volta |
+| Login com MFA (API-A04) | Mesmo corpo com `twoFactorCode` (6 dígitos; espaços aceitos) ou `recoveryCode` (até 32 caracteres; caixa, espaços e hífen ignorados), nunca os dois (`400`). Senha correta sem segundo fator → `401` `MFA_REQUIRED`, **sem** criar sessão. Segundo fator errado → `401` `INVALID_CREDENTIALS`, conta no mesmo lockout da senha e é auditado (`identity.second_factor_failed`); o lockout só zera depois do segundo fator certo. Toda a verificação roda com a linha da conta travada (`FOR NO KEY UPDATE`), para o contador não perder falhas sob logins paralelos (B1). **TOTP de uso único:** o passo aceito é gravado em `users.last_totp_step` por UPDATE condicional (`last_totp_step is null or last_totp_step < passo`), e o mesmo código, ou um passo anterior ainda na tolerância, é recusado em A04, A12 e A13 (B2). Código de recuperação é de uso único e o resgate é auditado |
 | Conta privilegiada sem MFA confirmado | Login abre sessão administrativa restrita ao cadastro de MFA: A08, A11, A12 e A13 (a reautenticação entra porque A11 e A12 exigem autenticação recente); A05 e as rotas públicas não exigem sessão. Toda outra rota, inclusive `/admin/*` → `403` `MFA_ENROLLMENT_REQUIRED` |
-| Novos códigos (API-A14) | Autenticação recente; troca o conjunto inteiro no mesmo commit; mostra o novo uma vez; nada em log. MFA inativo → `409` `MFA_NOT_ENABLED` |
+| Novos códigos (API-A14) | Exige **TOTP** provado há menos de 5 min (`totp_verified_at`; login com código de recuperação não basta, decisão I3); troca o conjunto inteiro no mesmo commit, com a conta travada (pedidos simultâneos se serializam, sem `500`); mostra o novo uma vez; nada em log. Sem MFA ativo não há TOTP recente, então a resposta é `401` `REAUTHENTICATION_REQUIRED`; o `409` `MFA_NOT_ENABLED` fica como defesa do serviço |
 | Desativar (API-A15) | Autenticação recente; recusado (`403` `MFA_REQUIRED_BY_ROLE`) se a conta é privilegiada; para participante, desativa, troca a chave por uma que ninguém viu, esvazia os códigos, revoga as sessões e abre uma nova para quem desativou. MFA já inativo → `204` sem efeito. **Pendente:** notificar o titular |
 | Recuperação de MFA de conta privilegiada | Não há caminho self-service por e-mail: procedimento operacional auditado, com outra pessoa ou conta privilegiada quando houver (TM-22). O reset de senha não remove nem contorna o MFA (`AdminMfaTests.PasswordResetDoesNotBypassMfaForPrivilegedAccount`) |
 | Armazenamento | Verificado: o Identity 10.0.13 grava chave e códigos em claro em `identity.user_tokens`, e ligar `ProtectPersonalData` exigiria um `ILookupProtector` próprio que também cifraria e-mail e nome de usuário. Decidido em 2026-10-15: **D2**, a chave do autenticador é protegida por Data Protection num `DuoraUserManager` (só no web), com o custo de que perder o key ring invalida o TOTP de todos (a chave ilegível é tratada como ausente); **D3**, os códigos de recuperação ficam só como hash PBKDF2 do `PasswordHasher`, um por código, num `IUserTwoFactorRecoveryCodeStore` próprio (`DuoraUserStore`), com o custo de até 10 verificações PBKDF2 por resgate |
 | Auditoria | `ops.audit_events` na mesma transação: `identity.mfa_enrollment_started`, `mfa_enabled`, `mfa_disabled`, `mfa_recovery_codes_regenerated`, `mfa_recovery_code_used`, `reauthenticated` e `password_changed` |
-| Risco residual | O TOTP aceito numa janela de tolerância pode ser reaproveitado dentro dela (o Identity não guarda o último passo usado); contido pelo TLS, pelo lockout e pelo rate limit. Registrar o último passo fica para uma revisão com medição |
+| Risco residual | O key ring é ponto único de falha do TOTP (D2). O lock por conta serializa logins da mesma conta durante um hash; contido pelo rate limit |
 
 ## CSRF
 
@@ -164,6 +171,7 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 | Link | Rota da SPA com as credenciais no **fragmento**: `/redefinir-senha#userId=…&token=…` e `/confirmar-email#userId=…&token=…`. O fragmento não vai a servidor, log de proxy nem `Referer`. O token é o base64url dos bytes do token do Identity. **Pendente (frontend):** `Referrer-Policy: no-referrer` nas páginas de conta |
 | Conclusão (API-A07) | `POST` com `userId`, `token` e `newPassword`. Sucesso: troca a senha, atualiza o security stamp (o token deixa de valer), zera o bloqueio por tentativas, revoga **todas** as sessões e não emite sessão nova. Falha: `400` `INVALID_TOKEN`, igual para conta inexistente. **Pendente:** notificar o titular da troca |
 | Conta privilegiada | Reset troca a senha, mas não remove nem contorna o MFA (TM-22) |
+| Conta com MFA | Reset **não** zera o lockout (I4): o e-mail não prova o segundo fator, e destravar reabriria a força bruta do TOTP. Conta sem MFA continua destravada pelo reset |
 | Política de senha | Comprimento mínimo de 12 caracteres e máximo de 128 **(hipótese)**, sem regras de composição forçada; colar e gerenciador de senhas permitidos (A11Y-01); verificação contra senhas vazadas fica como evolução, se houver serviço aprovado |
 
 Confirmação de e-mail (API-A03) usa o mesmo desenho: link para a SPA, ação por `POST` explícito (scanner de
@@ -293,8 +301,8 @@ remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests`,
 | Pedido de reset (A06) | E-mail normalizado | 3 / hora | `429` + `Retry-After` |
 | Pedido de reset (A06) | IP | 10 / hora | `429` + `Retry-After` |
 | Conclusão de reset (A07), confirmação (A03) | IP | 20 / 10 min | `429` + `Retry-After` |
-| Reautenticação (A13) | Conta (banco) | Mesmo lockout da conta | `401` |
-| MFA (A11, A12, A14, A15), troca de senha (A16) | Sessão (um contador para as cinco rotas, `RateLimiting:AccountSecurityPerSession`) | 10 / hora | `429` + `Retry-After` |
+| Reautenticação (A13) | Conta (banco) e conta (memória) | Mesmo lockout da conta, com a conta travada; e o limite por conta abaixo | `401`; `429` + `Retry-After` |
+| Reautenticação e MFA (A11 a A15), troca de senha (A16) | Conta (um contador para as seis rotas, `RateLimiting:AccountSecurityPerAccount`; abrir outra sessão não renova) | 10 / hora | `429` + `Retry-After` |
 | Revogar sessão (A10) | Sessão | 30 / hora | `429` + `Retry-After` |
 | Bloquear (API-S01) | Conta (id da sessão; vale para todas as sessões e IPs da conta) | 30 / hora (`RateLimiting:BlockPerAccount`, decisão G6) | `429` + `Retry-After` |
 
@@ -416,3 +424,12 @@ sem artefato do CI (spec 25.19).
   - Mudanças em relação ao texto anterior: segundo fator errado no login é `INVALID_CREDENTIALS`; a sessão restrita
     inclui A13; A11 troca o security stamp (outras sessões caem); A15 em conta sem MFA é `204`; os limites de
     A11, A12 e A14 a A16 dividem um contador por sessão.
+- **2026-10-16, feat/m1-admin-mfa (revisão independente).** Dois bloqueantes e os importantes corrigidos:
+  - B1: lockout com a linha da conta travada em toda verificação de credencial (A04, A13, A12, A14 a A16).
+  - B2: TOTP de uso único por `users.last_totp_step` e verificador RFC 6238 próprio que devolve o passo.
+  - I1: o cadastro grava o papel `participant` na mesma transação, com backfill na migration.
+  - I2 e I3: decisões do assistente na ausência do usuário (conta privilegiada fora das rotas de participante;
+    `totp_verified_at` separado e exigido no step-up e no A14).
+  - I4: reset não zera o lockout de conta com MFA; segundo fator errado é auditado. I5: pré-condição do bootstrap.
+  - Menores: limite por conta (não por sessão) também no A13, renovação herda o limite absoluto, concorrência no
+    A12/A14 sem `500`, normalização de espaços e hífen.
