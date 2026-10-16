@@ -1,10 +1,12 @@
 namespace Duora.Core.Profiles;
 
 /// <summary>
-/// Perfil como o titular o edita (API-P01). <c>Version</c> é o token de concorrência otimista (spec 3.4): começa em 0
-/// enquanto nada foi salvo e sobe a cada gravação.
+/// Perfil como o titular o lê (API-P01). <c>Version</c> é o token de concorrência otimista (spec 3.4): começa em 0
+/// enquanto nada foi salvo e sobe a cada gravação. Os textos são o que está gravado, sem passar de novo pela regra de
+/// entrada (<see cref="Profiles.DisplayName"/> e <see cref="ProfileBio"/> valem só para a escrita): se a regra
+/// endurecer, uma linha antiga continua legível, e o CHECK do banco é o mínimo garantido.
 /// </summary>
-public sealed record OwnProfile(DisplayName? DisplayName, ProfileBio? Bio, long Version)
+public sealed record OwnProfile(string? DisplayName, string? Bio, long Version)
 {
     /// <summary>Perfil de quem ainda não salvou nada: ler não cria linha no banco.</summary>
     public static OwnProfile Unsaved { get; } = new(null, null, 0);

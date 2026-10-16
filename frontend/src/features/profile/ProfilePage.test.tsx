@@ -95,6 +95,20 @@ describe('perfil: leitura', () => {
     expect(await screen.findByLabelText('Nome de exibição')).toHaveValue('Ana')
   })
 
+  it('o perfil sai da memória quando a pessoa deixa a tela (gcTime 0, T-21)', async () => {
+    useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
+    const { user, queryClient } = await renderApp('/conta/perfil')
+    await screen.findByLabelText('Nome de exibição')
+    expect(queryClient.getQueryData(profileQueryKey(ME.id))).toBeDefined()
+
+    await user.click(screen.getByRole('link', { name: 'Voltar para a conta' }))
+    await screen.findByRole('heading', { level: 1, name: 'Sua conta' })
+
+    await waitFor(() => {
+      expect(queryClient.getQueryData(profileQueryKey(ME.id))).toBeUndefined()
+    })
+  })
+
   it('a conta tem o link para editar o perfil', async () => {
     useProfileBackend()
     const { user } = await renderApp('/conta')

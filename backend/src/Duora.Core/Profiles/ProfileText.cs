@@ -37,11 +37,6 @@ public sealed record DisplayName
         return name is not null;
     }
 
-    /// <summary>
-    /// Reconstitui o valor gravado sem revalidar: a regra de entrada pode endurecer depois da gravação, e uma linha
-    /// antiga não pode derrubar a leitura. O CHECK de tamanho do banco é o mínimo garantido.
-    /// </summary>
-    internal static DisplayName FromStorage(string value) => new(value);
 
     public override string ToString() => Value;
 }
@@ -70,8 +65,6 @@ public sealed record ProfileBio
         return bio is not null;
     }
 
-    /// <summary>Reconstitui o valor gravado sem revalidar, como <see cref="DisplayName.FromStorage"/>.</summary>
-    internal static ProfileBio FromStorage(string value) => new(value);
 
     public override string ToString() => Value;
 }
@@ -151,6 +144,10 @@ internal static class ProfileText
         return true;
     }
 
+    /// <summary>
+    /// Defesa em profundidade: todo noncharacter já é Cn no Unicode, mas a categoria vem da tabela do runtime, e é
+    /// esta checagem que garante que nenhum chegue ao <c>Normalize</c> (U+FFFE o faz lançar) se a tabela mudar.
+    /// </summary>
     private static bool IsNoncharacter(int codePoint) =>
         codePoint is >= 0xFDD0 and <= 0xFDEF || (codePoint & 0xFFFE) == 0xFFFE;
 
@@ -204,6 +201,17 @@ internal static class ProfileText
     private static bool IsMark(Rune rune) =>
         Rune.GetUnicodeCategory(rune) is UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark;
 
+    /// <summary>
+    /// Seletores do suplemento (U+E0100–U+E01EF): só existem sequências registradas para ideogramas (IVS), então só
+    /// valem depois de um ideograma Han.
+    /// </summary>
+    private static bool IsIdeographicSelector(int codePoint) => codePoint is >= 0xE0100 and <= 0xE01EF;
+
+    /// <summary>Blocos de ideogramas unificados e de compatibilidade CJK (mesmos intervalos do profile-text.ts).</summary>
+    private static bool IsHanIdeograph(int codePoint) =>
+        codePoint is (>= 0x3400 and <= 0x4DBF) or (>= 0x4E00 and <= 0x9FFF) or (>= 0xF900 and <= 0xFAFF)
+            or (>= 0x20000 and <= 0x2FA1F) or (>= 0x30000 and <= 0x323AF);
+
     /// <summary>Seletores de variação (FE00–FE0F, E0100–E01EF, FVS1) e CGJ: modificam a base anterior.</summary>
     private static bool IsSelector(int codePoint) =>
         codePoint is (>= 0xFE00 and <= 0xFE0F) or (>= 0xE0100 and <= 0xE01EF)
@@ -217,6 +225,7 @@ internal static class ProfileText
     {
         private bool _hasBase;
         private bool _lastWasBase;
+        private bool _baseIsHan;
         private bool _selectorUsed;
         private int _marks;
 
@@ -224,7 +233,7 @@ internal static class ProfileText
         {
             if (IsSelector(rune.Value))
             {
-                if (!_lastWasBase || _selectorUsed)
+                if (!_lastWasBase || _selectorUsed || (IsIdeographicSelector(rune.Value) && !_baseIsHan))
                 {
                     return false;
                 }
@@ -244,6 +253,7 @@ internal static class ProfileText
             var isBase = !Rune.IsWhiteSpace(rune);
             _hasBase = isBase;
             _lastWasBase = isBase;
+            _baseIsHan = IsHanIdeograph(rune.Value);
             _selectorUsed = false;
             _marks = 0;
             return true;

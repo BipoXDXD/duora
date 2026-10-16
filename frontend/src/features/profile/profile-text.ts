@@ -18,8 +18,28 @@ const DOTNET_EDGES = new RegExp(`^${DOTNET_WHITESPACE.source}+|${DOTNET_WHITESPA
 const BLANK_FILLERS: ReadonlySet<number> = new Set([0x115f, 0x1160, 0x3164, 0xffa0, 0x2800])
 const LINE_BREAKS: ReadonlySet<string> = new Set(['\n', '\r', '\t'])
 
+/**
+ * Defesa em profundidade: todo noncharacter já é Cn, mas a categoria vem da tabela Unicode do motor JavaScript; esta
+ * checagem não depende dela (o backend faz o mesmo antes do Normalize, que lança com U+FFFE).
+ */
 function isNoncharacter(codePoint: number): boolean {
   return (codePoint >= 0xfdd0 && codePoint <= 0xfdef) || (codePoint & 0xfffe) === 0xfffe
+}
+
+/** Seletores do suplemento (U+E0100–U+E01EF): só existem sequências registradas para ideogramas (IVS). */
+function isIdeographicSelector(codePoint: number): boolean {
+  return codePoint >= 0xe0100 && codePoint <= 0xe01ef
+}
+
+/** Blocos de ideogramas unificados e de compatibilidade CJK (mesmos intervalos do ProfileText.cs). */
+function isHanIdeograph(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x3400 && codePoint <= 0x4dbf) ||
+    (codePoint >= 0x4e00 && codePoint <= 0x9fff) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0x20000 && codePoint <= 0x2fa1f) ||
+    (codePoint >= 0x30000 && codePoint <= 0x323af)
+  )
 }
 
 /** Seletores de variação (FE00–FE0F, E0100–E01EF, FVS1) e CGJ: modificam a base anterior. */
@@ -57,12 +77,13 @@ export function normalizeProfileText(value: string): string {
 function hasMisplacedMark(characters: readonly string[]): boolean {
   let hasBase = false
   let lastWasBase = false
+  let baseIsHan = false
   let selectorUsed = false
   let marks = 0
   for (const character of characters) {
     const codePoint = character.codePointAt(0) ?? 0
     if (isSelector(codePoint)) {
-      if (!lastWasBase || selectorUsed) {
+      if (!lastWasBase || selectorUsed || (isIdeographicSelector(codePoint) && !baseIsHan)) {
         return true
       }
       selectorUsed = true
@@ -76,6 +97,7 @@ function hasMisplacedMark(characters: readonly string[]): boolean {
     } else {
       hasBase = !isWhiteSpace(character)
       lastWasBase = hasBase
+      baseIsHan = isHanIdeograph(codePoint)
       selectorUsed = false
       marks = 0
     }

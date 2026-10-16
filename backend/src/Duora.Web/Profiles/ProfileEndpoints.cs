@@ -162,8 +162,8 @@ internal static class ProfileEndpoints
     {
         context.Response.Headers.ETag = EntityTags.Format(profile.Version);
         return TypedResults.Ok(new OwnProfileResponse(
-            profile.DisplayName?.Value,
-            profile.Bio?.Value,
+            profile.DisplayName,
+            profile.Bio,
             profile.Version.ToString(System.Globalization.CultureInfo.InvariantCulture)));
     }
 }
