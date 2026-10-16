@@ -11,21 +11,31 @@ x-minio-image: &minio-image
   # tag e digest do índice multiarquitetura, sem dado real.
   bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
 
+# "minio server" direto, sem o entrypoint de setup da Bitnami: ele tentava registrar o alias "local" do mc por 60 s
+# e, quando falhava ("Failed to add temporary MinIO server"), encerrava o container (2 falhas em 8 drills). O alias e
+# o bucket com Object Lock são criados pelo próprio drill, com retry. Dados na camada do container: some no down.
+x-minio-server: &minio-server
+  - minio
+  - server
+  - /bitnami/minio/data
+  - --address
+  - ":9000"
+
 services:
   s3:
     image: *minio-image
+    # TLS: --certs-dir com public.crt e private.key (gerados pelo drill, CA autoassinada).
+    entrypoint: [minio, server, /bitnami/minio/data, --address, ":9000", --certs-dir, /certs]
     environment:
       MINIO_ROOT_USER: ${DRILL_S3_KEY:?defina DRILL_S3_KEY}
       MINIO_ROOT_PASSWORD: ${DRILL_S3_SECRET:?defina DRILL_S3_SECRET}
-      MINIO_SCHEME: https
       # O mc (Go) do container fala com https://localhost:9000 confiando só na CA do dublê.
       SSL_CERT_FILE: /certs/public.crt
     volumes:
       - ${DRILL_CERTS_DIR:?defina DRILL_CERTS_DIR}:/certs:ro
     networks: [backup-egress]
     healthcheck:
-      # Saudável quando o servidor responde por HTTPS. O alias do mc e o bucket são criados pelo drill, com retry:
-      # o setup da Bitnami às vezes não criava o alias "local" a tempo (1 falha em 5 execuções).
+      # Saudável quando o servidor responde por HTTPS; o alias do mc e o bucket vêm depois, pelo drill.
       test: ["CMD", "curl", "--fail", "--silent", "--cacert", "/certs/public.crt", "https://localhost:9000/minio/health/live"]
       interval: 2s
       timeout: 3s
@@ -33,6 +43,7 @@ services:
 
   internet:
     image: *minio-image
+    entrypoint: *minio-server
     environment:
       MINIO_ROOT_USER: internet-synthetic
       MINIO_ROOT_PASSWORD: ${DRILL_S3_SECRET:?defina DRILL_S3_SECRET}
