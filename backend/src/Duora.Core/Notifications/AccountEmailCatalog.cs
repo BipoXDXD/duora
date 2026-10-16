@@ -26,6 +26,8 @@ internal interface IAccountEmailCatalog
     /// variável do texto, além do link fixo para as sessões e do contato de suporte, que vêm da configuração.
     /// </summary>
     EmailText SecurityNotice(SecurityChange change, string occurredAtUtc, Uri sessionsLink, EmailAddress supportContact);
+
+    EmailText PasswordResetUnavailable();
 }
 
 internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
@@ -148,6 +150,18 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
             {recovery}
             """);
     }
+
+    public EmailText PasswordResetUnavailable() =>
+        new(
+            "Redefinição de senha do Duora",
+            """
+            Olá,
+
+            Recebemos um pedido de redefinição de senha para este e-mail. Esta conta ainda não ativou o segundo
+            fator, e por isso a senha dela não pode ser redefinida por e-mail. Fale com quem administra o Duora.
+
+            Se você não fez esse pedido, ignore esta mensagem; sua senha continua a mesma.
+            """);
 }
 
 internal sealed class EnglishAccountEmails : IAccountEmailCatalog
@@ -270,4 +284,16 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
             {recovery}
             """);
     }
+
+    public EmailText PasswordResetUnavailable() =>
+        new(
+            "Duora password reset",
+            """
+            Hi,
+
+            We received a password reset request for this email. This account has not turned on its second factor
+            yet, so its password cannot be reset by email. Contact whoever runs Duora.
+
+            If you did not make this request, ignore this message; your password stays the same.
+            """);
 }

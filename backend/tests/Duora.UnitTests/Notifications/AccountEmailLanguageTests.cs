@@ -30,6 +30,8 @@ public sealed class AccountEmailLanguageTests
         { "PendingRegistrationReminder", EmailLanguage.English, "Unfinished sign-up on Duora", "its sign-up was never confirmed" },
         { "PasswordResetForUnknownAddress", EmailLanguage.BrazilianPortuguese, "Redefinição de senha do Duora", "não há conta do Duora com ele" },
         { "PasswordResetForUnknownAddress", EmailLanguage.English, "Duora password reset", "there is no Duora account with it" },
+        { "PasswordResetUnavailable", EmailLanguage.BrazilianPortuguese, "Redefinição de senha do Duora", "não pode ser redefinida por e-mail" },
+        { "PasswordResetUnavailable", EmailLanguage.English, "Duora password reset", "cannot be reset by email" },
     };
 
     [Theory]
@@ -63,6 +65,7 @@ public sealed class AccountEmailLanguageTests
     [InlineData("RegistrationAttemptOnExistingAccount")]
     [InlineData("PendingRegistrationReminder")]
     [InlineData("PasswordResetForUnknownAddress")]
+    [InlineData("PasswordResetUnavailable")]
     public void LanguageOutsideTheAllowlistFallsBackToBrazilianPortuguese(string kind)
     {
         var unknown = Compose(kind, (EmailLanguage)99);
@@ -70,6 +73,16 @@ public sealed class AccountEmailLanguageTests
 
         Assert.Equal(portuguese.Subject, unknown.Subject);
         Assert.Equal(portuguese.TextBody, unknown.TextBody);
+    }
+
+    [Theory]
+    [InlineData(EmailLanguage.BrazilianPortuguese)]
+    [InlineData(EmailLanguage.English)]
+    public void PasswordResetUnavailableCarriesNoLink(EmailLanguage language)
+    {
+        var email = Compose("PasswordResetUnavailable", language);
+
+        Assert.DoesNotContain("https://", email.TextBody, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -87,6 +100,7 @@ public sealed class AccountEmailLanguageTests
         "RegistrationAttemptOnExistingAccount" => Emails.RegistrationAttemptOnExistingAccount(Recipient, language),
         "PendingRegistrationReminder" => Emails.PendingRegistrationReminder(Recipient, language),
         "PasswordResetForUnknownAddress" => Emails.PasswordResetForUnknownAddress(Recipient, language),
+        "PasswordResetUnavailable" => Emails.PasswordResetUnavailable(Recipient, language),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Tipo de e-mail sem caso de teste."),
     };
 }
