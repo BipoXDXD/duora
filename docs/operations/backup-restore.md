@@ -84,7 +84,7 @@ Requisitos do bucket (qualquer provedor S3 compatível que suporte Object Lock):
 |---|---|---|
 | Versionamento | `Enabled` | Uma exclusão (do `expire` ou de um atacante) vira delete marker; a versão anterior continua lá |
 | Object Lock | habilitado na criação do bucket (a maioria dos provedores não deixa ligar depois) | Nem a credencial do `backup` nem um atacante com ela apagam uma versão antes do prazo |
-| Retenção padrão | `COMPLIANCE`, **≥ 21 dias** (o verify aceita `GOVERNANCE`, mas a política abaixo nega o bypass) | Cobre a janela máxima de retenção do repositório (21 dias, seção de retenção) |
+| Retenção padrão | `COMPLIANCE`, **≥ 21 dias**. O verify recusa `GOVERNANCE`, que cede a quem tiver `s3:BypassGovernanceRetention` | Cobre a janela máxima de retenção do repositório (21 dias, seção de retenção) |
 | Lifecycle | expirar **versões não correntes** depois de 21 dias + margem (sugestão: 30 dias) e remover delete markers órfãos | Sem isso as versões apagadas pelo `expire` ficam para sempre e o custo cresce sem limite |
 
 O `expire` do pgBackRest continua funcionando: num bucket versionado, apagar sem `versionId` só cria um delete
@@ -124,9 +124,21 @@ Como o verify confere: lê o `repo.conf` montado no `backup`, assina (AWS Signat
 `GET ?object-lock` e os envia de dentro do próprio container por `openssl s_client` (mesma rede, DNS, CA e filtro de
 saída do pgBackRest, com verificação de certificado e de nome). Bloqueiam: versionamento diferente de `Enabled`,
 Object Lock ausente (`404 ObjectLockConfigurationNotFoundError`) ou desligado, sem retenção padrão, retenção menor
-que 21 dias, resposta HTTP diferente de 200 (por exemplo 403 por falta de permissão) ou resposta ilegível. Testes:
-`BucketProtectionTests`, `BucketProtectionActionTests` e o vetor de assinatura da documentação AWS em
-`SignedRequestTests`.
+que 21 dias, modo diferente de `COMPLIANCE`, resposta HTTP diferente de 200 (por exemplo 403 por falta de permissão)
+ou resposta ilegível. Testes: `BucketProtectionTests`, `BucketProtectionActionTests` e o vetor de assinatura da
+documentação AWS em `SignedRequestTests`.
+
+Limites da consulta: só **chave compartilhada** (`repo1-s3-key-type=shared`, `repo1-s3-key` e
+`repo1-s3-key-secret`). `repo1-s3-key-type=auto` (papel de instância), `repo1-s3-token` (credencial temporária) e
+`repo1-storage-host` (conectar num host diferente do endpoint) não são tratados: com eles a consulta assina ou
+conecta errado e o verify falha fechado. Se o provedor escolhido exigir um deles, a consulta precisa ser estendida.
+
+**O Object Lock é defesa em profundidade, não a principal.** A retenção conta desde a criação de cada versão, não
+desde a exclusão: um objeto gravado há mais de 21 dias (um full antigo, o `backup.info` de três semanas) já está fora
+do lock e uma credencial com `s3:DeleteObjectVersion` apagaria a versão na hora. A defesa principal é a **negação no
+IAM**: a credencial do `backup` (a única na VPS) não apaga versão nem mexe em retenção, versionamento, lock ou
+lifecycle. O lock cobre o caso de essa negação falhar (política mal aplicada, credencial administrativa vazada) para
+os objetos dos últimos 21 dias, que são os de que o restore mais recente depende.
 
 **Recuperação depois de uma exclusão maliciosa** (passo 3 do restore, com o repositório apagado):
 
@@ -264,13 +276,33 @@ até ~12,6 GB de diferenciais (cada um cresce ao longo da semana: 0,2 + ... + 1,
 restore). A retenção dos tombstones de exclusão precisa ser **pelo menos 21 dias + margem aprovada** (sugestão: 28
 dias), e o restore os reaplica antes de reabrir (passo 6).
 
+**Repositório fora do ar não derruba o banco.** `postgres`, `backup` e `restore` rodam com `init: true` (o tini do
+Docker é o PID 1). Sem isso o postmaster é o PID 1, adota o processo assíncrono do `archive-push` do pgBackRest e,
+quando ele sai com erro (S3 parado), o trata como filho desconhecido ("untracked child process ... exited with exit
+code 103") e faz crash-restart do cluster a cada tentativa, e o shutdown normal acaba em "abnormal database system
+shutdown". O drill prova a correção (passo 5 do drill) e falha sem o `init`. O `postgres` depende do `backup`
+(`depends_on`, `service_started`): o Compose sobe o `backup` antes e para o `postgres` antes dele. O healthcheck do
+`postgres` é uma sonda TCP em `127.0.0.1:5432`, sem login (o `pg_isready` como `postgres` pela rede era recusado
+pelo `pg_hba` e gerava um FATAL no log a cada 5 s); a porta TCP só abre depois do initdb.
+
 **Quebra da cadeia:** se o repositório ficar fora do ar e o WAL pendente passar de `archive-push-queue-max` (4 GiB),
 o pgBackRest descarta a fila para o PostgreSQL não parar por disco cheio. Sem PITR depois desse ponto até o próximo
 full: rode `sudo duora-backup full` assim que o destino voltar. O verify a cada 15 min alerta enquanto o
 arquivamento falha, mas **não vê a lacuna depois que ele volta** (o `pg_stat_archiver` só mostra o último sucesso).
-Quem pega a lacuna é o `verify-repo` diário (abaixo): o `pgbackrest verify` nativo lista as faixas contínuas de WAL
-no repositório, e o wrapper falha se houver buraco depois do início do backup mais novo. Lacuna anterior ao backup
-mais novo não alerta: o full que a resolve já existe, e o `expire` a remove com o tempo.
+Quem pega a lacuna é o `verify-repo` diário (abaixo): ele monta as faixas contínuas de WAL pela listagem do archive
+(`repo-ls`, só nomes) e falha se houver buraco depois do início do backup mais novo. O `pgbackrest verify` nativo não
+falha com lacuna, e com `--set` nem olha a cadeia, por isso a decisão é do wrapper. Lacuna anterior ao backup mais
+novo não alerta: o full que a resolve já existe, e o `expire` a remove com o tempo.
+
+**Custo de leitura da verificação** (decidido pelo usuário em 2026-10-15: diária leve e completa semanal). O
+`pgbackrest verify` baixa e decifra cada arquivo que confere:
+
+- diário (`verify-repo`): a listagem do archive (requisições `LIST`, sem baixar) e o `verify --set` só do backup
+  mais novo e do WAL dele. Leitura de um full ou de um diferencial por dia;
+- semanal (`verify-repo-full`, quarta 06:00 UTC, longe do full de domingo e depois do reinício automático das 04:30):
+  o repositório inteiro, o que no pior momento chega a **3 fulls + 18 diferenciais + 21 dias de WAL** (no exemplo de
+  dimensionamento acima, ~29 GB por semana). Provedor com tarifa de egress cobra essa leitura toda semana: entra na
+  escolha do provedor.
 
 ## Operação
 
@@ -281,7 +313,8 @@ mais novo não alerta: o full que a resolve já existe, e o `expire` a remove co
 | `stanza-create` | operador, uma vez | Cria a stanza `duora` no repositório |
 | `full` / `diff` | timers `duora-backup-full.timer` / `duora-backup-diff.timer` | Backup; espera um deploy em curso terminar (mesmo lock, até 30 min) |
 | `verify` | `duora-backup-verify.timer` (15 min) e `duora-deploy` | filtro de saída aplicado no iptables, `pgbackrest check` (troca o segmento e espera ele chegar ao repositório), `info` sem erro, último WAL confirmado há ≤ 300 s (RPO), arquivamento não falhando, último backup há ≤ 48 h. **Falha fechado** (abaixo) |
-| `verify-repo` | `duora-backup-verify-repo.timer` (diário, 05:00) | `pgbackrest verify` nativo: checksum e tamanho de cada arquivo do repositório, stanza `ok`, backup mais novo `valid`, WAL do backup mais novo presente e **nenhuma lacuna de WAL** desde o início dele (`RepositoryVerifyTests`). Espera o deploy terminar (mesmo lock) |
+| `verify-repo` | `duora-backup-verify-repo.timer` (diário, 05:00) | Leve: `pgbackrest verify --set` do backup mais novo (checksum e tamanho dos arquivos dele e do WAL dele), stanza `ok`, backup `valid`, WAL do backup presente e **nenhuma lacuna de WAL** desde o início dele pela listagem do archive (`RepositoryVerifyTests`). Espera o deploy terminar (mesmo lock) |
+| `verify-repo-full` | `duora-backup-verify-repo-full.timer` (quarta, 06:00) | O mesmo, com o `pgbackrest verify` de **todo** o repositório (todos os backups e todo o WAL) |
 | `info` | operador | `pgbackrest info` |
 
 Ninguém além do root chama o `duora-backup`: o executor de deploy não tem sudo para ele, e nenhum container tem o
@@ -348,7 +381,8 @@ ID=$(sudo python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["relea
 C="sudo docker compose -f /opt/duora/compose.prod.yml --env-file /etc/duora/duora.env --env-file $S/releases/$ID.env"
 
 $C stop web worker edge                    # passo 2: nada fala com o banco nem com a internet
-$C rm --stop --force postgres backup       # o backup monta o PGDATA só leitura e sai junto
+$C stop postgres                           # primeiro o banco: o fast shutdown ainda arquiva no backup de pé
+$C rm --stop --force postgres backup       # o backup monta o PGDATA só leitura e sai em seguida
 sudo docker volume rm duora_pgdata         # só depois de decidir que o volume atual não serve (copie antes se houver dúvida)
 $C --profile restore run --rm restore --type=time --target="2026-10-15 18:00:00+00" --target-action=pause restore
 $C up -d --wait backup                     # o restore_command do postgres busca o WAL nele
@@ -398,14 +432,18 @@ python3 scripts/backup/restore_drill.py --image duora-postgres:drill
 3. **RPO natural**: tempo entre o commit das `after` e o WAL delas confirmado no repositório, só com
    `archive_timeout` (sem troca forçada).
 4. `duora-backup verify` (inclui o versionamento e o Object Lock do bucket).
-5. **Postgres comprometido**: com o próprio certificado de cliente, o postgres lista (`repo-ls`) e apaga
+5. **Repositório fora do ar**: para o `s3` por 30 s enquanto escreve e troca segmentos; o banco precisa responder
+   o tempo todo e o log do postgres não pode ter nenhum `terminating any other active server processes`
+   (crash-restart). Depois o `verify` passa de novo, com o arquivamento recuperado sozinho.
+6. **Postgres comprometido**: com o próprio certificado de cliente, o postgres lista (`repo-ls`) e apaga
    (`repo-rm --recurse archive` e `backup`) o repositório. O drill **exige** que isso funcione: documenta o poder que
-   a topologia não tira. Se um dia falhar, esta página e o ADR-0023 precisam ser revistos.
-6. Destrói containers e volume; restore PITR pelo job `restore` lendo as versões anteriores à exclusão
+   a topologia não tira. Se um dia falhar, esta página e o ADR-0023 precisam ser revistos. Em seguida, uma versão
+   que sobrou recusa `mc rm --version-id` (Object Lock `COMPLIANCE`), mesmo vinda do usuário root do dublê.
+7. Destrói containers e volume; restore PITR pelo job `restore` lendo as versões anteriores à exclusão
    (`--repo-target-time`); promoção. Confere `before` = 100 e `after` = 0 e timeline ≥ 2.
-7. Desfaz a exclusão (no dublê, `mc undo --action DELETE`; na produção, remoção dos delete markers com a credencial
-   administrativa) e roda `duora-backup verify` e `duora-backup verify-repo`.
-8. Apaga um segmento de WAL no meio da cadeia e exige que o `verify-repo` acuse a lacuna.
+8. Desfaz a exclusão (no dublê, `mc undo --action DELETE`; na produção, remoção dos delete markers com a credencial
+   administrativa) e roda `duora-backup verify`, `verify-repo` e `verify-repo-full`.
+9. Apaga um segmento de WAL no meio da cadeia e exige que o `verify-repo` acuse a lacuna.
 
 **RTO observado** = da destruição até os dados conferidos. Saída em JSON (`--report arquivo.json`); `--keep`
 mantém o ambiente. Sem `--keep`, o drill apaga o diretório temporário dele (segredos sintéticos com dono 999) por um
@@ -428,7 +466,7 @@ o drill desfaz a exclusão em vez de recriar a stanza, que é também o procedim
 | Sinal | Hoje | Falta |
 |---|---|---|
 | WAL atrasado ou arquivamento falhando | `duora-backup verify` a cada 15 min falha (unit em `failed`) | Destino de alerta fora da VPS (OTel Collector ou monitor externo lendo o estado das units) |
-| Lacuna na cadeia de WAL ou arquivo corrompido no repositório | `duora-backup verify-repo` diário falha (unit em `failed`, registro `crit`) | Idem |
+| Lacuna na cadeia de WAL ou arquivo corrompido no repositório | `duora-backup verify-repo` diário (backup mais novo e cadeia) ou `verify-repo-full` semanal (tudo) falha (unit em `failed`, registro `crit`) | Idem |
 | Backup full/diff falhou | Unit `duora-backup@full`/`@diff` em `failed` e registro `crit` em `duora-backup-alert` | Idem |
 | Fila de WAL no pg_wal | Aviso do pgBackRest no log do postgres | Métrica do tamanho do `pg_wal` com alerta antes de 4 GiB |
 | Certificado TLS perto de vencer | — | Checagem de validade (825 dias) no verify ou no monitor |
