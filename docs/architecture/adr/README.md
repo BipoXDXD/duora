@@ -31,6 +31,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0020](0020-persistencia-da-sessao-de-jogo.md) | Sessão de jogo persistida por snapshot público no Core, estado JSONB versionado e conteúdo pela versão fixada | Proposed | Estado consultado por SQL ou snapshot acima de 32 KiB |
 | [0021](0021-jobs-duraveis-e-leases-no-postgresql.md) | Jobs duráveis em `ops.jobs` com lease, fencing token, retry e `Expired` | Proposed | Idade do job mais antigo acima do alvo ou terceiro uso do protocolo de fila |
 | [0022](0022-i18n-intl-messageformat-catalogo-tipado.md) | Interface em PT-BR e EN com intl-messageformat e catálogo tipado próprio | Accepted | Terceiro idioma ou tradução por fornecedor externo |
+| [0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md) | Fotos por corpo cru, quarentena em S3 (`AWSSDK.S3`), fila na outbox e sanitização com ImageSharp no Worker | Accepted | Receita acima de US$ 1 mi, revisão editorial, URL assinada ou `media-sanitizer` isolado |
 
 ## Regras
 
