@@ -23,8 +23,22 @@ duora_min_free_gib: 10
 
 # Backup (role backup, docs/operations/backup-restore.md). Subnet da rede backup-egress do compose.prod.yml.
 duora_backup_egress_subnet: 172.30.20.0/24
-# CIDRs do endpoint S3 liberados na 443. Vazio = qualquer destino na 443 até o provedor ser escolhido.
+# CIDRs do endpoint S3 liberados na 443. Vazio = qualquer destino na 443. Com a AWS, preencher no inventário com a
+# saída de "duora_aws.py s3-cidrs" (prefixos IPv4 do S3 na região; docs/operations/aws-setup.md) e renovar quando a
+# AWS publicar prefixos novos.
 duora_backup_s3_cidrs: []
+
+# Object storage na AWS (decisão do responsável, 2026-10-16; docs/operations/aws-setup.md). Nenhum role grava estes
+# valores sozinho: são os padrões que o operador passa ao "duora-secrets write-backup-repo" (pgBackRest) e à
+# configuração da mídia (Media:Storage:S3), e que o "duora_aws.py s3-cidrs" usa. Os nomes dos buckets ficam no
+# inventário (duora_s3_backup_bucket e duora_s3_media_bucket).
+duora_s3_region: us-east-1
+# pgBackRest: só o host, sem esquema; com host virtual o bucket vira <bucket>.s3.us-east-1.amazonaws.com.
+duora_s3_endpoint: s3.us-east-1.amazonaws.com
+duora_s3_uri_style: host
+# Mídia (AWSSDK.S3): vazio = endpoint regional da AWS resolvido pelo SDK, com host virtual. Um ServiceUrl explícito
+# (https://s3.us-east-1.amazonaws.com) faz o adaptador usar path style, que a AWS mantém só por compatibilidade.
+duora_media_s3_service_url: ""
 # Resolvedores DNS (IPv4) liberados na 53 para a rede backup-egress. Vazio = os upstream do systemd-resolved do host
 # (/run/systemd/resolve/resolv.conf), que é para onde o DNS embutido do Docker encaminha; o filtro falha sem nenhum.
 duora_backup_dns_resolvers: []

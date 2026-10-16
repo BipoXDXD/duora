@@ -207,10 +207,14 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
 
 ### Primeira configuração do host
 
+0. Antes do host: o responsável cria na AWS (`us-east-1`) os buckets de backup e de mídia, o papel
+   `duora-backup-admin` e o usuário `duora-backup` ([aws-setup.md](aws-setup.md)); sem o bucket com versionamento e
+   Object Lock o `duora-backup verify` falha e nenhum deploy de produção passa do passo 5. No inventário real entram
+   `duora_s3_backup_bucket`, `duora_s3_media_bucket` e `duora_backup_s3_cidrs` (saída de `duora_aws.py s3-cidrs`).
 1. O `ansible-playbook` (ver [infra/README.md](../../infra/README.md)) cria usuários, diretórios, configuração,
    segredos do banco (`duora-secrets init`), segredos do backup (`duora-secrets init-backup`) e os timers de backup;
    nada disso sobrescreve o que já existe. Depois grave os segredos do repositório de backup
-   (`pgbackrest_repo.conf`, `pgbackrest_cipher.conf`;
+   (`pgbackrest_repo.conf` com `duora-secrets write-backup-repo`, `pgbackrest_cipher.conf`;
    [backup-restore.md](backup-restore.md#segredos-do-repositório-operador-uma-vez)) no `/etc/duora/secrets` que o
    playbook criou.
 2. O primeiro deploy é do operador, com `--accept-missing-backup-check` (a stanza ainda não existe), seguido de

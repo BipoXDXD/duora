@@ -1,0 +1,67 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListRepositoryPrefix",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
+      "Resource": "arn:aws:s3:::{{BACKUP_BUCKET}}",
+      "Condition": {
+        "Bool": {"aws:SecureTransport": "true"},
+        "StringLike": {"s3:prefix": ["duora", "duora/*"]}
+      }
+    },
+    {
+      "Sid": "ReadBucketProtectionForVerify",
+      "Effect": "Allow",
+      "Action": ["s3:GetBucketVersioning", "s3:GetBucketObjectLockConfiguration"],
+      "Resource": "arn:aws:s3:::{{BACKUP_BUCKET}}",
+      "Condition": {"Bool": {"aws:SecureTransport": "true"}}
+    },
+    {
+      "Sid": "ReadWriteRepositoryObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::{{BACKUP_BUCKET}}/duora/*",
+      "Condition": {"Bool": {"aws:SecureTransport": "true"}}
+    },
+    {
+      "Sid": "DenyProtectionChanges",
+      "Effect": "Deny",
+      "Action": [
+        "s3:DeleteObjectVersion",
+        "s3:BypassGovernanceRetention",
+        "s3:PutObjectRetention",
+        "s3:PutObjectLegalHold",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketObjectLockConfiguration",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:DeleteBucket",
+        "s3:PutBucketAcl",
+        "s3:PutObjectAcl",
+        "s3:PutObjectVersionAcl",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutEncryptionConfiguration",
+        "s3:PutBucketOwnershipControls",
+        "s3:PutReplicationConfiguration"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyWithoutTls",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": "*",
+      "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+    },
+    {
+      "Sid": "DenyOutsideTheVps",
+      "Effect": "Deny",
+      "Action": "s3:*",
+      "Resource": "*",
+      "Condition": {"NotIpAddress": {"aws:SourceIp": "{{VPS_IPV4}}/32"}}
+    }
+  ]
+}

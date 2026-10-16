@@ -1,0 +1,16 @@
+{
+  "Rules": [
+    {
+      "ID": "quarantine-safety-net",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "quarantine/"},
+      "Expiration": {"Days": 3}
+    },
+    {
+      "ID": "abort-incomplete-uploads",
+      "Status": "Enabled",
+      "Filter": {},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
+    }
+  ]
+}

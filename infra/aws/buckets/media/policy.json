@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyWithoutTls",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::{{MEDIA_BUCKET}}", "arn:aws:s3:::{{MEDIA_BUCKET}}/*"],
+      "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+    },
+    {
+      "Sid": "DenyTlsBelow12",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": ["arn:aws:s3:::{{MEDIA_BUCKET}}", "arn:aws:s3:::{{MEDIA_BUCKET}}/*"],
+      "Condition": {"NumericLessThan": {"s3:TlsVersion": "1.2"}}
+    }
+  ]
+}

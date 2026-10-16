@@ -78,7 +78,8 @@ Decidido pelo usuário em 2026-10-15 ([ADR-0023](../architecture/adr/0023-topolo
 spec 18.3, "resiliência a comprometimento"). Nenhum deploy de produção acontece sem isto: o `duora-backup verify`
 (timer e deploy) **falha fechado** se o bucket não provar versionamento + Object Lock.
 
-Requisitos do bucket (qualquer provedor S3 compatível que suporte Object Lock):
+Requisitos do bucket. Provedor escolhido: **AWS S3 em `us-east-1`** (responsável, 2026-10-16); criação, políticas e
+validação em [aws-setup.md](aws-setup.md), com o JSON versionado em [`infra/aws/`](../../infra/aws):
 
 | Requisito | Valor | Por quê |
 |---|---|---|
@@ -91,34 +92,19 @@ O `expire` do pgBackRest continua funcionando: num bucket versionado, apagar sem
 marker, o que o Object Lock permite. Custo: as versões não correntes ficam até o lifecycle removê-las, então o
 espaço pode chegar perto do dobro da conta da seção de retenção.
 
-Política mínima da credencial do `backup` (sintaxe AWS IAM; adaptar ao provedor), só no prefixo `duora/` do bucket
-dedicado:
+Política da credencial do `backup` (usuário IAM `duora-backup`):
+[`infra/aws/iam/duora-backup.json`](../../infra/aws/iam/duora-backup.json), só no prefixo `duora/` (o `repo1-path=/duora`), com TLS obrigatório e só a partir do IP da VPS. O teste
+`scripts/deploy/test_duora_aws.py` falha se alguém acrescentar uma ação, um curinga ou tirar uma negação. A política
+do bucket ([`infra/aws/buckets/backup/policy.json`](../../infra/aws/buckets/backup/policy.json)) repete as negações
+para **todo** principal, inclusive o root, exceto o papel `duora-backup-admin` (MFA, fora da VPS).
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::BUCKET",
-     "Condition": {"StringLike": {"s3:prefix": ["duora/*", "duora"]}}},
-    {"Effect": "Allow", "Action": ["s3:GetBucketVersioning", "s3:GetBucketObjectLockConfiguration"],
-     "Resource": "arn:aws:s3:::BUCKET"},
-    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-     "Resource": "arn:aws:s3:::BUCKET/duora/*"},
-    {"Effect": "Allow", "Action": ["s3:ListBucketVersions", "s3:GetObjectVersion"],
-     "Resource": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/duora/*"]},
-    {"Effect": "Deny",
-     "Action": ["s3:DeleteObjectVersion", "s3:BypassGovernanceRetention", "s3:PutObjectRetention",
-                "s3:PutObjectLegalHold", "s3:PutBucketVersioning", "s3:PutBucketObjectLockConfiguration",
-                "s3:PutLifecycleConfiguration", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:DeleteBucket"],
-     "Resource": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/*"]}
-  ]
-}
-```
-
+- `ListBucket` e `ListBucketVersions` só com `s3:prefix` em `duora` e `duora/*`.
 - `GetBucketVersioning` e `GetBucketObjectLockConfiguration`: o verify consulta os dois a cada execução.
 - `ListBucketVersions` e `GetObjectVersion`: o restore lê versões antigas com `--repo-target-time`.
 - Negado: apagar versão, contornar ou mudar retenção, mudar versionamento, lock, lifecycle ou a política do bucket.
-  Essas operações ficam só com uma credencial administrativa **fora da VPS** (cofre do responsável).
+  Essas operações ficam só com o papel `duora-backup-admin`, assumido com MFA **fora da VPS**. Limite da AWS: o root
+  ainda consegue apagar a política do bucket (mecanismo contra autobloqueio), mas não as versões no lock
+  `COMPLIANCE` ([aws-setup.md](aws-setup.md#4-política-do-bucket-de-backup-por-último)).
 
 Como o verify confere: lê o `repo.conf` montado no `backup`, assina (AWS Signature V4) um `GET ?versioning` e um
 `GET ?object-lock` e os envia de dentro do próprio container por `openssl s_client` (mesma rede, DNS, CA e filtro de
@@ -145,8 +131,8 @@ os objetos dos últimos 21 dias, que são os de que o restore mais recente depen
 1. Restaurar o banco lendo o repositório como estava antes do ataque:
    `--repo=1 --repo-target-time="<instante UTC antes da exclusão>"` no comando do job `restore` (abaixo). O
    `archive-get` da recuperação usa o mesmo instante.
-2. Com a credencial administrativa, fora da VPS, remover os delete markers posteriores ao ataque (só eles; nunca
-   versões). O repositório volta ao estado anterior e o banco restaurado volta a arquivar nele.
+2. Com o papel `duora-backup-admin`, fora da VPS, remover os delete markers posteriores ao ataque (só eles; nunca
+   versões; comando em [aws-setup.md](aws-setup.md#recuperação-depois-de-uma-exclusão-maliciosa)). O repositório volta ao estado anterior e o banco restaurado volta a arquivar nele.
 3. Trocar certificados TLS e a credencial S3 (o postgres que apagou estava comprometido) e rodar
    `sudo duora-backup verify` e `sudo duora-backup verify-repo`.
 
@@ -166,8 +152,10 @@ O role Ansible `backup` instala `duora-backup-egress.service`, que cria a chain 
   Docker encaminha. Sem nenhum resolvedor o filtro falha. Se o provedor trocar o resolvedor (DHCP), reaplique com
   `sudo systemctl restart duora-backup-egress`. Fixar `dns:` no serviço `backup` foi descartado: obrigaria escolher um
   resolvedor de terceiro e manter o mesmo IP no compose e no inventário;
-- permite HTTPS (443/tcp) só para `duora_backup_s3_cidrs` (inventário). **Enquanto o provedor não for escolhido a
-  lista é vazia, o que libera a 443 para qualquer destino**;
+- permite HTTPS (443/tcp) só para `duora_backup_s3_cidrs` (inventário): os prefixos IPv4 do S3 em `us-east-1` que a
+  AWS publica, gerados por `duora_aws.py s3-cidrs` ([aws-setup.md](aws-setup.md#7-gravar-a-credencial-na-vps)).
+  **Lista vazia (o padrão) libera a 443 para qualquer destino**; mesmo preenchida, ela libera todo o S3 da região,
+  inclusive buckets de terceiros;
 - descarta o resto. A rede é só IPv4.
 
 O filtro **falha fechado**:
@@ -197,19 +185,19 @@ O postgres não depende desse filtro: ele não está em rede nenhuma com saída.
 
 ### Segredos do repositório (operador, uma vez)
 
-O provedor ainda não foi escolhido; nada aqui presume um. Num bucket dedicado com versionamento e Object Lock (seção
-anterior), crie uma credencial com a política mínima acima, só no prefixo `duora/` (o `expire` do pgBackRest apaga, o
-que no bucket versionado vira delete marker). Em `/etc/duora/secrets/`:
+Bucket e credencial `duora-backup` criados pelo responsável ([aws-setup.md](aws-setup.md)). O
+`pgbackrest_repo.conf` é gravado por `duora-secrets write-backup-repo`, com a credencial lida do stdin (nunca no
+histórico do shell; o comando exato está no passo 7 do aws-setup). Fica assim, em `/etc/duora/secrets/`:
 
 ```ini
 # pgbackrest_repo.conf (0400, dono 999)
 [global]
-repo1-s3-endpoint=<endpoint do provedor>
-repo1-s3-bucket=<bucket>
-repo1-s3-region=<região>
-repo1-s3-key=<access key>
-repo1-s3-key-secret=<secret key>
-# Só se o provedor exigir: repo1-s3-uri-style=path, repo1-storage-port=<porta>
+repo1-s3-endpoint=s3.us-east-1.amazonaws.com
+repo1-s3-bucket=<bucket de backup>
+repo1-s3-region=us-east-1
+repo1-s3-uri-style=host
+repo1-s3-key=<access key do duora-backup>
+repo1-s3-key-secret=<secret key do duora-backup>
 ```
 
 ```ini
@@ -222,7 +210,7 @@ repo1-cipher-pass=<openssl rand -base64 48, gerado FORA da VPS>
 # O diretório é criado pelo playbook (role app_dirs, root, 0700); o install -d só garante o mesmo estado se ainda não
 # existir, sem afrouxar o modo.
 sudo install -d -o root -g root -m 0700 /etc/duora/secrets
-sudo install -o 999 -g 999 -m 0400 pgbackrest_repo.conf pgbackrest_cipher.conf /etc/duora/secrets/
+sudo install -o 999 -g 999 -m 0400 pgbackrest_cipher.conf /etc/duora/secrets/
 ```
 
 A senha de cifra é gerada e guardada **fora da VPS** (cofre do responsável, com cópia de emergência): perder a VPS
@@ -304,8 +292,9 @@ novo não alerta: o full que a resolve já existe, e o `expire` a remove com o t
   mais novo e do WAL dele. Leitura de um full ou de um diferencial por dia;
 - semanal (`verify-repo-full`, quarta 06:00 UTC, longe do full de domingo e depois do reinício automático das 04:30):
   o repositório inteiro, o que no pior momento chega a **3 fulls + 18 diferenciais + 21 dias de WAL** (no exemplo de
-  dimensionamento acima, ~29 GB por semana). Provedor com tarifa de egress cobra essa leitura toda semana: entra na
-  escolha do provedor.
+  dimensionamento acima, ~29 GB por semana). Na AWS essa leitura é egress (a VPS fica fora dela): ~165 GB por mês
+  somando o diário e um ensaio de restore, cerca de US$ 6 acima da franquia gratuita
+  ([aws-setup.md](aws-setup.md#custo-esperado)).
 
 ## Operação
 
@@ -352,11 +341,12 @@ ignorado no deploy) derruba os testes.
 
 ### Primeira configuração
 
-1. Bucket com versionamento + Object Lock e credencial com a política mínima no provedor (acima).
+1. Buckets, papel administrativo e usuário `duora-backup` na AWS, pelo responsável ([aws-setup.md](aws-setup.md),
+   passos 1 a 6).
 2. `ansible-playbook` (roles `app_dirs` e `backup`): `/etc/duora/secrets`, certificados, `duora-backup`, timers e
    filtro de saída.
-3. Gravar `pgbackrest_repo.conf` e `pgbackrest_cipher.conf` em `/etc/duora/secrets/` (acima), já com o diretório
-   criado pelo passo 2.
+3. Gravar `pgbackrest_repo.conf` (`duora-secrets write-backup-repo`) e `pgbackrest_cipher.conf` em
+   `/etc/duora/secrets/` (acima), já com o diretório criado pelo passo 2, e os CIDRs do S3 no inventário.
 4. Primeiro deploy pelo operador, **sem** verificação (a stanza ainda não existe):
    `sudo duora-deploy --manifest release.json --accept-missing-backup-check`. A flag não está no sudoers do
    executor de deploy: só um humano com sudo a usa.
@@ -483,11 +473,14 @@ o drill desfaz a exclusão em vez de recriar a stanza, que é também o procedim
 
 ## Pendências que dependem da VPS ou do fornecedor
 
-- **Provedor S3**: escolher (com região e jurisdição compatíveis com a spec 12), criar bucket e credencial restrita
-  ao prefixo, preencher `pgbackrest_repo.conf` e os CIDRs do endpoint em `duora_backup_s3_cidrs`.
+- **Provedor S3**: escolhido (AWS S3, `us-east-1`, 2026-10-16). Falta o responsável criar buckets, papel e
+  credencial ([aws-setup.md](aws-setup.md)), gravar `pgbackrest_repo.conf` e preencher `duora_backup_s3_cidrs`.
+  `us-east-1` fica nos EUA: a transferência internacional (LGPD) precisa entrar no mapa de dados com a salvaguarda
+  escolhida (spec 12; [data-map.md](../privacy/data-map.md)).
 - **Proteção contra exclusão** (spec 18.3, ADR-0023): **pré-requisito de produção**, decidido (versionamento +
   Object Lock `COMPLIANCE` ≥ 21 dias, lifecycle de versões não correntes, credencial sem `DeleteObjectVersion`).
-  Falta criar o bucket assim no provedor escolhido; o verify já recusa um bucket sem isso.
+  A configuração está em `infra/aws/buckets/backup/`; falta aplicá-la na conta. O verify já recusa um bucket sem
+  isso.
 - **Prova no host real**: rodar o playbook, conferir a chain `DUORA-BACKUP-EGRESS` (`iptables -S DOCKER-USER`), uma
   conexão de dentro do `backup` a um destino fora da allowlist falhando, restore completo com o volume real e o RTO
   cronometrado (spec 18.5), e o ensaio mensal de perda de VPS.

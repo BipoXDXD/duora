@@ -1,0 +1,36 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InspectBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketObjectLockConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetBucketPolicy",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketOwnershipControls"
+      ],
+      "Resource": "arn:aws:s3:::{{BACKUP_BUCKET}}",
+      "Condition": {"Bool": {"aws:SecureTransport": "true"}}
+    },
+    {
+      "Sid": "MaintainLifecycleAndPolicy",
+      "Effect": "Allow",
+      "Action": ["s3:PutLifecycleConfiguration", "s3:PutBucketPolicy"],
+      "Resource": "arn:aws:s3:::{{BACKUP_BUCKET}}",
+      "Condition": {"Bool": {"aws:SecureTransport": "true"}}
+    },
+    {
+      "Sid": "RecoverFromMaliciousDeletion",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:GetObjectRetention", "s3:DeleteObjectVersion"],
+      "Resource": "arn:aws:s3:::{{BACKUP_BUCKET}}/*",
+      "Condition": {"Bool": {"aws:SecureTransport": "true"}}
+    }
+  ]
+}

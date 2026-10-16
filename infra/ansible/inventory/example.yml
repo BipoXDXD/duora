@@ -16,3 +16,13 @@ all:
           duora_deploy_public_key: "ssh-ed25519 AAAA...substitua... duora-ci-deploy"
           # Restrinja à rede administrativa quando ela existir (spec 15.2).
           duora_ssh_allowed_sources: [any]
+          # Buckets na AWS (us-east-1). Sugestão de padrão: duora-<ambiente>-<backup|media>-<sufixo aleatório>, sem
+          # ponto (host virtual com TLS) e sem dado pessoal; o sufixo evita colisão no namespace global do S3.
+          duora_s3_backup_bucket: duora-homolog-backup-x7k2q9
+          duora_s3_media_bucket: duora-homolog-media-x7k2q9
+          # Saída do container backup só para o S3 da região: cole aqui a saída de
+          # "curl -fsS https://ip-ranges.amazonaws.com/ip-ranges.json | python3 scripts/deploy/duora_aws.py s3-cidrs".
+          # Os prefixos abaixo são de documentação (RFC 5737), só para mostrar o formato.
+          duora_backup_s3_cidrs:
+            - 192.0.2.0/24
+            - 198.51.100.0/24
