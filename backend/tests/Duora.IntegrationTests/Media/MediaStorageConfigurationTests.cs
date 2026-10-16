@@ -69,6 +69,24 @@ public sealed class MediaStorageConfigurationTests : IDisposable
         Assert.IsType<S3ObjectStore>(Resolve("Production", CompleteS3()));
     }
 
+    [Fact]
+    public void TheS3OptionsNeverPrintTheirSecret()
+    {
+        var options = new S3StorageOptions
+        {
+            Region = "us-east-1",
+            Bucket = "duora-media",
+            AccessKeyId = "synthetic-access",
+            SecretAccessKey = "CANARY-" + Guid.NewGuid(),
+        };
+
+        var printed = options.ToString();
+
+        Assert.DoesNotContain(options.SecretAccessKey, printed, StringComparison.Ordinal);
+        Assert.DoesNotContain("synthetic-access", printed, StringComparison.Ordinal);
+        Assert.Contains("duora-media", printed, StringComparison.Ordinal);
+    }
+
     private static Dictionary<string, string?> CompleteS3() => new()
     {
         ["Media:Storage:Provider"] = "S3",
@@ -82,7 +100,7 @@ public sealed class MediaStorageConfigurationTests : IDisposable
     private static IObjectStore Resolve(string environment, Dictionary<string, string?> settings)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
-        var services = new ServiceCollection().AddMediaStorage(configuration, environment);
+        var services = new ServiceCollection().AddLogging().AddMediaStorage(configuration, environment);
         using var provider = services.BuildServiceProvider();
         _ = provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value;
         return provider.GetRequiredService<IObjectStore>();
