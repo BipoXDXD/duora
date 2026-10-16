@@ -19,12 +19,26 @@ public sealed class ObjectKeyTests
     [Theory]
     [InlineData(PhotoVariant.Thumb, "thumb")]
     [InlineData(PhotoVariant.Full, "full")]
-    public void ADerivativeKeyCarriesTheVariantButNothingFromTheClient(PhotoVariant variant, string name)
+    public void ADerivativeKeyReusesTheRandomTokenOfTheQuarantineKey(PhotoVariant variant, string name)
     {
-        var key = ObjectKey.NewDerivative(variant);
+        // A chave do derivado vem do token aleatório do upload, não do photoId público (TM-41), e é a mesma em toda
+        // tentativa (ADR-0025 item 6).
+        var quarantine = ObjectKey.Parse("quarantine/0123456789abcdef0123456789abcdef");
+
+        var key = ObjectKey.ForDerivative(quarantine, variant);
 
         Assert.Equal(StorageArea.Derivatives, key.Area);
-        Assert.Matches($"^derivatives/[0-9a-f]{{32}}-{name}$", key.Value);
+        Assert.Equal($"derivatives/0123456789abcdef0123456789abcdef-{name}", key.Value);
+        Assert.Equal(key, ObjectKey.ForDerivative(ObjectKey.Parse(quarantine.Value), variant));
+        Assert.Equal(key, ObjectKey.Parse(key.Value));
+    }
+
+    [Fact]
+    public void ADerivativeKeyComesOnlyFromAQuarantineKey()
+    {
+        var derivative = ObjectKey.Parse("derivatives/0123456789abcdef0123456789abcdef-card");
+
+        Assert.Throws<ArgumentException>(() => ObjectKey.ForDerivative(derivative, PhotoVariant.Thumb));
     }
 
     [Theory]

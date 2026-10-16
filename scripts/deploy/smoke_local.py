@@ -3,7 +3,8 @@
 
     python3 scripts/deploy/smoke_local.py --commit "$(git rev-parse HEAD)"
 
-1. Sobe um registry descartável em 127.0.0.1:5050 e publica as cinco imagens para a arquitetura do Docker local.
+1. Sobe um registry descartável em 127.0.0.1:5050 e publica as cinco imagens para a arquitetura do Docker local;
+   confere que a licença da Six Labors não ficou na imagem do worker (check_image_secret.py).
 2. Gera segredos de teste num diretório temporário (fora do git) e um manifesto com os digests publicados.
 3. Roda o duora-deploy de verdade (pull por digest, migrator, up, readiness), com Caddy em "tls internal".
 4. Confere pela borda HTTPS: SPA, cache, CSP, 404 de assets, fallback só para navegação, /api e /hubs (upgrade
@@ -53,6 +54,7 @@ BUILDS = {
     "postgres": ("infra/images/postgres/Dockerfile", None),
 }
 LOGIN_PATH = "/api/v1/auth/login"
+SIXLABORS_LICENSE_ENV = "SIXLABORS_LICENSE_KEY"
 READY_TIMEOUT_SECONDS = 90
 # Lista do repositório; o smoke confere que nenhuma delas falta no banco.
 MIGRATIONS = sorted(path.name.removesuffix(".cs") for path in
@@ -86,6 +88,7 @@ def main() -> int:
         architecture = run(["docker", "version", "--format", "{{.Server.Arch}}"]).strip()
         start_registry()
         images = {name: build_and_push(name, architecture, args.commit, workdir) for name in BUILDS}
+        check_license_absent(images["worker"])
 
         secrets_dir = workdir / "secrets"
         duora_secrets.init_secrets(secrets_dir, change_owner=False)
@@ -151,10 +154,25 @@ def build_and_push(name: str, architecture: str, commit: str, workdir: Path) -> 
                "--metadata-file", str(metadata), "--quiet"]
     if target is not None:
         command += ["--target", target]
+    if name == "worker":
+        # Licença da Six Labors (ADR-0025, deploy.md): secret do BuildKit lido da variável, nunca argumento nem arquivo.
+        if not os.environ.get(SIXLABORS_LICENSE_ENV, "").strip():
+            raise SystemExit(f"[smoke] defina {SIXLABORS_LICENSE_ENV} na sessão: o build Release do worker exige a "
+                             "licença da Six Labors (docs/operations/deploy.md).")
+        command += ["--secret", f"id=sixlabors_license,env={SIXLABORS_LICENSE_ENV}"]
     print(f"[smoke] build {name} (linux/{architecture})", flush=True)
     run(command + [str(REPO_ROOT)])
     digest = json.loads(metadata.read_text(encoding="utf-8"))["containerimage.digest"]
     return f"{IMAGE_PREFIX}{name}@{digest}"
+
+
+def check_license_absent(image: str) -> None:
+    """A licença entra só como secret do BuildKit: não pode ter ficado no histórico nem no filesystem do worker."""
+    run(["docker", "pull", "--quiet", image])
+    checker = REPO_ROOT / "scripts" / "supply-chain" / "check_image_secret.py"
+    result = subprocess.run([sys.executable, str(checker), image, SIXLABORS_LICENSE_ENV], check=False)
+    if result.returncode != 0:
+        raise SmokeFailure(f"licença da Six Labors na imagem do worker (check_image_secret.py saiu com {result.returncode})")
 
 
 def build_manifest(commit: str, architecture: str, images: dict[str, str]) -> dict:

@@ -28,9 +28,15 @@ RUN --mount=type=cache,id=duora-nuget,target=/root/.nuget/packages \
  && mkdir -p /dataprotection-keys
 
 FROM build AS publish-worker
+# O ImageSharp 4 (ADR-0025) só compila em Release com a licença da Six Labors. Ela chega como secret do BuildKit
+# (docker build --secret id=sixlabors_license,env=SIXLABORS_LICENSE_KEY), montado só durante este RUN em
+# /run/secrets: não vira ARG, ENV nem arquivo de camada, e o estágio final copia só /out. required=true falha o build
+# já aqui, com o nome do secret, em vez de compilar sem licença. Custódia e rotação: docs/operations/deploy.md.
 RUN --mount=type=cache,id=duora-nuget,target=/root/.nuget/packages \
+    --mount=type=secret,id=sixlabors_license,required=true \
     dotnet publish backend/src/Duora.Worker/Duora.Worker.csproj -c Release --no-restore -o /out \
-      -p:UseAppHost=false -p:ContinuousIntegrationBuild=true
+      -p:UseAppHost=false -p:ContinuousIntegrationBuild=true \
+      -p:SixLaborsLicenseFile=/run/secrets/sixlabors_license
 
 FROM build AS bundle
 ARG TARGETARCH

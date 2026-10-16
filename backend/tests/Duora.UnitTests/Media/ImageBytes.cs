@@ -13,6 +13,36 @@ internal static class ImageBytes
 
     public static byte[] Jpeg() => [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01];
 
+    public const byte Marker = 0xFF;
+    public const byte App1 = 0xE1;
+    public const byte Comment = 0xFE;
+    public const byte DefineHuffmanTable = 0xC4;
+
+    public static readonly byte[] EndOfImage = [Marker, 0xD9];
+
+    /// <summary>JPEG estrutural: SOI seguido das partes, sem pixels decodificáveis.</summary>
+    public static byte[] JpegFile(params byte[][] parts) => [0xFF, 0xD8, .. parts.SelectMany(part => part)];
+
+    /// <summary>Segmento com comprimento declarado correto (os dois bytes do comprimento contam).</summary>
+    public static byte[] Segment(byte marker, byte[] payload)
+    {
+        var length = (ushort)(payload.Length + 2);
+        return [Marker, marker, (byte)(length >> 8), (byte)length, .. payload];
+    }
+
+    /// <summary>APP0 JFIF e um SOF0 de 1×1, o que vem antes do scan num JPEG comum.</summary>
+    public static byte[] Header() =>
+    [
+        .. Segment(0xE0, [0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]),
+        .. Segment(0xC0, [0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00]),
+    ];
+
+    /// <summary>Cabeçalho de SOS e um pedaço de dado comprimido, sem o EOI.</summary>
+    public static byte[] Scan() => [.. Segment(0xDA, [0x01, 0x01, 0x00, 0x00, 0x3F, 0x00]), 0x11, 0x22];
+
+    /// <summary>Miniatura completa, como a que o EXIF guarda: SOI, scan e EOI próprios.</summary>
+    public static byte[] Thumbnail() => JpegFile(Header(), Scan(), EndOfImage);
+
     public static byte[] Png(params (string Type, byte[] Data)[] chunks)
     {
         using var stream = new MemoryStream();

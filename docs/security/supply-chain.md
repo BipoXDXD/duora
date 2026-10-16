@@ -30,7 +30,7 @@ Os achados aparecem no log do job; o inventário de licenças e o changelog do c
 | Microsoft.Extensions.ApiDescription.Server | 10.0.13 | `Directory.Packages.props` + `packages.lock.json` | lockfile com content hash |
 | pyright, ansible-core, ansible-lint | 1.1.408, 2.21.5, 26.10.1 | `scripts/deploy/requirements.in` + `scripts/deploy/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes` no job `ops`; o mesmo pyright checa `scripts/` e `tools/visual` |
 | Pillow | 12.3.0 | `tools/visual/requirements.in` + `tools/visual/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes`; só no tooling de ilustrações, nunca no app |
-| Verificadores próprios | — | `scripts/supply-chain/*.py`, só biblioteca padrão do Python do runner | testes unitários rodam no início do job |
+| Verificadores próprios | — | `scripts/supply-chain/*.py` (licenças, `.trivyignore`, segredo em imagem), só biblioteca padrão do Python do runner | testes unitários rodam no início do job |
 
 As ferramentas em container rodam por `docker run` com o repositório montado somente leitura, no mesmo padrão do
 Gitleaks: nenhuma action JavaScript de terceiros no job e nenhum token exposto. O job tem só `contents: read`.
@@ -83,6 +83,16 @@ Exceção aceita para o pipeline de fotos ([ADR-0025](../architecture/adr/0025-p
 | Pacote | Licença | Motivo |
 |---|---|---|
 | `SixLabors.ImageSharp` 4.1.3 (`missingLicenseAllowed` com `version`) | Six Labors Split License 1.0, lida no `LICENSE` do nupkg | Apache-2.0 para dependência direta de quem tem receita bruta anual abaixo de US$ 1 milhão, que é o caso hoje; reavaliar (licença comercial ou outra biblioteca) se a receita passar disso. Só o `Duora.Worker` a referencia. Presa à versão: cada atualização relê a licença |
+
+### Licença de build: Six Labors
+
+O `SixLabors.ImageSharp` 4 traz um target MSBuild (`SixLabors_ValidateLicense`, roda a `SixLabors.Licensing.dll` do
+pacote antes do `CoreCompile`) que falha o build Release sem licença. A licença é segredo de build: secret
+`SIXLABORS_LICENSE_KEY` do Actions (e do Dependabot), passado ao `docker build` como secret do BuildKit, custodiado
+pelo responsável técnico. Onde fica, como entra e como rotacionar: [deploy.md](../operations/deploy.md#licença-da-six-labors-no-build-do-worker-adr-0025).
+A imagem do Worker é conferida por `scripts/supply-chain/check_image_secret.py` para a chave não ficar em camada,
+histórico nem arquivo. Riscos aceitos: uma DLL de terceiro roda dentro do MSBuild no build Release, e a regra de
+licença pode mudar a cada versão (por isso a dispensa do SBOM é presa à versão).
 
 ## Escopo do SBOM
 

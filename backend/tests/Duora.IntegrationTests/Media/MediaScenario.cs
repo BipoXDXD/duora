@@ -20,8 +20,13 @@ internal sealed record StoredUpload(
     string? RejectionCode);
 
 /// <summary>Passos de upload pela API e leitura do estado por fora, com contas sintéticas únicas por teste.</summary>
-internal sealed class MediaScenario(PostgresFixture postgres, DuoraWebFactory factory)
+internal sealed class MediaScenario(string connectionString, DuoraWebFactory factory)
 {
+    public MediaScenario(PostgresFixture postgres, DuoraWebFactory factory)
+        : this(postgres.ConnectionString, factory)
+    {
+    }
+
     public const string PhotosPath = "/api/v1/me/photos";
 
     /// <summary>Bytes com assinatura de JPEG: a API não decodifica, então não precisa ser imagem válida.</summary>
@@ -36,7 +41,7 @@ internal sealed class MediaScenario(PostgresFixture postgres, DuoraWebFactory fa
 
     public static string NewKey() => Guid.NewGuid().ToString("D");
 
-    public IdentityScenario Identity { get; } = new(postgres, factory);
+    public IdentityScenario Identity { get; } = new(connectionString, factory);
 
     public FileSystemObjectStore Store { get; } = new(factory.MediaRoot);
 
@@ -67,7 +72,7 @@ internal sealed class MediaScenario(PostgresFixture postgres, DuoraWebFactory fa
 
     public async Task<IReadOnlyList<StoredUpload>> UploadsOfAsync(Guid ownerId)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
@@ -99,7 +104,7 @@ internal sealed class MediaScenario(PostgresFixture postgres, DuoraWebFactory fa
     /// <summary>Eventos de processamento de mídia de um upload: (payload, consumidor, status da entrega).</summary>
     public async Task<IReadOnlyList<(string Payload, string Consumer, string Status)>> ProcessingEventsAsync(Guid uploadId)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
             """
@@ -140,7 +145,7 @@ internal sealed class MediaScenario(PostgresFixture postgres, DuoraWebFactory fa
 
     public async Task ExecuteAsync(string sql, params object[] parameters)
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(sql, connection);
         foreach (var parameter in parameters)

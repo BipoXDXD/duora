@@ -44,6 +44,28 @@ public sealed class DependencyRulesTests
         Assert.DoesNotContain(forbidden, ReferencesOf(assembly));
     }
 
+    /// <summary>
+    /// ADR-0025: só o Worker decodifica imagem. O Web recebe bytes hostis e não pode carregar o decoder; um bug de
+    /// memória do decoder derruba no máximo o Worker.
+    /// </summary>
+    [Theory]
+    [InlineData(Core)]
+    [InlineData(Contracts)]
+    [InlineData(Infrastructure)]
+    [InlineData(Web)]
+    [InlineData(WebIdentity)]
+    public void OnlyTheWorkerReferencesTheImageDecoder(string assembly)
+    {
+        Assert.DoesNotContain(ReferencesOf(assembly), name => name.StartsWith("SixLabors", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TheWorkerReferencesTheImageDecoder()
+    {
+        // Sentinela da regra acima: se o nome do assembly mudar, ela passaria à toa.
+        Assert.Contains("SixLabors.ImageSharp", ReferencesOf(Worker));
+    }
+
     [Fact]
     public void ReferencesAreReadFromAssemblyMetadata()
     {

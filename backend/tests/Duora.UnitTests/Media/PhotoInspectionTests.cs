@@ -62,9 +62,16 @@ public sealed class PhotoInspectionTests
     }
 
     [Fact]
-    public void ZeroFramesIsACorruptImage()
+    public void ZeroFramesMeansTheHeaderDoesNotCountThem()
     {
-        Assert.Equal(PhotoRejection.CorruptImage, PhotoInspection.CheckHeader(100, 100, frameCount: 0));
+        // O Identify do JPEG devolve 0 frames; a animação de PNG e WebP é checada pela estrutura (PhotoAnimation).
+        Assert.Null(PhotoInspection.CheckHeader(100, 100, frameCount: 0));
+    }
+
+    [Fact]
+    public void ANegativeFrameCountIsACorruptImage()
+    {
+        Assert.Equal(PhotoRejection.CorruptImage, PhotoInspection.CheckHeader(100, 100, frameCount: -1));
     }
 
     [Theory]
