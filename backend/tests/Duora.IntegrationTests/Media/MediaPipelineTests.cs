@@ -72,7 +72,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.Equal(["card", "full", "thumb"], await VariantKindsAsync(asset.Id));
         foreach (var variant in PhotoVariants.All)
         {
-            var bytes = await ReadDerivativeAsync(media, photoId, variant);
+            var bytes = await ReadDerivativeAsync(media, upload.QuarantineKey, variant);
             Assert.Equal(PhotoFormat.WebP, PhotoFormats.Sniff(bytes));
             Assert.Null(Image.Identify(bytes).Metadata.ExifProfile);
             Assert.DoesNotContain("CanaryCamera", Encoding.Latin1.GetString(bytes), StringComparison.Ordinal);
@@ -111,7 +111,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.Equal(("Rejected", code), await StatusAsync(browser, photoId));
         Assert.Null(await media.ReadQuarantineAsync(upload));
         Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id = $1", photoId));
-        Assert.All(PhotoVariants.All, variant => Assert.False(File.Exists(DerivativePath(photoId, variant))));
+        Assert.All(PhotoVariants.All, variant => Assert.False(File.Exists(DerivativePath(upload.QuarantineKey, variant))));
         Assert.Equal("Delivered", await DeliveryStatusAsync(photoId));
     }
 
@@ -183,6 +183,47 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.Equal(1, await DispatchOnceAsync(worker));
 
         await AssertAbandonedAsync(media, browser, upload, nameof(ThrowingSanitizer.DecoderBugException));
+    }
+
+    [Fact]
+    public async Task TheDerivativeKeysCarryNoPhotoIdAndSurviveARetry()
+    {
+        // TM-41 e ADR-0025 item 5: chave aleatória gerada pelo servidor, nunca o photoId público. Item 6: a tentativa
+        // que retoma grava nas mesmas chaves da que caiu, sem deixar órfãos.
+        var refusing = StartWorker(
+            services =>
+            {
+                var real = services.Single(descriptor => descriptor.ServiceType == typeof(IObjectStore));
+                services.Remove(real);
+                services.AddSingleton<IObjectStore>(provider =>
+                    new DerivativeRefusingStore((IObjectStore)real.ImplementationFactory!(provider)));
+            },
+            "--Media:Processing:MaxAttempts=2");
+        var (_, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        Assert.Equal(1, await DispatchOnceAsync(refusing));
+        var written = refusing.Services.GetRequiredService<IObjectStore>() is DerivativeRefusingStore store
+            ? store.Written.Single()
+            : throw new InvalidOperationException("Store do teste não registrado.");
+        await ExecuteAsync(
+            """
+            update ops.outbox_deliveries set available_at = now() - interval '1 minute'
+            where outbox_event_id in (select id from ops.outbox_events where resource_id = $1)
+            """,
+            photoId);
+
+        Assert.Equal(1, await DispatchOnceAsync());
+
+        Assert.Equal(("Approved", null), await StatusAsync(browser, photoId));
+        var keys = await VariantKeysAsync(photoId);
+        Assert.Equal(PhotoVariants.All.Count, keys.Length);
+        Assert.Contains(written, keys);
+        Assert.All(keys, key =>
+        {
+            Assert.DoesNotContain(photoId.ToString("N"), key, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(photoId.ToString("D"), key, StringComparison.OrdinalIgnoreCase);
+        });
     }
 
     [Fact]
@@ -328,11 +369,12 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         var (media, browser) = await SignInAsync();
         using var _ = browser;
         var approved = await UploadAsync(browser, TestImages.WebP(), "image/webp");
+        var approvedKey = (await media.UploadsOfAsync(await OwnerOfAsync(approved))).Single().QuarantineKey;
         Assert.Equal(1, await DispatchOnceAsync());
         var before = new Dictionary<PhotoVariant, byte[]>();
         foreach (var variant in PhotoVariants.All)
         {
-            before[variant] = await ReadDerivativeAsync(media, approved, variant);
+            before[variant] = await ReadDerivativeAsync(media, approvedKey, variant);
         }
 
         var worker = StartWorker(
@@ -351,7 +393,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.Equal(("Approved", null), await StatusAsync(browser, approved));
         foreach (var variant in PhotoVariants.All)
         {
-            Assert.Equal(before[variant], await ReadDerivativeAsync(media, approved, variant));
+            Assert.Equal(before[variant], await ReadDerivativeAsync(media, approvedKey, variant));
         }
     }
 
@@ -364,7 +406,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.Equal(("Rejected", "PROCESSING_LIMIT"), await StatusAsync(browser, upload.Id));
         Assert.Null(await media.ReadQuarantineAsync(upload));
         Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id = $1", upload.Id));
-        Assert.All(PhotoVariants.All, variant => Assert.False(File.Exists(DerivativePath(upload.Id, variant))));
+        Assert.All(PhotoVariants.All, variant => Assert.False(File.Exists(DerivativePath(upload.QuarantineKey, variant))));
         Assert.Equal("Failed", await DeliveryStatusAsync(upload.Id));
         Assert.Equal(cause, await LastErrorAsync(upload.Id));
     }
@@ -437,12 +479,13 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         return await scope.ServiceProvider.GetRequiredService<MediaProcessingDispatcher>().DispatchOnceAsync(Cancellation);
     }
 
-    private string DerivativePath(Guid uploadId, PhotoVariant variant) =>
-        Path.Combine(Web.MediaRoot, ObjectKey.ForDerivative(uploadId, variant).Value);
+    private string DerivativePath(string quarantineKey, PhotoVariant variant) =>
+        Path.Combine(Web.MediaRoot, ObjectKey.ForDerivative(ObjectKey.Parse(quarantineKey), variant).Value);
 
-    private static async Task<byte[]> ReadDerivativeAsync(MediaScenario media, Guid uploadId, PhotoVariant variant)
+    private static async Task<byte[]> ReadDerivativeAsync(MediaScenario media, string quarantineKey, PhotoVariant variant)
     {
-        await using var stream = await media.Store.OpenReadAsync(ObjectKey.ForDerivative(uploadId, variant), Cancellation)
+        var key = ObjectKey.ForDerivative(ObjectKey.Parse(quarantineKey), variant);
+        await using var stream = await media.Store.OpenReadAsync(key, Cancellation)
             ?? throw new InvalidOperationException($"Derivado {variant} ausente.");
         using var copy = new MemoryStream();
         await stream.CopyToAsync(copy, Cancellation);
@@ -492,6 +535,26 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         }
 
         return [.. kinds];
+    }
+
+    private async Task<string[]> VariantKeysAsync(Guid uploadId)
+    {
+        await using var connection = await OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """
+            select v.object_key from media.media_variants v join media.media_assets a on a.id = v.media_asset_id
+            where a.upload_id = $1
+            """,
+            connection);
+        command.Parameters.AddWithValue(uploadId);
+        var keys = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(Cancellation);
+        while (await reader.ReadAsync(Cancellation))
+        {
+            keys.Add(reader.GetString(0));
+        }
+
+        return [.. keys];
     }
 
     private async Task<string> DeliveryStatusAsync(Guid uploadId)
@@ -569,12 +632,27 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
     /// <summary>Storage que grava o primeiro derivado e recusa os seguintes, como uma queda no meio da publicação.</summary>
     private sealed class DerivativeRefusingStore(IObjectStore inner) : IObjectStore
     {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _written = new();
         private int _derivatives;
 
-        public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken) =>
-            key.Value.StartsWith("derivatives/", StringComparison.Ordinal) && Interlocked.Increment(ref _derivatives) > 1
-                ? throw new IOException("Storage sintético recusou a gravação.")
-                : inner.PutAsync(key, content, length, contentType, cancellationToken);
+        /// <summary>Chaves dos derivados que chegaram ao storage de verdade.</summary>
+        public IReadOnlyCollection<string> Written => _written;
+
+        public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken)
+        {
+            if (!key.Value.StartsWith("derivatives/", StringComparison.Ordinal))
+            {
+                return inner.PutAsync(key, content, length, contentType, cancellationToken);
+            }
+
+            if (Interlocked.Increment(ref _derivatives) > 1)
+            {
+                throw new IOException("Storage sintético recusou a gravação.");
+            }
+
+            _written.Enqueue(key.Value);
+            return inner.PutAsync(key, content, length, contentType, cancellationToken);
+        }
 
         public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) => inner.OpenReadAsync(key, cancellationToken);
 

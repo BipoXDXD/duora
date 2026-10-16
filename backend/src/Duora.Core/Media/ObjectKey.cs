@@ -37,11 +37,20 @@ public readonly partial record struct ObjectKey
     public static ObjectKey NewQuarantine() => new(StorageArea.Quarantine, QuarantinePrefix + RandomToken());
 
     /// <summary>
-    /// Chave do derivado de um upload: a mesma em toda tentativa, para o Worker que retoma depois de um lease vencido
-    /// sobrescrever o objeto em vez de deixar órfãos (spec 16.2). Não precisa ser secreta: nunca sai da API.
+    /// Chave do derivado de um upload: o token aleatório da chave de quarentena (gerado pelo servidor e gravado no
+    /// upload, TM-41) mais a variante. É a mesma em toda tentativa, para o Worker que retoma depois de um lease vencido
+    /// sobrescrever o objeto em vez de deixar órfãos (spec 16.2), e nunca leva o photoId público.
     /// </summary>
-    public static ObjectKey ForDerivative(Guid uploadId, PhotoVariant variant) =>
-        new(StorageArea.Derivatives, $"{DerivativesPrefix}{uploadId:N}-{PhotoVariants.Name(variant)}");
+    public static ObjectKey ForDerivative(ObjectKey quarantine, PhotoVariant variant)
+    {
+        if (quarantine.Area != StorageArea.Quarantine)
+        {
+            throw new ArgumentException("O derivado nasce da chave de quarentena do upload.", nameof(quarantine));
+        }
+
+        var token = quarantine.Value[QuarantinePrefix.Length..];
+        return new(StorageArea.Derivatives, $"{DerivativesPrefix}{token}-{PhotoVariants.Name(variant)}");
+    }
 
     /// <summary>Lê uma chave gravada pelo próprio sistema; qualquer outro formato é dado corrompido.</summary>
     public static ObjectKey Parse(string stored)

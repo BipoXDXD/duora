@@ -284,7 +284,7 @@ public sealed partial class MediaProcessingDispatcher
         {
             await using var content = new MemoryStream(variant.Content, writable: false);
             await _store.PutAsync(
-                ObjectKey.ForDerivative(upload.Id, variant.Kind),
+                ObjectKey.ForDerivative(ObjectKey.Parse(upload.QuarantineKey), variant.Kind),
                 content,
                 variant.Content.Length,
                 IPhotoSanitizer.VariantContentType,
@@ -312,7 +312,7 @@ public sealed partial class MediaProcessingDispatcher
             _db.Add(MediaVariant.Create(
                 asset.Id,
                 variant.Kind,
-                ObjectKey.ForDerivative(upload.Id, variant.Kind),
+                ObjectKey.ForDerivative(ObjectKey.Parse(upload.QuarantineKey), variant.Kind),
                 variant.Width,
                 variant.Height,
                 variant.Content.Length,
@@ -414,7 +414,7 @@ public sealed partial class MediaProcessingDispatcher
         // A tentativa pode ter caído entre um derivado gravado e o seguinte; nenhum deles será referenciado.
         foreach (var variant in PhotoVariants.All)
         {
-            await DeleteQuietlyAsync(ObjectKey.ForDerivative(upload.Id, variant), upload.Id);
+            await DeleteQuietlyAsync(ObjectKey.ForDerivative(ObjectKey.Parse(upload.QuarantineKey), variant), upload.Id);
         }
 
         return true;
