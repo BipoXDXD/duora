@@ -1,0 +1,85 @@
+using Duora.Core.Media;
+
+namespace Duora.Infrastructure.Media;
+
+/// <summary>
+/// Object storage em diretório local, só para desenvolvimento e testes: o boot o recusa em <c>Production</c>, porque
+/// o disco do container é efêmero (spec 15.4). Grava num arquivo temporário e renomeia, para uma escrita
+/// interrompida nunca aparecer como objeto.
+/// </summary>
+internal sealed class FileSystemObjectStore : IObjectStore
+{
+    private const string TemporarySuffix = ".partial";
+
+    private readonly string _root;
+
+    public FileSystemObjectStore(string rootDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
+        _root = Path.GetFullPath(rootDirectory);
+    }
+
+    public async Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken)
+    {
+        var path = PathOf(key);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var temporary = $"{path}.{Guid.NewGuid():N}{TemporarySuffix}";
+        try
+        {
+            await using (var file = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+            {
+                await using var exact = new ExactLengthStream(content, length);
+                await exact.CopyToAsync(file, cancellationToken);
+            }
+
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
+    }
+
+    public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            Stream stream = new FileStream(PathOf(key), FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            return Task.FromResult<Stream?>(stream);
+        }
+        catch (FileNotFoundException)
+        {
+            return Task.FromResult<Stream?>(null);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return Task.FromResult<Stream?>(null);
+        }
+    }
+
+    public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            File.Delete(PathOf(key));
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // Sem o diretório da área também não há o objeto: é o estado pedido.
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>A chave já tem formato fechado (<see cref="ObjectKey"/>); a checagem do prefixo é a segunda trava.</summary>
+    private string PathOf(ObjectKey key)
+    {
+        var path = Path.GetFullPath(Path.Combine(_root, key.Value));
+        if (!path.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Chave de objeto fora do diretório de mídia.");
+        }
+
+        return path;
+    }
+}
