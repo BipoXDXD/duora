@@ -11,6 +11,8 @@ internal static class ApiProblems
 {
     public const string AccountNotEligible = "ACCOUNT_NOT_ELIGIBLE";
     public const string AccountRestricted = "ACCOUNT_RESTRICTED";
+    public const string AgeVerificationNotAvailable = "AGE_VERIFICATION_NOT_AVAILABLE";
+    public const string AgeVerificationUnavailable = "AGE_VERIFICATION_UNAVAILABLE";
     public const string CsrfValidationFailed = "CSRF_VALIDATION_FAILED";
     public const string InvalidCredentials = "INVALID_CREDENTIALS";
     public const string InvalidRequest = "INVALID_REQUEST";

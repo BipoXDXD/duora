@@ -158,6 +158,20 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
         return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
     }
 
+    public async Task<string> ScalarTextAsync(string sql, params object[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.AddWithValue(parameter);
+        }
+
+        return (string?)await command.ExecuteScalarAsync(TestContext.Current.CancellationToken)
+            ?? throw new InvalidOperationException("Consulta sem resultado.");
+    }
+
     public Task<long> CountUsersAsync(string email) =>
         ScalarAsync("select count(*) from identity.users where normalized_email = upper($1)", email);
 
