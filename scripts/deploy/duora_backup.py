@@ -14,6 +14,10 @@ repositório.
 velho que o RPO, se o arquivamento estiver falhando, se o repositório não tiver backup válido ou se o último backup
 estiver velho demais.
 
+Antes de tudo o verify prova a proteção do bucket contra exclusão (versionamento e Object Lock COMPLIANCE) e, com
+endpoint do Backblaze B2, que a chave do backup está presa ao bucket e ao prefixo do repositório, sem capacidade de
+apagar versão nem de mexer em retenção, bucket ou chaves (b2_authorize_account).
+
 `verify-repo` (timer diário, leve) confere a cadeia de WAL pela listagem do archive (repo-ls, sem baixar nada) e
 roda o `pgbackrest verify --set` só do backup mais novo (checksum e tamanho dos arquivos dele e do WAL dele).
 `verify-repo-full` (timer semanal) roda o `pgbackrest verify` de todo o repositório, que baixa e confere cada arquivo.
@@ -28,6 +32,7 @@ Manual: docs/operations/backup-restore.md.
 from __future__ import annotations
 
 import argparse
+import base64
 import fcntl
 import hashlib
 import hmac
@@ -73,6 +78,23 @@ DAYS_PER_YEAR = 365
 REPO_CONF_IN_CONTAINER = "/etc/pgbackrest/conf.d/repo.conf"
 SYSTEM_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 EMPTY_PAYLOAD_SHA256 = hashlib.sha256(b"").hexdigest()
+# Backblaze B2 (ADR-0023, adendo de 2026-10-16; docs/operations/backblaze-setup.md). Com endpoint do B2, o verify
+# também confere pela API nativa (b2_authorize_account) o que a chave do backup pode fazer, já que o B2 não tem
+# política de bucket: a restrição mora toda na chave.
+B2_ENDPOINT_SUFFIX = ".backblazeb2.com"
+B2_API_HOST = "api.backblazeb2.com"
+B2_AUTHORIZE_PATH = "/b2api/v4/b2_authorize_account"
+# O repo1-path do pgBackRest (infra/images/postgres/pgbackrest-repo.conf), como prefixo de nome no B2.
+B2_BACKUP_NAME_PREFIX = "duora/"
+# O que o pgBackRest e o verify usam: listar, ler, gravar e apagar sem versionId (vira hide marker), ler o
+# versionamento (readBuckets) e o File Lock (readBucketRetentions).
+B2_BACKUP_REQUIRED_CAPABILITIES = frozenset({"listFiles", "readFiles", "writeFiles", "readBuckets",
+                                             "readBucketRetentions"})
+# Leituras inofensivas que a Backblaze às vezes acrescenta. Qualquer outra capacidade reprova (allowlist): apagar
+# versão (deleteFiles), mexer em retenção, bucket ou chaves, compartilhar arquivo ou uma capacidade nova.
+B2_BACKUP_ALLOWED_CAPABILITIES = B2_BACKUP_REQUIRED_CAPABILITIES | {"listBuckets", "listAllBucketNames",
+                                                                    "readBucketEncryption", "readFileRetentions",
+                                                                    "readFileLegalHolds"}
 
 _PGBACKREST_ARGS = {
     "stanza-create": ["stanza-create"],
@@ -516,6 +538,10 @@ class S3Settings:
         return self.endpoint if self.path_style else f"{self.bucket}.{self.endpoint}"
 
     @property
+    def is_backblaze_b2(self) -> bool:
+        return self.endpoint.endswith(B2_ENDPOINT_SUFFIX)
+
+    @property
     def host_header(self) -> str:
         return self.host if self.port == 443 else f"{self.host}:{self.port}"
 
@@ -566,6 +592,47 @@ def signed_bucket_request(settings: S3Settings, subresource: str, now: float) ->
     return (f"GET {settings.bucket_path}?{subresource}= HTTP/1.1\r\nHost: {settings.host_header}\r\n"
             f"x-amz-content-sha256: {EMPTY_PAYLOAD_SHA256}\r\nx-amz-date: {amz_date}\r\n"
             f"Authorization: {authorization}\r\nConnection: close\r\n\r\n")
+
+
+def b2_authorize_request(settings: S3Settings) -> str:
+    """GET do b2_authorize_account (API nativa v4) com a mesma chave do repositório, em Basic auth."""
+    credentials = base64.b64encode(f"{settings.key}:{settings.secret}".encode()).decode()
+    return (f"GET {B2_AUTHORIZE_PATH} HTTP/1.1\r\nHost: {B2_API_HOST}\r\nAuthorization: Basic {credentials}\r\n"
+            "Connection: close\r\n\r\n")
+
+
+def b2_key_problems(authorize_body: str, settings: S3Settings) -> list[str]:
+    """Vazia só se a chave estiver presa a este bucket e ao prefixo do repositório, com as capacidades mínimas.
+
+    Nunca repete o corpo: ele traz o authorizationToken.
+    """
+    try:
+        storage_api = json.loads(authorize_body)["apiInfo"]["storageApi"]
+        allowed = storage_api["allowed"]
+        capabilities = allowed["capabilities"]
+        buckets = allowed["buckets"]
+        s3_api_url = storage_api.get("s3ApiUrl")
+        if not isinstance(capabilities, list) or not isinstance(buckets, list):
+            raise TypeError("capabilities e buckets são listas")
+        granted = {str(capability) for capability in capabilities}
+        bucket_names = [bucket.get("name") if isinstance(bucket, dict) else None for bucket in buckets]
+        name_prefix = allowed.get("namePrefix")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return ["resposta do b2_authorize_account em formato inesperado"]
+    problems = []
+    if extra := sorted(granted - B2_BACKUP_ALLOWED_CAPABILITIES):
+        problems.append(f"chave do backup com capacidades além do necessário: {', '.join(extra)}")
+    if missing := sorted(B2_BACKUP_REQUIRED_CAPABILITIES - granted):
+        problems.append(f"chave do backup sem as capacidades: {', '.join(missing)}")
+    if bucket_names != [settings.bucket]:
+        problems.append(f"chave do backup não está restrita só ao bucket {settings.bucket}")
+    if name_prefix != B2_BACKUP_NAME_PREFIX:
+        problems.append(f"chave do backup sem a restrição de prefixo {B2_BACKUP_NAME_PREFIX} (namePrefix "
+                        f"{name_prefix!r})")
+    if s3_api_url != f"https://{settings.endpoint}":
+        problems.append(f"repo1-s3-endpoint {settings.endpoint} não é o da conta (s3ApiUrl {s3_api_url}): confira o "
+                        "número da região no bucket")
+    return problems
 
 
 def parse_http_response(raw: str) -> tuple[int, str]:
@@ -645,12 +712,12 @@ def _check_bucket_protection(run: Runner, container: str, now: float) -> None:
     conf = _check(run(["docker", "exec", container, "cat", REPO_CONF_IN_CONTAINER], capture=True),
                   "leitura do pgbackrest_repo.conf")
     settings = parse_repo_settings(conf.stdout)
+    if settings.is_backblaze_b2:
+        _check_b2_key(run, container, settings)
     bodies = {}
     for subresource in ("versioning", "object-lock"):
-        command = ["docker", "exec", "-i", container, "openssl", "s_client", "-quiet", "-ign_eof",
-                   "-connect", f"{settings.host}:{settings.port}", "-servername", settings.host,
-                   "-verify_hostname", settings.host, "-verify_return_error", "-CAfile", settings.ca_file]
-        result = _check(run(command, capture=True, stdin=signed_bucket_request(settings, subresource, now)),
+        result = _check(run(_tls_query(container, settings.host, settings.port, settings.ca_file), capture=True,
+                            stdin=signed_bucket_request(settings, subresource, now)),
                         f"consulta ?{subresource} do bucket")
         status, body = parse_http_response(result.stdout)
         # 404 em ?object-lock = bucket criado sem Object Lock (ObjectLockConfigurationNotFoundError).
@@ -658,12 +725,34 @@ def _check_bucket_protection(run: Runner, container: str, now: float) -> None:
             body = ""
         elif status != 200:
             raise BackupError(f"consulta ?{subresource} do bucket respondeu HTTP {status} (a chave do backup precisa "
-                              "de s3:GetBucketVersioning e s3:GetBucketObjectLockConfiguration)")
+                              "ler o versionamento e o Object Lock: s3:GetBucketVersioning e "
+                              "s3:GetBucketObjectLockConfiguration, ou readBuckets e readBucketRetentions no B2)")
         bodies[subresource] = body
     problems = bucket_protection_problems(bodies["versioning"], bodies["object-lock"])
     if problems:
         raise BackupError(f"bucket {settings.bucket} sem proteção contra exclusão (pré-requisito de produção, "
                           "docs/operations/backup-restore.md):\n  - " + "\n  - ".join(problems))
+
+
+def _check_b2_key(run: Runner, container: str, settings: S3Settings) -> None:
+    """Fail closed: a chave do backup no B2 não pode apagar versão nem mexer em retenção, bucket ou chaves."""
+    result = _check(run(_tls_query(container, B2_API_HOST, 443, SYSTEM_CA_BUNDLE), capture=True,
+                        stdin=b2_authorize_request(settings)), "consulta b2_authorize_account")
+    status, body = parse_http_response(result.stdout)
+    if status != 200:
+        raise BackupError(f"b2_authorize_account respondeu HTTP {status} (chave do backup inválida, revogada ou "
+                          "expirada)")
+    problems = b2_key_problems(body, settings)
+    if problems:
+        raise BackupError("chave do backup no B2 fora da política mínima (docs/operations/backblaze-setup.md):\n  - "
+                          + "\n  - ".join(problems))
+
+
+def _tls_query(container: str, host: str, port: int, ca_file: str) -> list[str]:
+    """openssl s_client de dentro do container backup (mesma rede, DNS e filtro de saída), verificando o host."""
+    return ["docker", "exec", "-i", container, "openssl", "s_client", "-quiet", "-ign_eof",
+            "-connect", f"{host}:{port}", "-servername", host, "-verify_hostname", host, "-verify_return_error",
+            "-CAfile", ca_file]
 
 
 def _verify_repository(run: Runner, container: str, *, whole_repository: bool) -> None:
