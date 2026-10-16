@@ -26,4 +26,15 @@ public sealed class DuoraUser : IdentityUser<Guid>
     /// <see cref="AccountSecurityService"/>.
     /// </summary>
     public long? LastTotpStep { get; private set; }
+
+    /// <summary>
+    /// Fim da validade da senha temporária do bootstrap administrativo (D4); null quando a senha é da própria pessoa.
+    /// Enquanto houver valor, a sessão só serve para trocar a senha, e depois do instante o login é recusado.
+    /// Gravado só pelo <see cref="AdministratorBootstrap"/> e limpo pela troca de senha (API-A16).
+    /// </summary>
+    public DateTimeOffset? TemporaryPasswordExpiresAt { get; private set; }
+
+    public bool HasExpiredTemporaryPassword(DateTimeOffset now) => TemporaryPasswordExpiresAt <= now;
+
+    public bool HasTemporaryPassword => TemporaryPasswordExpiresAt is not null;
 }

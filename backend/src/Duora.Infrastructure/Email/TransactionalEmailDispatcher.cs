@@ -108,6 +108,7 @@ public sealed partial class TransactionalEmailDispatcher
             (AccountEmailKind.RegistrationAttemptOnExistingAccount, _) => _emails.RegistrationAttemptOnExistingAccount(to, language),
             (AccountEmailKind.PendingRegistrationReminder, _) => _emails.PendingRegistrationReminder(to, language),
             (AccountEmailKind.PasswordResetForUnknownAddress, _) => _emails.PasswordResetForUnknownAddress(to, language),
+            (AccountEmailKind.PasswordResetUnavailable, _) => AccountEmails.PasswordResetUnavailable(to, language),
             _ => null,
         };
         return email is not null;

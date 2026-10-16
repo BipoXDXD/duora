@@ -22,9 +22,11 @@ internal sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEv
         builder.ToTable("audit_events", DatabaseSchemas.Ops, table =>
         {
             table.HasCheckConstraint("ck_audit_events_actor_kind", $"actor_kind IN ({actorKinds})");
+            // Sem id de ator só o sistema e o operador de terminal, que se identifica pelo nome (bootstrap, D4).
             table.HasCheckConstraint(
                 "ck_audit_events_actor_id",
-                "actor_kind = 'System' OR actor_id IS NOT NULL");
+                "actor_kind = 'System' OR actor_id IS NOT NULL OR (actor_kind = 'Operator' AND actor_label IS NOT NULL)");
+            table.HasCheckConstraint("ck_audit_events_actor_label", $"actor_label ~ '{OperatorName.DatabasePattern}'");
             table.HasCheckConstraint("ck_audit_events_action", "action ~ '^[a-z]+(\\.[a-z_]+)+$'");
             table.HasCheckConstraint("ck_audit_events_target_type", "target_type ~ '^[a-z][a-z_]{0,31}$'");
         });
@@ -34,6 +36,7 @@ internal sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEv
         builder.Property(e => e.OccurredAt).HasColumnName("occurred_at");
         builder.Property(e => e.ActorKind).HasColumnName("actor_kind").HasConversion<string>().HasMaxLength(16);
         builder.Property(e => e.ActorId).HasColumnName("actor_id");
+        builder.Property(e => e.ActorLabel).HasColumnName("actor_label").HasMaxLength(OperatorName.MaxLength);
         builder.Property(e => e.Action).HasColumnName("action").HasMaxLength(ActionMaxLength).IsRequired();
         builder.Property(e => e.TargetType).HasColumnName("target_type").HasMaxLength(TargetTypeMaxLength).IsRequired();
         builder.Property(e => e.TargetId).HasColumnName("target_id");

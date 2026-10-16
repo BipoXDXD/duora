@@ -128,6 +128,9 @@ public abstract record PasswordChange
 
     /// <summary>Senha atual errada ou conta bloqueada, sem distinguir.</summary>
     public sealed record WrongPassword : PasswordChange;
+
+    /// <summary>A senha nova repete a temporária do bootstrap (D4), que precisa ser trocada de fato.</summary>
+    public sealed record TemporaryPasswordReused : PasswordChange;
 }
 
 /// <summary>Prova de segundo fator enviada no login ou na reautenticação.</summary>
@@ -419,7 +422,8 @@ public sealed class AccountSecurityService
 
     /// <summary>
     /// Troca a senha conferindo a atual. Senha errada conta para o bloqueio da conta, como no login: quem tem só a
-    /// sessão não pode testar senhas à vontade.
+    /// sessão não pode testar senhas à vontade. Trocar a senha temporária do bootstrap (D4) encerra essa fase: a
+    /// marca sai no mesmo commit, e a sessão seguinte já é a restrita do cadastro de MFA.
     /// </summary>
     public async Task<PasswordChange> ChangePasswordAsync(
         Guid userId,
@@ -435,6 +439,11 @@ public sealed class AccountSecurityService
             return new PasswordChange.WrongPassword();
         }
 
+        if (user.HasTemporaryPassword && string.Equals(currentPassword, newPassword, StringComparison.Ordinal))
+        {
+            return new PasswordChange.TemporaryPasswordReused();
+        }
+
         var result = await _users.ChangePasswordAsync(user, currentPassword, newPassword);
         if (result.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.PasswordMismatch)))
         {
@@ -444,6 +453,9 @@ public sealed class AccountSecurityService
         }
 
         EnsureSucceeded(result, "trocar a senha");
+        await _db.Database.ExecuteSqlAsync(
+            $"update identity.users set temporary_password_expires_at = null where id = {user.Id}",
+            cancellationToken);
         await RevokeAllSessionsAsync(user.Id, PasswordChangeReason, cancellationToken);
         await AppendAuditAsync(user.Id, AuditAction.PasswordChanged, cancellationToken);
         await transaction.CommitAsync(cancellationToken);

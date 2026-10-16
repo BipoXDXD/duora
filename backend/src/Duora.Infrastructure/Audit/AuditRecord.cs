@@ -36,6 +36,10 @@ internal sealed record AuditAction
     public static readonly AuditAction Reauthenticated = new("identity.reauthenticated");
 
     public static readonly AuditAction PasswordChanged = new("identity.password_changed");
+
+    /// <summary>Conta privilegiada criada pelo comando operacional (<c>admin grant</c>, spec 11.1).</summary>
+    public static readonly AuditAction AdminGranted = new("identity.admin_granted");
+
     public static readonly AuditAction AgeVerificationRequested = new("identity.age_verification_requested");
 
     public static readonly AuditAction AgeVerificationExpired = new("identity.age_verification_expired");
@@ -74,6 +78,18 @@ internal sealed partial record AuditRecord
         string targetType,
         Guid targetId,
         long? targetVersion = null)
+        : this(actorKind, actorId, actorLabel: null, action, targetType, targetId, targetVersion)
+    {
+    }
+
+    private AuditRecord(
+        AuditActorKind actorKind,
+        Guid? actorId,
+        OperatorName? actorLabel,
+        AuditAction action,
+        string targetType,
+        Guid targetId,
+        long? targetVersion)
     {
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(targetType);
@@ -82,9 +98,10 @@ internal sealed partial record AuditRecord
             throw new ArgumentOutOfRangeException(nameof(actorKind), actorKind, "Ator desconhecido.");
         }
 
-        if (actorId == Guid.Empty || (actorKind != AuditActorKind.System && actorId is null))
+        var identifiedByName = actorKind == AuditActorKind.Operator && actorLabel is not null;
+        if (actorId == Guid.Empty || (actorKind != AuditActorKind.System && actorId is null && !identifiedByName))
         {
-            throw new ArgumentException("Só o sistema age sem id de ator.", nameof(actorId));
+            throw new ArgumentException("Só o sistema e o operador de terminal agem sem id de ator.", nameof(actorId));
         }
 
         if (!TargetTypeFormat().IsMatch(targetType))
@@ -95,6 +112,7 @@ internal sealed partial record AuditRecord
         ArgumentOutOfRangeException.ThrowIfEqual(targetId, Guid.Empty);
         ActorKind = actorKind;
         ActorId = actorId;
+        ActorLabel = actorLabel;
         Action = action;
         TargetType = targetType;
         TargetId = targetId;
@@ -103,7 +121,23 @@ internal sealed partial record AuditRecord
 
     public AuditActorKind ActorKind { get; }
 
+    /// <summary>
+    /// Fato registrado por quem rodou um comando no host, sem conta no produto (o bootstrap cria a primeira). O nome
+    /// vem do argumento obrigatório <c>--operator</c>, no formato de usuário de sistema.
+    /// </summary>
+    public static AuditRecord ByTerminalOperator(
+        OperatorName operatorName,
+        AuditAction action,
+        string targetType,
+        Guid targetId)
+    {
+        ArgumentNullException.ThrowIfNull(operatorName);
+        return new AuditRecord(AuditActorKind.Operator, actorId: null, operatorName, action, targetType, targetId, targetVersion: null);
+    }
+
     public Guid? ActorId { get; }
+
+    public OperatorName? ActorLabel { get; }
 
     public AuditAction Action { get; }
 

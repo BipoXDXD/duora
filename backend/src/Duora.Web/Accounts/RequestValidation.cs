@@ -16,6 +16,7 @@ internal sealed class RequestValidation
     public const string InvalidCharacters = "INVALID_CHARACTERS";
     public const string InvalidFormat = "INVALID_FORMAT";
     public const string TooLong = "TOO_LONG";
+    public const string SameAsTemporaryPassword = "SAME_AS_TEMPORARY_PASSWORD";
 
     /// <summary>Teto do token dos links; os tokens do Identity em base64url ficam bem abaixo.</summary>
     public const int MaxTokenLength = 1024;

@@ -47,6 +47,11 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(16)")
                         .HasColumnName("actor_kind");
 
+                    b.Property<string>("ActorLabel")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("actor_label");
+
                     b.Property<string>("CorrelationId")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
@@ -83,9 +88,11 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_audit_events_action", "action ~ '^[a-z]+(\\.[a-z_]+)+$'");
 
-                            t.HasCheckConstraint("ck_audit_events_actor_id", "actor_kind = 'System' OR actor_id IS NOT NULL");
+                            t.HasCheckConstraint("ck_audit_events_actor_id", "actor_kind = 'System' OR actor_id IS NOT NULL OR (actor_kind = 'Operator' AND actor_label IS NOT NULL)");
 
                             t.HasCheckConstraint("ck_audit_events_actor_kind", "actor_kind IN ('User', 'Moderator', 'Admin', 'Operator', 'System')");
+
+                            t.HasCheckConstraint("ck_audit_events_actor_label", "actor_label ~ '^[a-z0-9_][a-z0-9._-]{0,31}$'");
 
                             t.HasCheckConstraint("ck_audit_events_target_type", "target_type ~ '^[a-z][a-z_]{0,31}$'");
                         });
@@ -301,6 +308,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(24)")
                         .HasColumnName("status");
 
+                    b.Property<DateTimeOffset?>("TemporaryPasswordExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("temporary_password_expires_at");
+
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("two_factor_enabled");
@@ -323,6 +334,8 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.ToTable("users", "identity", t =>
                         {
                             t.HasCheckConstraint("ck_users_status", "status IN ('PendingEmail', 'PendingEligibility', 'Active', 'Restricted', 'Suspended', 'DeletionPending')");
+
+                            t.HasCheckConstraint("ck_users_temporary_password_requires_confirmed_email", "temporary_password_expires_at IS NULL OR email_confirmed");
 
                             t.HasCheckConstraint("ck_users_user_name_is_email", "normalized_user_name IS NOT DISTINCT FROM normalized_email");
                         });

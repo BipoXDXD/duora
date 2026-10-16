@@ -139,7 +139,8 @@ public static class WebIdentityServiceCollectionExtensions
             provider.GetRequiredService<SignInManager<DuoraUser>>(),
             provider.GetRequiredService<DecoyPasswordHash>(),
             provider.GetRequiredService<IOptions<LoginTimingOptions>>(),
-            provider.GetRequiredService<AccountSecurityService>()));
+            provider.GetRequiredService<AccountSecurityService>(),
+            provider.GetRequiredService<TimeProvider>()));
 
         return services;
     }

@@ -70,14 +70,17 @@ public sealed class CredentialVerifier
     private readonly DecoyPasswordHash _decoy;
     private readonly LoginTimingOptions _timing;
     private readonly AccountSecurityService _security;
+    private readonly TimeProvider _time;
 
     internal CredentialVerifier(
         UserManager<DuoraUser> users,
         SignInManager<DuoraUser> signIn,
         DecoyPasswordHash decoy,
         IOptions<LoginTimingOptions> timing,
-        AccountSecurityService security)
+        AccountSecurityService security,
+        TimeProvider time)
     {
+        _time = time;
         _users = users;
         _signIn = signIn;
         _decoy = decoy;
@@ -193,6 +196,12 @@ public sealed class CredentialVerifier
 
         if (!result.Succeeded)
         {
+            return new LoginOutcome.InvalidCredentials();
+        }
+
+        if (user.HasExpiredTemporaryPassword(_time.GetUtcNow()))
+        {
+            // Senha temporária do bootstrap vencida (D4): responde como senha errada; o operador gera outra conta.
             return new LoginOutcome.InvalidCredentials();
         }
 
