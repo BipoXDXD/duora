@@ -48,6 +48,7 @@ public sealed class ApiResponseCachingTests(PostgresFixture postgres) : IAsyncDi
                 "GET" => await browser.GetAsync(path),
                 "POST" => await browser.PostJsonAsync(path, new { }),
                 "DELETE" => await browser.DeleteAsync(path),
+                "PUT" => await browser.PutAsync(path),
                 "PATCH" => await browser.PatchRawJsonAsync(path, "{}", ifMatch: "\"0\""),
                 var method => throw new InvalidOperationException($"Método {method} sem caso no teste."),
             };
