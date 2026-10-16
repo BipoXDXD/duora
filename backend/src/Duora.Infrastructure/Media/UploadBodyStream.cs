@@ -20,6 +20,9 @@ internal sealed class UploadBodyStream : Stream
     /// <summary>Verdadeiro quando a leitura do corpo falhou; distingue erro do cliente de erro do storage.</summary>
     public bool ClientFailed { get; private set; }
 
+    /// <summary>Verdadeiro quando o tamanho declarado inteiro já passou.</summary>
+    public bool IsComplete => _body.Position == _body.Length;
+
     /// <summary>Hash dos bytes lidos; só existe depois que o tamanho declarado inteiro passou.</summary>
     public byte[] Sha256 => _sha256 ?? throw new InvalidOperationException("O corpo ainda não foi lido até o fim.");
 

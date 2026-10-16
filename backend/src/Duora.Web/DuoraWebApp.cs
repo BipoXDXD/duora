@@ -63,6 +63,7 @@ internal static class DuoraWebApp
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();
         builder.Services.AddBlockRateLimiting();
+        builder.Services.AddPhotoUploadRateLimiting();
         builder.Services.AddTrustedReverseProxy();
 
         var app = builder.Build();
