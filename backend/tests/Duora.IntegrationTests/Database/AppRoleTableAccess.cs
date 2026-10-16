@@ -42,6 +42,9 @@ internal static class AppRoleTableAccess
             ["ops.__ef_migrations_history"] = AppTableAccess.None,
             ["ops.outbox_deliveries"] = AppTableAccess.ReadWrite,
             ["ops.outbox_events"] = AppTableAccess.ReadWrite,
+
+            // profiles (dono: Profiles)
+            ["profiles.profiles"] = AppTableAccess.ReadWrite,
         };
 
     /// <summary>Privilégios de tabela do PostgreSQL 18, na grafia de <c>has_table_privilege</c>.</summary>
