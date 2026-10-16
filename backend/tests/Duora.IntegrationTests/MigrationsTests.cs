@@ -78,7 +78,8 @@ public sealed class MigrationsTests(PostgresFixture postgres)
     public async Task WebDoesNotMigrateOnStartup()
     {
         var emptyDatabase = await postgres.CreateEmptyDatabaseAsync(TestContext.Current.CancellationToken);
-        await using (var factory = new DuoraWebFactory(emptyDatabase.AppConnectionString))
+        // Como migrador, com poder de DDL: se a web tentasse migrar no startup, conseguiria e o teste pegaria.
+        await using (var factory = new DuoraWebFactory(emptyDatabase.MigratorConnectionString))
         {
             using var client = factory.CreateClient();
             var response = await client.GetAsync(new Uri("/health/ready", UriKind.Relative), TestContext.Current.CancellationToken);

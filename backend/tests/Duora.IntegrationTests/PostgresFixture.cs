@@ -71,6 +71,10 @@ public sealed class PostgresFixture : IAsyncLifetime
         await ExecuteAsSuperuserAsync(
             $"create database {PristineTemplate} template {DatabaseName} owner duora_migrator",
             TestContext.Current.CancellationToken);
+        await ExecuteAsSuperuserAsync(
+            $"alter database {PristineTemplate} with is_template true allow_connections false; " +
+            $"revoke all on database {PristineTemplate} from public",
+            TestContext.Current.CancellationToken);
         await MigrateAsync(DatabaseName, TestContext.Current.CancellationToken);
     }
 
@@ -152,4 +156,12 @@ public sealed class PostgresFixture : IAsyncLifetime
 }
 
 /// <summary>Banco avulso de um teste: a aplicação conecta como <c>duora_app</c>; quem migra, como <c>duora_migrator</c>.</summary>
-public sealed record ScratchDatabase(string Name, string AppConnectionString, string MigratorConnectionString);
+public sealed record ScratchDatabase(string Name, string AppConnectionString, string MigratorConnectionString)
+{
+    // As connection strings levam senha; ToString (mensagens de assert, logs) mostra só o nome.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append("Name = ").Append(Name);
+        return true;
+    }
+}
