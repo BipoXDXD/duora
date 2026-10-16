@@ -48,6 +48,10 @@ internal sealed class Browser : IDisposable
             rawJson is null ? null : new StringContent(rawJson, Encoding.UTF8, "application/json"),
             headers);
 
+    /// <summary>Corpo qualquer (upload de foto em corpo cru), com o Content-Type e o tamanho do próprio conteúdo.</summary>
+    public Task<HttpResponseMessage> PostContentAsync(string path, HttpContent content, MutationHeaders? headers = null) =>
+        SendAsync(HttpMethod.Post, path, content, headers);
+
     public Task<HttpResponseMessage> DeleteAsync(string path, MutationHeaders? headers = null) =>
         SendAsync(HttpMethod.Delete, path, content: null, headers);
 

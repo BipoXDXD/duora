@@ -68,6 +68,55 @@ public sealed class StartupConfigurationTests
         Assert.Contains("DataProtection:KeysDirectory", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task WebDoesNotStartInProductionWithTechnicalOnlyPhotoReview()
+    {
+        // ADR-0025: sem revisão editorial, foto real não pode ser aprovada só pela checagem técnica.
+        await using var app = BuildWeb([
+            "--environment=Production",
+            "--Media:Review=TechnicalOnly",
+            .. CompleteS3Storage,
+        ]);
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Media:Review", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WebDoesNotStartInProductionWithTheFileSystemPhotoStore()
+    {
+        await using var app = BuildWeb(
+            "--environment=Production",
+            "--Media:Storage:Provider=FileSystem",
+            $"--Media:Storage:FileSystemRoot={Path.GetTempPath()}");
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("FileSystem", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WebDoesNotStartWithPhotoUploadsOnAndNoStorage()
+    {
+        await using var app = BuildWeb("--Media:Review=TechnicalOnly");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Media:Storage:Provider", exception.Message, StringComparison.Ordinal);
+    }
+
+    private static readonly string[] CompleteS3Storage =
+    [
+        "--Media:Storage:Provider=S3",
+        "--Media:Storage:S3:ServiceUrl=https://storage.example.com",
+        "--Media:Storage:S3:Region=us-east-1",
+        "--Media:Storage:S3:Bucket=duora-media",
+        "--Media:Storage:S3:AccessKeyId=synthetic-access",
+        "--Media:Storage:S3:SecretAccessKey=synthetic-secret",
+    ];
+
     /// <summary>
     /// O diretório temporário do teste é só uma pasta, como seria a camada gravável do container se o volume sumisse
     /// do Compose (T-15). Fora do Linux não há tabela de montagens, e o boot também falha.
