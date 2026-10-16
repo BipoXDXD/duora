@@ -162,8 +162,8 @@ recoloridos para `action` e `text-muted` (spec 13.3, "Ilustração e fotografia"
   proíbe sugerir identidade falsa ou presença fictícia, e o [brief](../product/experience-brief.md) pede
   ilustração sem casal-padrão; objeto não tem gênero, idade nem corpo.
 - **Nenhum texto, letra, número, símbolo ou logo** dentro da imagem: texto vem do catálogo de idiomas, ao lado.
-- O prefixo de prompt em `tools/visual/catalog.json` carrega essas proibições, e um teste confere que elas
-  continuam lá. Fonte que viola a regra é descartada e gerada de novo, nunca retocada.
+- O prefixo de prompt em `tools/visual/catalog.json` carrega essas proibições, e
+  `frontend/config/illustrations.test.ts` (job `frontend` do CI) confere que elas continuam lá. Fonte que viola a regra é descartada e gerada de novo, nunca retocada.
 - Só modelos aprovados (GPT Image 2.5 ou Nano Banana Pro, via Tripo) e só com linha em
   [assets-licenses.md](assets-licenses.md). Processo em [tools/visual/README.md](../../tools/visual/README.md).
 
