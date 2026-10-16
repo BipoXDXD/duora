@@ -16,7 +16,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
     public MfaLoginTests(PostgresFixture postgres)
     {
         _postgres = postgres;
-        _time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        _time = TestClock.StartingNow();
         _factory = new DuoraWebFactory(postgres.ConnectionString)
         {
             Time = _time,
