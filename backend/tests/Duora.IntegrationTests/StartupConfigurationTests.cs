@@ -108,6 +108,54 @@ public sealed class StartupConfigurationTests
         Assert.True(new DataProtectionStorageOptions().RequireMountedVolume);
     }
 
+    /// <summary>Production liga a exigência (padrão); sem o certificado do key ring o web não sobe (spec 11.2).</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task WebDoesNotStartWithoutTheKeyRingCertificateWhenRequired(string certificate)
+    {
+        await using var app = BuildWeb(
+            "--DataProtection:RequireCertificate=true",
+            $"--DataProtection:Certificate={certificate}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("DataProtection:Certificate", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("DataProtection:Certificate")]
+    [InlineData("DataProtection:PreviousCertificates")]
+    public async Task WebDoesNotStartWithAMalformedKeyRingCertificate(string key)
+    {
+        await using var app = BuildWeb($"--{key}=-----BEGIN CERTIFICATE-----lixo-----END CERTIFICATE-----");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains(key, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WebDoesNotStartWithACertificateWithoutItsPrivateKey()
+    {
+        var pem = TestCertificates.Create("sem-chave").Pem;
+        var certificateOnly = pem[..(pem.IndexOf("-----END CERTIFICATE-----", StringComparison.Ordinal) + 25)];
+        await using var app = BuildWeb($"--DataProtection:Certificate={certificateOnly}");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("DataProtection:Certificate", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void KeyRingCertificateIsRequiredUnlessConfigurationTurnsItOff()
+    {
+        Assert.True(new DataProtectionStorageOptions().RequireCertificate);
+    }
+
     /// <summary>
     /// Linha de comando tem a maior precedência: env e user-secrets da máquina não interferem. Porta 0: se a
     /// validação falhar em barrar o boot, o teste não disputa porta com ninguém. O banco nunca é contatado, porque
@@ -122,6 +170,7 @@ public sealed class StartupConfigurationTests
             $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
             $"--DataProtection:KeysDirectory={Path.Combine(Path.GetTempPath(), "duora-keys-unused")}",
             "--DataProtection:RequireMountedVolume=false",
+            "--DataProtection:RequireCertificate=false",
             .. invalidSettings,
         ]);
 }

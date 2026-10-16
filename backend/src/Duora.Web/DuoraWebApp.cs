@@ -48,7 +48,7 @@ internal static class DuoraWebApp
         });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddInfrastructure(builder.Configuration);
-        builder.Services.AddDuoraWebIdentity();
+        builder.Services.AddDuoraWebIdentity(builder.Configuration);
         builder.Services.AddDuoraProfiles();
         builder.Services.AddDuoraSafety();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
