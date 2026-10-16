@@ -5,15 +5,21 @@ using Npgsql;
 namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
-/// TM-05: login, falha de senha, início do bloqueio, tentativa durante o bloqueio, desbloqueio pelo reset, logout e
-/// revogação de sessão deixam exatamente um registro em <c>ops.audit_events</c>, na transação do efeito. O registro
-/// só tem ator, ação e alvo: nada de e-mail, senha, IP ou user agent. Login com e-mail sem conta não grava nada
-/// (não há alvo, e o registro não pode virar indício de existência), e a resposta é a mesma da senha errada.
+/// TM-05: login, falha de senha (A04, A13, A16), início do bloqueio, tentativa durante o bloqueio, desbloqueio pelo
+/// reset, logout e revogação de sessão deixam exatamente um registro em <c>ops.audit_events</c>, na transação do
+/// efeito, também sob pedidos simultâneos. O registro só tem ator, ação e alvo: nada de e-mail, senha, IP ou user
+/// agent. Login com e-mail sem conta ou não confirmado grava um registro sem conta (nem como ator nem como alvo), o
+/// mesmo nos dois casos, e a resposta é a mesma da senha errada (TM-06).
 /// </summary>
 /// <remarks>Cada teste usa um banco migrado só dele, para contar todas as linhas da tabela sem interferência.</remarks>
 public sealed class LoginAuditTests(PostgresFixture postgres)
 {
     private const string WrongPassword = "não é a senha da conta";
+    private const string NewPassword = "uma frase nova e bem longa";
+    private const string PasswordChanges = "/api/v1/me/password-changes";
+
+    /// <summary>E-mail sem conta ou com cadastro não confirmado: indistinguíveis também no registro.</summary>
+    private const string UnknownAccountAction = "identity.login_failed_unknown_account";
 
     /// <summary>Igual a <c>Lockout.MaxFailedAccessAttempts</c> da aplicação.</summary>
     private const int LockoutThreshold = 20;
@@ -166,13 +172,12 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task AnUnknownEmailLeavesNoRecordAndGetsTheSameAnswerAsAWrongPassword()
+    public async Task AnUnknownEmailIsAuditedWithoutAnAccountAndGetsTheSameAnswerAsAWrongPassword()
     {
         await using var context = await AuditContext.CreateAsync(postgres);
         var account = await context.Scenario.CreateConfirmedAccountAsync();
         using var browser = new Browser(context.Factory);
         using var wrongPassword = await IdentityScenario.LoginAsync(browser, account.Email, WrongPassword);
-        var rowsBefore = await context.CountAllAuditRowsAsync();
 
         using var unknownEmail = await IdentityScenario.LoginAsync(browser, IdentityScenario.NewEmail(), WrongPassword);
 
@@ -180,7 +185,189 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
         Assert.Equal(
             await ProblemAssert.BodyWithoutTraceIdAsync(wrongPassword),
             await ProblemAssert.BodyWithoutTraceIdAsync(unknownEmail));
-        Assert.Equal(rowsBefore, await context.CountAllAuditRowsAsync());
+        var row = Assert.Single(await context.RowsAsync(UnknownAccountAction));
+        Assert.Equal(("System", (Guid?)null, "login_attempt"), (row.ActorKind, row.ActorId, row.TargetType));
+        Assert.Equal(0, await context.CountUsersAsync(row.TargetId));
+    }
+
+    [Fact]
+    public async Task AnUnconfirmedAccountIsAuditedExactlyLikeAnUnknownEmail()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var pending = IdentityScenario.NewEmail();
+        using var browser = new Browser(context.Factory);
+        using (var registration = await IdentityScenario.RegisterAsync(browser, pending))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, registration.StatusCode);
+        }
+
+        var pendingUserId = await context.UserIdAsync(pending);
+
+        using var login = await IdentityScenario.LoginAsync(browser, pending, IdentityScenario.ValidPassword);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, login.StatusCode);
+        var row = Assert.Single(await context.RowsAsync(UnknownAccountAction));
+        Assert.Equal(("System", (Guid?)null, "login_attempt"), (row.ActorKind, row.ActorId, row.TargetType));
+        Assert.Equal(0, await context.CountAuditRowsReferencingAsync(pendingUserId));
+        Assert.Equal(0, await context.CountAuditRowsContainingAsync(pending));
+    }
+
+    [Fact]
+    public async Task ARightPasswordWithoutTheSecondFactorIsAuditedAsSecondFactorRequired()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        using (var enrolling = await context.Scenario.SignedInBrowserAsync(account))
+        {
+            await MfaScenario.EnableAsync(enrolling, context.Time);
+        }
+
+        var before = await context.UserActionsAsync(account.UserId);
+        using var browser = new Browser(context.Factory);
+
+        using var response = await MfaScenario.LoginAsync(browser, account);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "MFA_REQUIRED");
+        Assert.Equal(
+            ["identity.login_second_factor_required"],
+            Added(before, await context.UserActionsAsync(account.UserId)));
+    }
+
+    [Fact]
+    public async Task AWrongPasswordOnReauthenticationIsAuditedAndTheLockoutIsOnTheRecord()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        using var browser = await context.Scenario.SignedInBrowserAsync(account);
+        await context.SetFailedAttemptsAsync(account.UserId, LockoutThreshold - 1);
+
+        using var locking = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = WrongPassword });
+        using var whileLocked = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, locking.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, whileLocked.StatusCode);
+        Assert.Equal(
+            [
+                "identity.account_locked_out",
+                "identity.login_succeeded",
+                "identity.reauthentication_failed",
+                "identity.reauthentication_refused_locked_out",
+            ],
+            await context.UserActionsAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task AWrongCurrentPasswordOnPasswordChangeIsAuditedAndTheLockoutIsOnTheRecord()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        using var browser = await context.Scenario.SignedInBrowserAsync(account);
+        await context.SetFailedAttemptsAsync(account.UserId, LockoutThreshold - 1);
+
+        using var locking = await browser.PostJsonAsync(
+            PasswordChanges,
+            new { currentPassword = WrongPassword, newPassword = NewPassword });
+        using var whileLocked = await browser.PostJsonAsync(
+            PasswordChanges,
+            new { currentPassword = account.Password, newPassword = NewPassword });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, locking.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, whileLocked.StatusCode);
+        Assert.Equal(
+            [
+                "identity.account_locked_out",
+                "identity.login_succeeded",
+                "identity.password_change_failed",
+                "identity.password_change_refused_locked_out",
+            ],
+            await context.UserActionsAsync(account.UserId));
+    }
+
+    /// <summary>
+    /// Duas falhas cabem antes do teto; as outras chegam com a conta já bloqueada. Com a conta travada durante a
+    /// verificação, cada pedido vê o estado deixado pelo anterior: nenhum registro duplicado nem perdido.
+    /// </summary>
+    [Fact]
+    public async Task ConcurrentWrongPasswordsLeaveExactlyOneRecordEachAndOneLockout()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        await context.SetFailedAttemptsAsync(account.UserId, LockoutThreshold - 2);
+        var browsers = Enumerable.Range(0, 6).Select(_ => new Browser(context.Factory)).ToList();
+
+        var responses = await Task.WhenAll(browsers.Select(browser =>
+            IdentityScenario.LoginAsync(browser, account.Email, WrongPassword)));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode));
+        Assert.Equal(
+            [
+                "identity.account_locked_out",
+                "identity.login_failed",
+                "identity.login_failed",
+                "identity.login_refused_locked_out",
+                "identity.login_refused_locked_out",
+                "identity.login_refused_locked_out",
+                "identity.login_refused_locked_out",
+            ],
+            await context.UserActionsAsync(account.UserId));
+        DisposeAll(responses, browsers);
+    }
+
+    [Fact]
+    public async Task ConcurrentSuccessfulLoginsAreEachAuditedOnce()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        var browsers = Enumerable.Range(0, 4).Select(_ => new Browser(context.Factory)).ToList();
+
+        var responses = await Task.WhenAll(browsers.Select(browser =>
+            IdentityScenario.LoginAsync(browser, account.Email, account.Password)));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.NoContent, response.StatusCode));
+        Assert.Equal(Enumerable.Repeat("identity.login_succeeded", 4), await context.UserActionsAsync(account.UserId));
+        DisposeAll(responses, browsers);
+    }
+
+    [Fact]
+    public async Task ConcurrentRevocationsOfTheSameSessionAreAuditedOnce()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        using var other = await context.Scenario.SignedInBrowserAsync(account);
+        context.Time.Advance(TimeSpan.FromSeconds(1));
+        using var browser = await context.Scenario.SignedInBrowserAsync(account);
+        var otherSessionId = await context.LatestSessionIdAsync(account.UserId, skip: 1);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ =>
+            browser.DeleteAsync($"/api/v1/me/sessions/{otherSessionId}")));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.NoContent, response.StatusCode));
+        var revocation = Assert.Single(await context.RowsAsync("identity.session_revoked"));
+        Assert.Equal(("User", account.UserId, "login_session", otherSessionId), revocation);
+        DisposeAll(responses, []);
+    }
+
+    /// <summary>
+    /// Um pedido que chega depois de a sessão ter caído é anônimo, e o antiforgery dele responde 403; o que importa é
+    /// que a revogação seja registrada uma vez.
+    /// </summary>
+    [Fact]
+    public async Task ConcurrentLogoutsOfTheSameSessionAreAuditedOnce()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        using var browser = await context.Scenario.SignedInBrowserAsync(account);
+        var sessionId = await context.LatestSessionIdAsync(account.UserId, skip: 0);
+
+        var responses = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ =>
+            browser.PostJsonAsync("/api/v1/auth/logout", body: null)));
+
+        Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.NoContent);
+        Assert.All(responses, response =>
+            Assert.Contains(response.StatusCode, new[] { HttpStatusCode.NoContent, HttpStatusCode.Forbidden }));
+        var row = Assert.Single(await context.RowsAsync("identity.logged_out"));
+        Assert.Equal(("User", account.UserId, "login_session", sessionId), row);
+        DisposeAll(responses, []);
     }
 
     [Fact]
@@ -198,6 +385,28 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
         Assert.Equal(0, await context.CountAuditRowsContainingAsync(account.Email));
         Assert.Equal(0, await context.CountAuditRowsContainingAsync("127.0.0.1"));
         Assert.Equal(2, (await context.UserActionsAsync(account.UserId)).Count);
+    }
+
+    /// <summary>Ações gravadas depois de <paramref name="before"/>, que é prefixo multiconjunto de <paramref name="after"/>.</summary>
+    private static List<string> Added(List<string> before, List<string> after)
+    {
+        var added = new List<string>(after);
+        foreach (var action in before)
+        {
+            Assert.True(added.Remove(action), $"Registro {action} sumiu.");
+        }
+
+        return added;
+    }
+
+    private static void DisposeAll(HttpResponseMessage[] responses, List<Browser> browsers)
+    {
+        foreach (var response in responses)
+        {
+            response.Dispose();
+        }
+
+        browsers.ForEach(browser => browser.Dispose());
     }
 
     /// <summary>Banco só do teste, aplicação sobre ele e consultas à auditoria.</summary>
@@ -239,7 +448,7 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
             var link = await Scenario.ReadLatestLinkAsync(email, "PasswordReset");
             return await browser.PostJsonAsync(
                 "/api/v1/auth/password-resets",
-                new { userId = link.UserId, token = link.Token, newPassword = "uma frase nova e bem longa" });
+                new { userId = link.UserId, token = link.Token, newPassword = NewPassword });
         }
 
         /// <summary>Id da sessão ativa, da mais nova para a mais antiga, pulando <paramref name="skip"/>.</summary>
@@ -302,7 +511,19 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
             return rows;
         }
 
-        public async Task<long> CountAllAuditRowsAsync() => await ScalarAsync("select count(*) from ops.audit_events");
+        public async Task<long> CountUsersAsync(Guid id) =>
+            await ScalarAsync("select count(*) from identity.users where id = $1", id);
+
+        public async Task<long> CountAuditRowsReferencingAsync(Guid id) =>
+            await ScalarAsync("select count(*) from ops.audit_events where actor_id = $1 or target_id = $1", id);
+
+        public async Task<Guid> UserIdAsync(string email)
+        {
+            await using var connection = await OpenAsync();
+            await using var command = new NpgsqlCommand("select id from identity.users where email = $1", connection);
+            command.Parameters.AddWithValue(email);
+            return (Guid)(await command.ExecuteScalarAsync(Ct) ?? throw new InvalidOperationException("Sem conta."));
+        }
 
         public async Task<long> CountAuditRowsContainingAsync(string text) =>
             await ScalarAsync("select count(*) from ops.audit_events a where strpos(row_to_json(a)::text, $1) > 0", text);
