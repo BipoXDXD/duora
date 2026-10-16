@@ -217,7 +217,9 @@ erDiagram
 
 ### identity.age_verifications
 
-- **Colunas:** `id uuid`; `user_id`; `state text` (`Pending`, `VerifiedAdult`, `Rejected`, `Expired`,
+- **Colunas:** `id uuid`; `seq bigint generated always as identity` (ordem de gravação, só interna: desempata a
+  leitura sem depender do relógio da aplicação; as linhas anteriores à migration `AgeVerificationInsertionOrder`
+  foram numeradas em ordem arbitrária); `user_id`; `state text` (`Pending`, `VerifiedAdult`, `Rejected`, `Expired`,
   `ManualReview`); `policy_version text` (≤ 32); `provider text` (≤ 32); `provider_reference text` (≤ 200,
   gravada pelo worker ao abrir no fornecedor); `request_nonce text` (≥ 256 bits em base64url, gerado pelo servidor,
   casado com o callback); `provider_flow_url text` (≤ 2048, https, origem na allowlist do adaptador; ADR-0024);
@@ -230,6 +232,9 @@ erDiagram
   `decision_source`, de `version >= 0` e de `provider_flow_url` https (`ck_age_verifications_verified_expiry`, que
   exigia `expires_at` em `VerifiedAdult`, saiu na migration `AgeVerificationWithoutExpiry`).
 - **Índices:** `ix_age_verifications_user_id_requested_at` (FK e leitura da última solicitação da pessoa).
+- **Leitura da elegibilidade:** a decisão mais recente (`VerifiedAdult`, `Rejected`, `ManualReview`) e, sem nenhuma,
+  o pedido mais recente, por `requested_at` e depois `seq`. Se o índice de uma aberta por pessoa recusar uma nova em
+  API-P05 (aberta que a leitura não escolheu), a resposta é 409, nunca 500.
 - **Escrita:** só SQL condicional no estado (`WHERE state = 'Pending'`); a conta é travada antes da solicitação
   em API-P05 e no webhook, nessa ordem ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md)).
 - **Solicitação abandonada:** `Pending` além de `RequestLifetime`, ou sem `provider_reference` com a tarefa do worker
