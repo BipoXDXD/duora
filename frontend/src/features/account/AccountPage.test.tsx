@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
-import { createTestQueryClient, renderApp } from '@/test/render'
+import { createTestQueryClient, renderApp, ROUTE_CHUNK_TIMEOUT_MS } from '@/test/render'
 
 const ME = {
   id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
@@ -17,8 +17,6 @@ const CURRENT = {
   current: true,
   description: 'Safari no macOS',
 }
-const CHUNKED_NAVIGATION_TIMEOUT_MS = 5000
-
 const OTHER = { ...CURRENT, id: 'sessao-outra', current: false, description: 'Firefox no Ubuntu' }
 
 function useMeEndpoint(respond: () => Response = () => HttpResponse.json(ME)) {
@@ -41,9 +39,9 @@ describe('rota protegida', () => {
     useMeEndpoint(() => problem(401, 'UNAUTHENTICATED'))
     await renderApp('/conta')
 
-    // Dois chunks sob demanda (guarda e entrada) antes do título: a espera padrão de 1 s falhava em CI carregado.
+    // A entrada é outro chunk sob demanda, carregado só depois do 401.
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Entrar' }, { timeout: CHUNKED_NAVIGATION_TIMEOUT_MS }),
+      await screen.findByRole('heading', { level: 1, name: 'Entrar' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
     ).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Entre para continuar.')
   })

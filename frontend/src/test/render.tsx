@@ -68,13 +68,23 @@ export async function renderApp(
   return { ...view, user, queryClient }
 }
 
+/**
+ * Import dinâmico de chunk no Vitest transforma o módulo na primeira vez; com a máquina carregada, isso passava do
+ * 1 s padrão do `waitFor` e derrubava testes ao acaso. Vale também para quem espera a tela de uma navegação. Fica abaixo dos 5 s por teste do Vitest, para a falha
+ * dizer o que faltou em vez de só estourar o tempo do teste.
+ */
+export const ROUTE_CHUNK_TIMEOUT_MS = 4000
+
 /** Espera o fallback de rota sair: o chunk da tela chegou e ela já está renderizada. */
 export async function waitForRouteChunk(): Promise<void> {
-  await waitFor(() => {
-    if (screen.queryByTestId('carregando-rota') !== null) {
-      throw new Error('a tela da rota ainda está carregando')
-    }
-  })
+  await waitFor(
+    () => {
+      if (screen.queryByTestId('carregando-rota') !== null) {
+        throw new Error('a tela da rota ainda está carregando')
+      }
+    },
+    { timeout: ROUTE_CHUNK_TIMEOUT_MS },
+  )
 }
 
 export function TestProviders({
