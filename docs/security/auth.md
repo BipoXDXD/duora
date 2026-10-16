@@ -248,7 +248,7 @@ comando do cliente falha no `RetrieveAsync` (spec 9.2; T-14).
 | Worker | Não recebe o key ring de cookies; usa referências de conta e jobs. Se um dia precisar desproteger algo, usa purpose próprio e o ADR registra |
 | Backup | Key ring e certificado no inventário de backup, com custódia separada do backup do banco (spec 18.3) |
 | Startup | Web falha ao subir sem `DataProtection:KeysDirectory` (`WebDoesNotStartWithoutAPersistentKeyRing`) ou com ele fora de um volume montado (`WebDoesNotStartWithTheKeyRingOutsideAMountedVolume`, `KeyRingMountTests`); exigir o certificado entra com a proteção em repouso (spec 11.4) |
-| Comprometimento | Novo key ring, revogação de todas as sessões e invalidação de tokens pendentes. Revogar chaves (`IKeyManager.RevokeAllKeys`) num processo vivo só vale depois que o `KeyRingProvider` recarrega o key ring (cache de até 24 h, ou ao perceber a mudança no repositório): na resposta a incidente, revogar e **reiniciar o web** |
+| Comprometimento | Novo key ring, revogação de todas as sessões e invalidação de tokens pendentes. Revogar chaves (`IKeyManager.RevokeAllKeys`) num processo vivo só vale depois que o `KeyRingProvider` recarrega o key ring: o próprio processo recarrega em segundo plano e ainda pode servir o ring antigo enquanto isso; outro processo sobre o mesmo volume só percebe no refresh periódico (24 h, padrão do framework). Na resposta a incidente, revogar e **reiniciar o web** |
 
 Teste: T-15. `KeyRingRecoveryTests` recria o host sobre o mesmo banco: com o mesmo diretório a sessão continua
 válida; depois de uma rotação a chave antiga segue lendo a sessão e a nova protege o que é novo; com diretório vazio
