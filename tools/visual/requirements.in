@@ -1,0 +1,5 @@
+# Dependências do pipeline de ilustrações (só tools/visual; nunca no app). O nome requirements.txt do lockfile é
+# o único que o Trivy lê no job supply-chain. Regenerar o lockfile com hashes:
+#   uv pip compile tools/visual/requirements.in --universal --python-version 3.12 --generate-hashes \
+#     --no-header -o tools/visual/requirements.txt
+pillow==12.3.0
