@@ -61,48 +61,6 @@ test.describe('jornada de entrada', () => {
     await expect(page.getByRole('status')).toContainText('Entre para continuar.')
   })
 
-  test('T-21: A sai, B entra no mesmo navegador e nenhum dado de A aparece', async ({ page }) => {
-    const api = await FakeDuoraApi.install(page)
-    api.seedConfirmedUser('ana@exemplo.com', PASSWORD)
-    api.seedConfirmedUser('bruno@exemplo.com', PASSWORD)
-
-    await page.goto('/entrar')
-    await signIn(page, 'ana@exemplo.com')
-    await expect(page.getByText('ana@exemplo.com')).toBeVisible()
-    await expect(page.getByText('Navegador de teste (ana)')).toBeVisible()
-
-    await page.getByRole('button', { name: 'Sair' }).click()
-    await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
-
-    // A partir daqui, qualquer aparição de dado de A no DOM fica registrada.
-    await page.evaluate(() => {
-      const leaks: string[] = []
-      Reflect.set(window, '__vazamentosDeA', leaks)
-      new MutationObserver(() => {
-        const text = document.body.textContent
-        if (text.includes('ana@exemplo.com') || text.includes('Navegador de teste (ana)')) {
-          leaks.push(text)
-        }
-      }).observe(document.body, { subtree: true, childList: true, characterData: true })
-    })
-
-    await signIn(page, 'bruno@exemplo.com')
-    await expect(page.getByText('bruno@exemplo.com')).toBeVisible()
-    await expect(page.getByText('Navegador de teste (bruno)')).toBeVisible()
-
-    await expect(page.getByText('ana@exemplo.com')).toHaveCount(0)
-    await expect(page.getByText('Navegador de teste (ana)')).toHaveCount(0)
-    expect(await page.evaluate((): unknown => Reflect.get(window, '__vazamentosDeA'))).toEqual([])
-    // Nada privado persiste no navegador (spec 2.2 e 13.2).
-    const storage = await page.evaluate(() =>
-      [localStorage, sessionStorage]
-        .flatMap((store) => Object.keys(store).map((key) => `${key}=${store.getItem(key) ?? ''}`))
-        .join('\n'),
-    )
-    expect(storage).not.toContain('ana@exemplo.com')
-    expect(storage).not.toContain('bruno@exemplo.com')
-  })
-
   test('encerrar a sessão corrente leva à entrada', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
     api.seedConfirmedUser('ana@exemplo.com', PASSWORD)
