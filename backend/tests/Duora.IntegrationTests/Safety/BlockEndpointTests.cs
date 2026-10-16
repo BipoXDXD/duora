@@ -137,6 +137,7 @@ public sealed class BlockEndpointTests(PostgresFixture postgres) : IAsyncDisposa
     }
 
     [Theory]
+    [InlineData("PendingEmail")]
     [InlineData("PendingEligibility")]
     [InlineData("DeletionPending")]
     public async Task PendingAccountsAreForbiddenAndNothingIsWritten(string status)

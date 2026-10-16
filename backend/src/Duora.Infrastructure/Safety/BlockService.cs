@@ -1,8 +1,10 @@
+using Duora.Core.Jobs;
 using Duora.Core.Safety;
 using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Duora.Infrastructure.Safety;
 
@@ -16,6 +18,9 @@ public enum BlockOutcome
 
     /// <summary>A sessão aponta para uma conta que não existe mais.</summary>
     UnknownAccount,
+
+    /// <summary>As guardas continuaram trancadas depois de todas as tentativas; nada foi gravado.</summary>
+    Busy,
 }
 
 /// <summary>
@@ -26,6 +31,12 @@ public sealed class BlockService
 {
     /// <summary>Hipótese de concurrency.md (princípio 5): transação coordenada não espera lock indefinidamente.</summary>
     private const string LockTimeout = "2s";
+
+    /// <summary>Tentativas da transação inteira quando o lock não vem a tempo ou há deadlock (spec 10.5).</summary>
+    private const int MaxAttempts = 3;
+
+    private static readonly ExponentialBackoff ContentionBackoff =
+        new(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(400));
 
     private readonly DuoraDbContext _db;
     private readonly AccountService _accounts;
@@ -47,12 +58,10 @@ public sealed class BlockService
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Depois da checagem de auto-bloqueio, o trabalho não depende de o alvo existir (TM-24): as mesmas leituras, a
-    /// mesma transação e os mesmos locks, só com dados diferentes; o alvo inexistente cai no mesmo caminho de um
-    /// alvo já bloqueado e de um primeiro bloqueio. Sair mais cedo deixaria quem bloqueia medir o tempo e enumerar
-    /// contas. O que ainda varia são as linhas afetadas pelos mesmos comandos (o primeiro bloqueio grava três linhas e
-    /// tranca duas guardas; os outros casos, nenhuma e uma) dentro de uma transação que já tem escrita no WAL pelo
-    /// `FOR UPDATE` da guarda de quem bloqueia, então o commit custa o mesmo.
+    /// Depois da checagem de auto-bloqueio, todo alvo roda os mesmos comandos (TM-24): o alvo inexistente cai no
+    /// mesmo caminho de um alvo já bloqueado e de um primeiro bloqueio, sem saída antecipada. Variam as linhas
+    /// afetadas e, sobretudo, a espera: alvo inexistente não tem guarda e nunca espera por ela. Esse oráculo residual
+    /// está descrito no TM-24, com o teto que o rate limit impõe.
     /// </para>
     /// <para>
     /// No M2, cada módulo acrescenta aqui, dentro da mesma transação, o próprio efeito (conexão, conversa, sala,
@@ -77,9 +86,8 @@ public sealed class BlockService
             return BlockOutcome.SelfBlock;
         }
 
-        var targetExists = await _accounts.FindAccountAsync(targetUserId, cancellationToken) is not null;
-        await RecordAsync(blockerId, targetUserId, targetExists, cancellationToken);
-        return BlockOutcome.Done;
+        var targetExists = await _accounts.ExistsAsync(targetUserId, cancellationToken);
+        return await RecordWithRetryAsync(blockerId, targetUserId, targetExists, cancellationToken);
     }
 
     /// <summary>
@@ -108,6 +116,44 @@ public sealed class BlockService
             .SingleAsync(cancellationToken);
         return blocked ? InteractionVerdict.Unavailable : InteractionVerdict.Allowed;
     }
+
+    /// <summary>
+    /// Repete a transação inteira em <c>lock_timeout</c> (55P03) e deadlock (40P01), com backoff e jitter; esgotadas
+    /// as tentativas, devolve <see cref="BlockOutcome.Busy"/> (concurrency.md: 503 com Retry-After). Conta do alvo
+    /// apagada entre a checagem e o upsert da guarda (23503) é alvo inexistente: nada foi gravado, mesma resposta.
+    /// </summary>
+    private async Task<BlockOutcome> RecordWithRetryAsync(
+        Guid blockerId,
+        Guid targetUserId,
+        bool targetExists,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await RecordAsync(blockerId, targetUserId, targetExists, cancellationToken);
+                return BlockOutcome.Done;
+            }
+            catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+            {
+                return BlockOutcome.Done;
+            }
+            catch (PostgresException error) when (IsContention(error))
+            {
+                if (attempt == MaxAttempts)
+                {
+                    return BlockOutcome.Busy;
+                }
+
+                var delay = ContentionBackoff.DelayAfter(attempt, Random.Shared.NextDouble());
+                await Task.Delay(delay, _time, cancellationToken);
+            }
+        }
+    }
+
+    private static bool IsContention(PostgresException error) =>
+        error.SqlState is PostgresErrorCodes.LockNotAvailable or PostgresErrorCodes.DeadlockDetected;
 
     /// <summary>
     /// Com <c>targetExists</c> falso (id inexistente, inclusive o UUID vazio), o alvo não ganha guarda e o insert do
@@ -147,7 +193,7 @@ public sealed class BlockService
             """,
             cancellationToken);
         // Sempre os mesmos comandos, com efeito só quando o bloqueio é novo: repetir o bloqueio ou mirar um id
-        // inexistente custa o mesmo que o primeiro bloqueio (TM-24).
+        // inexistente roda o que o primeiro bloqueio roda (TM-24).
         var isNew = inserted == 1;
         await _db.Database.ExecuteSqlAsync(
             $"""
