@@ -4,19 +4,29 @@
 Uso: check_image_secret.py <imagem> <VARIAVEL_DE_AMBIENTE>
 
 Lê o segredo da variável de ambiente (nunca de argumento, para não aparecer na lista de processos) e procura por ele,
-e por cada pedaço longo dele, em UTF-8, UTF-16LE (strings de .NET em recursos) e base64 (padrão e URL), no histórico da imagem (`docker history --no-trunc`) e no filesystem achatado de um
-container criado a partir dela (`docker export`, tar sem compressão). Sai com 1 se achar, 2 se o segredo faltar.
-Nunca imprime o segredo nem o trecho encontrado. Só biblioteca padrão.
+e por cada pedaço longo dele, em UTF-8, UTF-16LE (strings de .NET em recursos) e base64 (padrão e URL), no histórico
+da imagem (`docker history --no-trunc`) e em cada camada dela (`docker save`), não no filesystem achatado: um arquivo
+gravado numa camada e apagado na seguinte some do `docker export`, mas continua na imagem publicada. Camadas gzip são
+descomprimidas; outra compressão falha fechado. Sai com 1 se achar, 2 se o segredo faltar. Nunca imprime o segredo nem
+o trecho encontrado. Só biblioteca padrão.
 """
 
 import base64
+import gzip
 import os
 import subprocess
 import sys
+import tarfile
 
 CHUNK = 1024 * 1024
 # Pedaços menores que isso aparecem por acaso em binários; o que importa são a assinatura e o id.
 MIN_FRAGMENT = 16
+GZIP_MAGIC = b"\x1f\x8b"
+ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+class UnsupportedLayer(RuntimeError):
+    """Camada numa compressão que este verificador não lê: passar sem ler seria falso negativo."""
 
 
 def needles(secret):
@@ -70,18 +80,36 @@ def image_history(image):
     return result.stdout
 
 
-def export_contains(image, patterns):
-    container = subprocess.run(["docker", "create", image], check=True, capture_output=True, text=True).stdout.strip()
-    try:
-        with subprocess.Popen(["docker", "export", container], stdout=subprocess.PIPE) as export:
-            found = stream_contains(export.stdout, patterns)
-            export.stdout.close()
-            export.wait()
-            if not found and export.returncode != 0:
-                raise RuntimeError(f"docker export saiu com {export.returncode}")
-            return found
-    finally:
-        subprocess.run(["docker", "rm", container], check=False, capture_output=True)
+def archive_contains(stream, patterns):
+    """Procura em cada arquivo do tar do `docker save` (camadas, config e manifestos), descomprimindo camadas gzip.
+
+    Uma camada é um tar sem compressão por dentro: o conteúdo de cada arquivo dela aparece contíguo no stream.
+    """
+    with tarfile.open(fileobj=stream, mode="r|") as archive:
+        for member in archive:
+            if not member.isfile():
+                continue
+            content = archive.extractfile(member)
+            head = content.peek(len(ZSTD_MAGIC))[:len(ZSTD_MAGIC)]
+            if head.startswith(ZSTD_MAGIC):
+                raise UnsupportedLayer(f"{member.name} está em zstd; o verificador só lê camadas sem compressão ou gzip")
+            if head.startswith(GZIP_MAGIC):
+                content = gzip.GzipFile(fileobj=content)
+            if stream_contains(content, patterns):
+                return True
+    return False
+
+
+def save_contains(image, patterns):
+    with subprocess.Popen(["docker", "save", image], stdout=subprocess.PIPE) as save:
+        try:
+            found = archive_contains(save.stdout, patterns)
+        finally:
+            save.stdout.close()
+            save.wait()
+        if not found and save.returncode != 0:
+            raise RuntimeError(f"docker save saiu com {save.returncode}")
+        return found
 
 
 def main(argv):
@@ -97,10 +125,10 @@ def main(argv):
     if any(p in image_history(image) for p in patterns):
         print(f"::error::o segredo de {variable} aparece no histórico de {image} (ARG/ENV ou comando).")
         return 1
-    if export_contains(image, patterns):
-        print(f"::error::o segredo de {variable} aparece no filesystem de {image}.")
+    if save_contains(image, patterns):
+        print(f"::error::o segredo de {variable} aparece numa camada de {image}.")
         return 1
-    print(f"{image}: segredo de {variable} ausente do histórico e do filesystem.")
+    print(f"{image}: segredo de {variable} ausente do histórico e de todas as camadas.")
     return 0
 
 
