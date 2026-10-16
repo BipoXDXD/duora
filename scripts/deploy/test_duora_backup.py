@@ -191,11 +191,12 @@ class FakeRunner:
 
     def __init__(self, *, containers: str = CONTAINER_ID + "\n", fail_on: str | None = None,
                  info: str | None = None, archiver_line: str | None = None, verify: RepoCheck | None = None,
-                 bucket: dict[str, str] | None = None, repo_conf: str = REPO_CONF,
+                 bucket: dict[str, str] | None = None, repo_conf: str | None = None,
                  b2_authorize: str | None = None, snapshots: str | None = None) -> None:
         self.commands: list[list[str]] = []
         self._snapshots = snapshots
-        self._repo_conf = repo_conf
+        # Padrão de produção: repositório no B2 com a chave mínima. REPO_CONF (S3 genérico) só no drill.
+        self._repo_conf = repo_conf if repo_conf is not None else B2_REPO_CONF
         self._b2_authorize = b2_authorize
         self.stdins: list[str | None] = []
         self._containers = containers
@@ -224,9 +225,8 @@ class FakeRunner:
         if "cat" in command:
             return subprocess.CompletedProcess(command, 0, self._repo_conf, "")
         if "s_client" in command and "b2_authorize_account" in (stdin or ""):
-            if self._b2_authorize is None:
-                raise AssertionError("b2_authorize_account chamado sem resposta configurada no dublê")
-            return subprocess.CompletedProcess(command, 0, self._b2_authorize, "")
+            response = self._b2_authorize if self._b2_authorize is not None else b2_authorize()
+            return subprocess.CompletedProcess(command, 0, response, "")
         if "s_client" in command:
             subresource = "object-lock" if "?object-lock=" in (stdin or "") else "versioning"
             return subprocess.CompletedProcess(command, 0, self._bucket[subresource], "")
@@ -962,6 +962,11 @@ class BucketProtectionTests(unittest.TestCase):
                                                                           object_lock(period=period))))
 
 
+def generic_s3_runner(**kwargs) -> FakeRunner:
+    """S3 genérico (MinIO do drill): só aceito com --skip-egress-check (egress_env None)."""
+    return FakeRunner(repo_conf=REPO_CONF, **kwargs)
+
+
 class BucketProtectionActionTests(unittest.TestCase):
     """O verify (timer e deploy) falha fechado sem versionamento + Object Lock no bucket (spec 18.3, ADR-0023)."""
 
@@ -975,14 +980,15 @@ class BucketProtectionActionTests(unittest.TestCase):
             backup.run_action("verify", runner, project="duora", state_dir=self.state_dir, egress_env=None)
 
     def test_queries_both_subresources_from_the_backup_container_with_tls_verification(self) -> None:
-        runner = FakeRunner()
+        runner = generic_s3_runner()
 
         self.verify(runner)
 
         queries = [(command, stdin) for command, stdin in zip(runner.commands, runner.stdins) if "s_client" in command]
         self.assertEqual(2, len(queries))
         for command, _ in queries:
-            self.assertEqual(["docker", "exec", "-i", CONTAINER_ID, "openssl", "s_client"], command[:6])
+            self.assertEqual(["docker", "exec", "-i", CONTAINER_ID, "timeout", "--kill-after=5", "30", "openssl",
+                              "s_client"], command[:9])
             self.assertIn("-verify_return_error", command)
             self.assertEqual("duora-backup.s3.example.test", command[command.index("-verify_hostname") + 1])
             self.assertEqual("duora-backup.s3.example.test:443", command[command.index("-connect") + 1])
@@ -990,7 +996,7 @@ class BucketProtectionActionTests(unittest.TestCase):
                          [(stdin or "").split(" HTTP/1.1")[0] for _, stdin in queries])
 
     def test_bucket_is_checked_before_the_archive_check(self) -> None:
-        runner = FakeRunner()
+        runner = generic_s3_runner()
 
         self.verify(runner)
 
@@ -1000,7 +1006,7 @@ class BucketProtectionActionTests(unittest.TestCase):
         self.assertLess(first_query, check)
 
     def test_secret_never_goes_to_a_command_line(self) -> None:
-        runner = FakeRunner()
+        runner = generic_s3_runner()
 
         self.verify(runner)
 
@@ -1009,7 +1015,7 @@ class BucketProtectionActionTests(unittest.TestCase):
 
     def test_bucket_without_object_lock_blocks(self) -> None:
         # MinIO e S3 respondem 404 ObjectLockConfigurationNotFoundError para bucket criado sem lock.
-        runner = FakeRunner(bucket={"versioning": http(200, VERSIONING_ENABLED),
+        runner = generic_s3_runner(bucket={"versioning": http(200, VERSIONING_ENABLED),
                                     "object-lock": http(404, "<Error><Code>ObjectLockConfigurationNotFoundError"
                                                              "</Code></Error>")})
 
@@ -1018,7 +1024,7 @@ class BucketProtectionActionTests(unittest.TestCase):
         self.assertEqual([], runner.pgbackrest_calls())
 
     def test_unversioned_bucket_blocks(self) -> None:
-        runner = FakeRunner(bucket={"versioning": http(200, "<VersioningConfiguration/>"),
+        runner = generic_s3_runner(bucket={"versioning": http(200, "<VersioningConfiguration/>"),
                                     "object-lock": http(200, object_lock())})
 
         with self.assertRaisesRegex(backup.BackupError, "sem proteção contra exclusão"):
@@ -1031,17 +1037,17 @@ class BucketProtectionActionTests(unittest.TestCase):
                 bucket[subresource] = http(403, "<Error><Code>AccessDenied</Code></Error>")
 
                 with self.assertRaisesRegex(backup.BackupError, "HTTP 403"):
-                    self.verify(FakeRunner(bucket=bucket))
+                    self.verify(generic_s3_runner(bucket=bucket))
 
     def test_versioning_404_blocks(self) -> None:
         bucket = {"versioning": http(404, "<Error/>"), "object-lock": http(200, object_lock())}
 
         with self.assertRaisesRegex(backup.BackupError, "HTTP 404"):
-            self.verify(FakeRunner(bucket=bucket))
+            self.verify(generic_s3_runner(bucket=bucket))
 
     def test_unreadable_response_blocks(self) -> None:
         with self.assertRaisesRegex(backup.BackupError, "ilegível"):
-            self.verify(FakeRunner(bucket={"versioning": "", "object-lock": http(200, object_lock())}))
+            self.verify(generic_s3_runner(bucket={"versioning": "", "object-lock": http(200, object_lock())}))
 
 
 # --- Backblaze B2 (ADR-0023, adendo de 2026-10-16; docs/operations/backblaze-setup.md) ---------------------------
@@ -1220,7 +1226,8 @@ class B2BucketProtectionActionTests(unittest.TestCase):
         self.verify(runner)
 
         command, stdin = self.queries(runner)[0]
-        self.assertEqual(["docker", "exec", "-i", CONTAINER_ID, "openssl", "s_client"], command[:6])
+        self.assertEqual(["docker", "exec", "-i", CONTAINER_ID, "timeout", "--kill-after=5", "30", "openssl",
+                          "s_client"], command[:9])
         self.assertIn("-verify_return_error", command)
         self.assertEqual("api.backblazeb2.com", command[command.index("-verify_hostname") + 1])
         self.assertEqual("/etc/ssl/certs/ca-certificates.crt", command[command.index("-CAfile") + 1])
@@ -1263,12 +1270,30 @@ class B2BucketProtectionActionTests(unittest.TestCase):
         self.assertFalse(any(B2_SECRET in " ".join(command) for command in runner.commands))
         self.assertFalse(any(B2_SECRET in (stdin or "") for stdin in runner.stdins))
 
-    def test_non_b2_endpoint_does_not_call_the_b2_api(self) -> None:
-        runner = FakeRunner()
+    def test_non_b2_endpoint_in_the_drill_does_not_call_the_b2_api(self) -> None:
+        runner = generic_s3_runner()
 
         self.verify(runner)
 
         self.assertFalse(any("b2_authorize_account" in (stdin or "") for stdin in runner.stdins))
+
+    def test_production_refuses_an_endpoint_outside_backblaze_b2(self) -> None:
+        # Fora do drill (--skip-egress-check), um repo.conf para outro S3 não tem a prova da chave: recusa.
+        runner = generic_s3_runner()
+        egress_env = write_egress_env(self.state_dir)
+
+        with self.assertRaisesRegex(backup.BackupError, "Backblaze B2"):
+            with contextlib.redirect_stdout(io.StringIO()):
+                backup.run_action("verify", runner, project="duora", state_dir=self.state_dir, egress_env=egress_env)
+        self.assertEqual([], runner.pgbackrest_calls())
+
+    def test_tls_queries_have_a_connection_timeout(self) -> None:
+        runner = b2_runner()
+
+        self.verify(runner)
+
+        for command in (c for c in runner.commands if "s_client" in c):
+            self.assertEqual(["timeout", "--kill-after=5", "30"], command[4:7])
 
 
 class B2RepositoryPrefixTests(unittest.TestCase):
@@ -1351,7 +1376,8 @@ class MediaBackupTests(unittest.TestCase):
         self.assertEqual(["env", f"RESTIC_REPOSITORY_FILE={self.secrets / 'restic_media_repository'}",
                           f"RESTIC_PASSWORD_FILE={self.secrets / 'restic_media_password'}",
                           f"AWS_SHARED_CREDENTIALS_FILE={self.secrets / 'restic_media_credentials'}", "restic",
-                          "--option", "s3.region=us-east-005"], command[:command.index("--cache-dir")])
+                          "--option", "s3.region=us-east-005", "--retry-lock", "15m"],
+                         command[:command.index("--cache-dir")])
         for secret in (MEDIA_SECRET, MEDIA_PASSWORD):
             self.assertFalse(any(secret in " ".join(c) for c in runner.commands))
             self.assertFalse(any(secret in (stdin or "") for stdin in runner.stdins))
@@ -1378,7 +1404,8 @@ class MediaBackupTests(unittest.TestCase):
 
         queries = [command for command in runner.commands if "s_client" in command]
         self.assertEqual(3, len(queries))
-        self.assertTrue(all(command[0] == "openssl" for command in queries))
+        self.assertTrue(all(command[:5] == ["timeout", "--kill-after=5", "30", "openssl", "s_client"]
+                            for command in queries))
         self.assertEqual("api.backblazeb2.com:443", queries[0][queries[0].index("-connect") + 1])
         self.assertEqual(f"{MEDIA_BUCKET}.{B2_ENDPOINT}:443", queries[1][queries[1].index("-connect") + 1])
         self.assertEqual([["snapshots", "--json", "--latest", "1", "--tag", "derivatives", "--host", "duora"],
@@ -1411,6 +1438,17 @@ class MediaBackupTests(unittest.TestCase):
                         "{}"):
             with self.subTest(listing=listing), self.assertRaises(backup.BackupError):
                 self.run_media("media-verify", media_runner(snapshots=listing))
+
+    def test_successful_verify_records_when_it_passed_for_the_deploy_gate(self) -> None:
+        self.run_media("media-verify", media_runner())
+
+        self.assertEqual(NOW, float((self.state_dir / backup.MEDIA_VERIFY_OK_FILE).read_text(encoding="utf-8")))
+
+    def test_failed_verify_does_not_record_success(self) -> None:
+        with self.assertRaises(backup.BackupError):
+            self.run_media("media-verify", media_runner(snapshots="[]"))
+
+        self.assertFalse((self.state_dir / backup.MEDIA_VERIFY_OK_FILE).exists())
 
     def test_weekly_check_reads_all_the_data(self) -> None:
         runner = media_runner()
@@ -1454,6 +1492,7 @@ class MediaBackupTests(unittest.TestCase):
             "outro prefixo": {"repository": f"s3:https://{B2_ENDPOINT}/{MEDIA_BUCKET}/duora\n"},
             "sem s3:": {"repository": f"https://{B2_ENDPOINT}/{MEDIA_BUCKET}/media\n"},
             "endpoint sem região": {"repository": f"s3:https://storage.example.test/{MEDIA_BUCKET}/media\n"},
+            "endpoint fora do B2": {"repository": f"s3:https://s3.us-east-1.example.test/{MEDIA_BUCKET}/media\n"},
             "credencial sem segredo": {"credentials": f"[default]\naws_access_key_id = {MEDIA_KEY_ID}\n"},
             "credencial ilegível": {"credentials": "sem seção"},
         }
@@ -1481,10 +1520,11 @@ class MediaBackupUnitsTests(unittest.TestCase):
 
     def test_timers_run_backup_daily_verify_after_it_and_full_read_weekly(self) -> None:
         expected = {
-            "duora-backup-media.timer": ("Unit=duora-backup@media-backup.service", "OnCalendar=*-*-* 02:30:00 UTC"),
-            "duora-backup-media-verify.timer": ("Unit=duora-backup@media-verify.service",
+            "duora-backup-media.timer": ("Unit=duora-media-backup@media-backup.service",
+                                         "OnCalendar=*-*-* 02:30:00 UTC"),
+            "duora-backup-media-verify.timer": ("Unit=duora-media-backup@media-verify.service",
                                                 "OnCalendar=*-*-* 05:30:00 UTC"),
-            "duora-backup-media-check.timer": ("Unit=duora-backup@media-check.service",
+            "duora-backup-media-check.timer": ("Unit=duora-media-backup@media-check.service",
                                                "OnCalendar=Thu *-*-* 06:30:00 UTC"),
         }
         tasks = (self.role / "tasks" / "main.yml").read_text(encoding="utf-8")
@@ -1497,10 +1537,23 @@ class MediaBackupUnitsTests(unittest.TestCase):
                 # Instalado e ligado (ou desligado) pelo role.
                 self.assertEqual(2, tasks.count(timer))
 
-    def test_failure_of_any_media_action_alerts_through_the_shared_unit(self) -> None:
-        unit = (self.role / "files" / "duora-backup@.service").read_text(encoding="utf-8")
+    def test_media_actions_alert_on_failure_and_do_not_depend_on_docker(self) -> None:
+        unit = (self.role / "files" / "duora-media-backup@.service").read_text(encoding="utf-8")
+        tasks = (self.role / "tasks" / "main.yml").read_text(encoding="utf-8")
 
         self.assertIn("OnFailure=duora-backup-failed@%n.service", unit)
+        self.assertIn("ExecStart=/usr/local/sbin/duora-backup %i\n", unit)
+        self.assertNotIn("docker", unit.lower())
+        self.assertIn("- duora-media-backup@.service", tasks)
+
+    def test_ansible_writes_the_mount_marker_the_boot_requires_in_each_area(self) -> None:
+        tasks = (self.role.parents[0] / "app_dirs" / "tasks" / "main.yml").read_text(encoding="utf-8")
+        store = (Path(__file__).resolve().parents[2] / "backend" / "src" / "Duora.Infrastructure" / "Media"
+                 / "FileSystemObjectStore.cs").read_text(encoding="utf-8")
+
+        self.assertIn('AreaMarkerFileName = ".duora-media-area"', store)
+        self.assertIn('dest: "{{ duora_media_dir }}/{{ item }}/.duora-media-area"', tasks)
+        self.assertIn('["quarantine", "derivatives"]', store)
 
     def test_media_root_and_switch_match_the_inventory_defaults(self) -> None:
         group_vars = (self.role.parents[1] / "group_vars" / "all.yml").read_text(encoding="utf-8")

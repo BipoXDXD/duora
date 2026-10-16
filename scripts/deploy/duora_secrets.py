@@ -206,6 +206,7 @@ def parse_backup_repository(*, bucket: str, region: str, endpoint: str, uri_styl
 def write_backup_repository(directory: Path, repository: BackupRepository, *, replace: bool,
                             change_owner: bool) -> None:
     """Grava o pgbackrest_repo.conf 0400 (dono 999); com replace, troca o existente por rename atômico."""
+    _require_secrets_directory(directory)
     target = directory / BACKUP_REPOSITORY_FILE
     if target.exists() and not replace:
         raise SecretsError(f"{target} já existe; para trocar a credencial (rotação) use --replace")
@@ -259,6 +260,7 @@ def parse_media_backup_repository(*, bucket: str, endpoint: str, lines: str) -> 
 
 def write_media_backup_repository(directory: Path, repository: MediaBackupRepository, *, replace: bool) -> None:
     """Grava os três arquivos (root, 0400); sem replace, recusa se algum já existir. Troca cada um por rename."""
+    _require_secrets_directory(directory)
     existing = [name for name in MEDIA_BACKUP_FILES if (directory / name).exists()]
     if existing and not replace:
         raise SecretsError(f"{', '.join(existing)} já existe em {directory}; para trocar (rotação) use --replace")
@@ -270,6 +272,12 @@ def write_media_backup_repository(directory: Path, repository: MediaBackupReposi
     for name, path in staged.items():
         os.replace(path, directory / name)
     _sync_directory(directory)
+
+
+def _require_secrets_directory(directory: Path) -> None:
+    # Quem cria o diretório (0700, root) é o playbook; criar aqui afrouxaria o modo sem ninguém ver.
+    if not directory.is_dir():
+        raise SecretsError(f"{directory} não existe: rode o playbook (role app_dirs) antes de gravar segredos")
 
 
 def _generate_tls(scratch: Path) -> dict[str, str]:
