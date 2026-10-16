@@ -5,8 +5,10 @@ schema. Fontes: spec 4.2, 4.3, 7, 8, 10.1–10.7, 12 e 16; [modules.md](../archi
 cada tabela); ADRs [0004](../architecture/adr/0004-dbcontext-unico-schemas-logicos.md),
 [0005](../architecture/adr/0005-identity-local-cookie-ticket-persistente.md),
 [0008](../architecture/adr/0008-postgresql-para-jobs-e-outbox.md),
-[0010](../architecture/adr/0010-object-storage-externo-leitura-via-api.md) e
-[0016](../architecture/adr/0016-sala-e-sessao-de-jogo.md); fichas D-PG-02, D-PG-03, D-EF-02 e D-EF-03.
+[0010](../architecture/adr/0010-object-storage-externo-leitura-via-api.md),
+[0016](../architecture/adr/0016-sala-e-sessao-de-jogo.md),
+[0020](../architecture/adr/0020-persistencia-da-sessao-de-jogo.md) e
+[0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md); fichas D-PG-02, D-PG-03, D-EF-02 e D-EF-03.
 Protocolos transacionais: [concurrency.md](concurrency.md). Finalidade e acesso de cada dado:
 [data-map.md](../privacy/data-map.md). Prazos: [retention.md](../privacy/retention.md).
 
@@ -470,7 +472,8 @@ erDiagram
 
 ### experiences.experience_versions
 
-- **Colunas:** `id`; `definition_id`; `rules_version`, `content_version`, `schema_version text`;
+- **Colunas:** `id`; `definition_id`; `rules_version`, `content_version`, `schema_version int` (`CHECK (> 0)`,
+  como `ExperienceVersion` no Core);
   `editorial_state text` (`Draft`, `Validated`, `Published`, `Retired`); `content jsonb`; `content_sha256
   bytea`; `license text`; `origin text` (`human`, `ai_assisted`); `model text`; `approved_by uuid`;
   `approved_at`, `published_at`, `retired_at timestamptz`; `version bigint`.
@@ -485,30 +488,40 @@ erDiagram
 ### experiences.game_sessions
 
 - **Colunas:** `id` (= `roomId`); `pairing_id`; `experience_version_id`; `parameter_set_id`; `state text`
-  (`Invited`, `Ready`, `Active`, `Completed`, `Aborted`, `Expired`); `invite_expires_at`, `active_deadline_at`,
-  `decision_window_ends_at`, `completed_at timestamptz`; `seed bytea`; `public_state jsonb`; `control_state
-  jsonb`; `version bigint`.
+  (`Invited`, `Ready`, `Active`, `Completed`, `Aborted`, `Expired`); `schema_version int` (igual à da versão
+  publicada, ADR-0020); `invite_expires_at`, `game_started_at`, `active_deadline_at`, `decision_window_ends_at`,
+  `completed_at timestamptz`; `seed bytea`; `public_state jsonb`; `control_state jsonb` (resultado do sorteio,
+  ordem de escolha, limites fixados; o conteúdo vem de `experience_versions`, nunca copiado aqui); `version
+  bigint` (única versão da sala e `StateVersion` do motor: nasce 1 no `Invited` e sobe em toda transição).
 - **Constraints:** `UNIQUE (pairing_id)` (uma sala por par); FK `pairing_id` → `events.pairings` `RESTRICT`;
   FK `experience_version_id` `RESTRICT` (INV-09); FK `parameter_set_id` `RESTRICT`; `CHECK` de estado;
-  `CHECK (octet_length(public_state::text) <= 32768)` e idem para `control_state` **(hipótese de limite)**.
-- **Índices:** FKs; `ix_game_sessions_open_deadlines` em `(invite_expires_at)` onde `state = 'Invited'` e em
-  `(active_deadline_at)` onde `state = 'Active'` (jobs de expiração).
-- **Classe:** P3 (`control_state` pode conter pistas).
+  `CHECK (version >= 1)` (exceção à convenção `default 0`, ADR-0020); estado de jogo presente a partir do jogo:
+  `CHECK ((state IN ('Invited', 'Ready')) = (public_state IS NULL))`, idem para `control_state` e
+  `game_started_at`; `CHECK (octet_length(public_state::text) <= 32768)` e idem para `control_state`
+  **(hipótese de limite)**.
+- **Índices:** FKs. Os prazos de convite e de jogo são executados por jobs em `ops.jobs` (ADR-0021), criados na
+  mesma transação da transição; índice parcial de prazos aqui só se surgir consulta de reconciliação medida.
+- **Escrita:** só pela ordem e gravação condicional do ADR-0020 (item 7); leitura de projeção em `REPEATABLE READ
+  READ ONLY` com `game_participants` e `game_actions`.
+- **Classe:** P3 (`control_state` e `seed` são de controle e nunca vão a API, log, métrica ou contexto de agente).
 
 ### experiences.game_participants
 
 - **Colunas:** `game_session_id`; `user_id`; `accepted_at`, `departed_at timestamptz`; `private_state jsonb`
-  (pistas do participante, nunca projetadas para o outro).
+  (índices das pistas sorteadas para o participante, nunca o texto; nunca projetado para o outro; nulo antes de
+  `Active`; `CHECK (octet_length(private_state::text) <= 32768)`).
 - **Constraints:** PK `(game_session_id, user_id)`; FK `game_session_id` `CASCADE`; FK `user_id` `RESTRICT`.
 - **Índices:** `ix_game_participants_user_id`.
 - **Classe:** P3.
 
 ### experiences.game_actions
 
-- **Colunas:** `game_session_id`; `actor_id`; `action_id uuid`; `type text`; `payload jsonb` (≤ 32 KiB, spec
-  4.3); `expected_version`, `applied_version bigint`; `created_at`.
+- **Colunas:** `game_session_id`; `actor_id`; `action_id uuid`; `type text`; `payload_sha256 bytea` (SHA-256
+  da forma canônica da ação, `ActionFingerprint`; o corpo não é guardado, ADR-0020); `expected_version`,
+  `applied_version bigint`; `created_at`. O limite de 32 KiB da spec 4.3 vale para o corpo do comando na API.
 - **Constraints:** PK `(game_session_id, actor_id, action_id)` (spec 10.3); FK `(game_session_id, actor_id)`
-  → `game_participants` `CASCADE` (só participante age).
+  → `game_participants` `CASCADE` (só participante age); `CHECK (octet_length(payload_sha256) = 32)`;
+  `CHECK (applied_version > expected_version)`.
 - **Classe:** P3.
 
 ## Schema `social`
@@ -894,25 +907,37 @@ erDiagram
 
 - **Colunas:** `id bigint identity`; `outbox_event_id`; `consumer text` (`realtime`, `email`,
   `age_verification`, `media`...); `recipient_key text` (ID lógico do destinatário, nunca e-mail);
-  `status text` (`Pending`, `Leased`, `Done`, `Failed`, `Expired`, `Cancelled`); `attempts int`;
+  `status text` (`Pending`, `InFlight`, `Delivered`, `Failed`, `Expired`, como implementado no M1); `attempts int`;
   `available_at`, `deadline_at`, `lease_expires_at timestamptz`; `fencing_token bigint`; `last_error_code
   text` (causa sanitizada); `completed_at timestamptz`.
 - **Constraints:** `UNIQUE (outbox_event_id, consumer, recipient_key)` (spec 10.3); FK `outbox_event_id`
-  `CASCADE`; `CHECK (attempts >= 0)`; `CHECK ((status = 'Leased') = (lease_expires_at IS NOT NULL))`.
-- **Índices:** `ix_outbox_pending (available_at, id) WHERE status = 'Pending'` (spec 10.3);
-  `ix_outbox_leased (lease_expires_at) WHERE status = 'Leased'` (retomada de lease vencido);
+  `CASCADE`; `CHECK (attempts >= 0)`; `CHECK ((status = 'InFlight') = (lease_expires_at IS NOT NULL))`.
+- **Índices:** `ix_outbox_deliveries_pending (consumer, available_at, id) WHERE status = 'Pending'` (spec 10.3);
+  `ix_outbox_deliveries_in_flight (consumer, lease_expires_at) WHERE status = 'InFlight'` (retomada de lease vencido);
   `ix_outbox_oldest_pending` pelo mesmo índice serve o alerta de idade (spec 10.6).
 - **Classe:** P1.
 
 ### ops.jobs
 
-- **Colunas:** `id`; `kind text`; `dedupe_key text`; `status text` (`Pending`, `Leased`, `Done`, `Failed`,
-  `Cancelled`); `run_at`, `lease_expires_at timestamptz`; `fencing_token bigint`; `attempts int`; `payload
-  jsonb` (IDs); `last_error_code text`; `created_at`, `completed_at timestamptz`.
-- **Constraints:** `UNIQUE (kind, dedupe_key)` (ex.: `expire-round:<roundId>`); `CHECK` de estado e de
-  lease como na outbox.
-- **Índices:** `ix_jobs_due (run_at, id) WHERE status = 'Pending'`; `ix_jobs_leased (lease_expires_at) WHERE
-  status = 'Leased'`.
+Protocolo e regras em [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md).
+
+- **Colunas:** `id uuid` (UUIDv7); `kind text`; `dedupe_key text`; `payload jsonb` (IDs e versões do agregado
+  alvo); `status text` (`Pending`, `InFlight`, `Done`, `Failed`, `Expired`, `Cancelled`); `available_at`,
+  `deadline_at` (anulável), `lease_expires_at timestamptz`; `attempts int not null default 0`; `max_attempts int
+  not null default 8`; `fencing_token bigint not null default 0`; `last_error_code text`; `created_at`,
+  `completed_at timestamptz`.
+- **Constraints:** `UNIQUE (kind, dedupe_key)` (ex.: `expire-invite:<gameSessionId>`); `CHECK` de `kind` (conjunto
+  fechado) e de estado; `CHECK ((status = 'InFlight') = (lease_expires_at IS NOT NULL))`; `CHECK (attempts >= 0
+  AND max_attempts BETWEEN 1 AND 20)` (sem `attempts <= max_attempts`, que abortaria o claim de lease vencido);
+  `CHECK ((status IN ('Done', 'Failed', 'Expired', 'Cancelled')) = (completed_at IS NOT NULL))`;
+  `CHECK (octet_length(payload::text) <= 4096)`; `CHECK (char_length(last_error_code) <= 64)`.
+- **Índices:** `ix_jobs_due (available_at, id) WHERE status = 'Pending'`; `ix_jobs_in_flight (lease_expires_at)
+  WHERE status = 'InFlight'`; `ix_jobs_completed (completed_at) WHERE status IN ('Done', 'Expired', 'Cancelled')`
+  (limpeza).
+- **Escrita:** transação de negócio só insere (`ON CONFLICT (kind, dedupe_key) DO NOTHING`); claim, conclusão,
+  reagendamento e limpeza são do worker; reprocessar e cancelar, da área administrativa com auditoria.
+- **Manutenção:** tabela de fila, com autovacuum por tabela na migração (`autovacuum_vacuum_scale_factor = 0.02`,
+  `autovacuum_vacuum_threshold = 200`, **hipótese** a medir no ensaio de carga).
 - **Classe:** P1.
 
 <a id="t-ops-idempotency-records"></a>

@@ -36,6 +36,7 @@ Classes que a tabela 12.4 não cobre e que o modelo de dados cria. **Proposta �
 | Outbox entregue (`ops.outbox_events`, `outbox_deliveries` em estado final) | 7 dias | Diagnóstico de entrega; o fato de negócio está nas tabelas do módulo |
 | Entregas `Failed` | Até revisão, no máximo 30 dias | Fila de revisão com causa sanitizada |
 | Jobs concluídos (`ops.jobs`) | 7 dias | Idem |
+| Jobs `Failed` (`ops.jobs`) | Até resolução (reprocessar ou descartar como `Cancelled`, com auditoria); não são apagados antes disso | Um job de correção de estado falho pode deixar sala ou rodada parada; apagá-lo esconderia o defeito. O payload só tem IDs ([ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md)) |
 | Recibos de webhook (`ops.webhook_receipts`) | 30 dias após processar | Janela de replay do fornecedor mais margem |
 | Recibos de e-mail (`ops.email_receipts`) | 30 dias | Diagnóstico de entrega e supressão |
 | Auditoria (`ops.audit_events`) | 1 ano para ações privilegiadas e de segurança **(hipótese)**; `actor_id` pseudonimizado na exclusão da conta | Revisão de moderação, recurso e incidentes (INV-10) |

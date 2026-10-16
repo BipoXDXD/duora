@@ -83,7 +83,8 @@ com proposta em [model.md](../data/model.md#decisões-de-modelagem-propostas), D
 
 Todo caso de uso coordenado adquire locks nesta ordem; quem descobre recurso fora dela reinicia a transação:
 
-1. Registro de idempotência, quando houver.
+1. Registro de idempotência, quando houver; num job de efeito interno, a linha do job em `ops.jobs`, que nunca
+   espera ([ADR-0021](adr/0021-jobs-duraveis-e-leases-no-postgresql.md)).
 2. Guardas de usuários (`user_guards`), em UUID ordenado.
 3. Coordenador de evento/rodada, quando houver.
 4. Guarda de relação (`relationship_guards`).
