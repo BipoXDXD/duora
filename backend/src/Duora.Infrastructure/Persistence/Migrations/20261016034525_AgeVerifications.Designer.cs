@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Duora.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DuoraDbContext))]
-    [Migration("20261016020243_WebhookReceipts")]
-    partial class WebhookReceipts
+    [Migration("20261016034525_AgeVerifications")]
+    partial class AgeVerifications
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -260,6 +260,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("email_confirmed");
 
+                    b.Property<long?>("LastTotpStep")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_totp_step");
+
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("lockout_enabled");
@@ -360,6 +364,20 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_seen_at");
 
+                    b.Property<DateTimeOffset?>("MfaVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("mfa_verified_at");
+
+                    b.Property<string>("Policy")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("policy");
+
+                    b.Property<DateTimeOffset?>("ReauthenticatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reauthenticated_at");
+
                     b.Property<string>("RevocationReason")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
@@ -379,6 +397,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("bytea")
                         .HasColumnName("ticket");
+
+                    b.Property<DateTimeOffset?>("TotpVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("totp_verified_at");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
@@ -401,73 +423,9 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_login_sessions_key_hash", "octet_length(key_hash) = 32");
 
+                            t.HasCheckConstraint("ck_login_sessions_policy", "policy IN ('Normal', 'Administrative')");
+
                             t.HasCheckConstraint("ck_login_sessions_window", "idle_expires_at <= absolute_expires_at");
-                        });
-                });
-
-            modelBuilder.Entity("Duora.Infrastructure.Operations.WebhookReceipt", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Payload")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("payload");
-
-                    b.Property<byte[]>("PayloadSha256")
-                        .IsRequired()
-                        .HasColumnType("bytea")
-                        .HasColumnName("payload_sha256");
-
-                    b.Property<DateTimeOffset?>("ProcessedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("processed_at");
-
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("provider");
-
-                    b.Property<string>("ProviderEventId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("provider_event_id");
-
-                    b.Property<DateTimeOffset>("ReceivedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("received_at");
-
-                    b.Property<DateTimeOffset>("SignatureVerifiedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("signature_verified_at");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasColumnName("state");
-
-                    b.HasKey("Id")
-                        .HasName("pk_webhook_receipts");
-
-                    b.HasIndex("ReceivedAt")
-                        .HasDatabaseName("ix_webhook_receipts_received_at");
-
-                    b.HasIndex("Provider", "ProviderEventId")
-                        .IsUnique()
-                        .HasDatabaseName("ux_webhook_receipts_provider_provider_event_id");
-
-                    b.ToTable("webhook_receipts", "ops", t =>
-                        {
-                            t.HasCheckConstraint("ck_webhook_receipts_payload_sha256", "octet_length(payload_sha256) = 32");
-
-                            t.HasCheckConstraint("ck_webhook_receipts_payload_size", "octet_length(payload::text) <= 65536");
-
-                            t.HasCheckConstraint("ck_webhook_receipts_state", "state IN ('Received', 'Processed', 'Rejected')");
                         });
                 });
 
@@ -722,6 +680,36 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ux_roles_normalized_name");
 
                     b.ToTable("roles", "identity");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000001"),
+                            ConcurrencyStamp = "01920000-0000-7000-8000-000000000001",
+                            Name = "participant",
+                            NormalizedName = "PARTICIPANT"
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000002"),
+                            ConcurrencyStamp = "01920000-0000-7000-8000-000000000002",
+                            Name = "moderator",
+                            NormalizedName = "MODERATOR"
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000003"),
+                            ConcurrencyStamp = "01920000-0000-7000-8000-000000000003",
+                            Name = "product_admin",
+                            NormalizedName = "PRODUCT_ADMIN"
+                        },
+                        new
+                        {
+                            Id = new Guid("01920000-0000-7000-8000-000000000004"),
+                            ConcurrencyStamp = "01920000-0000-7000-8000-000000000004",
+                            Name = "operator",
+                            NormalizedName = "OPERATOR"
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

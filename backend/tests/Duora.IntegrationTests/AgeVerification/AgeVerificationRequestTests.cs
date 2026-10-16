@@ -303,4 +303,20 @@ public sealed class AgeVerificationRequestTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.Equal(["VerifiedAdult", "Pending"], (await Scenario.VerificationsAsync(account.UserId)).Select(r => r.State));
     }
+
+    [Fact]
+    public async Task PrivilegedAccountCannotUseTheAgeVerification()
+    {
+        // Decisão (rebase sobre o #38): P05 e P06 ficam na política padrão de participante, não em AccountSession.
+        // Conta privilegiada é disjunta da de participante (D13) e não participa, então não tem o que verificar.
+        var account = await Scenario.Identity.CreatePrivilegedAccountAsync();
+        using var browser = await Scenario.Identity.SignedInBrowserAsync(account);
+
+        using var request = await AgeVerificationScenario.RequestAsync(browser);
+        using var current = await browser.GetAsync(AgeVerificationScenario.CurrentPath);
+
+        Assert.Equal(HttpStatusCode.Forbidden, request.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, current.StatusCode);
+        Assert.Empty(await Scenario.VerificationsAsync(account.UserId));
+    }
 }

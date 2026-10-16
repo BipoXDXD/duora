@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Claims;
+using Duora.Core.Identity;
 using Duora.IntegrationTests.Identity;
 using Duora.Web.Identity;
 using Duora.Web.Security;
@@ -19,28 +20,26 @@ namespace Duora.IntegrationTests.AgeVerification;
 public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
 {
     /// <summary>
-    /// Rotas do titular: conta, sessão, verificação, o próprio perfil e o bloqueio (segurança). A pessoa precisa delas
-    /// justamente enquanto ainda não é elegível (spec 8.2: conta restrita acessa a própria conta, segurança e recurso).
-    /// Toda outra rota de <c>/api/v1</c> é de participação e exige a policy; rota nova fora desta lista sem a policy
-    /// quebra o teste.
+    /// Rotas do titular que ficam na política padrão de participante sem exigir elegibilidade: o próprio perfil, o
+    /// bloqueio (segurança) e a verificação etária, que a pessoa precisa justamente enquanto não é elegível (spec 8.2).
+    /// As rotas públicas (<c>AllowAnonymous</c>) e as que declaram política de conta, de cadastro de MFA ou
+    /// administrativa (<see cref="SessionAuthorization"/>) também não são de participação. Toda outra rota de
+    /// <c>/api/v1</c> exige <see cref="ParticipationPolicies.EligibleParticipant"/>.
     /// </summary>
-    private static readonly string[] AccountRoutes =
+    private static readonly string[] TitularRoutes =
     [
-        "DELETE /api/v1/me/sessions/{sessionId:guid}",
-        "GET /api/v1/auth/csrf",
-        "GET /api/v1/me",
         "GET /api/v1/me/age-verifications/current",
         "GET /api/v1/me/profile",
-        "GET /api/v1/me/sessions",
-        "POST /api/v1/auth/confirm-email",
-        "POST /api/v1/auth/login",
-        "POST /api/v1/auth/logout",
-        "POST /api/v1/auth/password-reset-requests",
-        "POST /api/v1/auth/password-resets",
-        "POST /api/v1/auth/register",
         "PATCH /api/v1/me/profile",
         "POST /api/v1/me/age-verifications",
         "PUT /api/v1/me/blocks/{targetUserId:guid}",
+    ];
+
+    private static readonly string[] NonParticipationPolicies =
+    [
+        SessionAuthorization.AccountSession,
+        SessionAuthorization.SignedIn,
+        SessionAuthorization.AdministrativeSession,
     ];
 
     private const string SentinelRoute = "GET /api/v1/test/eligible-participant";
@@ -74,21 +73,28 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
                 .Select(method => (Name: $"{method} /{(endpoint.RoutePattern.RawText ?? "").Trim('/')}", Endpoint: endpoint)))
             .ToList();
 
-        var unknownAccountRoutes = AccountRoutes.Except(routes.Select(r => r.Name), StringComparer.Ordinal);
-        var participation = routes.Where(route => !AccountRoutes.Contains(route.Name)).ToList();
+        var participation = routes
+            .Where(route => route.Endpoint.Metadata.GetMetadata<IAllowAnonymous>() is null)
+            .Where(route => !route.Endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
+                .Any(data => NonParticipationPolicies.Contains(data.Policy)))
+            .ToList();
+        var unknownTitularRoutes = TitularRoutes.Except(participation.Select(r => r.Name), StringComparer.Ordinal);
         var unprotected = participation
+            .Where(route => !TitularRoutes.Contains(route.Name))
             .Where(route => !route.Endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
                 .Any(data => data.Policy == ParticipationPolicies.EligibleParticipant))
             .Select(route => route.Name);
-        var anonymous = participation
+        var anonymousParticipation = routes
+            .Where(route => route.Endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()
+                .Any(data => data.Policy == ParticipationPolicies.EligibleParticipant))
             .Where(route => route.Endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
             .Select(route => route.Name);
 
-        Assert.Empty(unknownAccountRoutes);
+        Assert.Empty(unknownTitularRoutes);
         // A sentinela do ambiente de teste garante que a enumeração enxerga ao menos uma rota de participação.
         Assert.Contains(SentinelRoute, participation.Select(route => route.Name));
         Assert.Empty(unprotected);
-        Assert.Empty(anonymous);
+        Assert.Empty(anonymousParticipation);
     }
 
     [Fact]
@@ -231,7 +237,12 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
 
     private static ClaimsPrincipal Principal(Guid userId, Guid? sessionId)
     {
-        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId.ToString("D")) };
+        // Como o ticket de uma sessão normal de participante (DuoraClaims.ForSignIn), que a política padrão confere.
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, userId.ToString("D")),
+            new(DuoraClaims.Policy, nameof(SessionPolicy.Normal)),
+        };
         if (sessionId is { } id)
         {
             claims.Add(new Claim(DuoraClaims.SessionId, id.ToString("D")));
