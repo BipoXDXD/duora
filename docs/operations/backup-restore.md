@@ -78,55 +78,46 @@ Decidido pelo usuário em 2026-10-15 ([ADR-0023](../architecture/adr/0023-topolo
 spec 18.3, "resiliência a comprometimento"). Nenhum deploy de produção acontece sem isto: o `duora-backup verify`
 (timer e deploy) **falha fechado** se o bucket não provar versionamento + Object Lock.
 
-Requisitos do bucket (qualquer provedor S3 compatível que suporte Object Lock):
+Requisitos do bucket. Provedor escolhido: **Backblaze B2, região US East** (responsável, 2026-10-16; adendo do
+ADR-0023); criação do bucket, das chaves e validação em [backblaze-setup.md](backblaze-setup.md):
 
 | Requisito | Valor | Por quê |
 |---|---|---|
 | Versionamento | `Enabled` | Uma exclusão (do `expire` ou de um atacante) vira delete marker; a versão anterior continua lá |
-| Object Lock | habilitado na criação do bucket (a maioria dos provedores não deixa ligar depois) | Nem a credencial do `backup` nem um atacante com ela apagam uma versão antes do prazo |
+| Object Lock | habilitado (no B2, "File Lock", ligado na criação do bucket; não pode ser desligado depois) | Nem a credencial do `backup` nem um atacante com ela apagam uma versão antes do prazo |
 | Retenção padrão | `COMPLIANCE`, **≥ 21 dias**. O verify recusa `GOVERNANCE`, que cede a quem tiver `s3:BypassGovernanceRetention` | Cobre a janela máxima de retenção do repositório (21 dias, seção de retenção) |
-| Lifecycle | expirar **versões não correntes** depois de 21 dias + margem (sugestão: 30 dias) e remover delete markers órfãos | Sem isso as versões apagadas pelo `expire` ficam para sempre e o custo cresce sem limite |
+| Lifecycle | expirar **versões não correntes** depois de 21 dias + margem (30 dias; no B2, `daysFromHidingToDeleting: 30` no prefixo `duora/`) | Sem isso as versões apagadas pelo `expire` ficam para sempre e o custo cresce sem limite |
 
 O `expire` do pgBackRest continua funcionando: num bucket versionado, apagar sem `versionId` só cria um delete
-marker, o que o Object Lock permite. Custo: as versões não correntes ficam até o lifecycle removê-las, então o
+marker (no B2, *hide marker*), o que o Object Lock permite. Custo: as versões não correntes ficam até o lifecycle removê-las, então o
 espaço pode chegar perto do dobro da conta da seção de retenção.
 
-Política mínima da credencial do `backup` (sintaxe AWS IAM; adaptar ao provedor), só no prefixo `duora/` do bucket
-dedicado:
+Chave do `backup` no B2 (application key `duora-backup`): o B2 não tem política de bucket nem IAM, então a restrição
+mora toda na chave, criada pelo responsável com o CLI do B2 ([backblaze-setup.md](backblaze-setup.md#3-chaves)):
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::BUCKET",
-     "Condition": {"StringLike": {"s3:prefix": ["duora/*", "duora"]}}},
-    {"Effect": "Allow", "Action": ["s3:GetBucketVersioning", "s3:GetBucketObjectLockConfiguration"],
-     "Resource": "arn:aws:s3:::BUCKET"},
-    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-     "Resource": "arn:aws:s3:::BUCKET/duora/*"},
-    {"Effect": "Allow", "Action": ["s3:ListBucketVersions", "s3:GetObjectVersion"],
-     "Resource": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/duora/*"]},
-    {"Effect": "Deny",
-     "Action": ["s3:DeleteObjectVersion", "s3:BypassGovernanceRetention", "s3:PutObjectRetention",
-                "s3:PutObjectLegalHold", "s3:PutBucketVersioning", "s3:PutBucketObjectLockConfiguration",
-                "s3:PutLifecycleConfiguration", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:DeleteBucket"],
-     "Resource": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/*"]}
-  ]
-}
-```
+- presa **só a este bucket** e ao prefixo `duora/` (o `repo1-path=/duora`);
+- capacidades `listFiles`, `readFiles`, `writeFiles` (inclui apagar **sem** versão, que vira hide marker),
+  `readBuckets` (o verify lê o versionamento) e `readBucketRetentions` (o verify lê o File Lock);
+- **sem** `deleteFiles` (apagar versão), `bypassGovernance`, `writeFileRetentions`, `writeBucketRetentions`,
+  `writeFileLegalHolds`, `writeBuckets` (lifecycle, lock), `deleteBuckets`, `shareFiles` e qualquer capacidade de
+  chaves. Apagar versão e mexer em lifecycle ficam com a chave administrativa, **fora da VPS**.
 
-- `GetBucketVersioning` e `GetBucketObjectLockConfiguration`: o verify consulta os dois a cada execução.
-- `ListBucketVersions` e `GetObjectVersion`: o restore lê versões antigas com `--repo-target-time`.
-- Negado: apagar versão, contornar ou mudar retenção, mudar versionamento, lock, lifecycle ou a política do bucket.
-  Essas operações ficam só com uma credencial administrativa **fora da VPS** (cofre do responsável).
+A conta B2 é compartilhada com outro projeto: uma chave desse projeto sem restrição de bucket e com `deleteFiles`
+apaga versões do Duora fora do lock. Confira (passo 6 do runbook) que toda chave da conta está presa ao próprio
+bucket.
 
-Como o verify confere: lê o `repo.conf` montado no `backup`, assina (AWS Signature V4) um `GET ?versioning` e um
-`GET ?object-lock` e os envia de dentro do próprio container por `openssl s_client` (mesma rede, DNS, CA e filtro de
-saída do pgBackRest, com verificação de certificado e de nome). Bloqueiam: versionamento diferente de `Enabled`,
+Como o verify confere: lê o `repo.conf` montado no `backup`, assina (AWS Signature V4, que o B2 aceita na API S3) um
+`GET ?versioning` e um `GET ?object-lock` e os envia de dentro do próprio container por `openssl s_client` (mesma
+rede, DNS, CA e filtro de saída do pgBackRest, com verificação de certificado e de nome). Com endpoint
+`*.backblazeb2.com`, antes disso chama o `b2_authorize_account` (API nativa v4, `api.backblazeb2.com`) com a mesma
+chave e falha se ela tiver capacidade fora da lista acima, faltar uma das necessárias, não estiver presa só a este
+bucket, não tiver o prefixo `duora/` ou se o `s3ApiUrl` da conta não for o `repo1-s3-endpoint` (número da região
+errado). O corpo dessa resposta traz um token de sessão e nunca é impresso. Bloqueiam: versionamento diferente de `Enabled`,
 Object Lock ausente (`404 ObjectLockConfigurationNotFoundError`) ou desligado, sem retenção padrão, retenção menor
 que 21 dias, modo diferente de `COMPLIANCE`, resposta HTTP diferente de 200 (por exemplo 403 por falta de permissão)
-ou resposta ilegível. Testes: `BucketProtectionTests`, `BucketProtectionActionTests` e o vetor de assinatura da
-documentação AWS em `SignedRequestTests`.
+ou resposta ilegível. Testes: `BucketProtectionTests`, `BucketProtectionActionTests`, o vetor de assinatura da
+documentação AWS em `SignedRequestTests` e, com respostas no formato do B2, `B2RepoSettingsTests`,
+`B2KeyProblemsTests` e `B2BucketProtectionActionTests`.
 
 Limites da consulta: só **chave compartilhada** (`repo1-s3-key-type=shared`, `repo1-s3-key` e
 `repo1-s3-key-secret`). `repo1-s3-key-type=auto` (papel de instância), `repo1-s3-token` (credencial temporária) e
@@ -135,9 +126,9 @@ conecta errado e o verify falha fechado. Se o provedor escolhido exigir um deles
 
 **O Object Lock é defesa em profundidade, não a principal.** A retenção conta desde a criação de cada versão, não
 desde a exclusão: um objeto gravado há mais de 21 dias (um full antigo, o `backup.info` de três semanas) já está fora
-do lock e uma credencial com `s3:DeleteObjectVersion` apagaria a versão na hora. A defesa principal é a **negação no
-IAM**: a credencial do `backup` (a única na VPS) não apaga versão nem mexe em retenção, versionamento, lock ou
-lifecycle. O lock cobre o caso de essa negação falhar (política mal aplicada, credencial administrativa vazada) para
+do lock e uma credencial com permissão de apagar versão (`deleteFiles` no B2) apagaria a versão na hora. A defesa
+principal são as **capacidades da chave**: a do `backup` (a única na VPS) não apaga versão nem mexe em retenção,
+versionamento, lock ou lifecycle, e o verify confere isso a cada execução. O lock cobre o caso de essa negação falhar (política mal aplicada, credencial administrativa vazada) para
 os objetos dos últimos 21 dias, que são os de que o restore mais recente depende.
 
 **Recuperação depois de uma exclusão maliciosa** (passo 3 do restore, com o repositório apagado):
@@ -145,9 +136,10 @@ os objetos dos últimos 21 dias, que são os de que o restore mais recente depen
 1. Restaurar o banco lendo o repositório como estava antes do ataque:
    `--repo=1 --repo-target-time="<instante UTC antes da exclusão>"` no comando do job `restore` (abaixo). O
    `archive-get` da recuperação usa o mesmo instante.
-2. Com a credencial administrativa, fora da VPS, remover os delete markers posteriores ao ataque (só eles; nunca
-   versões). O repositório volta ao estado anterior e o banco restaurado volta a arquivar nele.
-3. Trocar certificados TLS e a credencial S3 (o postgres que apagou estava comprometido) e rodar
+2. Com a chave administrativa, fora da VPS, remover os hide markers posteriores ao ataque (só eles; nunca versões;
+   comando em [backblaze-setup.md](backblaze-setup.md#recuperação-depois-de-uma-exclusão-maliciosa)). O repositório
+   volta ao estado anterior e o banco restaurado volta a arquivar nele.
+3. Trocar certificados TLS e a chave do B2 (o postgres que apagou estava comprometido) e rodar
    `sudo duora-backup verify` e `sudo duora-backup verify-repo`.
 
 Testes: `test_db_privileges.py` (sem `trust` no `pg_hba` ativo, `duora_backup` sem superusuário e sem acesso ao banco
@@ -166,8 +158,10 @@ O role Ansible `backup` instala `duora-backup-egress.service`, que cria a chain 
   Docker encaminha. Sem nenhum resolvedor o filtro falha. Se o provedor trocar o resolvedor (DHCP), reaplique com
   `sudo systemctl restart duora-backup-egress`. Fixar `dns:` no serviço `backup` foi descartado: obrigaria escolher um
   resolvedor de terceiro e manter o mesmo IP no compose e no inventário;
-- permite HTTPS (443/tcp) só para `duora_backup_s3_cidrs` (inventário). **Enquanto o provedor não for escolhido a
-  lista é vazia, o que libera a 443 para qualquer destino**;
+- permite HTTPS (443/tcp) só para `duora_backup_s3_cidrs` (inventário): os blocos IPv4 da Backblaze, que servem a API
+  S3 e a `api.backblazeb2.com` do verify ([backblaze-setup.md](backblaze-setup.md#5-filtro-de-saída)).
+  **Lista vazia (o padrão) libera a 443 para qualquer destino**; mesmo preenchida, ela libera toda a Backblaze,
+  inclusive buckets de terceiros;
 - descarta o resto. A rede é só IPv4.
 
 O filtro **falha fechado**:
@@ -197,19 +191,19 @@ O postgres não depende desse filtro: ele não está em rede nenhuma com saída.
 
 ### Segredos do repositório (operador, uma vez)
 
-O provedor ainda não foi escolhido; nada aqui presume um. Num bucket dedicado com versionamento e Object Lock (seção
-anterior), crie uma credencial com a política mínima acima, só no prefixo `duora/` (o `expire` do pgBackRest apaga, o
-que no bucket versionado vira delete marker). Em `/etc/duora/secrets/`:
+Bucket e chave `duora-backup` criados pelo responsável ([backblaze-setup.md](backblaze-setup.md)). O
+`pgbackrest_repo.conf` é gravado por `duora-secrets write-backup-repo`, com a chave lida do stdin (nunca no
+histórico do shell; o comando exato está no passo 4 do runbook do B2). Fica assim, em `/etc/duora/secrets/`:
 
 ```ini
 # pgbackrest_repo.conf (0400, dono 999)
 [global]
-repo1-s3-endpoint=<endpoint do provedor>
-repo1-s3-bucket=<bucket>
-repo1-s3-region=<região>
-repo1-s3-key=<access key>
-repo1-s3-key-secret=<secret key>
-# Só se o provedor exigir: repo1-s3-uri-style=path, repo1-storage-port=<porta>
+repo1-s3-endpoint=s3.us-east-005.backblazeb2.com   # confirmar o número no bucket (Endpoint)
+repo1-s3-bucket=<bucket de backup>
+repo1-s3-region=us-east-005                        # o 2o rótulo do endpoint
+repo1-s3-uri-style=host
+repo1-s3-key=<keyID da chave duora-backup>
+repo1-s3-key-secret=<applicationKey da chave duora-backup>
 ```
 
 ```ini
@@ -222,7 +216,7 @@ repo1-cipher-pass=<openssl rand -base64 48, gerado FORA da VPS>
 # O diretório é criado pelo playbook (role app_dirs, root, 0700); o install -d só garante o mesmo estado se ainda não
 # existir, sem afrouxar o modo.
 sudo install -d -o root -g root -m 0700 /etc/duora/secrets
-sudo install -o 999 -g 999 -m 0400 pgbackrest_repo.conf pgbackrest_cipher.conf /etc/duora/secrets/
+sudo install -o 999 -g 999 -m 0400 pgbackrest_cipher.conf /etc/duora/secrets/
 ```
 
 A senha de cifra é gerada e guardada **fora da VPS** (cofre do responsável, com cópia de emergência): perder a VPS
@@ -304,8 +298,9 @@ novo não alerta: o full que a resolve já existe, e o `expire` a remove com o t
   mais novo e do WAL dele. Leitura de um full ou de um diferencial por dia;
 - semanal (`verify-repo-full`, quarta 06:00 UTC, longe do full de domingo e depois do reinício automático das 04:30):
   o repositório inteiro, o que no pior momento chega a **3 fulls + 18 diferenciais + 21 dias de WAL** (no exemplo de
-  dimensionamento acima, ~29 GB por semana). Provedor com tarifa de egress cobra essa leitura toda semana: entra na
-  escolha do provedor.
+  dimensionamento acima, ~29 GB por semana). No B2 essa leitura é download (~165 GB por mês somando o diário e um
+  ensaio de restore), gratuito até 3× o armazenamento médio do mês e cobrado por GB acima disso
+  ([backblaze-setup.md](backblaze-setup.md#custo-esperado)).
 
 ## Operação
 
@@ -352,11 +347,11 @@ ignorado no deploy) derruba os testes.
 
 ### Primeira configuração
 
-1. Bucket com versionamento + Object Lock e credencial com a política mínima no provedor (acima).
+1. Bucket e chaves no Backblaze B2, pelo responsável ([backblaze-setup.md](backblaze-setup.md), passos 1 a 3).
 2. `ansible-playbook` (roles `app_dirs` e `backup`): `/etc/duora/secrets`, certificados, `duora-backup`, timers e
    filtro de saída.
-3. Gravar `pgbackrest_repo.conf` e `pgbackrest_cipher.conf` em `/etc/duora/secrets/` (acima), já com o diretório
-   criado pelo passo 2.
+3. Gravar `pgbackrest_repo.conf` (`duora-secrets write-backup-repo`) e `pgbackrest_cipher.conf` em
+   `/etc/duora/secrets/` (acima), já com o diretório criado pelo passo 2, e os CIDRs da Backblaze no inventário.
 4. Primeiro deploy pelo operador, **sem** verificação (a stanza ainda não existe):
    `sudo duora-deploy --manifest release.json --accept-missing-backup-check`. A flag não está no sudoers do
    executor de deploy: só um humano com sudo a usa.
@@ -483,11 +478,14 @@ o drill desfaz a exclusão em vez de recriar a stanza, que é também o procedim
 
 ## Pendências que dependem da VPS ou do fornecedor
 
-- **Provedor S3**: escolher (com região e jurisdição compatíveis com a spec 12), criar bucket e credencial restrita
-  ao prefixo, preencher `pgbackrest_repo.conf` e os CIDRs do endpoint em `duora_backup_s3_cidrs`.
+- **Provedor S3**: escolhido (Backblaze B2, US East, 2026-10-16). Falta o responsável criar bucket e chaves
+  ([backblaze-setup.md](backblaze-setup.md)), gravar `pgbackrest_repo.conf` e preencher `duora_backup_s3_cidrs`.
+  A região fica nos EUA: a transferência internacional (LGPD) precisa entrar no mapa de dados com a salvaguarda
+  escolhida (spec 12; [data-map.md](../privacy/data-map.md)).
 - **Proteção contra exclusão** (spec 18.3, ADR-0023): **pré-requisito de produção**, decidido (versionamento +
   Object Lock `COMPLIANCE` ≥ 21 dias, lifecycle de versões não correntes, credencial sem `DeleteObjectVersion`).
-  Falta criar o bucket assim no provedor escolhido; o verify já recusa um bucket sem isso.
+  Os comandos estão em [backblaze-setup.md](backblaze-setup.md); falta aplicá-los na conta. O verify já recusa um
+  bucket sem isso e uma chave com poder demais.
 - **Prova no host real**: rodar o playbook, conferir a chain `DUORA-BACKUP-EGRESS` (`iptables -S DOCKER-USER`), uma
   conexão de dentro do `backup` a um destino fora da allowlist falhando, restore completo com o volume real e o RTO
   cronometrado (spec 18.5), e o ensaio mensal de perda de VPS.

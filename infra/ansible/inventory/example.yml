@@ -16,3 +16,14 @@ all:
           duora_deploy_public_key: "ssh-ed25519 AAAA...substitua... duora-ci-deploy"
           # Restrinja à rede administrativa quando ela existir (spec 15.2).
           duora_ssh_allowed_sources: [any]
+          # Bucket de backup no Backblaze B2 (docs/operations/backblaze-setup.md): duora-<ambiente>-backup-<sufixo
+          # aleatório>, sem ponto (host virtual com TLS) e sem dado pessoal; o sufixo evita colisão no namespace global.
+          duora_b2_backup_bucket: duora-homolog-backup-x7k2q9
+          duora_b2_s3_endpoint: s3.us-east-005.backblazeb2.com
+          # Saída do container backup só para a Backblaze. Blocos IPv4 publicados pela Backblaze (artigo "Backblaze IP
+          # Address List" da central de ajuda); conferir antes de usar e renovar quando o verify falhar por conexão.
+          duora_backup_s3_cidrs:
+            - 206.190.208.0/21
+            - 104.153.232.0/21
+            - 149.137.128.0/20
+            - 45.11.36.0/22
