@@ -41,6 +41,7 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
     [
         SessionAuthorization.AccountSession,
         SessionAuthorization.SignedIn,
+        SessionAuthorization.PasswordChange,
         SessionAuthorization.AdministrativeSession,
     ];
 

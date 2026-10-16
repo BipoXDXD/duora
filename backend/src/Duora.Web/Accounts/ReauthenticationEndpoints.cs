@@ -26,7 +26,7 @@ internal static class ReauthenticationEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         api.MapPost("/me/password-changes", ChangePasswordAsync)
             .WithTags("Me")
-            .RequireAccountSession()
+            .AllowDuringPasswordChange()
             .RequireRecentAuthentication()
             .RequireAccountRateLimit()
             .ProducesValidationProblem()
@@ -96,6 +96,11 @@ internal static class ReauthenticationEndpoints
                 return TypedResults.NoContent();
             case PasswordChange.WrongPassword:
                 return InvalidCredentials();
+            case PasswordChange.TemporaryPasswordReused:
+                return ApiProblems.Validation(new Dictionary<string, string[]>
+                {
+                    ["newPassword"] = [RequestValidation.SameAsTemporaryPassword],
+                });
             default:
                 throw new InvalidOperationException("Resultado da troca de senha não mapeado.");
         }

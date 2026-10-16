@@ -43,6 +43,7 @@ public sealed class EnumerationTimingTests(PostgresFixture postgres)
         await using var factory = new DuoraWebFactory(postgres.ConnectionString) { TestServices = recorder.Install };
         var scenario = new IdentityScenario(postgres, factory);
         var confirmed = await scenario.CreateConfirmedAccountAsync();
+        var privileged = await scenario.CreatePrivilegedAccountAsync();
         var pending = IdentityScenario.NewEmail();
         using var browser = new Browser(factory);
         using var pendingRegistration = await IdentityScenario.RegisterAsync(browser, pending);
@@ -53,10 +54,14 @@ public sealed class EnumerationTimingTests(PostgresFixture postgres)
             "/api/v1/auth/password-reset-requests", new { email = pending }));
         var forConfirmed = await RecordAsync(recorder, () => browser.PostJsonAsync(
             "/api/v1/auth/password-reset-requests", new { email = confirmed.Email }));
+        // Conta privilegiada sem MFA recebe o aviso sem link (I5), com o mesmo trabalho.
+        var forPrivilegedWithoutMfa = await RecordAsync(recorder, () => browser.PostJsonAsync(
+            "/api/v1/auth/password-reset-requests", new { email = privileged.Email }));
 
         Assert.NotEmpty(forUnknown);
         Assert.Equal(forUnknown, forPending);
         Assert.Equal(forUnknown, forConfirmed);
+        Assert.Equal(forUnknown, forPrivilegedWithoutMfa);
     }
 
     [Fact]

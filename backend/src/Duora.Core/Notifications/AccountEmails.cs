@@ -37,6 +37,13 @@ public sealed class AccountEmails
     public TransactionalEmail PasswordResetForUnknownAddress(EmailAddress to, EmailLanguage language) =>
         Compose(to, CatalogFor(language).PasswordResetForUnknownAddress(_publicOrigin.Resolve("/cadastro")));
 
+    /// <summary>
+    /// Pedido de redefinição para conta privilegiada que ainda não ativou o MFA (I5): sem link, porque o e-mail não
+    /// prova o segundo fator que a conta ainda não tem. Quem administra resolve pelo procedimento operacional.
+    /// </summary>
+    public static TransactionalEmail PasswordResetUnavailable(EmailAddress to, EmailLanguage language) =>
+        Compose(to, CatalogFor(language).PasswordResetUnavailable());
+
     /// <summary>Valor fora do enum (um cast de inteiro) cai no padrão, como uma tag desconhecida.</summary>
     private static IAccountEmailCatalog CatalogFor(EmailLanguage language) => language switch
     {

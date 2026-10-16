@@ -18,6 +18,9 @@ internal sealed class AuditEvent
 
     public Guid? ActorId { get; private set; }
 
+    /// <summary>Nome do operador que rodou um comando no host, quando o ator não tem conta (bootstrap, D4).</summary>
+    public string? ActorLabel { get; private set; }
+
     public string Action { get; private set; } = "";
 
     public string TargetType { get; private set; } = "";

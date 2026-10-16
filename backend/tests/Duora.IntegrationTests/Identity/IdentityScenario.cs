@@ -51,14 +51,15 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
     }
 
     /// <summary>
-    /// Conta confirmada com um papel privilegiado. O papel entra por fixture em SQL: o bootstrap administrativo
-    /// (comando operacional) fica para outro PR, e não existe rota pública que conceda papel.
+    /// Conta confirmada com um papel privilegiado e senha definitiva, por fixture em SQL, para os testes que partem
+    /// de uma conta privilegiada já ativa. O caminho de produção é o bootstrap (<c>admin grant</c>), coberto por
+    /// <see cref="AdminBootstrapTests"/>; não existe rota pública que conceda papel.
     /// </summary>
     public async Task<TestAccount> CreatePrivilegedAccountAsync(string role = Duora.Core.Identity.AccountRoles.Moderator)
     {
         var account = await CreateConfirmedAccountAsync();
-        // O cadastro grava o papel de participante (D13); a conta privilegiada de teste troca de papel, como o
-        // bootstrap fará ao criar a conta já privilegiada.
+        // O cadastro grava o papel de participante (D13); a conta privilegiada de teste troca de papel, o que o
+        // bootstrap nunca faz (ele só cria conta nova, já privilegiada).
         await ScalarAsync(
             "with removed as (delete from identity.user_roles where user_id = $1 returning 1) select count(*) from removed",
             account.UserId);

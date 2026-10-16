@@ -22,6 +22,7 @@ internal static class ApiProblems
     public const string LengthRequired = "LENGTH_REQUIRED";
     public const string MediaUploadsDisabled = "MEDIA_UPLOADS_DISABLED";
     public const string MfaRequired = "MFA_REQUIRED";
+    public const string PasswordChangeRequired = "PASSWORD_CHANGE_REQUIRED";
     public const string PayloadTooLarge = "PAYLOAD_TOO_LARGE";
     public const string PreconditionFailed = "PRECONDITION_FAILED";
     public const string PreconditionRequired = "PRECONDITION_REQUIRED";
