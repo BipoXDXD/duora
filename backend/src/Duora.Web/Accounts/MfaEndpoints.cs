@@ -9,7 +9,7 @@ namespace Duora.Web.Accounts;
 
 /// <summary>
 /// MFA do titular (API-A11, A12, A14 e A15; ADR-0017), para participante e conta privilegiada pelas mesmas rotas.
-/// Todas exigem autenticação recente e respeitam o limite por sessão. Segredos (chave e códigos) só aparecem na
+/// Todas exigem prova recente (o A14, de TOTP) e respeitam o limite por conta. Segredos (chave e códigos) só aparecem na
 /// resposta que os provisiona, sempre com <c>no-store</c>, e nunca vão a log.
 /// </summary>
 internal static class MfaEndpoints
@@ -21,24 +21,26 @@ internal static class MfaEndpoints
         mfa.MapPost("/enrollments", StartEnrollmentAsync)
             .AllowDuringMfaEnrollment()
             .RequireRecentAuthentication()
-            .RequireSessionRateLimit()
+            .RequireAccountRateLimit()
             .ProducesAccountSecurityProblems()
             .ProducesProblem(StatusCodes.Status409Conflict);
         mfa.MapPost("/confirmations", ConfirmEnrollmentAsync)
             .AllowDuringMfaEnrollment()
             .RequireRecentAuthentication()
-            .RequireSessionRateLimit()
+            .RequireAccountRateLimit()
             .ProducesAccountSecurityProblems()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status409Conflict);
         mfa.MapPost("/recovery-codes", RegenerateRecoveryCodesAsync)
-            .RequireRecentAuthentication()
-            .RequireSessionRateLimit()
+            .RequireAccountSession()
+            .RequireRecentMfa()
+            .RequireAccountRateLimit()
             .ProducesAccountSecurityProblems()
             .ProducesProblem(StatusCodes.Status409Conflict);
         mfa.MapDelete("", DisableAsync)
+            .RequireAccountSession()
             .RequireRecentAuthentication()
-            .RequireSessionRateLimit()
+            .RequireAccountRateLimit()
             .ProducesAccountSecurityProblems();
     }
 
@@ -84,7 +86,7 @@ internal static class MfaEndpoints
             case MfaActivation.Activated activated:
                 // Acabou de provar o TOTP: a sessão nova nasce com a prova de MFA e a autenticação recente.
                 var now = time.GetUtcNow();
-                await CurrentSession.RenewAsync(context, antiforgery, activated.SecurityStamp, now, now);
+                await CurrentSession.RenewAsync(context, antiforgery, activated.SecurityStamp, now, now, now);
                 return TypedResults.Ok(new RecoveryCodesResponse(activated.RecoveryCodes));
             case MfaActivation.InvalidCode:
                 return ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.MfaCodeInvalid, "Código inválido.");
@@ -131,7 +133,8 @@ internal static class MfaEndpoints
                     antiforgery,
                     disabled.SecurityStamp,
                     session.ReauthenticatedAt,
-                    mfaVerifiedAt: null);
+                    mfaVerifiedAt: null,
+                    totpVerifiedAt: null);
                 return TypedResults.NoContent();
             case MfaDeactivation.AlreadyDisabled:
                 return TypedResults.NoContent();

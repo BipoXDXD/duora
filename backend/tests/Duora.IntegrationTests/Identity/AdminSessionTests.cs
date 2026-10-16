@@ -45,7 +45,6 @@ public sealed class AdminSessionTests : IAsyncDisposable
     public async Task ParticipantLoginOpensANormalSession()
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
-        await Scenario.GrantRoleAsync(account.UserId, AccountRoles.Participant);
 
         using var browser = await Scenario.SignedInBrowserAsync(account);
 

@@ -141,7 +141,8 @@ internal static class AuthEndpoints
                         account.SecurityStamp,
                         account.Policy,
                         ReauthenticatedAt: now,
-                        MfaVerifiedAt: account.SecondFactorVerified ? now : null));
+                        MfaVerifiedAt: account.SecondFactor == SecondFactorKind.None ? null : now,
+                        TotpVerifiedAt: account.SecondFactor == SecondFactorKind.Authenticator ? now : null));
                 return TypedResults.NoContent();
             case LoginOutcome.MfaRequired:
                 return ApiProblems.Problem(

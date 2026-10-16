@@ -12,12 +12,13 @@ internal static class MeEndpoints
     public static void MapMeEndpoints(this IEndpointRouteBuilder api)
     {
         var me = api.MapGroup("/me").WithTags("Me");
+        var sessions = me.MapGroup("/sessions").RequireAccountSession();
 
         me.MapGet("", GetMeAsync)
             .AllowDuringMfaEnrollment()
             .ProducesProblem(StatusCodes.Status401Unauthorized);
-        me.MapGet("/sessions", ListSessionsAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
-        me.MapDelete("/sessions/{sessionId:guid}", RevokeSessionAsync)
+        sessions.MapGet("", ListSessionsAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
+        sessions.MapDelete("/{sessionId:guid}", RevokeSessionAsync)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);

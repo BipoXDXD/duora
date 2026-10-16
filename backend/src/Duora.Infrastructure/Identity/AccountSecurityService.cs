@@ -3,6 +3,7 @@ using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Duora.Infrastructure.Identity;
 
@@ -91,6 +92,30 @@ public abstract record SecondFactorProof
     public sealed record RecoveryCode(string Code) : SecondFactorProof;
 }
 
+/// <summary>Que segundo fator uma sessão provou: o código de recuperação não vale como TOTP recente (I3).</summary>
+public enum SecondFactorKind
+{
+    None,
+    Authenticator,
+    RecoveryCode,
+}
+
+/// <summary>
+/// Verificação de credencial com a conta travada (<c>SELECT ... FOR NO KEY UPDATE</c> na linha da conta), para o
+/// contador de falhas e o último passo TOTP não perderem atualização sob requisições paralelas (B1 da revisão do
+/// #38). Quem abre confirma com <see cref="CommitAsync"/>, inclusive quando a verificação falha, para a falha contar.
+/// </summary>
+public sealed class AccountCheck : IAsyncDisposable
+{
+    private readonly IDbContextTransaction _transaction;
+
+    internal AccountCheck(IDbContextTransaction transaction) => _transaction = transaction;
+
+    public Task CommitAsync(CancellationToken cancellationToken) => _transaction.CommitAsync(cancellationToken);
+
+    public ValueTask DisposeAsync() => _transaction.DisposeAsync();
+}
+
 /// <summary>
 /// Segurança da conta pelo titular: ciclo de vida do TOTP, códigos de recuperação, reautenticação e troca de senha
 /// (API-A11 a A16; ADR-0017). Cada mudança roda numa transação com o registro de auditoria (TM-05). A chave do
@@ -121,6 +146,18 @@ public sealed class AccountSecurityService
     }
 
     /// <summary>
+    /// Abre a verificação de credencial da conta: transação com a linha da conta travada e a entidade relida, para
+    /// o bloqueio do Identity (que lê, soma e grava) não perder falhas sob requisições paralelas.
+    /// </summary>
+    public async Task<AccountCheck> LockAccountAsync(DuoraUser user, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+        await LockAndReloadAsync(user, cancellationToken);
+        return new AccountCheck(transaction);
+    }
+
+    /// <summary>
     /// Gera uma chave nova (descartando um cadastro anterior não confirmado). Trocar a chave troca o security stamp,
     /// como o Identity faz; a sessão que pediu o cadastro adota o stamp novo e as outras caem.
     /// </summary>
@@ -130,7 +167,7 @@ public sealed class AccountSecurityService
         CancellationToken cancellationToken)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var user = await RequireUserAsync(userId);
+        var user = await LockUserAsync(userId, cancellationToken);
         if (user.TwoFactorEnabled)
         {
             return new MfaEnrollmentStart.AlreadyEnabled();
@@ -145,10 +182,14 @@ public sealed class AccountSecurityService
         return new MfaEnrollmentStart.Started(sharedKey, AuthenticatorUri(user.Email ?? "", sharedKey));
     }
 
+    /// <summary>
+    /// Ativa o TOTP com a prova de posse. Com a conta travada, uma segunda ativação simultânea vê o MFA já ativo
+    /// (409) em vez de disputar o concurrency stamp; o passo do código fica registrado e não serve para login.
+    /// </summary>
     public async Task<MfaActivation> ConfirmMfaEnrollmentAsync(Guid userId, string code, CancellationToken cancellationToken)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var user = await RequireUserAsync(userId);
+        var user = await LockUserAsync(userId, cancellationToken);
         if (user.TwoFactorEnabled)
         {
             return new MfaActivation.AlreadyEnabled();
@@ -159,7 +200,7 @@ public sealed class AccountSecurityService
             return new MfaActivation.NotStarted();
         }
 
-        if (!await VerifyAuthenticatorCodeAsync(user, code))
+        if (!await TryAcceptAuthenticatorCodeAsync(user, code, cancellationToken))
         {
             return new MfaActivation.InvalidCode();
         }
@@ -176,7 +217,7 @@ public sealed class AccountSecurityService
     public async Task<RecoveryCodesRegeneration> RegenerateRecoveryCodesAsync(Guid userId, CancellationToken cancellationToken)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var user = await RequireUserAsync(userId);
+        var user = await LockUserAsync(userId, cancellationToken);
         if (!user.TwoFactorEnabled)
         {
             return new RecoveryCodesRegeneration.MfaNotEnabled();
@@ -191,7 +232,7 @@ public sealed class AccountSecurityService
     public async Task<MfaDeactivation> DisableMfaAsync(Guid userId, CancellationToken cancellationToken)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var user = await RequireUserAsync(userId);
+        var user = await LockUserAsync(userId, cancellationToken);
         if ((await _users.GetRolesAsync(user)).Any(AccountRoles.IsPrivileged))
         {
             return new MfaDeactivation.RequiredByRole();
@@ -214,42 +255,55 @@ public sealed class AccountSecurityService
     }
 
     /// <summary>
-    /// Confere o segundo fator de uma conta com MFA ativo. Código de recuperação é de uso único e o resgate é
-    /// auditado; o TOTP não grava nada.
+    /// Confere o segundo fator de uma conta com MFA ativo, dentro de uma <see cref="AccountCheck"/> já aberta. O
+    /// acerto zera as falhas; o erro soma no bloqueio da conta e é auditado (a senha estava certa). TOTP só vale
+    /// uma vez: o passo aceito precisa ser maior que o último (B2). Código de recuperação é de uso único.
     /// </summary>
-    public async Task<bool> VerifySecondFactorAsync(DuoraUser user, SecondFactorProof proof, CancellationToken cancellationToken)
+    /// <returns>O fator provado, ou <see cref="SecondFactorKind.None"/> quando a prova falhou.</returns>
+    public async Task<SecondFactorKind> VerifySecondFactorAsync(
+        DuoraUser user,
+        SecondFactorProof proof,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(user);
-        switch (proof)
+        RequireAccountCheck();
+        var proved = proof switch
         {
-            case SecondFactorProof.AuthenticatorCode(var code):
-                return await VerifyAuthenticatorCodeAsync(user, code);
-            case SecondFactorProof.RecoveryCode(var code):
-                await using (var transaction = await _db.Database.BeginTransactionAsync(cancellationToken))
-                {
-                    if (!(await _users.RedeemTwoFactorRecoveryCodeAsync(user, code)).Succeeded)
-                    {
-                        return false;
-                    }
+            SecondFactorProof.AuthenticatorCode(var code) =>
+                await TryAcceptAuthenticatorCodeAsync(user, code, cancellationToken)
+                    ? SecondFactorKind.Authenticator
+                    : SecondFactorKind.None,
+            SecondFactorProof.RecoveryCode(var code) =>
+                (await _users.RedeemTwoFactorRecoveryCodeAsync(user, code)).Succeeded
+                    ? SecondFactorKind.RecoveryCode
+                    : SecondFactorKind.None,
+            _ => throw new ArgumentOutOfRangeException(nameof(proof), proof, "Prova de segundo fator desconhecida."),
+        };
 
-                    await AppendAuditAsync(user.Id, AuditAction.MfaRecoveryCodeUsed, cancellationToken);
-                    await transaction.CommitAsync(cancellationToken);
-                    return true;
-                }
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(proof), proof, "Prova de segundo fator desconhecida.");
+        if (proved == SecondFactorKind.None)
+        {
+            EnsureSucceeded(await _users.AccessFailedAsync(user), "contar a falha do segundo fator");
+            await AppendAuditAsync(user.Id, AuditAction.SecondFactorFailed, cancellationToken);
+            return SecondFactorKind.None;
         }
+
+        EnsureSucceeded(await _users.ResetAccessFailedCountAsync(user), "zerar as falhas de login");
+        if (proved == SecondFactorKind.RecoveryCode)
+        {
+            await AppendAuditAsync(user.Id, AuditAction.MfaRecoveryCodeUsed, cancellationToken);
+        }
+
+        return proved;
     }
 
     /// <summary>
-    /// Registra uma reautenticação (API-A13) na sessão corrente. Com segundo fator, conta também como prova recente
-    /// de MFA, a que o step-up administrativo exige.
+    /// Registra uma reautenticação (API-A13) na sessão corrente. Com TOTP, conta também como prova recente de TOTP,
+    /// a que o step-up administrativo e o A14 exigem.
     /// </summary>
     public async Task RecordReauthenticationAsync(
         Guid userId,
         Guid sessionId,
-        bool withSecondFactor,
+        bool withAuthenticator,
         CancellationToken cancellationToken)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
@@ -258,7 +312,8 @@ public sealed class AccountSecurityService
             $"""
             update identity.login_sessions
             set reauthenticated_at = {now},
-                mfa_verified_at = case when {withSecondFactor} then {now} else mfa_verified_at end
+                mfa_verified_at = case when {withAuthenticator} then {now} else mfa_verified_at end,
+                totp_verified_at = case when {withAuthenticator} then {now} else totp_verified_at end
             where id = {sessionId} and user_id = {userId} and revoked_at is null
             """,
             cancellationToken);
@@ -282,7 +337,7 @@ public sealed class AccountSecurityService
         CancellationToken cancellationToken)
     {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var user = await RequireUserAsync(userId);
+        var user = await LockUserAsync(userId, cancellationToken);
         if (await _users.IsLockedOutAsync(user))
         {
             return new PasswordChange.WrongPassword();
@@ -291,7 +346,7 @@ public sealed class AccountSecurityService
         var result = await _users.ChangePasswordAsync(user, currentPassword, newPassword);
         if (result.Errors.Any(error => error.Code == nameof(IdentityErrorDescriber.PasswordMismatch)))
         {
-            await _users.AccessFailedAsync(user);
+            EnsureSucceeded(await _users.AccessFailedAsync(user), "contar a falha de senha");
             await transaction.CommitAsync(cancellationToken);
             return new PasswordChange.WrongPassword();
         }
@@ -303,16 +358,76 @@ public sealed class AccountSecurityService
         return new PasswordChange.Changed(user.SecurityStamp ?? "");
     }
 
-    private Task<bool> VerifyAuthenticatorCodeAsync(DuoraUser user, string code) =>
-        _users.VerifyTwoFactorTokenAsync(user, _users.Options.Tokens.AuthenticatorTokenProvider, code);
+    /// <summary>
+    /// Aceita o código do autenticador só se o passo dele for posterior ao último aceito: um UPDATE condicional que
+    /// grava o passo e só afeta a linha se ele avançar. O mesmo código, ou um anterior ainda na tolerância, falha.
+    /// </summary>
+    private async Task<bool> TryAcceptAuthenticatorCodeAsync(DuoraUser user, string code, CancellationToken cancellationToken)
+    {
+        if (await _users.GetAuthenticatorKeyAsync(user) is not { } sharedKey)
+        {
+            return false;
+        }
+
+        byte[] key;
+        try
+        {
+            key = Totp.DecodeBase32Key(sharedKey);
+        }
+        catch (FormatException)
+        {
+            // Chave gravada fora do formato: falha fechada, como chave ausente.
+            return false;
+        }
+
+        if (Totp.MatchStep(key, Totp.NormalizeInput(code), _time.GetUtcNow()) is not { } step)
+        {
+            return false;
+        }
+
+        var accepted = await _db.Database.ExecuteSqlAsync(
+            $"""
+            update identity.users set last_totp_step = {step}
+            where id = {user.Id} and (last_totp_step is null or last_totp_step < {step})
+            """,
+            cancellationToken);
+        // A entidade rastreada precisa ver o passo novo: o próximo UpdateAsync do Identity grava a linha inteira.
+        await _db.Entry(user).ReloadAsync(cancellationToken);
+        return accepted == 1;
+    }
 
     private async Task<IReadOnlyList<string>> GenerateRecoveryCodesAsync(DuoraUser user) =>
         [.. await _users.GenerateNewTwoFactorRecoveryCodesAsync(user, RecoveryCodeCount)
             ?? throw new InvalidOperationException("O Identity não gravou os códigos de recuperação.")];
 
-    private async Task<DuoraUser> RequireUserAsync(Guid userId) =>
-        await _users.FindByIdAsync(userId.ToString("D"))
-        ?? throw new InvalidOperationException("Conta da sessão não existe mais.");
+    private async Task<DuoraUser> LockUserAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var user = await _users.FindByIdAsync(userId.ToString("D"))
+            ?? throw new InvalidOperationException("Conta da sessão não existe mais.");
+        await LockAndReloadAsync(user, cancellationToken);
+        return user;
+    }
+
+    /// <summary>
+    /// Trava a linha da conta até o fim da transação e relê a entidade, que pode ter sido carregada antes do lock.
+    /// <c>FOR NO KEY UPDATE</c> serializa as verificações da conta sem bloquear quem só referencia a conta por FK
+    /// (abrir sessão, gravar aceite).
+    /// </summary>
+    private async Task LockAndReloadAsync(DuoraUser user, CancellationToken cancellationToken)
+    {
+        await _db.Database.ExecuteSqlAsync(
+            $"select 1 from identity.users where id = {user.Id} for no key update",
+            cancellationToken);
+        await _db.Entry(user).ReloadAsync(cancellationToken);
+    }
+
+    private void RequireAccountCheck()
+    {
+        if (_db.Database.CurrentTransaction is null)
+        {
+            throw new InvalidOperationException("O segundo fator só é conferido com a conta travada (AccountCheck).");
+        }
+    }
 
     private async Task AdoptSecurityStampAsync(DuoraUser user, Guid sessionId, CancellationToken cancellationToken)
     {

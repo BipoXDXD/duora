@@ -64,16 +64,16 @@ public sealed class ReauthenticationTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        var mfa = await MfaScenario.EnableAsync(browser);
+        var mfa = await MfaScenario.EnableAsync(browser, _time);
         _time.Advance(TimeSpan.FromMinutes(10));
 
         using var passwordOnly = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password });
         using var wrongCode = await browser.PostJsonAsync(
             MfaScenario.Reauthenticate,
-            new { password = account.Password, twoFactorCode = Totp.Wrong(mfa.SharedKey) });
+            new { password = account.Password, twoFactorCode = Totp.Wrong(_time, mfa.SharedKey) });
         using var withCode = await browser.PostJsonAsync(
             MfaScenario.Reauthenticate,
-            new { password = account.Password, twoFactorCode = Totp.Now(mfa.SharedKey) });
+            new { password = account.Password, twoFactorCode = Totp.Next(_time, mfa.SharedKey) });
 
         await ProblemAssert.IsProblemAsync(passwordOnly, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
         await ProblemAssert.IsProblemAsync(wrongCode, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");

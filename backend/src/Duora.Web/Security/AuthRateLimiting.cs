@@ -42,15 +42,18 @@ internal sealed class AuthRateLimitOptions
     /// <summary>Confirmação de e-mail e troca de senha por token: o token não é adivinhável, o limite só segura abuso.</summary>
     public WindowLimit TokenRedemptionPerIp { get; set; } = new() { PermitLimit = 20, Window = TimeSpan.FromMinutes(10) };
 
-    /// <summary>Cadastro, ativação, novos códigos e desativação do MFA, e troca de senha (A11, A12, A14 a A16).</summary>
-    public WindowLimit AccountSecurityPerSession { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
+    /// <summary>
+    /// Reautenticação, cadastro, ativação, novos códigos e desativação do MFA, e troca de senha (A11 a A16), por
+    /// conta: abrir outra sessão não renova o limite (M1 da revisão do #38).
+    /// </summary>
+    public WindowLimit AccountSecurityPerAccount { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
 
     public bool IsValid() =>
         new[]
         {
             LoginPerIp, LoginPerAccount, RegisterPerIp, RegisterPerAccount,
             PasswordResetRequestPerIp, PasswordResetRequestPerAccount, TokenRedemptionPerIp,
-            AccountSecurityPerSession,
+            AccountSecurityPerAccount,
         }.All(limit => limit.IsValid());
 }
 
@@ -107,24 +110,24 @@ internal sealed class AccountAttemptLimiter : IDisposable
 }
 
 /// <summary>
-/// Limite por sessão das operações de segurança da conta (spec 11.5). Aplicado como filtro de endpoint, porque o
-/// middleware de rate limit roda antes da autenticação e não conhece a sessão.
+/// Limite por conta das operações de segurança da conta (spec 11.5). Aplicado como filtro de endpoint, porque o
+/// middleware de rate limit roda antes da autenticação e não conhece a conta.
 /// </summary>
-internal sealed class SessionAttemptLimiter : IDisposable
+internal sealed class AccountSecurityAttemptLimiter : IDisposable
 {
     private readonly PartitionedRateLimiter<Guid> _limiter;
 
-    public SessionAttemptLimiter(IOptions<AuthRateLimitOptions> options)
+    public AccountSecurityAttemptLimiter(IOptions<AuthRateLimitOptions> options)
     {
-        var limit = options.Value.AccountSecurityPerSession;
+        var limit = options.Value.AccountSecurityPerAccount;
         _limiter = PartitionedRateLimiter.Create<Guid, Guid>(session =>
             RateLimitPartition.GetFixedWindowLimiter(session, _ => limit.ToLimiterOptions()));
     }
 
-    /// <summary>Consome uma tentativa da sessão; devolve o tempo de espera quando o limite estourou, ou null.</summary>
-    public TimeSpan? TryConsume(Guid sessionId)
+    /// <summary>Consome uma tentativa da conta; devolve o tempo de espera quando o limite estourou, ou null.</summary>
+    public TimeSpan? TryConsume(Guid userId)
     {
-        using var lease = _limiter.AttemptAcquire(sessionId);
+        using var lease = _limiter.AttemptAcquire(userId);
         if (lease.IsAcquired)
         {
             return null;
@@ -136,17 +139,17 @@ internal sealed class SessionAttemptLimiter : IDisposable
     public void Dispose() => _limiter.Dispose();
 }
 
-internal static class SessionRateLimiting
+internal static class AccountSecurityRateLimiting
 {
-    /// <summary>429 com <c>Retry-After</c> quando a sessão passou do limite das operações de segurança da conta.</summary>
-    public static TBuilder RequireSessionRateLimit<TBuilder>(this TBuilder builder)
+    /// <summary>429 com <c>Retry-After</c> quando a conta passou do limite das operações de segurança.</summary>
+    public static TBuilder RequireAccountRateLimit<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder =>
         builder.AddEndpointFilter((context, next) =>
         {
             var http = context.HttpContext;
-            var sessionId = Duora.Web.Identity.DuoraClaims.ReadSessionId(http.User)
-                ?? throw new InvalidOperationException("Limite por sessão numa rota sem sessão.");
-            return http.RequestServices.GetRequiredService<SessionAttemptLimiter>().TryConsume(sessionId) is { } retryAfter
+            var userId = Duora.Web.Identity.DuoraClaims.ReadUserId(http.User)
+                ?? throw new InvalidOperationException("Limite por conta numa rota sem sessão.");
+            return http.RequestServices.GetRequiredService<AccountSecurityAttemptLimiter>().TryConsume(userId) is { } retryAfter
                 ? ValueTask.FromResult<object?>(ApiProblems.TooManyRequests(http, retryAfter))
                 : next(context);
         });
@@ -166,7 +169,7 @@ internal static class AuthRateLimitPolicies
             .Validate(o => o.IsValid(), "RateLimiting: todo limite precisa de PermitLimit >= 1 e janela positiva.")
             .ValidateOnStart();
         services.AddSingleton<AccountAttemptLimiter>();
-        services.AddSingleton<SessionAttemptLimiter>();
+        services.AddSingleton<AccountSecurityAttemptLimiter>();
 
         services.AddRateLimiter(_ => { });
         services.AddOptions<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>()

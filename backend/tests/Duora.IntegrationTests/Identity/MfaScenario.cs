@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -23,10 +24,10 @@ internal static class MfaScenario
         return (string?)body["sharedKey"] ?? throw new InvalidOperationException("Sem sharedKey.");
     }
 
-    public static async Task<EnabledMfa> EnableAsync(Browser browser)
+    public static async Task<EnabledMfa> EnableAsync(Browser browser, FakeTimeProvider time)
     {
         var sharedKey = await StartEnrollmentAsync(browser);
-        using var confirmed = await browser.PostJsonAsync(Confirmations, new { code = Totp.Now(sharedKey) });
+        using var confirmed = await browser.PostJsonAsync(Confirmations, new { code = Totp.Next(time, sharedKey) });
         Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
         var codes = (await ReadObjectAsync(confirmed))["recoveryCodes"]!.AsArray()
             .Select(code => (string?)code ?? "")

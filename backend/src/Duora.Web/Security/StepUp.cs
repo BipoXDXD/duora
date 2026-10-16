@@ -17,11 +17,14 @@ internal static class StepUp
         builder.AddEndpointFilter((context, next) =>
             Guard(context, next, session => session.ReauthenticatedAt));
 
-    /// <summary>Segundo fator provado há pouco: ações administrativas críticas (TOTP obrigatório).</summary>
+    /// <summary>
+    /// TOTP provado há pouco: ações administrativas críticas e novos códigos de recuperação (A14). Código de
+    /// recuperação não satisfaz (I3 da revisão do #38): quem perdeu o autenticador não troca o fator só com ele.
+    /// </summary>
     public static TBuilder RequireRecentMfa<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder =>
         builder.AddEndpointFilter((context, next) =>
-            Guard(context, next, session => session.MfaVerifiedAt));
+            Guard(context, next, session => session.TotpVerifiedAt));
 
     private static ValueTask<object?> Guard(
         EndpointFilterInvocationContext context,

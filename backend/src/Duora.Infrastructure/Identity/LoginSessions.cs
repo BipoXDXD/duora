@@ -20,7 +20,8 @@ public sealed record NewLoginSession(
     SessionWindow Window,
     SessionPolicy Policy,
     DateTimeOffset? ReauthenticatedAt,
-    DateTimeOffset? MfaVerifiedAt);
+    DateTimeOffset? MfaVerifiedAt,
+    DateTimeOffset? TotpVerifiedAt);
 
 /// <summary>
 /// Sessão válida depois do toque: o ticket e o estado que muda sem novo ticket (reautenticação, prova de MFA) ou
@@ -31,6 +32,8 @@ public sealed record TouchedSession(
     SessionPolicy Policy,
     DateTimeOffset? ReauthenticatedAt,
     DateTimeOffset? MfaVerifiedAt,
+    DateTimeOffset? TotpVerifiedAt,
+    DateTimeOffset AbsoluteExpiresAt,
     bool AccountIsPrivileged);
 
 /// <summary>
@@ -124,11 +127,11 @@ public sealed class LoginSessions
             insert into identity.login_sessions
                 (id, user_id, key_hash, ticket, security_stamp, description,
                  created_at, last_seen_at, idle_expires_at, absolute_expires_at,
-                 policy, reauthenticated_at, mfa_verified_at)
+                 policy, reauthenticated_at, mfa_verified_at, totp_verified_at)
             values
                 (@id, @user_id, @key_hash, @ticket, @security_stamp, @description,
                  @created_at, @created_at, @idle_expires_at, @absolute_expires_at,
-                 @policy, @reauthenticated_at, @mfa_verified_at)
+                 @policy, @reauthenticated_at, @mfa_verified_at, @totp_verified_at)
             """);
         command.Parameters.AddWithValue("id", session.Id);
         command.Parameters.AddWithValue("user_id", session.UserId);
@@ -142,6 +145,7 @@ public sealed class LoginSessions
         command.Parameters.AddWithValue("policy", session.Policy.ToString());
         command.Parameters.AddWithValue("reauthenticated_at", (object?)session.ReauthenticatedAt ?? DBNull.Value);
         command.Parameters.AddWithValue("mfa_verified_at", (object?)session.MfaVerifiedAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("totp_verified_at", (object?)session.TotpVerifiedAt ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -165,7 +169,8 @@ public sealed class LoginSessions
               and s.absolute_expires_at > @now
               and u.id = s.user_id
               and u.security_stamp = s.security_stamp
-            returning s.ticket, s.policy, s.reauthenticated_at, s.mfa_verified_at,
+            returning s.ticket, s.policy, s.reauthenticated_at, s.mfa_verified_at, s.totp_verified_at,
+                s.absolute_expires_at,
                 exists (
                     select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
                     where ur.user_id = s.user_id and r.name = any(@privileged_roles))
@@ -186,7 +191,9 @@ public sealed class LoginSessions
             Enum.Parse<SessionPolicy>(reader.GetString(1)),
             reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
             reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
-            reader.GetBoolean(4));
+            reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+            reader.GetFieldValue<DateTimeOffset>(5),
+            reader.GetBoolean(6));
     }
 
     public async Task ReplaceTicketAsync(string key, byte[] protectedTicket, CancellationToken cancellationToken)
