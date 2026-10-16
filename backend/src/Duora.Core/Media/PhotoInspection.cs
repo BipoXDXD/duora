@@ -18,7 +18,10 @@ public enum PhotoRejection
     /// <summary>Header ou dados que o decoder não aceita (truncado, dimensão zero, CRC inválido).</summary>
     CorruptImage,
 
-    /// <summary>Estourou o tempo ou a memória da sanitização.</summary>
+    /// <summary>
+    /// O pipeline não conseguiu processar a foto dentro dos limites: tempo, memória, bytes ou tentativas, ou o original
+    /// não chegou íntegro ao Worker. Não diz que a foto é ruim; quem envia pode tentar outra vez.
+    /// </summary>
     ProcessingLimit,
 }
 
