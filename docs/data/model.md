@@ -227,7 +227,9 @@ erDiagram
   desde o adendo de 2026-10-16 do ADR-0024; não é gravada nem lida e sai num PR futuro, por expand/contract);
   `decision_source text` (`Callback`, `ProviderQuery`, `ManualReview`); `minor_suspected_at timestamptz` (primeiro
   `NotAdult` do fornecedor sobre a solicitação, em qualquer estado dela: suspeita de menor durável, que nega a
-  elegibilidade de todas as solicitações da pessoa até a revisão humana do M2; ADR-0024); `version bigint`.
+  elegibilidade de todas as solicitações da pessoa até a revisão humana do M2; as linhas anteriores à coluna foram
+  preenchidas pela migration `AgeVerificationMinorSuspicionBackfill`: toda `Rejected` e toda solicitação citada na
+  auditoria de `NotAdult` tardio; ADR-0024); `version bigint`.
 - **Constraints:** PK `id`; FK `user_id` `RESTRICT`; `UNIQUE (provider, provider_reference)`;
   `UNIQUE (request_nonce)`; índice único parcial `ux_age_verifications_open_user` em `(user_id)` onde
   `state IN ('Pending', 'ManualReview')` (uma solicitação aberta por pessoa); `CHECK` de estado, de

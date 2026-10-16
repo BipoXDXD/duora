@@ -146,7 +146,11 @@ validade e o desdobramento "elegível é `VerifiedAdult` cujo `expires_at` é po
   solicitação da pessoa tiver a suspeita, qualquer que seja o estado da conta: se ela voltar a `Active` por outro
   caminho (fim de suspensão, erro de operação), a `VerifiedAdult` não volta a valer. **Lacuna do M2:** só a revisão
   humana remove a suspeita; o caso de uso, a autorização dele, a auditoria e a regra de quando a `VerifiedAdult`
-  volta a valer ficam para o M2. Até lá, ninguém remove (nem por SQL de operação).
+  volta a valer ficam para o M2. Até lá, ninguém remove (nem por SQL de operação). Os `NotAdult` recebidos antes da
+  coluna entram pela migration de dados `AgeVerificationMinorSuspicionBackfill`, com a regra que falha fechado: toda
+  `Rejected` (só `NotAdult` produz esse estado, qualquer que seja o `decision_source`) recebe
+  `coalesce(decided_at, requested_at)`, e toda solicitação citada na auditoria
+  `identity.age_verification_late_not_adult` recebe o instante do primeiro registro. Não há `Down`.
 
 ## Consequências
 
