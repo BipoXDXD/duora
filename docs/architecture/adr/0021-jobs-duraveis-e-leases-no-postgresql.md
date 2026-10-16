@@ -101,10 +101,19 @@ mesmo protocolo de lease e fencing da outbox. Só o processo worker executa jobs
    NOTHING`. Nada de timer em memória como registro de prazo. **Transação de negócio só insere em `ops.jobs`;
    nunca atualiza, cancela nem tranca um job existente.**
    - A `dedupe_key` identifica **o agendamento**, não só o agregado: `<kind>:<id do agregado>:<instante agendado
-     em UTC, ISO 8601>`, ex.: `expire-invite:<gameSessionId>:2026-10-16T19:00:00Z`,
+     em UTC, ISO 8601>`, ex.: `expire-invite:<gameSessionId>:2026-10-16T19:00:00.000000Z`,
      `active-deadline:<gameSessionId>:<prazo>`, `round-transition:<roundId>:<estado alvo>:<horário>`. O payload
      repete o id e o instante. Usar a versão do agregado na chave foi descartado: a sala muda de versão a cada
      ação de jogo, e o job de prazo ficaria obsoleto na primeira jogada; o instante muda só quando o prazo muda.
+   - **Precisão e formato do instante.** O .NET tem resolução de 100 ns e o `timestamptz`, de 1 µs; um instante
+     não truncado seria gravado arredondado na coluna e não bateria com a chave nem com o payload. Por isso o
+     domínio trunca o instante para microssegundo **antes** de persistir a coluna de negócio
+     (`active_deadline_at`, `invite_expires_at`, horário da rodada) e antes de gerar a chave, numa única função do
+     Core. A chave usa um formato canônico fixo, em UTC com seis casas e `Z`
+     (`yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'`, cultura invariante, ex.: `2026-10-16T19:00:00.000000Z`); nenhum outro
+     formato ISO 8601 é aceito. A chave serve só para deduplicar: a revalidação do item 4 compara o `timestamptz`
+     da coluna com o instante do payload lido como `timestamptz` (ou `DateTimeOffset` vindo do banco), nunca
+     strings.
    - Se o fato mudar (convite aceito, prazo antecipado ou adiado), a transação que o muda insere o job do novo
      agendamento, com chave nova; o antigo continua na fila e, na revalidação (item 4), vê que o agregado já não
      está no estado esperado ou que o instante persistido é outro, e conclui `Done` sem efeito. Não há
@@ -181,7 +190,7 @@ mesmo protocolo de lease e fencing da outbox. Só o processo worker executa jobs
    tranca jobs (item 2), nem por outro executor, cujo claim usa `SKIP LOCKED`; pode esperar só por uma ação
    administrativa curta sobre o mesmo job (item 9), que não tranca negócio. Depois, a ordem global da spec 10.4
    (guardas de usuário, rodada, sala), a revalidação depois do lock (o agregado está no estado esperado e o
-   instante persistido é o do payload; senão, `Done` sem efeito) e a transição condicional de negócio (`WHERE
+   instante persistido é igual, como `timestamptz`, ao do payload; senão, `Done` sem efeito) e a transição condicional de negócio (`WHERE
    version = $v AND state = ...`, C6, com a `version` lida sob o lock). Operação de outro módulo (liberar
    reserva do Matching) passa pelo coordenador de caso de uso, nunca por escrita direta na tabela alheia. Efeito
    e conclusão comitam juntos: o efeito acontece uma vez, mesmo com dois executores; um executor pausado que volta depois do commit
@@ -222,16 +231,23 @@ mesmo protocolo de lease e fencing da outbox. Só o processo worker executa jobs
    'Pending', available_at = $proxima, attempts = 0, lease_expires_at = NULL, completed_at = NULL,
    last_error_code = NULL`). `$proxima` é calculada a partir de `$agora` (não da execução anterior), com jitter do
    `JitteredInterval`. No boot, o worker garante que a linha de cada tipo recorrente existe (`INSERT ... ON
-   CONFLICT DO NOTHING`). Depois de dias parado, roda uma execução, não uma por dia perdido: os handlers
-   recorrentes processam "tudo o que venceu até agora" e por isso são idempotentes. Uma linha recorrente em
-   `Failed` para a recorrência daquele tipo até ser resolvida, e por isso alerta (item 10).
+   CONFLICT DO NOTHING`). **Uma execução processa no máximo um lote** (até 1.000 linhas, dentro do prazo do item
+   do item 3, ajustado por tipo se a medição pedir): se sobrou trabalho vencido, o handler reagenda a linha fixa
+   com `available_at = $agora` em vez de `$proxima`, e o claim seguinte continua; só quando o lote vem incompleto
+   a próxima execução vai para `$proxima`. Assim nenhuma execução estoura o prazo nem segura o lease por minutos.
+   Depois de dias parado, o worker drena o vencido em execuções seguidas de um lote, não em uma execução por dia
+   perdido: os handlers recorrentes processam "o que venceu até agora" e por isso são idempotentes. Uma linha
+   recorrente em `Failed` para a recorrência daquele tipo até ser reprocessada, e por isso alerta (item 10).
 9. **Fila de revisão.** `Failed` é a fila de revisão (API-ADM19, só leitura, sem lock): consulta por `status =
    'Failed'`, causa sanitizada em `last_error_code`, nunca dado pessoal. Reprocessar é API-ADM20, na ordem de
    locks: registro de idempotência; depois, ainda na posição 0, `UPDATE ops.jobs SET status = 'Pending',
    available_at = $agora, attempts = 0, completed_at = NULL, last_error_code = NULL WHERE id = $id AND status =
    'Failed'` (zero linhas → o job não está mais em revisão, `409`); depois a nova verificação de elegibilidade
    lendo o negócio **sem** `FOR UPDATE` (quem tranca e revalida é o handler, quando executar); auditoria no mesmo
-   commit. Descartar é o mesmo `UPDATE` para `Cancelled` (com `completed_at`), com auditoria. Um `Failed` não é
+   commit. Descartar é o mesmo `UPDATE` para `Cancelled` (com `completed_at`), com auditoria, **exceto na linha
+   fixa de tipo recorrente**, que só pode ser reprocessada: cancelá-la mataria a recorrência sem alerta, e a
+   limpeza a apagaria em 7 dias. A API recusa com `409`, e o banco garante com `CHECK (NOT (status =
+   'Cancelled' AND dedupe_key = kind))` (a linha fixa é a única com `dedupe_key = kind`). Um `Failed` não é
    apagado pela limpeza enquanto não for resolvido.
 10. **Métricas.** Por `kind`: idade do `Pending` vencido mais antigo (`$agora - min(available_at)` entre os
     vencidos, pelo `ix_jobs_due`), quantidade em `Failed` e `Expired`, `stale_completion`, leases vencidos
@@ -240,8 +256,8 @@ mesmo protocolo de lease e fencing da outbox. Só o processo worker executa jobs
     de correção de estado é sala ou rodada possivelmente parada; num recorrente, retenção ou limpeza parada (item
     8); em qualquer tipo, acúmulo que a limpeza não remove (item 11). Limiares iniciais são hipótese a medir no
     ensaio de carga.
-11. **Limpeza e manutenção da tabela.** Job recorrente apaga em lotes de até 1.000 linhas, uma transação por
-    lote, os jobs `Done`, `Expired` e `Cancelled` com `completed_at` acima de 7 dias (as linhas recorrentes do
+11. **Limpeza e manutenção da tabela.** Job recorrente apaga um lote de até 1.000 linhas por execução, com o
+    reagendamento imediato do item 8 enquanto sobrar o que apagar, os jobs `Done`, `Expired` e `Cancelled` com `completed_at` acima de 7 dias (as linhas recorrentes do
     item 8 nunca ficam em estado final e não entram)
     ([retention.md](../../privacy/retention.md)). `ops.jobs` é tabela de fila (cada job é inserido, atualizado
     duas ou três vezes e apagado), e as colunas dos predicados dos índices parciais mudam a cada transição, então
@@ -319,17 +335,23 @@ fora da política e sem mais infraestrutura no piloto.
 - **Revalidação e chave por agendamento (integração, M2):** convite aceito antes do prazo → o job
   `expire-invite` conclui `Done` sem transição; prazo antecipado e prazo adiado → o job do instante novo executa
   no instante novo e o do instante antigo conclui sem efeito; ações de jogo entre o início e o prazo não tornam o
-  job de prazo obsoleto; alvo apagado → `Done` sem efeito.
+  job de prazo obsoleto; alvo apagado → `Done` sem efeito; prazo calculado com fração sub-microssegundo (ex.:
+  `...:00.0000007Z` no `FakeTimeProvider`) gera a mesma chave e o mesmo valor de coluna que o instante truncado,
+  e o job executa (a revalidação não o descarta por diferença de precisão); a chave usa sempre o formato
+  canônico de seis casas.
 - **Sem espera da API (integração, M2):** com um handler parado no gancho depois de trancar a linha do job, uma
   transação de API que muda o prazo da mesma sala comita sem esperar (`pg_blocking_pids` vazio para ela).
 - **Prazo do item e lease restante (integração, M2):** item que excede o prazo é cancelado e reagendado; lote cujo
   lease restante não cobre o próximo item devolve esse item e o resto a `Pending` com a tentativa devolvida.
 - **Revisão (integração, M2):** API-ADM20 sobre job `Failed` o leva a `Pending` com `attempts = 0`; sobre job que
-  já saiu de `Failed`, `409` sem alteração; a linha de negócio não é trancada pela rota (`pg_locks`).
+  já saiu de `Failed`, `409` sem alteração; a linha de negócio não é trancada pela rota (`pg_locks`); descartar a
+  linha fixa de `retention` em `Failed` responde `409` e ela continua `Failed`, e um `UPDATE` direto para
+  `Cancelled` nessa linha viola o `CHECK`.
 - **Rollback e pausa (integração, M2):** um job de `kind` fora de `$tiposConhecidos` nunca é tomado; um `kind`
   pausado em `ops.operational_flags` fica `Pending` e volta a ser tomado ao despausar.
 - **Recorrência e limpeza (integração, M2):** existe exatamente uma linha por tipo recorrente depois de dois
-  boots; worker parado por três dias simulados → uma execução de `retention`, não três, e a linha volta a
+  boots; com 2.500 linhas vencidas, a limpeza roda três execuções seguidas (1.000, 1.000, 500), cada uma dentro do
+  prazo do item, e só a terceira reagenda para o próximo período; worker parado por três dias simulados → uma execução de `retention`, não três, e a linha volta a
   `Pending` com a próxima data; a limpeza apaga `Done` com mais de 7 dias e preserva `Failed` não resolvido e as
   linhas recorrentes.
 - **Shutdown (integração, M2):** cancelar o host com lote tomado devolve os jobs não iniciados a `Pending` com a
