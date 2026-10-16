@@ -219,6 +219,16 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     path_canary = str(uuid.uuid4())
     get(context, f"/api/v1/me/blocks/{path_canary}", {"Accept": "application/json"})
 
+    # Webhook de fornecedor chega ao web (sem fornecedor configurado, o backend responde 404 em Problem Details),
+    # e corpo acima de 64 KiB morre na borda com 413.
+    webhook = request(context, "POST", f"/webhooks/fake?signature={canary}", b"{}",
+                      {"Content-Type": "application/json"})
+    checks.expect(webhook.status not in (502, 503, 504) and b'<div id="root">' not in webhook.body,
+                  f"/webhooks/* respondido pelo web via proxy, sem HTML da SPA (status {webhook.status})")
+    oversized = request(context, "POST", "/webhooks/fake", b"a" * (64 * 1024 + 1),
+                        {"Content-Type": "application/json"})
+    checks.expect(oversized.status == 413, f"/webhooks/* com corpo acima de 64 KiB = 413 na borda (status {oversized.status})")
+
     health = get(context, "/health/ready", {"Accept": "*/*"})
     checks.expect(health.status == 404, f"/health fechado na borda (status {health.status})")
 
@@ -230,6 +240,7 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     edge_logs = run(compose + ["logs", "--no-color", "edge"])
     checks.expect(canary not in edge_logs, "log do Caddy sem query string, cookie nem Authorization")
     checks.expect('"uri":"/api/v1?redacted"' in edge_logs, "log do Caddy registra a rota sem a query")
+    checks.expect('"uri":"/webhooks/fake?redacted"' in edge_logs, "log do Caddy registra o webhook sem a query")
     checks.expect(path_canary not in edge_logs, "log do Caddy sem UUID no caminho")
     checks.expect('"uri":"/api/v1/me/blocks/{id}"' in edge_logs, "log do Caddy troca o UUID do caminho por {id}")
 
