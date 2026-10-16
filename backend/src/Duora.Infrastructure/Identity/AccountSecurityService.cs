@@ -1,5 +1,7 @@
 using Duora.Core.Identity;
+using Duora.Core.Notifications;
 using Duora.Infrastructure.Audit;
+using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -273,8 +275,13 @@ public sealed class AccountSecurityService
     /// <summary>
     /// Ativa o TOTP com a prova de posse. Com a conta travada, uma segunda ativação simultânea vê o MFA já ativo
     /// (409) em vez de disputar o concurrency stamp; o passo do código fica registrado e não serve para login.
+    /// O titular recebe um aviso em <paramref name="language"/> (TM-21).
     /// </summary>
-    public async Task<MfaActivation> ConfirmMfaEnrollmentAsync(Guid userId, string code, CancellationToken cancellationToken)
+    public async Task<MfaActivation> ConfirmMfaEnrollmentAsync(
+        Guid userId,
+        string code,
+        EmailLanguage language,
+        CancellationToken cancellationToken)
     {
         await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
@@ -298,12 +305,16 @@ public sealed class AccountSecurityService
         var codes = await GenerateRecoveryCodesAsync(user);
         await RevokeAllSessionsAsync(user.Id, MfaChangeReason, cancellationToken);
         await AppendAuditAsync(user.Id, AuditAction.MfaEnabled, cancellationToken);
+        await NotifyHolderAsync(user, SecurityChange.MfaEnabled, language, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new MfaActivation.Activated(codes, user.SecurityStamp ?? "");
     }
 
-    /// <summary>Troca o conjunto inteiro: os códigos anteriores deixam de valer no mesmo commit.</summary>
-    public async Task<RecoveryCodesRegeneration> RegenerateRecoveryCodesAsync(Guid userId, CancellationToken cancellationToken)
+    /// <summary>Troca o conjunto inteiro: os códigos anteriores deixam de valer no mesmo commit, e o titular é avisado.</summary>
+    public async Task<RecoveryCodesRegeneration> RegenerateRecoveryCodesAsync(
+        Guid userId,
+        EmailLanguage language,
+        CancellationToken cancellationToken)
     {
         await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
@@ -315,11 +326,13 @@ public sealed class AccountSecurityService
 
         var codes = await GenerateRecoveryCodesAsync(user);
         await AppendAuditAsync(user.Id, AuditAction.MfaRecoveryCodesRegenerated, cancellationToken);
+        await NotifyHolderAsync(user, SecurityChange.RecoveryCodesRegenerated, language, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new RecoveryCodesRegeneration.Regenerated(codes);
     }
 
-    public async Task<MfaDeactivation> DisableMfaAsync(Guid userId, CancellationToken cancellationToken)
+    /// <summary>Desativa o TOTP de participante e avisa o titular; MFA já inativo não muda nada nem avisa.</summary>
+    public async Task<MfaDeactivation> DisableMfaAsync(Guid userId, EmailLanguage language, CancellationToken cancellationToken)
     {
         await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
@@ -341,6 +354,7 @@ public sealed class AccountSecurityService
         await _users.GenerateNewTwoFactorRecoveryCodesAsync(user, number: 0);
         await RevokeAllSessionsAsync(user.Id, MfaChangeReason, cancellationToken);
         await AppendAuditAsync(user.Id, AuditAction.MfaDisabled, cancellationToken);
+        await NotifyHolderAsync(user, SecurityChange.MfaDisabled, language, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new MfaDeactivation.Disabled(user.SecurityStamp ?? "");
     }
@@ -419,12 +433,13 @@ public sealed class AccountSecurityService
 
     /// <summary>
     /// Troca a senha conferindo a atual. Senha errada conta para o bloqueio da conta, como no login: quem tem só a
-    /// sessão não pode testar senhas à vontade.
+    /// sessão não pode testar senhas à vontade. A troca avisa o titular; a senha errada, não.
     /// </summary>
     public async Task<PasswordChange> ChangePasswordAsync(
         Guid userId,
         string currentPassword,
         string newPassword,
+        EmailLanguage language,
         CancellationToken cancellationToken)
     {
         await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
@@ -446,6 +461,7 @@ public sealed class AccountSecurityService
         EnsureSucceeded(result, "trocar a senha");
         await RevokeAllSessionsAsync(user.Id, PasswordChangeReason, cancellationToken);
         await AppendAuditAsync(user.Id, AuditAction.PasswordChanged, cancellationToken);
+        await NotifyHolderAsync(user, SecurityChange.PasswordChanged, language, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new PasswordChange.Changed(user.SecurityStamp ?? "");
     }
@@ -559,6 +575,21 @@ public sealed class AccountSecurityService
             where user_id = {userId} and revoked_at is null
             """,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Aviso ao titular na transação da mudança (TM-21): se ela volta atrás, o aviso some junto. Vai para o endereço
+    /// gravado; o texto é fixo e não leva nada da requisição.
+    /// </summary>
+    private async Task NotifyHolderAsync(
+        DuoraUser user,
+        SecurityChange change,
+        EmailLanguage language,
+        CancellationToken cancellationToken)
+    {
+        var to = user.Email ?? throw new InvalidOperationException("Conta sem e-mail gravado.");
+        _db.Add(AccountEmailOutbox.CreateSecurityNotice(change, to, user.Id, language, _time.GetUtcNow()));
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private Task AppendAuditAsync(Guid userId, AuditAction action, CancellationToken cancellationToken) =>

@@ -81,7 +81,12 @@ internal static class ReauthenticationEndpoints
         }
 
         var (userId, _) = CurrentSession.Require(context);
-        switch (await security.ChangePasswordAsync(userId, currentPassword, newPassword, cancellationToken))
+        switch (await security.ChangePasswordAsync(
+            userId,
+            currentPassword,
+            newPassword,
+            EmailLanguageNegotiation.FromRequest(context.Request),
+            cancellationToken))
         {
             case PasswordChange.Changed changed:
                 // Acabou de provar a senha; as provas de segundo fator da sessão continuam valendo na sessão nova.

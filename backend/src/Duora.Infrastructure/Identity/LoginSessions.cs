@@ -106,20 +106,6 @@ public sealed class LoginSessions
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
-    internal async Task RevokeAllAsync(Guid userId, string reason, CancellationToken cancellationToken)
-    {
-        await using var command = _dataSource.CreateCommand(
-            """
-            update identity.login_sessions
-            set revoked_at = @now, revocation_reason = @reason
-            where user_id = @user_id and revoked_at is null
-            """);
-        command.Parameters.AddWithValue("user_id", userId);
-        command.Parameters.AddWithValue("now", _time.GetUtcNow());
-        command.Parameters.AddWithValue("reason", reason);
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
     public async Task CreateAsync(NewLoginSession session, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand(
