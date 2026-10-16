@@ -45,3 +45,43 @@ limitar dimensões e pixels antes de processar. O fornecedor é escolhido depois
   a implementar no M1.
 - Teste de contrato do adaptador contra o fornecedor escolhido (a implementar quando houver fornecedor).
 - Revisão rejeita URL pública de bucket em DTO ou log.
+
+## Adendo (2026-10-16): fotos no disco da VPS, com cópia externa
+
+Decisão do responsável: as fotos (quarentena e derivados) ficam **no disco da VPS Hostinger**, num diretório do host
+montado nos containers `web` e `worker`, e não num object storage. A AWS foi descartada e o backup foi para o
+Backblaze B2 (adendo do ADR-0023). Isso reverte a alternativa "arquivos no disco da VPS" descartada acima; o motivo do
+descarte (perda do host) passa a ser coberto por uma **cópia externa obrigatória**, não pelo lugar onde a foto mora.
+
+O que não muda: leitura só por `GET /api/v1/media/{assetId}` com autorização a cada requisição e `no-store`; chave
+interna nunca fora da API; reconciliação banco × arquivos por máquina de estados e jobs idempotentes; porta
+`IObjectStore`, agora servida em produção pelo `FileSystemObjectStore` (o `S3ObjectStore` fica para o dia em que o
+volume pedir).
+
+- **Boot:** em `Production`, `Media:Storage:Provider=FileSystem` só sobe com `Media:Storage:FileSystemRoot` absoluto e
+  já existente. Diretório ausente quer dizer volume não montado, e gravar ali seria o disco efêmero do container
+  (spec 15.4), então o boot falha em vez de criar a pasta.
+- **Separação por processo:** sem chave por processo, a separação vira montagem. Proposta para o PR que ligar o upload:
+  `quarantine/` montado de leitura e escrita no `web` e no `worker`, `derivatives/` só leitura no `web` e de leitura e
+  escrita no `worker`, dono `1654`, `0700`. Trade-off aceito: o `web` consegue ler a quarentena que ele mesmo grava (o
+  S3 com credencial separada impedia); a quarentena continua sem rota de leitura na API (TM-44).
+- **Cópia externa (pré-requisito para ligar o upload em produção):** só `derivatives/` vai para o backup; a quarentena
+  é transitória (original com EXIF, 24 h no máximo) e fica de fora. Proposta mais simples, **a confirmar pelo
+  responsável por ser ferramenta nova**: `restic` (BSD-2-Clause, binário único, cifra no cliente, snapshots
+  incrementais, `restic check --read-data-subset`) para o prefixo `media/` do mesmo bucket B2 com File Lock, com chave
+  própria presa a `media/`, sem `deleteFiles`, num timer diário com verificação semanal. O repositório do pgBackRest
+  não serve: ele só guarda o cluster do PostgreSQL. `rclone sync` foi descartado: espelho não é backup (uma exclusão ou
+  corrupção se propaga) e a cifra seria outra camada para configurar.
+- **Exclusão e restore:** apagar uma foto apaga o arquivo na VPS na hora, mas a cópia dela fica no backup até o
+  snapshot sair da retenção, o lock vencer e o lifecycle limpar (proposta: 14 dias de snapshots + 21 de lock + 30 do
+  lifecycle). Isso entra no mapa de dados e na política de retenção (spec 12.4, 16.2). Restaurar fotos exige aplicar
+  depois as exclusões registradas no banco (tombstones, INV-11): arquivo de asset apagado ou reprovado é removido antes
+  de reabrir.
+- **Custo e capacidade:** sem egress de leitura (a foto sai do disco local). O disco da VPS passa a ter dois
+  consumidores que crescem (banco e fotos); `duora_min_free_gib` do deploy já barra disco cheio.
+
+Gate novo: o upload de fotos **não liga em produção** (`Media:Review` ausente no `compose.prod.yml`) sem o backup das
+fotos implementado, com verify que falhe fechado e um restore de ensaio que prove a volta dos derivados. Compliance
+acrescentado: `TheFileSystemStoreServesProductionFromAMountedDirectory`,
+`TheFileSystemStoreRefusesAMissingDirectoryInProduction`, `TheFileSystemStoreRefusesARelativeDirectoryInProduction` e
+`WebRefusesTheFileSystemPhotoStoreInProductionWithoutTheMountedDirectory`.
