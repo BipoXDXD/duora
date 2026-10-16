@@ -36,6 +36,23 @@ public static class DuoraAuthentication
     public const string CookieName = "__Host-duora";
 }
 
+/// <summary>
+/// Ambientes que rodam fora do container de produção e podem dispensar volume para o key ring. Allowlist: um nome
+/// novo (Staging, homologação) cai na regra de produção.
+/// </summary>
+public static class DuoraEnvironments
+{
+    public const string Testing = "Testing";
+
+    /// <summary>Geração do contrato OpenAPI no build (Duora.Web, BuildTimeOpenApi).</summary>
+    public const string BuildTimeOpenApi = "BuildTimeOpenApi";
+
+    public static bool RunsOutsideTheContainer(IHostEnvironment environment) =>
+        environment.IsDevelopment()
+        || environment.IsEnvironment(Testing)
+        || environment.IsEnvironment(BuildTimeOpenApi);
+}
+
 internal sealed class DataProtectionStorageOptions
 {
     public const string Section = "DataProtection";
@@ -140,9 +157,9 @@ public static class WebIdentityServiceCollectionExtensions
                 o => !string.IsNullOrWhiteSpace(o.KeysDirectory),
                 "DataProtection:KeysDirectory é obrigatório: o key ring precisa sobreviver à recriação do processo.")
             .Validate<IHostEnvironment>(
-                (o, environment) => o.RequireMountedVolume || !environment.IsProduction(),
-                "DataProtection:RequireMountedVolume=false é proibido em Production: só desenvolvimento, testes e a "
-                + "geração do OpenAPI rodam sem volume para o key ring.")
+                (o, environment) => o.RequireMountedVolume || DuoraEnvironments.RunsOutsideTheContainer(environment),
+                "DataProtection:RequireMountedVolume=false só vale em Development, Testing e BuildTimeOpenApi: fora "
+                + "deles o key ring precisa de volume.")
             .Validate(
                 o => o.IsPersistent(),
                 "DataProtection:KeysDirectory precisa ser o ponto de montagem de um volume persistente: na camada do "
