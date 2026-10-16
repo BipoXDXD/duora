@@ -51,4 +51,14 @@ public sealed class RegionCodeTests
         Assert.False(RegionCode.TryParse(value, out var region));
         Assert.Null(region);
     }
+
+    /// <summary>
+    /// Como <c>DisplayName.TryParse</c> e <c>ProfileBio.TryParse</c>, <c>null</c> não é entrada: quem chama trata o
+    /// <c>null</c> do JSON (limpar a região) antes do parse.
+    /// </summary>
+    [Fact]
+    public void NullIsAProgrammingErrorNotAnUnknownRegion()
+    {
+        Assert.Throws<ArgumentNullException>(() => RegionCode.TryParse(null!, out _));
+    }
 }
