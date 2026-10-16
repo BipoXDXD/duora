@@ -83,6 +83,23 @@ contra replay, unicidade e transição condicional, então repetição e concorr
 regra pura é testável por propriedades sem banco. Porquê de negócio: o fluxo inteiro fica pronto e testado antes da
 contratação, e trocar de fornecedor é escrever um adaptador.
 
+## Adendo (revisões dos PRs #42, #39 e #43, 2026-10-16)
+
+Detalhes decididos na revisão, sem mudar as decisões acima:
+
+- **Evento repetido com outro corpo (decisão do responsável técnico).** Mesmo `provider_event_id` com `payload_sha256`
+  diferente do recibo gravado: 204 sem efeito (vale o primeiro), log estruturado de alerta sem o corpo e métrica
+  `webhook_event_conflict` (meter `Duora.Webhooks`). Não responde 409, para o fornecedor não ficar repetindo.
+- **Callback tardio.** `Pending` além de `RequestLifetime` e ainda não substituída recebe o resultado normalmente.
+  Numa solicitação `Expired`, `NotAdult` ainda restringe a conta (auditoria `identity.age_verification_late_not_adult`
+  com o id da solicitação); `VerifiedAdult` e `Inconclusive` não mudam nada.
+- **Solicitação abandonada.** Também conta como abandonada a `Pending` sem referência cuja tarefa do worker terminou
+  `Failed` ou `Expired`. `ManualReview` responde 202 com `WaitForReview`; conta restrita ou suspensa recebe 409 mesmo
+  com uma aberta; `PendingEligibility` com `VerifiedAdult` válida volta a `StartVerification`.
+- **Rotas de participação.** Quando surgir a primeira rota de evento (M2), entra um grupo `/api/v1` de participação
+  com `RequireEligibleParticipant()` aplicado no grupo, e não rota a rota.
+- **Rate limit** de API-P05 e do webhook: aceito sem limite próprio por ora (TM-39).
+
 ## Consequências
 
 - Positivas: a liberação de participação depende só de callback autenticado associado a solicitação criada pelo
