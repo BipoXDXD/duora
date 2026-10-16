@@ -192,6 +192,18 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
             state,
             decidedAt);
 
+    /// <summary>Solicitação sem decisão (<c>Pending</c> ou <c>Expired</c>) e sem fluxo do fornecedor.</summary>
+    public Task AddUndecidedRequestAsync(Guid userId, string state, DateTimeOffset requestedAt) =>
+        ExecuteAsync(
+            """
+            insert into identity.age_verifications
+                (id, user_id, state, policy_version, provider, request_nonce, requested_at, version)
+            values (gen_random_uuid(), $1, $2, 'test-2026-10', 'fake', 'nonce-' || gen_random_uuid(), $3, 0)
+            """,
+            userId,
+            state,
+            requestedAt);
+
     /// <summary>Encerra a tarefa do worker da solicitação aberta como se ele tivesse desistido ou o prazo tivesse vencido.</summary>
     public Task SetProviderTaskStatusAsync(Guid userId, string status) =>
         ExecuteAsync(
