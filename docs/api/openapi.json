@@ -992,6 +992,204 @@
           }
         }
       }
+    },
+    "/api/v1/me/photos": {
+      "post": {
+        "tags": [
+          "Photos"
+        ],
+        "description": "Envia uma foto em corpo cru (image/jpeg, image/png ou image/webp), com Content-Length de 1 byte a 5 MiB e Idempotency-Key obrigatórios. Responde 202 com a foto em quarentena; a mesma chave com os mesmos bytes devolve a mesma foto, e com outros bytes, 409.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Chave do cliente para repetir o envio sem duplicar: 1 a 64 caracteres [A-Za-z0-9_-].",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "image/jpeg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "411": {
+            "description": "Length Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/photos/{photoId}/status": {
+      "get": {
+        "tags": [
+          "Photos"
+        ],
+        "description": "Estado do processamento de uma foto do titular.",
+        "parameters": [
+          {
+            "name": "photoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1243,6 +1441,49 @@
         "additionalProperties": false,
         "description": "Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec\n8.1); `\"0\"` quando o perfil ainda não foi salvo. Nome e descrição vêm `null` enquanto não preenchidos."
       },
+      "PhotoStatusResponse": {
+        "required": [
+          "photoId",
+          "status",
+          "rejectionCode"
+        ],
+        "type": "object",
+        "properties": {
+          "photoId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "rejectionCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Estado de processamento de uma foto do titular. `RejectionCode` só vem com Status Rejected."
+      },
+      "PhotoUploadResponse": {
+        "required": [
+          "photoId",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "photoId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Upload aceito. `Status`: Pending | Quarantined | Processing | Approved | Rejected | Deleted (spec 4.2); um\nenvio novo responde Quarantined, e a repetição com a mesma chave responde o estado atual do primeiro."
+      },
       "ProblemDetails": {
         "type": "object",
         "properties": {
@@ -1432,6 +1673,10 @@
         },
         "additionalProperties": false
       },
+      "Stream": {
+        "type": "string",
+        "format": "binary"
+      },
       "UpdateProfileRequest": {
         "type": "object",
         "properties": {
@@ -1469,6 +1714,9 @@
     },
     {
       "name": "Safety"
+    },
+    {
+      "name": "Photos"
     }
   ]
 }
