@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Duora.Core.Identity;
 
 namespace Duora.Infrastructure.Audit;
 
@@ -9,6 +10,12 @@ internal enum AuditActorKind
     Moderator,
     Admin,
     Operator,
+
+    /// <summary>
+    /// Quem rodou um comando operacional no host, sem conta no produto (o bootstrap cria a primeira). Não é o papel
+    /// <c>operator</c>: identifica-se só pelo rótulo <c>--operator</c>, nunca por id.
+    /// </summary>
+    TerminalOperator,
     System,
 }
 
@@ -80,6 +87,16 @@ internal sealed record AuditAction
     /// <summary>O titular encerrou uma sessão pela lista de sessões (API-A10).</summary>
     public static readonly AuditAction SessionRevoked = new("identity.session_revoked");
 
+    /// <summary>Conta privilegiada criada pelo comando operacional (<c>admin grant</c>, spec 11.1), uma ação por papel.</summary>
+    public static readonly AuditAction AdminGrantedModerator = new("identity.admin_granted.moderator");
+
+    public static readonly AuditAction AdminGrantedProductAdmin = new("identity.admin_granted.product_admin");
+
+    public static readonly AuditAction AdminGrantedOperator = new("identity.admin_granted.operator");
+
+    /// <summary>Senha temporária nova para a conta do bootstrap que ainda não ativou o MFA (<c>--reissue</c>).</summary>
+    public static readonly AuditAction AdminTemporaryPasswordReissued = new("identity.admin_temporary_password_reissued");
+
     public static readonly AuditAction AgeVerificationRequested = new("identity.age_verification_requested");
 
     public static readonly AuditAction AgeVerificationExpired = new("identity.age_verification_expired");
@@ -95,6 +112,16 @@ internal sealed record AuditAction
     private AuditAction(string code) => Code = code;
 
     public string Code { get; }
+
+    /// <summary>A concessão do papel privilegiado: o papel fica na ação, sem coluna nova nem texto livre.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">O papel não é privilegiado.</exception>
+    public static AuditAction AdminGranted(string role) => role switch
+    {
+        AccountRoles.Moderator => AdminGrantedModerator,
+        AccountRoles.ProductAdmin => AdminGrantedProductAdmin,
+        AccountRoles.Operator => AdminGrantedOperator,
+        _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Papel sem ação de concessão."),
+    };
 }
 
 /// <summary>Tipos de alvo usados em <see cref="AuditRecord.TargetType"/>.</summary>
@@ -120,6 +147,33 @@ internal sealed partial record AuditRecord
         string targetType,
         Guid targetId,
         long? targetVersion = null)
+        : this(actorKind, actorId, actorLabel: null, action, targetType, targetId, targetVersion)
+    {
+    }
+
+    /// <summary>
+    /// Fato registrado por quem rodou um comando no host, sem conta no produto (o bootstrap cria a primeira). O rótulo
+    /// vem do argumento obrigatório <c>--operator</c>: é o que quem rodou declarou, não uma identidade verificada; quem
+    /// responde pelo comando é quem tem acesso ao host.
+    /// </summary>
+    public static AuditRecord ByTerminalOperator(
+        OperatorName operatorName,
+        AuditAction action,
+        string targetType,
+        Guid targetId)
+    {
+        ArgumentNullException.ThrowIfNull(operatorName);
+        return new AuditRecord(AuditActorKind.TerminalOperator, actorId: null, operatorName, action, targetType, targetId, targetVersion: null);
+    }
+
+    private AuditRecord(
+        AuditActorKind actorKind,
+        Guid? actorId,
+        OperatorName? actorLabel,
+        AuditAction action,
+        string targetType,
+        Guid targetId,
+        long? targetVersion)
     {
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(targetType);
@@ -128,9 +182,17 @@ internal sealed partial record AuditRecord
             throw new ArgumentOutOfRangeException(nameof(actorKind), actorKind, "Ator desconhecido.");
         }
 
-        if (actorId == Guid.Empty || (actorKind != AuditActorKind.System && actorId is null))
+        if ((actorKind == AuditActorKind.TerminalOperator) != (actorLabel is not null))
         {
-            throw new ArgumentException("Só o sistema age sem id de ator.", nameof(actorId));
+            throw new ArgumentException("Só o operador de terminal tem rótulo, e ele sempre o tem.", nameof(actorKind));
+        }
+
+        var actsWithoutId = actorKind is AuditActorKind.System or AuditActorKind.TerminalOperator;
+        if (actorId == Guid.Empty
+            || (actorId is null && !actsWithoutId)
+            || (actorId is not null && actorKind == AuditActorKind.TerminalOperator))
+        {
+            throw new ArgumentException("Só o sistema e o operador de terminal agem sem id de ator.", nameof(actorId));
         }
 
         if (!TargetTypeFormat().IsMatch(targetType))
@@ -141,6 +203,7 @@ internal sealed partial record AuditRecord
         ArgumentOutOfRangeException.ThrowIfEqual(targetId, Guid.Empty);
         ActorKind = actorKind;
         ActorId = actorId;
+        ActorLabel = actorLabel;
         Action = action;
         TargetType = targetType;
         TargetId = targetId;
@@ -150,6 +213,8 @@ internal sealed partial record AuditRecord
     public AuditActorKind ActorKind { get; }
 
     public Guid? ActorId { get; }
+
+    public OperatorName? ActorLabel { get; }
 
     public AuditAction Action { get; }
 

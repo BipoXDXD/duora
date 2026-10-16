@@ -25,7 +25,7 @@ public sealed record NewLoginSession(
 
 /// <summary>
 /// Sessão válida depois do toque: o ticket e o estado que muda sem novo ticket (reautenticação, prova de MFA) ou
-/// fora da sessão (papéis da conta, lidos agora, não no login).
+/// fora da sessão (papéis da conta e senha temporária, lidos agora, não no login).
 /// </summary>
 public sealed record TouchedSession(
     byte[] ProtectedTicket,
@@ -34,7 +34,8 @@ public sealed record TouchedSession(
     DateTimeOffset? MfaVerifiedAt,
     DateTimeOffset? TotpVerifiedAt,
     DateTimeOffset AbsoluteExpiresAt,
-    bool AccountIsPrivileged);
+    bool AccountIsPrivileged,
+    bool AwaitsPasswordChange);
 
 /// <summary>
 /// Persistência das sessões de login (spec 11.1). A chave opaca do cookie só é guardada como hash. Recuperar uma
@@ -117,7 +118,8 @@ public sealed class LoginSessions
 
     /// <summary>
     /// Sessão ainda válida, já com a expiração ociosa da sua política renovada; null se não vale mais. Os papéis são
-    /// lidos agora: tirar o papel de alguém vale na requisição seguinte, sem esperar o fim da sessão.
+    /// lidos agora: tirar o papel de alguém vale na requisição seguinte, sem esperar o fim da sessão. Uma senha
+    /// temporária vencida (bootstrap, D4) encerra a sessão aberta com ela.
     /// </summary>
     public async Task<TouchedSession?> TouchAsync(string key, CancellationToken cancellationToken)
     {
@@ -135,11 +137,13 @@ public sealed class LoginSessions
               and s.absolute_expires_at > @now
               and u.id = s.user_id
               and u.security_stamp = s.security_stamp
+              and (u.temporary_password_expires_at is null or u.temporary_password_expires_at > @now)
             returning s.ticket, s.policy, s.reauthenticated_at, s.mfa_verified_at, s.totp_verified_at,
                 s.absolute_expires_at,
                 exists (
                     select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
-                    where ur.user_id = s.user_id and r.name = any(@privileged_roles))
+                    where ur.user_id = s.user_id and r.name = any(@privileged_roles)),
+                u.temporary_password_expires_at is not null
             """);
         command.Parameters.AddWithValue("key_hash", HashKey(key));
         command.Parameters.AddWithValue("now", _time.GetUtcNow());
@@ -159,7 +163,8 @@ public sealed class LoginSessions
             reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
             reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
             reader.GetFieldValue<DateTimeOffset>(5),
-            reader.GetBoolean(6));
+            reader.GetBoolean(6),
+            reader.GetBoolean(7));
     }
 
     public async Task ReplaceTicketAsync(string key, byte[] protectedTicket, CancellationToken cancellationToken)

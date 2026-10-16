@@ -24,7 +24,14 @@ internal sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEv
             table.HasCheckConstraint("ck_audit_events_actor_kind", $"actor_kind IN ({actorKinds})");
             table.HasCheckConstraint(
                 "ck_audit_events_actor_id",
-                "actor_kind = 'System' OR actor_id IS NOT NULL");
+                "actor_kind IN ('System', 'TerminalOperator') OR actor_id IS NOT NULL");
+            // O operador de terminal não tem conta: só ele tem rótulo, sempre, sem id e no formato de usuário de
+            // sistema. O teste de nulo vem antes do ~, porque NULL ~ padrão é NULL, e CHECK com NULL passa.
+            table.HasCheckConstraint(
+                "ck_audit_events_actor_label",
+                "CASE WHEN actor_kind = 'TerminalOperator' "
+                + $"THEN actor_id IS NULL AND actor_label IS NOT NULL AND actor_label ~ '{OperatorName.DatabasePattern}' "
+                + "ELSE actor_label IS NULL END");
             table.HasCheckConstraint("ck_audit_events_action", "action ~ '^[a-z]+(\\.[a-z_]+)+$'");
             table.HasCheckConstraint("ck_audit_events_target_type", "target_type ~ '^[a-z][a-z_]{0,31}$'");
         });
@@ -34,6 +41,7 @@ internal sealed class AuditEventConfiguration : IEntityTypeConfiguration<AuditEv
         builder.Property(e => e.OccurredAt).HasColumnName("occurred_at");
         builder.Property(e => e.ActorKind).HasColumnName("actor_kind").HasConversion<string>().HasMaxLength(16);
         builder.Property(e => e.ActorId).HasColumnName("actor_id");
+        builder.Property(e => e.ActorLabel).HasColumnName("actor_label").HasMaxLength(OperatorName.MaxLength);
         builder.Property(e => e.Action).HasColumnName("action").HasMaxLength(ActionMaxLength).IsRequired();
         builder.Property(e => e.TargetType).HasColumnName("target_type").HasMaxLength(TargetTypeMaxLength).IsRequired();
         builder.Property(e => e.TargetId).HasColumnName("target_id");
