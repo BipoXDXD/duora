@@ -151,6 +151,17 @@ public sealed class StartupConfigurationTests
     }
 
     [Fact]
+    public async Task ProductionRefusesToTurnOffTheCertificateRequirement()
+    {
+        await using var app = BuildWeb("--environment=Production", "--DataProtection:RequireCertificate=false");
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("DataProtection:RequireCertificate", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void KeyRingCertificateIsRequiredUnlessConfigurationTurnsItOff()
     {
         Assert.True(new DataProtectionStorageOptions().RequireCertificate);
