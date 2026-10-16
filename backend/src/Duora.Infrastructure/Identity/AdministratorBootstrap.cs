@@ -20,7 +20,11 @@ public abstract record AdministratorCredential
     /// Senha temporária emitida. <paramref name="TemporaryPassword"/> só existe neste objeto: o banco guarda o hash, e
     /// quem chamou a mostra uma vez a quem rodou o comando.
     /// </summary>
-    public sealed record Issued(Guid UserId, string TemporaryPassword, DateTimeOffset ExpiresAt) : AdministratorCredential;
+    public sealed record Issued(Guid UserId, string TemporaryPassword, DateTimeOffset ExpiresAt) : AdministratorCredential
+    {
+        /// <summary>Sem a senha: o texto de um record pode acabar num log ou numa mensagem de erro.</summary>
+        public override string ToString() => $"{nameof(Issued)} {{ UserId = {UserId}, ExpiresAt = {ExpiresAt:O} }}";
+    }
 
     /// <summary>Nenhuma conta mudou: o e-mail não serve para a operação pedida.</summary>
     public sealed record Refused : AdministratorCredential;
@@ -134,15 +138,6 @@ public sealed class AdministratorBootstrap
             now + TemporaryPasswordLifetime);
     }
 
-    private sealed record TemporaryIssue(
-        EmailAddress Email,
-        string NormalizedEmail,
-        string Role,
-        string Password,
-        string PasswordHash,
-        DateTimeOffset Now,
-        DateTimeOffset ExpiresAt);
-
     private sealed record ReissuedAccount(Guid UserId, string Email);
 
     /// <summary>
@@ -243,4 +238,18 @@ public sealed class AdministratorBootstrap
             throw new InvalidOperationException("Papel privilegiado ausente do catálogo identity.roles.");
         }
     }
+}
+
+/// <summary>Uma emissão em andamento: a senha em claro e o hash dela existem só aqui, até a saída do comando.</summary>
+internal sealed record TemporaryIssue(
+    EmailAddress Email,
+    string NormalizedEmail,
+    string Role,
+    string Password,
+    string PasswordHash,
+    DateTimeOffset Now,
+    DateTimeOffset ExpiresAt)
+{
+    /// <summary>Sem senha nem hash: o texto de um record pode acabar num log ou numa mensagem de erro.</summary>
+    public override string ToString() => $"{nameof(TemporaryIssue)} {{ Role = {Role}, ExpiresAt = {ExpiresAt:O} }}";
 }
