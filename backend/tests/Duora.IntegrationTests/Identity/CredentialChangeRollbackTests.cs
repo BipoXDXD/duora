@@ -119,6 +119,24 @@ public sealed class CredentialChangeRollbackTests : IAsyncDisposable
             account.UserId));
     }
 
+    [Fact]
+    public async Task AFailedRecoveryCodeRegenerationLeavesNoNoticeAndOldCodesValid()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        var mfa = await MfaScenario.EnableAsync(browser, _time);
+        var before = await AccountStateAsync(account.UserId);
+        _failure.Arm(account.UserId);
+
+        using var response = await browser.PostJsonAsync(MfaScenario.RecoveryCodes, body: null);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.True(_failure.Fired);
+        Assert.Equal(before, await AccountStateAsync(account.UserId));
+        using var login = await MfaScenario.LoginAsync(new Browser(_factory), account, recoveryCode: mfa.RecoveryCodes[0]);
+        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+    }
+
     private async Task AssertOldPasswordStillSignsInAsync(TestAccount account)
     {
         using var browser = new Browser(_factory);
