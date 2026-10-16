@@ -33,6 +33,8 @@ public sealed class SecondFactorHardeningTests : IAsyncDisposable
                 ["RateLimiting:LoginPerIp:Window"] = "00:01:00",
                 ["RateLimiting:AccountSecurityPerAccount:PermitLimit"] = "1000",
                 ["RateLimiting:AccountSecurityPerAccount:Window"] = "01:00:00",
+                // Dezenas de verificações da mesma conta em fila: a espera pelo lock passa do padrão de 5 s no CI.
+                ["Identity:AccountLockTimeout"] = "00:01:00",
             },
         };
     }
@@ -71,21 +73,26 @@ public sealed class SecondFactorHardeningTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task EnoughParallelFailuresLockTheAccount()
+    public async Task EnoughParallelFailuresLockTheAccountAfterExactlyTwentyEvaluations()
     {
-        var account = await Scenario.CreateConfirmedAccountAsync();
-        using var browser = await Scenario.SignedInBrowserAsync(account);
+        // 20 falhas seguidas bloqueiam (Identity:Lockout). Com 30 em paralelo, só 20 chegam a avaliar o segundo
+        // fator; as outras já encontram a conta bloqueada. A auditoria conta as avaliações.
+        var (account, mfa) = await AccountWithMfaAsync();
+        var browsers = await BrowsersAsync(30);
 
-        // 20 falhas seguidas bloqueiam (Identity:Lockout); uma a mais confere que nenhuma se perdeu no caminho.
-        var responses = await Task.WhenAll(Enumerable.Range(0, 21).Select(_ =>
-            browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = "não é a senha certa" })));
-        using var right = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password });
+        var responses = await Task.WhenAll(browsers.Select(browser =>
+            MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Wrong(_time, mfa.SharedKey))));
+        using var right = await MfaScenario.LoginAsync(
+            new Browser(_factory),
+            account,
+            twoFactorCode: Totp.Next(_time, mfa.SharedKey));
 
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode));
         Assert.Equal(HttpStatusCode.Unauthorized, right.StatusCode);
-        Assert.Equal(1, await Scenario.ScalarAsync(
-            "select count(*) from identity.users where id = $1 and lockout_end is not null",
-            account.UserId));
+        Assert.Equal(20, (await MfaEnrollmentTests.AuditActionsAsync(_postgres, account.UserId))
+            .Count(action => action == "identity.second_factor_failed"));
         Dispose(responses);
+        browsers.ForEach(browser => browser.Dispose());
     }
 
     [Fact]

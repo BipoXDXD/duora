@@ -139,7 +139,7 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 | Recuperação de MFA de conta privilegiada | Não há caminho self-service por e-mail: procedimento operacional auditado, com outra pessoa ou conta privilegiada quando houver (TM-22). O reset de senha não remove nem contorna o MFA (`AdminMfaTests.PasswordResetDoesNotBypassMfaForPrivilegedAccount`) |
 | Armazenamento | Verificado: o Identity 10.0.13 grava chave e códigos em claro em `identity.user_tokens`, e ligar `ProtectPersonalData` exigiria um `ILookupProtector` próprio que também cifraria e-mail e nome de usuário. Decidido em 2026-10-15: **D2**, a chave do autenticador é protegida por Data Protection num `DuoraUserManager` (só no web), com o custo de que perder o key ring invalida o TOTP de todos (a chave ilegível é tratada como ausente); **D3**, os códigos de recuperação ficam só como hash PBKDF2 do `PasswordHasher`, um por código, num `IUserTwoFactorRecoveryCodeStore` próprio (`DuoraUserStore`), com o custo de até 10 verificações PBKDF2 por resgate |
 | Auditoria | `ops.audit_events` na mesma transação: `identity.mfa_enrollment_started`, `mfa_enabled`, `mfa_disabled`, `mfa_recovery_codes_regenerated`, `mfa_recovery_code_used`, `reauthenticated` e `password_changed` |
-| Risco residual | O key ring é ponto único de falha do TOTP (D2). O lock por conta serializa logins da mesma conta durante um hash; contido pelo rate limit |
+| Risco residual | O key ring é ponto único de falha do TOTP (D2). O lock por conta serializa as verificações da mesma conta durante um hash; a espera tem teto (`Identity:AccountLockTimeout`, **5 s, hipótese**, aplicado com `lock_timeout` só na transação), e passado o teto a rota responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem gravar nada (A04, A11 a A16; `AccountLockTimeoutTests`). Um `503` só aparece com dezenas de verificações simultâneas da mesma conta, o que o rate limit por conta (`429`, igual para conta existente ou não) impede antes de virar canal de enumeração. **Aceito pelo responsável técnico (residual do I3):** login com código de recuperação ainda libera, por 5 min, o A16 e, para participante, o A15, porque esse é o caminho de quem perdeu o dispositivo; o A14 e as ações administrativas críticas continuam exigindo TOTP |
 
 ## CSRF
 
@@ -435,3 +435,6 @@ sem artefato do CI (spec 25.19).
   - I4: reset não zera o lockout de conta com MFA; segundo fator errado é auditado. I5: pré-condição do bootstrap.
   - Menores: limite por conta (não por sessão) também no A13, renovação herda o limite absoluto, concorrência no
     A12/A14 sem `500`, normalização de espaços e hífen.
+- **2026-10-16, fix/mfa-lock-timeout.** Seguimento da re-revisão do #38: teto configurável na espera pelo lock da
+  conta, com `503` `TEMPORARILY_UNAVAILABLE` e `Retry-After`; migration `ParticipantRoleBackfill` (idempotente)
+  para contas cadastradas sem papel por uma instância antiga durante o deploy; residual do I3 aceito e registrado.

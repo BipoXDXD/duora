@@ -36,6 +36,7 @@ internal static class DuoraWebApp
         builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = MaxRequestBodyBytes);
 
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ApiProblems.AddDefaultCode);
+        builder.Services.AddExceptionHandler<AccountBusyExceptionHandler>();
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
             // DTO estrito (spec 8.1): campo desconhecido ou repetido é 400, nunca ignorado.
