@@ -12,6 +12,11 @@ internal enum AccountEmailKind
     RegistrationAttemptOnExistingAccount,
     PendingRegistrationReminder,
     PasswordResetForUnknownAddress,
+    MfaEnabledNotice,
+    MfaDisabledNotice,
+    RecoveryCodesRegeneratedNotice,
+    PasswordChangedNotice,
+    PasswordResetNotice,
 }
 
 /// <summary>
@@ -47,6 +52,14 @@ internal static class AccountEmailOutbox
         AccountEmailKind.RegistrationAttemptOnExistingAccount
             or AccountEmailKind.PendingRegistrationReminder
             or AccountEmailKind.PasswordResetForUnknownAddress => TimeSpan.FromHours(24),
+
+        // Aviso de credencial não tem link que expire e continua útil enquanto a pessoa puder reagir: 72 h
+        // (hipótese) cobrem um fim de semana de worker parado sem mandar um aviso velho demais para fazer sentido.
+        AccountEmailKind.MfaEnabledNotice
+            or AccountEmailKind.MfaDisabledNotice
+            or AccountEmailKind.RecoveryCodesRegeneratedNotice
+            or AccountEmailKind.PasswordChangedNotice
+            or AccountEmailKind.PasswordResetNotice => TimeSpan.FromHours(72),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Tipo de e-mail desconhecido."),
     };
 

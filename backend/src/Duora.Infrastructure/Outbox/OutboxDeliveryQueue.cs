@@ -2,14 +2,19 @@ using Npgsql;
 
 namespace Duora.Infrastructure.Outbox;
 
-/// <summary>Entrega tomada por um worker: só vale enquanto o token de fencing for o atual.</summary>
+/// <summary>
+/// Entrega tomada por um worker: só vale enquanto o token de fencing for o atual. <paramref name="OccurredAt"/> é o
+/// instante do evento (coluna da outbox, não campo do payload), para o consumidor citá-lo sem mudar o schema do
+/// payload.
+/// </summary>
 internal sealed record ClaimedDelivery(
     Guid Id,
     long FencingToken,
     int Attempts,
     DateTimeOffset DeadlineAt,
     string EventType,
-    string Payload);
+    string Payload,
+    DateTimeOffset OccurredAt);
 
 /// <summary>
 /// Fila de entregas sobre o PostgreSQL (spec 10.6). Cada operação é um único comando: a posse sai com
@@ -44,7 +49,7 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         ops.outbox_events e
         where d.id = claimable.id
           and e.id = d.outbox_event_id
-        returning d.id, d.fencing_token, d.attempts, d.deadline_at, e.type, e.payload::text
+        returning d.id, d.fencing_token, d.attempts, d.deadline_at, e.type, e.payload::text, e.occurred_at
         """;
 
     // Estado final e, se era a última entrega aberta do evento, payload esvaziado no mesmo comando. O CTE de
@@ -104,7 +109,8 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
                 reader.GetInt32(2),
                 reader.GetFieldValue<DateTimeOffset>(3),
                 reader.GetString(4),
-                reader.GetString(5)));
+                reader.GetString(5),
+                reader.GetFieldValue<DateTimeOffset>(6)));
         }
 
         return claimed;
