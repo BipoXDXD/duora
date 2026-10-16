@@ -240,6 +240,8 @@ public sealed class ProfileTextStructureTests
         { "começa com CGJ", "\u034FAna" },
         { "dois CGJ na mesma base", "a\u034F\u034F" },
         { "seletor depois de espaço", "Ana \uFE0Fx" },
+        { "seletor suplementar depois de letra latina", "a\uDB40\uDD00" },
+        { "seletor suplementar depois de emoji", "\u263A\uDB40\uDD00" },
     };
 
     [Theory]
@@ -263,6 +265,7 @@ public sealed class ProfileTextStructureTests
         { "emoji com VS16", "\u263A\uFE0F" },
         { "letra com VS15", "Ana\uFE0E" },
         { "ideograma com seletor suplementar", "\u845B\uDB40\uDD00" },
+        { "ideograma da extensão B com seletor suplementar", "\uD840\uDC0B\uDB40\uDD01" },
         { "mongol com FVS1", "\u1820\u180B" },
         { "CGJ depois da base", "a\u034Fb" },
         { "marcas em bases diferentes", "x\u0332\u0332\u0332\u0332y\u0332\u0332\u0332\u0332" },
