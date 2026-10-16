@@ -92,6 +92,9 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         { "animated-webp", "image/webp", "ANIMATED" },
         { "truncated-png", "image/png", "CORRUPT_IMAGE" },
         { "truncated-jpeg", "image/jpeg", "CORRUPT_IMAGE" },
+        { "png-wrong-crc", "image/png", "CORRUPT_IMAGE" },
+        { "png-garbage-idat", "image/png", "CORRUPT_IMAGE" },
+        { "jpeg-tampered-dht", "image/jpeg", "CORRUPT_IMAGE" },
     };
 
     [Theory]
@@ -372,6 +375,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         "animated-webp" => TestImages.AnimatedWebP(),
         "truncated-png" => TestImages.Truncated(TestImages.Png(400, 300)),
         "truncated-jpeg" => TestImages.Truncated(TestImages.Jpeg(400, 300)),
+        "png-wrong-crc" or "png-garbage-idat" or "jpeg-tampered-dht" => PhotoSanitizerTests.CorruptFixture(file),
         _ => throw new ArgumentOutOfRangeException(nameof(file), file, "Arquivo hostil sem gerador."),
     };
 
