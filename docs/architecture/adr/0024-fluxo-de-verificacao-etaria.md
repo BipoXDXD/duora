@@ -139,6 +139,14 @@ validade e o desdobramento "elegível é `VerifiedAdult` cujo `expires_at` é po
   é adulta verificada: a verificação permanente não blinda contra suspeita de menor (spec 12.2), e só a revisão do
   M2 tira a restrição. `VerifiedAdult` e `Inconclusive` tardios numa `Expired` seguem sem efeito (falha fechada; a
   pessoa pede de novo se ainda não for adulta verificada).
+- **Suspeita de menor é durável (revisão independente do PR #59).** Todo `NotAdult`, em qualquer estado da
+  solicitação (inclusive corrigindo a `VerifiedAdult` da mesma solicitação, ou chegando com a conta suspensa),
+  grava `age_verifications.minor_suspected_at` (o primeiro instante; repetição não muda nada). Numa `Pending` a
+  solicitação vira `Rejected`; nas demais o estado fica. A elegibilidade nega (`NotAvailable`) enquanto qualquer
+  solicitação da pessoa tiver a suspeita, qualquer que seja o estado da conta: se ela voltar a `Active` por outro
+  caminho (fim de suspensão, erro de operação), a `VerifiedAdult` não volta a valer. **Lacuna do M2:** só a revisão
+  humana remove a suspeita; o caso de uso, a autorização dele, a auditoria e a regra de quando a `VerifiedAdult`
+  volta a valer ficam para o M2. Até lá, ninguém remove (nem por SQL de operação).
 
 ## Consequências
 

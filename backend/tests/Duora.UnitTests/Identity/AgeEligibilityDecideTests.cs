@@ -134,4 +134,49 @@ public sealed class AgeEligibilityDecideTests
             AgeVerificationState.Pending,
             (AgeCheckOutcome)99));
     }
+
+    [Theory]
+    [InlineData(AgeVerificationState.VerifiedAdult)]
+    [InlineData(AgeVerificationState.Rejected)]
+    [InlineData(AgeVerificationState.ManualReview)]
+    [InlineData(AgeVerificationState.Expired)]
+    public void NotAdultOnADecidedRequestRecordsTheSuspicionAndKeepsTheRequest(AgeVerificationState state)
+    {
+        // Suspeita de menor corrige até a VerifiedAdult da mesma solicitação (spec 12.2): fica gravada e restringe.
+        var decision = AgeEligibility.Decide(AccountStatus.Active, state, AgeCheckOutcome.NotAdult);
+
+        Assert.NotNull(decision);
+        Assert.Equal(state, decision.VerificationState);
+        Assert.Equal(AccountStatus.Restricted, decision.AccountStatus);
+        Assert.True(decision.MinorSuspected);
+    }
+
+    [Fact]
+    public void NotAdultOnASuspendedAccountStillRecordsTheSuspicion()
+    {
+        var decision = AgeEligibility.Decide(AccountStatus.Suspended, AgeVerificationState.Expired, AgeCheckOutcome.NotAdult);
+
+        Assert.NotNull(decision);
+        Assert.Equal(AccountStatus.Suspended, decision.AccountStatus);
+        Assert.True(decision.MinorSuspected);
+    }
+
+    [Fact]
+    public void NotAdultOnAPendingRequestRejectsItAndRecordsTheSuspicion()
+    {
+        var decision = AgeEligibility.Decide(AccountStatus.PendingEligibility, AgeVerificationState.Pending, AgeCheckOutcome.NotAdult);
+
+        Assert.Equal(AgeVerificationState.Rejected, decision?.VerificationState);
+        Assert.True(decision?.MinorSuspected);
+    }
+
+    [Theory]
+    [InlineData(AgeCheckOutcome.VerifiedAdult)]
+    [InlineData(AgeCheckOutcome.Inconclusive)]
+    public void OnlyNotAdultIsASuspicion(AgeCheckOutcome outcome)
+    {
+        var decision = AgeEligibility.Decide(AccountStatus.PendingEligibility, AgeVerificationState.Pending, outcome);
+
+        Assert.False(decision?.MinorSuspected);
+    }
 }

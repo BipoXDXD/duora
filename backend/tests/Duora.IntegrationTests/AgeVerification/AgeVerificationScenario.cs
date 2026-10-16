@@ -205,6 +205,19 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
             state,
             requestedAt);
 
+    /// <summary>Instante da suspeita de menor gravada na solicitação, ou <c>null</c>.</summary>
+    public async Task<DateTimeOffset?> MinorSuspectedAtAsync(Guid verificationId)
+    {
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select minor_suspected_at from identity.age_verifications where id = $1",
+            connection);
+        command.Parameters.AddWithValue(verificationId);
+        var value = await command.ExecuteScalarAsync(TestContext.Current.CancellationToken);
+        return value is DateTime instant ? new DateTimeOffset(instant, TimeSpan.Zero) : null;
+    }
+
     /// <summary>Encerra a tarefa do worker da solicitação aberta como se ele tivesse desistido ou o prazo tivesse vencido.</summary>
     public Task SetProviderTaskStatusAsync(Guid userId, string status) =>
         ExecuteAsync(

@@ -224,13 +224,16 @@ public sealed class AgeWebhookTests : IAsyncDisposable
             response.Dispose();
         }
 
+        // Uma só transição da solicitação; em qualquer ordem, a suspeita de menor vence (spec 12.2): NotAdult primeiro
+        // rejeita (versão 2); VerifiedAdult primeiro e NotAdult depois grava a suspeita sobre ela (versão 3).
         var verification = Assert.Single(await Verification.VerificationsAsync(open.Account.UserId));
         var account = await Verification.AccountStatusAsync(open.Account.UserId);
-        Assert.Equal(2, verification.Version);
         Assert.Equal(1, await Verification.CountAuditAsync("identity.age_verification_decided", open.VerificationId));
+        Assert.Equal("Restricted", account);
+        Assert.NotNull(await Verification.MinorSuspectedAtAsync(open.VerificationId));
         Assert.True(
-            (verification.State, account) is ("VerifiedAdult", "Active") or ("Rejected", "Restricted"),
-            $"Estado incoerente: {verification.State} com conta {account}.");
+            (verification.State, verification.Version) is ("Rejected", 2) or ("VerifiedAdult", 3),
+            $"Estado incoerente: {verification.State} na versão {verification.Version}.");
         Assert.Equal(2, await Scenario.CountReceiptsForReferenceAsync(open.Reference));
     }
 
@@ -273,7 +276,7 @@ public sealed class AgeWebhookTests : IAsyncDisposable
         }
 
         var lateEvent = $"evt_{Guid.NewGuid():N}";
-        using var response = await Scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "not_adult", lateEvent));
+        using var response = await Scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "inconclusive", lateEvent));
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal("VerifiedAdult", Assert.Single(await Verification.VerificationsAsync(open.Account.UserId)).State);
@@ -432,6 +435,66 @@ public sealed class AgeWebhookTests : IAsyncDisposable
         Assert.Equal(1, await Verification.CountAuditAsync("identity.age_verification_late_not_adult", open.VerificationId));
     }
 
+    [Fact]
+    public async Task NotAdultCorrectingTheVerifiedAdultOfTheSameRequestIsDurable()
+    {
+        // O fornecedor corrige a própria VerifiedAdult com NotAdult: restringe, grava a suspeita e, mesmo que a conta
+        // volte a Active por outro caminho, ela não participa (só a revisão humana do M2 remove a suspeita).
+        var open = await Scenario.OpenVerificationAsync();
+        using (await Scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "verified_adult")))
+        {
+        }
+
+        var eventId = $"evt_{Guid.NewGuid():N}";
+        using var response = await Scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "not_adult", eventId));
+        var restricted = await Verification.AccountStatusAsync(open.Account.UserId);
+        await Verification.ExecuteAsync("update identity.users set status = 'Active' where id = $1", open.Account.UserId);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("Restricted", restricted);
+        Assert.Equal("Processed", await Scenario.ReceiptStateAsync(eventId));
+        var row = Assert.Single(await Verification.VerificationsAsync(open.Account.UserId));
+        Assert.Equal("VerifiedAdult", row.State);
+        Assert.NotNull(await Verification.MinorSuspectedAtAsync(open.VerificationId));
+        Assert.False(await IsEligibleAsync(open.Account));
+    }
+
+    [Fact]
+    public async Task SuspicionArrivingWhileSuspendedOutlivesTheSuspension()
+    {
+        // P1 expirada → P2 VerifiedAdult → conta suspensa → NotAdult tardio de P1 → suspensão levantada.
+        var open = await Scenario.OpenVerificationAsync();
+        await Verification.ExecuteAsync("update identity.age_verifications set state = 'Expired' where id = $1", open.VerificationId);
+        await Verification.MakeVerifiedAdultAsync(open.Account.UserId, _time.GetUtcNow());
+        await Verification.ExecuteAsync("update identity.users set status = 'Suspended' where id = $1", open.Account.UserId);
+
+        using var response = await Scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "not_adult"));
+        var suspended = await Verification.AccountStatusAsync(open.Account.UserId);
+        await Verification.ExecuteAsync("update identity.users set status = 'Active' where id = $1", open.Account.UserId);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("Suspended", suspended);
+        Assert.NotNull(await Verification.MinorSuspectedAtAsync(open.VerificationId));
+        Assert.False(await IsEligibleAsync(open.Account));
+    }
+
+    [Fact]
+    public async Task RepeatedSuspicionKeepsTheFirstInstant()
+    {
+        var open = await Scenario.OpenVerificationAsync();
+        using (await Scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "not_adult")))
+        {
+        }
+
+        var first = await Verification.MinorSuspectedAtAsync(open.VerificationId);
+        _time.Advance(TimeSpan.FromMinutes(1));
+        using var response = await Scenario.SendSignedAsync(AgeWebhookScenario.Body(open, "not_adult"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(_time.GetUtcNow().AddMinutes(-1), first);
+        Assert.Equal(first, await Verification.MinorSuspectedAtAsync(open.VerificationId));
+    }
+
     [Theory]
     [InlineData("verified_adult")]
     [InlineData("inconclusive")]
@@ -562,5 +625,13 @@ public sealed class AgeWebhookTests : IAsyncDisposable
         Assert.Equal(1, verification.Version);
         Assert.Equal("PendingEligibility", await Verification.AccountStatusAsync(open.Account.UserId));
         Assert.Equal(0, await Verification.CountAuditAsync("identity.age_verification_decided", open.VerificationId));
+    }
+
+    /// <summary>Elegibilidade pela policy real, numa rota de participação, como a pessoa a encontraria.</summary>
+    private async Task<bool> IsEligibleAsync(TestAccount account)
+    {
+        using var browser = await Verification.Identity.SignedInBrowserAsync(account);
+        using var response = await browser.GetAsync("/api/v1/test/eligible-participant");
+        return response.StatusCode == HttpStatusCode.OK;
     }
 }

@@ -37,7 +37,7 @@ ser dado pessoal sensível (LGPD art. 5.º, II) ou de risco elevado; a resposta 
 | `identity.users` | E-mail, hash de senha, estado da conta, data de nascimento, tentativas de login | Pessoa usuária | S / P3 | F-01, F-02 | Não, mas a data de nascimento serve à proteção etária | A definir com apoio jurídico |
 | `identity.login_sessions` | Instantes de uso, resumo do dispositivo, prefixo de rede | Pessoa usuária | P2 | F-01, F-07 | Não | A definir com apoio jurídico |
 | `identity.auth_tickets`, `identity.user_tokens` | Ticket de sessão, chave TOTP, códigos de recuperação | Pessoa usuária | S | F-01 | Não | A definir com apoio jurídico |
-| `identity.age_verifications` | Resultado mínimo, instante da decisão, referência do fornecedor, versão da política | Pessoa usuária | P3 | F-02 | Possível (biometria no fornecedor, se o método usar) | A definir com apoio jurídico |
+| `identity.age_verifications` | Resultado mínimo, instante da decisão, instante da suspeita de menor (`NotAdult`), referência do fornecedor, versão da política | Pessoa usuária | P3 | F-02 | Possível (biometria no fornecedor, se o método usar) | A definir com apoio jurídico |
 | `identity.consent_records` | Versões de termos aceitas e instantes | Pessoa usuária | P2 | F-01, F-08 | Não | A definir com apoio jurídico |
 | `profiles.profiles` | Nome de exibição, faixa etária, região aproximada (UF em ISO 3166-2:BR, opcional; nunca cidade, CEP nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
 | `profiles.preferences` | Critérios privados de compatibilidade | Pessoa usuária | P3 | F-03 | **Provável** se incluírem gênero buscado ou orientação (vida sexual) | A definir com apoio jurídico |

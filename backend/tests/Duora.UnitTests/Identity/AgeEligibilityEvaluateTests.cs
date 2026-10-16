@@ -22,6 +22,21 @@ public sealed class AgeEligibilityEvaluateTests
     }
 
     [Theory]
+    [InlineData(AgeVerificationState.VerifiedAdult)]
+    [InlineData(AgeVerificationState.Expired)]
+    [InlineData(AgeVerificationState.Pending)]
+    [InlineData(AgeVerificationState.ManualReview)]
+    public void MinorSuspicionMakesAnActiveAccountIneligibleWhateverTheDecidingRequest(AgeVerificationState state)
+    {
+        var latest = new AgeVerificationSnapshot(state, Now.AddDays(-1), ProviderFlowReady: true, MinorSuspected: true);
+
+        var eligibility = AgeEligibility.Evaluate(AccountStatus.Active, latest, Now, Policy);
+
+        Assert.False(eligibility.IsEligible);
+        Assert.Equal(AgeVerificationNextStep.NotAvailable, eligibility.NextStep);
+    }
+
+    [Theory]
     [InlineData(366)]
     [InlineData(3650)]
     [InlineData(36500)]
