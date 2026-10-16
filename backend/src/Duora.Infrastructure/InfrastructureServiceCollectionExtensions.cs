@@ -1,4 +1,5 @@
 using Duora.Core;
+using Duora.Core.Identity;
 using Duora.Core.Notifications;
 using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Persistence;
@@ -74,8 +75,33 @@ public static class InfrastructureServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton(provider => PublicOriginOptions.Parse(provider.GetRequiredService<IOptions<PublicOriginOptions>>()));
-        services.AddSingleton(provider => new AccountEmails(provider.GetRequiredService<PublicOrigin>()));
+        services.AddOptions<SupportContactOptions>()
+            .Configure(o => o.Value = configuration[SupportContactOptions.Key] ?? "")
+            .Validate(
+                o => EmailAddress.TryParse(o.Value, out _),
+                $"{SupportContactOptions.Key} é obrigatório: endereço de e-mail do suporte, citado nos avisos de segurança.")
+            .ValidateOnStart();
+        services.AddSingleton(provider => new AccountEmails(
+            provider.GetRequiredService<PublicOrigin>(),
+            SupportContactOptions.Parse(provider.GetRequiredService<IOptions<SupportContactOptions>>())));
     }
+}
+
+/// <summary>
+/// Contato de suporte dos avisos de segurança. A spec ainda não define o canal: o valor das configurações base é um
+/// placeholder (lacuna registrada no auth.md), a trocar antes de abrir a participantes reais.
+/// </summary>
+internal sealed class SupportContactOptions
+{
+    public const string Key = "Duora:SupportContact";
+
+    public string Value { get; set; } = "";
+
+    public static EmailAddress Parse(IOptions<SupportContactOptions> options) =>
+        EmailAddress.TryParse(options.Value.Value, out var address)
+            ? address
+            // Inalcançável depois do ValidateOnStart; falha alto se alguém resolver o serviço antes do start.
+            : throw new OptionsValidationException(Key, typeof(SupportContactOptions), [$"{Key} inválido."]);
 }
 
 internal sealed class PublicOriginOptions

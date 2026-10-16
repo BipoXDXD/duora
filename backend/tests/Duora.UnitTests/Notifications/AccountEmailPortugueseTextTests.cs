@@ -15,11 +15,13 @@ public sealed class AccountEmailPortugueseTextTests
 
     private static readonly PublicOrigin Origin =
         PublicOrigin.TryParse("https://duora.example", out var origin) ? origin : throw new InvalidOperationException();
+    private static readonly EmailAddress Support =
+        EmailAddress.TryParse("suporte@duora.example", out var support) ? support : throw new InvalidOperationException();
     private static readonly Guid UserId = Guid.Parse("0199d700-7f20-7000-8000-000000000001");
     private static readonly EmailAddress Recipient =
         EmailAddress.TryParse("ana@example.com", out var address) ? address : throw new InvalidOperationException();
 
-    private static readonly AccountEmails Emails = new(Origin);
+    private static readonly AccountEmails Emails = new(Origin, Support);
 
     [Fact]
     public void EmailConfirmationKeepsTheTextFromBeforeTheTranslation()

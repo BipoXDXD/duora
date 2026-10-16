@@ -8,13 +8,15 @@ public sealed class AccountEmailsTests
 {
     private static readonly PublicOrigin Origin =
         PublicOrigin.TryParse("https://duora.example", out var origin) ? origin : throw new InvalidOperationException();
+    private static readonly EmailAddress Support =
+        EmailAddress.TryParse("suporte@duora.example", out var support) ? support : throw new InvalidOperationException();
     private static readonly Guid UserId = Guid.Parse("0199d700-7f20-7000-8000-000000000001");
     private static readonly EmailAddress Recipient = ParseEmail("ana@example.com");
 
     [Fact]
     public void EmailConfirmationLinksToTheSpaConfirmationRoute()
     {
-        var emails = new AccountEmails(Origin);
+        var emails = new AccountEmails(Origin, Support);
 
         var email = emails.EmailConfirmation(Recipient, UserId, "tok-en_1", EmailLanguage.BrazilianPortuguese);
 
@@ -28,7 +30,7 @@ public sealed class AccountEmailsTests
     [Fact]
     public void PasswordResetLinksToTheSpaResetRoute()
     {
-        var emails = new AccountEmails(Origin);
+        var emails = new AccountEmails(Origin, Support);
 
         var email = emails.PasswordReset(Recipient, UserId, "tok-en_1", EmailLanguage.BrazilianPortuguese);
 
@@ -41,7 +43,7 @@ public sealed class AccountEmailsTests
     [Fact]
     public void CredentialsTravelInTheFragmentNeverInTheQueryString()
     {
-        var emails = new AccountEmails(Origin);
+        var emails = new AccountEmails(Origin, Support);
 
         var link = emails.EmailConfirmation(Recipient, UserId, "tok-en_1", EmailLanguage.BrazilianPortuguese).TextBody
             .Split((char[])['\n', ' '])
@@ -54,7 +56,7 @@ public sealed class AccountEmailsTests
     [Fact]
     public void TokenIsEscapedInsideTheLink()
     {
-        var emails = new AccountEmails(Origin);
+        var emails = new AccountEmails(Origin, Support);
 
         var email = emails.PasswordReset(Recipient, UserId, "a+b/c=&x", EmailLanguage.BrazilianPortuguese);
 
@@ -64,7 +66,7 @@ public sealed class AccountEmailsTests
     [Fact]
     public void ExistingAccountNoticeCarriesNoTokenAndPointsToRecovery()
     {
-        var emails = new AccountEmails(Origin);
+        var emails = new AccountEmails(Origin, Support);
 
         var email = emails.RegistrationAttemptOnExistingAccount(Recipient, EmailLanguage.BrazilianPortuguese);
 
@@ -75,7 +77,7 @@ public sealed class AccountEmailsTests
     [Fact]
     public void PendingRegistrationReminderAsksToRegisterAgainWithoutAnyLinkToConfirm()
     {
-        var emails = new AccountEmails(Origin);
+        var emails = new AccountEmails(Origin, Support);
 
         var email = emails.PendingRegistrationReminder(Recipient, EmailLanguage.BrazilianPortuguese);
 
@@ -87,7 +89,7 @@ public sealed class AccountEmailsTests
     [Fact]
     public void ResetRequestForUnknownAddressCarriesNoToken()
     {
-        var emails = new AccountEmails(Origin);
+        var emails = new AccountEmails(Origin, Support);
 
         var email = emails.PasswordResetForUnknownAddress(Recipient, EmailLanguage.BrazilianPortuguese);
 
