@@ -28,6 +28,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     private const string ReconcileScriptTarget = "/usr/local/share/duora/reconcile-privileges.sql";
     private const string MigratorPasswordTarget = "/run/secrets/db_migrator_password";
     private const string AppPasswordTarget = "/run/secrets/db_app_password";
+    private const string BackupPasswordTarget = "/run/secrets/db_backup_password";
 
     // Cópia do banco recém-criado pelo initdb, antes das migrations: os bancos avulsos nascem dela com os mesmos
     // default privileges, sem repetir o SQL do initdb. Ninguém conecta nela (CREATE DATABASE ... TEMPLATE exige).
@@ -41,6 +42,9 @@ public sealed class PostgresFixture : IAsyncLifetime
     private readonly string _migratorPassword = Guid.NewGuid().ToString("N");
     private readonly string _appPassword = Guid.NewGuid().ToString("N");
 
+    // O initdb também cria o papel duora_backup do pgBackRest; os testes não o usam, mas o script exige a senha.
+    private readonly string _backupPassword = Guid.NewGuid().ToString("N");
+
     private readonly PostgreSqlContainer _container;
 
     public PostgresFixture()
@@ -53,8 +57,10 @@ public sealed class PostgresFixture : IAsyncLifetime
                 ReconcileScriptTarget)
             .WithResourceMapping(System.Text.Encoding.UTF8.GetBytes(_migratorPassword), MigratorPasswordTarget)
             .WithResourceMapping(System.Text.Encoding.UTF8.GetBytes(_appPassword), AppPasswordTarget)
+            .WithResourceMapping(System.Text.Encoding.UTF8.GetBytes(_backupPassword), BackupPasswordTarget)
             .WithEnvironment("DUORA_MIGRATOR_PASSWORD_FILE", MigratorPasswordTarget)
             .WithEnvironment("DUORA_APP_PASSWORD_FILE", AppPasswordTarget)
+            .WithEnvironment("DUORA_BACKUP_PASSWORD_FILE", BackupPasswordTarget)
             .Build();
     }
 
