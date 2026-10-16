@@ -17,6 +17,8 @@ const CURRENT = {
   current: true,
   description: 'Safari no macOS',
 }
+const CHUNKED_NAVIGATION_TIMEOUT_MS = 5000
+
 const OTHER = { ...CURRENT, id: 'sessao-outra', current: false, description: 'Firefox no Ubuntu' }
 
 function useMeEndpoint(respond: () => Response = () => HttpResponse.json(ME)) {
@@ -39,7 +41,10 @@ describe('rota protegida', () => {
     useMeEndpoint(() => problem(401, 'UNAUTHENTICATED'))
     await renderApp('/conta')
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
+    // Dois chunks sob demanda (guarda e entrada) antes do título: a espera padrão de 1 s falhava em CI carregado.
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Entrar' }, { timeout: CHUNKED_NAVIGATION_TIMEOUT_MS }),
+    ).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Entre para continuar.')
   })
 
@@ -250,6 +255,29 @@ describe('área da conta', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Você saiu da sua conta.')
     expect(queryClient.getQueryCache().getAll()).toEqual([])
+  })
+
+  it('401 REAUTHENTICATION_REQUIRED numa escrita, com a sessão ainda válida, não tira a pessoa da conta', async () => {
+    useAntiforgeryEndpoint()
+    let meCalls = 0
+    useMeEndpoint(() => {
+      meCalls += 1
+      return HttpResponse.json(ME)
+    })
+    useSessionsEndpoint()
+    server.use(http.delete(`${API}/me/sessions/:id`, () => problem(401, 'REAUTHENTICATION_REQUIRED')))
+    const { user } = await renderApp('/conta')
+    await screen.findByText('Firefox no Ubuntu')
+
+    await user.click(screen.getByRole('button', { name: /^Encerrar sessão: Firefox no Ubuntu/ }))
+
+    // A identidade é reconsultada (o 401 poderia ser fim de sessão) e o servidor confirma que ela segue válida.
+    await waitFor(() => {
+      expect(meCalls).toBe(2)
+    })
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Sua conta' })).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/conta$/)
   })
 
   it('falha ao encerrar sessão mostra erro e mantém a lista', async () => {

@@ -118,15 +118,19 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
 - Ao entrar e ao chegar à tela de entrada, todo o cache do `QueryClient` é descartado (T-21). O descarte
   fica na tela de entrada, e não no clique de sair, porque o React Router navega dentro de uma transition:
   limpar com a área autenticada ainda montada faz as consultas dela buscarem de novo os dados de quem saiu.
-- Um 401 em qualquer escrita também reconsulta a identidade (`MutationCache` em `query-client.ts`), e um `/me`
-  que responde outra pessoa descarta tudo o que era da anterior.
+- Um 401 em qualquer escrita também reconsulta a identidade (`MutationCache` em `query-client.ts`). O 401 pode ser
+  `REAUTHENTICATION_REQUIRED` ou senha atual errada com a sessão válida, então quem decide é o `/me`: só o 401 dele
+  leva à entrada. Um `/me` que responde outra pessoa descarta tudo o que era da anterior, leituras e escritas.
 - A identidade (`['me']`) e as sessões têm `gcTime: 0`: ao sair da área autenticada, saem da memória. Voltar a ela
   pelo histórico espera o servidor, em vez de reexibir dados de uma sessão que pode ter expirado.
 - Entrar ou sair avisa as outras abas por `BroadcastChannel` (`duora.identity`, sem dado pessoal na mensagem); elas
-  descartam o cache e reconsultam a identidade (`identity-broadcast.ts`, inscrição no `App.tsx`).
-- Página restaurada do bfcache recarrega (`back-forward-cache.ts`, ligado no `main.tsx`); ao entrar no bfcache ela
-  é escondida, para não reaparecer com dados por um instante. O custo é perder o estado em memória ao voltar de
-  outro site. O Playwright desliga o bfcache, então o E2E simula os eventos `pagehide`/`pageshow`.
+  descartam o cache e reconsultam a identidade (`identity-broadcast.ts`, inscrição no `App.tsx`). Trade-off aceito:
+  o aviso não diz quem entrou, então um novo login da mesma pessoa em outra aba também reseta esta aba (a tela
+  volta a carregar e o que estava digitado nela se perde).
+- Página privada restaurada do bfcache recarrega (`back-forward-cache.ts`, ligado no `main.tsx`); ao entrar no
+  bfcache ela é escondida (o `html` tem o fundo da superfície, sem flash), para não reaparecer com dados por um
+  instante. Privada é qualquer rota fora da lista pública (negar por padrão); as públicas voltam como estavam, com
+  o rascunho do cadastro. O custo é perder o estado em memória da área autenticada ao voltar de outro site. O Playwright desliga o bfcache, então o E2E simula os eventos `pagehide`/`pageshow`.
 - Nada da sessão vai para `localStorage` ou `sessionStorage`; as únicas chaves guardadas são `duora.locale` e
   `duora.newVersionReloadAt` (o E2E `session-privacy.spec.ts` falha com qualquer outra).
 - Os links de e-mail trazem `userId` e `token` no fragmento, que não vai ao servidor nem aos logs (TM-19).

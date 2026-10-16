@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -36,8 +37,10 @@ public sealed class ApiResponseCachingTests(PostgresFixture postgres) : IAsyncDi
     {
         using var browser = new Browser(_factory);
         await browser.FetchCsrfTokenAsync();
+        var routes = ApiRoutes();
 
-        foreach (var route in ApiRoutes())
+        Assert.NotEmpty(routes);
+        foreach (var route in routes)
         {
             var path = WithRouteValues(route.Path);
             using var response = route.Method switch
@@ -60,6 +63,22 @@ public sealed class ApiResponseCachingTests(PostgresFixture postgres) : IAsyncDi
         using var response = await browser.GetAsync("/api/v1/rota-que-nao-existe");
 
         AssertNotStored("GET /api/v1/rota-que-nao-existe", response);
+    }
+
+    [Fact]
+    public async Task UnexpectedServerErrorIsNotStored()
+    {
+        // Banco que recusa conexão no meio do login: 500 INTERNAL_ERROR (ver ServerErrorTests).
+        await using var failing = new DuoraWebFactory(new CanaryConnectionString().Value);
+        using var browser = new Browser(failing);
+        await browser.FetchCsrfTokenAsync();
+
+        using var response = await browser.PostJsonAsync(
+            "/api/v1/auth/login",
+            new { email = IdentityScenario.NewEmail(), password = "qualquer senha longa" });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        AssertNotStored("POST /api/v1/auth/login (500)", response);
     }
 
     private static void AssertNotStored(string route, HttpResponseMessage response)

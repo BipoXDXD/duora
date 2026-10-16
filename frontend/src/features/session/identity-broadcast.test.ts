@@ -6,7 +6,7 @@ const unsubscribers: (() => void)[] = []
 
 function listen(tabId: string): ReturnType<typeof vi.fn> {
   const listener = vi.fn()
-  unsubscribers.push(createIdentityBroadcast(tabId).subscribe(listener))
+  unsubscribers.push(createIdentityBroadcast(() => tabId).subscribe(listener))
   return listener
 }
 
@@ -25,7 +25,7 @@ describe('createIdentityBroadcast', () => {
   it('avisa as outras abas quando a identidade muda', async () => {
     const otherTab = listen('aba-b')
 
-    createIdentityBroadcast('aba-a').announce()
+    createIdentityBroadcast(() => 'aba-a').announce()
     await deliveries()
 
     expect(otherTab).toHaveBeenCalledOnce()
@@ -34,7 +34,7 @@ describe('createIdentityBroadcast', () => {
   it('a própria aba não recebe o próprio aviso', async () => {
     const sameTab = listen('aba-a')
 
-    createIdentityBroadcast('aba-a').announce()
+    createIdentityBroadcast(() => 'aba-a').announce()
     await deliveries()
 
     expect(sameTab).not.toHaveBeenCalled()
@@ -42,10 +42,10 @@ describe('createIdentityBroadcast', () => {
 
   it('depois de cancelar a inscrição, nada chega', async () => {
     const listener = vi.fn()
-    const unsubscribe = createIdentityBroadcast('aba-b').subscribe(listener)
+    const unsubscribe = createIdentityBroadcast(() => 'aba-b').subscribe(listener)
     unsubscribe()
 
-    createIdentityBroadcast('aba-a').announce()
+    createIdentityBroadcast(() => 'aba-a').announce()
     await deliveries()
 
     expect(listener).not.toHaveBeenCalled()
@@ -67,10 +67,24 @@ describe('createIdentityBroadcast', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
+  it('sem BroadcastChannel, o id da aba nem chega a ser gerado', () => {
+    vi.stubGlobal('BroadcastChannel', undefined)
+    const tabId = vi.fn(() => 'aba-a')
+    try {
+      const broadcast = createIdentityBroadcast(tabId)
+      broadcast.subscribe(vi.fn())()
+      broadcast.announce()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(tabId).not.toHaveBeenCalled()
+  })
+
   it('sem BroadcastChannel no navegador, anunciar e assinar não falham', () => {
     vi.stubGlobal('BroadcastChannel', undefined)
     try {
-      const broadcast = createIdentityBroadcast('aba-a')
+      const broadcast = createIdentityBroadcast(() => 'aba-a')
       expect(() => {
         broadcast.subscribe(vi.fn())()
         broadcast.announce()
