@@ -44,6 +44,12 @@ public static class AgeVerificationServiceCollectionExtensions
             provider.GetRequiredService<IAgeEligibilityProvider>().Name,
             provider.GetRequiredService<TimeProvider>()));
 
+        services.AddScoped(provider => new AgeVerificationWebhook(
+            provider.GetRequiredService<DuoraDbContext>(),
+            provider.GetRequiredService<IOptions<AgeVerificationOptions>>().Value,
+            provider.GetRequiredService<IAgeEligibilityProvider>().Name,
+            provider.GetRequiredService<TimeProvider>()));
+
         return services;
     }
 

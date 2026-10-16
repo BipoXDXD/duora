@@ -34,7 +34,7 @@ public sealed class MigrationsTests(PostgresFixture postgres)
             [
                 "identity.age_verifications", "identity.consent_records", "identity.login_sessions", "identity.role_claims", "identity.roles",
                 "identity.user_claims", "identity.user_logins", "identity.user_roles", "identity.user_tokens",
-                "identity.users", "ops.audit_events", "ops.outbox_deliveries", "ops.outbox_events",
+                "identity.users", "ops.audit_events", "ops.outbox_deliveries", "ops.outbox_events", "ops.webhook_receipts",
                 "profiles.profiles",
                 "safety.blocks", "safety.user_guards",
             ],

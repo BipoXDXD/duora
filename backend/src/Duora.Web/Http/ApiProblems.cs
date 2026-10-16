@@ -40,6 +40,8 @@ internal static class ApiProblems
     public const string UploadIncomplete = "UPLOAD_INCOMPLETE";
     public const string UploadPendingLimit = "UPLOAD_PENDING_LIMIT";
     public const string ValidationFailed = "VALIDATION_FAILED";
+    public const string WebhookPayloadInvalid = "WEBHOOK_PAYLOAD_INVALID";
+    public const string WebhookSignatureInvalid = "WEBHOOK_SIGNATURE_INVALID";
 
     public static ProblemHttpResult Problem(int status, string code, string title) =>
         TypedResults.Problem(statusCode: status, title: title, type: TypeFor(code), extensions: CodeExtension(code));
