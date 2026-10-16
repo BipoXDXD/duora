@@ -144,7 +144,7 @@ public abstract record SecondFactorProof
     public sealed record RecoveryCode(string Code) : SecondFactorProof;
 }
 
-/// <summary>Que segundo fator uma sessão provou: o código de recuperação não vale como TOTP recente (I3).</summary>
+/// <summary>Que segundo fator uma sessão provou: o código de recuperação não vale como TOTP recente.</summary>
 public enum SecondFactorKind
 {
     None,
@@ -154,8 +154,8 @@ public enum SecondFactorKind
 
 /// <summary>
 /// Verificação de credencial com a conta travada (<c>SELECT ... FOR NO KEY UPDATE</c> na linha da conta), para o
-/// contador de falhas e o último passo TOTP não perderem atualização sob requisições paralelas (B1 da revisão do
-/// #38). Quem abre confirma com <see cref="CommitAsync"/>, inclusive quando a verificação falha, para a falha contar.
+/// contador de falhas e o último passo TOTP não perderem atualização sob requisições paralelas.
+/// Quem abre confirma com <see cref="CommitAsync"/>, inclusive quando a verificação falha, para a falha contar.
 /// </summary>
 public sealed class AccountCheck : IAsyncDisposable
 {
@@ -362,7 +362,7 @@ public sealed class AccountSecurityService
     /// <summary>
     /// Confere o segundo fator de uma conta com MFA ativo, dentro de uma <see cref="AccountCheck"/> já aberta. O
     /// acerto zera as falhas; o erro soma no bloqueio da conta e é auditado (a senha estava certa). TOTP só vale
-    /// uma vez: o passo aceito precisa ser maior que o último (B2). Código de recuperação é de uso único.
+    /// uma vez: o passo aceito precisa ser maior que o último. Código de recuperação é de uso único.
     /// </summary>
     /// <returns>O fator provado, ou <see cref="SecondFactorKind.None"/> quando a prova falhou.</returns>
     public async Task<SecondFactorKind> VerifySecondFactorAsync(
