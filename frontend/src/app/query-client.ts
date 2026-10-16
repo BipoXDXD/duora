@@ -31,8 +31,10 @@ export function createQueryClient(): QueryClient {
     void queryClient.invalidateQueries({ queryKey: meQueryKey, exact: true })
   }
   const queryClient: QueryClient = new QueryClient({
-    // 401 numa leitura ou escrita privada significa que a sessão acabou no servidor: reconsultar a identidade
-    // faz a rota protegida levar à entrada com o aviso de sessão expirada (spec 13.2 e 13.5; T-14).
+    // Um 401 numa leitura ou escrita privada pode ser fim de sessão, mas também pode ser
+    // REAUTHENTICATION_REQUIRED ou senha atual errada, com a sessão ainda válida. Por isso não se decide pelo
+    // erro: a identidade é reconsultada, e só um 401 do próprio /me leva à entrada com o aviso de sessão
+    // expirada (spec 13.2 e 13.5; T-14). Se /me responde 200, a pessoa continua onde está.
     queryCache: new QueryCache({
       onError: (error, query) => {
         if (isUnauthorized(error) && query.queryHash !== meQueryHash) {
@@ -40,7 +42,8 @@ export function createQueryClient(): QueryClient {
         }
       },
       // Outra aba pode ter trocado o cookie de identidade: se /me responde outra pessoa, nada da anterior fica
-      // em memória (T-21). Só a identidade sobrevive, porque já é a nova.
+      // em memória (T-21), nem leituras nem escritas com as variables dela. Só a identidade sobrevive, porque
+      // já é a nova.
       onSuccess: (data, query) => {
         if (query.queryHash !== meQueryHash) {
           return
@@ -48,6 +51,7 @@ export function createQueryClient(): QueryClient {
         const userId = readUserId(data)
         if (lastUserId !== undefined && userId !== lastUserId) {
           queryClient.removeQueries({ predicate: (cached) => cached.queryHash !== meQueryHash })
+          queryClient.getMutationCache().clear()
         }
         lastUserId = userId
       },

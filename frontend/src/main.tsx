@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App'
-import { reloadWhenRestoredFromBackForwardCache } from './app/back-forward-cache'
+import { isPrivatePath, reloadWhenRestoredFromBackForwardCache } from './app/back-forward-cache'
 import { reloadOnceForNewVersion } from './app/new-version-reload'
 import { reloadPage } from './shared/ui/reload-page'
 import './index.css'
@@ -15,6 +15,7 @@ window.addEventListener('vite:preloadError', () => {
 // Voltar no navegador não pode reexibir a tela de outra identidade a partir do bfcache (T-21, T-14).
 reloadWhenRestoredFromBackForwardCache({
   target: window,
+  isPrivatePage: () => isPrivatePath(window.location.pathname),
   hide: () => {
     document.body.hidden = true
   },
