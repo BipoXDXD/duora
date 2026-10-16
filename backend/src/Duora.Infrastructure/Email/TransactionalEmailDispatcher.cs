@@ -108,6 +108,8 @@ public sealed partial class TransactionalEmailDispatcher
             (AccountEmailKind.RegistrationAttemptOnExistingAccount, _) => _emails.RegistrationAttemptOnExistingAccount(to, language),
             (AccountEmailKind.PendingRegistrationReminder, _) => _emails.PendingRegistrationReminder(to, language),
             (AccountEmailKind.PasswordResetForUnknownAddress, _) => _emails.PasswordResetForUnknownAddress(to, language),
+            // Sem link por regra: com token, o payload é defeito de quem gravou e não sai.
+            (AccountEmailKind.PasswordResetUnavailable, null) => _emails.PasswordResetUnavailable(to, language),
             // Aviso nunca leva credencial: com token, o payload é defeito de quem gravou e não sai. O aviso é
             // bilíngue, então o idioma do pedido não conta.
             (_, null) when AccountEmailOutbox.SecurityChangeOf(message.Kind) is { } change =>
