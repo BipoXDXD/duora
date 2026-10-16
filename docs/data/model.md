@@ -885,10 +885,16 @@ erDiagram
 
 ### ops.webhook_receipts
 
-- **Colunas:** `id`; `provider text`; `provider_event_id text`; `received_at`, `signature_verified_at`,
-  `processed_at timestamptz`; `payload_sha256 bytea`; `payload jsonb` (validado contra schema próprio, ≤ 64 KiB);
-  `state text` (`Received`, `Processed`, `Rejected`).
-- **Constraints:** `UNIQUE (provider, provider_event_id)` (spec 10.3).
+- **Colunas:** `id uuid`; `provider text` (≤ 32); `provider_event_id text` (≤ 200); `received_at`,
+  `signature_verified_at`, `processed_at timestamptz`; `payload_sha256 bytea` (SHA-256 do corpo cru, 32 bytes);
+  `payload jsonb` (só os campos validados contra schema próprio, sem o nonce; ≤ 64 KiB); `state text` (`Received`
+  dentro da transação, `Processed` com efeito aplicado, `Rejected` autêntico sem efeito: referência ou nonce que não
+  casam, ou solicitação já decidida).
+- **Escrita:** recibo gravado com `ON CONFLICT DO NOTHING` na mesma transação do efeito, por quem processa o callback
+  (`WebhookReceipts`, dono Operations; [ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md)).
+  `duora_app` tem DML completo: o estado muda no processamento e a retenção apaga em lote.
+- **Constraints:** `UNIQUE (provider, provider_event_id)` (spec 10.3); `CHECK` de estado, do tamanho do hash e do
+  payload.
 - **Índices:** `ix_webhook_receipts_received_at` (limpeza).
 - **Classe:** P2/P3 conforme o fornecedor (callback etário: P3).
 

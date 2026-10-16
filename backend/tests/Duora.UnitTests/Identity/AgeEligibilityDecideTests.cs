@@ -114,6 +114,27 @@ public sealed class AgeEligibilityDecideTests
     }
 
     [Theory]
+    [InlineData(AccountStatus.PendingEligibility)]
+    [InlineData(AccountStatus.Active)]
+    public void LateNotAdultOnAnExpiredRequestStillRestrictsTheAccount(AccountStatus account)
+    {
+        var decision = AgeEligibility.Decide(account, AgeVerificationState.Expired, AgeCheckOutcome.NotAdult, DecidedAt, Policy);
+
+        Assert.NotNull(decision);
+        Assert.Equal(AgeVerificationState.Expired, decision.VerificationState);
+        Assert.Null(decision.ExpiresAt);
+        Assert.Equal(AccountStatus.Restricted, decision.AccountStatus);
+    }
+
+    [Theory]
+    [InlineData(AgeCheckOutcome.VerifiedAdult)]
+    [InlineData(AgeCheckOutcome.Inconclusive)]
+    public void LateNonRestrictingResultOnAnExpiredRequestIsIgnored(AgeCheckOutcome outcome)
+    {
+        Assert.Null(AgeEligibility.Decide(AccountStatus.PendingEligibility, AgeVerificationState.Expired, outcome, DecidedAt, Policy));
+    }
+
+    [Theory]
     [InlineData(AgeVerificationState.VerifiedAdult)]
     [InlineData(AgeVerificationState.Rejected)]
     [InlineData(AgeVerificationState.Expired)]

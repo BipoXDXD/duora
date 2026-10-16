@@ -402,6 +402,72 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Operations.WebhookReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<byte[]>("PayloadSha256")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("payload_sha256");
+
+                    b.Property<DateTimeOffset?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderEventId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_event_id");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<DateTimeOffset>("SignatureVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("signature_verified_at");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("state");
+
+                    b.HasKey("Id")
+                        .HasName("pk_webhook_receipts");
+
+                    b.HasIndex("ReceivedAt")
+                        .HasDatabaseName("ix_webhook_receipts_received_at");
+
+                    b.HasIndex("Provider", "ProviderEventId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_webhook_receipts_provider_provider_event_id");
+
+                    b.ToTable("webhook_receipts", "ops", t =>
+                        {
+                            t.HasCheckConstraint("ck_webhook_receipts_payload_sha256", "octet_length(payload_sha256) = 32");
+
+                            t.HasCheckConstraint("ck_webhook_receipts_payload_size", "octet_length(payload::text) <= 65536");
+
+                            t.HasCheckConstraint("ck_webhook_receipts_state", "state IN ('Received', 'Processed', 'Rejected')");
+                        });
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Outbox.OutboxDelivery", b =>
                 {
                     b.Property<Guid>("Id")

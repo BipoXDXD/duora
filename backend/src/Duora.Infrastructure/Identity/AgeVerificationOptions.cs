@@ -120,6 +120,17 @@ internal sealed class FakeAgeProviderOptions
     /// <summary>Quanto o modo <c>Slow</c> demora para responder; acima do timeout do worker.</summary>
     public TimeSpan SlowDelay { get; set; } = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// Segredos HMAC dos callbacks: um ou dois, para rotação sem janela de falha (configura-se o novo como segundo,
+    /// troca-se no fornecedor, remove-se o antigo). Vêm de user-secrets ou do cofre, nunca do repositório.
+    /// </summary>
+    public List<string> SigningSecrets { get; set; } = [];
+
+    /// <summary>Segredo com menos que isto é recusado no start (256 bits em hex ou texto equivalente).</summary>
+    public const int MinSecretLength = 32;
+
+    public const int MaxSecrets = 2;
+
     public string? FindProblem()
     {
         if (!Enum.IsDefined(Mode))
@@ -127,8 +138,13 @@ internal sealed class FakeAgeProviderOptions
             return $"{AgeVerificationOptions.Section}:Fake:Mode desconhecido.";
         }
 
-        return Uri.TryCreate(FlowBaseUrl, UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps
+        if (!Uri.TryCreate(FlowBaseUrl, UriKind.Absolute, out var url) || url.Scheme != Uri.UriSchemeHttps)
+        {
+            return $"{AgeVerificationOptions.Section}:Fake:FlowBaseUrl precisa ser https.";
+        }
+
+        return SigningSecrets.Count is >= 1 and <= MaxSecrets && SigningSecrets.All(s => s.Length >= MinSecretLength)
             ? null
-            : $"{AgeVerificationOptions.Section}:Fake:FlowBaseUrl precisa ser https.";
+            : $"{AgeVerificationOptions.Section}:Fake:SigningSecrets precisa de 1 ou 2 segredos com ao menos {MinSecretLength} caracteres.";
     }
 }

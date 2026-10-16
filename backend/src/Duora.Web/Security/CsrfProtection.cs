@@ -36,7 +36,7 @@ internal sealed class CsrfProtectionMiddleware(RequestDelegate next, IAntiforger
 {
     public async Task InvokeAsync(HttpContext context)
     {
-        if (IsSafeMethod(context.Request.Method))
+        if (IsSafeMethod(context.Request.Method) || context.GetEndpoint()?.Metadata.GetMetadata<CsrfExemptEndpoint>() is not null)
         {
             await next(context);
             return;
@@ -72,6 +72,12 @@ internal sealed class CsrfProtectionMiddleware(RequestDelegate next, IAntiforger
         return fetchSite.Count == 0 || fetchSite.ToString() == "same-origin";
     }
 }
+
+/// <summary>
+/// Marca uma rota sem CSRF. Só para quem não é navegador e se autentica de outro jeito: os webhooks de fornecedor,
+/// assinados por HMAC (ADR-0024). A lista fechada está em <c>CsrfEveryRouteTests</c>.
+/// </summary>
+internal sealed class CsrfExemptEndpoint;
 
 /// <summary>Emite o par antiforgery: cookie HttpOnly do framework e o token legível <c>XSRF-TOKEN</c> para o header.</summary>
 internal static class AntiforgeryTokens

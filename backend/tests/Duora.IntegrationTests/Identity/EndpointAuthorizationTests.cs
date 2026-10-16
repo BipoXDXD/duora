@@ -22,6 +22,8 @@ public sealed class EndpointAuthorizationTests(PostgresFixture postgres) : IAsyn
         "POST /api/v1/auth/logout",
         "POST /api/v1/auth/password-reset-requests",
         "POST /api/v1/auth/password-resets",
+        // Webhooks de fornecedor: sem sessão e sem CSRF, autenticados pela assinatura (ADR-0024).
+        "POST /webhooks/{provider}",
     ];
 
     private readonly DuoraWebFactory _factory = new(postgres.ConnectionString);
