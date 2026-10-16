@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Duora.Contracts.Profiles;
 using Duora.Core.Profiles;
 using Duora.Infrastructure.Identity;
@@ -28,7 +29,8 @@ internal static class ProfileEndpoints
         profile.MapPatch("", UpdateOwnProfileAsync)
             .WithDescription(
                 "Edição parcial com If-Match obrigatório (o ETag da leitura). Campo ausente fica como está; bio null "
-                + "apaga a descrição. Sem If-Match: 428. Versão desatualizada: 412, sem gravar nada.")
+                + "apaga a descrição; regionCode null volta a região para não informada. Sem If-Match: 428. Versão "
+                + "desatualizada: 412, sem gravar nada.")
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -38,18 +40,36 @@ internal static class ProfileEndpoints
             .AddOpenApiOperationTransformer(RequireIfMatch);
     }
 
-    /// <summary>Limites do DTO de edição no contrato, tirados das mesmas constantes do domínio.</summary>
+    /// <summary>
+    /// Limites do DTO de edição e as 27 UFs da região no contrato, tirados das mesmas constantes do domínio. A região
+    /// é enum nos dois sentidos, com <c>null</c> entre os valores (não informada; no PATCH, limpar).
+    /// </summary>
     public static void ConfigureOpenApi(OpenApiOptions options) =>
         options.AddSchemaTransformer((schema, context, _) =>
         {
-            if (context.JsonTypeInfo.Type == typeof(UpdateProfileRequest) && schema.Properties is { } properties)
+            var type = context.JsonTypeInfo.Type;
+            if (type == typeof(UpdateProfileRequest) && schema.Properties is { } request)
             {
-                SetLength(properties, "displayName", DisplayName.MaxLength);
-                SetLength(properties, "bio", ProfileBio.MaxLength);
+                SetLength(request, "displayName", DisplayName.MaxLength);
+                SetLength(request, "bio", ProfileBio.MaxLength);
+                SetRegionCodes(request);
+            }
+            else if (type == typeof(OwnProfileResponse) && schema.Properties is { } response)
+            {
+                SetRegionCodes(response);
             }
 
             return Task.CompletedTask;
         });
+
+    private static void SetRegionCodes(IDictionary<string, IOpenApiSchema> properties)
+    {
+        if (properties.TryGetValue("regionCode", out var property) && property is OpenApiSchema schema)
+        {
+            schema.Enum = [.. RegionCode.All.Select(code => (JsonNode)JsonValue.Create(code)), JsonNullSentinel.JsonNull];
+            schema.Description = "UF em ISO 3166-2:BR, na forma canônica; null quando não informada.";
+        }
+    }
 
     private static void SetLength(IDictionary<string, IOpenApiSchema> properties, string name, int maxLength)
     {
@@ -164,6 +184,7 @@ internal static class ProfileEndpoints
         return TypedResults.Ok(new OwnProfileResponse(
             profile.DisplayName,
             profile.Bio,
+            profile.RegionCode,
             profile.Version.ToString(System.Globalization.CultureInfo.InvariantCulture)));
     }
 }

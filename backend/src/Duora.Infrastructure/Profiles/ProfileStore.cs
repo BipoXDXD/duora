@@ -11,7 +11,7 @@ namespace Duora.Infrastructure.Profiles;
 /// </summary>
 public sealed class ProfileStore
 {
-    private const string Columns = "display_name, bio, version";
+    private const string Columns = "display_name, bio, region_code, version";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly TimeProvider _time;
@@ -51,8 +51,8 @@ public sealed class ProfileStore
         await using var command = expectedVersion == OwnProfile.Unsaved.Version
             ? _dataSource.CreateCommand(
                 $"""
-                insert into profiles.profiles (user_id, display_name, bio, version, updated_at)
-                values (@user_id, @display_name, @bio, 1, @now)
+                insert into profiles.profiles (user_id, display_name, bio, region_code, version, updated_at)
+                values (@user_id, @display_name, @bio, @region_code, 1, @now)
                 on conflict (user_id) do nothing
                 returning {Columns}
                 """)
@@ -61,6 +61,7 @@ public sealed class ProfileStore
                 update profiles.profiles
                 set display_name = case when @set_display_name then @display_name else display_name end,
                     bio = case when @set_bio then @bio else bio end,
+                    region_code = case when @set_region_code then @region_code else region_code end,
                     version = version + 1,
                     updated_at = @now
                 where user_id = @user_id and version = @expected_version
@@ -71,8 +72,10 @@ public sealed class ProfileStore
         command.Parameters.AddWithValue("now", _time.GetUtcNow());
         command.Parameters.AddWithValue("set_display_name", edit.DisplayName is not null);
         command.Parameters.AddWithValue("set_bio", edit.Bio is not null);
+        command.Parameters.AddWithValue("set_region_code", edit.Region is not null);
         command.Parameters.Add(TextParameter("display_name", edit.DisplayName?.Value));
         command.Parameters.Add(TextParameter("bio", edit.Bio?.NewBio?.Value));
+        command.Parameters.Add(TextParameter("region_code", edit.Region?.NewRegion?.Value));
         return await ReadSingleAsync(command, cancellationToken);
     }
 
@@ -90,6 +93,7 @@ public sealed class ProfileStore
         return new OwnProfile(
             reader.IsDBNull(0) ? null : reader.GetString(0),
             reader.IsDBNull(1) ? null : reader.GetString(1),
-            reader.GetInt64(2));
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.GetInt64(3));
     }
 }

@@ -10,7 +10,7 @@ import type { Translate } from '@/shared/i18n/translator'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
-import { TextAreaField, TextField } from '@/shared/ui/form-fields'
+import { SelectField, TextAreaField, TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { fetchOwnProfile, updateOwnProfile, type OwnProfile } from './profile-api'
 import {
@@ -23,6 +23,7 @@ import {
   type ProfileFormInput,
   type ProfileFormValues,
 } from './profile-form'
+import { REGION_CODES, REGION_LABEL_KEYS, type RegionCode } from './profile-region'
 
 const PRECONDITION_FAILED = 412
 
@@ -99,7 +100,17 @@ function ProfileBody({ profile, failure, onRetry, userId }: ProfileBodyProps): R
 }
 
 function toFormValues(profile: OwnProfile): ProfileFormInput {
-  return { displayName: profile.displayName ?? '', bio: profile.bio ?? '' }
+  return { displayName: profile.displayName ?? '', bio: profile.bio ?? '', regionCode: profile.regionCode ?? '' }
+}
+
+/** "Não informar" primeiro; as UFs pelo nome no idioma ativo, em ordem alfabética desse idioma. */
+function useRegionOptions(): readonly { readonly value: string; readonly label: string }[] {
+  const { t, locale } = useI18n()
+  const collator = new Intl.Collator(locale)
+  const regions = REGION_CODES.map((code) => ({ value: code, label: t(REGION_LABEL_KEYS[code]) })).sort((a, b) =>
+    collator.compare(a.label, b.label),
+  )
+  return [{ value: '', label: t('profile.regionNotInformed') }, ...regions]
 }
 
 /**
@@ -110,6 +121,7 @@ function toFormValues(profile: OwnProfile): ProfileFormInput {
 function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readonly userId: string }) {
   const queryClient = useQueryClient()
   const { t } = useI18n()
+  const regionOptions = useRegionOptions()
   const [base, setBase] = useState(initial)
   const [reloaded, setReloaded] = useState(false)
   const form = useForm<ProfileFormInput, unknown, ProfileFormValues>({
@@ -206,6 +218,13 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
           error={errorText(form.formState.errors.bio?.message)}
           {...form.register('bio')}
         />
+        <SelectField
+          label={t('profile.region')}
+          hint={t('profile.regionHint')}
+          options={regionOptions}
+          error={errorText(form.formState.errors.regionCode?.message)}
+          {...form.register('regionCode')}
+        />
         <SubmitButton pending={save.isPending} label={t('profile.save')} pendingLabel={t('profile.saving')} />
       </form>
     </>
@@ -251,6 +270,8 @@ function SavedVersion({ profile, onDiscard }: SavedVersionProps): React.JSX.Elem
           <dd className="break-words">{profile.displayName ?? t('profile.emptyValue')}</dd>
           <dt className="font-semibold">{t('profile.savedBio')}</dt>
           <dd className="break-words whitespace-pre-line">{profile.bio ?? t('profile.emptyValue')}</dd>
+          <dt className="font-semibold">{t('profile.savedRegion')}</dt>
+          <dd>{regionName(t, profile.regionCode)}</dd>
         </dl>
       </Alert>
       <Button variant="secondary" onClick={onDiscard}>
@@ -260,11 +281,16 @@ function SavedVersion({ profile, onDiscard }: SavedVersionProps): React.JSX.Elem
   )
 }
 
+function regionName(t: Translate, code: RegionCode | null): string {
+  return code === null ? t('profile.regionNotInformed') : t(REGION_LABEL_KEYS[code])
+}
+
 const PROFILE_ERROR_KEYS: ReadonlySet<string> = new Set<ProfileErrorKey>([
   'profile.error.displayNameRequired',
   'profile.error.displayNameTooLong',
   'profile.error.bioTooLong',
   'profile.error.invalidCharacters',
+  'profile.error.unknownRegion',
 ])
 
 function isProfileErrorKey(message: string): message is ProfileErrorKey {
@@ -286,6 +312,7 @@ function translateProfileError(t: Translate, message: string | undefined): strin
       return t(message, { max: BIO_MAX_LENGTH })
     case 'profile.error.displayNameRequired':
     case 'profile.error.invalidCharacters':
+    case 'profile.error.unknownRegion':
       return t(message)
   }
 }

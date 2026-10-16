@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { components } from '@/shared/api/schema'
+import { REGION_CODES } from './profile-region'
 import { findTextProblem, normalizeProfileText, type TextProblem } from './profile-text'
 
 type UpdateProfileRequest = components['schemas']['UpdateProfileRequest']
@@ -14,6 +15,7 @@ export type ProfileErrorKey =
   | 'profile.error.displayNameTooLong'
   | 'profile.error.bioTooLong'
   | 'profile.error.invalidCharacters'
+  | 'profile.error.unknownRegion'
 
 const DISPLAY_NAME_ERRORS: Readonly<Record<TextProblem, ProfileErrorKey>> = {
   empty: 'profile.error.displayNameRequired',
@@ -47,7 +49,12 @@ const bioSchema = z
     findTextProblem(value, { maxLength: BIO_MAX_LENGTH, allowLineBreaks: true }) === 'empty' ? '' : value,
   )
 
-export const profileFormSchema = z.object({ displayName: displayNameSchema, bio: bioSchema })
+/** Valor do select: '' é "Não informar"; o resto, só as UFs do contrato, na forma canônica como o servidor exige. */
+const regionSchema = z.union([z.literal(''), z.enum(REGION_CODES)], {
+  error: () => 'profile.error.unknownRegion' satisfies ProfileErrorKey,
+})
+
+export const profileFormSchema = z.object({ displayName: displayNameSchema, bio: bioSchema, regionCode: regionSchema })
 
 export type ProfileFormInput = z.input<typeof profileFormSchema>
 export type ProfileFormValues = z.output<typeof profileFormSchema>
@@ -57,11 +64,12 @@ export type EditedFields = Readonly<Partial<Record<keyof ProfileFormValues, bool
 
 /**
  * Corpo do PATCH só com o que a pessoa editou: depois de um 412 e de recarregar, reaplicar não desfaz o que a outra
- * aba mudou nos campos que ela não tocou. Descrição apagada vira `null`.
+ * aba mudou nos campos que ela não tocou. Descrição apagada e região "Não informar" viram `null`.
  */
 export function toProfileChanges(values: ProfileFormValues, edited: EditedFields): UpdateProfileRequest {
   return {
     ...(edited.displayName === true ? { displayName: values.displayName } : {}),
     ...(edited.bio === true ? { bio: values.bio === '' ? null : values.bio } : {}),
+    ...(edited.regionCode === true ? { regionCode: values.regionCode === '' ? null : values.regionCode } : {}),
   }
 }

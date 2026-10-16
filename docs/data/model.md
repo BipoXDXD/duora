@@ -273,15 +273,31 @@ erDiagram
 ### profiles.profiles
 
 - **Colunas:** `user_id uuid`; `display_name text` (≤ 40); `age_band text` (faixas fechadas, ex. `18-24`,
-  `25-34`; derivada de `birth_date`); `region_code text` (região aproximada, FK para tabela de referência de
-  regiões **a definir**); `bio text` (≤ 500); `updated_at`; `version bigint` (`ETag` de API-P01/P02).
-- **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos e de `age_band`.
+  `25-34`; derivada de `birth_date`); `region_code text` (região aproximada: UF em ISO 3166-2:BR, opcional;
+  decisão do responsável técnico em 2026-10-16); `bio text` (≤ 500); `updated_at`; `version bigint` (`ETag` de
+  API-P01/P02).
+- **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos, de `age_band` e de
+  `region_code`.
 - **Classe:** P2 (perfil exibido a contextos legítimos, spec 12.1).
 - **Implementado (migração `Profiles`):** `user_id`, `display_name text null` (1 a 40), `bio text null` (1 a 500),
   `version bigint` (`CHECK version >= 1`; a linha só nasce na primeira gravação, e o perfil sem linha é lido como
   versão 0) e `updated_at`, com `CHECK` de tamanho por `char_length` e FK `RESTRICT`. O texto é gravado em NFC,
-  sem Cc, Cf, Zl, Zp nem surrogate solto (`ProfileText`). `age_band` e `region_code` **ainda não existem**: a origem
-  da faixa (issue #9 item 7, D12) e a tabela de regiões estão por decidir.
+  sem Cc, Cf, Zl, Zp nem surrogate solto (`ProfileText`). `age_band` **ainda não existe**: a origem da faixa (issue
+  #9 item 7, D12) está por decidir.
+- **Implementado (migração `ProfileRegion`, aditiva):** `region_code text null` com
+  `ck_profiles_region_code` (`region_code IN ('BR-AC', ..., 'BR-TO')`, as 27 UFs). `null` é "não informada".
+  - **CHECK, não lookup table** (regra de Estados acima, *SQL Antipatterns* cap. 11): as 27 UFs são um conjunto
+    fixo, que só muda por emenda constitucional (o último ajuste foi em 1988), e não há atributo por UF a guardar.
+    Uma tabela de referência traria FK, índice e seed para um conjunto que o negócio não altera. Se um dia a região
+    passar a ser editável pelo negócio (outro país, microrregião), a troca é uma migração expand/contract para
+    lookup table.
+  - A lista vem de `RegionCode.All` (Core), a mesma que gera o CHECK, o `enum` do OpenAPI e, pelo tipo gerado, o
+    `Record` de rótulos do frontend: não há segunda cópia a manter.
+  - **Só a forma canônica** (`BR-SP`): `br-sp`, borda com espaço, outro separador, vazio ou NUL são recusados com
+    `400` e `errors.regionCode = ["UNKNOWN_REGION"]`, não normalizados. Normalizar criaria uma segunda forma aceita
+    que o enum do contrato e o CHECK não descrevem; o frontend só envia valores do select.
+  - Sem precisão maior que a UF: nem cidade, nem CEP, nem coordenada (spec 1.1, fora do escopo "geolocalização
+    precisa"; [data-map.md](../privacy/data-map.md)).
 
 ### profiles.preferences
 

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { apiClient, sendMutationForJson } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
+import { REGION_CODES } from './profile-region'
 
 type OwnProfileResponse = components['schemas']['OwnProfileResponse']
 type UpdateProfileRequest = components['schemas']['UpdateProfileRequest']
@@ -10,6 +11,7 @@ const PROFILE_PATH = '/api/v1/me/profile'
 const ownProfileSchema = z.object({
   displayName: z.string().nullable(),
   bio: z.string().nullable(),
+  regionCode: z.enum(REGION_CODES).nullable(),
   version: z.string().regex(/^\d+$/),
 }) satisfies z.ZodType<OwnProfileResponse>
 

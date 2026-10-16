@@ -32,12 +32,14 @@ test.describe('perfil próprio', () => {
 
     await page.getByLabel('Nome de exibição').fill('Ana')
     await page.getByLabel('Descrição curta').fill('Gosto de jogos cooperativos.')
+    await page.getByLabel('Região').selectOption({ label: 'Minas Gerais' })
     await page.getByRole('button', { name: 'Salvar perfil' }).click()
 
     await expect(page.getByRole('status').filter({ hasText: 'Perfil salvo.' })).toBeVisible()
     await page.reload()
     await expect(page.getByLabel('Nome de exibição')).toHaveValue('Ana')
     await expect(page.getByLabel('Descrição curta')).toHaveValue('Gosto de jogos cooperativos.')
+    await expect(page.getByLabel('Região')).toHaveValue('BR-MG')
   })
 
   test('T-19: outra aba salvou antes → 412 explicado, recarregar mostra a divergência e reaplicar salva', async ({
