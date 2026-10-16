@@ -126,7 +126,7 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
                 $"A senha da sua conta do Duora foi alterada em {occurredAtUtc}."),
             SecurityChange.PasswordReset => (
                 "Senha redefinida no Duora",
-                $"A senha da sua conta do Duora foi redefinida pelo link de recuperação em {occurredAtUtc}."),
+                $"A senha da sua conta do Duora foi redefinida em {occurredAtUtc}, pelo link de recuperação ou por quem administra o Duora."),
             _ => throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida."),
         };
         var recovery = change == SecurityChange.MfaEnabled
@@ -260,7 +260,7 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
                 $"The password of your Duora account was changed on {occurredAtUtc}."),
             SecurityChange.PasswordReset => (
                 "Duora password reset completed",
-                $"The password of your Duora account was reset through the recovery link on {occurredAtUtc}."),
+                $"The password of your Duora account was reset on {occurredAtUtc}, through the recovery link or by whoever runs Duora."),
             _ => throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida."),
         };
         var recovery = change == SecurityChange.MfaEnabled
