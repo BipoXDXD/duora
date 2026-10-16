@@ -1,9 +1,13 @@
 """Testes do gerador de segredos. Rodar da raiz: python3 -m unittest discover -s scripts/deploy -v"""
 
+import os
+import re
 import stat
 import subprocess
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 from tempfile import TemporaryDirectory
 
 import duora_secrets as secrets_cli
@@ -22,7 +26,8 @@ class InitSecretsTests(unittest.TestCase):
     def test_creates_every_secret_file(self) -> None:
         secrets_cli.init_secrets(self.directory, change_owner=False)
 
-        self.assertEqual(set(secrets_cli.SECRET_OWNERS), {p.name for p in self.directory.iterdir()})
+        self.assertEqual(set(secrets_cli.SECRET_OWNERS) | set(secrets_cli.CERTIFICATE_OWNERS),
+                         {p.name for p in self.directory.iterdir()})
 
     def test_directory_is_0700_and_files_are_0400(self) -> None:
         secrets_cli.init_secrets(self.directory, change_owner=False)
@@ -152,6 +157,192 @@ class InitBackupTests(unittest.TestCase):
 
         self.assertFalse(secrets_cli.init_secrets(self.directory, change_owner=False))
 
+
+
+NOW = datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc)
+CERTIFICATE = "dataprotection_certificate"
+PREVIOUS = "dataprotection_previous_certificates"
+
+
+def pem_blocks(text: str) -> list[str]:
+    return re.findall(r"-----BEGIN ([A-Z ]+)-----", text)
+
+
+def fingerprint(pem: str) -> str:
+    result = subprocess.run(["openssl", "x509", "-noout", "-fingerprint", "-sha256"], input=pem,
+                            capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+class KeyRingCertificateTests(unittest.TestCase):
+    """Certificado que cifra o key ring do Data Protection em repouso (spec 11.2, docs/security/auth.md)."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.directory = Path(self._tmp.name) / "secrets"
+
+    def test_certificate_is_one_certificate_followed_by_its_unencrypted_private_key(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+
+        pem = read(self.directory, CERTIFICATE)
+        self.assertEqual(["CERTIFICATE", "PRIVATE KEY"], pem_blocks(pem))
+        modulus = ["openssl", "x509", "-noout", "-modulus"], ["openssl", "rsa", "-noout", "-modulus"]
+        certificate_modulus, key_modulus = (
+            subprocess.run(command, input=pem, capture_output=True, text=True, check=True).stdout
+            for command in modulus)
+        self.assertEqual(certificate_modulus, key_modulus)
+
+    def test_previous_certificates_start_empty(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+
+        self.assertEqual("", read(self.directory, PREVIOUS))
+
+    def test_certificate_is_added_to_a_directory_that_only_has_the_passwords(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        app_password = read(self.directory, "db_app_password")
+        (self.directory / CERTIFICATE).unlink()
+        (self.directory / PREVIOUS).unlink()
+
+        self.assertTrue(secrets_cli.init_secrets(self.directory, change_owner=False))
+
+        self.assertEqual(app_password, read(self.directory, "db_app_password"))
+        self.assertEqual(["CERTIFICATE", "PRIVATE KEY"], pem_blocks(read(self.directory, CERTIFICATE)))
+
+    def test_second_run_keeps_the_certificate(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        before = read(self.directory, CERTIFICATE)
+
+        self.assertFalse(secrets_cli.init_secrets(self.directory, change_owner=False))
+
+        self.assertEqual(before, read(self.directory, CERTIFICATE))
+
+    def test_certificate_without_its_previous_file_is_refused(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        before = read(self.directory, CERTIFICATE)
+        (self.directory / PREVIOUS).unlink()
+
+        with self.assertRaisesRegex(secrets_cli.SecretsError, "incompleto"):
+            secrets_cli.init_secrets(self.directory, change_owner=False)
+
+        self.assertEqual(before, read(self.directory, CERTIFICATE))
+
+    def test_rotation_moves_the_current_certificate_to_the_previous_ones(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        first = read(self.directory, CERTIFICATE)
+
+        secrets_cli.rotate_certificate(self.directory, change_owner=False)
+
+        second = read(self.directory, CERTIFICATE)
+        self.assertNotEqual(fingerprint(first), fingerprint(second))
+        self.assertEqual(first, read(self.directory, PREVIOUS))
+
+    def test_second_rotation_keeps_every_previous_certificate_newest_first(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        first = read(self.directory, CERTIFICATE)
+        secrets_cli.rotate_certificate(self.directory, change_owner=False)
+        second = read(self.directory, CERTIFICATE)
+
+        secrets_cli.rotate_certificate(self.directory, change_owner=False)
+
+        self.assertEqual(second + first, read(self.directory, PREVIOUS))
+
+    def test_rotated_files_stay_0400(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+
+        secrets_cli.rotate_certificate(self.directory, change_owner=False)
+
+        for name in (CERTIFICATE, PREVIOUS):
+            with self.subTest(file=name):
+                self.assertEqual(0o400, stat.S_IMODE((self.directory / name).stat().st_mode))
+        self.assertEqual({CERTIFICATE, PREVIOUS} | set(secrets_cli.SECRET_OWNERS),
+                         {p.name for p in self.directory.iterdir()})
+
+    def test_rotation_without_a_certificate_is_refused(self) -> None:
+        self.directory.mkdir(mode=0o700)
+
+        with self.assertRaisesRegex(secrets_cli.SecretsError, "init"):
+            secrets_cli.rotate_certificate(self.directory, change_owner=False)
+
+    def test_retiring_empties_the_previous_certificates_and_keeps_the_current(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        secrets_cli.rotate_certificate(self.directory, change_owner=False)
+        current = read(self.directory, CERTIFICATE)
+        keys = self.key_ring(("expirada", read(self.directory, PREVIOUS), -timedelta(days=2)),
+                             ("nova", current, timedelta(days=90)))
+
+        secrets_cli.retire_previous_certificates(self.directory, keys, change_owner=False, now=NOW)
+
+        self.assertEqual("", read(self.directory, PREVIOUS))
+        self.assertEqual(current, read(self.directory, CERTIFICATE))
+
+    def test_retiring_is_refused_while_a_key_encrypted_by_a_previous_certificate_is_still_needed(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        secrets_cli.rotate_certificate(self.directory, change_owner=False)
+        previous = read(self.directory, PREVIOUS)
+        # Expirou há 1 h: ainda decifra tokens de até 24 h que ela protegeu.
+        keys = self.key_ring(("recente", previous, -timedelta(hours=1)))
+
+        with self.assertRaisesRegex(secrets_cli.SecretsError, "recente"):
+            secrets_cli.retire_previous_certificates(self.directory, keys, change_owner=False, now=NOW)
+
+        self.assertEqual(previous, read(self.directory, PREVIOUS))
+
+    def test_retiring_without_key_files_is_refused(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+        empty = Path(self._tmp.name) / "sem-chaves"
+        empty.mkdir()
+
+        with self.assertRaisesRegex(secrets_cli.SecretsError, "nenhuma chave"):
+            secrets_cli.retire_previous_certificates(self.directory, empty, change_owner=False, now=NOW)
+
+    def test_rotation_replaces_the_previous_file_before_the_certificate_and_syncs_to_disk(self) -> None:
+        secrets_cli.init_secrets(self.directory, change_owner=False)
+
+        with mock.patch.object(secrets_cli.os, "replace", wraps=os.replace) as replace, \
+                mock.patch.object(secrets_cli.os, "fsync", wraps=os.fsync) as fsync:
+            secrets_cli.rotate_certificate(self.directory, change_owner=False)
+
+        self.assertEqual([self.directory / PREVIOUS, self.directory / CERTIFICATE],
+                         [Path(call.args[1]) for call in replace.call_args_list])
+        # Os dois arquivos novos e o diretório, depois das trocas.
+        self.assertGreaterEqual(fsync.call_count, 3)
+
+    def test_init_stages_the_certificate_pair_and_renames_the_certificate_last(self) -> None:
+        with mock.patch.object(secrets_cli.os, "replace", wraps=os.replace) as replace:
+            secrets_cli.init_secrets(self.directory, change_owner=False)
+
+        self.assertEqual([self.directory / PREVIOUS, self.directory / CERTIFICATE],
+                         [Path(call.args[1]) for call in replace.call_args_list])
+        self.assertFalse([p.name for p in self.directory.iterdir() if p.name.startswith(".")])
+
+    def test_temporary_private_key_is_removed_even_when_openssl_fails(self) -> None:
+        self.directory.mkdir(mode=0o700)
+        failure = subprocess.CompletedProcess(["openssl"], 1, stdout="", stderr="falhou")
+
+        with mock.patch.object(secrets_cli.subprocess, "run", return_value=failure), \
+                self.assertRaisesRegex(secrets_cli.SecretsError, "openssl req falhou"):
+            secrets_cli.init_secrets(self.directory, change_owner=False)
+
+        self.assertEqual([], [p.name for p in self.directory.iterdir()])
+
+    def key_ring(self, *keys: tuple[str, str, timedelta]) -> Path:
+        """Arquivos key-*.xml como o Data Protection grava: expirationDate e o certificado que cifrou a chave."""
+        directory = Path(self._tmp.name) / "key-ring"
+        directory.mkdir(exist_ok=True)
+        for name, pem, until_expiration in keys:
+            certificate = "".join(pem.split("-----BEGIN CERTIFICATE-----")[1].split("-----END CERTIFICATE-----")[0].split())
+            expiration = (NOW + until_expiration).isoformat().replace("+00:00", "Z")
+            (directory / f"key-{name}.xml").write_text(
+                f'<?xml version="1.0" encoding="utf-8"?><key id="{name}" version="1"><creationDate>2026-01-01T00:00:00Z'
+                f'</creationDate><expirationDate>{expiration}</expirationDate><descriptor><descriptor>'
+                f'<encryptedSecret><EncryptedData Type="http://www.w3.org/2001/04/xmlenc#Element" '
+                f'xmlns="http://www.w3.org/2001/04/xmlenc#"><KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#">'
+                f'<EncryptedKey xmlns="http://www.w3.org/2001/04/xmlenc#"><KeyInfo '
+                f'xmlns="http://www.w3.org/2000/09/xmldsig#"><X509Data><X509Certificate>{certificate}'
+                f'</X509Certificate></X509Data></KeyInfo></EncryptedKey></KeyInfo></EncryptedData>'
+                f'</encryptedSecret></descriptor></descriptor></key>', encoding="utf-8")
+        return directory
 
 if __name__ == "__main__":
     unittest.main()

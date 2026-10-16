@@ -190,6 +190,11 @@ services:
     secrets:
       - source: duora_app_connection
         target: ConnectionStrings__Duora
+      # Certificado que cifra o key ring em repouso (spec 11.2) e os anteriores de uma rotação em curso. Só o web.
+      - source: dataprotection_certificate
+        target: DataProtection__Certificate
+      - source: dataprotection_previous_certificates
+        target: DataProtection__PreviousCertificates
     tmpfs:
       - /tmp:size=64m,mode=1777
     volumes:
@@ -361,3 +366,7 @@ secrets:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/pgbackrest_repo.conf
   pgbackrest_cipher:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/pgbackrest_cipher.conf
+  dataprotection_certificate:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/dataprotection_certificate
+  dataprotection_previous_certificates:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/dataprotection_previous_certificates
