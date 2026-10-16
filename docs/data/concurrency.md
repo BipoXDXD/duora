@@ -3,8 +3,10 @@
 Ordem de locks, protocolo de cada cenário concorrente, idempotência, outbox com lease e fencing, política de
 retry e como testar cada cenário com conexões reais. Fontes: spec 5.2, 7.1, 7.3, 8.7, 10.3–10.6, 16.4 e 20.3;
 ADRs [0004](../architecture/adr/0004-dbcontext-unico-schemas-logicos.md),
-[0008](../architecture/adr/0008-postgresql-para-jobs-e-outbox.md) e
-[0016](../architecture/adr/0016-sala-e-sessao-de-jogo.md); fichas D-PG-03, D-EF-03 e D-EF-04. Tabelas e
+[0008](../architecture/adr/0008-postgresql-para-jobs-e-outbox.md),
+[0016](../architecture/adr/0016-sala-e-sessao-de-jogo.md),
+[0020](../architecture/adr/0020-persistencia-da-sessao-de-jogo.md) e
+[0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md); fichas D-PG-03, D-EF-03 e D-EF-04. Tabelas e
 constraints: [model.md](model.md). Ameaças: [threat-model.md](../security/threat-model.md) (TM-23, TM-50,
 TM-52, TM-53, TM-56).
 
@@ -14,7 +16,7 @@ pausas de processo e fencing token (*Designing Data-Intensive Applications*, 2ª
 Locks and Leases"); outbox, entrega at-least-once e consumidor idempotente (idem, caps. 8 e 12); argumento
 fim a fim para idempotência e constraints como garantia de integridade (idem, cap. 13).
 
-> **Estado:** especificação. Nenhum protocolo abaixo está implementado. Mudança em transação crítica atualiza
+> **Estado:** especificação. A outbox de e-mail e os cenários marcados (M1) já estão implementados; o resto, não. Mudança em transação crítica atualiza
 > este documento no mesmo PR (spec 21.2).
 
 ## Princípios
@@ -43,7 +45,7 @@ Todo caso de uso coordenado adquire locks nesta ordem (spec 10.4). Quem descobre
 
 | Ordem | Recurso | Comando | Observação |
 |---|---|---|---|
-| 0 | Registro de idempotência, quando houver | `INSERT ... ON CONFLICT` em `ops.idempotency_records` | Bloqueia uma segunda requisição com a mesma chave até o commit ou rollback da primeira |
+| 0 | Registro de idempotência, quando houver; ou a linha do job, no handler de efeito interno (ADR-0021) | `INSERT ... ON CONFLICT` em `ops.idempotency_records`; `UPDATE ops.jobs ... WHERE id = $id AND fencing_token = $t` | Bloqueia uma segunda requisição com a mesma chave até o commit ou rollback da primeira. A linha do job nunca espera: transação de negócio não tranca job, e o claim usa `SKIP LOCKED` |
 | 1 | Guardas de usuários | `SELECT 1 FROM safety.user_guards WHERE user_id = ANY($ids) ORDER BY user_id FOR UPDATE` | UUID crescente; o `ORDER BY` faz o lock seguir a ordem |
 | 2 | Coordenador de evento ou rodada | `SELECT ... FROM events.events / events.rounds WHERE id = $id FOR UPDATE` | Evento antes da rodada quando os dois forem necessários |
 | 3 | Guarda de relação | `INSERT ... ON CONFLICT DO NOTHING` e `SELECT ... FROM social.relationship_guards WHERE (user_low, user_high) = ($l, $h) FOR UPDATE` | Criada sob demanda; vários pares em ordem `(user_low, user_high)` |
@@ -139,10 +141,15 @@ iniciada sem necessidade de segurança (spec 8.2).
 
 ### C4. Duas ações de jogo
 
-API-R03 (M2). `game_sessions FOR UPDATE` (ordem 4), comparar `version` com `expectedVersion`, aplicar
-`ApplyAction`, gravar `game_actions` (PK `(game_session_id, actor_id, action_id)` deduplica reenvio do mesmo
-`actionId`) e `UPDATE ... SET version = version + 1`. A segunda ação com versão antiga recebe `409
-ROOM_VERSION_CONFLICT` (spec 8.6); reenvio com o mesmo `actionId` devolve o resultado da primeira.
+API-R03 (M2), protocolo do [ADR-0020](../architecture/adr/0020-persistencia-da-sessao-de-jogo.md) (item 7).
+Idempotência (ordem 0); `game_sessions FOR UPDATE` (ordem 4); ler `game_participants` e `game_actions` da sessão;
+`Restore`; comparar `version` com `expectedVersion`; aplicar `ApplyAction`; `UPDATE ... SET ..., version =
+version + 1 WHERE id = $id AND version = $v` (zero linhas é bug do protocolo → rollback, nunca sobrescrita),
+`UPDATE` das linhas privadas alteradas, `INSERT` em `game_actions` (PK `(game_session_id, actor_id, action_id)`
+deduplica reenvio do mesmo `actionId`; guarda `payload_sha256`, não o corpo), outbox e resultado de idempotência
+no mesmo commit. A segunda ação com versão antiga recebe `409 ROOM_VERSION_CONFLICT` (spec 8.6); reenvio com o
+mesmo `actionId` e o mesmo hash devolve o resultado da primeira; mesmo `actionId` com hash diferente é rejeitado.
+A leitura de projeção não tranca e lê as três tabelas em `REPEATABLE READ READ ONLY`.
 
 ### C5. Duas inscrições na última vaga
 
@@ -162,7 +169,10 @@ no protocolo vire erro, não lotação estourada.
 
 Job de expiração e API-R01/R03 (M2). Teste T-18. Os dois trancam a `game_session` e comparam o deadline
 persistido com o instante do servidor. Quem trancar primeiro decide; o job só transiciona se `state` e
-`version` ainda forem os que ele leu (`UPDATE ... WHERE id = $id AND version = $v AND state = 'Active'`).
+`version` ainda forem os que ele leu (`UPDATE ... WHERE id = $id AND version = $v AND state = 'Active'`). O job
+tranca antes a própria linha em `ops.jobs` (ordem 0, [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md)
+item 4); se a sala já saiu de `Active`, conclui sem efeito; se o prazo persistido ainda não chegou, reagenda-se
+para ele. A API nunca cancela nem altera o job.
 
 ### C7. Worker atrasado vs novo lease
 
@@ -252,15 +262,14 @@ tratada por anti-enumeração e rate limit.
 ```mermaid
 stateDiagram-v2
     [*] --> Pending: commit da transação de negócio
-    Pending --> Leased: claim (SKIP LOCKED, token + 1)
-    Leased --> Done: efeito confirmado e token ainda válido
-    Leased --> Pending: falha transitória (available_at = agora + backoff)
-    Leased --> Leased: lease vencido reclamado por outro executor (token + 1)
-    Leased --> Failed: falha definitiva ou tentativas esgotadas
-    Pending --> Expired: deadline vencido
-    Leased --> Expired: deadline vencido antes do efeito
-    Pending --> Cancelled: destinatário inválido (bloqueio, exclusão)
-    Done --> [*]
+    Pending --> InFlight: claim (SKIP LOCKED, token + 1)
+    InFlight --> Delivered: efeito confirmado e token ainda válido
+    InFlight --> Pending: falha transitória (available_at = agora + backoff)
+    InFlight --> InFlight: lease vencido reclamado por outro executor (token + 1)
+    InFlight --> Failed: falha definitiva ou tentativas esgotadas
+    InFlight --> Expired: deadline vencido antes do efeito
+    Delivered --> [*]
+    Expired --> [*]
     Failed --> [*]: fila de revisão
 ```
 
@@ -271,13 +280,13 @@ WITH picked AS (
     SELECT id
     FROM ops.outbox_deliveries
     WHERE (status = 'Pending' AND available_at <= $now)
-       OR (status = 'Leased' AND lease_expires_at <= $now)
+       OR (status = 'InFlight' AND lease_expires_at <= $now)
     ORDER BY available_at, id
     LIMIT $batch
     FOR UPDATE SKIP LOCKED
 )
 UPDATE ops.outbox_deliveries AS d
-SET status = 'Leased',
+SET status = 'InFlight',
     lease_expires_at = $now + $lease,
     fencing_token = d.fencing_token + 1,
     attempts = d.attempts + 1
@@ -294,8 +303,8 @@ o consumidor de tempo real publica pelo `IHubContext` só no processo web.
 
 ```sql
 UPDATE ops.outbox_deliveries
-SET status = 'Done', completed_at = $now, lease_expires_at = NULL
-WHERE id = $id AND status = 'Leased' AND fencing_token = $token;
+SET status = 'Delivered', completed_at = $now, lease_expires_at = NULL
+WHERE id = $id AND status = 'InFlight' AND fencing_token = $token AND lease_expires_at > $now;
 ```
 
 0 linhas afetadas = outro executor assumiu (lease vencido durante pausa de GC, rede ou VM): o resultado é
@@ -303,9 +312,16 @@ descartado, com métrica `stale_completion`, e nunca sobrescreve o estado. O efe
 duas vezes; por isso o fornecedor recebe chave de idempotência e o destinatário deduplica por `eventId`
 (spec 10.6). Exactly-once não é prometido.
 
-Jobs (`ops.jobs`) usam o mesmo claim, lease e fencing. Job de expiração de sala, rodada ou convite também
-aplica a transição condicional do cenário [C6](#c6-timeout-vs-ação), de modo que uma conclusão com token
-válido mas estado já mudado não tem efeito.
+Nomes da implementação do M1 (`OutboxDeliveryQueue`): o claim filtra por `consumer`, e a expiração por deadline é
+decidida pelo consumidor depois do claim, encerrando a entrega como `Expired`.
+
+Jobs (`ops.jobs`) usam o mesmo claim, lease e fencing, com as diferenças do
+[ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md): estado final `Done` e `Cancelled`
+(este só pela área administrativa); claim só dos tipos conhecidos pela release e não pausados, com `attempts <
+max_attempts`, e o mesmo comando leva a `Failed` o lease vencido de tentativas esgotadas; `deadline_at` vencido vira
+`Expired` no claim; efeito interno conclui o job e aplica a transição de negócio na mesma transação, com a linha do
+job na ordem 0. Job de expiração de sala, rodada ou convite aplica a transição condicional do cenário
+[C6](#c6-timeout-vs-ação), de modo que uma conclusão com token válido mas estado já mudado não tem efeito.
 
 | Parâmetro | Valor inicial (hipótese) |
 |---|---|
