@@ -74,14 +74,23 @@ contrato de cada adaptador afirma esse conjunto (TM-60).
 |---|---|---|---|---|
 | Verificação etária | `IAgeEligibilityProvider` | ID de solicitação (nonce), URL de retorno fixa; o que o método exigir é coletado **pelo fornecedor**, não pelo Duora | Resultado mínimo, referência, validade | Método proporcional, taxa de erro, contestação, acessibilidade, retenção e local de tratamento, callbacks assinados (spec 12.2, 16.3) |
 | E-mail transacional | `ITransactionalEmailSender` | Endereço, modelo e variáveis neutras (sem nome de outra pessoa, trecho de mensagem ou motivo de moderação) | Recibos, bounces, reclamações | Domínio autenticado (SPF, DKIM, DMARC), retenção de logs do fornecedor, suppression (spec 16.4) |
-| Object storage | `IObjectStore` | Bytes de fotos (quarentena e derivados), arquivo de exportação | — | Buckets privados, criptografia, versionamento e exclusão de versões antigas, região (spec 16.2) |
-| Backup | pgBackRest | Cópia física do banco e WAL, criptografados | — | Criptografia com chave sob custódia separada, retenção, proteção contra exclusão (spec 18.3) |
+| Armazenamento de fotos | `IObjectStore` (adaptador de filesystem) | Bytes de fotos (quarentena e derivados) e arquivo de exportação, no disco da VPS (Hostinger); nenhum terceiro além do provedor da VPS | — | Diretório do host com dono e modo restritos, montagem por área, cópia externa obrigatória (adendo do ADR-0010) |
+| Backup | pgBackRest (banco e WAL) e restic (derivados das fotos), no **Backblaze B2, região US East (EUA)** | Cópia física do banco e WAL e cópia dos derivados das fotos, **cifradas no cliente** antes de sair da VPS (a Backblaze só recebe blocos cifrados; as chaves de cifra ficam na VPS e no cofre do responsável) | — | Criptografia com chave sob custódia separada, retenção, proteção contra exclusão (spec 18.3); escolhido em 2026-10-16 |
 | Monitoramento | OTLP | Telemetria filtrada, sem dado privado | — | Filtragem, retenção, controle de acesso (spec 19.2) |
 | Moderação assistida (condicional) | `IContentReviewProvider` | Só conteúdo denunciado ou upload em revisão, estritamente necessário | Rótulo e prioridade | Política de dados, retenção, proibição de treino, revisão humana (spec 12.3; ADR-0013) |
 | Agentes de desenvolvimento | — | **Nenhum dado pessoal real**; só dados sintéticos | — | INV-12; spec 6.4, 14.3 |
 
 Transferência internacional é provável em vários desses serviços; local de tratamento e salvaguardas entram
 na avaliação jurídica de cada contrato.
+
+### Transferências internacionais registradas
+
+| Destino | País | Dados | Proteção técnica | Retenção no destino | Salvaguarda (LGPD, art. 33) |
+|---|---|---|---|---|---|
+| Backblaze B2, região US East (bucket próprio do Duora) | Estados Unidos | Tudo o que o banco guarda (via pgBackRest) e os derivados das fotos aprovadas (via restic); nunca a quarentena | Cifra no cliente (pgBackRest `aes-256-cbc`; restic AES-256), TLS, chave presa ao bucket e ao prefixo, File Lock `compliance` de 21 dias | Banco: janela de 14 dias + 21 de lock + 30 de lifecycle; fotos: 14 dias de snapshots + 21 + 30 ([retention.md](retention.md)) | **A definir** (registrado em 2026-10-16; sem análise jurídica nesta fase, por decisão do responsável). Antes de dados reais: escolher o mecanismo (por exemplo, cláusulas-padrão contratuais da ANPD) e registrar aqui |
+
+A Backblaze guarda só blocos cifrados e não tem as chaves; ainda assim, o backup é cópia de dado pessoal fora do
+Brasil e conta como transferência internacional.
 
 ## Acessos por papel
 

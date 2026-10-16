@@ -476,6 +476,82 @@ o drill desfaz a exclusão em vez de recriar a stanza, que é também o procedim
 | Fila de WAL no pg_wal | Aviso do pgBackRest no log do postgres | Métrica do tamanho do `pg_wal` com alerta antes de 4 GiB |
 | Certificado TLS perto de vencer | — | Checagem de validade (825 dias) no verify ou no monitor |
 
+## Backup das fotos (restic)
+
+Decisão do responsável em 2026-10-16 (adendo do [ADR-0010](../architecture/adr/0010-object-storage-externo-leitura-via-api.md)):
+as fotos ficam no disco da VPS (`duora_media_dir`, padrão `/var/lib/duora-media`) e os **derivados** vão todo dia,
+com `restic`, para o prefixo `media/` do mesmo bucket B2 com File Lock. A quarentena (original com EXIF, no máximo
+24 h) não entra. O pgBackRest não serve aqui: ele só copia o cluster do PostgreSQL.
+
+| O quê | Valor |
+|---|---|
+| Ferramenta | `restic` do Ubuntu 24.04 (pacote `restic`, BSD-2-Clause), instalado pelo role `backup` |
+| Onde roda | No host, como root, pelos timers `duora-backup-media*.timer` → `duora-backup@media-*.service` (falha dispara o mesmo `duora-backup-failed@`) |
+| Destino | `s3:https://<endpoint>/<bucket>/media`, cifrado no cliente com a senha do repositório |
+| Chave | `duora-media-backup`, presa a `media/`, sem `deleteFiles` ([backblaze-setup.md](backblaze-setup.md#3-chaves)) |
+| Retenção | 14 dias de snapshots (`forget --keep-within 14d --prune`) + 21 dias de lock + 30 dias do lifecycle: uma foto apagada some da VPS na hora e da cópia externa em até ~65 dias |
+| Diário 02:30 UTC | `media-backup`: `restic backup` dos derivados e `forget --prune` |
+| Diário 05:30 UTC | `media-verify`: bucket e chave provados como no verify do banco (prefixo `media/`), snapshot mais novo com no máximo 26 h e `restic check` da estrutura |
+| Semanal (quinta 06:30 UTC) | `media-check`: `restic check --read-data`, baixa e confere todos os pacotes |
+
+Segredos, gravados pelo `duora-secrets write-media-backup-repo` (root, 0400, em `/etc/duora/secrets`):
+`restic_media_repository` (destino), `restic_media_password` (senha do repositório, gerada **fora** da VPS com
+`openssl rand -base64 48` e guardada no cofre: sem ela a cópia é ilegível) e `restic_media_credentials` (a chave B2 no
+formato de credenciais compartilhadas). O restic lê os três por arquivo (`RESTIC_REPOSITORY_FILE`,
+`RESTIC_PASSWORD_FILE`, `AWS_SHARED_CREDENTIALS_FILE`); nenhum segredo vai à linha de comando nem ao ambiente.
+
+### Primeira configuração das fotos
+
+1. Chave `duora-media-backup` no B2 ([backblaze-setup.md](backblaze-setup.md#3-chaves)) e senha do repositório no
+   cofre.
+2. Na VPS, gravar os três arquivos:
+
+   ```sh
+   ( IFS= read -r -p 'keyID: ' key; IFS= read -r -s -p 'applicationKey: ' secret; echo >&2
+     IFS= read -r -s -p 'senha do restic: ' password; echo >&2
+     printf '%s\n%s\n%s\n' "$key" "$secret" "$password" ) \
+     | sudo duora-secrets write-media-backup-repo /etc/duora/secrets --bucket <BUCKET> \
+         --endpoint s3.us-east-005.backblazeb2.com   # o endpoint anotado no bucket
+   ```
+
+3. `duora_media_backup_enabled: true` no inventário e o playbook (instala o restic e liga os timers).
+4. `sudo duora-backup media-init` (recusa se o bucket não provar File Lock `COMPLIANCE` ≥ 21 dias e se a chave não
+   estiver presa a `media/` com as capacidades mínimas), depois `sudo duora-backup media-backup` e
+   `sudo duora-backup media-verify`.
+
+O upload de fotos **não liga em produção** antes destes quatro passos e de um restore de ensaio (abaixo) bem-sucedido.
+
+### Restore das fotos
+
+`media-restore` só grava num diretório de staging absoluto, vazio e fora de `duora_media_dir`:
+
+```sh
+sudo duora-backup media-restore --target /var/tmp/duora-media-restore
+```
+
+O restic recria o caminho original dentro do staging (`/var/tmp/duora-media-restore/var/lib/duora-media/derivatives`).
+**Antes de copiar** para o diretório em uso, aplique as exclusões do banco já restaurado (INV-11; o banco vem
+primeiro, com os tombstones): só voltam os derivados de assets `Approved`.
+
+```sh
+# $C é o mesmo "sudo docker compose ..." com os env files da release, da seção de restore do banco acima.
+$C exec --no-TTY postgres psql --username postgres --dbname duora --tuples-only --no-align --command \
+  "select v.object_key from media.media_variants v join media.media_assets a on a.id = v.media_asset_id
+   where a.state = 'Approved'" > /var/tmp/duora-media-keep.txt
+cd /var/tmp/duora-media-restore/var/lib/duora-media
+sudo rsync -a --files-from=/var/tmp/duora-media-keep.txt ./ /var/lib/duora-media/
+sudo chown -R 1654:1654 /var/lib/duora-media/derivatives
+sudo rm -rf /var/tmp/duora-media-restore /var/tmp/duora-media-keep.txt
+```
+
+A chave de objeto é `derivatives/<token>-<variante>`, relativa ao `duora_media_dir`; o `--files-from` copia só a
+lista. Um asset aprovado sem arquivo no backup volta como 404 na leitura (ADR-0025, item "Backup").
+
+Testes: `MediaBackupTests` (comandos do restic, segredos só por arquivo, diretório ausente, prune só depois de backup
+bom, bucket e chave provados no host, idade do snapshot na fronteira, listagem ilegível, init só em bucket protegido,
+alvo do restore), `MediaBackupUnitsTests` (timers, alerta, padrões do inventário) e
+`WriteMediaBackupRepositoryTests`.
+
 ## Pendências que dependem da VPS ou do fornecedor
 
 - **Provedor S3**: escolhido (Backblaze B2, US East, 2026-10-16). Falta o responsável criar bucket e chaves

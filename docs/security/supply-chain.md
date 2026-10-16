@@ -88,6 +88,16 @@ Os SBOMs descrevem as dependências declaradas no repositório, com as de desenv
 porque elas rodam no CI e entram no inventário de licenças. O SBOM da release, por imagem e por digest, entra
 com o gate de Release (spec 17.2), quando houver imagens.
 
+## Ferramentas do host
+
+Instaladas pelo Ansible na VPS, fora dos SBOMs do repositório (não são dependência declarada no código nem entram em
+imagem). A licença é conferida contra a mesma allowlist de `scripts/supply-chain/license-policy.json` quando a
+ferramenta entra.
+
+| Ferramenta | Licença | Origem e fixação | Uso |
+|---|---|---|---|
+| restic | BSD-2-Clause (na allowlist; sem exceção) | pacote `restic` do componente universe do Ubuntu 24.04 (assinado pelo apt, série 0.16 da distribuição). Correções de segurança do universe chegam pelo ESM (Ubuntu Pro), não pelo `noble-security` comum: conferir a versão contra os avisos do restic a cada trimestre | backup dos derivados das fotos para o B2 (adendo do ADR-0010; role `backup`, só com `duora_media_backup_enabled`) |
+
 ## Lacunas conhecidas
 
 - O Trivy não tem checks de misconfig para Docker Compose; `infra/compose/compose.dev.yml` não é coberto por

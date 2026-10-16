@@ -194,6 +194,6 @@ Decisão do responsável (adendo do [ADR-0010](0010-object-storage-externo-leitu
 mídia. Ficam sem efeito neste ADR: "Adaptador de filesystem para dev e teste, que o boot recusa em `Production`"
 (item 5) e o teste de boot que provava essa recusa. As regras de credencial por processo do item 5 viram montagens
 por área (proposta no adendo do ADR-0010). O adaptador S3 e o contrato contra o MinIO continuam, sem uso em produção.
-O item "Backup" de Segurança e operação deixa de ser pendência aberta: a cópia externa de `derivatives/` é
-pré-requisito para ligar o upload (gate do adendo do ADR-0010), e o gate manual "bucket de mídia com as políticas de
+O item "Backup" de Segurança e operação deixa de ser pendência aberta: a cópia externa de `derivatives/` (restic para
+o B2) é pré-requisito para ligar o upload (gate do adendo do ADR-0010), e o gate manual "bucket de mídia com as políticas de
 credencial acima" vira "montagens por área conferidas no host e backup das fotos verificado".

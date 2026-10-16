@@ -21,7 +21,8 @@ Prazos de guarda, mecanismo de exclusão, preservação e tombstones. Fontes: sp
 | Idempotência comum | 48 horas | Resultado mínimo; limpeza em lotes; unicidades de negócio continuam | `ops.idempotency_records` | Proposta |
 | Telemetria operacional | 14 dias como ponto inicial | Sem conteúdo privado; separada de registros de segurança ou legais | Destino de monitoramento | Proposta |
 | Evidência de moderação | Por categoria, finalidade, recurso e eventual preservação | Gate de política antes de produção; `retention_until` obrigatório; proibida retenção indefinida por omissão | `safety.report_evidence`, `safety.reports` | Pendente de política |
-| Backups do banco | Janela de recuperação de 14 dias | Expiração consistente de fulls, diferenciais e WAL; compatível com exclusão por tombstones | Repositório pgBackRest | Proposta |
+| Backups do banco | Janela de recuperação de 14 dias; a cópia expirada continua no bucket até 21 dias de lock + 30 do lifecycle | Expiração consistente de fulls, diferenciais e WAL; compatível com exclusão por tombstones | Repositório pgBackRest no Backblaze B2 (`duora/`) | Proposta |
+| Backup das fotos (derivados aprovados) | 14 dias de snapshots; uma foto apagada some da VPS na hora e da cópia externa em até ~65 dias (14 + 21 de lock + 30 do lifecycle) | `restic forget --keep-within 14d --prune` diário; lock e lifecycle do bucket; restore só devolve derivados de assets `Approved` | Repositório restic no Backblaze B2 (`media/`) | Decidido (2026-10-16) |
 | Tombstones de exclusão | Pelo menos enquanto houver backup que possa ressuscitar o registro, mais margem aprovada | Registro pseudonimizado (HMAC), protegido e reconciliado no restore | `privacy.deletion_tombstones` e registro externo | Proposta (margem a definir) |
 | Registros obrigatórios de acesso | Conforme aplicabilidade e prazo jurídico aprovado | Armazenamento e acesso separados; não aplicar automaticamente a janela de 14 dias | A definir | Pendente jurídico |
 
@@ -96,8 +97,11 @@ Não é possível apagar instantaneamente cada backup imutável (spec 12.4). A e
 2. Todo restore, antes de reabrir, aplica os tombstones posteriores ao ponto restaurado e revoga todas as
    sessões; falha fechado se o registro externo estiver indisponível (spec 18.4; T-11).
 3. Backups expiram pela janela de 14 dias; o tombstone vive pelo menos até o último backup que contém o
-   registro expirar, mais a margem aprovada.
-4. Ensaios de restore usam ambiente restrito e apagam a cópia e seus segredos ao final (spec 18.5).
+   registro expirar, mais a margem aprovada. No bucket B2, a cópia expirada ainda fica até 21 dias (lock
+   `compliance`) mais 30 (lifecycle): a margem do tombstone precisa cobrir esses ~65 dias.
+4. Fotos restauradas passam por um staging e só voltam as de assets `Approved` no banco já restaurado
+   ([backup-restore.md](../operations/backup-restore.md#restore-das-fotos)).
+5. Ensaios de restore usam ambiente restrito e apagam a cópia e seus segredos ao final (spec 18.5).
 
 ## Execução dos jobs de retenção
 
