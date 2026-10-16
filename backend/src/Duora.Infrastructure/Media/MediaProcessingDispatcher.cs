@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Duora.Core.Jobs;
 using Duora.Core.Media;
 using Duora.Infrastructure.Outbox;
@@ -43,6 +44,7 @@ public sealed partial class MediaProcessingDispatcher
 {
     private const string InvalidPayloadError = "InvalidPayload";
     private const string OriginalMissingError = "OriginalMissing";
+    private const string OriginalMismatchError = "OriginalMismatch";
 
     private readonly OutboxDeliveryQueue _queue;
     private readonly DuoraDbContext _db;
@@ -76,7 +78,8 @@ public sealed partial class MediaProcessingDispatcher
     private enum Settlement
     {
         Delivered,
-        Failed,
+        OriginalMissing,
+        OriginalMismatch,
         LeaseLost,
     }
 
@@ -134,8 +137,11 @@ public sealed partial class MediaProcessingDispatcher
             case Settlement.Delivered:
                 await SettleAsync(delivery, OutboxDeliveryStatus.Delivered, error: null, cancellationToken);
                 break;
-            case Settlement.Failed:
+            case Settlement.OriginalMissing:
                 await SettleAsync(delivery, OutboxDeliveryStatus.Failed, OriginalMissingError, cancellationToken);
+                break;
+            case Settlement.OriginalMismatch:
+                await SettleAsync(delivery, OutboxDeliveryStatus.Failed, OriginalMismatchError, cancellationToken);
                 break;
             case Settlement.LeaseLost:
                 LogLeaseLost(_logger, delivery.Id);
@@ -158,15 +164,22 @@ public sealed partial class MediaProcessingDispatcher
             return Settlement.LeaseLost;
         }
 
-        var original = await ReadOriginalAsync(upload, cancellationToken);
-        if (original is null)
-        {
-            LogOriginalMissing(_logger, upload.Id);
-            return Settlement.Failed;
-        }
-
         var fingerprint = upload.Fingerprint()
             ?? throw new InvalidOperationException("Upload em Processing sem impressão digital.");
+        var read = await ReadOriginalAsync(upload, cancellationToken);
+        if (read.Bytes is not { } original)
+        {
+            return read.Problem;
+        }
+
+        // M4: o que chegou ao Worker tem de ser o que a recepção gravou. Objeto trocado ou corrompido na quarentena
+        // nunca chega ao decoder; vai para a fila de revisão, porque não é culpa de quem enviou.
+        if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(original), fingerprint.Sha256.Span))
+        {
+            LogOriginalMismatch(_logger, upload.Id);
+            return Settlement.OriginalMismatch;
+        }
+
         var outcome = await _sanitizer.SanitizeAsync(fingerprint.Format, original, cancellationToken);
         return outcome switch
         {
@@ -176,19 +189,30 @@ public sealed partial class MediaProcessingDispatcher
         };
     }
 
-    private async Task<byte[]?> ReadOriginalAsync(Upload upload, CancellationToken cancellationToken)
+    private async Task<(byte[]? Bytes, Settlement Problem)> ReadOriginalAsync(Upload upload, CancellationToken cancellationToken)
     {
         await using var stream = await _store.OpenReadAsync(ObjectKey.Parse(upload.QuarantineKey), cancellationToken);
         if (stream is null)
         {
-            return null;
+            LogOriginalMissing(_logger, upload.Id);
+            return (null, Settlement.OriginalMissing);
         }
 
-        // O original tem no máximo 5 MiB (CHECK de size_bytes); lê só até o tamanho gravado, e um byte a mais é erro.
+        // O original tem no máximo 5 MiB (CHECK de size_bytes); lê só até o tamanho gravado. Tamanho diferente já é
+        // outro objeto: mesma decisão do hash diferente.
         await using var exact = new ExactLengthStream(stream, upload.SizeBytes);
         using var copy = new MemoryStream((int)upload.SizeBytes);
-        await exact.CopyToAsync(copy, cancellationToken);
-        return copy.ToArray();
+        try
+        {
+            await exact.CopyToAsync(copy, cancellationToken);
+        }
+        catch (Exception exception) when (exception is EndOfStreamException or InvalidDataException)
+        {
+            LogOriginalMismatch(_logger, upload.Id);
+            return (null, Settlement.OriginalMismatch);
+        }
+
+        return (copy.ToArray(), Settlement.Delivered);
     }
 
     private async Task<Settlement> RejectAsync(Upload upload, long version, PhotoRejection reason, CancellationToken cancellationToken)
@@ -332,6 +356,11 @@ public sealed partial class MediaProcessingDispatcher
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Entrega {DeliveryId} de mídia tem payload inválido e vai para revisão")]
     private static partial void LogInvalidPayload(ILogger logger, Guid deliveryId);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Original do upload {UploadId} difere do que a recepção gravou (tamanho ou SHA-256); entrega vai para revisão sem decodificar")]
+    private static partial void LogOriginalMismatch(ILogger logger, Guid uploadId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Original do upload {UploadId} não está na quarentena; entrega vai para revisão")]
     private static partial void LogOriginalMissing(ILogger logger, Guid uploadId);

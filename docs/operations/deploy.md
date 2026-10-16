@@ -434,6 +434,22 @@ vazio, com a consequência de todas as sessões e links pendentes caírem (`401`
 sessões e invalidar tokens pendentes ([auth.md](../security/auth.md#data-protection)); a rotação acima só troca a
 proteção em repouso.
 
+### Licença da Six Labors no build do Worker (ADR-0025)
+
+O ImageSharp 4 só compila em Release com a licença da Six Labors (chave community, gratuita no porte atual). Ela é
+segredo de **build**, não de runtime: o Worker em execução não a lê.
+
+| Pergunta | Resposta |
+|---|---|
+| Onde fica | Secret de repositório do GitHub Actions `SIXLABORS_LICENSE_KEY`. Também como secret do Dependabot com o mesmo nome, senão todo PR do Dependabot falha no job `images` (o Actions não entrega secrets de repositório a PRs do Dependabot). Nunca no repositório (`sixlabors.lic` está no `.gitignore` e no `.dockerignore`), em `.env`, em log ou na VPS |
+| Quem custodia | O responsável técnico, que a obtém na conta da Six Labors. Agentes nunca a pedem nem a recebem |
+| Como entra no build | `docker buildx build --secret id=sixlabors_license,env=SIXLABORS_LICENSE_KEY ...`: o `Dockerfile` monta o secret só no `RUN` do `dotnet publish` do Worker (`-p:SixLaborsLicenseFile=/run/secrets/sixlabors_license`), sem `ARG` nem `ENV`; o estágio final copia só `/out`. Sem o secret, o build da imagem para em `secret sixlabors_license: not found`; o `dotnet build` Debug local continua funcionando (só avisa) |
+| Como se confere | Depois do build, `scripts/supply-chain/check_image_secret.py <imagem> SIXLABORS_LICENSE_KEY` procura a chave (e cada campo longo dela) no `docker history --no-trunc` e no filesystem exportado da imagem; achou, o job falha. O script nunca imprime a chave |
+| Como rotacionar | Antes do `ExpiryDateUtc` da licença, ou se ela vazar: emitir uma licença nova na Six Labors, trocar o valor dos dois secrets (Actions e Dependabot), rodar o CI de um PR qualquer e conferir o job `images`. Imagens já publicadas não carregam a chave e continuam válidas. Se a licença vencer sem troca, só o build Release do Worker falha; o que está em produção segue rodando |
+
+Para um build local da imagem do Worker, exporte a chave numa variável só da sessão do shell (lida do gerenciador de
+senhas) e passe `--secret id=sixlabors_license,env=SIXLABORS_LICENSE_KEY`; nunca grave `sixlabors.lic` no clone.
+
 ### Rotação de senha do banco
 
 O script de inicialização só roda com o volume vazio. Para trocar a senha de `duora_app` (idem `duora_migrator`):

@@ -117,6 +117,39 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.Equal("Delivered", await DeliveryStatusAsync(photoId));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnOriginalChangedInTheStorageIsNeverDecodedAndGoesToReview(bool sameSize)
+    {
+        // M4: o Worker recalcula o SHA-256 do original e compara com o content_sha256 gravado na recepção. Um objeto
+        // trocado na quarentena (outro processo, corrupção) não é decodificado nem aprovado.
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var original = TestImages.Jpeg();
+        var photoId = await UploadAsync(browser, original, "image/jpeg");
+        var upload = (await media.UploadsOfAsync(await OwnerOfAsync(photoId))).Single();
+        // Mesmo tamanho com um byte trocado (só o hash pega) ou outro arquivo inteiro (o tamanho já pega).
+        var swapped = sameSize ? [.. original] : TestImages.Png();
+        if (sameSize)
+        {
+            swapped[^10] ^= 0xFF;
+        }
+
+        await using (var content = new MemoryStream(swapped))
+        {
+            await media.Store.PutAsync(ObjectKey.Parse(upload.QuarantineKey), content, swapped.Length, "image/png", Cancellation);
+        }
+
+        Assert.Equal(1, await DispatchOnceAsync());
+
+        Assert.Equal(("Processing", null), await StatusAsync(browser, photoId));
+        Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id = $1", photoId));
+        Assert.All(PhotoVariants.All, variant => Assert.False(File.Exists(DerivativePath(photoId, variant))));
+        Assert.Equal("Failed", await DeliveryStatusAsync(photoId));
+        Assert.Equal("OriginalMismatch", await LastErrorAsync(photoId));
+    }
+
     [Fact]
     public async Task AfterACorruptUploadTheWorkerProcessesTheNextOne()
     {
@@ -287,6 +320,19 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
             connection);
         command.Parameters.AddWithValue(uploadId);
         return (string)(await command.ExecuteScalarAsync(Cancellation))!;
+    }
+
+    private async Task<string?> LastErrorAsync(Guid uploadId)
+    {
+        await using var connection = await OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """
+            select d.last_error from ops.outbox_deliveries d join ops.outbox_events e on e.id = d.outbox_event_id
+            where e.resource_id = $1 and d.consumer = 'media-processing'
+            """,
+            connection);
+        command.Parameters.AddWithValue(uploadId);
+        return await command.ExecuteScalarAsync(Cancellation) as string;
     }
 
     private async Task<long> CountAsync(string sql, Guid id)
