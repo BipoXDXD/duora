@@ -8,6 +8,8 @@ namespace Duora.Web.Safety;
 /// <summary>Bloqueio de outra pessoa (API-S01, spec 8.4 e 7.3). Exige sessão pela política padrão.</summary>
 internal static class BlockEndpoints
 {
+    private static readonly TimeSpan BusyRetryAfter = TimeSpan.FromSeconds(2);
+
     public static void MapBlockEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapPut("/me/blocks/{targetUserId:guid}", BlockAsync)
@@ -15,7 +17,8 @@ internal static class BlockEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
-            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
     }
 
     /// <summary>
@@ -59,8 +62,19 @@ internal static class BlockEndpoints
                 ApiProblems.AccountNotEligible,
                 "A conta ainda não pode usar esta função."),
             BlockOutcome.UnknownAccount => TypedResults.Unauthorized(),
+            BlockOutcome.Busy => Unavailable(context),
             var outcome => throw new InvalidOperationException($"Resultado de bloqueio sem resposta: {outcome}."),
         };
+    }
+
+    /// <summary>Guardas disputadas além das tentativas: nada gravado, o cliente tenta de novo (concurrency.md).</summary>
+    private static ProblemHttpResult Unavailable(HttpContext context)
+    {
+        ApiProblems.SetRetryAfter(context, BusyRetryAfter);
+        return ApiProblems.Problem(
+            StatusCodes.Status503ServiceUnavailable,
+            ApiProblems.TemporarilyUnavailable,
+            "Não foi possível concluir agora. Tente de novo em instantes.");
     }
 
     private static bool HasBody(HttpRequest request) =>

@@ -239,6 +239,13 @@ public sealed class AccountService
                     .ToList()))
             .SingleOrDefaultAsync(cancellationToken);
 
+    /// <summary>
+    /// A conta existe? Para outros módulos conferirem um id vindo de fora sem ler <c>identity.users</c> nem receber
+    /// dados da conta (Safety: alvo de bloqueio).
+    /// </summary>
+    public Task<bool> ExistsAsync(Guid userId, CancellationToken cancellationToken) =>
+        _db.Users.AsNoTracking().AnyAsync(user => user.Id == userId, cancellationToken);
+
     /// <summary>Mesmo hasher (e mesmo custo) da senha real, para a conta inexistente custar um hash.</summary>
     private void VerifyDecoy(string password) => _decoy.Verify(_users.PasswordHasher, password);
 

@@ -16,7 +16,7 @@ internal sealed class AuditTrail(DuoraDbContext db, TimeProvider time)
 
     /// <summary>
     /// Roda o mesmo comando aconteça o efeito ou não; a linha só entra quando <paramref name="effectHappened"/>.
-    /// Serve a quem precisa custar o mesmo nos dois caminhos para não abrir canal de tempo (bloqueio, TM-24).
+    /// Serve a quem precisa rodar os mesmos comandos nos dois caminhos (bloqueio, TM-24).
     /// </summary>
     /// <exception cref="InvalidOperationException">Sem transação aberta no contexto: o registro ficaria solto do efeito.</exception>
     public async Task AppendIfAsync(AuditRecord record, bool effectHappened, CancellationToken cancellationToken)

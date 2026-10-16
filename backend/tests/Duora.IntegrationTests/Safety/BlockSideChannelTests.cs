@@ -9,9 +9,9 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Duora.IntegrationTests.Safety;
 
 /// <summary>
-/// G3 e TM-24 além da resposta: quem bloqueia não pode distinguir alvo existente de inexistente pelo trabalho que o
-/// servidor faz (tempo de resposta). O teste compara a sequência de comandos SQL de cada pedido, que é o que define
-/// o tempo, sem depender de medição de relógio no CI.
+/// G3 e TM-24 além da resposta: todo alvo roda os mesmos comandos SQL, para o tempo de resposta não ter um caminho
+/// curto para alvo inexistente. Não prova ausência de oráculo de tempo: o alvo inexistente nunca espera pelo lock
+/// da guarda dele (risco residual no TM-24). Compara a sequência de comandos, sem medir relógio no CI.
 /// </summary>
 public sealed partial class BlockSideChannelTests : IAsyncDisposable
 {

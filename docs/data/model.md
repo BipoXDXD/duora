@@ -907,7 +907,11 @@ Dono: Operations (D3).
   efeito leva o registro junto, e não há registro fora de transação (`AuditTrailTests`).
 - **Índices:** `ix_audit_events_target (target_type, target_id, occurred_at)`; `ix_audit_events_actor
   (actor_id, occurred_at)`; outros só medidos.
-- **Classe:** P2 (P3 quando o alvo é denúncia ou evidência). `actor_id` pseudonimizado na exclusão da conta.
+- **Classe:** P2; P3 quando o alvo é denúncia ou evidência e em `safety.block_created` (quem bloqueou quem é dado
+  de bloqueio, P3 como `safety.blocks`). `actor_id` pseudonimizado na exclusão da conta.
+  **Lacuna:** a pseudonimização prevista cobre só `actor_id`; o `target_id` (por exemplo, a pessoa bloqueada em
+  `safety.block_created`) continua apontando para a conta excluída. Decidir na fatia de exclusão se `target_id`
+  também é pseudonimizado ou se a linha sai por retenção.
   Pendente: com a tabela append-only, a pseudonimização na exclusão precisa de um caminho próprio (papel do job
   de privacidade com `UPDATE` só em `actor_id`, ou função `SECURITY DEFINER`), a decidir na fatia de exclusão.
 

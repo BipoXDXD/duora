@@ -105,8 +105,17 @@ as duas guardas em ordem de UUID, insere o bloqueio com `ON CONFLICT (blocker_id
 se a linha é nova, incrementa `security_version` das duas guardas e grava `safety.block_created` em
 `ops.audit_events`; commit. Repetir o bloqueio não muda nada. Primeiro bloqueio, bloqueio repetido e alvo inexistente
 percorrem os mesmos comandos (a versão e a auditoria rodam sempre, com efeito condicionado à linha nova; sem
-guarda para o alvo inexistente, o insert condicionado a ela não grava nada), para o tempo de resposta não revelar
-se a conta existe nem se já havia bloqueio (TM-24; `BlockSideChannelTests`). Leitura: `CheckInteractionAsync`, bilateral, sem lock. Testes: `BlockConcurrencyTests` (barreira com as
+guarda para o alvo inexistente, o insert condicionado a ela não grava nada): não há caminho curto para alvo
+inexistente (`BlockSideChannelTests`). Resta o lock: o alvo inexistente não tem guarda e nunca espera por ela (risco
+residual no TM-24). `lock_timeout` (55P03) e deadlock (40P01) repetem a transação inteira até 3 vezes, com backoff
+e jitter; esgotadas as tentativas, `503 TEMPORARILY_UNAVAILABLE` com `Retry-After`, nada gravado
+(`BlockConcurrencyTests.GuardHeldBeyondEveryRetryAnswers503AndChangesNothing`). Conta do alvo apagada entre a
+checagem e o upsert (23503) responde como alvo inexistente (`BlockTargetDeletedTests`).
+
+**Exclusão de conta (job futuro do Privacy):** antes de apagar ou anonimizar a conta e os bloqueios dela, o job
+tranca a guarda da pessoa (`safety.user_guards`, ordem 1), e só então mexe em `identity.users`. Assim ele serializa
+com bloqueios em andamento e respeita a ordem global; mexer na conta antes da guarda inverteria a ordem com o
+bloqueio, que lê a conta e depois tranca a guarda. Leitura: `CheckInteractionAsync`, bilateral, sem lock. Testes: `BlockConcurrencyTests` (barreira com as
 guardas trancadas por um terceiro, bloqueios cruzados sem deadlock, corrida livre repetida) e
 `InteractionCheckTests`.
 
