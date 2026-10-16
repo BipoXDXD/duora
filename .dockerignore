@@ -29,3 +29,6 @@ frontend/.env.*
 !frontend/.env.example
 **/*.local
 **/.DS_Store
+
+# Licença da Six Labors: entra no build só como secret do BuildKit, nunca pelo contexto.
+**/sixlabors.lic
