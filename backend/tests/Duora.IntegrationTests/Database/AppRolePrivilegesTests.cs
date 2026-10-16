@@ -61,17 +61,34 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
     public async Task AppHasNoColumnLevelGrants()
     {
         // Privilégio de coluna escaparia da conferência por tabela: has_table_privilege só olha a tabela inteira.
+        // has_any_column_privilege enxerga também o que chega por PUBLIC, que um filtro por grantee perderia.
         var grants = await QueryStringsAsync(
             $"""
-            select table_schema || '.' || table_name || '.' || column_name || ':' || privilege_type
-            from information_schema.column_privileges c
-            where grantee = '{AppRole}'
-              and not exists (select 1 from information_schema.table_privileges t
-                              where t.grantee = c.grantee and t.table_schema = c.table_schema
-                                and t.table_name = c.table_name and t.privilege_type = c.privilege_type)
-            """);
+            select n.nspname || '.' || c.relname || ':' || p.privilege
+            from pg_class c
+            join pg_namespace n on n.oid = c.relnamespace
+            cross join unnest($1::text[]) as p(privilege)
+            where c.relkind in ('r', 'p', 'v', 'm', 'f') and {ApplicationSchemaFilter}
+              and has_any_column_privilege('{AppRole}', c.oid, p.privilege)
+              and not has_table_privilege('{AppRole}', c.oid, p.privilege)
+            """,
+            ["SELECT", "INSERT", "UPDATE", "REFERENCES"]);
 
         Assert.Empty(grants);
+    }
+
+    [Fact]
+    public async Task PublicCannotExecuteApplicationFunctions()
+    {
+        // O initdb revoga de PUBLIC o EXECUTE padrão; função criada sem passar pelos default privileges reabriria.
+        var executable = await QueryStringsAsync(
+            $"""
+            select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where {ApplicationSchemaFilter} and has_function_privilege('public', p.oid, 'EXECUTE')
+            """);
+
+        Assert.Empty(executable);
     }
 
     [Fact]
@@ -122,12 +139,14 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
                    has_database_privilege(r.oid, current_database(), 'CONNECT')::text,
                    (select count(*) from pg_class where relowner = r.oid),
                    (select count(*) from pg_namespace where nspowner = r.oid),
-                   (select count(*) from pg_proc where proowner = r.oid))
+                   (select count(*) from pg_proc where proowner = r.oid),
+                   (select count(*) from pg_type where typowner = r.oid))
             from pg_roles r where rolname = '{AppRole}'
             """);
 
-        // Sem atributos de admin e sem papel herdado; só CONNECT no banco; dono de nada.
-        Assert.Equal(["false:false:false:false:false:true:0:false:false:true:0:0:0"], role);
+        // Sem atributos de admin e sem papel herdado; só CONNECT no banco; dono de nada (relação, schema, função,
+        // tipo: domain e enum incluídos).
+        Assert.Equal(["false:false:false:false:false:true:0:false:false:true:0:0:0:0"], role);
     }
 
     [Theory]
@@ -170,6 +189,14 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
 
         Assert.Equal(2, acls.Count);
         Assert.Equal(acls[0], acls[1]);
+    }
+
+    [Fact]
+    public async Task ScratchDatabaseToStringOmitsConnectionStrings()
+    {
+        var scratch = await postgres.CreateEmptyDatabaseAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal($"ScratchDatabase {{ Name = {scratch.Name} }}", scratch.ToString());
     }
 
     /// <summary>Como migrador, dono das tabelas; <paramref name="parameter"/> vira o <c>$1</c>, quando houver.</summary>
