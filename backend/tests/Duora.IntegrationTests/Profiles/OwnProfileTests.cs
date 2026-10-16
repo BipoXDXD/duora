@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using Duora.Core.Profiles;
 using Duora.IntegrationTests.Identity;
 using Npgsql;
 
@@ -195,6 +196,8 @@ public sealed class OwnProfileTests : IAsyncDisposable
     [Theory]
     [InlineData("""{"regionCode":35}""")]
     [InlineData("""{"regionCode":["BR-SP"]}""")]
+    [InlineData("""{"regionCode":true}""")]
+    [InlineData("""{"regionCode":{}}""")]
     [InlineData("""{"regionCode":"BR-SP","RegionCode":"BR-RJ"}""")]
     public async Task MalformedRegionIs400AndWritesNothing(string json)
     {
@@ -205,6 +208,30 @@ public sealed class OwnProfileTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("BR-BA|1", await StoredRegionAsync(account.UserId));
+    }
+
+    public static TheoryData<string> EveryState() => new(RegionCode.All);
+
+    /// <summary>
+    /// O literal do CHECK na migração é uma cópia congelada de <c>RegionCode.All</c>: cada UF que o domínio aceita
+    /// tem de passar no banco real, ou a API aceitaria um código que a gravação recusa com 500.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EveryState))]
+    public async Task DatabaseAcceptsEveryStateTheDomainKnows(string regionCode)
+    {
+        var (account, browser) = await SavedProfileAsync("Ana", "Oi");
+        using var _ = browser;
+        await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "update profiles.profiles set region_code = $1 where user_id = $2",
+            connection);
+        command.Parameters.AddWithValue(regionCode);
+        command.Parameters.AddWithValue(account.UserId);
+
+        Assert.Equal(1, await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+        Assert.Equal($"{regionCode}|1", await StoredRegionAsync(account.UserId));
     }
 
     /// <summary>O CHECK é a última barreira: nem uma escrita fora da API grava código fora das 27 UFs.</summary>
