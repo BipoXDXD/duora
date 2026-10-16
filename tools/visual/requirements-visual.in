@@ -1,4 +1,0 @@
-# Dependências do pipeline de ilustrações (só tools/visual; nunca no app). Regenerar o lockfile com hashes:
-#   uv pip compile tools/visual/requirements-visual.in --universal --python-version 3.12 --generate-hashes \
-#     --no-header -o tools/visual/requirements-visual.txt
-pillow==12.3.0
