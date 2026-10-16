@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Wrapper restrito do pgBackRest do Duora na VPS (spec 18.2 e 18.5).
 
-    duora-backup stanza-create | full | diff | verify | verify-repo | info  [--scheduled]
+    duora-backup stanza-create | full | diff | verify | verify-repo | verify-repo-full | info  [--scheduled]
 
 Roda o pgBackRest dentro do container backup (repository host: credenciais do S3, PGDATA só leitura, SQL como
 duora_backup por TCP) por `docker exec`, como root do host, chamado pelos timers systemd e pelo duora-deploy. Só as
@@ -14,10 +14,12 @@ repositório.
 velho que o RPO, se o arquivamento estiver falhando, se o repositório não tiver backup válido ou se o último backup
 estiver velho demais.
 
-`verify-repo` (timer diário) roda o `pgbackrest verify` nativo, que confere checksum e tamanho de cada arquivo do
-repositório, e falha se faltar WAL na cadeia a partir do backup mais novo. O pgbackrest verify não falha com lacuna
-de WAL (só lista as faixas contínuas no log DETAIL); quem decide é este wrapper. Lacuna acontece, por exemplo, quando
-o archive-push-queue-max descarta a fila: o arquivamento volta a dar sucesso e o verify de 15 min não vê o buraco.
+`verify-repo` (timer diário, leve) confere a cadeia de WAL pela listagem do archive (repo-ls, sem baixar nada) e
+roda o `pgbackrest verify --set` só do backup mais novo (checksum e tamanho dos arquivos dele e do WAL dele).
+`verify-repo-full` (timer semanal) roda o `pgbackrest verify` de todo o repositório, que baixa e confere cada arquivo.
+Os dois falham se faltar WAL na cadeia a partir do backup mais novo: o pgbackrest verify não falha com lacuna de WAL,
+e com --set nem olha a cadeia; quem decide é este wrapper. Lacuna acontece, por exemplo, quando o
+archive-push-queue-max descarta a fila: o arquivamento volta a dar sucesso e o verify de 15 min não vê o buraco.
 
 Instalado pelo Ansible como /usr/local/sbin/duora-backup (root, 0755). Só biblioteca padrão do Python 3.12.
 Manual: docs/operations/backup-restore.md.
@@ -31,6 +33,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import os
 import re
 import subprocess
 import sys
@@ -76,9 +79,10 @@ _PGBACKREST_ARGS = {
     "full": ["backup", "--type=full"],
     "diff": ["backup", "--type=diff"],
 }
-ACTIONS = (*_PGBACKREST_ARGS, "verify", "verify-repo", "info")
+_REPOSITORY_VERIFY_ACTIONS = ("verify-repo", "verify-repo-full")
+ACTIONS = (*_PGBACKREST_ARGS, "verify", *_REPOSITORY_VERIFY_ACTIONS, "info")
 # Esperam o deploy terminar e marcam backup em curso (o verify de 15 min continua rodando durante eles).
-_LOCKED_ACTIONS = frozenset((*_PGBACKREST_ARGS, "verify-repo"))
+_LOCKED_ACTIONS = frozenset((*_PGBACKREST_ARGS, *_REPOSITORY_VERIFY_ACTIONS))
 
 # Epoch do último sucesso, da última falha e do relógio do banco: idades medidas no mesmo relógio.
 ARCHIVER_QUERY = ("select extract(epoch from last_archived_time), extract(epoch from last_failed_time), "
@@ -163,9 +167,11 @@ def _repository_problems(info_text: str, now: float) -> list[str]:
 
 # --- Integridade do repositório e continuidade do WAL (decisão pura) ------------------------------------------------
 
-# Linhas do `pgbackrest verify --verbose --log-level-console=detail` (pgBackRest 2.59).
-_WAL_RANGE = re.compile(r"archiveId: (?P<archive>\S+), wal start: (?P<start>[0-9A-F]{24}), "
-                        r"wal stop: (?P<stop>[0-9A-F]{24})$", re.MULTILINE)
+# Segmento de WAL na listagem do archive (`repo-ls --recurse archive/duora`): <archiveId>/<dir>/<nome>-<sha1>.<ext>.
+# .backup, .history e .partial não casam: não são segmentos completos da cadeia.
+_ARCHIVED_SEGMENT = re.compile(r"^(?P<archive>[^/\s]+)/[0-9A-F]{16}/(?P<name>[0-9A-F]{24})-[0-9a-f]{40}(\.\w+)?$",
+                               re.MULTILINE)
+# Resumo do `pgbackrest verify --verbose` (pgBackRest 2.59).
 _COUNTERS = re.compile(r"missing: (\d+), checksum invalid: (\d+), size invalid: (\d+), other: (\d+)")
 _STANZA_STATUS = re.compile(r"stanza: (?P<name>\S+)\n\s+status: (?P<status>\S+)")
 _BACKUP_STATUS = re.compile(r"backup: (?P<label>[^,\s]+), status: (?P<status>[^,\s]+)")
@@ -183,8 +189,11 @@ class _WalRange:
     stop_name: str
 
 
-def repository_verify_problems(verify_text: str, info_text: str) -> list[str]:
+def repository_verify_problems(verify_text: str, archive_listing: str, info_text: str) -> list[str]:
     """Lista o que impede considerar o repositório íntegro e a cadeia de WAL contínua; vazia = íntegro.
+
+    verify_text: resumo do pgbackrest verify (com ou sem --set). archive_listing: repo-ls --recurse do archive, de
+    onde sai a cadeia (os nomes bastam; o conteúdo é conferido pelo verify).
 
     Lacuna só conta a partir do início do backup mais novo: antes dele ela não tem ação (o próximo full já foi
     feito) e some quando o expire alcançá-la.
@@ -198,12 +207,12 @@ def repository_verify_problems(verify_text: str, info_text: str) -> list[str]:
     newest = max(repository.backups, key=lambda entry: entry.stopped_at)
     problems = _verify_summary_problems(verify_text, newest.label)
     try:
-        ranges = _wal_ranges(verify_text, newest.database_id)
+        ranges = _wal_ranges(archive_listing, newest.database_id)
         backup_start, backup_stop = _segment(newest.wal_start), _segment(newest.wal_stop)
     except _InfoShapeError as error:
         return problems + [str(error)]
     if not ranges:
-        return problems + ["pgbackrest verify não listou WAL do banco do backup mais novo "
+        return problems + ["o archive não tem WAL do banco do backup mais novo "
                            f"(archiveId *-{newest.database_id})"]
     if not any(r.timeline == backup_start[0] and r.start <= backup_start[1] and r.stop >= backup_stop[1]
                for r in ranges):
@@ -231,13 +240,18 @@ def _verify_summary_problems(text: str, newest_label: str) -> list[str]:
     return problems
 
 
-def _wal_ranges(text: str, database_id: int) -> list[_WalRange]:
-    ranges = []
-    for match in _WAL_RANGE.finditer(text):
-        if match["archive"].rsplit("-", 1)[-1] != str(database_id):
-            continue
-        (timeline, start), (_, stop) = _segment(match["start"]), _segment(match["stop"])
-        ranges.append(_WalRange(timeline, start, stop, match["start"], match["stop"]))
+def _wal_ranges(listing: str, database_id: int) -> list[_WalRange]:
+    """Faixas contínuas de segmentos por timeline, do archive do banco do backup mais novo."""
+    names = sorted({match["name"] for match in _ARCHIVED_SEGMENT.finditer(listing)
+                    if match["archive"].rsplit("-", 1)[-1] == str(database_id)})
+    ranges: list[_WalRange] = []
+    for name in names:
+        timeline, position = _segment(name)
+        last = ranges[-1] if ranges else None
+        if last is not None and last.timeline == timeline and position == last.stop + 1:
+            ranges[-1] = _WalRange(timeline, last.start, position, last.start_name, name)
+        else:
+            ranges.append(_WalRange(timeline, position, position, name, name))
     return ranges
 
 
@@ -386,8 +400,8 @@ def run_action(action: str, run: Runner, *, project: str, state_dir: Path, egres
         # deploy o chama segurando-o.
         with deploy_lock(state_dir, wait_seconds=lock_wait_seconds), backup_running(state_dir):
             container = _find_backup(run, project)
-            if action == "verify-repo":
-                _verify_repository(run, container)
+            if action in _REPOSITORY_VERIFY_ACTIONS:
+                _verify_repository(run, container, whole_repository=action == "verify-repo-full")
             else:
                 _run_pgbackrest(run, container, _PGBACKREST_ARGS[action], BACKUP_TIMEOUT_SECONDS)
         return
@@ -591,8 +605,9 @@ def bucket_protection_problems(versioning_xml: str, object_lock_xml: str) -> lis
         problems.append("Object Lock do bucket não está habilitado")
         return problems
     mode = _xml_text(object_lock_xml, "Mode")
-    if mode not in ("COMPLIANCE", "GOVERNANCE"):
-        problems.append(f"Object Lock sem retenção padrão (Mode {mode or 'ausente'})")
+    if mode != "COMPLIANCE":
+        # GOVERNANCE pode ser contornado por quem tiver s3:BypassGovernanceRetention; a decisão é COMPLIANCE.
+        problems.append(f"Object Lock sem retenção padrão COMPLIANCE (Mode {mode or 'ausente'})")
         return problems
     days = _retention_days(object_lock_xml)
     if days is None or days < MIN_OBJECT_LOCK_DAYS:
@@ -651,15 +666,26 @@ def _check_bucket_protection(run: Runner, container: str, now: float) -> None:
                           "docs/operations/backup-restore.md):\n  - " + "\n  - ".join(problems))
 
 
-def _verify_repository(run: Runner, container: str) -> None:
+def _verify_repository(run: Runner, container: str, *, whole_repository: bool) -> None:
+    """whole_repository False: só o backup mais novo (--set) e a cadeia; True: todos os arquivos do repositório."""
     info = _run_pgbackrest(run, container, ["info", "--output=json"], QUERY_TIMEOUT_SECONDS, capture=True)
-    # Lê o repositório inteiro: no limite do tempo de um backup, não da consulta.
-    verify = _run_pgbackrest(run, container, ["verify", "--verbose", "--log-level-console=detail"],
-                             BACKUP_TIMEOUT_SECONDS, capture=True)
-    problems = repository_verify_problems(verify.stdout, info.stdout)
+    try:
+        repository = _parse_info(info.stdout)
+    except _InfoShapeError as error:
+        raise BackupError(f"pgbackrest info: {error}") from error
+    if not repository.backups:
+        raise BackupError("nenhum backup no repositório")
+    newest = max(repository.backups, key=lambda entry: entry.stopped_at)
+    listing = _run_pgbackrest(run, container, ["--log-level-console=off", "repo-ls", "--recurse",
+                                               f"archive/{STANZA}"], QUERY_TIMEOUT_SECONDS, capture=True)
+    scope = [] if whole_repository else [f"--set={newest.label}"]
+    # Baixa e confere arquivos: no limite do tempo de um backup, não da consulta.
+    verify = _run_pgbackrest(run, container, ["verify", *scope, "--verbose"], BACKUP_TIMEOUT_SECONDS, capture=True)
+    problems = repository_verify_problems(verify.stdout, listing.stdout, info.stdout)
     if problems:
         raise BackupError("repositório ou cadeia de WAL com problema:\n  - " + "\n  - ".join(problems))
-    _step("repositório íntegro e WAL contínuo desde o backup mais novo")
+    what = "repositório inteiro" if whole_repository else f"backup mais novo ({newest.label})"
+    _step(f"{what} íntegro e WAL contínuo desde o backup mais novo")
 
 
 def _find_backup(run: Runner, project: str) -> str:
@@ -699,15 +725,41 @@ _BACKUP_LOCK_FILE = ".backup.lock"
 _VERIFY_OK_FILE = ".backup-verify-ok"
 
 
-def deploy_in_progress(state_dir: Path) -> bool:
+PROC_LOCKS = Path("/proc/locks")
+
+
+def deploy_in_progress(state_dir: Path, *, proc_locks: Path = PROC_LOCKS) -> bool:
     """Lock do duora-deploy ocupado por alguém que não é um backup deste wrapper."""
-    return _is_locked(state_dir / _DEPLOY_LOCK_FILE) and not _is_locked(state_dir / _BACKUP_LOCK_FILE)
+    return (_is_locked(state_dir / _DEPLOY_LOCK_FILE, proc_locks)
+            and not _is_locked(state_dir / _BACKUP_LOCK_FILE, proc_locks))
 
 
-def _is_locked(path: Path) -> bool:
+def _is_locked(path: Path, proc_locks: Path) -> bool:
     if not path.exists():
         return False
-    # "a": não trunca o arquivo de quem segura o lock. Só sonda: solta na hora.
+    if proc_locks.exists():
+        return _held_in_proc_locks(path, proc_locks.read_text(encoding="utf-8"))
+    return _probe_lock(path)
+
+
+def _held_in_proc_locks(path: Path, locks_text: str) -> bool:
+    """Linux: lê o flock em /proc/locks sem tomá-lo. Sondar com LOCK_NB segurava o lock por um instante, e um
+    duora-deploy que começasse nesse instante falhava com "outro deploy em andamento".
+
+    Formato: "1: FLOCK  ADVISORY  WRITE 4183 08:01:131074 0 EOF" (major:minor em hexadecimal, inode em decimal);
+    linhas com "->" são processos esperando, não donos.
+    """
+    status = path.stat()
+    key = f"{os.major(status.st_dev):02x}:{os.minor(status.st_dev):02x}:{status.st_ino}"
+    for line in locks_text.splitlines():
+        fields = line.split()
+        if "->" not in fields and "FLOCK" in fields and key in fields:
+            return True
+    return False
+
+
+def _probe_lock(path: Path) -> bool:
+    # Fora do Linux (testes e drill no macOS): sonda com LOCK_NB. "a": não trunca o arquivo de quem segura o lock.
     with open(path, "a", encoding="utf-8") as lock_file:
         try:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
