@@ -112,6 +112,7 @@ internal static class AuthEndpoints
         CredentialVerifier credentials,
         AccountAttemptLimiter limiter,
         IAntiforgery antiforgery,
+        TimeProvider time,
         CancellationToken cancellationToken)
     {
         var validation = new RequestValidation();
@@ -129,8 +130,17 @@ internal static class AuthEndpoints
 
         switch (await credentials.VerifyAsync(email, password, cancellationToken))
         {
-            case LoginOutcome.Verified verified:
-                await StartSessionAsync(context, antiforgery, verified.Account);
+            case LoginOutcome.Verified { Account: var account }:
+                var now = time.GetUtcNow();
+                await StartSessionAsync(
+                    context,
+                    antiforgery,
+                    new SessionGrant(
+                        account.UserId,
+                        account.SecurityStamp,
+                        account.Policy,
+                        ReauthenticatedAt: now,
+                        MfaVerifiedAt: account.SecondFactorVerified ? now : null));
                 return TypedResults.NoContent();
             case LoginOutcome.MfaRequired:
                 return ApiProblems.Problem(
@@ -200,10 +210,10 @@ internal static class AuthEndpoints
     /// no banco e a nova é aleatória. A ordem é a garantia: o SignOut vem antes do SignIn, sempre (ver
     /// <see cref="DuoraAuthentication.SignInScheme"/>). O token antiforgery é reemitido para a identidade nova.
     /// </summary>
-    private static async Task StartSessionAsync(HttpContext context, IAntiforgery antiforgery, VerifiedAccount account)
+    internal static async Task StartSessionAsync(HttpContext context, IAntiforgery antiforgery, SessionGrant grant)
     {
         await context.SignOutAsync(DuoraAuthentication.Scheme);
-        var principal = DuoraClaims.ForSignIn(account);
+        var principal = DuoraClaims.ForSignIn(grant);
         await context.SignInAsync(
             DuoraAuthentication.SignInScheme,
             principal,

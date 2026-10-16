@@ -6,8 +6,11 @@ using Microsoft.Extensions.Options;
 
 namespace Duora.Web.Identity;
 
-/// <summary>Conta que provou a senha e pode abrir sessão.</summary>
-public sealed record VerifiedAccount(Guid UserId, string SecurityStamp);
+/// <summary>
+/// Conta que provou a credencial e pode abrir sessão: a política sai dos papéis, e
+/// <paramref name="SecondFactorVerified"/> diz se o segundo fator foi provado neste login.
+/// </summary>
+public sealed record VerifiedAccount(Guid UserId, string SecurityStamp, SessionPolicy Policy, bool SecondFactorVerified);
 
 /// <summary>Resultado da verificação de credenciais. Os casos negativos não dizem se a conta existe.</summary>
 public abstract record LoginOutcome
@@ -99,9 +102,14 @@ public sealed class CredentialVerifier
             return new LoginOutcome.InvalidCredentials();
         }
 
-        return user.TwoFactorEnabled
-            ? new LoginOutcome.MfaRequired()
-            : new LoginOutcome.Verified(new VerifiedAccount(user.Id, await _users.GetSecurityStampAsync(user)));
+        if (user.TwoFactorEnabled)
+        {
+            return new LoginOutcome.MfaRequired();
+        }
+
+        var policy = AccountRoles.SessionPolicyFor(await _users.GetRolesAsync(user));
+        return new LoginOutcome.Verified(
+            new VerifiedAccount(user.Id, await _users.GetSecurityStampAsync(user), policy, SecondFactorVerified: false));
     }
 
     /// <summary>

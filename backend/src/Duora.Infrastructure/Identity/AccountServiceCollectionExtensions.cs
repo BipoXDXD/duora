@@ -30,8 +30,7 @@ public static class AccountServiceCollectionExtensions
 
         services.AddSingleton(provider => new LoginSessions(
             provider.GetRequiredService<NpgsqlDataSource>(),
-            provider.GetRequiredService<TimeProvider>(),
-            SessionLifetime.Participant));
+            provider.GetRequiredService<TimeProvider>()));
         services.AddOptions<AccountLifecycleOptions>()
             .BindConfiguration(AccountLifecycleOptions.Section)
             .Validate(o => o.IsValid(), "Identity: PendingAccountLifetime e MaxConfirmationFailures precisam ser positivos.")

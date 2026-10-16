@@ -17,7 +17,21 @@ public sealed record NewLoginSession(
     string SecurityStamp,
     string Description,
     DateTimeOffset CreatedAt,
-    SessionWindow Window);
+    SessionWindow Window,
+    SessionPolicy Policy,
+    DateTimeOffset? ReauthenticatedAt,
+    DateTimeOffset? MfaVerifiedAt);
+
+/// <summary>
+/// Sessão válida depois do toque: o ticket e o estado que muda sem novo ticket (reautenticação, prova de MFA) ou
+/// fora da sessão (papéis da conta, lidos agora, não no login).
+/// </summary>
+public sealed record TouchedSession(
+    byte[] ProtectedTicket,
+    SessionPolicy Policy,
+    DateTimeOffset? ReauthenticatedAt,
+    DateTimeOffset? MfaVerifiedAt,
+    bool AccountIsPrivileged);
 
 /// <summary>
 /// Persistência das sessões de login (spec 11.1). A chave opaca do cookie só é guardada como hash. Recuperar uma
@@ -32,14 +46,11 @@ public sealed class LoginSessions
     private readonly NpgsqlDataSource _dataSource;
     private readonly TimeProvider _time;
 
-    internal LoginSessions(NpgsqlDataSource dataSource, TimeProvider time, SessionLifetime lifetime)
+    internal LoginSessions(NpgsqlDataSource dataSource, TimeProvider time)
     {
         _dataSource = dataSource;
         _time = time;
-        Lifetime = lifetime;
     }
-
-    public SessionLifetime Lifetime { get; }
 
     public async Task<IReadOnlyList<ActiveSession>> ListActiveAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -112,10 +123,12 @@ public sealed class LoginSessions
             """
             insert into identity.login_sessions
                 (id, user_id, key_hash, ticket, security_stamp, description,
-                 created_at, last_seen_at, idle_expires_at, absolute_expires_at)
+                 created_at, last_seen_at, idle_expires_at, absolute_expires_at,
+                 policy, reauthenticated_at, mfa_verified_at)
             values
                 (@id, @user_id, @key_hash, @ticket, @security_stamp, @description,
-                 @created_at, @created_at, @idle_expires_at, @absolute_expires_at)
+                 @created_at, @created_at, @idle_expires_at, @absolute_expires_at,
+                 @policy, @reauthenticated_at, @mfa_verified_at)
             """);
         command.Parameters.AddWithValue("id", session.Id);
         command.Parameters.AddWithValue("user_id", session.UserId);
@@ -126,17 +139,25 @@ public sealed class LoginSessions
         command.Parameters.AddWithValue("created_at", session.CreatedAt);
         command.Parameters.AddWithValue("idle_expires_at", session.Window.IdleExpiresAt);
         command.Parameters.AddWithValue("absolute_expires_at", session.Window.AbsoluteExpiresAt);
+        command.Parameters.AddWithValue("policy", session.Policy.ToString());
+        command.Parameters.AddWithValue("reauthenticated_at", (object?)session.ReauthenticatedAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("mfa_verified_at", (object?)session.MfaVerifiedAt ?? DBNull.Value);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Ticket protegido da sessão ainda válida, já com a expiração ociosa renovada; null se não vale mais.</summary>
-    public async Task<byte[]?> TouchAsync(string key, CancellationToken cancellationToken)
+    /// <summary>
+    /// Sessão ainda válida, já com a expiração ociosa da sua política renovada; null se não vale mais. Os papéis são
+    /// lidos agora: tirar o papel de alguém vale na requisição seguinte, sem esperar o fim da sessão.
+    /// </summary>
+    public async Task<TouchedSession?> TouchAsync(string key, CancellationToken cancellationToken)
     {
         await using var command = _dataSource.CreateCommand(
             """
             update identity.login_sessions s
             set last_seen_at = @now,
-                idle_expires_at = least(@idle_until, s.absolute_expires_at)
+                idle_expires_at = least(
+                    @now + case s.policy when 'Administrative' then @administrative_idle else @normal_idle end,
+                    s.absolute_expires_at)
             from identity.users u
             where s.key_hash = @key_hash
               and s.revoked_at is null
@@ -144,13 +165,28 @@ public sealed class LoginSessions
               and s.absolute_expires_at > @now
               and u.id = s.user_id
               and u.security_stamp = s.security_stamp
-            returning s.ticket
+            returning s.ticket, s.policy, s.reauthenticated_at, s.mfa_verified_at,
+                exists (
+                    select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
+                    where ur.user_id = s.user_id and r.name = any(@privileged_roles))
             """);
-        var now = _time.GetUtcNow();
         command.Parameters.AddWithValue("key_hash", HashKey(key));
-        command.Parameters.AddWithValue("now", now);
-        command.Parameters.AddWithValue("idle_until", now + Lifetime.Idle);
-        return await command.ExecuteScalarAsync(cancellationToken) as byte[];
+        command.Parameters.AddWithValue("now", _time.GetUtcNow());
+        command.Parameters.AddWithValue("normal_idle", SessionLifetime.For(SessionPolicy.Normal).Idle);
+        command.Parameters.AddWithValue("administrative_idle", SessionLifetime.For(SessionPolicy.Administrative).Idle);
+        command.Parameters.AddWithValue("privileged_roles", AccountRoles.Privileged.ToArray());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new TouchedSession(
+            reader.GetFieldValue<byte[]>(0),
+            Enum.Parse<SessionPolicy>(reader.GetString(1)),
+            reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
+            reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
+            reader.GetBoolean(4));
     }
 
     public async Task ReplaceTicketAsync(string key, byte[] protectedTicket, CancellationToken cancellationToken)
