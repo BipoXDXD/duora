@@ -53,8 +53,8 @@ public sealed class SecurityNoticeEmailsTests
         {
             SecurityChange.PasswordReset,
             "Senha redefinida no Duora / Duora password reset completed",
-            "A senha da sua conta do Duora foi redefinida pelo link de recuperação em 2026-10-16 17:05 UTC.",
-            "The password of your Duora account was reset through the recovery link on 2026-10-16 17:05 UTC."
+            "A senha da sua conta do Duora foi redefinida em 2026-10-16 17:05 UTC, pelo link de recuperação ou por quem administra o Duora.",
+            "The password of your Duora account was reset on 2026-10-16 17:05 UTC, through the recovery link or by whoever runs Duora."
         },
     };
 
