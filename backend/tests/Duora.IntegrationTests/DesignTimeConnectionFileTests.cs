@@ -23,8 +23,24 @@ public sealed class DesignTimeConnectionFileTests(PostgresFixture postgres) : ID
 
         using var context = CreateFactory(file).CreateDbContext([]);
 
-        Assert.Equal("Host=postgres;Database=duora;Username=duora_migrator;Password=synthetic",
-            context.Database.GetConnectionString());
+        var connection = new Npgsql.NpgsqlConnectionStringBuilder(context.Database.GetConnectionString());
+        Assert.Equal("postgres", connection.Host);
+        Assert.Equal("duora", connection.Database);
+        Assert.Equal("duora_migrator", connection.Username);
+        Assert.Equal("synthetic", connection.Password);
+    }
+
+    [Fact]
+    public void TheMigratorUsesItsShareOfTheConnectionBudget()
+    {
+        // Orçamento de conexões (deploy.md): o migrador fica com 5, mesmo que o arquivo peça mais.
+        var file = WriteSecret("Host=postgres;Database=duora;Username=duora_migrator;Password=synthetic;Maximum Pool Size=100");
+
+        using var context = CreateFactory(file).CreateDbContext([]);
+
+        var connection = new Npgsql.NpgsqlConnectionStringBuilder(context.Database.GetConnectionString());
+        Assert.Equal(5, connection.MaxPoolSize);
+        Assert.Equal(5, connection.Timeout);
     }
 
     [Fact]

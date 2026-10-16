@@ -37,6 +37,31 @@ public sealed class WorkerHostTests
         Assert.Contains(expectedKey, exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("--Database:MaxPoolSize=11")]
+    [InlineData("--Database:MaxPoolSize=0")]
+    [InlineData("--Database:PoolTimeout=00:01:00")]
+    public async Task WorkerDoesNotStartWithAPoolOutsideItsShareOfTheConnectionBudget(string setting)
+    {
+        using var host = BuildHost(new CanaryConnectionString().Value, logs: null, setting);
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Database:", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheWorkerPoolIsTenConnectionsByDefault()
+    {
+        using var host = BuildHost(new CanaryConnectionString().Value, logs: null);
+
+        var connection = new Npgsql.NpgsqlConnectionStringBuilder(
+            host.Services.GetRequiredService<Npgsql.NpgsqlDataSource>().ConnectionString);
+
+        Assert.Equal(10, connection.MaxPoolSize);
+    }
+
     [Fact]
     public async Task HeartbeatLogsUnreachableDatabaseWithCauseAndKeepsRunning()
     {

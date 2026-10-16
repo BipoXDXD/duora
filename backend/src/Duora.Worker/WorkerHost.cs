@@ -19,7 +19,7 @@ internal static class WorkerHost
         }));
 
         builder.Services.AddSingleton(TimeProvider.System);
-        builder.Services.AddInfrastructure(builder.Configuration);
+        builder.Services.AddInfrastructure(builder.Configuration, ConnectionShare.Worker);
         builder.Services.AddTransactionalEmailDispatch();
         builder.Services.AddAgeVerification();
         builder.Services.AddAgeVerificationDispatch();
