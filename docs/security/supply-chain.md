@@ -9,7 +9,7 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 |---|---|---|
 | Lockfiles e fontes | `dotnet restore --locked-mode`, `pnpm install --frozen-lockfile`, `nuget.config` só com nuget.org | lockfile diverge ou aparece fonte não mapeada |
 | Auditoria do NuGet | `NuGetAudit` em `Directory.Build.props` (modo `all`, nível `low`) | o build encontra pacote com vulnerabilidade conhecida |
-| Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies) | achado HIGH ou CRITICAL fora do `.trivyignore` |
+| Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies, e arquivos pip chamados exatamente `requirements.txt`, como `tools/visual/requirements.txt`) | achado HIGH ou CRITICAL fora do `.trivyignore` |
 | Misconfiguration | mesmo passo do Trivy (`--scanners vuln,misconfig`) | achado HIGH ou CRITICAL em Dockerfile e demais formatos de IaC que o Trivy reconhece |
 | SBOM | job `supply-chain`, Trivy `--format cyclonedx` para `backend/` e `frontend/` | falha ao gerar; os arquivos saem no artifact `sbom-cyclonedx` (30 dias) |
 | Licenças | `scripts/supply-chain/check_licenses.py` sobre os SBOMs | licença fora da allowlist, ou componente sem licença, sem exceção escrita |
@@ -27,6 +27,7 @@ Os achados aparecem no log do job; o inventário de licenças e o changelog do c
 | Gitleaks | v8.30.1 | `ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0…` (ver `ci.yml`) | digest fixado |
 | openapi-typescript | 7.13.0 | versão exata em `frontend/package.json` + `pnpm-lock.yaml` | lockfile com integridade; versão exata porque um bump muda a saída gerada |
 | Microsoft.Extensions.ApiDescription.Server | 10.0.13 | `Directory.Packages.props` + `packages.lock.json` | lockfile com content hash |
+| Pillow | 12.3.0 | `tools/visual/requirements.in` + `tools/visual/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes`; só no tooling de ilustrações, nunca no app |
 | Verificadores próprios | — | `scripts/supply-chain/*.py`, só biblioteca padrão do Python do runner | testes unitários rodam no início do job |
 
 As ferramentas em container rodam por `docker run` com o repositório montado somente leitura, no mesmo padrão do
@@ -69,6 +70,12 @@ Exceções aceitas em 2026-10-15:
 | `lightningcss` e binários `lightningcss-*` | MPL-2.0 | ferramenta de build do CSS; não vai para o bundle e o CSS gerado não é obra derivada |
 | `caniuse-lite` | CC-BY-4.0 | dados do Browserslist no build; licença permissiva que só exige atribuição |
 
+Exceção aceita em 2026-10-16 para o pipeline de ilustrações (aprovada pelo responsável por delegação, issue #9):
+
+| Pacote | Licença | Motivo |
+|---|---|---|
+| `pillow` 12.3.0 | MIT-CMU | só no tooling offline `tools/visual`; não vai para o bundle nem para as imagens. Enquanto o SBOM não cobrir `tools/visual`, a exceção não casa com componente e aparece como aviso |
+
 Exceção aceita para o pipeline de fotos ([ADR-0025](../architecture/adr/0025-pipeline-de-fotos-imagesharp-s3-outbox.md)):
 
 | Pacote | Licença | Motivo |
@@ -88,6 +95,13 @@ com o gate de Release (spec 17.2), quando houver imagens.
 - Varredura de imagens (`trivy image`) entra com o gate de Release.
 - O Dependabot não atualiza as imagens fixadas em `ci.yml` (`TRIVY_IMAGE`, `OASDIFF_IMAGE`, Gitleaks). A
   atualização é manual, pelo procedimento abaixo, ao menos uma vez por mês ou quando sair correção de segurança.
+- `tools/visual` (Pillow) fica fora do SBOM e do gate de licenças, que só leem `backend/` e `frontend/`. A
+  licença do Pillow foi conferida à mão (exceção acima). Os testes Python de `tools/visual` e o Dependabot pip
+  ainda não rodam no CI; entram num PR de workflow separado.
+- O analisador pip do Trivy v0.75.0 só lê arquivos chamados exatamente `requirements.txt`
+  (`pkg/fanal/analyzer/language/python/pip/pip.go`, conferido em 2026-10-16). Por isso o lockfile do tooling
+  visual se chama `tools/visual/requirements.txt`. `scripts/deploy/requirements-ops.txt` **não** é varrido pelo
+  Trivy hoje; renomear ou apontar o scanner para ele é decisão do PR de workflow.
 - `openapi-typescript` 7.13.0 declara peer `typescript ^5`; o projeto usa TypeScript 6 e a geração foi
   conferida. O `pnpm install` mostra o aviso de peer.
 
