@@ -7,14 +7,15 @@ arquivo quando entrar pacote ou ferramenta nova, quando mudar uma versão fixada
 
 | Controle | Onde | Bloqueia quando |
 |---|---|---|
-| Lockfiles e fontes | `dotnet restore --locked-mode`, `pnpm install --frozen-lockfile`, `nuget.config` só com nuget.org | lockfile diverge ou aparece fonte não mapeada |
+| Lockfiles e fontes | `dotnet restore --locked-mode`, `pnpm install --frozen-lockfile`, `pip install --require-hashes` no job `ops` (`scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`), `nuget.config` só com nuget.org | lockfile diverge, hash de pacote Python diverge ou aparece fonte não mapeada |
 | Auditoria do NuGet | `NuGetAudit` em `Directory.Build.props` (modo `all`, nível `low`) | o build encontra pacote com vulnerabilidade conhecida |
-| Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies, e arquivos pip chamados exatamente `requirements.txt`, como `tools/visual/requirements.txt`) | achado HIGH ou CRITICAL fora do `.trivyignore` |
+| Vulnerabilidades de dependências | job `supply-chain`, Trivy `fs` sobre o repositório (`packages.lock.json`, `Directory.Packages.props`, `pnpm-lock.yaml`, incluindo devDependencies, e os lockfiles pip `scripts/deploy/requirements.txt` e `tools/visual/requirements.txt`) | achado HIGH ou CRITICAL fora do `.trivyignore` |
 | Misconfiguration | mesmo passo do Trivy (`--scanners vuln,misconfig`) | achado HIGH ou CRITICAL em Dockerfile e demais formatos de IaC que o Trivy reconhece |
 | SBOM | job `supply-chain`, Trivy `--format cyclonedx` para `backend/` e `frontend/` | falha ao gerar; os arquivos saem no artifact `sbom-cyclonedx` (30 dias) |
 | Licenças | `scripts/supply-chain/check_licenses.py` sobre os SBOMs | licença fora da allowlist, ou componente sem licença, sem exceção escrita |
 | Segredos | job `secret-scan` (Gitleaks, histórico inteiro alcançável do commit testado, `--log-opts=HEAD`; branches de outros PRs ficam fora) | qualquer segredo, inclusive um removido em commit posterior; o Trivy roda com o scanner de segredos desligado para não duplicar |
 | Actions | `.github/workflows/ci.yml` | action de terceiros sem SHA completo (revisão); o Dependabot atualiza SHA e comentário |
+| Atualizações | `.github/dependabot.yml`: NuGet, npm, Actions, Compose e pip (`/scripts/deploy`, `/tools/visual`), com cooldown de 7 dias onde há registro de pacotes | não bloqueia; abre PRs semanais revisados por humano |
 
 Os achados aparecem no log do job; o inventário de licenças e o changelog do contrato vão para o resumo do job.
 
@@ -27,6 +28,7 @@ Os achados aparecem no log do job; o inventário de licenças e o changelog do c
 | Gitleaks | v8.30.1 | `ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0…` (ver `ci.yml`) | digest fixado |
 | openapi-typescript | 7.13.0 | versão exata em `frontend/package.json` + `pnpm-lock.yaml` | lockfile com integridade; versão exata porque um bump muda a saída gerada |
 | Microsoft.Extensions.ApiDescription.Server | 10.0.13 | `Directory.Packages.props` + `packages.lock.json` | lockfile com content hash |
+| pyright, ansible-core, ansible-lint | 1.1.408, 2.21.5, 26.10.1 | `scripts/deploy/requirements.in` + `scripts/deploy/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes` no job `ops`; o mesmo pyright checa `scripts/` e `tools/visual` |
 | Pillow | 12.3.0 | `tools/visual/requirements.in` + `tools/visual/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes`; só no tooling de ilustrações, nunca no app |
 | Verificadores próprios | — | `scripts/supply-chain/*.py`, só biblioteca padrão do Python do runner | testes unitários rodam no início do job |
 
@@ -105,13 +107,16 @@ ferramenta entra.
 - Varredura de imagens (`trivy image`) entra com o gate de Release.
 - O Dependabot não atualiza as imagens fixadas em `ci.yml` (`TRIVY_IMAGE`, `OASDIFF_IMAGE`, Gitleaks). A
   atualização é manual, pelo procedimento abaixo, ao menos uma vez por mês ou quando sair correção de segurança.
-- `tools/visual` (Pillow) fica fora do SBOM e do gate de licenças, que só leem `backend/` e `frontend/`. A
-  licença do Pillow foi conferida à mão (exceção acima). Os testes Python de `tools/visual` e o Dependabot pip
-  ainda não rodam no CI; entram num PR de workflow separado.
+- As ferramentas Python (`tools/visual` e `scripts/deploy`) ficam fora do SBOM e do gate de licenças, que só
+  leem `backend/` e `frontend/`. A licença do Pillow foi conferida à mão (exceção acima). ansible-core e
+  ansible-lint são GPL-3.0-or-later (fora da allowlist): só rodam no CI e na máquina de quem opera, nunca
+  entram no app nem nas imagens; incluí-los no SBOM exige antes uma exceção escrita.
 - O analisador pip do Trivy v0.75.0 só lê arquivos chamados exatamente `requirements.txt`
-  (`pkg/fanal/analyzer/language/python/pip/pip.go`, conferido em 2026-10-16). Por isso o lockfile do tooling
-  visual se chama `tools/visual/requirements.txt`. `scripts/deploy/requirements-ops.txt` **não** é varrido pelo
-  Trivy hoje; renomear ou apontar o scanner para ele é decisão do PR de workflow.
+  (`pkg/fanal/analyzer/language/python/pip/pip.go`, conferido em 2026-10-16). Por isso os lockfiles Python se
+  chamam `requirements.txt`, com o `requirements.in` ao lado. Lockfile pip com outro nome fica fora da
+  varredura de vulnerabilidades sem aviso.
+- O lockfile é gerado por `uv pip compile --no-header`. O PR do Dependabot pip pode regenerá-lo com outra
+  ferramenta ou formatação; quem revisa confere o diff e, se preciso, regenera com o comando do `requirements.in`.
 - `openapi-typescript` 7.13.0 declara peer `typescript ^5`; o projeto usa TypeScript 6 e a geração foi
   conferida. O `pnpm install` mostra o aviso de peer.
 
