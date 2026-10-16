@@ -1,4 +1,4 @@
-import { hashKey, QueryCache, QueryClient } from '@tanstack/react-query'
+import { hashKey, MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 import { meQueryKey } from '@/features/session/query-keys'
 import { ApiNetworkError, ApiProblemError, ApiResponseError } from '@/shared/api/api-errors'
 import { isUnauthorized } from '@/shared/api/request-failure'
@@ -26,13 +26,36 @@ function isTransient(error: unknown): boolean {
 
 export function createQueryClient(): QueryClient {
   const meQueryHash = hashKey(meQueryKey)
+  let lastUserId: string | undefined
+  const recheckIdentity = (): void => {
+    void queryClient.invalidateQueries({ queryKey: meQueryKey, exact: true })
+  }
   const queryClient: QueryClient = new QueryClient({
-    // 401 numa leitura privada significa que a sessão acabou no servidor: reconsultar a identidade
-    // faz a rota protegida levar à entrada com o aviso de sessão expirada (spec 13.2 e 13.5).
+    // 401 numa leitura ou escrita privada significa que a sessão acabou no servidor: reconsultar a identidade
+    // faz a rota protegida levar à entrada com o aviso de sessão expirada (spec 13.2 e 13.5; T-14).
     queryCache: new QueryCache({
       onError: (error, query) => {
         if (isUnauthorized(error) && query.queryHash !== meQueryHash) {
-          void queryClient.invalidateQueries({ queryKey: meQueryKey, exact: true })
+          recheckIdentity()
+        }
+      },
+      // Outra aba pode ter trocado o cookie de identidade: se /me responde outra pessoa, nada da anterior fica
+      // em memória (T-21). Só a identidade sobrevive, porque já é a nova.
+      onSuccess: (data, query) => {
+        if (query.queryHash !== meQueryHash) {
+          return
+        }
+        const userId = readUserId(data)
+        if (lastUserId !== undefined && userId !== lastUserId) {
+          queryClient.removeQueries({ predicate: (cached) => cached.queryHash !== meQueryHash })
+        }
+        lastUserId = userId
+      },
+    }),
+    mutationCache: new MutationCache({
+      onError: (error) => {
+        if (isUnauthorized(error)) {
+          recheckIdentity()
         }
       },
     }),
@@ -43,4 +66,11 @@ export function createQueryClient(): QueryClient {
     },
   })
   return queryClient
+}
+
+function readUserId(me: unknown): string | undefined {
+  if (typeof me === 'object' && me !== null && 'id' in me && typeof me.id === 'string') {
+    return me.id
+  }
+  return undefined
 }

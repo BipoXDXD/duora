@@ -46,7 +46,7 @@ Nada de segredo em `VITE_*`: essas variáveis entram no JavaScript público.
   `i18n` (catálogos de textos em PT-BR e EN e o idioma ativo) e `paths.ts` (rotas).
 - `src/test`: setup do Vitest, servidor MSW e helpers de renderização.
 - `config`: configuração do servidor de desenvolvimento e a regra de lint `duora/no-literal-ui-text`, testadas.
-- `e2e`: testes Playwright; `e2e/support/fake-api.ts` simula a API por `page.route`.
+- `e2e`: testes Playwright; `e2e/support/fake-api.ts` simula a API por `route` no contexto do navegador (as abas dividem o mesmo backend).
 
 ## Idiomas (PT-BR e EN)
 
@@ -118,7 +118,17 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
 - Ao entrar e ao chegar à tela de entrada, todo o cache do `QueryClient` é descartado (T-21). O descarte
   fica na tela de entrada, e não no clique de sair, porque o React Router navega dentro de uma transition:
   limpar com a área autenticada ainda montada faz as consultas dela buscarem de novo os dados de quem saiu.
-- Nada da sessão vai para `localStorage` ou `sessionStorage`.
+- Um 401 em qualquer escrita também reconsulta a identidade (`MutationCache` em `query-client.ts`), e um `/me`
+  que responde outra pessoa descarta tudo o que era da anterior.
+- A identidade (`['me']`) e as sessões têm `gcTime: 0`: ao sair da área autenticada, saem da memória. Voltar a ela
+  pelo histórico espera o servidor, em vez de reexibir dados de uma sessão que pode ter expirado.
+- Entrar ou sair avisa as outras abas por `BroadcastChannel` (`duora.identity`, sem dado pessoal na mensagem); elas
+  descartam o cache e reconsultam a identidade (`identity-broadcast.ts`, inscrição no `App.tsx`).
+- Página restaurada do bfcache recarrega (`back-forward-cache.ts`, ligado no `main.tsx`); ao entrar no bfcache ela
+  é escondida, para não reaparecer com dados por um instante. O custo é perder o estado em memória ao voltar de
+  outro site. O Playwright desliga o bfcache, então o E2E simula os eventos `pagehide`/`pageshow`.
+- Nada da sessão vai para `localStorage` ou `sessionStorage`; as únicas chaves guardadas são `duora.locale` e
+  `duora.newVersionReloadAt` (o E2E `session-privacy.spec.ts` falha com qualquer outra).
 - Os links de e-mail trazem `userId` e `token` no fragmento, que não vai ao servidor nem aos logs (TM-19).
   A tela lê o fragmento uma vez, guarda em estado e limpa a URL com replace. O `index.html` declara
   `referrer: no-referrer`.
