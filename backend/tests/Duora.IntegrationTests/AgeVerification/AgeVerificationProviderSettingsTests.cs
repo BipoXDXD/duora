@@ -1,9 +1,10 @@
 extern alias worker;
-
 using System.Net;
+using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Identity;
 using Duora.Web;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using worker::Duora.Worker;
 
@@ -17,16 +18,22 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>
+    /// Fora de Development e Testing o boot do web também exige volume montado e certificado do key ring (#34), que o
+    /// teste não tem e que barram a subida antes. Por isso a regra é conferida resolvendo só as options da verificação
+    /// etária, com a mesma validação que o <c>ValidateOnStart</c> roda.
+    /// </summary>
     [Theory]
     [InlineData("Production")]
     [InlineData("Staging")]
-    public async Task WebDoesNotStartWithTheFakeProviderOutsideDevelopmentAndTesting(string environment)
+    public async Task WebRefusesTheFakeProviderOutsideDevelopmentAndTesting(string environment)
     {
         await using var app = BuildWeb(environment, FakeArgs());
 
-        var exception = await Assert.ThrowsAsync<OptionsValidationException>(() => app.StartAsync(Ct));
+        var exception = Assert.Throws<OptionsValidationException>(
+            () => app.Services.GetRequiredService<IOptions<AgeVerificationOptions>>().Value);
 
-        Assert.Contains("AgeVerification:Provider", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("AgeVerification:Provider=Fake", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -66,12 +73,13 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
     }
 
     [Fact]
-    public async Task WebStartsInProductionWithoutAProvider()
+    public async Task ProductionWithoutAProviderPassesTheAgeVerificationChecks()
     {
         await using var app = BuildWeb("Production");
 
-        await app.StartAsync(Ct);
-        await app.StopAsync(Ct);
+        var options = app.Services.GetRequiredService<IOptions<AgeVerificationOptions>>().Value;
+
+        Assert.False(options.IsEnabled);
     }
 
     [Theory]
@@ -119,6 +127,10 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
             "--ConnectionStrings:Duora=Host=127.0.0.1;Port=1;Database=duora;Username=duora;Password=x",
             $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
             $"--DataProtection:KeysDirectory={Path.Combine(Path.GetTempPath(), "duora-keys-unused")}",
+            // Como o DuoraWebFactory: volume e certificado do key ring só valem dentro do container (#34). Fora de
+            // Development e Testing o próprio boot recusa estes dois valores.
+            "--DataProtection:RequireMountedVolume=false",
+            "--DataProtection:RequireCertificate=false",
             .. settings,
         ]);
 
