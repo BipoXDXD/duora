@@ -143,7 +143,8 @@ public static class WebIdentityServiceCollectionExtensions
             provider.GetRequiredService<IOptions<LoginTimingOptions>>(),
             provider.GetRequiredService<AccountSecurityService>(),
             provider.GetRequiredService<LoginMetrics>(),
-            provider.GetRequiredService<ILogger<CredentialVerifier>>()));
+            provider.GetRequiredService<ILogger<CredentialVerifier>>(),
+            provider.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton(provider => new LoginMetrics(provider.GetRequiredService<IMeterFactory>()));
 
         return services;

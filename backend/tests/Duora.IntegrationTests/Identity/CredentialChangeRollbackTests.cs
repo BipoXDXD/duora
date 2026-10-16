@@ -137,6 +137,54 @@ public sealed class CredentialChangeRollbackTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
     }
 
+    [Fact]
+    public async Task AFailedTemporaryPasswordReissueLeavesNoNoticeAndNoChange()
+    {
+        var email = IdentityScenario.NewEmail();
+        var grant = await RunAdminAsync("admin", "grant", "--email", email, "--role", "moderator", "--operator", "ana.ops");
+        Assert.Equal(0, grant.ExitCode);
+        var temporaryPassword = grant.Output.Split('\n')
+            .Select(line => line.Trim())
+            .Single(line => line.StartsWith(Duora.Web.Admin.AdminCommand.PasswordLinePrefix, StringComparison.Ordinal))
+            [Duora.Web.Admin.AdminCommand.PasswordLinePrefix.Length..];
+        var userId = Guid.Parse(await Scenario.ScalarTextAsync(
+            "select id::text from identity.users where normalized_email = upper($1)", email));
+        using var signedIn = new Browser(_factory);
+        using (var login = await IdentityScenario.LoginAsync(signedIn, email, temporaryPassword))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        }
+
+        var before = await AccountStateAsync(userId);
+        var expiresBefore = await Scenario.ScalarTextAsync(
+            "select temporary_password_expires_at::text from identity.users where id = $1", userId);
+        _failure.Arm(userId);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => RunAdminAsync(
+            "admin", "grant", "--email", email, "--role", "moderator", "--operator", "ana.ops", "--reissue"));
+
+        Assert.True(_failure.Fired);
+        Assert.Equal(before, await AccountStateAsync(userId));
+        Assert.Equal(expiresBefore, await Scenario.ScalarTextAsync(
+            "select temporary_password_expires_at::text from identity.users where id = $1", userId));
+        using var again = new Browser(_factory);
+        using var withOld = await IdentityScenario.LoginAsync(again, email, temporaryPassword);
+        Assert.Equal(HttpStatusCode.NoContent, withOld.StatusCode);
+    }
+
+    private async Task<(int ExitCode, string Output)> RunAdminAsync(params string[] args)
+    {
+        await using var output = new StringWriter();
+        await using var error = new StringWriter();
+        var exitCode = await Duora.Web.Admin.AdminCommand.ExecuteAsync(
+            _factory.Services,
+            args,
+            output,
+            error,
+            TestContext.Current.CancellationToken);
+        return (exitCode, output.ToString());
+    }
+
     private async Task AssertOldPasswordStillSignsInAsync(TestAccount account)
     {
         using var browser = new Browser(_factory);

@@ -20,8 +20,8 @@ internal enum AccountEmailKind
     PasswordResetNotice,
 
     /// <summary>
-    /// Aviso sem link ao pedido de reset de conta privilegiada sem MFA. Leitor em deploy antes do gravador
-    /// (expand/contract, model.md): nenhuma versão desta release grava o tipo.
+    /// Aviso sem link ao pedido de reset de conta privilegiada sem MFA (I5). O leitor foi a deploy antes do gravador
+    /// (expand/contract, model.md); a gravação veio com o bootstrap administrativo.
     /// </summary>
     PasswordResetUnavailable,
 }
