@@ -49,8 +49,12 @@ public static class MediaServiceCollectionExtensions
                 o => o.Review is not { } review || MediaReview.IsPermitted(review, environmentName),
                 $"Media:Review não é aceito em {environmentName}: TechnicalOnly aprova sem revisão editorial (ADR-0025).")
             .Validate(
-                o => o.MaxPendingUploadsPerAccount >= 1 && o.UploadTimeout > TimeSpan.Zero,
-                "Media:MaxPendingUploadsPerAccount deve ser ao menos 1 e Media:UploadTimeout, positivo.")
+                o => o.MaxPendingUploadsPerAccount >= 1
+                    && o.UploadTimeout > TimeSpan.Zero
+                    && o.MinUploadBytesPerSecond > 0
+                    && o.MinUploadRateGracePeriod > TimeSpan.FromSeconds(1),
+                "Media:MaxPendingUploadsPerAccount deve ser ao menos 1; Media:UploadTimeout e a taxa mínima, positivos; "
+                + "a tolerância da taxa, acima de 1 s (o Kestrel recusa menos).")
             .ValidateOnStart();
 
         services.AddOptions<MediaStorageOptions>()
@@ -64,6 +68,9 @@ public static class MediaServiceCollectionExtensions
             .Validate(
                 o => o.Provider != MediaStorageProvider.FileSystem || !string.IsNullOrWhiteSpace(o.FileSystemRoot),
                 "Media:Storage:FileSystemRoot é obrigatório com o provedor FileSystem.")
+            .Validate<IOptions<MediaOptions>>(
+                (o, media) => o.Provider != MediaStorageProvider.S3 || o.S3.RequestTimeout >= media.Value.UploadTimeout,
+                "Media:Storage:S3:RequestTimeout deve ser pelo menos Media:UploadTimeout: o PUT transmite o corpo do cliente.")
             .Validate(
                 o => o.Provider != MediaStorageProvider.S3 || (o.S3.IsComplete() && !(isProduction && o.S3.AllowInsecureHttp)),
                 "Media:Storage:S3 incompleto: Region, Bucket, AccessKeyId, SecretAccessKey e ServiceUrl https.")

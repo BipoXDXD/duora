@@ -41,6 +41,7 @@ internal static class AppRoleTableAccess
             // media (dono: Media)
             ["media.media_assets"] = AppTableAccess.ReadWrite,
             ["media.media_variants"] = AppTableAccess.ReadWrite,
+            ["media.upload_guards"] = AppTableAccess.ReadWrite,
             ["media.uploads"] = AppTableAccess.ReadWrite,
 
             // ops (dono: Operations; outbox de propriedade comum, modules.md nota 4)

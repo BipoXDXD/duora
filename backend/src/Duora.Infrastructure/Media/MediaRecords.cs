@@ -163,3 +163,16 @@ internal sealed class MediaVariant
             SizeBytes = sizeBytes,
         };
 }
+
+/// <summary>
+/// Guarda de envio por dono (<c>media.upload_guards</c>, ADR-0025): uma linha por conta que já enviou foto, só para
+/// ser travada com <c>FOR UPDATE</c> na reserva. Não guarda estado; o que importa é o lock.
+/// </summary>
+internal sealed class UploadGuard
+{
+    private UploadGuard()
+    {
+    }
+
+    public Guid OwnerId { get; private set; }
+}

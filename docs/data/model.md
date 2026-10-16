@@ -760,6 +760,15 @@ erDiagram
     }
 ```
 
+### media.upload_guards
+
+- **Colunas:** `owner_id uuid` (PK).
+- **Constraints:** FK `owner_id` → `identity.users` `ON DELETE CASCADE` (a guarda não sobrevive à conta).
+- **Uso:** só lock. A reserva de upload faz `INSERT ... ON CONFLICT DO NOTHING` e `SELECT ... FOR UPDATE` desta linha
+  antes de contar pendentes e inserir (C14 em [concurrency.md](concurrency.md)); o Media não trava tabela de outro
+  módulo.
+- **Classe:** P3 (só o id da conta).
+
 ### media.uploads
 
 Implementada na migration `Media` ([ADR-0025](../architecture/adr/0025-pipeline-de-fotos-imagesharp-s3-outbox.md)).
@@ -775,9 +784,8 @@ Implementada na migration `Media` ([ADR-0025](../architecture/adr/0025-pipeline-
   só em `Pending` e `Deleted`) e do código de rejeição (só em `Rejected`, mantido em `Deleted`).
 - **Índices:** `ix_uploads_pending_owner` em `(owner_id)` onde `state IN ('Pending', 'Quarantined', 'Processing')`
   (teto de pendentes, spec 11.5); `ix_uploads_abandon_after` onde `state IN ('Pending', 'Quarantined')` (limpeza).
-- **Concorrência:** a reserva conta os pendentes e insere depois de `SELECT ... FOR NO KEY UPDATE` da linha do dono
-  em `identity.users` (sem write skew; teste `PendingUploadsPerAccountAreCapped`). Toda transição é `UPDATE`
-  condicional por `state` e `version`.
+- **Concorrência:** a reserva conta os pendentes e insere sob o lock de `media.upload_guards` (sem write skew; C14,
+  teste `PendingUploadsPerAccountAreCapped`). Toda transição é `UPDATE` condicional por `state` e `version`.
 - **Classe:** P3.
 
 ### media.media_assets
