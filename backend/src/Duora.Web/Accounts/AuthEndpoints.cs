@@ -118,6 +118,7 @@ internal static class AuthEndpoints
         var validation = new RequestValidation();
         validation.Email("email", request.Email, out var email);
         validation.ExistingPassword("password", request.Password, out var password);
+        var secondFactor = ReadSecondFactor(request, validation);
         if (!validation.IsValid || email is null || password is null)
         {
             return ApiProblems.Validation(validation.Errors);
@@ -128,7 +129,7 @@ internal static class AuthEndpoints
             return ApiProblems.TooManyRequests(context, retryAfter);
         }
 
-        switch (await credentials.VerifyAsync(email, password, cancellationToken))
+        switch (await credentials.VerifyAsync(email, password, secondFactor, cancellationToken))
         {
             case LoginOutcome.Verified { Account: var account }:
                 var now = time.GetUtcNow();
@@ -153,6 +154,31 @@ internal static class AuthEndpoints
                     ApiProblems.InvalidCredentials,
                     "E-mail ou senha inválidos.");
         }
+    }
+
+    /// <summary>Segundo fator opcional do login: um dos dois códigos, nunca ambos.</summary>
+    private static SecondFactorProof? ReadSecondFactor(LoginRequest request, RequestValidation validation)
+    {
+        if (!validation.Exclusive("recoveryCode", request.TwoFactorCode is not null && request.RecoveryCode is not null))
+        {
+            return null;
+        }
+
+        if (request.TwoFactorCode is not null)
+        {
+            return validation.AuthenticatorCode("twoFactorCode", request.TwoFactorCode, out var code)
+                ? new SecondFactorProof.AuthenticatorCode(code)
+                : null;
+        }
+
+        if (request.RecoveryCode is not null)
+        {
+            return validation.RecoveryCode("recoveryCode", request.RecoveryCode, out var code)
+                ? new SecondFactorProof.RecoveryCode(code)
+                : null;
+        }
+
+        return null;
     }
 
     /// <summary>Sem sessão válida, logout também é 204: o estado final (sem sessão) já é o pedido.</summary>
