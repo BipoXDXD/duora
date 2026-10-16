@@ -106,6 +106,38 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NoContent, oldPassword.StatusCode);
     }
 
+    /// <summary>
+    /// O teto vale para esperar a conta, não para o resto da transação: depois de travar a conta, o reset espera uma
+    /// sessão ocupada por outro pedido em vez de falhar no meio (o que viraria 500).
+    /// </summary>
+    [Fact]
+    public async Task APasswordResetWaitsForABusySessionAfterTakingTheAccount()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var signedIn = await Scenario.SignedInBrowserAsync(account);
+        using var browser = new Browser(_factory);
+        await browser.FetchCsrfTokenAsync();
+        using (var request = await browser.PostJsonAsync("/api/v1/auth/password-reset-requests", new { email = account.Email }))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, request.StatusCode);
+        }
+
+        var link = await Scenario.ReadLatestLinkAsync(account.Email, "PasswordReset");
+        Task<HttpResponseMessage> reset;
+        await using (var holder = await HoldSessionsAsync(account.UserId))
+        {
+            reset = browser.PostJsonAsync(
+                "/api/v1/auth/password-resets",
+                new { userId = link.UserId, token = link.Token, newPassword = "uma frase nova e longa" });
+            await WaitUntilAsync(async () => await CountConnectionsWaitingOnSessionsAsync() == 1 || reset.IsCompleted);
+            // Segura além do teto da conta (300 ms): se o teto ainda valesse aqui, a espera estouraria.
+            await Task.Delay(TimeSpan.FromMilliseconds(600), TestContext.Current.CancellationToken);
+        }
+
+        using var response = await reset;
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
     [Fact]
     public async Task QueuedChecksOfTheSameAccountWaitWithoutHoldingDatabaseConnections()
     {
@@ -172,6 +204,45 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
     /// </summary>
     private static void AssertGaveUpAtTheLockCeiling(TimeSpan waited) =>
         Assert.True(waited < TimeSpan.FromSeconds(10), $"Esperou {waited}.");
+
+    private async Task<long> CountConnectionsWaitingOnSessionsAsync()
+    {
+        await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            select count(*) from pg_stat_activity
+            where datname = current_database() and wait_event_type = 'Lock'
+              and query like '%identity.login_sessions%'
+            """,
+            connection);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static async Task WaitUntilAsync(Func<Task<bool>> condition)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(20));
+        while (!await condition())
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), deadline.Token);
+        }
+    }
+
+    /// <summary>Outra transação com as sessões da conta travadas, como um pedido que as atualiza.</summary>
+    private async Task<AccountHolder> HoldSessionsAsync(Guid userId)
+    {
+        var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            "select 1 from identity.login_sessions where user_id = $1 for no key update",
+            connection,
+            transaction);
+        command.Parameters.AddWithValue(userId);
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        return new AccountHolder(connection, transaction);
+    }
 
     private static async Task AssertTemporarilyUnavailableAsync(HttpResponseMessage response)
     {

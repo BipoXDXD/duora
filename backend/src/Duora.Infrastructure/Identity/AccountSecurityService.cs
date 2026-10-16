@@ -207,6 +207,9 @@ public sealed class AccountSecurityService
     private const string MfaChangeReason = "mfa_change";
     private const string PasswordChangeReason = "password_change";
 
+    /// <summary>Padrão do PostgreSQL: sem teto para esperar lock; o timeout do comando continua valendo.</summary>
+    private const string NoLockTimeout = "0";
+
     // Os mesmos motivos que a revogação pela chave (ticket store) e a de A10 já gravavam.
     private const string LogoutReason = "logout";
     private const string RevokedByOwnerReason = "revoked-by-owner";
@@ -630,24 +633,30 @@ public sealed class AccountSecurityService
     }
 
     /// <summary>
-    /// Roda <paramref name="takeLock"/> com <c>lock_timeout</c> só desta transação, no teto da conta. Passou do teto,
-    /// <see cref="AccountBusyException"/> (503) em vez de segurar a conexão até o timeout do comando.
+    /// Roda <paramref name="takeLock"/> com <c>lock_timeout</c> no teto da conta. Passou do teto,
+    /// <see cref="AccountBusyException"/> (503) em vez de segurar a conexão até o timeout do comando. O teto vale só
+    /// para essa espera: o <c>set_config(..., true)</c> duraria a transação inteira, e um comando seguinte que esperasse
+    /// outra linha (as sessões, no reset) estouraria no meio da operação, como 500. Depois do lock, volta ao padrão.
     /// </summary>
     private async Task<T> WithLockCeilingAsync<T>(Func<Task<T>> takeLock, CancellationToken cancellationToken)
     {
-        var lockTimeout = $"{(long)_lock.AccountLockTimeout.TotalMilliseconds}ms";
-        await _db.Database.ExecuteSqlAsync(
-            $"select set_config('lock_timeout', {lockTimeout}, true)",
-            cancellationToken);
+        await SetLockTimeoutAsync($"{(long)_lock.AccountLockTimeout.TotalMilliseconds}ms", cancellationToken);
+        T locked;
         try
         {
-            return await takeLock();
+            locked = await takeLock();
         }
         catch (Exception error) when (LockTimeoutIn(error) is { } timeout)
         {
             throw new AccountBusyException(_lock.AccountLockTimeout, timeout);
         }
+
+        await SetLockTimeoutAsync(NoLockTimeout, cancellationToken);
+        return locked;
     }
+
+    private Task<int> SetLockTimeoutAsync(string lockTimeout, CancellationToken cancellationToken) =>
+        _db.Database.ExecuteSqlAsync($"select set_config('lock_timeout', {lockTimeout}, true)", cancellationToken);
 
     /// <summary>
     /// O 55P03 chega cru de um comando e embrulhado pelo EF (falha transitória) de uma query; os dois são a espera
