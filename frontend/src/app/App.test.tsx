@@ -1,7 +1,10 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createIdentityBroadcast } from '@/features/session/identity-broadcast'
 import { LOCALE_STORAGE_KEY } from '@/shared/i18n/locale-preference'
+import { API, problem, server } from '@/test/msw'
 import { waitForRouteChunk } from '@/test/render'
 import { App } from './App'
 
@@ -146,5 +149,33 @@ describe('seletor de idioma', () => {
 
     expect(screen.getByText('Enter your email.')).toBeInTheDocument()
     expect(screen.queryByText('Informe seu e-mail.')).not.toBeInTheDocument()
+  })
+})
+
+describe('troca de identidade em outra aba (T-21)', () => {
+  it('a aba some com os dados de quem saiu e reconsulta a identidade', async () => {
+    useBrowserLanguages(['pt-BR'])
+    let signedIn = true
+    server.use(
+      http.get(`${API}/me`, () =>
+        signedIn
+          ? HttpResponse.json({
+              id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
+              email: 'ana@exemplo.com',
+              status: 'Active',
+              emailConfirmed: true,
+            })
+          : problem(401, 'UNAUTHENTICATED'),
+      ),
+      http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
+    )
+    await renderAppAt('/conta')
+    expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
+
+    signedIn = false
+    createIdentityBroadcast('outra-aba').announce()
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
+    expect(screen.queryByText('ana@exemplo.com')).not.toBeInTheDocument()
   })
 })
