@@ -173,7 +173,7 @@ describe('troca de identidade em outra aba (T-21)', () => {
     expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
 
     signedIn = false
-    createIdentityBroadcast('outra-aba').announce()
+    createIdentityBroadcast(() => 'outra-aba').announce()
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
     expect(screen.queryByText('ana@exemplo.com')).not.toBeInTheDocument()

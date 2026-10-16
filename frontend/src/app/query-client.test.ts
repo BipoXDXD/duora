@@ -125,6 +125,19 @@ describe('troca de identidade descoberta pela própria identidade (T-21)', () =>
     expect(queryClient.getQueryData(meQueryKey)).toEqual({ id: brunoId })
   })
 
+  it('identidade nova descarta também as escritas da anterior, com as variables', async () => {
+    const queryClient = createQueryClient()
+    await resolveMe(queryClient, anaId)
+    await queryClient
+      .getMutationCache()
+      .build(queryClient, { mutationFn: (bio: string) => Promise.resolve(bio.length) })
+      .execute('texto que a Ana escreveu')
+
+    await resolveMe(queryClient, brunoId)
+
+    expect(queryClient.getMutationCache().getAll()).toEqual([])
+  })
+
   it('a mesma identidade reconsultada mantém o cache', async () => {
     const queryClient = createQueryClient()
     await resolveMe(queryClient, anaId)

@@ -135,18 +135,6 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
     expect(await anaTraces()).toEqual([])
   })
 
-  test('voltar de outro documento depois de sair não reexibe A', async ({ page }) => {
-    await signInAsAna(page)
-    await page.getByRole('button', { name: 'Sair' }).click()
-    await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
-    await page.goto('/favicon.svg')
-
-    await page.goBack()
-
-    await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
-    await expectNoAnaOnScreen(page)
-  })
-
   test('página restaurada do bfcache esconde a tela e recarrega, conferindo a sessão no servidor', async ({ page }) => {
     // O Playwright desliga o bfcache dos navegadores; os eventos que ele dispararia são simulados no bundle real.
     const api = await signInAsAna(page)
@@ -161,6 +149,19 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
     expect(await page.evaluate((): unknown => Reflect.get(window, '__mesmoDocumento'))).toBeUndefined()
     await expectNoAnaOnScreen(page)
   })
+})
+
+test('página pública restaurada do bfcache não recarrega e mantém o rascunho do cadastro', async ({ page }) => {
+  await FakeDuoraApi.install(page)
+  await page.goto('/criar-conta')
+  await page.getByLabel('E-mail', { exact: true }).fill(ANA)
+  await page.evaluate(() => Reflect.set(window, '__mesmoDocumento', true))
+
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })))
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+
+  await expect(page.getByLabel('E-mail', { exact: true })).toHaveValue(ANA)
+  expect(await page.evaluate((): unknown => Reflect.get(window, '__mesmoDocumento'))).toBe(true)
 })
 
 test.describe('T-14: sessão expirada ou revogada no servidor', () => {

@@ -28,7 +28,9 @@
 }
 
 @layer base {
+  /* Fundo também no html: com o body escondido (bfcache, main.tsx), a tela fica na cor da superfície, sem flash. */
   html {
+    @apply bg-surface;
     color-scheme: light;
   }
 
