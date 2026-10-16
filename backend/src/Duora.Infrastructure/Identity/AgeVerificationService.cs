@@ -160,42 +160,28 @@ public sealed class AgeVerificationService
     }
 
     /// <summary>
-    /// A solicitação que decide a elegibilidade: a mais recente, ou a decisão mais recente quando a regra a faz
-    /// prevalecer (<see cref="AgeEligibility.AdultVerificationPrevails"/>). Lê as duas numa consulta, com a linha
-    /// da conta travada ou não; quem decide é a regra pura.
+    /// A solicitação que decide a elegibilidade: a decisão mais recente (<see cref="AgeEligibility.Decisions"/>), se
+    /// houver, porque a verificação adulta não vence e uma decisão negativa posterior manda sobre ela; sem decisão, a
+    /// solicitação mais recente. Pedido sem decisão depois de uma decisão nunca a apaga (falha fechada).
     /// </summary>
     private async Task<VerificationRow?> FindDecidingAsync(Guid userId, CancellationToken cancellationToken)
     {
         var decisions = AgeEligibility.Decisions.Select(state => state.ToString()).ToArray();
         var rows = await _db.Database.SqlQuery<VerificationRow>(
             $"""
-            with candidates as (
-                (select v.*, true as is_latest from identity.age_verifications v
-                 where v.user_id = {userId}
-                 order by v.requested_at desc, v.id desc
-                 limit 1)
-                union all
-                (select v.*, false from identity.age_verifications v
-                 where v.user_id = {userId} and v.state = any({decisions})
-                 order by v.requested_at desc, v.id desc
-                 limit 1))
-            select c.id as "Id", c.state as "StateName", c.requested_at as "RequestedAt",
-                   c.provider_flow_url as "FlowUrl", c.version as "Version", c.is_latest as "IsLatest",
-                   (c.provider_reference is null and exists (
+            select v.id as "Id", v.state as "StateName", v.requested_at as "RequestedAt",
+                   v.provider_flow_url as "FlowUrl", v.version as "Version",
+                   (v.provider_reference is null and exists (
                        select 1 from ops.outbox_events e
                        join ops.outbox_deliveries d on d.outbox_event_id = e.id
-                       where e.resource_id = c.id and e.type = {AgeVerificationOutbox.EventType}
+                       where e.resource_id = v.id and e.type = {AgeVerificationOutbox.EventType}
                          and d.status in ('Failed', 'Expired'))) as "ProviderGaveUp"
-            from candidates c
+            from identity.age_verifications v
+            where v.user_id = {userId}
+            order by (v.state = any({decisions})) desc, v.requested_at desc, v.id desc
+            limit 1
             """).ToListAsync(cancellationToken);
-
-        var latest = rows.SingleOrDefault(row => row.IsLatest);
-        var latestDecision = rows.SingleOrDefault(row => !row.IsLatest);
-        return latest is not null
-            && latestDecision is not null
-            && AgeEligibility.AdultVerificationPrevails(latestDecision.State, latest.EffectiveState)
-            ? latestDecision
-            : latest;
+        return rows.SingleOrDefault();
     }
 
     /// <summary>A pendente que passou do prazo vira <c>Expired</c> antes da nova, pelo índice de uma aberta por pessoa.</summary>
@@ -245,7 +231,7 @@ public sealed class AgeVerificationService
             loginSessionId,
             now,
             now + _policy.RequestLifetime));
-        return new VerificationRow(id, pending, now, FlowUrl: null, Version: 0, IsLatest: true, ProviderGaveUp: false);
+        return new VerificationRow(id, pending, now, FlowUrl: null, Version: 0, ProviderGaveUp: false);
     }
 
     /// <summary>Só uma URL de fluxo https com origem na allowlist vai ao navegador; as demais nem contam como prontas.</summary>
@@ -269,7 +255,6 @@ public sealed class AgeVerificationService
         DateTimeOffset RequestedAt,
         string? FlowUrl,
         long Version,
-        bool IsLatest,
         bool ProviderGaveUp)
     {
         /// <summary>Estado gravado; é o que o UPDATE condicional confere.</summary>
