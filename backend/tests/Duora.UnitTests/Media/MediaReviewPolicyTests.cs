@@ -7,8 +7,8 @@ public sealed class MediaReviewPolicyTests
     [Theory]
     [InlineData("Development")]
     [InlineData("Testing")]
-    [InlineData("Staging")]
-    public void TechnicalOnlyReviewIsAllowedOutsideProduction(string environment)
+    [InlineData("testing")]
+    public void TechnicalOnlyReviewIsAllowedOnlyWithSyntheticData(string environment)
     {
         Assert.True(MediaReview.IsPermitted(MediaReviewPolicy.TechnicalOnly, environment));
     }
@@ -16,7 +16,10 @@ public sealed class MediaReviewPolicyTests
     [Theory]
     [InlineData("Production")]
     [InlineData("production")]
-    public void TechnicalOnlyReviewIsRefusedInProduction(string environment)
+    [InlineData("Staging")]
+    [InlineData("Produção")]
+    [InlineData("")]
+    public void TechnicalOnlyReviewIsRefusedEverywhereElse(string environment)
     {
         // Sem revisão editorial (spec 12.3), foto real não pode ser aprovada só pela checagem técnica.
         Assert.False(MediaReview.IsPermitted(MediaReviewPolicy.TechnicalOnly, environment));
