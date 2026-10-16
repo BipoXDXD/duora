@@ -73,7 +73,8 @@ public static class AgeEligibility
             { State: AgeVerificationState.VerifiedAdult, ExpiresAt: { } expiresAt } when expiresAt > now =>
                 account == AccountStatus.Active
                     ? new AgeEligibilityResult(IsEligible: true, AgeVerificationNextStep.None)
-                    : NotEligible(AgeVerificationNextStep.NotAvailable),
+                    // Conta pendente com verificação válida não sai pelo fluxo; se acontecer, a pessoa pede de novo.
+                    : NotEligible(AgeVerificationNextStep.StartVerification),
             { State: AgeVerificationState.VerifiedAdult or AgeVerificationState.Expired } =>
                 NotEligible(AgeVerificationNextStep.StartVerification),
             { State: AgeVerificationState.Pending } pending when pending.RequestedAt + policy.RequestLifetime <= now =>

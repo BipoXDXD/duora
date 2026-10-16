@@ -22,7 +22,7 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
     [InlineData("Staging")]
     public async Task WebDoesNotStartWithTheFakeProviderOutsideDevelopmentAndTesting(string environment)
     {
-        await using var app = BuildWeb(environment, "--AgeVerification:Provider=Fake");
+        await using var app = BuildWeb(environment, FakeArgs());
 
         var exception = await Assert.ThrowsAsync<OptionsValidationException>(() => app.StartAsync(Ct));
 
@@ -34,11 +34,24 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
     [InlineData("Staging")]
     public async Task WorkerDoesNotStartWithTheFakeProviderOutsideDevelopmentAndTesting(string environment)
     {
-        using var host = BuildWorker(environment, "--AgeVerification:Provider=Fake");
+        using var host = BuildWorker(environment, FakeArgs());
 
         var exception = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(Ct));
 
         Assert.Contains("AgeVerification:Provider", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--AgeVerification:Dispatch:BatchSize=20")]
+    [InlineData("--AgeVerification:Dispatch:LeaseDuration=00:01:40")]
+    public async Task WorkerDoesNotStartWhenALeaseCannotCoverAWholeBatch(string setting)
+    {
+        // Lote de 10 com chamada de até 10 s: o lease precisa passar de 100 s, senão outro worker retoma no meio.
+        using var host = BuildWorker("Testing", [.. FakeArgs(), setting]);
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(Ct));
+
+        Assert.Contains("AgeVerification:Dispatch", exception.Message, StringComparison.Ordinal);
     }
 
     [Theory]

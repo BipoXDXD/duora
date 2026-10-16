@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Identity;
 using Npgsql;
 
@@ -147,7 +148,7 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
         ExecuteAsync(
             "update identity.age_verifications set provider_reference = $2, provider_flow_url = $3 where id = $1",
             verificationId,
-            $"fake_{verificationId:N}",
+            $"{FakeAgeEligibilityProvider.ReferenceFor(verificationId)}",
             flowUrl);
 
     /// <summary>Estado de uma conta que já passou pela verificação, gravado direto (o webhook vem no PR seguinte).</summary>
@@ -166,4 +167,15 @@ internal sealed class AgeVerificationScenario(PostgresFixture postgres, DuoraWeb
             expiresAt);
         await ExecuteAsync("update identity.users set status = 'Active' where id = $1", userId);
     }
+
+    /// <summary>Encerra a tarefa do worker da solicitação aberta como se ele tivesse desistido ou o prazo tivesse vencido.</summary>
+    public Task SetProviderTaskStatusAsync(Guid userId, string status) =>
+        ExecuteAsync(
+            """
+            update ops.outbox_deliveries d set status = $2, lease_expires_at = null, completed_at = now()
+            from ops.outbox_events e join identity.age_verifications v on v.id = e.resource_id
+            where d.outbox_event_id = e.id and v.user_id = $1 and v.state = 'Pending'
+            """,
+            userId,
+            status);
 }
