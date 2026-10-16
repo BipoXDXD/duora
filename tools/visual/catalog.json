@@ -1,0 +1,132 @@
+{
+  "promptPrefix": "Studio illustration of a single stylized object, soft matte clay look, rounded simplified shapes, two-tone deep indigo and warm off-white, three-quarter view from slightly above, soft light from the top, on a flat solid chroma-key green background with no shadow on it, no text, no letters, no numbers, no symbols, no logos, no people, no faces, no hands, no body parts. Object: ",
+  "palette": {
+    "lightness": [
+      0.32,
+      0.96
+    ],
+    "classify": {
+      "minChroma": 0.04,
+      "actionHueWindowDegrees": 50
+    },
+    "roles": {
+      "action": {
+        "token": "action"
+      },
+      "neutral": {
+        "token": "text-muted",
+        "chroma": 0.03
+      }
+    }
+  },
+  "hueCheck": {
+    "toleranceDegrees": 12,
+    "minChroma": 0.02,
+    "maxOutlierFraction": 0.02
+  },
+  "uses": {
+    "experience": {
+      "cssPx": 200,
+      "description": "Introdução e conclusão de uma experiência"
+    },
+    "onboarding": {
+      "cssPx": 240,
+      "description": "Boas-vindas e primeira visita"
+    },
+    "emptyState": {
+      "cssPx": 160,
+      "description": "Estado vazio de lista (spec 13.2)"
+    },
+    "screen": {
+      "cssPx": 128,
+      "description": "Cabeçalho de tela de conteúdo"
+    }
+  },
+  "objects": [
+    {
+      "name": "placeholder",
+      "source": "procedural",
+      "use": "emptyState",
+      "where": "Só testes e desenvolvimento: seixo neutro desenhado pelo próprio pipeline, sem IA",
+      "prompt": null
+    },
+    {
+      "name": "compass",
+      "source": "generated",
+      "use": "experience",
+      "where": "Rotas Improváveis: introdução (spec 6.2)",
+      "prompt": "a small round pocket compass with the hinged lid open, a simple diamond-shaped needle, a plain dial with four small dots instead of letters"
+    },
+    {
+      "name": "folded-map",
+      "source": "generated",
+      "use": "experience",
+      "where": "Rotas Improváveis: conclusão com o roteiro compartilhado (spec 6.2)",
+      "prompt": "a folded paper map in three panels standing slightly open, with a single dotted path and two round pins, no place names"
+    },
+    {
+      "name": "constellation",
+      "source": "generated",
+      "use": "experience",
+      "where": "Constelação de Escolhas: introdução (spec 6.3)",
+      "prompt": "a small desk sculpture of five spheres of different sizes joined by thin rods into a constellation, on a round flat base"
+    },
+    {
+      "name": "card-pair",
+      "source": "generated",
+      "use": "experience",
+      "where": "Constelação de Escolhas: cartão e revelação (spec 6.3)",
+      "prompt": "two rounded blank cards leaning against each other, each with one small embossed dot, standing on their edges"
+    },
+    {
+      "name": "envelope",
+      "source": "generated",
+      "use": "screen",
+      "where": "Convite da rodada e convite recebido",
+      "prompt": "a closed envelope with a rounded flap and a plain round seal without any emblem, slightly tilted"
+    },
+    {
+      "name": "padlock",
+      "source": "generated",
+      "use": "screen",
+      "where": "Privacidade: o que é visível e para quem",
+      "prompt": "a chunky rounded padlock with a closed shackle and a plain body without keyhole details"
+    },
+    {
+      "name": "shield",
+      "source": "generated",
+      "use": "screen",
+      "where": "Segurança: bloqueios e denúncias",
+      "prompt": "a soft rounded shield with a raised smooth rim and a plain center, standing upright"
+    },
+    {
+      "name": "ticket",
+      "source": "generated",
+      "use": "emptyState",
+      "where": "Eventos: nenhum evento disponível",
+      "prompt": "a blank admission ticket with notched corners and a perforated stub, slightly curled"
+    },
+    {
+      "name": "speech-bubbles",
+      "source": "generated",
+      "use": "emptyState",
+      "where": "Conversas: nenhuma conversa ainda",
+      "prompt": "two overlapping rounded speech bubble sculptures of different sizes, empty, no dots or marks"
+    },
+    {
+      "name": "lantern",
+      "source": "generated",
+      "use": "onboarding",
+      "where": "Boas-vindas depois do cadastro",
+      "prompt": "a small rounded camping lantern with a handle on top and a softly frosted glass body"
+    }
+  ],
+  "process": {
+    "webpQuality": 90,
+    "marginFraction": 0.06,
+    "chromaKey": {
+      "inner": 0.08,
+      "outer": 0.16
+    }
+  }
+}
