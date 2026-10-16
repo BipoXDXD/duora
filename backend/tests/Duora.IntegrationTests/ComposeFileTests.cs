@@ -41,6 +41,22 @@ public sealed class ComposeFileTests
         Assert.Contains("\n  dataprotection:\n", Between(compose, "\nvolumes:\n", "\nsecrets:\n"), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A exigência do volume só é desligável fora de Production, e o boot recusa o <c>false</c> em Production; o
+    /// Compose de produção não pode nem mencioná-la nem rodar o web em outro ambiente.
+    /// </summary>
+    [Fact]
+    public void ProductionWebRunsAsProductionWithoutTurningOffTheMountedVolume()
+    {
+        var compose = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "infra", "compose", "compose.prod.yml"));
+
+        Assert.DoesNotContain("RequireMountedVolume", compose, StringComparison.Ordinal);
+        Assert.Contains(
+            "\n      ASPNETCORE_ENVIRONMENT: Production\n",
+            Between(compose, "\n  web:\n", "\n  worker:\n"),
+            StringComparison.Ordinal);
+    }
+
     private static string Between(string text, string start, string end)
     {
         var from = text.IndexOf(start, StringComparison.Ordinal);
