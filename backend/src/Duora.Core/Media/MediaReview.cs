@@ -12,12 +12,16 @@ public enum MediaReviewPolicy
 
 public static class MediaReview
 {
-    private const string ProductionEnvironment = "Production";
+    /// <summary>
+    /// Allowlist: só os ambientes de dados sintéticos. Um ambiente novo (Staging, um nome digitado errado) fica de fora
+    /// até alguém decidir, em vez de herdar a aprovação sem revisão.
+    /// </summary>
+    private static readonly string[] SyntheticDataEnvironments = ["Development", "Testing"];
 
     public static bool IsPermitted(MediaReviewPolicy policy, string environmentName) => policy switch
     {
         MediaReviewPolicy.TechnicalOnly =>
-            !string.Equals(environmentName, ProductionEnvironment, StringComparison.OrdinalIgnoreCase),
+            SyntheticDataEnvironments.Contains(environmentName, StringComparer.OrdinalIgnoreCase),
         _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, "Política de revisão desconhecida."),
     };
 
