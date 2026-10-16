@@ -6,7 +6,7 @@
       0.96
     ],
     "classify": {
-      "minChroma": 0.04,
+      "minChroma": 0.02,
       "actionHueWindowDegrees": 50
     },
     "roles": {
