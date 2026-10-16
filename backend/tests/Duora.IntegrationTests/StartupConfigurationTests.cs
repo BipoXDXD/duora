@@ -84,13 +84,17 @@ public sealed class StartupConfigurationTests
     }
 
     /// <summary>
-    /// Desligar a exigência do volume é coisa de desenvolvimento e teste: em Production o boot recusa, venha o
-    /// <c>false</c> do Compose, de variável esquecida no host ou de um appsettings que foi junto na imagem.
+    /// Desligar a exigência do volume é coisa de desenvolvimento, teste e geração do OpenAPI: em qualquer outro
+    /// ambiente o boot recusa, venha o <c>false</c> do Compose, de variável esquecida no host ou de um appsettings que
+    /// foi junto na imagem.
     /// </summary>
-    [Fact]
-    public async Task ProductionRefusesToTurnOffTheMountedVolumeRequirement()
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    [InlineData("Homologacao")]
+    public async Task OnlyDevelopmentTestsAndBuildMayTurnOffTheMountedVolumeRequirement(string environment)
     {
-        await using var app = BuildWeb("--environment=Production", "--DataProtection:RequireMountedVolume=false");
+        await using var app = BuildWeb($"--environment={environment}", "--DataProtection:RequireMountedVolume=false");
 
         var exception = await Assert.ThrowsAsync<OptionsValidationException>(
             () => app.StartAsync(TestContext.Current.CancellationToken));

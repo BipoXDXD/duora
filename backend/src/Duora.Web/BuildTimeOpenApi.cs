@@ -1,4 +1,5 @@
 using System.Reflection;
+using Duora.Web.Identity;
 
 namespace Duora.Web;
 
@@ -19,7 +20,7 @@ internal static class BuildTimeOpenApi
     /// Ambiente próprio da geração: sem ele o host sobe como Production, que recusa os atalhos abaixo (key ring sem
     /// volume). Não é Development, para não ler appsettings.Development.json nem user-secrets da máquina de build.
     /// </summary>
-    public const string EnvironmentName = "BuildTimeOpenApi";
+    public const string EnvironmentName = DuoraEnvironments.BuildTimeOpenApi;
 
     private static bool IsGenerating => Assembly.GetEntryAssembly()?.GetName().Name == GeneratorAssemblyName;
 
