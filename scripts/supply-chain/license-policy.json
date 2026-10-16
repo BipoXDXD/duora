@@ -55,6 +55,11 @@
       "reason": "Binários nativos opcionais do lightningcss por plataforma; mesma situação do @rolldown/binding-*."
     },
     {
+      "pattern": "SixLabors.ImageSharp",
+      "version": "4.1.3",
+      "reason": "Decodificador de imagens do pipeline de fotos (ADR-0025), só no Duora.Worker. O nuspec declara a licença como arquivo, que o Trivy não lê. Licença lida no LICENSE do nupkg 4.1.3 em 2026-10-15: Six Labors Split License 1.0, que concede Apache-2.0 a quem usa como dependência direta sendo pessoa ou empresa com receita bruta anual abaixo de US$ 1 milhão (caso do Duora hoje, declarado pelo responsável). Reavaliar (comprar a Six Labors Commercial License ou trocar de biblioteca) se a receita passar desse teto. Presa à versão: cada atualização, inclusive do Dependabot, só passa depois de reler o LICENSE da versão nova e trocar este campo."
+    },
+    {
       "pattern": "fsevents",
       "reason": "Dependência opcional só de macOS; no runner Linux não é instalada e a licença não pode ser lida."
     }
