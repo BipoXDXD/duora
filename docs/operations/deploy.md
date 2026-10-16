@@ -219,8 +219,24 @@ sem o certificado equivale a perder o key ring: as sessões terminam em `401` e 
 2. Copiar os dois arquivos para o cofre e recriar o web (`docker compose ... up -d --no-deps --force-recreate web`).
    As sessões seguem válidas: as chaves antigas são lidas com o certificado anterior, e as novas nascem cifradas
    com o novo.
-3. Só depois que a última chave cifrada pelo certificado anterior expirar (vida da chave de 90 dias, mais 24 h do
-   token mais longo): `sudo duora-secrets retire-previous-certificates /etc/duora/secrets` e recriar o web.
+3. Retirar os anteriores só quando nenhuma chave cifrada por eles for mais necessária. O prazo não é "90 dias
+   depois da rotação": a chave padrão continua sendo a cifrada pelo certificado anterior até expirar, e a próxima
+   pode já ter sido criada antes da rotação (o framework a cria até 2 dias antes), também com o anterior. Conte da
+   maior `expirationDate` dessas chaves mais 24 h (token mais longo), o que pode passar de 92 dias depois da
+   rotação. O comando confere isso no key ring
+   e recusa enquanto houver chave assim:
+
+   ```sh
+   sudo duora-secrets retire-previous-certificates /etc/duora/secrets \
+     --keys-directory /var/lib/docker/volumes/duora_dataprotection/_data
+   ```
+
+   Depois, recriar o web. Retirar cedo demais (à mão, sem o comando) derruba sessões e links com `401`/`400`,
+   nunca `500` (`KeyRingCertificateTests`).
+
+**Ligar o certificado num volume que já tem chaves:** as chaves existentes continuam em claro (o framework não
+recifra) e seguem sendo usadas até expirar. Para a proteção valer de imediato, começar com key ring novo: volume
+vazio, com a consequência de todas as sessões e links pendentes caírem (`401`/`400`).
 
 **Comprometimento** do certificado ou do volume: não basta rotacionar. Gerar key ring novo, revogar todas as
 sessões e invalidar tokens pendentes ([auth.md](../security/auth.md#data-protection)); a rotação acima só troca a
