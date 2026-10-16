@@ -8,6 +8,7 @@ using Duora.Infrastructure.Media;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using SixLabors.ImageSharp;
@@ -179,6 +180,36 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.Equal(1, await DispatchOnceAsync(worker));
 
         await AssertAbandonedAsync(media, browser, upload, nameof(ThrowingSanitizer.DecoderBugException));
+    }
+
+    [Fact]
+    public async Task ADeliveryPastItsDeadlineEndsTheUploadRejectedAndLogsIt()
+    {
+        // Issue #66: a entrega vencida (24 h) não pode deixar o upload em Quarantined ocupando vaga de pendente.
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        var upload = (await media.UploadsOfAsync(await OwnerOfAsync(photoId))).Single();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow + Upload.AbandonAfterDelay + TimeSpan.FromMinutes(1));
+        var logs = new CapturingLoggerProvider();
+        var worker = StartWorker(services =>
+        {
+            services.AddSingleton<TimeProvider>(clock);
+            services.AddSingleton<ILoggerProvider>(logs);
+        });
+
+        Assert.Equal(1, await DispatchOnceAsync(worker));
+
+        Assert.Equal(("Rejected", "PROCESSING_LIMIT"), await StatusAsync(browser, photoId));
+        Assert.Null(await media.ReadQuarantineAsync(upload));
+        Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id = $1", photoId));
+        Assert.Equal("Expired", await DeliveryStatusAsync(photoId));
+        Assert.Contains(
+            logs.Entries,
+            entry => entry.Category == typeof(MediaProcessingDispatcher).FullName
+                && entry.Level == LogLevel.Error
+                && entry.Text.Contains("prazo", StringComparison.Ordinal)
+                && entry.Text.Contains(photoId.ToString(), StringComparison.Ordinal));
     }
 
     [Fact]
