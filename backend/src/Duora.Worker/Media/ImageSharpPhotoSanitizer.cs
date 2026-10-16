@@ -16,6 +16,10 @@ internal sealed class PhotoSanitizerOptions
     /// <summary>Teto de memória de todas as alocações do decoder. 20 MP em RGBA são 80 MB, mais os derivados.</summary>
     public int MemoryLimitMegabytes { get; set; } = 256;
 
+    /// <summary>
+    /// Prazo cooperativo: o token é conferido entre as etapas (identificação, decode, cada reencode), e um decode já
+    /// iniciado não é interrompido. O tempo de um decode é limitado pelo teto de 20 MP e pelo paralelismo 1.
+    /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
 
     public int WebPQuality { get; set; } = 80;
@@ -59,6 +63,12 @@ internal sealed class ImageSharpPhotoSanitizer : IPhotoSanitizer
         ReadOnlyMemory<byte> original,
         CancellationToken cancellationToken)
     {
+        // A recepção e o CHECK de size_bytes já limitam o original; o decoder não depende deles para não ver mais.
+        if (original.Length > PhotoLimits.MaxBytes)
+        {
+            return new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit);
+        }
+
         var detected = PhotoFormats.Sniff(original.Span);
         if (PhotoInspection.CheckSignature(declared, detected) is { } signature)
         {
