@@ -194,6 +194,12 @@ docker run --rm -e DUORA_DOMAIN=meetduora.com -e DUORA_TLS=ops@example.com \
   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
 
+O filtro dos logs (access log e log padrão, onde caem os erros de handler com o pedido inteiro) apaga cabeçalhos,
+trunca IP, troca a query por `?redacted` e todo UUID do caminho por `{id}`, para rotas como
+`/api/v1/me/blocks/{targetUserId}` não registrarem quem foi bloqueado. `scripts/deploy/test_caddy_access_log.py`
+confere isso contra o Caddy real com UUID canário (roda no job `ops`; pula sem Docker), e o smoke local repete a
+checagem na edge.
+
 ## Smoke local
 
 Exercita o caminho inteiro numa máquina com Docker (portas 80 e 443 livres): registry descartável em

@@ -9,16 +9,39 @@
 # Sem trusted_proxies: o Caddy não confia em X-Forwarded-* vindo da internet e envia ao web os que ele mesmo viu.
 # O backend deve confiar só no Caddy (Forwarded Headers, spec 11.3; pendência do backend).
 
+# Log padrão (erros de handler, como o do reverse_proxy, vão para http.log.error, fora do access log): o mesmo
+# filtro de pedido do access log, porque o erro carrega o pedido inteiro. Manter os dois filtros iguais.
+{
+	log default {
+		output stdout
+		format filter {
+			request>uri multi_regexp {
+				regexp \?.*$ ?redacted
+				regexp [0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12} {id}
+			}
+			request>headers delete
+			request>tls delete
+			request>remote_ip ip_mask 24 48
+			request>client_ip ip_mask 24 48
+			wrap json
+		}
+	}
+}
+
 {$DUORA_DOMAIN} {
 	tls {$DUORA_TLS}
 	encode zstd gzip
 
 	# Acesso em JSON no stdout, sem query string, sem cabeçalhos (Cookie, Authorization, Set-Cookie...) e com IP
-	# truncado (spec 19.2). Allowlist: o que não está no registro não vaza.
+	# truncado (spec 19.2). Allowlist: o que não está no registro não vaza. UUIDs no caminho viram {id}: rota como
+	# /api/v1/me/blocks/{targetUserId} diria quem bloqueou quem (dado P3) ao lado do IP (TM-24, spec 19.2).
 	log {
 		output stdout
 		format filter {
-			request>uri regexp \?.*$ ?redacted
+			request>uri multi_regexp {
+				regexp \?.*$ ?redacted
+				regexp [0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12} {id}
+			}
 			request>headers delete
 			request>tls delete
 			resp_headers delete
