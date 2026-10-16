@@ -85,10 +85,16 @@ export class FakeDuoraApi {
     this.#page = page
   }
 
+  /** Instala no contexto do navegador: as abas abertas nele falam com o mesmo backend, como no servidor real. */
   static async install(page: Page): Promise<FakeDuoraApi> {
     const api = new FakeDuoraApi(page)
-    await page.route(`**${API_PREFIX}/**`, (route) => api.#handle(route))
+    await page.context().route(`**${API_PREFIX}/**`, (route) => api.#handle(route))
     return api
+  }
+
+  /** A sessão corrente expira no servidor (ociosa, absoluta ou revogada em outro lugar); o cookie continua lá. */
+  expireCurrentSession(): void {
+    this.#currentSessionId = null
   }
 
   /** Cria uma conta já confirmada, como se tivesse passado pelo cadastro. */
@@ -365,8 +371,11 @@ export class FakeDuoraApi {
 
   #revokeSession(sessionId: string): Fulfillment {
     const user = this.#currentUser()
-    const index = this.#sessions.findIndex((session) => session.id === sessionId && session.userId === user?.id)
-    if (user === null || index === -1) {
+    if (user === null) {
+      return problem(401, 'UNAUTHENTICATED')
+    }
+    const index = this.#sessions.findIndex((session) => session.id === sessionId && session.userId === user.id)
+    if (index === -1) {
       return problem(404, 'NOT_FOUND')
     }
     this.#sessions.splice(index, 1)
