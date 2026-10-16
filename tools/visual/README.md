@@ -64,7 +64,13 @@ Por objeto, `process.py`:
    decodificado** (pixels com alfa ≥ 128). Se reprovar (a subamostragem de croma do modo com perda borra
    detalhes finos de dois tons), usa WebP sem perda e verifica de novo. Se ainda reprovar, nada é gravado e o
    comando sai com erro.
-5. Grava `<nome>.webp` e `<nome>@2x.webp` e regenera `frontend/src/shared/ui/illustrations.generated.ts`.
+5. Grava `<nome>.webp` e `<nome>@2x.webp`. Se todos os objetos passarem, regenera
+   `frontend/src/shared/ui/illustrations.generated.ts`; se algum falhar, o manifesto fica como estava e o comando
+   sai com 1. Os imports usam `?no-inline`, para o Vite nunca embutir um WebP pequeno como `data:` (a CSP
+   `img-src 'self'` bloquearia).
+
+Só objetos `generated` vão para o frontend. O `placeholder` (`procedural`) existe para os testes do pipeline, e
+o comando o recusa por nome.
 
 O resultado é determinístico: a mesma fonte gera os mesmos bytes.
 
@@ -76,7 +82,7 @@ O resultado é determinístico: a mesma fonte gera os mesmos bytes.
 ```sh
 cd tools/visual && out/venv/bin/python -m unittest discover -s . && cd -
 pyright -p tools/visual/pyrightconfig.json --pythonpath tools/visual/out/venv/bin/python tools/visual
-pnpm --dir frontend test src/shared/ui/illustration.test.tsx
+pnpm --dir frontend exec vitest run config/illustrations.test.ts src/shared/ui/illustration.test.tsx
 ```
 
 - Acrescente a linha do asset em [docs/design/assets-licenses.md](../../docs/design/assets-licenses.md); o teste

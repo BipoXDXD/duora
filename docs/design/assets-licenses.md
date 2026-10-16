@@ -2,13 +2,15 @@
 
 Origem e direito de uso de cada imagem versionada no repositório (spec 13.3, "Ilustração e fotografia":
 direitos de uso registrados). Asset sem linha aqui não entra no repositório; o teste
-`frontend/src/shared/ui/illustration.test.tsx` falha se uma ilustração gerada do catálogo não tiver linha com o
+`frontend/config/illustrations.test.ts` (roda no job `frontend` do CI) falha se uma ilustração gerada do catálogo não tiver linha com o
 task id da geração.
 
 ## Ilustrações de objetos (`frontend/src/shared/ui/illustrations/`)
 
 - **Provedor:** fonte externa (API REST `POST /v3/generation/text-to-image`), no plano pago do responsável pelo
-  produto, que inclui uso comercial das imagens geradas.
+  produto. Uso comercial das imagens geradas: conforme informado pelo responsável; termos não verificados. Os
+  termos públicos (<registro externo de origem>) responderam 403 à leitura automática em 2026-10-16; o
+  responsável confirma a cláusula de uso comercial do plano e registra aqui o link e a data em que a leu.
 - **Modelo:** fonte externa, identificador `fonte externa` no fonte externa.
 - **Fonte:** PNG 1024 × 1024 sobre verde chroma, fora do Git (`tools/visual/out/source/`). O que se versiona é
   o WebP derivado por `tools/visual/process.py` (recorte, recoloração para os tokens e redução para 1x e 2x).
@@ -32,9 +34,8 @@ task id da geração.
 
 ## Assets com processamento determinístico
 
-| Asset | Origem | Licença |
-|---|---|---|
-| `placeholder` | Desenhado por `draw_placeholder` em `tools/visual/process.py` (duas elipses) | Mesma do repositório |
+Nenhum versionado hoje. O `placeholder` do catálogo é desenhado por `draw_placeholder` em
+`tools/visual/process.py` só para os testes do pipeline e não vai para o frontend.
 
 ## Como registrar um asset novo
 
