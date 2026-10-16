@@ -3,6 +3,7 @@ using Duora.Infrastructure;
 using Duora.Infrastructure.Profiles;
 using Duora.Infrastructure.Safety;
 using Duora.Web.Accounts;
+using Duora.Web.Admin;
 using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Profiles;
@@ -88,6 +89,7 @@ internal static class DuoraWebApp
         api.MapBlockEndpoints();
         api.MapMfaEndpoints();
         api.MapReauthenticationEndpoints();
+        api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
 
         return app;
     }
