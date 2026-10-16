@@ -8,6 +8,9 @@ public enum SecurityChange
     RecoveryCodesRegenerated,
     PasswordChanged,
 
-    /// <summary>Senha trocada pelo link de recuperação (API-A07), não pela própria pessoa logada (A16).</summary>
+    /// <summary>
+    /// Senha trocada sem a pessoa logada (A16): pelo link de recuperação (API-A07) ou pela reemissão da senha temporária
+    /// do bootstrap administrativo.
+    /// </summary>
     PasswordReset,
 }
