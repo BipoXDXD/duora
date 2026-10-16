@@ -1,6 +1,7 @@
 using Duora.Core.Media;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Duora.Infrastructure.Media;
@@ -61,7 +62,7 @@ public static class MediaStorageServiceCollectionExtensions
             return options.Provider switch
             {
                 MediaStorageProvider.FileSystem => new FileSystemObjectStore(options.FileSystemRoot),
-                MediaStorageProvider.S3 => new S3ObjectStore(options.S3),
+                MediaStorageProvider.S3 => new S3ObjectStore(options.S3, provider.GetRequiredService<ILogger<S3ObjectStore>>()),
                 _ => throw new OptionsValidationException(
                     MediaStorageOptions.Section,
                     typeof(MediaStorageOptions),
