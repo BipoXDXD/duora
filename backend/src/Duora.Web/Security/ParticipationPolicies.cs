@@ -1,6 +1,10 @@
+using System.Data.Common;
+using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
+using Duora.Web.Http;
 using Duora.Web.Identity;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 
 namespace Duora.Web.Security;
 
@@ -21,6 +25,20 @@ internal static class ParticipationPolicies
                 new MfaEnrollmentCompleteRequirement(),
                 new ParticipantAccountRequirement(),
                 new EligibleParticipantRequirement()));
+
+    /// <summary>
+    /// Rota de participação mínima, só no ambiente <c>Testing</c>: enquanto nenhum módulo tem rota de participação, é
+    /// ela que prova, por HTTP, que a policy nega e libera (T-01) e que a enumeração das rotas não está vazia.
+    /// </summary>
+    public const string TestSentinelPath = "/test/eligible-participant";
+
+    public static void MapParticipationTestSentinel(this IEndpointRouteBuilder api, IHostEnvironment environment)
+    {
+        if (environment.IsEnvironment("Testing"))
+        {
+            api.MapGet(TestSentinelPath, () => TypedResults.Ok()).RequireEligibleParticipant().ExcludeFromDescription();
+        }
+    }
 
     /// <summary>Para os grupos de rotas de participação dos módulos.</summary>
     public static TBuilder RequireEligibleParticipant<TBuilder>(this TBuilder builder)
@@ -49,10 +67,64 @@ internal sealed class EligibleParticipantHandler(AgeVerificationService verifica
         }
 
         var cancellationToken = (context.Resource as HttpContext)?.RequestAborted ?? CancellationToken.None;
-        var eligibility = await verifications.GetEligibilityAsync(userId, sessionId, cancellationToken);
+        AgeEligibilityResult eligibility;
+        try
+        {
+            eligibility = await verifications.GetEligibilityAsync(userId, sessionId, cancellationToken);
+        }
+        catch (Exception exception) when (IsDatabaseUnavailable(exception))
+        {
+            // Sem banco não se sabe: falha fechada, mas como indisponibilidade (503), não como proibição (M7).
+            context.Fail(new EligibilityUnavailableReason(this));
+            return;
+        }
+
         if (eligibility.IsEligible)
         {
             context.Succeed(requirement);
         }
+    }
+
+    /// <summary>O EF embrulha a falha de conexão (estratégia de execução); vale qualquer <see cref="DbException"/> na cadeia.</summary>
+    private static bool IsDatabaseUnavailable(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is DbException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+/// <summary>A elegibilidade não pôde ser consultada (banco fora do ar).</summary>
+internal sealed class EligibilityUnavailableReason(IAuthorizationHandler handler)
+    : AuthorizationFailureReason(handler, "Elegibilidade indisponível.");
+
+/// <summary>
+/// Traduz a falha por indisponibilidade em 503 <c>TEMPORARILY_UNAVAILABLE</c> com <c>Retry-After</c>; o resto segue o
+/// tratamento padrão (401 sem sessão, 403 sem elegibilidade).
+/// </summary>
+internal sealed class EligibilityAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
+{
+    private static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(5);
+
+    private readonly AuthorizationMiddlewareResultHandler _default = new();
+
+    public Task HandleAsync(RequestDelegate next, HttpContext context, AuthorizationPolicy policy, PolicyAuthorizationResult authorizeResult)
+    {
+        if (authorizeResult.Forbidden
+            && authorizeResult.AuthorizationFailure?.FailureReasons.OfType<EligibilityUnavailableReason>().Any() == true)
+        {
+            ApiProblems.SetRetryAfter(context, RetryAfter);
+            return ApiProblems
+                .Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable, "Tente novamente em instantes.")
+                .ExecuteAsync(context);
+        }
+
+        return _default.HandleAsync(next, context, policy, authorizeResult);
     }
 }
