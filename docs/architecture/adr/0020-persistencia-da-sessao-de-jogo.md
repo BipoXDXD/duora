@@ -1,9 +1,9 @@
 # ADR-0020: Persistência da sessão de jogo por snapshot público no Core
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-16)
 - **Origem:** spec 3.4, 6.1, 6.2 (aceite "reinício preserva estado e deadline"), 10.1, 10.4 e 10.5; INV-05,
   INV-06 e INV-09; [ADR-0004](0004-dbcontext-unico-schemas-logicos.md),
-  [ADR-0016](0016-sala-e-sessao-de-jogo.md); motor em `backend/src/Duora.Core/Experiences/`
+  [ADR-0016](0016-sala-e-sessao-de-jogo.md), [ADR-0021](0021-jobs-duraveis-e-leases-no-postgresql.md); motor em `backend/src/Duora.Core/Experiences/`
 - **Revisar quando:** uma experiência precisar consultar ou indexar o próprio estado por SQL, o snapshot de uma
   sessão passar de 32 KiB, ou o mapeamento por experiência virar a maior parte do custo de publicar uma nova
 
@@ -11,7 +11,9 @@
 
 O motor do M2 já está na `main` como domínio puro. `GameSession<TState, TAction>` é imutável e guarda as versões
 fixadas, o par, o prazo, o status, a `StateVersion`, o estado da experiência e o registro de ações aplicadas. Os
-dois últimos são `internal` de propósito: o que sai para um participante é só a projeção (INV-05). O estado de
+dois últimos são `internal` de propósito: o que sai para um participante é só a projeção (INV-05). O registro já
+guarda, em vez do corpo da ação, o `ActionFingerprint` (SHA-256 da forma canônica v1, com valores literais fixados
+em `ActionFingerprintTests`). O estado de
 Rotas Improváveis (`UnlikelyRoutesState`) também tem membros internos e hoje carrega o conteúdo inteiro dentro de
 `RoutesControlState`. Não existe caminho de volta do banco para a sessão: `GameSession.Start` é o único
 construtor, e o `DuoraDbContext` é interno à Infrastructure, que não enxerga os internos do Core.
@@ -46,7 +48,7 @@ Alternativas consideradas:
     estado de cada sessão; a pista privada no banco passa a ser só o índice do conjunto sorteado.
   - Contras: um DTO e um mapeamento de ida e volta por experiência e por `SchemaVersion`; o snapshot é um tipo
     público que pode ser serializado para o cliente por engano, e precisa de teste de arquitetura que impeça isso;
-    `RoutesControlState` e `RecordedAction` mudam (ver Decisão).
+    `RoutesControlState` muda e `GameSession.Start` passa a receber a versão da sala (ver Decisão).
 - **(b) `InternalsVisibleTo("Duora.Infrastructure")` com `[JsonInclude]`/`[JsonConstructor]` nos tipos
   internos.** A Infrastructure serializa `UnlikelyRoutesState`, `GameSession` e o registro de ações direto.
   - Prós: nenhum DTO novo; menos código no primeiro marco.
@@ -77,7 +79,9 @@ Vamos adotar a alternativa **(a)**.
    `startedAt`, `deadline`, `status`, `version`, o estado da experiência (`ExperienceStateSnapshot` com três
    partes: pública, controle e privada por participante) e o registro de ações. `GameSession` ganha
    `ToSnapshot()` e `static Restore(GameSessionSnapshot snapshot, TContent content)`. O estado e o registro
-   continuam `internal`.
+   continuam `internal`. Status, versão, início e prazo vêm de **colunas** da linha (`state`, `version`,
+   `game_started_at`, `active_deadline_at`), não do JSONB: a linha tem uma fonte da verdade por fato, e o job de
+   prazo e as consultas da sala leem colunas sem abrir o estado de jogo.
 2. **Estratégia por experiência.** Cada experiência implementa a tradução do seu `TState` para o DTO da sua
    `SchemaVersion` e de volta, ao lado das regras (`IExperienceRules` ganha os dois métodos ou uma interface
    irmã, a decidir na implementação). Só o Core conhece o formato interno; a Infrastructure só serializa DTOs
@@ -88,17 +92,26 @@ Vamos adotar a alternativa **(a)**.
    `ExperienceId` não baterem com o snapshot. As escolhas são gravadas por `stepId`/`optionId` e a pista privada
    por índice do conjunto sorteado, nunca pelo texto.
 4. **Colunas.** `game_sessions.public_state` e `control_state` (inclui o resultado do sorteio e os limites
-   fixados); `game_participants.private_state` por pessoa; `game_sessions.schema_version int` igual à da versão
-   publicada; `game_sessions.version bigint` é a `StateVersion` (começa em 1, então `CHECK (version >= 1)` em vez
-   do `default 0` da convenção geral). Cada coluna JSONB tem `CHECK (octet_length(col::text) <= 32768)`.
+   fixados); `game_participants.private_state` por pessoa; os três anuláveis enquanto a sala está `Invited` ou
+   `Ready` (o jogo ainda não começou) e obrigatórios a partir de `Active`, por `CHECK`; `game_sessions.schema_version
+   int` igual à da versão publicada (`ExperienceVersion` usa `int` para as três versões, e `experience_versions`
+   segue o mesmo tipo); `game_sessions.game_started_at timestamptz`. `game_sessions.version bigint` é a **única**
+   versão da sala (ADR-0016): nasce 1 no `Invited`, sobe em toda transição, inclusive as anteriores ao jogo, e é a
+   `StateVersion` do motor. Por isso `GameSession.Start` passa a receber a versão corrente da sala em vez de
+   partir sempre de `StateVersion.Initial`; `CHECK (version >= 1)` em vez do `default 0` da convenção geral. Cada
+   coluna JSONB tem `CHECK (octet_length(col::text) <= 32768)`.
 5. **Registro de ações sem payload.** `experiences.game_actions` guarda `actor_id`, `action_id`, `type`,
    `payload_sha256 bytea` (SHA-256 da forma canônica da ação, gerada pelo Core), `expected_version`,
    `applied_version` e `created_at`; a PK `(game_session_id, actor_id, action_id)` continua (spec 10.3).
-   `RecordedAction` passa a comparar autor, versão esperada e hash, em vez de `Action.Equals`, para que a regra
-   de reenvio da spec 8.7 funcione igual antes e depois de um reinício. `Restore` carrega o registro inteiro da
-   sessão, limitado pelo teto de ações por sessão de cada experiência.
+   `RecordedAction` compara autor, versão esperada e hash, em vez de `Action.Equals`, para que a regra
+   de reenvio da spec 8.7 funcione igual antes e depois de um reinício (já implementado com o
+   `ActionFingerprint`; a forma canônica é contrato e muda só com rótulo novo, `duora.game-action/v2`, lido ao lado
+   da v1 enquanto houver sessão ativa com ela). `Restore` carrega o registro inteiro da sessão. Hoje o tamanho do
+   registro só é limitado implicitamente pelas regras (etapas e revisões finitas); cada experiência passa a
+   declarar um teto explícito de ações aplicadas, que o motor aplica ao validar e o `Restore` confere.
 6. **Validação na volta.** `Restore` trata o snapshot como entrada externa: confere par, versões, etapa,
-   índices de pista, `stepId`/`optionId` contra o conteúdo e coerência entre `status` e etapa. Snapshot inválido
+   índices de pista, `stepId`/`optionId` contra o conteúdo, coerência entre `status` e etapa, `actionId` único na
+   sessão (o motor indexa o registro só pelo id, enquanto a PK do banco inclui o autor) e o teto de ações. Snapshot inválido
    lança exceção de domínio específica; a API responde erro genérico e o alerta leva só `gameSessionId` e o tipo
    da falha.
 7. **Concorrência (spec 10.4).** Todo comando que muda a sala segue a ordem global: 0 idempotência; guardas e
@@ -107,8 +120,12 @@ Vamos adotar a alternativa **(a)**.
    motor; gravação com `UPDATE experiences.game_sessions SET ..., version = version + 1 WHERE id = $id AND version
    = $v`, `UPDATE` das linhas privadas alteradas, `INSERT` em `game_actions`, outbox e resultado de idempotência
    no mesmo commit. Zero linhas no `UPDATE` condicional é bug do protocolo (o lock deveria impedir) e vira
-   rollback com conflito, nunca sobrescrita. Leitura de projeção não tranca: lê um snapshot consistente e
-   restaura. O job de prazo segue a C6 com a mesma gravação condicional.
+   rollback com conflito, nunca sobrescrita. Leitura de projeção não tranca, mas lê `game_sessions`,
+   `game_participants` e `game_actions` numa transação `REPEATABLE READ READ ONLY` (ou num único comando): em
+   `READ COMMITTED` cada comando vê um snapshot novo, e uma ação comitada entre as leituras daria um snapshot com
+   estado público de uma versão e privado de outra, que o `Restore` recusaria ou, pior, aceitaria incoerente. O
+   job de prazo é o do [ADR-0021](0021-jobs-duraveis-e-leases-no-postgresql.md) (`active-deadline:<sessão>`, criado
+   na transação que leva a sala a `Active`) e segue a C6 com a mesma gravação condicional.
 8. **Evolução de `SchemaVersion` (expand/contract e tolerant reader).** Uma sessão grava sempre na
    `schemaVersion` com que nasceu (INV-09); só uma versão publicada nova da experiência leva sessões novas a um
    schema novo. Expand: a release N passa a ler os schemas `k` e `k + 1` e as regras das duas `rulesVersion`;
@@ -133,15 +150,16 @@ conteúdo não exige migração de tabela, e sessões em andamento atravessam de
   versão; menos dado sensível por linha (índices em vez de textos de pista); reenvio idempotente funciona depois
   de reinício; o formato antigo é coberto por fixtures.
 - Negativas: cada experiência paga um DTO e um mapeamento de ida e volta por `SchemaVersion`, com testes;
-  `RoutesControlState` e `RecordedAction` mudam antes da primeira migração; restaurar uma sessão exige ler o
+  `RoutesControlState` e `GameSession.Start` mudam antes da primeira migração; restaurar uma sessão exige ler o
   conteúdo da versão (cacheável em memória por ser imutável); sem o payload das ações não dá para reconstruir a
   partida lance a lance, só o estado atual.
 - Trade-off: aceito o custo de mapeamento para não acoplar o banco ao formato interno. Se surgir requisito de
   histórico lance a lance (moderação, disputa), o payload volta a `game_actions` por ADR, com limite e classe P3.
-- Follow-up se aceito: atualizar [model.md](../../data/model.md#schema-experiences) (`payload` →
-  `payload_sha256`, `schema_version`, `CHECK (version >= 1)`) e o C4 de
-  [concurrency.md](../../data/concurrency.md#c4-duas-ações-de-jogo) no PR da primeira migração de
-  `experiences`.
+- Follow-up de documentação (feito no PR de aceite): [model.md](../../data/model.md#schema-experiences)
+  (`payload` → `payload_sha256`, `schema_version int`, `game_started_at`, `CHECK (version >= 1)`, estado anulável
+  antes de `Active`, prazos pelo `ops.jobs`) e o C4 de [concurrency.md](../../data/concurrency.md#c4-duas-ações-de-jogo).
+  Pendente para a implementação: `Restore`/`ToSnapshot`, `Start` com a versão da sala, teto de ações, migração e
+  os testes da Compliance.
 
 ## Segurança e operação
 
@@ -154,6 +172,9 @@ conteúdo não exige migração de tabela, e sessões em andamento atravessam de
 - Backup e restore não mudam: o estado está no PostgreSQL, coberto pelo pgBackRest
   ([ADR-0011](0011-pgbackrest-wal-externo-restore-obrigatorio.md)).
 - Métrica: tamanho do snapshot por experiência (percentil 99) para antecipar o teto de 32 KiB.
+- `game_sessions` é atualizada a cada ação com JSONB de até 32 KiB (TOAST): poucas ações por sala e no máximo 50
+  salas simultâneas por evento (spec 4.3) não justificam ajuste prévio; o ensaio de carga confere `n_dead_tup` e
+  o tamanho do TOAST, e autovacuum por tabela só entra com essa medida.
 
 ## Compliance
 
@@ -174,8 +195,13 @@ conteúdo não exige migração de tabela, e sessões em andamento atravessam de
   usa a versão 2; tentar alterar o conteúdo publicado da versão 1 falha.
 - **T-05 (HTTP, M2):** o JSON da projeção de A não contém nenhuma pista de B nem o resultado do sorteio, inclusive
   em erro e notificação; canário semeado no texto da pista de B nunca aparece em resposta nem em log.
+- **Leitura consistente (integração, M2):** uma ação de B comitada entre as leituras de uma projeção de A não
+  produz snapshot misto (gancho de teste entre os comandos; sabotagem com `READ COMMITTED` precisa falhar).
+- **Versão única (unidade e integração, M2):** sala que passou por `Invited` e `Ready` começa o jogo com a versão
+  corrente da linha, e o primeiro `expectedVersion` aceito é essa versão.
 - **Arquitetura (M2):** `Duora.ArchitectureTests` falha se `Duora.Contracts` ou `Duora.Web` expuser
   `GameSessionSnapshot`, `ExperienceStateSnapshot` ou um DTO de estado de experiência em tipo de resposta, e se o
-  Core ganhar `InternalsVisibleTo` para a Infrastructure.
+  Core ganhar `InternalsVisibleTo` para a Infrastructure. Reforço barato no contrato: nenhum schema de
+  `docs/api/openapi.json` tem nome terminado em `Snapshot` nem as propriedades `controlState`/`privateState`.
 - **Concorrência (integração, M2):** C4 e C6 seguem a técnica de [concurrency.md](../../data/concurrency.md#técnica),
   inclusive a sabotagem que remove o `WHERE version = $v`.
