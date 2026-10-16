@@ -56,10 +56,13 @@ public static class PhotoInspection
         _ => null,
     };
 
-    /// <summary>Dimensões e frames lidos do header, antes de alocar os pixels.</summary>
+    /// <summary>
+    /// Dimensões e frames lidos do header, antes de alocar os pixels. Zero frames quer dizer que o decoder não os
+    /// conta pelo header (o do JPEG não conta); a animação também é checada pela estrutura do arquivo.
+    /// </summary>
     public static PhotoRejection? CheckHeader(int width, int height, int frameCount)
     {
-        if (width <= 0 || height <= 0 || frameCount <= 0)
+        if (width <= 0 || height <= 0 || frameCount < 0)
         {
             return PhotoRejection.CorruptImage;
         }

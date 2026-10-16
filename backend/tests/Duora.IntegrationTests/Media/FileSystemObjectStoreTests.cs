@@ -26,7 +26,7 @@ public sealed class FileSystemObjectStoreTests : IDisposable
     public async Task ARootWithATrailingSeparatorStoresAndReadsBack()
     {
         var store = new FileSystemObjectStore(_root.FullName + Path.DirectorySeparatorChar);
-        var key = ObjectKey.NewDerivative(PhotoVariant.Thumb);
+        var key = ObjectKey.ForDerivative(Guid.NewGuid(), PhotoVariant.Thumb);
         using var content = new MemoryStream([4, 5, 6]);
 
         await store.PutAsync(key, content, content.Length, "image/webp", TestContext.Current.CancellationToken);
@@ -47,7 +47,7 @@ public sealed class FileSystemObjectStoreTests : IDisposable
         Assert.StartsWith(FileSystemObjectStore.AreaDirectories[0] + "/", ObjectKey.NewQuarantine().Value, StringComparison.Ordinal);
         Assert.StartsWith(
             FileSystemObjectStore.AreaDirectories[1] + "/",
-            ObjectKey.NewDerivative(PhotoVariant.Full).Value,
+            ObjectKey.ForDerivative(Guid.NewGuid(), PhotoVariant.Full).Value,
             StringComparison.Ordinal);
     }
 }
