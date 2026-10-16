@@ -247,30 +247,28 @@ where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
   and e.payload->>'kind' = 'PasswordResetUnavailable';
 ```
 
-**Bootstrap administrativo (senha temporária).** Uma release anterior ao bootstrap não conhece
-`users.temporary_password_expires_at`: a senha temporária viraria senha comum, sem prazo e sem a sessão restrita à
-troca, e o bloqueio do reset por e-mail antes do MFA (I5) também não existe lá. Antes de voltar para ela, invalide as
-contas que ainda estão na fase temporária (senha nula, que nenhuma entrada confere; stamp novo; sessões revogadas) e,
-depois de voltar à release com o bootstrap, reemita a senha com `--reissue`. Registre a operação no log de
-incidente: o SQL manual não passa pela auditoria do produto.
+**Bootstrap administrativo: rollback proibido com conta privilegiada sem MFA.** Uma release anterior ao bootstrap
+(migration `AdminBootstrap`) não conhece `users.temporary_password_expires_at` nem o bloqueio do reset por e-mail
+antes do MFA (I5). Lá, qualquer conta privilegiada sem MFA, ainda com a senha temporária ou já com a própria, seria
+tomada por quem pedisse o reset com acesso à caixa dela, porque o reset da release antiga não depende da senha
+atual: invalidar a senha não fecha o buraco. Por isso:
+
+- o `duora-deploy` recusa, antes de parar qualquer serviço, o rollback que volta para antes de `AdminBootstrap`
+  enquanto a consulta abaixo devolver mais que zero (`test_duora_deploy.py`,
+  `test_rollback_across_the_bootstrap_with_privileged_account_without_mfa_is_refused_before_stopping_anything`);
+- não há flag que relaxe a recusa. O caminho é **corrigir para frente**: uma release nova a partir da corrente, com
+  a correção, implantada pelo fluxo normal. Se a falha for grave a ponto de exigir a release anterior, primeiro
+  cada conta privilegiada ativa o MFA (ou perde o papel por decisão registrada do responsável técnico), e só então
+  o rollback passa.
 
 ```sql
-begin;
-update identity.login_sessions s set revoked_at = now(), revocation_reason = 'rollback_bootstrap'
-from identity.users u
-where u.id = s.user_id and s.revoked_at is null and u.temporary_password_expires_at is not null;
-update identity.users
-set password_hash = null,
-    security_stamp = upper(replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '')),
-    concurrency_stamp = gen_random_uuid()::text
-where temporary_password_expires_at is not null;
-commit;
+select count(*) from identity.users u where not u.two_factor_enabled and exists (
+  select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
+  where ur.user_id = u.id and r.name in ('moderator', 'product_admin', 'operator'));
 ```
 
-Contas privilegiadas que já trocaram a senha mas ainda não ativaram o MFA ficam, na release anterior, sem o I5: o
-reset por e-mail volta a valer para elas. Mantenha a janela de rollback curta ou invalide-as do mesmo jeito
-(`not two_factor_enabled` e papel privilegiado). O aviso de senha redefinida da reemissão usa o tipo
-`PasswordResetNotice`, que o leitor dos avisos já entrega; ele não muda a ordem de deploy.
+O aviso de senha redefinida da reemissão usa o tipo `PasswordResetNotice`, que o leitor dos avisos já entrega; ele
+não muda a ordem de deploy.
 
 **Verificação etária sem validade** (migration `AgeVerificationWithoutExpiry`, ADR-0024 adendo de 2026-10-16): a
 release nova grava `VerifiedAdult` sem `expires_at`. Um rollback para a release anterior funciona, mas falha
@@ -343,8 +341,16 @@ sudo docker compose -f /opt/duora/compose.prod.yml --env-file /etc/duora/duora.e
   comando é quem tem SSH e `sudo` no host, e o log de autenticação do host é a prova.
 - A saída mostra a **senha temporária uma única vez** (linha `Senha temporária: …`). O Duora guarda só o hash:
   não há como reexibi-la. Entregue-a à pessoa por um canal separado do e-mail dela e não cole em ticket, chat
-  gravado ou arquivo; limpe o scrollback de terminal gravado (`tmux`, `script`). Ela vale **24 h**. Caixa e letras
-  parecidas não importam ao digitá-la (`o`/`O` = `0`, `l`/`I` = `1`).
+  gravado ou arquivo. Ela vale **24 h**. Caixa e letras parecidas não importam ao digitá-la (`o`/`O` = `0`,
+  `l`/`I` = `1`).
+- **Onde a saída pode vazar fora do Duora**, e o que conferir antes de rodar:
+  - log de I/O do `sudo` (`Defaults log_output` ou `log_input`/`log_output` no sudoers, gravado em
+    `/var/log/sudo-io`): ele guarda a saída do terminal. Confira com `sudo -l` e o sudoers; se estiver ligado,
+    rode a partir de uma sessão sem esse log ou trate o arquivo como segredo e apague a sessão depois;
+  - `auditd` com `pam_tty_audit`: registra o que é digitado, não a saída, mas não cole a senha de volta no terminal;
+  - gravação de terminal (`tmux` com log, `script`, `asciinema`, histórico de scrollback salvo pelo cliente SSH);
+  - execução não interativa com log (Ansible, CI, cron, `ssh host comando` com a saída redirecionada para
+    arquivo): não rode o comando assim. Ele é para um operador num terminal interativo.
 - No primeiro login, a sessão só aceita trocar a senha (`POST /me/password-changes`; qualquer outra rota responde
   `403` `PASSWORD_CHANGE_REQUIRED`); a nova não pode repetir a temporária. Depois da troca, a sessão é a restrita
   do cadastro de MFA ([auth.md](../security/auth.md#mfa)), e só com o MFA ativo a conta abre `/admin`.
