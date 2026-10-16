@@ -252,6 +252,12 @@ release nova grava `VerifiedAdult` sem `expires_at`. Um rollback para a release 
 fechado para essas pessoas: o código anterior lê a verificação sem `expires_at` como vencida, nega a participação e
 oferece nova verificação. Ninguém ganha acesso indevido; quem foi verificada depois do deploy refaz a verificação.
 
+**Suspeita de menor durável** (migrations `AgeVerificationMinorSuspicion` e `AgeVerificationMinorSuspicionBackfill`,
+ADR-0024): um rollback para release anterior a elas ignora `minor_suspected_at`, e quem tem suspeita gravada sobre
+uma `VerifiedAdult` volta a participar se a conta estiver `Active`; antes de um rollback desses, confira
+`select count(*) from identity.age_verifications v join identity.users u on u.id = v.user_id
+where v.minor_suspected_at is not null and u.status = 'Active'` e restrinja essas contas antes, se houver.
+
 **Sessão fora do pedido etário** (`identity.age-verification-requested`, ADR-0024 adendo de 2026-10-16): o campo
 `loginSessionId` sai do payload em dois deploys, na ordem de remoção do [model.md](../data/model.md#convenções).
 Nesta release o worker já não o lê (aceita presente ou ausente), mas o web **continua gravando**, porque o worker da
