@@ -100,9 +100,14 @@ internal sealed class SessionRequirementsHandler : IAuthorizationHandler
     }
 }
 
-/// <summary>Dá ao 403 de MFA pendente o código próprio; os outros resultados seguem o tratamento padrão.</summary>
+/// <summary>
+/// Dá ao 403 de MFA pendente o código próprio e à elegibilidade indisponível o 503; os outros resultados seguem o
+/// tratamento padrão.
+/// </summary>
 internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
+    private static readonly TimeSpan EligibilityRetryAfter = TimeSpan.FromSeconds(5);
+
     private readonly AuthorizationMiddlewareResultHandler _default = new();
 
     public async Task HandleAsync(
@@ -114,6 +119,20 @@ internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewa
         var awaitsMfa = authorizeResult.Forbidden
             && authorizeResult.AuthorizationFailure?.FailureReasons.Any(
                 reason => reason.Message == ApiProblems.MfaEnrollmentRequired) == true;
+        var eligibilityUnavailable = authorizeResult.Forbidden
+            && authorizeResult.AuthorizationFailure?.FailureReasons.OfType<EligibilityUnavailableReason>().Any() == true;
+        if (eligibilityUnavailable)
+        {
+            // Sem banco, a elegibilidade não é conhecida: 503 para o cliente tentar de novo, nunca 403 (ADR-0024).
+            ApiProblems.SetRetryAfter(context, EligibilityRetryAfter);
+            await ApiProblems.Problem(
+                    StatusCodes.Status503ServiceUnavailable,
+                    ApiProblems.TemporarilyUnavailable,
+                    "Tente novamente em instantes.")
+                .ExecuteAsync(context);
+            return;
+        }
+
         if (awaitsMfa)
         {
             await ApiProblems.Problem(

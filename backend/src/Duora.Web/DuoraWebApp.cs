@@ -13,6 +13,7 @@ using Duora.Web.Profiles;
 using Duora.Web.Safety;
 using Duora.Web.Security;
 using Duora.Web.Webhooks;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Duora.Web;
 
@@ -65,7 +66,6 @@ internal static class DuoraWebApp
         builder.Services.AddSessionAuthorization();
         builder.Services.AddAuthorizationBuilder().AddEligibleParticipant();
         builder.Services.AddScoped<IAuthorizationHandler, EligibleParticipantHandler>();
-        builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, EligibilityAuthorizationResultHandler>();
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();

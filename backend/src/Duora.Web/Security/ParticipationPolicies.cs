@@ -1,10 +1,8 @@
 using System.Data.Common;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
-using Duora.Web.Http;
 using Duora.Web.Identity;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Policy;
 
 namespace Duora.Web.Security;
 
@@ -103,28 +101,3 @@ internal sealed class EligibleParticipantHandler(AgeVerificationService verifica
 /// <summary>A elegibilidade não pôde ser consultada (banco fora do ar).</summary>
 internal sealed class EligibilityUnavailableReason(IAuthorizationHandler handler)
     : AuthorizationFailureReason(handler, "Elegibilidade indisponível.");
-
-/// <summary>
-/// Traduz a falha por indisponibilidade em 503 <c>TEMPORARILY_UNAVAILABLE</c> com <c>Retry-After</c>; o resto segue o
-/// tratamento padrão (401 sem sessão, 403 sem elegibilidade).
-/// </summary>
-internal sealed class EligibilityAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
-{
-    private static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(5);
-
-    private readonly AuthorizationMiddlewareResultHandler _default = new();
-
-    public Task HandleAsync(RequestDelegate next, HttpContext context, AuthorizationPolicy policy, PolicyAuthorizationResult authorizeResult)
-    {
-        if (authorizeResult.Forbidden
-            && authorizeResult.AuthorizationFailure?.FailureReasons.OfType<EligibilityUnavailableReason>().Any() == true)
-        {
-            ApiProblems.SetRetryAfter(context, RetryAfter);
-            return ApiProblems
-                .Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable, "Tente novamente em instantes.")
-                .ExecuteAsync(context);
-        }
-
-        return _default.HandleAsync(next, context, policy, authorizeResult);
-    }
-}
