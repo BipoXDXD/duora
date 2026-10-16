@@ -242,7 +242,7 @@ comando do cliente falha no `RetrieveAsync` (spec 9.2; T-14).
 | Item | Especificação (spec 11.2, 15.4; D-AUTH-02) |
 |---|---|
 | Persistência | Repositório em arquivo no diretório de `DataProtection:KeysDirectory` (em dev, `.local/dataprotection-keys/`, fora do git). Em produção, volume nomeado `dataprotection` (`0700`, dono = usuário do container web), fora da camada gravável do container. O boot confere em `/proc/self/mountinfo` que o diretório é ponto de montagem de um volume (nem `overlay`, nem `tmpfs`/`ramfs`); `DataProtection:RequireMountedVolume=false` só em Development, nos testes e na geração do OpenAPI (ambiente `BuildTimeOpenApi`); em qualquer outro ambiente o boot recusa o `false`, e o `appsettings.Development.json` não vai para o publish. Caminho absoluto e link simbólico resolvidos antes da checagem. **Limite:** a checagem prova que há um volume, não que ele é durável nem que tem backup: um volume anônimo do Docker (ou um `emptyDir`, se um dia houver Kubernetes) passa e some com `down -v`, `--renew-anon-volumes` ou a troca do pod; quem garante o volume nomeado é o `ComposeFileTests` |
-| Proteção em repouso | **Pendente (M3):** `ProtectKeysWithCertificate` com certificado lido de arquivo de segredo; persistir não é criptografar |
+| Proteção em repouso | `ProtectKeysWithCertificate` com o certificado do Docker secret `DataProtection__Certificate` (PEM com certificado e chave, gerado pelo `duora-secrets`); `UnprotectKeysWithAnyCertificate` com o atual e os de `DataProtection__PreviousCertificates` durante uma rotação. Custódia separada e rotação em [deploy.md](../operations/deploy.md#certificado-do-key-ring-spec-112). `DataProtection:RequireCertificate=false` só em Development, nos testes e na geração do OpenAPI; em Production o boot recusa o `false` |
 | Nome da aplicação | `SetApplicationName("Duora")`, estável entre deploys. **Pendente (M3):** nome por ambiente; hoje homologação e produção se separam por volumes e certificados diferentes |
 | Vida da chave | 90 dias (`SetDefaultKeyLifetime`, igual ao padrão, explícito) com rotação automática; o framework nunca apaga chave antiga, então ela continua lendo o que protegeu (cookies de no máximo 12 h, tokens de no máximo 24 h) |
 | Worker | Não recebe o key ring de cookies; usa referências de conta e jobs. Se um dia precisar desproteger algo, usa purpose próprio e o ADR registra |
@@ -257,7 +257,10 @@ ilegível no banco também dá `401` com aviso no log. `KeyRingLossTests`: o par
 CSRF_VALIDATION_FAILED`, `GET /auth/csrf` com o cookie antigo emite um par novo que funciona, e links de
 confirmação e reset dão `400 INVALID_TOKEN`. Vida da chave e nome da aplicação fixados por teste.
 `ComposeFileTests` confere que o diretório do `compose.prod.yml` é o volume montado só no web, e o smoke local
-recria o container web e confere que um token antiforgery emitido antes continua válido.
+recria o container web e confere que um token antiforgery emitido antes continua válido. `KeyRingCertificateTests`
+confere a proteção em repouso: a chave no volume está cifrada; o volume sem o certificado, ou com outro, não abre a
+sessão (`401`); com o mesmo certificado ou depois de uma rotação (atual novo, anterior em
+`PreviousCertificates`) a sessão continua válida, e a chave nova nasce cifrada com o certificado novo.
 
 ## Rate limit e lockout
 
@@ -357,7 +360,7 @@ sem artefato do CI (spec 25.19).
 | Revogação (A05, A10, troca de senha, reset) e fechamento do hub | A05, A10 e reset implementados; troca de senha e hub pendentes | `SessionTests` (T-14, parte HTTP), `PasswordResetTests` | feat/m1-identity |
 | Anti-enumeração (resposta e tempo) | implementado | `RegistrationTests`, `LoginTests`, `PasswordResetTests`, `EnumerationTimingTests` | feat/m1-identity |
 | Pré-sequestro de conta (TM-66) | implementado | `AccountTakeoverTests` | feat/m1-identity |
-| Data Protection persistente e protegido | persistente, com volume exigido no boot (T-15); proteção em repouso pendente de decisão | `StartupConfigurationTests`, `KeyRingRecoveryTests`, `KeyRingMountTests`, `ComposeFileTests` | feat/m1-dataprotection-t15 |
+| Data Protection persistente e protegido | implementado: volume e certificado exigidos no boot; nome por ambiente pendente | `StartupConfigurationTests`, `KeyRingRecoveryTests`, `KeyRingCertificateTests`, `KeyRingMountTests`, `ComposeFileTests` | feat/dataprotection-cert |
 | Rate limit e lockout | implementado | `LoginTests`, `RegistrationTests` | feat/m1-identity |
 | Contrato A01 a A16 no OpenAPI gerado | A01 a A10 publicados; A11 a A16 pendentes | `docs/api/openapi.json` | feat/m1-identity |
 
@@ -389,3 +392,6 @@ sem artefato do CI (spec 25.19).
 - **2026-10-15, feat/m1-dataprotection-t15.** T-15: o web não sobe com o key ring fora de um volume montado
   (`/proc/self/mountinfo`); vida da chave explícita em 90 dias; testes de recriação, rotação, key ring vazio e
   revogado. Proteção em repouso e nome por ambiente continuam pendentes, à espera de decisão.
+- **2026-10-15, feat/dataprotection-cert.** Proteção em repouso (decisão do responsável técnico: certificado X.509
+  como Docker secret): `ProtectKeysWithCertificate` com o certificado do `duora-secrets`, anteriores só para
+  decifrar durante a rotação (`rotate-certificate`, `retire-previous-certificates`), boot falha sem certificado.
