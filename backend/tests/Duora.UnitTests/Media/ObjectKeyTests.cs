@@ -19,12 +19,16 @@ public sealed class ObjectKeyTests
     [Theory]
     [InlineData(PhotoVariant.Thumb, "thumb")]
     [InlineData(PhotoVariant.Full, "full")]
-    public void ADerivativeKeyCarriesTheVariantButNothingFromTheClient(PhotoVariant variant, string name)
+    public void ADerivativeKeyIsStablePerUploadAndVariant(PhotoVariant variant, string name)
     {
-        var key = ObjectKey.NewDerivative(variant);
+        var uploadId = Guid.Parse("0199e8a0-1c2d-7ae3-87a5-305fddb27fd1");
+
+        var key = ObjectKey.ForDerivative(uploadId, variant);
 
         Assert.Equal(StorageArea.Derivatives, key.Area);
-        Assert.Matches($"^derivatives/[0-9a-f]{{32}}-{name}$", key.Value);
+        Assert.Equal($"derivatives/0199e8a01c2d7ae387a5305fddb27fd1-{name}", key.Value);
+        Assert.Equal(key, ObjectKey.ForDerivative(uploadId, variant));
+        Assert.Equal(key, ObjectKey.Parse(key.Value));
     }
 
     [Theory]
