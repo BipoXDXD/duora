@@ -33,6 +33,14 @@ class LicenseException:
 class MissingLicenseException:
     pattern: str
     reason: str
+    # Versão exata, quando a licença foi lida à mão daquela versão: outra versão volta a reprovar.
+    version: str | None = None
+
+    def covers(self, name, version):
+        return fnmatch.fnmatchcase(name, self.pattern) and self.version in (None, version)
+
+    def label(self):
+        return self.pattern if self.version is None else f"{self.pattern}@{self.version}"
 
 
 @dataclass(frozen=True)
@@ -51,7 +59,7 @@ class Policy:
             for e in data.get("exceptions", [])
         )
         missing = tuple(
-            MissingLicenseException(m["pattern"], _require_reason(m, m["pattern"]))
+            MissingLicenseException(m["pattern"], _require_reason(m, m["pattern"]), m.get("version"))
             for m in data.get("missingLicenseAllowed", [])
         )
         return cls(allowed, exceptions, missing)
@@ -82,7 +90,7 @@ def check_components(components, policy):
         label = f"{name}@{comp.get('version', '?')}"
         licenses = [_license_text(entry) for entry in comp.get("licenses") or []]
         if not licenses:
-            waiver = _find_missing_waiver(name, policy)
+            waiver = _find_missing_waiver(name, comp.get("version"), policy)
             if waiver is None:
                 result.violations.append(f"{label}: sem licença declarada")
             else:
@@ -101,7 +109,7 @@ def check_components(components, policy):
     result.inventory = dict(inventory)
     result.unused_exceptions = [
         f"exceção sem uso: {e.package} ({e.license})" for e in policy.exceptions if e not in used
-    ] + [f"exceção sem uso: {m.pattern} (sem licença)" for m in policy.missing_license_allowed if m not in used]
+    ] + [f"exceção sem uso: {m.label()} (sem licença)" for m in policy.missing_license_allowed if m not in used]
     return result
 
 
@@ -123,8 +131,8 @@ def _find_exception(name, text, policy):
     )
 
 
-def _find_missing_waiver(name, policy):
-    return next((m for m in policy.missing_license_allowed if fnmatch.fnmatchcase(name, m.pattern)), None)
+def _find_missing_waiver(name, version, policy):
+    return next((m for m in policy.missing_license_allowed if m.covers(name, version)), None)
 
 
 # --- Expressões SPDX: OR < AND < WITH, parênteses. Um "id WITH exceção" só passa se estiver na allowlist inteiro.

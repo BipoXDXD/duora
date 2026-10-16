@@ -56,6 +56,9 @@ por revisão humana no PR que a cria.
 - `missingLicenseAllowed`: padrões de pacote que podem aparecer sem licença, com justificativa. Hoje são só os
   binários nativos opcionais por plataforma (rolldown, Tailwind oxide, lightningcss, fsevents): o lockfile lista
   todos, mas só o da plataforma do runner é instalado, e é dele que a licença é lida e conferida.
+- `missingLicenseAllowed` aceita `version` (exata) quando a licença foi lida à mão daquela versão, porque o
+  pacote a declara só como arquivo, que o Trivy não lê. Outra versão volta a reprovar: quem atualiza (inclusive o
+  PR do Dependabot) relê o `LICENSE` da versão nova e troca o campo, no mesmo PR.
 - Exceção que não casa com nenhum componente gera aviso no resumo; remova-a quando a dependência sair.
 
 Exceções aceitas em 2026-10-15:
@@ -65,6 +68,12 @@ Exceções aceitas em 2026-10-15:
 | `axe-core`, `@axe-core/playwright` | MPL-2.0 | só nos testes E2E de acessibilidade; não vai para o bundle; copyleft por arquivo sem modificação nossa |
 | `lightningcss` e binários `lightningcss-*` | MPL-2.0 | ferramenta de build do CSS; não vai para o bundle e o CSS gerado não é obra derivada |
 | `caniuse-lite` | CC-BY-4.0 | dados do Browserslist no build; licença permissiva que só exige atribuição |
+
+Exceção aceita para o pipeline de fotos ([ADR-0025](../architecture/adr/0025-pipeline-de-fotos-imagesharp-s3-outbox.md)):
+
+| Pacote | Licença | Motivo |
+|---|---|---|
+| `SixLabors.ImageSharp` 4.1.3 (`missingLicenseAllowed` com `version`) | Six Labors Split License 1.0, lida no `LICENSE` do nupkg | Apache-2.0 para dependência direta de quem tem receita bruta anual abaixo de US$ 1 milhão, que é o caso hoje; reavaliar (licença comercial ou outra biblioteca) se a receita passar disso. Só o `Duora.Worker` a referencia. Presa à versão: cada atualização relê a licença |
 
 ## Escopo do SBOM
 

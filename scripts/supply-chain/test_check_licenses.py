@@ -147,6 +147,19 @@ class CheckComponentsTests(unittest.TestCase):
         )
         self.assertEqual(["lightningcss-linux-x64-gnu@1.0.0: licença fora da allowlist: GPL-3.0-only"], result.violations)
 
+    def test_missing_license_waiver_with_version_accepts_that_version(self):
+        missing = {"pattern": "SixLabors.ImageSharp", "version": "4.1.3", "reason": "teste"}
+        result = check_components([component("SixLabors.ImageSharp", version="4.1.3")], policy(missing=[missing]))
+        self.assertEqual([], result.violations)
+        self.assertEqual([], result.unused_exceptions)
+
+    def test_missing_license_waiver_with_version_rejects_another_version(self):
+        # Licença lida à mão de uma versão: a próxima precisa ser relida antes de passar.
+        missing = {"pattern": "SixLabors.ImageSharp", "version": "4.1.3", "reason": "teste"}
+        result = check_components([component("SixLabors.ImageSharp", version="4.1.4")], policy(missing=[missing]))
+        self.assertEqual(["SixLabors.ImageSharp@4.1.4: sem licença declarada"], result.violations)
+        self.assertEqual(["exceção sem uso: SixLabors.ImageSharp@4.1.3 (sem licença)"], result.unused_exceptions)
+
     def test_non_library_components_are_ignored(self):
         app = {"type": "application", "name": "frontend"}
         result = check_components([app], policy())
