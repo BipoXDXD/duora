@@ -11,9 +11,16 @@ public static class PhotoCompleteness
     private const int PngSignatureLength = 8;
     private const int PngChunkOverhead = 12;
     private const int RiffHeaderLength = 8;
+    private const int JpegStartOfImageLength = 2;
     private const byte Marker = 0xFF;
-    private const byte StartOfScan = 0xDA;
+    private const byte Stuffing = 0x00;
+    private const byte StandaloneTemporary = 0x01;
+    private const byte FirstSegmentMarker = 0xC0;
+    private const byte FirstRestart = 0xD0;
+    private const byte LastRestart = 0xD7;
+    private const byte StartOfImage = 0xD8;
     private const byte EndOfImage = 0xD9;
+    private const byte StartOfScan = 0xDA;
 
     public static bool IsComplete(PhotoFormat format, ReadOnlySpan<byte> content) => format switch
     {
@@ -24,14 +31,95 @@ public static class PhotoCompleteness
     };
 
     /// <summary>
-    /// No dado comprimido do JPEG todo <c>FF</c> vem seguido de <c>00</c>, então um <c>FF D9</c> depois do primeiro
-    /// <c>FF DA</c> é o fim da imagem principal (o da miniatura do EXIF vem antes do scan).
+    /// Percorre os segmentos pelo comprimento declarado, pulando APPn e COM inteiros (a miniatura do EXIF é um JPEG
+    /// completo dentro do APP1, com SOS e EOI próprios), e exige o EOI depois do dado comprimido do último scan.
+    /// Comprimento que passa do arquivo, ou que não cai num marcador, é arquivo incompleto.
     /// </summary>
     private static bool JpegEndsAfterTheScan(ReadOnlySpan<byte> content)
     {
-        var scan = content.IndexOf([Marker, StartOfScan]);
-        return scan >= 0 && content[(scan + 2)..].IndexOf([Marker, EndOfImage]) >= 0;
+        var position = JpegStartOfImageLength;
+        var scanned = false;
+        while (position + 1 < content.Length && content[position] == Marker)
+        {
+            var marker = content[position + 1];
+            if (marker == Marker)
+            {
+                position++;
+                continue;
+            }
+
+            position += 2;
+            if (marker == EndOfImage)
+            {
+                return scanned;
+            }
+
+            if (marker == StandaloneTemporary || IsRestart(marker))
+            {
+                continue;
+            }
+
+            if (!TrySkipSegment(marker, content, ref position))
+            {
+                return false;
+            }
+
+            if (marker == StartOfScan)
+            {
+                scanned = true;
+                position = NextMarkerAfterEntropyCodedData(content, position);
+            }
+        }
+
+        return false;
     }
+
+    /// <summary>Marcador com comprimento: avança até o fim do segmento, se ele couber no arquivo.</summary>
+    private static bool TrySkipSegment(byte marker, ReadOnlySpan<byte> content, ref int position)
+    {
+        if (marker < FirstSegmentMarker || marker == StartOfImage || position + 2 > content.Length)
+        {
+            return false;
+        }
+
+        var length = BinaryPrimitives.ReadUInt16BigEndian(content[position..]);
+        if (length < 2 || position + length > content.Length)
+        {
+            return false;
+        }
+
+        position += length;
+        return true;
+    }
+
+    /// <summary>
+    /// No dado comprimido, <c>FF 00</c> é um <c>FF</c> literal, <c>FF D0</c>–<c>FF D7</c> são restarts e <c>FF FF</c>
+    /// é preenchimento; o primeiro outro marcador encerra o scan. Sem ele, devolve o fim do arquivo.
+    /// </summary>
+    private static int NextMarkerAfterEntropyCodedData(ReadOnlySpan<byte> content, int position)
+    {
+        while (position < content.Length)
+        {
+            var next = content[position..].IndexOf(Marker);
+            if (next < 0 || position + next + 1 >= content.Length)
+            {
+                return content.Length;
+            }
+
+            position += next;
+            var code = content[position + 1];
+            if (code is not (Stuffing or Marker) && !IsRestart(code))
+            {
+                return position;
+            }
+
+            position += code == Marker ? 1 : 2;
+        }
+
+        return content.Length;
+    }
+
+    private static bool IsRestart(byte marker) => marker is >= FirstRestart and <= LastRestart;
 
     private static bool PngHasEndChunk(ReadOnlySpan<byte> content)
     {
