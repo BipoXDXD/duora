@@ -62,7 +62,7 @@ com proposta em [model.md](../data/model.md#decisões-de-modelagem-propostas), D
 3. A tabela 10.2 não lista tabelas para preferências de notificação (API-N01/N02) nem para recibos de entrega,
    e não há tabela para configurações e feature flags de Operations.
 4. A spec não diz o schema de `audit_events`. A outbox, os jobs e a idempotência têm propriedade **comum**:
-   todo módulo grava na outbox dentro da própria transação, e só Operations consome, reprocessa e limpa.
+   todo módulo grava na outbox dentro da própria transação, e só Operations consome, reprocessa e limpa. O mesmo vale para `webhook_receipts`: quem processa o callback grava o recibo na própria transação pela API de Operations (`WebhookReceipts`), e só Operations limpa.
 5. Decidido em [ADR-0016](adr/0016-sala-e-sessao-de-jogo.md): não existe tabela `rooms`. A sala é a
    `game_session` de um par numa rodada e `roomId` é o `gameSessionId`. Matching cria o `pairing` (reserva do
    par); Experiences cria a `game_session` a partir do convite, ligada ao `pairing`, e é dona da máquina de

@@ -8,8 +8,9 @@ namespace Duora.Core.Identity;
 public static class AgeEligibility
 {
     /// <summary>
-    /// Efeito de um resultado sobre uma solicitação. Só uma solicitação <c>Pending</c> aceita resultado; para as
-    /// demais devolve <c>null</c> (resultado repetido ou tardio não muda nada). <c>VerifiedAdult</c> ativa só a conta
+    /// Efeito de um resultado sobre uma solicitação. Só uma solicitação <c>Pending</c> aceita resultado, inclusive a
+    /// que passou do prazo sem ser substituída; para as demais devolve <c>null</c> (resultado repetido ou tardio não
+    /// muda nada), salvo <c>NotAdult</c> numa <c>Expired</c>, que restringe a conta e deixa a solicitação como está. <c>VerifiedAdult</c> ativa só a conta
     /// <c>PendingEligibility</c>; <c>NotAdult</c> restringe a conta em verificação (pendente ou ativa);
     /// <c>Inconclusive</c> vai para revisão manual sem mexer na conta. Nenhum resultado tira a conta de
     /// <c>Restricted</c>, <c>Suspended</c> ou <c>DeletionPending</c>.
@@ -25,6 +26,15 @@ public static class AgeEligibility
         if (!Enum.IsDefined(outcome))
         {
             throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Resultado desconhecido.");
+        }
+
+        if (verification == AgeVerificationState.Expired && outcome == AgeCheckOutcome.NotAdult)
+        {
+            // Suspeita de menor nunca é ignorada (spec 12.2): mesmo numa solicitação abandonada, restringe a conta.
+            return new AgeVerificationDecision(
+                AgeVerificationState.Expired,
+                ExpiresAt: null,
+                IsInVerificationFlow(account) ? AccountStatus.Restricted : account);
         }
 
         if (verification != AgeVerificationState.Pending)

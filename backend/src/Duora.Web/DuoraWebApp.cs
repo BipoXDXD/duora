@@ -12,6 +12,7 @@ using Duora.Web.Media;
 using Duora.Web.Profiles;
 using Duora.Web.Safety;
 using Duora.Web.Security;
+using Duora.Web.Webhooks;
 
 namespace Duora.Web;
 
@@ -88,6 +89,7 @@ internal static class DuoraWebApp
         }
 
         app.MapHealthEndpoints();
+        app.MapWebhookEndpoints();
 
         var api = app.MapGroup("/api/v1");
         api.MapAuthEndpoints();
