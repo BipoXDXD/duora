@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Duora.Contracts.Identity;
 
 // DTOs de entrada da API de conta (spec 8.2). Todos os campos são anuláveis para que ausência e null cheguem até
@@ -60,10 +62,35 @@ public sealed record SessionListResponse(IReadOnlyList<SessionResponse> Items);
 /// </summary>
 public sealed record StartAgeVerificationRequest;
 
+/// <summary>Estado da verificação etária como a API o expõe (API-P06).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AgeVerificationStateCode>))]
+public enum AgeVerificationStateCode
+{
+    NotStarted,
+    Pending,
+    VerifiedAdult,
+    Rejected,
+    Expired,
+    ManualReview,
+}
+
+/// <summary>Próximo passo da pessoa na verificação etária (API-P06).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AgeVerificationNextStepCode>))]
+public enum AgeVerificationNextStepCode
+{
+    None,
+    StartVerification,
+    WaitForProvider,
+    ContinueWithProvider,
+    WaitForReview,
+    NotAvailable,
+}
+
 /// <summary>
-/// Estado mínimo da verificação etária (API-P06). <c>State</c>: NotStarted | Pending | VerifiedAdult | Rejected |
-/// Expired | ManualReview. <c>NextStep</c>: None | StartVerification | WaitForProvider | ContinueWithProvider |
-/// WaitForReview | NotAvailable. <c>ContinueUrl</c> só vem com ContinueWithProvider: o fluxo do fornecedor, de uma
-/// origem na allowlist. Nenhuma inferência do fornecedor (TM-38).
+/// Estado mínimo da verificação etária (API-P06). <c>ContinueUrl</c> só vem com ContinueWithProvider: o fluxo do
+/// fornecedor, de uma origem na allowlist. Nenhuma inferência do fornecedor (TM-38).
 /// </summary>
-public sealed record AgeVerificationResponse(string State, string NextStep, string? ContinueUrl);
+public sealed record AgeVerificationResponse(
+    AgeVerificationStateCode State,
+    AgeVerificationNextStepCode NextStep,
+    string? ContinueUrl);

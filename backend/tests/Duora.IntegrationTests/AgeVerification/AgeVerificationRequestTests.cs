@@ -207,4 +207,100 @@ public sealed class AgeVerificationRequestTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.Equal(["Pending"], (await Scenario.VerificationsAsync(account.UserId)).Select(r => r.State));
     }
+
+    [Fact]
+    public async Task RequestInManualReviewAnswersAcceptedWithWaitForReview()
+    {
+        var (account, browser) = await Scenario.SignedInPendingAccountAsync();
+        using var _ = browser;
+        using (await AgeVerificationScenario.RequestAsync(browser))
+        {
+        }
+
+        await Scenario.ExecuteAsync("update identity.age_verifications set state = 'ManualReview' where user_id = $1", account.UserId);
+        using var response = await AgeVerificationScenario.RequestAsync(browser);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var body = await AgeVerificationScenario.ReadJsonAsync(response);
+        Assert.Equal("ManualReview", (string?)body["state"]);
+        Assert.Equal("WaitForReview", (string?)body["nextStep"]);
+        Assert.Single(await Scenario.VerificationsAsync(account.UserId));
+        Assert.Equal(1, await Scenario.CountProviderTasksAsync(account.UserId));
+    }
+
+    [Theory]
+    [InlineData("Restricted")]
+    [InlineData("Suspended")]
+    public async Task RestrictedOrSuspendedAccountWithAnOpenRequestIsRefused(string status)
+    {
+        var (account, browser) = await Scenario.SignedInPendingAccountAsync();
+        using var _ = browser;
+        using (await AgeVerificationScenario.RequestAsync(browser))
+        {
+        }
+
+        await Scenario.ExecuteAsync("update identity.users set status = $2 where id = $1", account.UserId, status);
+        using var response = await AgeVerificationScenario.RequestAsync(browser);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "AGE_VERIFICATION_NOT_AVAILABLE");
+        Assert.Equal(["Pending"], (await Scenario.VerificationsAsync(account.UserId)).Select(r => r.State));
+        Assert.Equal(1, await Scenario.CountProviderTasksAsync(account.UserId));
+    }
+
+    [Theory]
+    [InlineData("Failed")]
+    [InlineData("Expired")]
+    public async Task PendingWhoseProviderTaskGaveUpIsReplaced(string deliveryStatus)
+    {
+        var (account, browser) = await Scenario.SignedInPendingAccountAsync();
+        using var _ = browser;
+        using (await AgeVerificationScenario.RequestAsync(browser))
+        {
+        }
+
+        await Scenario.SetProviderTaskStatusAsync(account.UserId, deliveryStatus);
+        // Um minuto depois, para a ordem das duas solicitações não depender do desempate do UUIDv7.
+        _time.Advance(TimeSpan.FromMinutes(1));
+        var current = await AgeVerificationScenario.CurrentAsync(browser);
+        using var response = await AgeVerificationScenario.RequestAsync(browser);
+
+        Assert.Equal("StartVerification", (string?)current["nextStep"]);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(["Expired", "Pending"], (await Scenario.VerificationsAsync(account.UserId)).Select(r => r.State));
+        Assert.Equal(2, await Scenario.CountProviderTasksAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task PendingWithAProviderFlowIsKeptEvenIfTheTaskEndedInReview()
+    {
+        // Com referência gravada, a pessoa já tem o fluxo do fornecedor: a solicitação continua valendo.
+        var (account, browser) = await Scenario.SignedInPendingAccountAsync();
+        using var _ = browser;
+        using (await AgeVerificationScenario.RequestAsync(browser))
+        {
+        }
+
+        var verification = Assert.Single(await Scenario.VerificationsAsync(account.UserId));
+        await Scenario.MarkProviderFlowReadyAsync(verification.Id, $"{AgeVerificationScenario.FakeFlowOrigin}/flow/x");
+        await Scenario.SetProviderTaskStatusAsync(account.UserId, "Failed");
+        using var response = await AgeVerificationScenario.RequestAsync(browser);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal("ContinueWithProvider", (string?)(await AgeVerificationScenario.ReadJsonAsync(response))["nextStep"]);
+        Assert.Single(await Scenario.VerificationsAsync(account.UserId));
+    }
+
+    [Fact]
+    public async Task PendingEligibilityWithAValidVerificationMayRequestAgain()
+    {
+        var (account, browser) = await Scenario.SignedInPendingAccountAsync();
+        using var _ = browser;
+        await Scenario.MakeVerifiedAdultAsync(account.UserId, _time.GetUtcNow().AddDays(-1), _time.GetUtcNow().AddDays(30));
+        await Scenario.ExecuteAsync("update identity.users set status = 'PendingEligibility' where id = $1", account.UserId);
+
+        using var response = await AgeVerificationScenario.RequestAsync(browser);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(["VerifiedAdult", "Pending"], (await Scenario.VerificationsAsync(account.UserId)).Select(r => r.State));
+    }
 }

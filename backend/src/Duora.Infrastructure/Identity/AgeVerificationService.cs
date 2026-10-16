@@ -82,8 +82,9 @@ public sealed class AgeVerificationService
 
         var latest = await FindLatestAsync(userId, cancellationToken);
         var eligibility = AgeEligibility.Evaluate(account, Snapshot(latest), now, _policy);
-        if (latest is not null && IsOpen(latest) && !eligibility.AllowsNewRequest)
+        if (latest is not null && IsStillInProgress(eligibility))
         {
+            // Idempotência natural: a aberta (aguardando o fornecedor, no fluxo dele ou em revisão manual).
             return new AgeVerificationRequestResult.Accepted(ToStatus(latest, eligibility));
         }
 
@@ -146,8 +147,14 @@ public sealed class AgeVerificationService
         return (latest, AgeEligibility.Evaluate(account.Value, Snapshot(latest), _time.GetUtcNow(), _policy));
     }
 
-    private static bool IsOpen(VerificationRow row) =>
-        row.State is AgeVerificationState.Pending or AgeVerificationState.ManualReview;
+    /// <summary>
+    /// Solicitação aberta que ainda anda. Conta restrita ou suspensa com uma aberta cai em <c>NotAvailable</c> e
+    /// recebe 409 (decisão do assistente, PR #37).
+    /// </summary>
+    private static bool IsStillInProgress(AgeEligibilityResult eligibility) =>
+        eligibility.NextStep is AgeVerificationNextStep.WaitForProvider
+            or AgeVerificationNextStep.ContinueWithProvider
+            or AgeVerificationNextStep.WaitForReview;
 
     private async Task<AccountStatus?> LockAccountStatusAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -161,11 +168,16 @@ public sealed class AgeVerificationService
     {
         var rows = await _db.Database.SqlQuery<VerificationRow>(
             $"""
-            select id as "Id", state as "StateName", requested_at as "RequestedAt", expires_at as "ExpiresAt",
-                   provider_flow_url as "FlowUrl", version as "Version"
-            from identity.age_verifications
-            where user_id = {userId}
-            order by requested_at desc, id desc
+            select v.id as "Id", v.state as "StateName", v.requested_at as "RequestedAt", v.expires_at as "ExpiresAt",
+                   v.provider_flow_url as "FlowUrl", v.version as "Version",
+                   (v.provider_reference is null and exists (
+                       select 1 from ops.outbox_events e
+                       join ops.outbox_deliveries d on d.outbox_event_id = e.id
+                       where e.resource_id = v.id and e.type = {AgeVerificationOutbox.EventType}
+                         and d.status in ('Failed', 'Expired'))) as "ProviderGaveUp"
+            from identity.age_verifications v
+            where v.user_id = {userId}
+            order by v.requested_at desc, v.id desc
             limit 1
             """).ToListAsync(cancellationToken);
         return rows.SingleOrDefault();
@@ -217,7 +229,7 @@ public sealed class AgeVerificationService
             new AgeVerificationRequested(id, loginSessionId),
             now,
             now + _policy.RequestLifetime));
-        return new VerificationRow(id, pending, now, ExpiresAt: null, FlowUrl: null, Version: 0);
+        return new VerificationRow(id, pending, now, ExpiresAt: null, FlowUrl: null, Version: 0, ProviderGaveUp: false);
     }
 
     /// <summary>Só uma URL de fluxo https com origem na allowlist vai ao navegador; as demais nem contam como prontas.</summary>
@@ -227,11 +239,11 @@ public sealed class AgeVerificationService
             : null;
 
     private AgeVerificationSnapshot? Snapshot(VerificationRow? row) =>
-        row is null ? null : new AgeVerificationSnapshot(row.State, row.RequestedAt, row.ExpiresAt, ShowableFlow(row) is not null);
+        row is null ? null : new AgeVerificationSnapshot(row.EffectiveState, row.RequestedAt, row.ExpiresAt, ShowableFlow(row) is not null);
 
     private AgeVerificationStatus ToStatus(VerificationRow row, AgeEligibilityResult eligibility) =>
         new(
-            row.State.ToString(),
+            row.EffectiveState.ToString(),
             eligibility.NextStep,
             eligibility.NextStep == AgeVerificationNextStep.ContinueWithProvider ? ShowableFlow(row) : null);
 
@@ -241,8 +253,17 @@ public sealed class AgeVerificationService
         DateTimeOffset RequestedAt,
         DateTimeOffset? ExpiresAt,
         string? FlowUrl,
-        long Version)
+        long Version,
+        bool ProviderGaveUp)
     {
+        /// <summary>Estado gravado; é o que o UPDATE condicional confere.</summary>
         public AgeVerificationState State => Enum.Parse<AgeVerificationState>(StateName);
+
+        /// <summary>
+        /// Estado para a regra e para a pessoa: uma pendente sem referência cuja tarefa do worker terminou em
+        /// <c>Failed</c> ou <c>Expired</c> nunca vai ter fluxo, então conta como expirada e libera um novo pedido.
+        /// </summary>
+        public AgeVerificationState EffectiveState =>
+            State == AgeVerificationState.Pending && ProviderGaveUp ? AgeVerificationState.Expired : State;
     }
 }

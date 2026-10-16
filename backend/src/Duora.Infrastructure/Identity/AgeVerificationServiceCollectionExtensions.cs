@@ -58,6 +58,11 @@ public static class AgeVerificationServiceCollectionExtensions
             .Configure(o => o.SendTimeout = TimeSpan.FromSeconds(10))
             .BindConfiguration($"{AgeVerificationOptions.Section}:Dispatch")
             .Validate(o => o.IsConsistent(), "AgeVerification:Dispatch incoerente: o lease deve durar mais que a chamada.")
+            // As chamadas do lote são em série: o lease cobre o pior caso do lote inteiro, senão outro worker retoma
+            // as últimas entregas enquanto este ainda as processa.
+            .Validate(
+                o => o.LeaseDuration > o.SendTimeout * o.BatchSize,
+                "AgeVerification:Dispatch incoerente: LeaseDuration precisa passar de BatchSize × SendTimeout.")
             .ValidateOnStart();
 
         services.TryAddSingleton(provider => new OutboxDeliveryQueue(provider.GetRequiredService<NpgsqlDataSource>()));

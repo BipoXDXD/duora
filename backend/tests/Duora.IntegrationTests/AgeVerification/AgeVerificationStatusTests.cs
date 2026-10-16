@@ -1,4 +1,5 @@
 using System.Net;
+using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Identity;
 
 namespace Duora.IntegrationTests.AgeVerification;
@@ -40,7 +41,7 @@ public sealed class AgeVerificationStatusTests : IAsyncDisposable
 
         var waiting = await AgeVerificationScenario.CurrentAsync(browser);
         var verification = Assert.Single(await Scenario.VerificationsAsync(account.UserId));
-        var flowUrl = $"{AgeVerificationScenario.FakeFlowOrigin}/flow/fake_{verification.Id:N}";
+        var flowUrl = $"{AgeVerificationScenario.FakeFlowOrigin}/flow/{FakeAgeEligibilityProvider.ReferenceFor(verification.Id)}";
         await Scenario.MarkProviderFlowReadyAsync(verification.Id, flowUrl);
         var ready = await AgeVerificationScenario.CurrentAsync(browser);
 
@@ -59,7 +60,8 @@ public sealed class AgeVerificationStatusTests : IAsyncDisposable
         var text = ready.ToJsonString();
         Assert.DoesNotContain(verification.RequestNonce, text, StringComparison.Ordinal);
         Assert.DoesNotContain(verification.PolicyVersion, text, StringComparison.Ordinal);
-        Assert.DoesNotContain(verification.Id.ToString(), text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(verification.Id.ToString("D"), text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(verification.Id.ToString("N"), text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

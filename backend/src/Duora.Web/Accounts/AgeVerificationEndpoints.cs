@@ -19,6 +19,7 @@ internal static class AgeVerificationEndpoints
         var verifications = api.MapGroup("/me/age-verifications").WithTags("Me");
 
         verifications.MapPost("", StartAsync)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -27,8 +28,9 @@ internal static class AgeVerificationEndpoints
     }
 
     /// <summary>
-    /// Cria a solicitação ou devolve a aberta (202 nos dois casos, idempotência natural). 409 quando a conta não pode
-    /// pedir (elegível, em revisão, rejeitada, restrita ou suspensa); 503 sem fornecedor.
+    /// Cria a solicitação ou devolve a aberta (202 nos dois casos, idempotência natural), inclusive a que está em revisão
+    /// manual (<c>WaitForReview</c>). 409 quando a conta não pode pedir: elegível, rejeitada, restrita ou suspensa,
+    /// mesmo com uma aberta; 503 sem fornecedor.
     /// </summary>
     private static async Task<Results<Accepted<AgeVerificationResponse>, UnauthorizedHttpResult, ProblemHttpResult>> StartAsync(
         StartAgeVerificationRequest request,
@@ -70,5 +72,8 @@ internal static class AgeVerificationEndpoints
     }
 
     private static AgeVerificationResponse ToResponse(AgeVerificationStatus status) =>
-        new(status.State, status.NextStep.ToString(), status.ContinueUrl?.AbsoluteUri);
+        new(
+            Enum.Parse<AgeVerificationStateCode>(status.State),
+            Enum.Parse<AgeVerificationNextStepCode>(status.NextStep.ToString()),
+            status.ContinueUrl?.AbsoluteUri);
 }

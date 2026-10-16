@@ -155,13 +155,14 @@ public sealed class AgeEligibilityEvaluateTests
     }
 
     [Fact]
-    public void PendingEligibilityWithAValidVerificationIsStillNotEligible()
+    public void PendingEligibilityWithAValidVerificationIsNotEligibleAndMayVerifyAgain()
     {
-        // Não acontece pelo fluxo (a mesma transação grava as duas coisas); se acontecer, nega.
+        // Não acontece pelo fluxo (a mesma transação grava as duas coisas). Se acontecer, nega a participação e
+        // deixa a pessoa pedir de novo, em vez de prendê-la num estado sem saída (decisão do assistente, PR #37).
         var eligibility = AgeEligibility.Evaluate(AccountStatus.PendingEligibility, Verified(Now.AddDays(1)), Now, Policy);
 
         Assert.False(eligibility.IsEligible);
-        Assert.Equal(AgeVerificationNextStep.NotAvailable, eligibility.NextStep);
+        Assert.Equal(AgeVerificationNextStep.StartVerification, eligibility.NextStep);
     }
 
     [Theory]
