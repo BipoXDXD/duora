@@ -51,8 +51,9 @@ namespace Duora.Infrastructure.Persistence.Migrations
 
             // Append-only por GRANT (D3, TM-05; convenção de model.md, "Permissões de banco"): os default privileges
             // deram DML completo ao app; aqui ele fica só com INSERT e SELECT. O papel existe em toda instalação da
-            // imagem do Duora (initdb); o banco de desenvolvimento e o dos testes comuns não o têm, e lá não há o
-            // que revogar. AuditPrivilegesTests aplica esta migration com os papéis de produção.
+            // imagem do Duora e no PostgresFixture dos testes (mesmo initdb); só o banco de desenvolvimento do
+            // compose.dev, com um papel único, não o tem, e lá não há o que revogar. reconcile-privileges.sql repete
+            // o REVOKE e falha o deploy se ele não valer; AuditPrivilegesTests e AppRolePrivilegesTests conferem.
             migrationBuilder.Sql(
                 """
                 DO $$
