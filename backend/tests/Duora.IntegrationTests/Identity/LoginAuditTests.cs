@@ -1,4 +1,8 @@
+using System.Diagnostics.Metrics;
 using System.Net;
+using Duora.Infrastructure.Identity;
+using Duora.Web.Identity;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -8,18 +12,20 @@ namespace Duora.IntegrationTests.Identity;
 /// TM-05: login, falha de senha (A04, A13, A16), início do bloqueio, tentativa durante o bloqueio, desbloqueio pelo
 /// reset, logout e revogação de sessão deixam exatamente um registro em <c>ops.audit_events</c>, na transação do
 /// efeito, também sob pedidos simultâneos. O registro só tem ator, ação e alvo: nada de e-mail, senha, IP ou user
-/// agent. Login com e-mail sem conta ou não confirmado grava um registro sem conta (nem como ator nem como alvo), o
-/// mesmo nos dois casos, e a resposta é a mesma da senha errada (TM-06).
+/// agent. Login com e-mail sem conta ou não confirmado não grava linha (não há ator legítimo, e a tabela cresceria
+/// sem limite): conta numa métrica e num log sem e-mail nem IP, o mesmo nos dois casos, e a resposta é a mesma da
+/// senha errada (TM-06).
 /// </summary>
 /// <remarks>Cada teste usa um banco migrado só dele, para contar todas as linhas da tabela sem interferência.</remarks>
 public sealed class LoginAuditTests(PostgresFixture postgres)
 {
     private const string WrongPassword = "não é a senha da conta";
     private const string NewPassword = "uma frase nova e bem longa";
+    private const string UnknownAccountLogMessage = "Login sem conta confirmada";
     private const string PasswordChanges = "/api/v1/me/password-changes";
 
-    /// <summary>E-mail sem conta ou com cadastro não confirmado: indistinguíveis também no registro.</summary>
-    private const string UnknownAccountAction = "identity.login_failed_unknown_account";
+    /// <summary>Trace id que um cliente mandaria no <c>traceparent</c> para escolher o <c>correlation_id</c>.</summary>
+    private const string ForgedTraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
 
     /// <summary>Igual a <c>Lockout.MaxFailedAccessAttempts</c> da aplicação.</summary>
     private const int LockoutThreshold = 20;
@@ -172,26 +178,30 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task AnUnknownEmailIsAuditedWithoutAnAccountAndGetsTheSameAnswerAsAWrongPassword()
+    public async Task AnUnknownEmailLeavesNoRowIsCountedAndGetsTheSameAnswerAsAWrongPassword()
     {
         await using var context = await AuditContext.CreateAsync(postgres);
         var account = await context.Scenario.CreateConfirmedAccountAsync();
         using var browser = new Browser(context.Factory);
         using var wrongPassword = await IdentityScenario.LoginAsync(browser, account.Email, WrongPassword);
+        var rowsBefore = await context.CountAllAuditRowsAsync();
+        var unknownEmail = IdentityScenario.NewEmail();
+        using var counter = new UnknownAccountLoginCounter(context.Factory);
 
-        using var unknownEmail = await IdentityScenario.LoginAsync(browser, IdentityScenario.NewEmail(), WrongPassword);
+        using var response = await IdentityScenario.LoginAsync(browser, unknownEmail, WrongPassword);
 
-        Assert.Equal(wrongPassword.StatusCode, unknownEmail.StatusCode);
+        Assert.Equal(wrongPassword.StatusCode, response.StatusCode);
         Assert.Equal(
             await ProblemAssert.BodyWithoutTraceIdAsync(wrongPassword),
-            await ProblemAssert.BodyWithoutTraceIdAsync(unknownEmail));
-        var row = Assert.Single(await context.RowsAsync(UnknownAccountAction));
-        Assert.Equal(("System", (Guid?)null, "login_attempt"), (row.ActorKind, row.ActorId, row.TargetType));
-        Assert.Equal(0, await context.CountUsersAsync(row.TargetId));
+            await ProblemAssert.BodyWithoutTraceIdAsync(response));
+        Assert.Equal(rowsBefore, await context.CountAllAuditRowsAsync());
+        Assert.Equal(1, counter.Count);
+        Assert.Single(context.Logs.Entries, entry => entry.Text.Contains(UnknownAccountLogMessage, StringComparison.Ordinal));
+        Assert.DoesNotContain(context.Logs.Entries, entry => entry.Text.Contains(unknownEmail, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task AnUnconfirmedAccountIsAuditedExactlyLikeAnUnknownEmail()
+    public async Task AnUnconfirmedAccountIsTreatedExactlyLikeAnUnknownEmail()
     {
         await using var context = await AuditContext.CreateAsync(postgres);
         var pending = IdentityScenario.NewEmail();
@@ -201,15 +211,16 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
             Assert.Equal(HttpStatusCode.Accepted, registration.StatusCode);
         }
 
-        var pendingUserId = await context.UserIdAsync(pending);
+        var rowsBefore = await context.CountAllAuditRowsAsync();
+        using var counter = new UnknownAccountLoginCounter(context.Factory);
 
         using var login = await IdentityScenario.LoginAsync(browser, pending, IdentityScenario.ValidPassword);
 
         Assert.Equal(HttpStatusCode.Unauthorized, login.StatusCode);
-        var row = Assert.Single(await context.RowsAsync(UnknownAccountAction));
-        Assert.Equal(("System", (Guid?)null, "login_attempt"), (row.ActorKind, row.ActorId, row.TargetType));
-        Assert.Equal(0, await context.CountAuditRowsReferencingAsync(pendingUserId));
-        Assert.Equal(0, await context.CountAuditRowsContainingAsync(pending));
+        Assert.Equal(rowsBefore, await context.CountAllAuditRowsAsync());
+        Assert.Equal(1, counter.Count);
+        Assert.Single(context.Logs.Entries, entry => entry.Text.Contains(UnknownAccountLogMessage, StringComparison.Ordinal));
+        Assert.DoesNotContain(context.Logs.Entries, entry => entry.Text.Contains(pending, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -231,6 +242,46 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
         Assert.Equal(
             ["identity.login_second_factor_required"],
             Added(before, await context.UserActionsAsync(account.UserId)));
+    }
+
+    [Fact]
+    public async Task ARightPasswordWithoutTheSecondFactorOnReauthenticationIsAudited()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        using var browser = await context.Scenario.SignedInBrowserAsync(account);
+        await MfaScenario.EnableAsync(browser, context.Time);
+        var before = await context.UserActionsAsync(account.UserId);
+
+        using var response = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(
+            ["identity.reauthentication_second_factor_required"],
+            Added(before, await context.UserActionsAsync(account.UserId)));
+    }
+
+    [Fact]
+    public async Task TheCorrelationIdIsNotTakenFromTheClientsTraceparent()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres);
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        using var browser = new Browser(context.Factory);
+        await browser.FetchCsrfTokenAsync();
+
+        using var response = await browser.PostJsonAsync(
+            "/api/v1/auth/login",
+            new { email = account.Email, password = WrongPassword },
+            new MutationHeaders(Extra: new Dictionary<string, string>
+            {
+                ["traceparent"] = $"00-{ForgedTraceId}-00f067aa0ba902b7-01",
+                ["tracestate"] = "duora=forjado",
+            }));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var correlationId = await context.CorrelationIdOfAsync("identity.login_failed");
+        Assert.NotNull(correlationId);
+        Assert.NotEqual(ForgedTraceId, correlationId);
     }
 
     [Fact]
@@ -328,46 +379,58 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
         DisposeAll(responses, browsers);
     }
 
+    /// <summary>
+    /// Outra transação segura a sessão; as revogações só seguem quando o banco mostra todas esperando pelo lock. Com
+    /// a linha travada na leitura, quem vem depois do primeiro vê a sessão já revogada e não registra de novo.
+    /// </summary>
     [Fact]
-    public async Task ConcurrentRevocationsOfTheSameSessionAreAuditedOnce()
+    public async Task RevocationsWaitingOnTheSameSessionAreAuditedOnce()
     {
-        await using var context = await AuditContext.CreateAsync(postgres);
+        const int Revocations = 4;
+        await using var context = await AuditContext.CreateAsync(postgres, accountLockTimeout: "00:00:30");
+        var account = await context.Scenario.CreateConfirmedAccountAsync();
+        using var browser = await context.Scenario.SignedInBrowserAsync(account);
+        var sessionId = await context.LatestSessionIdAsync(account.UserId, skip: 0);
+        bool[] results;
+        await using (var holder = await context.HoldSessionAsync(sessionId))
+        {
+            var revocations = Enumerable.Range(0, Revocations)
+                .Select(_ => Task.Run(() => context.RevokeOwnSessionAsync(account.UserId, sessionId)))
+                .ToList();
+            await context.WaitForSessionLockWaitersAsync(Revocations);
+            await holder.ReleaseAsync();
+            results = await Task.WhenAll(revocations);
+        }
+
+        Assert.All(results, Assert.True);
+        var revocation = Assert.Single(await context.RowsAsync("identity.session_revoked"));
+        Assert.Equal(("User", account.UserId, "login_session", sessionId), revocation);
+    }
+
+    [Fact]
+    public async Task ARevocationThatWaitsTooLongForTheSessionAnswers503AndRecordsNothing()
+    {
+        await using var context = await AuditContext.CreateAsync(postgres, accountLockTimeout: "00:00:00.300");
         var account = await context.Scenario.CreateConfirmedAccountAsync();
         using var other = await context.Scenario.SignedInBrowserAsync(account);
         context.Time.Advance(TimeSpan.FromSeconds(1));
         using var browser = await context.Scenario.SignedInBrowserAsync(account);
         var otherSessionId = await context.LatestSessionIdAsync(account.UserId, skip: 1);
 
-        var responses = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ =>
-            browser.DeleteAsync($"/api/v1/me/sessions/{otherSessionId}")));
+        await using (var holder = await context.HoldSessionAsync(otherSessionId))
+        {
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            using var response = await browser.DeleteAsync($"/api/v1/me/sessions/{otherSessionId}");
 
-        Assert.All(responses, response => Assert.Equal(HttpStatusCode.NoContent, response.StatusCode));
-        var revocation = Assert.Single(await context.RowsAsync("identity.session_revoked"));
-        Assert.Equal(("User", account.UserId, "login_session", otherSessionId), revocation);
-        DisposeAll(responses, []);
-    }
+            await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
 
-    /// <summary>
-    /// Um pedido que chega depois de a sessão ter caído é anônimo, e o antiforgery dele responde 403; o que importa é
-    /// que a revogação seja registrada uma vez.
-    /// </summary>
-    [Fact]
-    public async Task ConcurrentLogoutsOfTheSameSessionAreAuditedOnce()
-    {
-        await using var context = await AuditContext.CreateAsync(postgres);
-        var account = await context.Scenario.CreateConfirmedAccountAsync();
-        using var browser = await context.Scenario.SignedInBrowserAsync(account);
-        var sessionId = await context.LatestSessionIdAsync(account.UserId, skip: 0);
+            // Desistiu no teto (300 ms), não no timeout de 30 s do comando, que também viraria 503.
+            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), $"Esperou {waited.Elapsed}.");
+        }
 
-        var responses = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ =>
-            browser.PostJsonAsync("/api/v1/auth/logout", body: null)));
-
-        Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.NoContent);
-        Assert.All(responses, response =>
-            Assert.Contains(response.StatusCode, new[] { HttpStatusCode.NoContent, HttpStatusCode.Forbidden }));
-        var row = Assert.Single(await context.RowsAsync("identity.logged_out"));
-        Assert.Equal(("User", account.UserId, "login_session", sessionId), row);
-        DisposeAll(responses, []);
+        using var stillSignedIn = await other.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK, stillSignedIn.StatusCode);
+        Assert.Empty(await context.RowsAsync("identity.session_revoked"));
     }
 
     [Fact]
@@ -409,17 +472,76 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
         browsers.ForEach(browser => browser.Dispose());
     }
 
+    /// <summary>Transação de fora segurando uma linha até <see cref="ReleaseAsync"/>.</summary>
+    private sealed class RowHolder(NpgsqlConnection connection, NpgsqlTransaction transaction) : IAsyncDisposable
+    {
+        private bool _released;
+
+        public async Task ReleaseAsync()
+        {
+            if (_released)
+            {
+                return;
+            }
+
+            _released = true;
+            await transaction.RollbackAsync(Ct);
+            await transaction.DisposeAsync();
+            await connection.DisposeAsync();
+        }
+
+        public async ValueTask DisposeAsync() => await ReleaseAsync();
+    }
+
+    /// <summary>
+    /// Conta as medições do contador de login sem conta confirmada desta aplicação (o escopo do meter é o
+    /// <see cref="IMeterFactory"/> dela), sem somar as de outros testes rodando em paralelo.
+    /// </summary>
+    private sealed class UnknownAccountLoginCounter : IDisposable
+    {
+        private readonly MeterListener _listener = new();
+        private long _count;
+
+        public UnknownAccountLoginCounter(DuoraWebFactory factory)
+        {
+            var meters = factory.Services.GetRequiredService<IMeterFactory>();
+            _listener.InstrumentPublished = (instrument, listener) =>
+            {
+                if (ReferenceEquals(instrument.Meter.Scope, meters)
+                    && instrument.Meter.Name == LoginMetrics.MeterName
+                    && instrument.Name == LoginMetrics.FailedUnknownAccount)
+                {
+                    listener.EnableMeasurementEvents(instrument);
+                }
+            };
+            _listener.SetMeasurementEventCallback<long>((_, value, _, _) => Interlocked.Add(ref _count, value));
+            _listener.Start();
+        }
+
+        public long Count => Interlocked.Read(ref _count);
+
+        public void Dispose() => _listener.Dispose();
+    }
+
     /// <summary>Banco só do teste, aplicação sobre ele e consultas à auditoria.</summary>
     private sealed class AuditContext : IAsyncDisposable
     {
         private readonly string _connectionString;
 
-        private AuditContext(string connectionString)
+        private AuditContext(string connectionString, string? accountLockTimeout)
         {
             _connectionString = connectionString;
-            Factory = new DuoraWebFactory(connectionString) { Time = Time };
+            var settings = new Dictionary<string, string?>();
+            if (accountLockTimeout is not null)
+            {
+                settings["Identity:AccountLockTimeout"] = accountLockTimeout;
+            }
+
+            Factory = new DuoraWebFactory(connectionString, Logs) { Time = Time, Settings = settings };
             Scenario = new IdentityScenario(connectionString, Factory);
         }
+
+        public CapturingLoggerProvider Logs { get; } = new();
 
         public FakeTimeProvider Time { get; } = TestClock.StartingNow();
 
@@ -427,8 +549,56 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
 
         public IdentityScenario Scenario { get; }
 
-        public static async Task<AuditContext> CreateAsync(PostgresFixture postgres) =>
-            new(await postgres.CreateMigratedDatabaseAsync(Ct));
+        public static async Task<AuditContext> CreateAsync(PostgresFixture postgres, string? accountLockTimeout = null) =>
+            new(await postgres.CreateMigratedDatabaseAsync(Ct), accountLockTimeout);
+
+        /// <summary>Chama o serviço direto, num escopo próprio: sem sessão HTTP nem antiforgery para serializar.</summary>
+        public async Task<bool> RevokeOwnSessionAsync(Guid userId, Guid sessionId)
+        {
+            await using var scope = Factory.Services.CreateAsyncScope();
+            return await scope.ServiceProvider.GetRequiredService<AccountSecurityService>()
+                .RevokeOwnSessionAsync(userId, sessionId, Ct);
+        }
+
+        /// <summary>Outra transação com a sessão travada, como um pedido em andamento.</summary>
+        public async Task<RowHolder> HoldSessionAsync(Guid sessionId)
+        {
+            var connection = await OpenAsync();
+            var transaction = await connection.BeginTransactionAsync(Ct);
+            await using var command = new NpgsqlCommand(
+                "select 1 from identity.login_sessions where id = $1 for no key update",
+                connection,
+                transaction);
+            command.Parameters.AddWithValue(sessionId);
+            await command.ExecuteNonQueryAsync(Ct);
+            return new RowHolder(connection, transaction);
+        }
+
+        /// <summary>Espera o banco mostrar <paramref name="count"/> comandos na sessão parados num lock.</summary>
+        public async Task WaitForSessionLockWaitersAsync(int count)
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+            deadline.CancelAfter(TimeSpan.FromSeconds(20));
+            while (await ScalarAsync(
+                       """
+                       select count(*) from pg_stat_activity
+                       where datname = current_database() and wait_event_type = 'Lock'
+                         and query like '%identity.login_sessions%'
+                       """) < count)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(20), deadline.Token);
+            }
+        }
+
+        public async Task<string?> CorrelationIdOfAsync(string action)
+        {
+            await using var connection = await OpenAsync();
+            await using var command = new NpgsqlCommand(
+                "select correlation_id from ops.audit_events where action = $1",
+                connection);
+            command.Parameters.AddWithValue(action);
+            return await command.ExecuteScalarAsync(Ct) as string;
+        }
 
         public Task SetFailedAttemptsAsync(Guid userId, int count) =>
             ExecuteAsync("update identity.users set access_failed_count = $2 where id = $1", userId, count);
@@ -511,19 +681,7 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
             return rows;
         }
 
-        public async Task<long> CountUsersAsync(Guid id) =>
-            await ScalarAsync("select count(*) from identity.users where id = $1", id);
-
-        public async Task<long> CountAuditRowsReferencingAsync(Guid id) =>
-            await ScalarAsync("select count(*) from ops.audit_events where actor_id = $1 or target_id = $1", id);
-
-        public async Task<Guid> UserIdAsync(string email)
-        {
-            await using var connection = await OpenAsync();
-            await using var command = new NpgsqlCommand("select id from identity.users where email = $1", connection);
-            command.Parameters.AddWithValue(email);
-            return (Guid)(await command.ExecuteScalarAsync(Ct) ?? throw new InvalidOperationException("Sem conta."));
-        }
+        public async Task<long> CountAllAuditRowsAsync() => await ScalarAsync("select count(*) from ops.audit_events");
 
         public async Task<long> CountAuditRowsContainingAsync(string text) =>
             await ScalarAsync("select count(*) from ops.audit_events a where strpos(row_to_json(a)::text, $1) > 0", text);

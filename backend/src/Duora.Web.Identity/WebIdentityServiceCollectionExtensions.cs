@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -139,7 +141,10 @@ public static class WebIdentityServiceCollectionExtensions
             provider.GetRequiredService<SignInManager<DuoraUser>>(),
             provider.GetRequiredService<DecoyPasswordHash>(),
             provider.GetRequiredService<IOptions<LoginTimingOptions>>(),
-            provider.GetRequiredService<AccountSecurityService>()));
+            provider.GetRequiredService<AccountSecurityService>(),
+            provider.GetRequiredService<LoginMetrics>(),
+            provider.GetRequiredService<ILogger<CredentialVerifier>>()));
+        services.TryAddSingleton(provider => new LoginMetrics(provider.GetRequiredService<IMeterFactory>()));
 
         return services;
     }
