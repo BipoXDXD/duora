@@ -54,8 +54,11 @@ na outbox e sanitizá-la no Worker com ImageSharp, publicando só derivados reen
 1. **Transporte (API-M01).** `POST /api/v1/me/photos` com o corpo cru e `Content-Type` em `image/jpeg`,
    `image/png` ou `image/webp` (outro → `415`). `Content-Length` obrigatório (ausente, inclusive chunked → `411`)
    e de 1 byte a 5 MiB; acima disso `413` antes de ler o corpo. O teto de corpo do Kestrel (32 KiB para JSON
-   comum) sobe para 5 MiB só nesta rota (`IHttpMaxRequestBodySizeFeature`), e a leitura para em `Content-Length`
-   bytes. O corpo é transmitido ao storage em streaming, com SHA-256 calculado no caminho, sem carregar o arquivo
+   comum) sobe para 5 MiB só nesta rota (`IHttpMaxRequestBodySizeFeature`), a taxa mínima de recepção é fixada
+   na rota (`IHttpMinRequestBodyDataRateFeature`, contra cliente lento), e a leitura para em `Content-Length`
+   bytes. Rate limit em memória por conta e por IP (hipótese de 20 envios por hora em cada um, `429` com
+   `Retry-After`); como todo limitador local, reinicia com o processo e não vale entre réplicas (spec 11.5): o
+   teto de pendentes no banco é a trava que vale sempre. O corpo é transmitido ao storage em streaming, com SHA-256 calculado no caminho, sem carregar o arquivo
    em memória. Nenhum nome de arquivo é aceito.
 2. **Registro e idempotência.** `Idempotency-Key` obrigatório (1 a 64 caracteres `[A-Za-z0-9_-]`), gravado como
    `client_key` em `media.uploads` com `UNIQUE (owner_id, client_key)`: idempotência local da tabela, sem
@@ -66,10 +69,12 @@ na outbox e sanitizá-la no Worker com ImageSharp, publicando só derivados reen
    chave cria o próprio upload.
 3. **Teto de pendentes sem write skew.** No máximo 3 uploads por conta em `Pending`, `Quarantined` ou
    `Processing` (hipótese configurável, spec 4.3 e 11.5); acima disso `429 UPLOAD_PENDING_LIMIT` com
-   `Retry-After`. A contagem e o insert acontecem na mesma transação, depois de `SELECT ... FOR NO KEY UPDATE` da
-   linha do dono em `identity.users`: dois uploads simultâneos da mesma conta se serializam, e o segundo conta o
-   primeiro. É só um lock de leitura sobre a tabela do Identity (a FK de `owner_id` já depende dela); o Media
-   não escreve nela. `FOR NO KEY UPDATE` não bloqueia as checagens de FK de outras tabelas.
+   `Retry-After`. A serialização usa uma guarda própria do Media, `media.upload_guards (owner_id uuid PK
+   REFERENCES identity.users ON DELETE CASCADE)`: na mesma transação, `INSERT ... ON CONFLICT DO NOTHING`, depois
+   `SELECT ... FOR UPDATE` da linha da guarda, e só então a situação da conta é relida, os pendentes são contados e
+   a reserva é inserida. Dois uploads simultâneos da mesma conta esperam um pelo outro na guarda, e o segundo conta
+   o primeiro. O Media não trava nem escreve tabela de outro módulo; conta inexistente aparece como violação de FK
+   (`23503`) no insert da guarda e vira "dono ausente".
 4. **Máquina de estados (spec 4.2).** `Pending` (registro criado, slot reservado) → `Quarantined` (bytes no
    storage, evento na outbox, mesma transação) → `Processing` (Worker tomou a entrega, transição condicional pela
    `version`) → `Approved` ou `Rejected`; `Deleted` vem de API-M03 (fora deste marco). Falha no streaming apaga o
@@ -81,9 +86,12 @@ na outbox e sanitizá-la no Worker com ImageSharp, publicando só derivados reen
    adaptador S3 com `AWSSDK.S3` num bucket próprio de mídia, separado do bucket de backup (ADR-0023), **sem
    Object Lock** (exclusão de foto é obrigação da spec 12.4, e Object Lock a impediria) e sem versionamento, para
    o `DELETE` apagar de fato (spec 16.2). Credenciais separadas por processo, impostas pela política do bucket:
-   **Web** escreve em `quarantine/` e lê `derivatives/`; **Worker** lê e apaga em `quarantine/` e escreve e apaga
-   em `derivatives/`. Nenhuma credencial pode listar o bucket nem ler a quarentena pelo Web. Timeout por chamada e
-   retry só do SDK, com teto.
+   **Web** escreve e apaga em `quarantine/*` (o apagar é a compensação de um upload que falhou no meio) e lê
+   `derivatives/`; **Worker** lê e apaga em `quarantine/` e escreve e apaga em `derivatives/`. Nenhuma credencial
+   lista o bucket, e o Web não lê a quarentena. Só `NoSuchKey` conta como objeto ausente; `AccessDenied` é
+   erro de configuração, registrado como Error. Timeout por chamada e retry só do SDK, com teto; o timeout do PUT
+   na quarentena é pelo menos o `Media:UploadTimeout` (conferido no boot), e um timeout com o corpo ainda
+   incompleto conta como falha do cliente.
 6. **Fila.** O `Quarantined` grava `media.upload-quarantined` (schema 1, payload só com `uploadId`; a chave do
    objeto nunca vai ao payload) na outbox, com uma entrega ao consumidor `media-processing` e prazo de 24 h
    (= `abandon_after`). O Worker usa o mesmo protocolo da outbox de e-mail: claim com `SKIP LOCKED`, lease,
@@ -95,17 +103,19 @@ na outbox e sanitizá-la no Worker com ImageSharp, publicando só derivados reen
       reconhecido (SVG, HTML, executável) → `Rejected UNSUPPORTED_FORMAT`;
    2. dimensões lidas do header (`Identify`) antes de alocar pixels; acima de 20 megapixels →
       `Rejected TOO_MANY_PIXELS`;
-   3. mais de um frame → `Rejected ANIMATED`, inclusive APNG (chunk `acTL` antes do `IDAT`) e WebP animado (flag
-      de animação do `VP8X` ou chunk `ANIM`), checados pelos bytes e não só pelo decoder;
+   3. mais de um frame → `Rejected ANIMATED`, inclusive APNG (chunk `acTL` em qualquer posição) e WebP animado
+      (flag de animação do `VP8X` ou chunk `ANIM`/`ANMF`), checados pelos bytes e não só pelo decoder;
    4. decode com `Configuration` que só conhece JPEG, PNG e WebP, `MaxFrames = 1` e o alocador limitado; falha →
       `Rejected CORRUPT_IMAGE` e o Worker segue para a próxima;
    5. orientação EXIF aplicada aos pixels, perfil ICC convertido para sRGB e todos os metadados descartados (EXIF,
       XMP, IPTC, ICC);
    6. variantes `thumb` (256 px), `card` (768 px) e `full` (1600 px) no maior lado, sem ampliar, reencodadas em
       WebP; SHA-256 do original guardado no asset;
-   7. original e temporários apagados depois do commit, em sucesso e em rejeição (`original_key` vira `NULL`).
+   7. original e temporários apagados depois do commit, em sucesso e em rejeição (o asset nasce com
+      `original_key` nulo).
 8. **Revisão.** Política `Media:Review = TechnicalOnly`: passou na sanitização, vai a `Approved`. É a única
-   política implementada, e o boot do Web e do Worker a recusa em `Production`: com ela, fotos reais não entram.
+   política implementada e só é aceita nos ambientes `Development` e `Testing` (allowlist); o boot do Web e do
+   Worker a recusa em qualquer outro, inclusive `Production` e `Staging`: com ela, fotos reais não entram.
    **Pendência antes de dados reais:** revisão editorial (spec 12.3), com fila de quarentena e decisão humana.
    Sem `Media:Review` configurado, o upload fica desligado (fail closed): API-M01 responde `503
    MEDIA_UPLOADS_DISABLED`, o Worker não consome `media-processing` e o storage não é exigido no boot. É o estado
@@ -133,7 +143,8 @@ no porte atual.
   licença); a foto passa duas vezes pela VPS (recepção e leitura); a sanitização dentro do Worker não isola um
   bug de memória do decoder do resto do Worker até o `media-sanitizer` existir.
 - Trade-off: aprovação técnica automática simplifica o M1, mas impede produção com dados reais até a revisão
-  editorial; `Pending` abandonado por queda entre o streaming e o commit ocupa o slot até o job de limpeza
+  editorial; `Pending` abandonado por queda entre o streaming e o commit deixa de ocupar vaga depois de duas
+  vezes o `Media:UploadTimeout` e libera a mesma chave, mas a linha e o objeto só saem com o job de limpeza
   (`abandon_after`, a implementar com API-M03 e a retenção).
 
 ## Segurança e operação
@@ -163,6 +174,8 @@ no porte atual.
 - **Contrato do storage:** a mesma suíte roda contra o adaptador de filesystem e contra o S3 num MinIO
   descartável (imagem `bitnamilegacy/minio` fixada por digest, a mesma do drill de backup do #19; o servidor
   MinIO é AGPL-3.0, usado só como dublê de teste em container, sem ligação nem distribuição, e não entra no SBOM).
+- **Concorrência e abuso:** `PendingUploadsPerAccountAreCapped` (envios simultâneos contra a guarda, conferido
+  sabotando o `FOR UPDATE`) e o rate limit por conta e por IP com `429` e `Retry-After`.
 - **Arquitetura:** só o `Duora.Worker` referencia `SixLabors.*`; Core sem SDK de fornecedor (o `AWSSDK.S3` fica na
   Infrastructure).
 - **Boot:** testes de startup provam que `Production` recusa o adaptador de filesystem e a política
