@@ -2,6 +2,7 @@ extern alias worker;
 
 using Duora.Core.Notifications;
 using Duora.Infrastructure.Email;
+using Duora.Infrastructure.Outbox;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -78,15 +79,20 @@ internal sealed class EmailOutboxHarness : IAsyncDisposable
     public Task<Guid> EnqueueAsync(AccountEmailKind kind, string? token, CancellationToken cancellationToken) =>
         EnqueueAsync(kind, token, "pt-BR", cancellationToken);
 
-    public async Task<Guid> EnqueueAsync(
+    public Task<Guid> EnqueueAsync(
         AccountEmailKind kind,
         string? token,
         string? language,
         CancellationToken cancellationToken)
     {
-        await using var dbContext = PostgresFixture.CreateDbContext(ConnectionString);
         var message = new AccountEmailRequested(kind, "ana@example.com", Guid.CreateVersion7(), token, language);
-        var outboxEvent = AccountEmailOutbox.Create(message, Time.GetUtcNow());
+        return EnqueueAsync(AccountEmailOutbox.Create(message, Time.GetUtcNow()), cancellationToken);
+    }
+
+    /// <summary>Grava o evento como o web gravaria, para o worker deste harness consumir.</summary>
+    public async Task<Guid> EnqueueAsync(OutboxEvent outboxEvent, CancellationToken cancellationToken)
+    {
+        await using var dbContext = PostgresFixture.CreateDbContext(ConnectionString);
         dbContext.Add(outboxEvent);
         await dbContext.SaveChangesAsync(cancellationToken);
         return outboxEvent.Deliveries.Single().Id;
