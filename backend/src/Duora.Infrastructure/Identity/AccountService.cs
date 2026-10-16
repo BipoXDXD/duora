@@ -195,7 +195,7 @@ public sealed class AccountService
     /// Troca a senha com o token do e-mail. O Identity troca o security stamp, o que já invalida todas as sessões;
     /// a revogação explícita deixa o motivo registrado. O bloqueio por tentativas é zerado, para quem foi
     /// bloqueado por um atacante recuperar o acesso pelo e-mail, exceto em conta com MFA: o e-mail não prova o
-    /// segundo fator, e destravar ali reabriria a força bruta do TOTP (I4 da revisão do #38). Só vale para conta
+    /// segundo fator, e destravar ali reabriria a força bruta do TOTP. Só vale para conta
     /// confirmada. Troca, revogação e aviso ao titular (TM-21) vão num commit só: sem troca, nada é gravado.
     /// </summary>
     public async Task<bool> ResetPasswordAsync(
