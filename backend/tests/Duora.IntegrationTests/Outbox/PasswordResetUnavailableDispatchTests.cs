@@ -44,6 +44,19 @@ public sealed class PasswordResetUnavailableDispatchTests(PostgresFixture postgr
     }
 
     [Fact]
+    public async Task TheNoticeStillGoesOutJustBeforeTwentyFourHours()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var deliveryId = await harness.EnqueueAsync(AccountEmailKind.PasswordResetUnavailable, token: null, "pt-BR", Ct);
+        harness.Time.Advance(TimeSpan.FromHours(24) - TimeSpan.FromMinutes(1));
+        var dispatcher = harness.StartWorker();
+
+        await dispatcher.DispatchBatchAsync(Ct);
+
+        Assert.Equal("Delivered", (await harness.ReadDeliveryAsync(deliveryId, Ct)).Status);
+    }
+
+    [Fact]
     public async Task TheNoticeExpiresAfterTwentyFourHours()
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
