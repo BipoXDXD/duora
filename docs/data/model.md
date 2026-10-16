@@ -217,6 +217,8 @@ erDiagram
 - **Índices:** `ix_age_verifications_user_id_requested_at` (FK e leitura da última solicitação da pessoa).
 - **Escrita:** só SQL condicional no estado (`WHERE state = 'Pending'`); a conta é travada antes da solicitação
   em API-P05 e no webhook, nessa ordem ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md)).
+- **Solicitação abandonada:** `Pending` além de `RequestLifetime`, ou sem `provider_reference` com a tarefa do worker
+  em `Failed`/`Expired`, vira `Expired` quando a pessoa pede de novo (API-P05).
 - **Classe:** P3. Sem documento, imagem ou biometria (spec 12.1, 12.2).
 
 ### identity.consent_records

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Duora.Infrastructure.Identity;
 
 namespace Duora.IntegrationTests.AgeVerification;
 
@@ -25,9 +26,9 @@ public sealed class AgeVerificationProviderDispatchTests(PostgresFixture postgre
         Assert.Equal("{}", delivery.Payload);
         var verification = await harness.ReadVerificationAsync(pending.UserId, Ct);
         Assert.Equal("Pending", verification.State);
-        Assert.Equal($"fake_{pending.VerificationId:N}", verification.ProviderReference);
+        Assert.Equal($"{FakeAgeEligibilityProvider.ReferenceFor(pending.VerificationId)}", verification.ProviderReference);
         Assert.Equal(
-            $"{AgeVerificationScenario.FakeFlowOrigin}/flow/fake_{pending.VerificationId:N}",
+            $"{AgeVerificationScenario.FakeFlowOrigin}/flow/{FakeAgeEligibilityProvider.ReferenceFor(pending.VerificationId)}",
             verification.FlowUrl);
         Assert.Equal(1, verification.Version);
         Assert.Equal("PendingEligibility", await harness.AccountStatusAsync(pending.UserId, Ct));
