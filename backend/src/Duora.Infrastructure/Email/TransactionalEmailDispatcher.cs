@@ -108,10 +108,23 @@ public sealed partial class TransactionalEmailDispatcher
             (AccountEmailKind.RegistrationAttemptOnExistingAccount, _) => _emails.RegistrationAttemptOnExistingAccount(to, language),
             (AccountEmailKind.PendingRegistrationReminder, _) => _emails.PendingRegistrationReminder(to, language),
             (AccountEmailKind.PasswordResetForUnknownAddress, _) => _emails.PasswordResetForUnknownAddress(to, language),
+            // Aviso nunca leva credencial: com token, o payload é defeito de quem gravou e não sai.
+            (_, null) when SecurityChangeOf(message.Kind) is { } change =>
+                _emails.SecurityNotice(to, change, delivery.OccurredAt, language),
             _ => null,
         };
         return email is not null;
     }
+
+    private static SecurityChange? SecurityChangeOf(AccountEmailKind kind) => kind switch
+    {
+        AccountEmailKind.MfaEnabledNotice => SecurityChange.MfaEnabled,
+        AccountEmailKind.MfaDisabledNotice => SecurityChange.MfaDisabled,
+        AccountEmailKind.RecoveryCodesRegeneratedNotice => SecurityChange.RecoveryCodesRegenerated,
+        AccountEmailKind.PasswordChangedNotice => SecurityChange.PasswordChanged,
+        AccountEmailKind.PasswordResetNotice => SecurityChange.PasswordReset,
+        _ => null,
+    };
 
     private async Task SendWithTimeoutAsync(
         TransactionalEmail email,

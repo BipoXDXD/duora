@@ -1,3 +1,4 @@
+using System.Globalization;
 using Duora.Core.Identity;
 
 namespace Duora.Core.Notifications;
@@ -9,6 +10,9 @@ namespace Duora.Core.Notifications;
 /// </summary>
 public sealed class AccountEmails
 {
+    /// <summary>Página da conta na SPA, onde fica a lista de sessões ativas (API-A09/A10).</summary>
+    private const string SessionsPath = "/conta";
+
     private readonly PublicOrigin _publicOrigin;
 
     public AccountEmails(PublicOrigin publicOrigin)
@@ -36,6 +40,26 @@ public sealed class AccountEmails
 
     public TransactionalEmail PasswordResetForUnknownAddress(EmailAddress to, EmailLanguage language) =>
         Compose(to, CatalogFor(language).PasswordResetForUnknownAddress(_publicOrigin.Resolve("/cadastro")));
+
+    /// <summary>
+    /// Aviso ao titular de que uma credencial mudou (TM-21). Texto fixo: o único dado variável é o instante, em UTC e
+    /// com precisão de minuto, porque o e-mail não sabe o fuso de quem lê. Não há token: o link leva à área de
+    /// sessões, onde quem não reconhece a mudança encerra as sessões e troca a senha.
+    /// </summary>
+    public TransactionalEmail SecurityNotice(
+        EmailAddress to,
+        SecurityChange change,
+        DateTimeOffset occurredAt,
+        EmailLanguage language)
+    {
+        if (!Enum.IsDefined(change))
+        {
+            throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida.");
+        }
+
+        var occurredAtUtc = occurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
+        return Compose(to, CatalogFor(language).SecurityNotice(change, occurredAtUtc, _publicOrigin.Resolve(SessionsPath)));
+    }
 
     /// <summary>Valor fora do enum (um cast de inteiro) cai no padrão, como uma tag desconhecida.</summary>
     private static IAccountEmailCatalog CatalogFor(EmailLanguage language) => language switch

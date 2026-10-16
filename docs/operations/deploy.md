@@ -197,6 +197,21 @@ join ops.outbox_events e on e.id = d.outbox_event_id
 where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight') and e.payload ? 'language';
 ```
 
+**Avisos de credencial (TM-21).** Os tipos `MfaEnabledNotice`, `MfaDisabledNotice`, `RecoveryCodesRegeneratedNotice`,
+`PasswordChangedNotice` e `PasswordResetNotice` do mesmo evento seguem expand/contract em dois deploys: primeiro vai
+o leitor (`feat/security-notifications-reader`, sem nenhuma gravação), depois a gravação
+(`feat/security-notifications`). O instante citado no e-mail é o `occurred_at` do evento, não um campo do payload.
+Um worker anterior ao leitor encerra esses tipos como `Failed` (`InvalidPayload`), sem retry: o aviso se perde.
+Rollback da release com a gravação para a do leitor é seguro; para uma release anterior ao leitor, só com a fila
+desses tipos vazia:
+
+```sql
+select count(*) from ops.outbox_deliveries d
+join ops.outbox_events e on e.id = d.outbox_event_id
+where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
+  and e.payload->>'kind' like '%Notice';
+```
+
 ### Falha no meio do deploy
 
 | Onde falhou | Estado | O que fazer |
