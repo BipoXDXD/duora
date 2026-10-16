@@ -92,10 +92,14 @@ Vamos adotar a alternativa **(a)**.
    `ExperienceId` não baterem com o snapshot. As escolhas são gravadas por `stepId`/`optionId` e a pista privada
    por índice do conjunto sorteado, nunca pelo texto.
 4. **Colunas.** `game_sessions.public_state` e `control_state` (inclui o resultado do sorteio e os limites
-   fixados); `game_participants.private_state` por pessoa; os três anuláveis enquanto a sala está `Invited` ou
-   `Ready` (o jogo ainda não começou) e obrigatórios a partir de `Active`, por `CHECK`; `game_sessions.schema_version
-   int` igual à da versão publicada (`ExperienceVersion` usa `int` para as três versões, e `experience_versions`
-   segue o mesmo tipo); `game_sessions.game_started_at timestamptz`. `game_sessions.version bigint` é a **única**
+   fixados); `game_participants.private_state` por pessoa; `game_sessions.schema_version int` igual à da versão
+   publicada (`ExperienceVersion` usa `int` para as três versões, e `experience_versions` segue o mesmo tipo);
+   `game_sessions.game_started_at timestamptz`. O estado de jogo existe se e só se o jogo começou, e o marco é
+   `game_started_at`, não o `state`: uma sala pode ir de `Invited` ou `Ready` direto a `Expired` ou `Aborted` sem
+   nunca ter jogo, e de `Active` a `Completed`, `Expired` ou `Aborted` com jogo. `CHECK`s: `(game_started_at IS
+   NULL) = (public_state IS NULL)` e idem para `control_state`; `state <> 'Active' OR game_started_at IS NOT
+   NULL`; `state NOT IN ('Invited', 'Ready') OR game_started_at IS NULL`. `game_participants.private_state` é
+   gravado na mesma transação que preenche `game_started_at`, e o `Restore` falha se faltar o de alguém. `game_sessions.version bigint` é a **única**
    versão da sala (ADR-0016): nasce 1 no `Invited`, sobe em toda transição, inclusive as anteriores ao jogo, e é a
    `StateVersion` do motor. Por isso `GameSession.Start` passa a receber a versão corrente da sala em vez de
    partir sempre de `StateVersion.Initial`; `CHECK (version >= 1)` em vez do `default 0` da convenção geral. Cada
@@ -114,7 +118,10 @@ Vamos adotar a alternativa **(a)**.
    sessão (o motor indexa o registro só pelo id, enquanto a PK do banco inclui o autor) e o teto de ações. Snapshot inválido
    lança exceção de domínio específica; a API responde erro genérico e o alerta leva só `gameSessionId` e o tipo
    da falha.
-7. **Concorrência (spec 10.4).** Todo comando que muda a sala segue a ordem global: 0 idempotência; guardas e
+7. **Concorrência (spec 10.4).** Invariante: **todo escritor de `game_participants` e `game_actions`
+   (aceite de convite, saída, ação de jogo, prazo, exclusão de conta) tranca antes a linha de `game_sessions` da
+   mesma sala**; nenhuma dessas tabelas é escrita sem esse lock, e é isso que torna a leitura das três tabelas
+   sob o lock da sala um snapshot coerente. Todo comando que muda a sala segue a ordem global: 0 idempotência; guardas e
    coordenadores quando o caso de uso pedir (decisão, bloqueio); 4 `SELECT ... FROM experiences.game_sessions
    WHERE id = $id FOR UPDATE`, depois as linhas de `game_participants` e `game_actions` da sessão; `Restore`;
    motor; gravação com `UPDATE experiences.game_sessions SET ..., version = version + 1 WHERE id = $id AND version
@@ -124,8 +131,8 @@ Vamos adotar a alternativa **(a)**.
    `game_participants` e `game_actions` numa transação `REPEATABLE READ READ ONLY` (ou num único comando): em
    `READ COMMITTED` cada comando vê um snapshot novo, e uma ação comitada entre as leituras daria um snapshot com
    estado público de uma versão e privado de outra, que o `Restore` recusaria ou, pior, aceitaria incoerente. O
-   job de prazo é o do [ADR-0021](0021-jobs-duraveis-e-leases-no-postgresql.md) (`active-deadline:<sessão>`, criado
-   na transação que leva a sala a `Active`) e segue a C6 com a mesma gravação condicional.
+   job de prazo é o do [ADR-0021](0021-jobs-duraveis-e-leases-no-postgresql.md) (`active-deadline:<sessão>:<prazo>`,
+   criado na transação que leva a sala a `Active`, e um novo a cada mudança de prazo) e segue a C6 com a mesma gravação condicional.
 8. **Evolução de `SchemaVersion` (expand/contract e tolerant reader).** Uma sessão grava sempre na
    `schemaVersion` com que nasceu (INV-09); só uma versão publicada nova da experiência leva sessões novas a um
    schema novo. Expand: a release N passa a ler os schemas `k` e `k + 1` e as regras das duas `rulesVersion`;
@@ -195,8 +202,15 @@ conteúdo não exige migração de tabela, e sessões em andamento atravessam de
   usa a versão 2; tentar alterar o conteúdo publicado da versão 1 falha.
 - **T-05 (HTTP, M2):** o JSON da projeção de A não contém nenhuma pista de B nem o resultado do sorteio, inclusive
   em erro e notificação; canário semeado no texto da pista de B nunca aparece em resposta nem em log.
-- **Leitura consistente (integração, M2):** uma ação de B comitada entre as leituras de uma projeção de A não
-  produz snapshot misto (gancho de teste entre os comandos; sabotagem com `READ COMMITTED` precisa falhar).
+- **Leitura consistente (integração, M2):** com um gancho de teste entre os comandos da leitura, uma ação de B
+  comitada no meio de uma projeção de A não produz snapshot misto: a projeção é devolvida com sucesso e traz a
+  versão `v` e o estado público e privado dessa mesma versão (a de antes da ação de B); uma segunda leitura
+  traz `v + 1`. Sabotagem com `READ COMMITTED` precisa falhar (versões divergentes ou `Restore` recusando).
+- **Estado só com jogo (integração, M2):** sala `Invited` e `Ready` vão a `Expired` e `Aborted` sem estado de
+  jogo; sala `Active` não grava sem `game_started_at` e estado; os `CHECK`s recusam as combinações inválidas.
+- **Lock da sala (arquitetura ou revisão, M2):** todo SQL que escreve em `game_participants` ou `game_actions`
+  fica no repositório da sessão, atrás do método que tranca `game_sessions` primeiro; o teste de integração do
+  C4 confere com `pg_locks` que a linha da sala está trancada no momento da escrita.
 - **Versão única (unidade e integração, M2):** sala que passou por `Invited` e `Ready` começa o jogo com a versão
   corrente da linha, e o primeiro `expectedVersion` aceito é essa versão.
 - **Arquitetura (M2):** `Duora.ArchitectureTests` falha se `Duora.Contracts` ou `Duora.Web` expuser

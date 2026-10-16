@@ -171,8 +171,9 @@ Job de expiração e API-R01/R03 (M2). Teste T-18. Os dois trancam a `game_sessi
 persistido com o instante do servidor. Quem trancar primeiro decide; o job só transiciona se `state` e
 `version` ainda forem os que ele leu (`UPDATE ... WHERE id = $id AND version = $v AND state = 'Active'`). O job
 tranca antes a própria linha em `ops.jobs` (ordem 0, [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md)
-item 4); se a sala já saiu de `Active`, conclui sem efeito; se o prazo persistido ainda não chegou, reagenda-se
-para ele. A API nunca cancela nem altera o job.
+item 4); se a sala já saiu de `Active` ou o prazo persistido não é o instante do job, conclui sem efeito. Mudar o
+prazo insere um job novo com a chave do instante novo (`active-deadline:<sala>:<prazo>`); a API nunca cancela,
+altera nem tranca o job.
 
 ### C7. Worker atrasado vs novo lease
 
@@ -180,11 +181,14 @@ Outbox e jobs. Teste T-08. Ver [Outbox, lease e fencing](#outbox-lease-e-fencing
 
 ### C8. Exclusão vs notificação
 
-API-D03 contra entregas da outbox. A exclusão tranca a guarda da pessoa, passa a conta a `DeletionPending`,
-revoga sessões e cancela entregas `Pending` cujo `recipient_key` é a pessoa. O consumidor, imediatamente antes
-do efeito externo, revalida o destinatário numa leitura curta (estado da conta, bloqueio, preferências) e
-cancela se não for mais válido. Entrega já em envio quando a exclusão comita pode sair: bytes em trânsito não
-são recolhidos (spec 1.2).
+API-D03 contra entregas da outbox (M2+). A exclusão tranca a guarda da pessoa, passa a conta a
+`DeletionPending` e revoga sessões; ela **não** altera entregas da outbox, assim como transação de negócio não
+altera jobs. O consumidor, imediatamente antes do efeito externo, revalida o destinatário numa leitura curta
+(estado da conta, bloqueio, preferências) e, se ele não for mais válido, encerra a entrega sem efeito. A outbox
+implementada no M1 (`OutboxDeliveryStatus`: `Pending`, `InFlight`, `Delivered`, `Failed`, `Expired`) não tem
+`Cancelled` nem essa revalidação; a fatia de API-D03 acrescenta as duas (o estado novo entra por expand/contract:
+primeiro o `CHECK` e o leitor, depois a escrita). Entrega já em envio quando a exclusão comita pode sair: bytes
+em trânsito não são recolhidos (spec 1.2).
 
 ### C9. Revogação de sessão vs requisição em voo (M1)
 
@@ -317,10 +321,12 @@ decidida pelo consumidor depois do claim, encerrando a entrega como `Expired`.
 
 Jobs (`ops.jobs`) usam o mesmo claim, lease e fencing, com as diferenças do
 [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md): estado final `Done` e `Cancelled`
-(este só pela área administrativa); claim só dos tipos conhecidos pela release e não pausados, com `attempts <
-max_attempts`, e o mesmo comando leva a `Failed` o lease vencido de tentativas esgotadas; `deadline_at` vencido vira
-`Expired` no claim; efeito interno conclui o job e aplica a transição de negócio na mesma transação, com a linha do
-job na ordem 0. Job de expiração de sala, rodada ou convite aplica a transição condicional do cenário
+(este só pela área administrativa); uma chave por agendamento (`<kind>:<agregado>:<instante>`), e transação de
+negócio só insere chave nova; claim só dos tipos conhecidos pela release e não pausados, que no mesmo comando leva
+a `Expired` o deadline vencido e a `Failed` o lease vencido de tentativas esgotadas, devolvendo como trabalho só as
+`InFlight` (SQL no ADR-0021, item 3); prazo do item limitando a unidade inteira e conferido contra o lease restante
+antes de cada item; efeito interno conclui o job e aplica a transição de negócio na mesma transação, com a linha do
+job na ordem 0; efeito externo autoriza no banco antes de agir no storage. Job de expiração de sala, rodada ou convite aplica a transição condicional do cenário
 [C6](#c6-timeout-vs-ação), de modo que uma conclusão com token válido mas estado já mudado não tem efeito.
 
 | Parâmetro | Valor inicial (hipótese) |

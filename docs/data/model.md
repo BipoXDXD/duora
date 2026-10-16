@@ -495,21 +495,23 @@ erDiagram
   bigint` (única versão da sala e `StateVersion` do motor: nasce 1 no `Invited` e sobe em toda transição).
 - **Constraints:** `UNIQUE (pairing_id)` (uma sala por par); FK `pairing_id` → `events.pairings` `RESTRICT`;
   FK `experience_version_id` `RESTRICT` (INV-09); FK `parameter_set_id` `RESTRICT`; `CHECK` de estado;
-  `CHECK (version >= 1)` (exceção à convenção `default 0`, ADR-0020); estado de jogo presente a partir do jogo:
-  `CHECK ((state IN ('Invited', 'Ready')) = (public_state IS NULL))`, idem para `control_state` e
-  `game_started_at`; `CHECK (octet_length(public_state::text) <= 32768)` e idem para `control_state`
+  `CHECK (version >= 1)` (exceção à convenção `default 0`, ADR-0020); estado de jogo existe se e só se o jogo
+  começou (uma sala pode expirar ou ser abortada antes de `Active`): `CHECK ((game_started_at IS NULL) =
+  (public_state IS NULL))` e idem para `control_state`, `CHECK (state <> 'Active' OR game_started_at IS NOT
+  NULL)`, `CHECK (state NOT IN ('Invited', 'Ready') OR game_started_at IS NULL)`; `CHECK (octet_length(public_state::text) <= 32768)` e idem para `control_state`
   **(hipótese de limite)**.
 - **Índices:** FKs. Os prazos de convite e de jogo são executados por jobs em `ops.jobs` (ADR-0021), criados na
   mesma transação da transição; índice parcial de prazos aqui só se surgir consulta de reconciliação medida.
-- **Escrita:** só pela ordem e gravação condicional do ADR-0020 (item 7); leitura de projeção em `REPEATABLE READ
-  READ ONLY` com `game_participants` e `game_actions`.
+- **Escrita:** só pela ordem e gravação condicional do ADR-0020 (item 7). Invariante: todo escritor de
+  `game_participants` e `game_actions` tranca antes esta linha. Leitura de projeção em `REPEATABLE READ READ
+  ONLY` com `game_participants` e `game_actions`.
 - **Classe:** P3 (`control_state` e `seed` são de controle e nunca vão a API, log, métrica ou contexto de agente).
 
 ### experiences.game_participants
 
 - **Colunas:** `game_session_id`; `user_id`; `accepted_at`, `departed_at timestamptz`; `private_state jsonb`
-  (índices das pistas sorteadas para o participante, nunca o texto; nunca projetado para o outro; nulo antes de
-  `Active`; `CHECK (octet_length(private_state::text) <= 32768)`).
+  (índices das pistas sorteadas para o participante, nunca o texto; nunca projetado para o outro; nulo enquanto
+  `game_sessions.game_started_at` for nulo, gravado na transação que o preenche; `CHECK (octet_length(private_state::text) <= 32768)`).
 - **Constraints:** PK `(game_session_id, user_id)`; FK `game_session_id` `CASCADE`; FK `user_id` `RESTRICT`.
 - **Índices:** `ix_game_participants_user_id`.
 - **Classe:** P3.
@@ -908,8 +910,9 @@ erDiagram
 - **Colunas:** `id bigint identity`; `outbox_event_id`; `consumer text` (`realtime`, `email`,
   `age_verification`, `media`...); `recipient_key text` (ID lógico do destinatário, nunca e-mail);
   `status text` (`Pending`, `InFlight`, `Delivered`, `Failed`, `Expired`, como implementado no M1); `attempts int`;
-  `available_at`, `deadline_at`, `lease_expires_at timestamptz`; `fencing_token bigint`; `last_error_code
-  text` (causa sanitizada); `completed_at timestamptz`.
+  `available_at`, `deadline_at`, `lease_expires_at timestamptz`; `fencing_token bigint`; `last_error
+  varchar(200)` (como na migração `Outbox` do M1: categoria sanitizada, hoje o nome do tipo da exceção, nunca a
+  mensagem do fornecedor); `created_at`, `completed_at timestamptz`.
 - **Constraints:** `UNIQUE (outbox_event_id, consumer, recipient_key)` (spec 10.3); FK `outbox_event_id`
   `CASCADE`; `CHECK (attempts >= 0)`; `CHECK ((status = 'InFlight') = (lease_expires_at IS NOT NULL))`.
 - **Índices:** `ix_outbox_deliveries_pending (consumer, available_at, id) WHERE status = 'Pending'` (spec 10.3);
@@ -921,12 +924,13 @@ erDiagram
 
 Protocolo e regras em [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md).
 
-- **Colunas:** `id uuid` (UUIDv7); `kind text`; `dedupe_key text`; `payload jsonb` (IDs e versões do agregado
-  alvo); `status text` (`Pending`, `InFlight`, `Done`, `Failed`, `Expired`, `Cancelled`); `available_at`,
+- **Colunas:** `id uuid` (UUIDv7); `kind text`; `dedupe_key text` (`<kind>:<id do agregado>:<instante agendado>`,
+  uma chave por agendamento; tipo recorrente tem uma linha fixa com `dedupe_key = '<kind>'`); `payload jsonb` (IDs,
+  versões e instante agendado do agregado alvo); `status text` (`Pending`, `InFlight`, `Done`, `Failed`, `Expired`, `Cancelled`); `available_at`,
   `deadline_at` (anulável), `lease_expires_at timestamptz`; `attempts int not null default 0`; `max_attempts int
   not null default 8`; `fencing_token bigint not null default 0`; `last_error_code text`; `created_at`,
   `completed_at timestamptz`.
-- **Constraints:** `UNIQUE (kind, dedupe_key)` (ex.: `expire-invite:<gameSessionId>`); `CHECK` de `kind` (conjunto
+- **Constraints:** `UNIQUE (kind, dedupe_key)` (ex.: `expire-invite:<gameSessionId>:2026-10-16T19:00:00Z`); `CHECK` de `kind` (conjunto
   fechado) e de estado; `CHECK ((status = 'InFlight') = (lease_expires_at IS NOT NULL))`; `CHECK (attempts >= 0
   AND max_attempts BETWEEN 1 AND 20)` (sem `attempts <= max_attempts`, que abortaria o claim de lease vencido);
   `CHECK ((status IN ('Done', 'Failed', 'Expired', 'Cancelled')) = (completed_at IS NOT NULL))`;
@@ -934,8 +938,9 @@ Protocolo e regras em [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases
 - **Índices:** `ix_jobs_due (available_at, id) WHERE status = 'Pending'`; `ix_jobs_in_flight (lease_expires_at)
   WHERE status = 'InFlight'`; `ix_jobs_completed (completed_at) WHERE status IN ('Done', 'Expired', 'Cancelled')`
   (limpeza).
-- **Escrita:** transação de negócio só insere (`ON CONFLICT (kind, dedupe_key) DO NOTHING`); claim, conclusão,
-  reagendamento e limpeza são do worker; reprocessar e cancelar, da área administrativa com auditoria.
+- **Escrita:** transação de negócio só insere (`ON CONFLICT (kind, dedupe_key) DO NOTHING`), sempre uma chave
+  nova; nunca atualiza nem tranca job. Claim, conclusão, reagendamento por retry ou recorrência, devolução e
+  limpeza são do worker; reprocessar e cancelar (só a partir de `Failed`), da área administrativa com auditoria.
 - **Manutenção:** tabela de fila, com autovacuum por tabela na migração (`autovacuum_vacuum_scale_factor = 0.02`,
   `autovacuum_vacuum_threshold = 200`, **hipótese** a medir no ensaio de carga).
 - **Classe:** P1.

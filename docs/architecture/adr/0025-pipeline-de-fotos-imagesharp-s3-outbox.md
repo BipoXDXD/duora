@@ -38,7 +38,9 @@ Alternativas consideradas:
   produção, S3 compatível com o `AWSSDK.S3` oficial (Apache-2.0). Implementar SigV4 à mão foi descartado: é
   criptografia de autenticação caseira.
 - **Fila.** Broker ou fila em memória descartados pelo ADR-0008. `ops.jobs` (ADR-0021) ainda está Proposed; a
-  outbox existente, com lease e fencing, já resolve "upload concluído → processar" sem tabela nova.
+  outbox existente, com lease e fencing, já resolve "upload concluído → processar" sem tabela nova. (Nota de
+  2026-10-16: o ADR-0021 foi aceito e confirma esta escolha, porque reação a um fato vai pela outbox; a decisão
+  deste ADR não muda.)
 - **Transporte.** `multipart/form-data` traz parsing de partes, nome de arquivo e content-type por parte (nome do
   cliente vira tentação de caminho, TM-41). URL assinada de upload direto ao bucket tira a recepção da API, mas
   exige política de bucket que imponha tamanho e tipo, e a spec 2.3 só a admite com necessidade demonstrada.
