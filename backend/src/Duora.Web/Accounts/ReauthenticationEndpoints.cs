@@ -22,7 +22,8 @@ internal static class ReauthenticationEndpoints
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
-            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         api.MapPost("/me/password-changes", ChangePasswordAsync)
             .WithTags("Me")
             .RequireAccountSession()

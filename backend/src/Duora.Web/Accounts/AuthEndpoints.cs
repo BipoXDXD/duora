@@ -30,7 +30,8 @@ internal static class AuthEndpoints
         auth.MapPost("/login", LoginAsync)
             .RequireRateLimiting(AuthRateLimitPolicies.Login)
             .ProducesMutationProblems()
-            .ProducesProblem(StatusCodes.Status401Unauthorized);
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         auth.MapPost("/logout", LogoutAsync)
             .ProducesProblem(StatusCodes.Status403Forbidden);
         auth.MapPost("/password-reset-requests", RequestPasswordResetAsync)

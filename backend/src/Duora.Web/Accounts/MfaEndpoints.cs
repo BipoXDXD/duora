@@ -44,12 +44,16 @@ internal static class MfaEndpoints
             .ProducesAccountSecurityProblems();
     }
 
-    /// <summary>401 sem sessão ou sem autenticação recente, 403 de CSRF ou de papel e 429 do limite por sessão.</summary>
+    /// <summary>
+    /// 401 sem sessão ou sem autenticação recente, 403 de CSRF ou de papel, 429 do limite por conta e 503 quando a
+    /// conta está ocupada por outra verificação.
+    /// </summary>
     internal static RouteHandlerBuilder ProducesAccountSecurityProblems(this RouteHandlerBuilder route) =>
         route
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
-            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
     private static async Task<Results<Ok<MfaEnrollmentResponse>, ProblemHttpResult>> StartEnrollmentAsync(
         HttpContext context,
