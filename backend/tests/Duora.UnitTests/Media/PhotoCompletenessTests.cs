@@ -5,22 +5,17 @@ namespace Duora.UnitTests.Media;
 
 public sealed class PhotoCompletenessTests
 {
-    private static readonly byte[] StartOfScan = [0xFF, 0xDA, 0x00, 0x02];
-    private static readonly byte[] EndOfImage = [0xFF, 0xD9];
-
     [Fact]
     public void AJpegEndsWithTheEndOfImageMarkerAfterTheScan()
     {
-        byte[] jpeg = [.. Jpeg(), .. StartOfScan, 0x11, 0x22, .. EndOfImage];
-
-        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, jpeg));
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), Scan(), EndOfImage)));
     }
 
     [Fact]
     public void AJpegWithBytesAfterTheEndOfImageIsStillComplete()
     {
         // Poliglota JPEG + HTML: completo; o reencode descarta o que vem depois.
-        byte[] jpeg = [.. Jpeg(), .. StartOfScan, 0x11, .. EndOfImage, (byte)'<', (byte)'h'];
+        byte[] jpeg = [.. JpegFile(Header(), Scan(), EndOfImage), (byte)'<', (byte)'h'];
 
         Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, jpeg));
     }
@@ -28,17 +23,82 @@ public sealed class PhotoCompletenessTests
     [Fact]
     public void AJpegCutInsideTheScanIsIncomplete()
     {
-        byte[] jpeg = [.. Jpeg(), .. StartOfScan, 0x11, 0x22, 0x33];
-
-        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, jpeg));
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), Scan())));
     }
 
     [Fact]
     public void AnEndMarkerOnlyBeforeTheScanDoesNotCount()
     {
-        // Miniatura do EXIF tem o próprio FF D9 antes do scan principal.
-        byte[] jpeg = [.. Jpeg(), .. EndOfImage, .. StartOfScan, 0x11];
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), EndOfImage, Scan())));
+    }
 
+    [Theory]
+    [InlineData(App1)]
+    [InlineData(Comment)]
+    public void AThumbnailInsideAMetadataSegmentDoesNotCompleteACutImage(byte marker)
+    {
+        // A miniatura do EXIF é um JPEG inteiro (com SOS e EOI próprios) dentro do APP1; o arquivo principal termina
+        // no meio do scan, como um upload de celular cortado.
+        var jpeg = JpegFile(Segment(marker, Thumbnail()), Header(), Scan());
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, jpeg));
+    }
+
+    [Theory]
+    [InlineData(App1)]
+    [InlineData(Comment)]
+    public void AnIntactJpegWithAThumbnailIsComplete(byte marker)
+    {
+        var jpeg = JpegFile(Segment(marker, Thumbnail()), Header(), Scan(), EndOfImage);
+
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, jpeg));
+    }
+
+    [Fact]
+    public void ASegmentLongerThanTheFileIsIncomplete()
+    {
+        byte[] jpeg = [.. JpegFile(Header()), Marker, App1, 0x7F, 0xFF, .. Thumbnail(), .. Scan(), .. EndOfImage];
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, jpeg));
+    }
+
+    [Fact]
+    public void ASegmentShorterThanItsContentIsIncomplete()
+    {
+        // O comprimento declarado cobre só metade da miniatura: o próximo byte já não é um marcador.
+        var thumbnail = Thumbnail();
+        byte[] lying = [Marker, App1, 0x00, (byte)(2 + (thumbnail.Length / 2)), .. thumbnail];
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(lying, Header(), Scan(), EndOfImage)));
+    }
+
+    [Fact]
+    public void StuffedAndRestartBytesInsideTheScanAreNotTheEnd()
+    {
+        // FF 00 é um FF literal do dado comprimido e FF D0 é restart: nenhum dos dois encerra a imagem.
+        byte[] scan = [.. Scan(), Marker, 0x00, 0x33, Marker, 0xD0, 0x44];
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), scan)));
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, JpegFile(Header(), scan, EndOfImage)));
+    }
+
+    [Fact]
+    public void AProgressiveJpegNeedsTheEndAfterItsLastScan()
+    {
+        // Progressivo: vários scans, com tabelas entre eles. Cortado depois do primeiro scan, está incompleto.
+        var firstScan = JpegFile(Header(), Scan(), Segment(DefineHuffmanTable, new byte[17]));
+
+        Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, firstScan));
+        Assert.True(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, [.. firstScan, .. Scan(), .. EndOfImage]));
+    }
+
+    [Theory]
+    [InlineData(new byte[] { })]
+    [InlineData(new byte[] { 0xFF, 0xD8 })]
+    [InlineData(new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 })]
+    [InlineData(new byte[] { 0xFF, 0xD8, 0xFF, 0x00, 0x00, 0x02, 0xFF, 0xD9 })]
+    public void AJpegWithoutAScanIsIncomplete(byte[] jpeg)
+    {
         Assert.False(PhotoCompleteness.IsComplete(PhotoFormat.Jpeg, jpeg));
     }
 
