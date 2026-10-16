@@ -87,6 +87,9 @@ public abstract record MfaActivation
     public sealed record NotStarted : MfaActivation;
 
     public sealed record AlreadyEnabled : MfaActivation;
+
+    /// <summary>A conta ainda usa a senha temporária do bootstrap: primeiro troca a senha, depois ativa o MFA.</summary>
+    public sealed record PasswordChangeRequired : MfaActivation;
 }
 
 /// <summary>Novo conjunto de códigos de recuperação (API-A14).</summary>
@@ -309,6 +312,12 @@ public sealed class AccountSecurityService
         await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
+        if (user.HasTemporaryPassword)
+        {
+            // A rota já barra essa sessão; o serviço não depende disso para manter a ordem troca de senha, depois MFA.
+            return new MfaActivation.PasswordChangeRequired();
+        }
+
         if (user.TwoFactorEnabled)
         {
             return new MfaActivation.AlreadyEnabled();
@@ -549,6 +558,14 @@ public sealed class AccountSecurityService
         if (await _users.IsLockedOutAsync(user))
         {
             await RecordPasswordFailureAsync(user, PasswordCheck.PasswordChange, wasLockedOut: true, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new PasswordChange.WrongPassword();
+        }
+
+        if (user.HasExpiredTemporaryPassword(_time.GetUtcNow()))
+        {
+            // Sob o lock: a sessão pode ter sido aberta antes do prazo, e a senha temporária vencida não vale mais.
+            await RecordPasswordFailureAsync(user, PasswordCheck.PasswordChange, wasLockedOut: false, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new PasswordChange.WrongPassword();
         }
