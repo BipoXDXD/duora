@@ -486,7 +486,7 @@ com `restic`, para o prefixo `media/` do mesmo bucket B2 com File Lock. A quaren
 | O quê | Valor |
 |---|---|
 | Ferramenta | `restic` do Ubuntu 24.04 (pacote `restic`, BSD-2-Clause), instalado pelo role `backup` |
-| Onde roda | No host, como root, pelos timers `duora-backup-media*.timer` → `duora-backup@media-*.service` (falha dispara o mesmo `duora-backup-failed@`) |
+| Onde roda | No host, como root, pelos timers `duora-backup-media*.timer` → `duora-media-backup@media-*.service`, sem dependência do Docker (falha dispara o mesmo `duora-backup-failed@`) |
 | Destino | `s3:https://<endpoint>/<bucket>/media`, cifrado no cliente com a senha do repositório |
 | Chave | `duora-media-backup`, presa a `media/`, sem `deleteFiles` ([backblaze-setup.md](backblaze-setup.md#3-chaves)) |
 | Retenção | 14 dias de snapshots (`forget --keep-within 14d --prune`) + 21 dias de lock + 30 dias do lifecycle: uma foto apagada some da VPS na hora e da cópia externa em até ~65 dias |
@@ -520,6 +520,17 @@ formato de credenciais compartilhadas). O restic lê os três por arquivo (`REST
    `sudo duora-backup media-verify`.
 
 O upload de fotos **não liga em produção** antes destes quatro passos e de um restore de ensaio (abaixo) bem-sucedido.
+O interruptor é `duora_media_review` no inventário (vira `DUORA_MEDIA_REVIEW` no `duora.env`); com ele preenchido, o
+`duora-deploy` recusa a release, antes de baixar imagens, se o `duora-backup-media-verify.timer` não estiver ativo ou
+se o último `media-verify` bom (marcador `.media-verify-ok` em `/var/lib/duora`) tiver mais de 30 h
+(`MediaUploadGateTests`).
+
+**Limite da proteção das fotos:** o restic deduplica, e um pacote gravado no primeiro backup continua sendo usado por
+todos os snapshots seguintes. O File Lock conta da gravação de cada versão: um pacote com mais de 21 dias está fora do
+lock, e o que o protege é só a chave da VPS não ter `deleteFiles`. Um `restic forget --prune` malicioso com essa chave
+só oculta (hide marker), e a recuperação remove os hide markers; uma chave com `deleteFiles` vazada apagaria esses
+pacotes de vez. Mitigação registrada como lacuna, **não implementada**: um `restic check` independente, de fora da VPS,
+com uma chave só de leitura de `media/`, para notar a falta de um pacote antes de ela virar perda.
 
 ### Restore das fotos
 
@@ -537,15 +548,18 @@ primeiro, com os tombstones): só voltam os derivados de assets `Approved`.
 # $C é o mesmo "sudo docker compose ..." com os env files da release, da seção de restore do banco acima.
 $C exec --no-TTY postgres psql --username postgres --dbname duora --tuples-only --no-align --command \
   "select v.object_key from media.media_variants v join media.media_assets a on a.id = v.media_asset_id
-   where a.state = 'Approved'" > /var/tmp/duora-media-keep.txt
+   where a.state = 'Approved'" \
+  | grep -E '^derivatives/[0-9a-f]{32}-(thumb|card|full)$' > /var/tmp/duora-media-keep.txt   # só chaves nossas
 cd /var/tmp/duora-media-restore/var/lib/duora-media
 sudo rsync -a --files-from=/var/tmp/duora-media-keep.txt ./ /var/lib/duora-media/
 sudo chown -R 1654:1654 /var/lib/duora-media/derivatives
 sudo rm -rf /var/tmp/duora-media-restore /var/tmp/duora-media-keep.txt
 ```
 
-A chave de objeto é `derivatives/<token>-<variante>`, relativa ao `duora_media_dir`; o `--files-from` copia só a
-lista. Um asset aprovado sem arquivo no backup volta como 404 na leitura (ADR-0025, item "Backup").
+A chave de objeto é `derivatives/<token>-<variante>`, relativa ao `duora_media_dir`; o `grep` deixa passar só esse
+formato (o mesmo regex do `ObjectKey`), para uma linha estranha vinda do banco nunca virar caminho do `rsync`, e o
+`--files-from` copia só a lista. O marcador `.duora-media-area` de cada área não volta do backup: quem o grava é o
+playbook (role `app_dirs`). Um asset aprovado sem arquivo no backup volta como 404 na leitura (ADR-0025, item "Backup").
 
 Testes: `MediaBackupTests` (comandos do restic, segredos só por arquivo, diretório ausente, prune só depois de backup
 bom, bucket e chave provados no host, idade do snapshot na fronteira, listagem ilegível, init só em bucket protegido,

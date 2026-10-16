@@ -78,6 +78,14 @@ volume pedir).
   snapshot sair da retenção, o lock vencer e o lifecycle limpar (decidido: 14 dias de snapshots + 21 de lock + 30 do
   lifecycle, até ~65 dias; registrado no mapa de dados e na retenção). Restaurar fotos exige aplicar as exclusões do
   banco já restaurado (tombstones, INV-11): só voltam os derivados de assets `Approved`, copiados de um staging.
+- **Pacotes antigos do restic fora do lock:** o restic deduplica, então um pacote do primeiro backup serve a todos os
+  snapshots seguintes; com mais de 21 dias ele está fora do File Lock e fica protegido só pelas capacidades das chaves
+  (a da VPS sem `deleteFiles`; a admin nasce e morre no uso). Lacuna registrada, sem implementar: `restic check`
+  independente fora da VPS com chave só de leitura de `media/`.
+- **Gate no deploy:** o upload liga por `DUORA_MEDIA_REVIEW` no `duora.env`, e o `duora-deploy` recusa a release com
+  ele preenchido sem o timer `duora-backup-media-verify` ativo e um `media-verify` bom de no máximo 30 h. Em
+  `Production` o adaptador não cria diretório, e o boot exige o marcador `.duora-media-area` que o Ansible grava em
+  cada área montada.
 - **Custo e capacidade:** sem egress de leitura (a foto sai do disco local). O disco da VPS passa a ter dois
   consumidores que crescem (banco e fotos); `duora_min_free_gib` do deploy já barra disco cheio.
 
@@ -85,5 +93,7 @@ Gate novo: o upload de fotos **não liga em produção** (`Media:Review` ausente
 fotos implementado, com verify que falhe fechado e um restore de ensaio que prove a volta dos derivados. Compliance
 acrescentado: `TheFileSystemStoreServesProductionFromAMountedDirectory`,
 `TheFileSystemStoreRefusesAMissingDirectoryInProduction`, `TheFileSystemStoreRefusesARelativeDirectoryInProduction`,
-`WebRefusesTheFileSystemPhotoStoreInProductionWithoutTheMountedDirectory`, `MediaBackupTests`,
+`WebRefusesTheFileSystemPhotoStoreInProductionWithoutTheMountedDirectory`,
+`TheFileSystemStoreRefusesAnAreaWithoutTheMountMarkerInProduction`, `FileSystemObjectStoreTests`,
+`MediaUploadGateTests`, `MediaBackupTests`,
 `MediaBackupUnitsTests` e `WriteMediaBackupRepositoryTests`. A spec 15.4 foi atualizada para esta decisão.

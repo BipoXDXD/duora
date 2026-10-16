@@ -60,6 +60,14 @@ b2 bucket get "$BUCKET"
   `b2 account get`). É o valor de `--endpoint` no passo 4 e de `duora_b2_s3_endpoint` no inventário. Se não for
   `s3.us-east-005.backblazeb2.com`, use o que aparecer: o número da região é da conta, não do Duora.
 
+### Caps & Alerts da conta
+
+Na web, *Caps & Alerts*: defina um teto diário para armazenamento, download e transações das classes B e C, com
+alerta por e-mail a 75% e 100%. A conta é compartilhada; o teto vale para os dois projetos, então dimensione pelo
+consumo somado. O teto **bloqueia** a operação quando é atingido (o backup falharia e o `duora-backup verify`
+alertaria): use-o como freio de custo com folga, não como orçamento justo. Sugestão inicial: download de 40 GB/dia
+(o `verify-repo-full` de quarta lê ~29 GB num dia só) e alerta de armazenamento em 100 GB.
+
 ## 2. Outras chaves da conta (conta compartilhada)
 
 A conta tem chaves do outro projeto. Uma chave **sem restrição de bucket** e com `deleteFiles` apaga versões do
@@ -118,8 +126,9 @@ b2 key create --bucket "$BUCKET" --duration 3600 duora-backup-admin \
 b2 key delete <keyID da duora-backup-admin>
 ```
 
-Ao terminar o passo 3, apague a chave temporária de administração do passo 0 (`b2 key delete`, ou na web) e rode
-`unset B2_APPLICATION_KEY_ID B2_APPLICATION_KEY`.
+Ao terminar o passo 3, apague a chave temporária de administração do passo 0 (`b2 key delete`, ou na web), rode
+`unset B2_APPLICATION_KEY_ID B2_APPLICATION_KEY` e `b2 account clear` (apaga o cache local de autorização do CLI,
+que guarda um token válido por até 24 h).
 
 ## 4. Gravar a chave do backup na VPS
 
@@ -180,22 +189,57 @@ capacidade fora da lista do passo 3, faltar uma das necessárias, não estiver p
 `GET ?versioning` e `GET ?object-lock` e falha sem versionamento `Enabled` e lock `COMPLIANCE` de pelo menos 21 dias.
 Uma resposta 401 quer dizer chave errada, revogada ou expirada.
 
-**Na máquina do responsável** (provas negativas), com a chave do backup num subshell e um canário:
+**Na máquina do responsável** (provas negativas), com uma **chave temporária** criada só para o teste, com as mesmas
+restrições da `duora-backup` e validade de 1 h (a chave da VPS nunca sai da VPS):
 
 ```sh
+b2 key create --bucket "$BUCKET" --name-prefix duora/ --duration 3600 duora-teste-canario \
+  listFiles,readFiles,writeFiles,readBuckets,readBucketRetentions      # imprime keyID e applicationKey
 (
   read -r B2_APPLICATION_KEY_ID; read -rs B2_APPLICATION_KEY; export B2_APPLICATION_KEY_ID B2_APPLICATION_KEY
   echo canario > /tmp/canario.txt
   b2 file upload "$BUCKET" /tmp/canario.txt duora/canary/lock-test     # esperado: sucesso
   b2 rm b2://"$BUCKET"/duora/canary/lock-test                         # esperado: recusa (sem deleteFiles)
   b2 ls b2://"$BUCKET"/media/                                         # esperado: recusa (fora do prefixo)
+  b2 file hide b2://"$BUCKET"/duora/canary/lock-test                  # esperado: sucesso (só hide marker)
   rm /tmp/canario.txt
 )
+b2 account clear
 ```
 
-Depois, com a `duora-backup-admin` criada só para isso (passo 3): `b2 rm b2://"$BUCKET"/duora/canary/lock-test`
-→ recusa pelo File Lock `compliance`, mesmo com `deleteFiles`. Apague a chave admin em seguida. O canário fica até o
-lock vencer e o lifecycle limpá-lo.
+Com a `duora-backup-admin` criada só para isso (passo 3):
+
+1. `b2 ls --versions --long b2://"$BUCKET"/duora/canary/` mostra duas linhas: o upload e o hide marker.
+2. `b2 rm b2id://<fileId do upload>` → recusa pelo File Lock `compliance`, mesmo com `deleteFiles`.
+3. `b2 rm b2id://<fileId do hide marker>` → sucesso: é o caminho da recuperação depois de uma exclusão (o canário volta
+   a ser a versão corrente).
+4. `b2 file hide b2://"$BUCKET"/duora/canary/lock-test` de novo, para o lifecycle apagar o canário 30 dias depois de o
+   lock vencer. Sem esse hide final o canário ficaria para sempre: o lifecycle só apaga versão oculta.
+5. Apague a chave admin e a de teste (`b2 key delete`) e rode `b2 account clear`.
+
+**Em homologação, antes da produção** (prova do caminho S3 que o pgBackRest e o restic usam com chave sem
+`deleteFiles`), com o ambiente de homolog já fazendo backup:
+
+```sh
+b2 ls --versions --recursive --json b2://"$BUCKET"/ > /tmp/antes.json        # chave duora-backup-verify
+$C exec --no-TTY backup pgbackrest --stanza=duora expire     # na VPS de homolog ($C de backup-restore.md)
+sudo duora-backup media-backup                                                # roda o restic forget --prune
+b2 ls --versions --recursive --json b2://"$BUCKET"/ > /tmp/depois.json
+python3 -c 'import json,sys; a,d=(json.load(open(f)) for f in sys.argv[1:3])
+ups=lambda xs: {x["fileId"] for x in xs if x["action"] == "upload"}
+print("versões apagadas:", len(ups(a) - ups(d)), "| hide markers novos:",
+      sum(x["action"] == "hide" for x in d) - sum(x["action"] == "hide" for x in a))' /tmp/antes.json /tmp/depois.json
+```
+
+Esperado: `versões apagadas: 0`, hide markers novos > 0 quando o `expire` ou o `prune` tiverem algo a remover, e nenhum
+erro de autorização nos logs do pgBackRest e do restic. Rode `b2 account clear` no fim. **Hipóteses que esta prova
+confirma** (não verificadas sem conta):
+
+- `PutObject` num bucket com File Lock aceito sem `Content-MD5` (a AWS exige `Content-MD5` ou checksum quando há
+  retenção padrão; se o B2 também exigir, o pgBackRest ou o restic falham ao gravar e o backup alerta);
+- `DeleteObjects` (multi-delete, que o pgBackRest usa no `expire`) sem `versionId` aceito com `writeFiles` e sem
+  `deleteFiles`. A documentação da Backblaze lista o `DeleteObjects` sob as duas capacidades; se exigir
+  `deleteFiles`, o `expire` falha (o repositório cresce, nada se perde) e a decisão volta ao responsável.
 
 A cada trimestre, com a `duora-backup-verify` fora da VPS: `b2 ls --versions --recursive b2://"$BUCKET"/duora/`
 mostra o repositório e os hide markers; um volume de hide markers fora do ritmo do `expire` é sinal de exclusão.
@@ -220,16 +264,45 @@ mostra o repositório e os hide markers; um volume de hide markers fora do ritmo
 ## Recuperação depois de uma exclusão maliciosa
 
 Passo 2 de "Recuperação depois de uma exclusão maliciosa" em [backup-restore.md](backup-restore.md), com a
-`duora-backup-admin` criada na hora: liste os hide markers gravados depois do ataque e apague **só eles** (nunca
-versões de arquivo). `ATAQUE_MS` é o instante UTC do ataque em milissegundos desde a época.
+`duora-backup-admin` criada na hora: liste os hide markers gravados depois do ataque, nos **dois** prefixos
+(`duora/` do pgBackRest e `media/` do restic), e apague **só eles** (nunca versões de arquivo). `ATAQUE_MS` é o
+instante UTC do ataque em milissegundos desde a época.
 
 ```sh
-b2 ls --versions --recursive --json b2://"$BUCKET"/duora/ \
-  | python3 -c 'import json,sys; t=int(sys.argv[1]); [print(f["fileId"]) for f in json.load(sys.stdin)
-                if f["action"] == "hide" and f["uploadTimestamp"] >= t]' "$ATAQUE_MS" > hide-markers.txt
+for prefix in duora/ media/; do
+  b2 ls --versions --recursive --json b2://"$BUCKET"/"$prefix"
+done | python3 -c 'import json,sys; t=int(sys.argv[1])
+dec=json.JSONDecoder(); text=sys.stdin.read(); i=0; out=[]
+while i < len(text):
+    if text[i].isspace(): i += 1; continue
+    chunk, i = dec.raw_decode(text, i); out += chunk
+[print(f["fileId"]) for f in out if f["action"] == "hide" and f["uploadTimestamp"] >= t]' "$ATAQUE_MS" \
+  > hide-markers.txt
 wc -l hide-markers.txt     # confira o volume antes de apagar
 while read -r id; do b2 rm "b2id://$id"; done < hide-markers.txt
+b2 account clear
 ```
+
+**Sobrescrita maliciosa** (a chave com `writeFiles` grava uma versão nova por cima, em vez de apagar): a versão
+anterior continua no bucket, travada até 21 dias desde que foi gravada. Os arquivos que importam são os de controle,
+reescritos a cada backup e por isso quase sempre dentro do lock:
+
+| Repositório | Arquivos de controle |
+|---|---|
+| pgBackRest (`duora/`) | `duora/backup/duora/backup.info`, `backup.info.copy`, `duora/archive/duora/archive.info`, `archive.info.copy` e o `backup.manifest` de cada backup |
+| restic (`media/`) | `media/config` e `media/keys/*` (sem eles o repositório não abre); `media/index/*` e `media/snapshots/*` se reconstroem com `restic repair index` e `restic repair snapshots` |
+
+Para cada arquivo sobrescrito, ache a última versão anterior ao ataque e copie-a por id para o mesmo nome; a cópia vira
+a versão corrente (a versão maliciosa fica, oculta, até o lifecycle):
+
+```sh
+b2 ls --versions --long b2://"$BUCKET"/duora/backup/duora/backup.info   # anote o fileId da versão anterior ao ataque
+b2 file copy-by-id <fileId anterior> "$BUCKET" duora/backup/duora/backup.info
+```
+
+Depois, `sudo duora-backup verify` e `verify-repo` (banco) e `sudo duora-backup media-verify` e `media-check` (fotos).
+Arquivos de dados (segmentos de WAL, pacotes do restic) não são reescritos pelas ferramentas; um sobrescrito aparece no
+`verify-repo` ou no `media-check` e se recupera do mesmo jeito.
 
 ## Custo esperado
 
