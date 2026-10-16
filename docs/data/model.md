@@ -930,11 +930,13 @@ Protocolo e regras em [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases
   `deadline_at` (anulável), `lease_expires_at timestamptz`; `attempts int not null default 0`; `max_attempts int
   not null default 8`; `fencing_token bigint not null default 0`; `last_error_code text`; `created_at`,
   `completed_at timestamptz`.
-- **Constraints:** `UNIQUE (kind, dedupe_key)` (ex.: `expire-invite:<gameSessionId>:2026-10-16T19:00:00Z`); `CHECK` de `kind` (conjunto
+- **Constraints:** `UNIQUE (kind, dedupe_key)` (ex.: `expire-invite:<gameSessionId>:2026-10-16T19:00:00.000000Z`; instante
+  truncado a microssegundo, formato canônico fixo); `CHECK` de `kind` (conjunto
   fechado) e de estado; `CHECK ((status = 'InFlight') = (lease_expires_at IS NOT NULL))`; `CHECK (attempts >= 0
   AND max_attempts BETWEEN 1 AND 20)` (sem `attempts <= max_attempts`, que abortaria o claim de lease vencido);
   `CHECK ((status IN ('Done', 'Failed', 'Expired', 'Cancelled')) = (completed_at IS NOT NULL))`;
-  `CHECK (octet_length(payload::text) <= 4096)`; `CHECK (char_length(last_error_code) <= 64)`.
+  `CHECK (octet_length(payload::text) <= 4096)`; `CHECK (char_length(last_error_code) <= 64)`. `CHECK (NOT (status = 'Cancelled' AND
+  dedupe_key = kind))` (linha fixa de tipo recorrente só é reprocessada, nunca descartada).
 - **Índices:** `ix_jobs_due (available_at, id) WHERE status = 'Pending'`; `ix_jobs_in_flight (lease_expires_at)
   WHERE status = 'InFlight'`; `ix_jobs_completed (completed_at) WHERE status IN ('Done', 'Expired', 'Cancelled')`
   (limpeza).
