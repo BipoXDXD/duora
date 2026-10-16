@@ -13,6 +13,20 @@ namespace Duora.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.AddColumn<long>(
+                name: "last_totp_step",
+                schema: "identity",
+                table: "users",
+                type: "bigint",
+                nullable: true);
+
+            migrationBuilder.AddColumn<DateTimeOffset>(
+                name: "totp_verified_at",
+                schema: "identity",
+                table: "login_sessions",
+                type: "timestamp with time zone",
+                nullable: true);
+
             migrationBuilder.AddColumn<DateTimeOffset>(
                 name: "mfa_verified_at",
                 schema: "identity",
@@ -61,6 +75,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
             // D13: conta privilegiada não é participante. A regra fica no banco para valer em qualquer caminho de
             // concessão (Identity, comando operacional, SQL de suporte). O lock na linha da conta serializa
             // concessões simultâneas; sem ele, duas transações veriam a conta sem papel e gravariam (write skew).
+            // A releitura depois do lock enxerga a concessão da outra transação porque, em READ COMMITTED (o
+            // isolamento da aplicação), cada comando da função tira um snapshot novo. Em REPEATABLE READ ou
+            // SERIALIZABLE a segunda transação falharia com erro de serialização em vez disso: também seguro, mas
+            // quem mudar o isolamento precisa tratar o retry.
             migrationBuilder.Sql(
                 """
                 create function identity.enforce_privileged_is_not_participant() returns trigger
@@ -90,6 +108,16 @@ namespace Duora.Infrastructure.Persistence.Migrations
                 create trigger trg_user_roles_privileged_is_not_participant
                     before insert or update on identity.user_roles
                     for each row execute function identity.enforce_privileged_is_not_participant();
+                """);
+
+            // I1: até aqui o cadastro não gravava papel. Toda conta sem papel é de participante; daqui em diante o
+            // cadastro grava o papel na mesma transação, e o trigger acima passa a valer para elas também.
+            migrationBuilder.Sql(
+                """
+                insert into identity.user_roles (user_id, role_id)
+                select u.id, '01920000-0000-7000-8000-000000000001'::uuid
+                from identity.users u
+                where not exists (select 1 from identity.user_roles ur where ur.user_id = u.id);
                 """);
         }
 
@@ -130,6 +158,16 @@ namespace Duora.Infrastructure.Persistence.Migrations
                 table: "roles",
                 keyColumn: "id",
                 keyValue: new Guid("01920000-0000-7000-8000-000000000004"));
+
+            migrationBuilder.DropColumn(
+                name: "last_totp_step",
+                schema: "identity",
+                table: "users");
+
+            migrationBuilder.DropColumn(
+                name: "totp_verified_at",
+                schema: "identity",
+                table: "login_sessions");
 
             migrationBuilder.DropColumn(
                 name: "mfa_verified_at",

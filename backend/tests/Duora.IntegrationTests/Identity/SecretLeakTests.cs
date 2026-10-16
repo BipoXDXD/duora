@@ -10,13 +10,14 @@ public sealed class SecretLeakTests : IAsyncDisposable
 {
     private readonly PostgresFixture _postgres;
     private readonly CapturingLoggerProvider _logs = new();
+    private readonly Microsoft.Extensions.Time.Testing.FakeTimeProvider _time = TestClock.StartingNow();
     private readonly DuoraWebFactory _factory;
     private readonly List<string> _responses = [];
 
     public SecretLeakTests(PostgresFixture postgres)
     {
         _postgres = postgres;
-        _factory = new DuoraWebFactory(postgres.ConnectionString, _logs);
+        _factory = new DuoraWebFactory(postgres.ConnectionString, _logs) { Time = _time };
     }
 
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
@@ -65,7 +66,7 @@ public sealed class SecretLeakTests : IAsyncDisposable
         }
 
         var sharedKey = (string)System.Text.Json.Nodes.JsonNode.Parse(provisioning[0])!["sharedKey"]!;
-        using (var confirmed = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Now(sharedKey) }))
+        using (var confirmed = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Next(_time, sharedKey) }))
         {
             provisioning.Add(await confirmed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         }
@@ -83,14 +84,14 @@ public sealed class SecretLeakTests : IAsyncDisposable
         await RecordAsync(await browser.GetAsync("/api/v1/me/sessions"));
         await RecordAsync(await browser.PostJsonAsync(
             MfaScenario.Reauthenticate,
-            new { password = canary, twoFactorCode = Totp.Now(sharedKey) }));
+            new { password = canary, twoFactorCode = Totp.Next(_time, sharedKey) }));
         await RecordAsync(await browser.PostJsonAsync(
             "/api/v1/me/password-changes",
             new { currentPassword = canary, newPassword = canary + canary }));
         using var other = new Browser(_factory);
         await RecordAsync(await MfaScenario.LoginAsync(other, account, recoveryCode: canary));
         await RecordAsync(await MfaScenario.LoginAsync(other, account, recoveryCode: codes[0]));
-        await RecordAsync(await MfaScenario.LoginAsync(new Browser(_factory), account, twoFactorCode: Totp.Now(sharedKey)));
+        await RecordAsync(await MfaScenario.LoginAsync(new Browser(_factory), account, twoFactorCode: Totp.Next(_time, sharedKey)));
 
         string[] secrets = [sharedKey, canary, .. codes];
         Assert.NotEmpty(_logs.Entries);

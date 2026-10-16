@@ -76,6 +76,7 @@ internal static class IdentityModelConfiguration
         });
         user.Property(u => u.Status).HasConversion<string>().HasMaxLength(24);
         user.Property(u => u.CreatedAt);
+        user.Property(u => u.LastTotpStep);
         user.Property(u => u.Email).HasMaxLength(EmailAddress.MaxLength);
         user.Property(u => u.NormalizedEmail).HasMaxLength(EmailAddress.MaxLength);
         user.Property(u => u.UserName).HasMaxLength(EmailAddress.MaxLength);
@@ -182,6 +183,7 @@ internal sealed class LoginSessionConfiguration : IEntityTypeConfiguration<Login
         builder.Property(s => s.Policy).HasColumnName("policy").HasConversion<string>().HasMaxLength(16);
         builder.Property(s => s.ReauthenticatedAt).HasColumnName("reauthenticated_at");
         builder.Property(s => s.MfaVerifiedAt).HasColumnName("mfa_verified_at");
+        builder.Property(s => s.TotpVerifiedAt).HasColumnName("totp_verified_at");
         builder.Property(s => s.RevokedAt).HasColumnName("revoked_at");
         builder.Property(s => s.RevocationReason).HasColumnName("revocation_reason").HasMaxLength(32);
 

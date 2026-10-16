@@ -81,7 +81,7 @@ public sealed class SessionTests : IAsyncDisposable
             ["email", "emailConfirmed", "id", "mfaEnabled", "roles", "status"],
             body.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.False((bool?)body["mfaEnabled"]);
-        Assert.Empty(body["roles"]!.AsArray());
+        Assert.Equal(["participant"], body["roles"]!.AsArray().Select(role => (string?)role));
         Assert.Equal(account.UserId, body["id"]!.GetValue<Guid>());
         Assert.Equal(account.Email, (string?)body["email"]);
         Assert.Equal("PendingEligibility", (string?)body["status"]);

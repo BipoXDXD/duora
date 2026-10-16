@@ -30,6 +30,9 @@ internal sealed record AuditAction
 
     public static readonly AuditAction MfaRecoveryCodeUsed = new("identity.mfa_recovery_code_used");
 
+    /// <summary>Senha certa e segundo fator errado (conta no bloqueio; sinal de senha vazada).</summary>
+    public static readonly AuditAction SecondFactorFailed = new("identity.second_factor_failed");
+
     public static readonly AuditAction Reauthenticated = new("identity.reauthenticated");
 
     public static readonly AuditAction PasswordChanged = new("identity.password_changed");

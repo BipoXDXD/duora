@@ -9,7 +9,7 @@ namespace Duora.IntegrationTests.Identity;
 /// MFA obrigatório da conta privilegiada (ADR-0017): sem segundo fator, a sessão só serve para cadastrá-lo; o MFA
 /// não sai pela API-A15; e o reset de senha não o contorna (TM-22).
 /// </summary>
-public sealed class AdminMfaTests(PostgresFixture postgres) : IAsyncDisposable
+public sealed class AdminMfaTests : IAsyncDisposable
 {
     /// <summary>Allowlist da sessão restrita (auth.md): o que é preciso para cadastrar o MFA.</summary>
     private static readonly string[] EnrollmentRoutes =
@@ -20,11 +20,21 @@ public sealed class AdminMfaTests(PostgresFixture postgres) : IAsyncDisposable
         "POST /api/v1/auth/reauthenticate",
     ];
 
+    private readonly PostgresFixture _postgres;
+
     private const string NewPassword = "uma frase nova e longa";
 
-    private readonly DuoraWebFactory _factory = new(postgres.ConnectionString);
+    private readonly Microsoft.Extensions.Time.Testing.FakeTimeProvider _time;
+    private readonly DuoraWebFactory _factory;
 
-    private IdentityScenario Scenario => new(postgres, _factory);
+    public AdminMfaTests(PostgresFixture postgres)
+    {
+        _postgres = postgres;
+        _time = TestClock.StartingNow();
+        _factory = new DuoraWebFactory(postgres.ConnectionString) { Time = _time };
+    }
+
+    private IdentityScenario Scenario => new(_postgres, _factory);
 
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
@@ -58,7 +68,10 @@ public sealed class AdminMfaTests(PostgresFixture postgres) : IAsyncDisposable
             {
                 "GET" => await browser.GetAsync(path),
                 "DELETE" => await browser.DeleteAsync(path),
-                _ => await browser.PostJsonAsync(path, new { }),
+                "POST" => await browser.PostJsonAsync(path, new { }),
+                "PUT" => await browser.PutAsync(path, "{}"),
+                "PATCH" => await browser.PatchRawJsonAsync(path, "{}", ifMatch: "\"1\""),
+                var method => throw new InvalidOperationException($"Método {method} sem caso no teste."),
             };
             Assert.True(response.StatusCode == HttpStatusCode.Forbidden, $"{route.Name} respondeu {(int)response.StatusCode}.");
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "MFA_ENROLLMENT_REQUIRED");
@@ -74,7 +87,7 @@ public sealed class AdminMfaTests(PostgresFixture postgres) : IAsyncDisposable
         var account = await Scenario.CreatePrivilegedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
 
-        await MfaScenario.EnableAsync(browser);
+        await MfaScenario.EnableAsync(browser, _time);
         using var sessions = await browser.GetAsync("/api/v1/me/sessions");
 
         Assert.Equal(HttpStatusCode.OK, sessions.StatusCode);
@@ -88,7 +101,7 @@ public sealed class AdminMfaTests(PostgresFixture postgres) : IAsyncDisposable
     {
         var account = await Scenario.CreatePrivilegedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        await MfaScenario.EnableAsync(browser);
+        await MfaScenario.EnableAsync(browser, _time);
 
         using var response = await browser.DeleteAsync(MfaScenario.Mfa);
         using var me = await browser.GetAsync("/api/v1/me");
@@ -105,7 +118,7 @@ public sealed class AdminMfaTests(PostgresFixture postgres) : IAsyncDisposable
         EnabledMfa mfa;
         using (var enrolling = await Scenario.SignedInBrowserAsync(account))
         {
-            mfa = await MfaScenario.EnableAsync(enrolling);
+            mfa = await MfaScenario.EnableAsync(enrolling, _time);
         }
 
         using var browser = new Browser(_factory);
@@ -120,7 +133,7 @@ public sealed class AdminMfaTests(PostgresFixture postgres) : IAsyncDisposable
             new { userId = link.UserId, token = link.Token, newPassword = NewPassword });
         var renewed = account with { Password = NewPassword };
         using var withoutCode = await MfaScenario.LoginAsync(browser, renewed);
-        using var withCode = await MfaScenario.LoginAsync(browser, renewed, twoFactorCode: Totp.Now(mfa.SharedKey));
+        using var withCode = await MfaScenario.LoginAsync(browser, renewed, twoFactorCode: Totp.Next(_time, mfa.SharedKey));
 
         Assert.Equal(HttpStatusCode.NoContent, reset.StatusCode);
         await ProblemAssert.IsProblemAsync(withoutCode, HttpStatusCode.Unauthorized, "MFA_REQUIRED");

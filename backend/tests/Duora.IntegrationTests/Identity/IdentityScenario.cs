@@ -57,6 +57,11 @@ internal sealed class IdentityScenario(PostgresFixture postgres, DuoraWebFactory
     public async Task<TestAccount> CreatePrivilegedAccountAsync(string role = Duora.Core.Identity.AccountRoles.Moderator)
     {
         var account = await CreateConfirmedAccountAsync();
+        // O cadastro grava o papel de participante (D13); a conta privilegiada de teste troca de papel, como o
+        // bootstrap fará ao criar a conta já privilegiada.
+        await ScalarAsync(
+            "with removed as (delete from identity.user_roles where user_id = $1 returning 1) select count(*) from removed",
+            account.UserId);
         await GrantRoleAsync(account.UserId, role);
         return account;
     }

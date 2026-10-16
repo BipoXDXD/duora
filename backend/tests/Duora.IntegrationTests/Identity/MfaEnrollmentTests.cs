@@ -85,7 +85,7 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
         using var browser = await Scenario.SignedInBrowserAsync(account);
         var sharedKey = await MfaScenario.StartEnrollmentAsync(browser);
 
-        using var response = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Wrong(sharedKey) });
+        using var response = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Wrong(_time, sharedKey) });
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "MFA_CODE_INVALID");
         Assert.False(await MfaEnabledAsync(browser));
@@ -127,7 +127,7 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
         var sharedKey = await MfaScenario.StartEnrollmentAsync(browser);
         var cookieBefore = browser.Cookie(SessionCookie);
 
-        using var response = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Now(sharedKey) });
+        using var response = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Next(_time, sharedKey) });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
@@ -148,10 +148,10 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        var mfa = await MfaScenario.EnableAsync(browser);
+        var mfa = await MfaScenario.EnableAsync(browser, _time);
 
         using var enroll = await browser.PostJsonAsync(MfaScenario.Enrollments, body: null);
-        using var confirm = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Now(mfa.SharedKey) });
+        using var confirm = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Next(_time, mfa.SharedKey) });
 
         await ProblemAssert.IsProblemAsync(enroll, HttpStatusCode.Conflict, "MFA_ALREADY_ENABLED");
         await ProblemAssert.IsProblemAsync(confirm, HttpStatusCode.Conflict, "MFA_ALREADY_ENABLED");
@@ -163,7 +163,7 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
 
-        var mfa = await MfaScenario.EnableAsync(browser);
+        var mfa = await MfaScenario.EnableAsync(browser, _time);
 
         var stored = await TokenValuesAsync(account.UserId);
         Assert.NotEmpty(stored);
@@ -181,7 +181,7 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
 
-        await MfaScenario.EnableAsync(browser);
+        await MfaScenario.EnableAsync(browser, _time);
 
         Assert.Equal(
             ["identity.mfa_enabled", "identity.mfa_enrollment_started"],

@@ -159,6 +159,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("email_confirmed");
 
+                    b.Property<long?>("LastTotpStep")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_totp_step");
+
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("lockout_enabled");
@@ -292,6 +296,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("bytea")
                         .HasColumnName("ticket");
+
+                    b.Property<DateTimeOffset?>("TotpVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("totp_verified_at");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")

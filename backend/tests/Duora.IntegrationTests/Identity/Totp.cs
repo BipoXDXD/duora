@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -24,15 +25,21 @@ internal static class Totp
         return (binary % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    public static string Now(string sharedKey) => Code(sharedKey, DateTimeOffset.UtcNow);
-
     /// <summary>
-    /// Um código que certamente não vale agora: fica fora de três passos de 30 s para cada lado, margem maior que a
-    /// tolerância de relógio do Identity.
+    /// Código do próximo passo de 30 s no relógio da aplicação: o servidor recusa um código já usado (e qualquer
+    /// passo anterior a ele), então cada prova de TOTP no teste avança o relógio para um passo novo.
     /// </summary>
-    public static string Wrong(string sharedKey)
+    public static string Next(FakeTimeProvider time, string sharedKey)
     {
-        var valid = new[] { -90, -60, -30, 0, 30, 60, 90 }.Select(s => Code(sharedKey, DateTimeOffset.UtcNow.AddSeconds(s))).ToHashSet();
+        time.Advance(TimeSpan.FromSeconds(30));
+        return Code(sharedKey, time.GetUtcNow());
+    }
+
+    /// <summary>Um código que certamente não vale agora: fora de três passos de 30 s para cada lado.</summary>
+    public static string Wrong(FakeTimeProvider time, string sharedKey)
+    {
+        var now = time.GetUtcNow();
+        var valid = new[] { -90, -60, -30, 0, 30, 60, 90 }.Select(s => Code(sharedKey, now.AddSeconds(s))).ToHashSet();
         return Enumerable.Range(0, 10).Select(d => new string((char)('0' + d), 6)).First(c => !valid.Contains(c));
     }
 

@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Duora.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DuoraDbContext))]
-    [Migration("20261016013428_AdminMfa")]
+    [Migration("20261016022454_AdminMfa")]
     partial class AdminMfa
     {
         /// <inheritdoc />
@@ -162,6 +162,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("email_confirmed");
 
+                    b.Property<long?>("LastTotpStep")
+                        .HasColumnType("bigint")
+                        .HasColumnName("last_totp_step");
+
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("lockout_enabled");
@@ -295,6 +299,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("bytea")
                         .HasColumnName("ticket");
+
+                    b.Property<DateTimeOffset?>("TotpVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("totp_verified_at");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
