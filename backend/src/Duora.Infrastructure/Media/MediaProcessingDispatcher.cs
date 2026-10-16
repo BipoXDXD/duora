@@ -127,8 +127,9 @@ public sealed partial class MediaProcessingDispatcher
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            // Storage ou banco indisponível. Parar o worker (token cancelado) propaga: o lease vence e outro retoma.
-            await RetryOrFailAsync(delivery, exception, cancellationToken);
+            // Storage ou banco indisponível, ou defeito do decoder. Parar o worker (token cancelado) propaga: o lease
+            // vence e outro retoma.
+            await RetryOrAbandonAsync(delivery, message.UploadId, exception, cancellationToken);
             return;
         }
 
@@ -169,15 +170,15 @@ public sealed partial class MediaProcessingDispatcher
         var read = await ReadOriginalAsync(upload, cancellationToken);
         if (read.Bytes is not { } original)
         {
-            return read.Problem;
+            return await AbandonAsync(upload, version, read.Problem, cancellationToken);
         }
 
-        // M4: o que chegou ao Worker tem de ser o que a recepção gravou. Objeto trocado ou corrompido na quarentena
-        // nunca chega ao decoder; vai para a fila de revisão, porque não é culpa de quem enviou.
+        // O que chegou ao Worker tem de ser o que a recepção gravou. Objeto trocado ou corrompido na quarentena
+        // nunca chega ao decoder.
         if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(original), fingerprint.Sha256.Span))
         {
             LogOriginalMismatch(_logger, upload.Id);
-            return Settlement.OriginalMismatch;
+            return await AbandonAsync(upload, version, Settlement.OriginalMismatch, cancellationToken);
         }
 
         var outcome = await _sanitizer.SanitizeAsync(fingerprint.Format, original, cancellationToken);
@@ -214,6 +215,16 @@ public sealed partial class MediaProcessingDispatcher
 
         return (copy.ToArray(), Settlement.Delivered);
     }
+
+    /// <summary>
+    /// Falha que não se resolve tentando de novo: o upload termina em <c>Rejected PROCESSING_LIMIT</c>, para não
+    /// ficar em <c>Processing</c> ocupando vaga com o original (e o EXIF dele) na quarentena. A entrega continua
+    /// encerrada como <c>Failed</c> com a causa, que é o sinal para a operação.
+    /// </summary>
+    private async Task<Settlement> AbandonAsync(Upload upload, long version, Settlement problem, CancellationToken cancellationToken) =>
+        await RejectAsync(upload, version, PhotoRejection.ProcessingLimit, cancellationToken) == Settlement.Delivered
+            ? problem
+            : Settlement.LeaseLost;
 
     private async Task<Settlement> RejectAsync(Upload upload, long version, PhotoRejection reason, CancellationToken cancellationToken)
     {
@@ -304,13 +315,27 @@ public sealed partial class MediaProcessingDispatcher
         return moved == 1;
     }
 
-    private async Task RetryOrFailAsync(ClaimedDelivery delivery, Exception exception, CancellationToken cancellationToken)
+    private async Task RetryOrAbandonAsync(
+        ClaimedDelivery delivery,
+        Guid uploadId,
+        Exception exception,
+        CancellationToken cancellationToken)
     {
         var cause = exception.GetType().Name;
         if (delivery.Attempts >= _options.MaxAttempts)
         {
             LogGaveUp(_logger, delivery.Id, delivery.Attempts, cause);
-            await SettleAsync(delivery, OutboxDeliveryStatus.Failed, cause, cancellationToken);
+            // Se o banco ainda estiver fora, isto lança e a entrega fica sem encerrar: o lease vence, outro worker a
+            // retoma já acima do teto de tentativas e tenta encerrar o upload de novo.
+            if (await AbandonAfterLastAttemptAsync(uploadId, cancellationToken))
+            {
+                await SettleAsync(delivery, OutboxDeliveryStatus.Failed, cause, cancellationToken);
+            }
+            else
+            {
+                LogLeaseLost(_logger, delivery.Id);
+            }
+
             return;
         }
 
@@ -321,6 +346,43 @@ public sealed partial class MediaProcessingDispatcher
         {
             LogLeaseLost(_logger, delivery.Id);
         }
+    }
+
+    /// <summary>
+    /// Leva o upload a <c>Rejected</c> a partir de onde a última tentativa o deixou (<c>Quarantined</c>, se ela caiu
+    /// antes de tomá-lo, ou <c>Processing</c>). Falso quando outra tentativa mexeu nele no meio.
+    /// </summary>
+    private async Task<bool> AbandonAfterLastAttemptAsync(Guid uploadId, CancellationToken cancellationToken)
+    {
+        var upload = await _db.Set<Upload>().AsNoTracking().SingleOrDefaultAsync(u => u.Id == uploadId, cancellationToken);
+        if (upload is null || upload.State is not (UploadState.Quarantined or UploadState.Processing))
+        {
+            return true;
+        }
+
+        var version = upload.Version;
+        if (upload.State is UploadState.Quarantined)
+        {
+            if (!await MoveAsync(upload.Id, version, UploadState.Processing, rejection: null, cancellationToken))
+            {
+                return false;
+            }
+
+            version++;
+        }
+
+        if (await RejectAsync(upload, version, PhotoRejection.ProcessingLimit, cancellationToken) != Settlement.Delivered)
+        {
+            return false;
+        }
+
+        // A tentativa pode ter caído entre um derivado gravado e o seguinte; nenhum deles será referenciado.
+        foreach (var variant in PhotoVariants.All)
+        {
+            await DeleteQuietlyAsync(ObjectKey.ForDerivative(upload.Id, variant), upload.Id);
+        }
+
+        return true;
     }
 
     private async Task SettleAsync(
@@ -359,10 +421,10 @@ public sealed partial class MediaProcessingDispatcher
 
     [LoggerMessage(
         Level = LogLevel.Error,
-        Message = "Original do upload {UploadId} difere do que a recepção gravou (tamanho ou SHA-256); entrega vai para revisão sem decodificar")]
+        Message = "Original do upload {UploadId} difere do que a recepção gravou (tamanho ou SHA-256); rejeitado sem decodificar")]
     private static partial void LogOriginalMismatch(ILogger logger, Guid uploadId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Original do upload {UploadId} não está na quarentena; entrega vai para revisão")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Original do upload {UploadId} não está na quarentena; rejeitado")]
     private static partial void LogOriginalMissing(ILogger logger, Guid uploadId);
 
     [LoggerMessage(
@@ -372,7 +434,7 @@ public sealed partial class MediaProcessingDispatcher
 
     [LoggerMessage(
         Level = LogLevel.Error,
-        Message = "Processamento da entrega {DeliveryId} falhou na tentativa {Attempt} ({Cause}); vai para revisão")]
+        Message = "Processamento da entrega {DeliveryId} falhou na última tentativa {Attempt} ({Cause}); upload rejeitado")]
     private static partial void LogGaveUp(ILogger logger, Guid deliveryId, int attempt, string cause);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Entrega {DeliveryId} de mídia não foi encerrada por este worker: lease vencido ou upload já tomado")]

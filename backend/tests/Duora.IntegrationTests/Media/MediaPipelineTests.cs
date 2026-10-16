@@ -8,6 +8,7 @@ using Duora.Infrastructure.Media;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 using SixLabors.ImageSharp;
 using worker::Duora.Worker;
@@ -24,6 +25,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
     private string _connectionString = "";
     private DuoraWebFactory? _web;
     private IHost? _worker;
+    private readonly List<IHost> _otherWorkers = [];
     private DirectoryInfo? _mail;
 
     private DuoraWebFactory Web => _web ?? throw new InvalidOperationException("Teste não inicializado.");
@@ -35,21 +37,13 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         _connectionString = await postgres.CreateMigratedDatabaseAsync(Cancellation);
         _web = new DuoraWebFactory(_connectionString);
         _mail = Directory.CreateTempSubdirectory("duora-mail-");
-        _worker = WorkerHost.CreateBuilder(
-        [
-            "--environment", "Testing",
-            $"--ConnectionStrings:Duora={_connectionString}",
-            $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
-            $"--Email:PickupDirectory={_mail.FullName}",
-            "--Media:Review=TechnicalOnly",
-            "--Media:Storage:Provider=FileSystem",
-            $"--Media:Storage:FileSystemRoot={_web.MediaRoot}",
-        ]).Build();
+        _worker = WorkerBuilder().Build();
     }
 
     public async ValueTask DisposeAsync()
     {
         _worker?.Dispose();
+        _otherWorkers.ForEach(worker => worker.Dispose());
         if (_web is not null)
         {
             await _web.DisposeAsync();
@@ -120,10 +114,11 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task AnOriginalChangedInTheStorageIsNeverDecodedAndGoesToReview(bool sameSize)
+    public async Task AnOriginalChangedInTheStorageIsNeverDecodedAndEndsRejected(bool sameSize)
     {
         // M4: o Worker recalcula o SHA-256 do original e compara com o content_sha256 gravado na recepção. Um objeto
-        // trocado na quarentena (outro processo, corrupção) não é decodificado nem aprovado.
+        // trocado na quarentena (outro processo, corrupção) não é decodificado nem aprovado, e o upload não fica preso
+        // em Processing ocupando vaga.
         var (media, browser) = await SignInAsync();
         using var _ = browser;
         var original = TestImages.Jpeg();
@@ -143,11 +138,69 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
 
         Assert.Equal(1, await DispatchOnceAsync());
 
+        await AssertAbandonedAsync(media, browser, upload, "OriginalMismatch");
+    }
+
+    [Fact]
+    public async Task AnOriginalMissingFromTheQuarantineEndsRejected()
+    {
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        var upload = (await media.UploadsOfAsync(await OwnerOfAsync(photoId))).Single();
+        await media.Store.DeleteAsync(ObjectKey.Parse(upload.QuarantineKey), Cancellation);
+
+        Assert.Equal(1, await DispatchOnceAsync());
+
+        await AssertAbandonedAsync(media, browser, upload, "OriginalMissing");
+    }
+
+    [Fact]
+    public async Task ADecoderThatKeepsFailingEndsRejectedAfterTheLastAttempt()
+    {
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        var upload = (await media.UploadsOfAsync(await OwnerOfAsync(photoId))).Single();
+        // O relógio do Worker parte de depois da entrega gravada pelo Web e só anda quando o teste manda.
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddSeconds(1));
+        var worker = StartWorker(
+            services =>
+            {
+                services.AddSingleton<TimeProvider>(clock);
+                services.AddSingleton<IPhotoSanitizer>(new ThrowingSanitizer());
+            },
+            "--Media:Processing:MaxAttempts=2");
+
+        Assert.Equal(1, await DispatchOnceAsync(worker));
         Assert.Equal(("Processing", null), await StatusAsync(browser, photoId));
-        Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id = $1", photoId));
-        Assert.All(PhotoVariants.All, variant => Assert.False(File.Exists(DerivativePath(photoId, variant))));
-        Assert.Equal("Failed", await DeliveryStatusAsync(photoId));
-        Assert.Equal("OriginalMismatch", await LastErrorAsync(photoId));
+        Assert.NotNull(await media.ReadQuarantineAsync(upload));
+        clock.Advance(TimeSpan.FromHours(1));
+        Assert.Equal(1, await DispatchOnceAsync(worker));
+
+        await AssertAbandonedAsync(media, browser, upload, nameof(ThrowingSanitizer.DecoderBugException));
+    }
+
+    [Fact]
+    public async Task AStorageThatRefusesTheDerivativesEndsRejectedAfterTheLastAttempt()
+    {
+        var worker = StartWorker(
+            services =>
+            {
+                var real = services.Single(descriptor => descriptor.ServiceType == typeof(IObjectStore));
+                services.Remove(real);
+                services.AddSingleton<IObjectStore>(provider =>
+                    new DerivativeRefusingStore((IObjectStore)real.ImplementationFactory!(provider)));
+            },
+            "--Media:Processing:MaxAttempts=1");
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        var upload = (await media.UploadsOfAsync(await OwnerOfAsync(photoId))).Single();
+
+        Assert.Equal(1, await DispatchOnceAsync(worker));
+
+        await AssertAbandonedAsync(media, browser, upload, nameof(IOException));
     }
 
     [Fact]
@@ -208,6 +261,41 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         Assert.DoesNotContain(photoId.ToString("N"), text, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Falha terminal: upload em <c>Rejected PROCESSING_LIMIT</c> (libera a vaga de pendentes), original fora da
+    /// quarentena, nenhum asset nem derivado, e a entrega em <c>Failed</c> com a causa para a operação.
+    /// </summary>
+    private async Task AssertAbandonedAsync(MediaScenario media, Browser browser, StoredUpload upload, string cause)
+    {
+        Assert.Equal(("Rejected", "PROCESSING_LIMIT"), await StatusAsync(browser, upload.Id));
+        Assert.Null(await media.ReadQuarantineAsync(upload));
+        Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id = $1", upload.Id));
+        Assert.All(PhotoVariants.All, variant => Assert.False(File.Exists(DerivativePath(upload.Id, variant))));
+        Assert.Equal("Failed", await DeliveryStatusAsync(upload.Id));
+        Assert.Equal(cause, await LastErrorAsync(upload.Id));
+    }
+
+    private HostApplicationBuilder WorkerBuilder(params string[] extra) => WorkerHost.CreateBuilder(
+    [
+        "--environment", "Testing",
+        $"--ConnectionStrings:Duora={_connectionString}",
+        $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
+        $"--Email:PickupDirectory={_mail!.FullName}",
+        "--Media:Review=TechnicalOnly",
+        "--Media:Storage:Provider=FileSystem",
+        $"--Media:Storage:FileSystemRoot={Web.MediaRoot}",
+        .. extra,
+    ]);
+
+    private IHost StartWorker(Action<IServiceCollection> replace, params string[] extra)
+    {
+        var builder = WorkerBuilder(extra);
+        replace(builder.Services);
+        var worker = builder.Build();
+        _otherWorkers.Add(worker);
+        return worker;
+    }
+
     private static byte[] Hostile(string file) => file switch
     {
         "svg" => TestImages.Text("<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"),
@@ -246,9 +334,11 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         return ((string)body["status"]!, (string?)body["rejectionCode"]);
     }
 
-    private async Task<int> DispatchOnceAsync()
+    private Task<int> DispatchOnceAsync() => DispatchOnceAsync(_worker ?? throw new InvalidOperationException("Sem worker."));
+
+    private static async Task<int> DispatchOnceAsync(IHost worker)
     {
-        await using var scope = (_worker ?? throw new InvalidOperationException("Sem worker.")).Services.CreateAsyncScope();
+        await using var scope = worker.Services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<MediaProcessingDispatcher>().DispatchOnceAsync(Cancellation);
     }
 
@@ -356,5 +446,29 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(Cancellation);
         return connection;
+    }
+
+    /// <summary>Decoder com defeito: exceção que o sanitizador não mapeia para rejeição.</summary>
+    private sealed class ThrowingSanitizer : IPhotoSanitizer
+    {
+        public Task<SanitizeOutcome> SanitizeAsync(PhotoFormat declared, ReadOnlyMemory<byte> original, CancellationToken cancellationToken) =>
+            throw new DecoderBugException();
+
+        public sealed class DecoderBugException() : Exception("Defeito sintético do decoder.");
+    }
+
+    /// <summary>Storage que grava o primeiro derivado e recusa os seguintes, como uma queda no meio da publicação.</summary>
+    private sealed class DerivativeRefusingStore(IObjectStore inner) : IObjectStore
+    {
+        private int _derivatives;
+
+        public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken) =>
+            key.Value.StartsWith("derivatives/", StringComparison.Ordinal) && Interlocked.Increment(ref _derivatives) > 1
+                ? throw new IOException("Storage sintético recusou a gravação.")
+                : inner.PutAsync(key, content, length, contentType, cancellationToken);
+
+        public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) => inner.OpenReadAsync(key, cancellationToken);
+
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) => inner.DeleteAsync(key, cancellationToken);
     }
 }
