@@ -133,6 +133,23 @@ internal static class WebhookReceipts
             cancellationToken);
     }
 
+    /// <summary>O recibo já gravado para o evento tem o mesmo SHA-256 deste corpo.</summary>
+    public static async Task<bool> HasSameBodyAsync(
+        DuoraDbContext db,
+        string provider,
+        string eventId,
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken)
+    {
+        var hash = SHA256.HashData(body.Span);
+        var rows = await db.Database.SqlQuery<bool>(
+            $"""
+            select payload_sha256 = {hash} as "Value" from ops.webhook_receipts
+            where provider = {provider} and provider_event_id = {eventId}
+            """).ToListAsync(cancellationToken);
+        return rows.Count == 1 && rows[0];
+    }
+
     private static void RequireTransaction(DuoraDbContext db)
     {
         if (db.Database.CurrentTransaction is null)

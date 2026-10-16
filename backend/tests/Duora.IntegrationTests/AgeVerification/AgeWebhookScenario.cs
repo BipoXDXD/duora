@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Text;
 using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Identity;
@@ -43,15 +42,27 @@ internal sealed class AgeWebhookScenario(PostgresFixture postgres, DuoraWebFacto
             (time.GetUtcNow() + (skew ?? TimeSpan.Zero)).ToUnixTimeSeconds(),
             secret ?? AgeVerificationScenario.CurrentSigningSecret);
 
-    public async Task<HttpResponseMessage> SendAsync(byte[] body, string? signature, string path = WebhookPath)
+    public Task<HttpResponseMessage> SendAsync(byte[] body, string? signature, string path = WebhookPath) =>
+        SendAsync(body, signature is null ? [] : [signature], path);
+
+    /// <summary>Cada item de <paramref name="signatures"/> vira um header próprio (para testar header repetido).</summary>
+    public async Task<HttpResponseMessage> SendAsync(
+        byte[] body,
+        IReadOnlyList<string> signatures,
+        string path = WebhookPath,
+        string? contentType = "application/json")
     {
         using var client = factory.CreateClient(new() { HandleCookies = false, BaseAddress = new Uri(DuoraWebFactory.PublicOrigin) });
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(path, UriKind.Relative))
         {
             Content = new ByteArrayContent(body),
         };
-        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-        if (signature is not null)
+        if (contentType is not null)
+        {
+            request.Content.Headers.TryAddWithoutValidation("Content-Type", contentType);
+        }
+
+        foreach (var signature in signatures)
         {
             request.Headers.TryAddWithoutValidation(FakeAgeCallbackProtocol.SignatureHeader, signature);
         }

@@ -1,6 +1,8 @@
+using System.Diagnostics.Metrics;
 using Duora.Core;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Email;
+using Duora.Infrastructure.Operations;
 using Duora.Infrastructure.Outbox;
 using Duora.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,11 +46,15 @@ public static class AgeVerificationServiceCollectionExtensions
             provider.GetRequiredService<IAgeEligibilityProvider>().Name,
             provider.GetRequiredService<TimeProvider>()));
 
+        services.AddMetrics();
+        services.TryAddSingleton(provider => new WebhookMetrics(provider.GetRequiredService<IMeterFactory>()));
         services.AddScoped(provider => new AgeVerificationWebhook(
             provider.GetRequiredService<DuoraDbContext>(),
             provider.GetRequiredService<IOptions<AgeVerificationOptions>>().Value,
             provider.GetRequiredService<IAgeEligibilityProvider>().Name,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<WebhookMetrics>(),
+            provider.GetRequiredService<ILogger<AgeVerificationWebhook>>()));
 
         return services;
     }

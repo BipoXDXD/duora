@@ -4,6 +4,7 @@ using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Operations;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Duora.Infrastructure.Identity;
 
@@ -26,7 +27,7 @@ public enum AgeWebhookOutcome
 /// é travada (mesma ordem de API-P05: conta, depois solicitação), a solicitação muda com UPDATE condicional
 /// <c>WHERE state = 'Pending'</c>, a conta segue <see cref="AgeEligibility.Decide"/> e tudo é auditado.
 /// </summary>
-public sealed class AgeVerificationWebhook
+public sealed partial class AgeVerificationWebhook
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -35,15 +36,31 @@ public sealed class AgeVerificationWebhook
     private readonly AgeVerificationPolicy _policy;
     private readonly string _providerName;
     private readonly TimeProvider _time;
+    private readonly WebhookMetrics _metrics;
+    private readonly ILogger<AgeVerificationWebhook> _logger;
 
-    internal AgeVerificationWebhook(DuoraDbContext db, AgeVerificationOptions options, string providerName, TimeProvider time)
+    internal AgeVerificationWebhook(
+        DuoraDbContext db,
+        AgeVerificationOptions options,
+        string providerName,
+        TimeProvider time,
+        WebhookMetrics metrics,
+        ILogger<AgeVerificationWebhook> logger)
     {
+        _metrics = metrics;
+        _logger = logger;
         _db = db;
         _options = options;
         _policy = options.ToPolicy();
         _providerName = providerName;
         _time = time;
     }
+
+    /// <summary>Meter dos webhooks (métrica <see cref="EventConflictMetric"/>).</summary>
+    public const string MeterName = WebhookMetrics.MeterName;
+
+    /// <summary>Mesmo <c>event_id</c> do fornecedor chegou com outro corpo (I3, ADR-0024).</summary>
+    public const string EventConflictMetric = WebhookMetrics.EventConflict;
 
     /// <summary>Header da assinatura do fornecedor configurado.</summary>
     public const string SignatureHeader = FakeAgeCallbackProtocol.SignatureHeader;
@@ -79,7 +96,14 @@ public sealed class AgeVerificationWebhook
             cancellationToken);
         if (receiptId is null)
         {
-            // Mesmo evento já recebido: o efeito, se houve, já foi aplicado uma vez.
+            // Mesmo evento já recebido: o efeito, se houve, já foi aplicado uma vez. Com corpo diferente, nada se aplica
+            // (o primeiro vale) e fica o alerta: fornecedor com defeito ou alguém com o segredo (decisão I3, ADR-0024).
+            if (!await WebhookReceipts.HasSameBodyAsync(_db, _providerName, callback.EventId, body, cancellationToken))
+            {
+                _metrics.RecordEventConflict(_providerName);
+                LogEventConflict(_logger, _providerName, callback.EventId);
+            }
+
             return AgeWebhookOutcome.Accepted;
         }
 
@@ -123,17 +147,27 @@ public sealed class AgeVerificationWebhook
             select state as "StateName", version as "Version" from identity.age_verifications
             where id = {verificationId} for update
             """).ToListAsync(cancellationToken);
-        var account = Enum.Parse<AccountStatus>(accounts.Single());
-        var verification = locked.Single();
+        // Conta ou solicitação sumiram entre a associação e a trava: nada a aplicar.
+        if (accounts.SingleOrDefault() is not { } accountName || locked.SingleOrDefault() is not { } verification)
+        {
+            return false;
+        }
+
+        var account = Enum.Parse<AccountStatus>(accountName);
         if (AgeEligibility.Decide(account, verification.State, callback.Outcome, now, _policy) is not { } decision)
         {
             return false;
         }
 
-        // NotAdult numa solicitação já expirada só restringe a conta; a solicitação fica como estava (M8).
         if (decision.VerificationState != verification.State)
         {
             await RecordDecisionAsync(verificationId, verification.Version, decision, now, cancellationToken);
+        }
+        else
+        {
+            // NotAdult numa solicitação já expirada: a solicitação fica como estava, e a trilha diz qual solicitação
+            // levou à restrição (M8).
+            await Audit(AuditAction.AgeVerificationLateNotAdult, AuditTargetTypes.AgeVerification, verificationId, verification.Version, cancellationToken);
         }
 
         if (decision.ChangesAccountFrom(account))
@@ -198,6 +232,11 @@ public sealed class AgeVerificationWebhook
         new AuditTrail(_db, _time).AppendAsync(
             new AuditRecord(AuditActorKind.System, actorId: null, action, targetType, targetId, targetVersion),
             cancellationToken);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Webhook {Provider} repetiu o evento {EventId} com outro corpo; ignorado, vale o primeiro")]
+    private static partial void LogEventConflict(ILogger logger, string provider, string eventId);
 
     private sealed record VerificationOwner(Guid Id, Guid UserId);
 

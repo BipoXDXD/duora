@@ -921,6 +921,8 @@ erDiagram
 - **Escrita:** recibo gravado com `ON CONFLICT DO NOTHING` na mesma transação do efeito, por quem processa o callback
   (`WebhookReceipts`, dono Operations; [ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md)).
   `duora_app` tem DML completo: o estado muda no processamento e a retenção apaga em lote.
+  Mesmo evento com `payload_sha256` diferente não tem efeito e gera alerta (`webhook_event_conflict`). Retenção:
+  issue #46.
 - **Constraints:** `UNIQUE (provider, provider_event_id)` (spec 10.3); `CHECK` de estado, do tamanho do hash e do
   payload.
 - **Índices:** `ix_webhook_receipts_received_at` (limpeza).
