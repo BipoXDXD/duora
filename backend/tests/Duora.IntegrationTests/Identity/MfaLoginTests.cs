@@ -17,19 +17,17 @@ public sealed class MfaLoginTests : IAsyncDisposable
     {
         _postgres = postgres;
         _time = TestClock.StartingNow();
-        _factory = new DuoraWebFactory(postgres.ConnectionString)
-        {
-            Time = _time,
-            // O teste do bloqueio faz mais tentativas do que o rate limit por conta deixaria.
-            Settings = new Dictionary<string, string?>
-            {
-                ["RateLimiting:LoginPerAccount:PermitLimit"] = "100",
-                ["RateLimiting:LoginPerAccount:Window"] = "00:15:00",
-                ["RateLimiting:LoginPerIp:PermitLimit"] = "1000",
-                ["RateLimiting:LoginPerIp:Window"] = "00:01:00",
-            },
-        };
+        _factory = new DuoraWebFactory(postgres.ConnectionString) { Time = _time, Settings = LoginLimits() };
     }
+
+    /// <summary>O teste do bloqueio faz mais tentativas do que o rate limit por conta deixaria.</summary>
+    private static Dictionary<string, string?> LoginLimits() => new()
+    {
+        ["RateLimiting:LoginPerAccount:PermitLimit"] = "100",
+        ["RateLimiting:LoginPerAccount:Window"] = "00:15:00",
+        ["RateLimiting:LoginPerIp:PermitLimit"] = "1000",
+        ["RateLimiting:LoginPerIp:Window"] = "00:01:00",
+    };
 
     private IdentityScenario Scenario => new(_postgres, _factory);
 
@@ -156,8 +154,22 @@ public sealed class MfaLoginTests : IAsyncDisposable
     [Fact]
     public async Task TheSameRecoveryCodeUsedConcurrentlyOpensOnlyOneSession()
     {
-        var (account, mfa) = await AccountWithMfaAsync();
-        var browsers = Enumerable.Range(0, 4).Select(_ => new Browser(_factory)).ToList();
+        // Os quatro logins esperam um ao outro na vez da conta, cada um com um hash de senha. O teto de produção
+        // (5 s) estoura com a máquina carregada e a espera vira 503, o que AccountLockTimeoutTests já cobre; aqui
+        // interessa só quem consome o código, então a espera não pode ser o que decide.
+        var settings = LoginLimits();
+        settings["Identity:AccountLockTimeout"] = "00:00:30";
+        await using var factory = new DuoraWebFactory(_postgres.ConnectionString) { Time = _time, Settings = settings };
+        var scenario = new IdentityScenario(_postgres, factory);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        EnabledMfa mfa;
+        using (var enrolling = await scenario.SignedInBrowserAsync(account))
+        {
+            mfa = await MfaScenario.EnableAsync(enrolling, _time);
+        }
+
+        var sessionsBefore = (await scenario.SessionRowsAsync(account.UserId)).Count;
+        var browsers = Enumerable.Range(0, 4).Select(_ => new Browser(factory)).ToList();
         foreach (var browser in browsers)
         {
             await browser.FetchCsrfTokenAsync();
@@ -170,6 +182,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
         Assert.All(
             responses.Where(response => response.StatusCode != HttpStatusCode.NoContent),
             response => Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode));
+        Assert.Equal(sessionsBefore + 1, (await scenario.SessionRowsAsync(account.UserId)).Count);
         foreach (var response in responses)
         {
             response.Dispose();
