@@ -180,6 +180,16 @@ internal static class TestImages
         return stream.ToArray();
     }
 
+    /// <summary>
+    /// PNG estruturalmente completo (IHDR, IDAT e IEND com CRCs válidos) cujo IDAT tem um cabeçalho zlib correto e um
+    /// stream deflate de lixo determinístico: a completude passa e só o decoder percebe a corrupção.
+    /// </summary>
+    public static byte[] PngWithGarbageCompressedData()
+    {
+        byte[] garbage = [0x78, 0x9C, .. Enumerable.Range(0, 64).Select(i => (byte)((i * 37) + 0xF7))];
+        return Png16(garbage);
+    }
+
     /// <summary>JPEG válido seguido de HTML com script: o sniff aceita, o reencode descarta o resto.</summary>
     public static byte[] JpegHtmlPolyglot() =>
         [.. Jpeg(), .. Encoding.ASCII.GetBytes("<html><script>alert('duora-canary')</script></html>")];
@@ -340,6 +350,23 @@ internal static class TestImages
         BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(8), (uint)ascii.Length);
         ascii.CopyTo(data.AsSpan(12));
         return data;
+    }
+
+    /// <summary>PNG 16×16 RGBA de 8 bits com o IDAT dado e CRCs válidos.</summary>
+    private static byte[] Png16(byte[] idat)
+    {
+        const int Side = 16;
+        var ihdr = new byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(ihdr, Side);
+        BinaryPrimitives.WriteInt32BigEndian(ihdr.AsSpan(4), Side);
+        ihdr[8] = 8;
+        ihdr[9] = 6;
+        using var stream = new MemoryStream();
+        stream.Write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        WritePngChunk(stream, "IHDR", ihdr);
+        WritePngChunk(stream, "IDAT", idat);
+        WritePngChunk(stream, "IEND", []);
+        return stream.ToArray();
     }
 
     private static void WritePngChunk(Stream stream, string type, byte[] data)

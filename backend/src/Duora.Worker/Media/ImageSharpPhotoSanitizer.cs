@@ -102,8 +102,9 @@ internal sealed class ImageSharpPhotoSanitizer : IPhotoSanitizer
             return new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit);
         }
         catch (Exception exception) when (exception is ImageFormatException or UnknownImageFormatException
-            or InvalidImageContentException or NotSupportedException)
+            or InvalidImageContentException or NotSupportedException or InvalidDataException)
         {
+            // InvalidDataException: o inflate do .NET lança direto, sem embrulhar, num IDAT de PNG que não é deflate.
             return new SanitizeOutcome.Rejected(PhotoRejection.CorruptImage);
         }
     }
