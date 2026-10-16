@@ -307,8 +307,8 @@ Decisões:
   cresceria sem teto: o rate limit por IP deixa ~14 mil tentativas por dia de cada IPv4, e um /64 IPv6 é uma só
   chave, mas um atacante pode ter muitos. Os dois casos, do mesmo jeito, somam no contador
   `identity.login.failed_unknown_account` (meter `Duora.Identity`, sem rótulo: e-mail, IP ou conta dariam
-  cardinalidade sem limite) e geram o log `Login sem conta confirmada`, sem e-mail nem IP, ligado ao pedido pelo
-  trace id. A resposta e o trabalho caro continuam iguais aos da senha errada (um hash e o piso de latência,
+  cardinalidade sem limite) e geram o log `Login sem conta confirmada` em nível Debug (a contagem é a métrica),
+  sem e-mail nem IP, ligado ao pedido pelo trace id. A resposta e o trabalho caro continuam iguais aos da senha errada (um hash e o piso de latência,
   TM-06), e nada no banco distingue "não existe" de "pendente".
 - **O `correlation_id` não vem do cliente.** O host descarta `traceparent`, `tracestate` e `baggage` recebidos
   (`InboundTraceContextDiscarded`): cada pedido começa um trace novo, então ninguém escolhe o id que liga o
@@ -322,7 +322,9 @@ Decisões:
   auditado é a mudança de credencial, e o motivo fica em `login_sessions.revocation_reason`.
 
 Revogação (A10) e logout (A05) travam a sessão com `FOR NO KEY UPDATE` e o mesmo teto de espera da conta
-(`Identity:AccountLockTimeout`): passou do teto, `503` `TEMPORARILY_UNAVAILABLE` sem gravar nada. O reset (A07)
+(`Identity:AccountLockTimeout`): passou do teto, `503` `TEMPORARILY_UNAVAILABLE` sem gravar nada. O teto vale só
+para essa espera: logo depois do lock o `lock_timeout` da transação volta ao padrão, para um comando seguinte que
+espere outra linha (as sessões, no reset) não estourar no meio como `500`. O reset (A07)
 passa pela mesma fila e pelo mesmo lock da conta que login, A13 e A16.
 
 **Logout com o banco fora do ar falha fechado:** a revogação e o registro vêm antes de o cookie sair, então o
@@ -334,7 +336,8 @@ segundo fator ausente em A04 e A13; desbloqueio; sessão alheia → `404` sem re
 inexistente e cadastro pendente sem linha, com a mesma métrica, o mesmo log sem e-mail e a mesma resposta;
 `traceparent` forjado não vira `correlation_id`; falhas e logins simultâneos sem registro duplicado nem perdido;
 revogações paradas no lock da sessão registram uma vez; espera além do teto → `503`; canário de senha, e-mail e
-IP fora da tabela); `AccountLockTimeoutTests.APasswordResetThatWaitsTooLongAnswers503AndChangesNothing`.
+IP fora da tabela); `AccountLockTimeoutTests.APasswordResetThatWaitsTooLongAnswers503AndChangesNothing` e
+`APasswordResetWaitsForABusySessionAfterTakingTheAccount`; `PhotoUploadLimiterTests` (/64 no envio de fotos).
 
 ## Rate limit e lockout
 
@@ -345,7 +348,8 @@ ficam na seção `RateLimiting` da configuração. O IP do cliente vem de `X-For
 está numa rede de `ReverseProxy:KnownNetworks` (em produção, a rede `edge` do Caddy, `172.30.10.0/24`, conforme
 `docs/operations/deploy.md`), com `ForwardLimit = 1`; o middleware roda antes do rate limit. A chave "IP" é o
 endereço IPv4 ou o **prefixo /64** do IPv6 (um cliente IPv6 costuma ter o /64 inteiro e trocaria de endereço a
-cada pedido); IPv4 mapeado em IPv6 conta como IPv4. Sem rede
+cada pedido); IPv4 mapeado em IPv6 conta como IPv4. A mesma chave (`ClientNetwork.RateLimitKey`) vale para o
+envio de fotos por IP. Sem rede
 configurada, o processamento fica **desligado**: com as listas vazias o framework aceitaria o header de qualquer
 remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests` (inclusive
 `IPv6AddressesInTheSameSlash64ShareTheLoginLimit`),

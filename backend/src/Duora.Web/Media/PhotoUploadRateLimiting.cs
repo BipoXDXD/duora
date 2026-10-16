@@ -44,7 +44,7 @@ internal sealed class PhotoUploadLimiter : IDisposable
     public TimeSpan? TryConsume(Guid accountId, IPAddress? remoteIp)
     {
         using var byAccount = _perAccount.AttemptAcquire(accountId);
-        using var byIp = _perIp.AttemptAcquire(remoteIp?.ToString() ?? "unknown");
+        using var byIp = _perIp.AttemptAcquire(ClientNetwork.RateLimitKey(remoteIp));
         if (byAccount.IsAcquired && byIp.IsAcquired)
         {
             return null;

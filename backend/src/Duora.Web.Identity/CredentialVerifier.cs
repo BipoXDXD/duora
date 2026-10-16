@@ -253,7 +253,8 @@ public sealed partial class CredentialVerifier
         LogLoginWithoutConfirmedAccount(_logger);
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Login sem conta confirmada")]
+    // Debug: a contagem fica na métrica; o log só serve para investigar um pedido pelo trace id.
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Login sem conta confirmada")]
     private static partial void LogLoginWithoutConfirmedAccount(ILogger logger);
 
     /// <summary>

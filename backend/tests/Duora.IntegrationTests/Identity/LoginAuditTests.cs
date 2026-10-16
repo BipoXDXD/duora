@@ -531,7 +531,11 @@ public sealed class LoginAuditTests(PostgresFixture postgres)
         private AuditContext(string connectionString, string? accountLockTimeout)
         {
             _connectionString = connectionString;
-            var settings = new Dictionary<string, string?>();
+            // O log do login sem conta é Debug (a métrica faz a contagem); o teste confere o conteúdo dele.
+            var settings = new Dictionary<string, string?>
+            {
+                [$"Logging:LogLevel:{typeof(CredentialVerifier).FullName}"] = "Debug",
+            };
             if (accountLockTimeout is not null)
             {
                 settings["Identity:AccountLockTimeout"] = accountLockTimeout;
