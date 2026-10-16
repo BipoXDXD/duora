@@ -19,22 +19,15 @@ public interface IAgeEligibilityProvider
 
 /// <summary>
 /// O que o adaptador recebe para abrir a verificação. Sem e-mail, nome nem data de nascimento: o fornecedor recebe
-/// referências opacas. <c>LoginSessionId</c> é a sessão em que a pessoa pediu a verificação; nenhum comportamento
-/// depende dela por ora, mas o contrato já a carrega enquanto a leitura de "a cada acesso" do ECA Digital está
-/// pendente (ADR-0024, decisão 3). O adaptador não a repassa ao fornecedor sem motivo.
+/// referências opacas.
 /// </summary>
 public sealed record AgeCheckStart
 {
-    public AgeCheckStart(Guid verificationId, string requestNonce, Guid loginSessionId, Uri returnUrl, string policyVersion)
+    public AgeCheckStart(Guid verificationId, string requestNonce, Uri returnUrl, string policyVersion)
     {
         if (verificationId == Guid.Empty)
         {
             throw new ArgumentException("Id da solicitação vazio.", nameof(verificationId));
-        }
-
-        if (loginSessionId == Guid.Empty)
-        {
-            throw new ArgumentException("Id da sessão vazio.", nameof(loginSessionId));
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(requestNonce);
@@ -43,7 +36,6 @@ public sealed record AgeCheckStart
 
         VerificationId = verificationId;
         RequestNonce = requestNonce;
-        LoginSessionId = loginSessionId;
         ReturnUrl = returnUrl;
         PolicyVersion = policyVersion;
     }
@@ -52,8 +44,6 @@ public sealed record AgeCheckStart
 
     /// <summary>Gerado pelo servidor; o callback precisa trazê-lo de volta (TM-36).</summary>
     public string RequestNonce { get; }
-
-    public Guid LoginSessionId { get; }
 
     /// <summary>Para onde o fornecedor devolve o navegador; montada da origem pública, nunca da requisição.</summary>
     public Uri ReturnUrl { get; }

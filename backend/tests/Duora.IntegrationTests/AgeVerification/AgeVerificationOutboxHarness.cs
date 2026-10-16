@@ -96,7 +96,8 @@ internal sealed class AgeVerificationOutboxHarness : IAsyncDisposable
 
         await using var dbContext = PostgresFixture.CreateDbContext(ConnectionString);
         var outboxEvent = AgeVerificationOutbox.Create(
-            new AgeVerificationRequested(verificationId, Guid.CreateVersion7(now)),
+            new AgeVerificationRequested(verificationId),
+            Guid.CreateVersion7(now),
             now,
             now + TimeSpan.FromHours(24));
         dbContext.Add(outboxEvent);

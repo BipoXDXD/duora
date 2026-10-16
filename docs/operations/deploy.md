@@ -252,6 +252,13 @@ release nova grava `VerifiedAdult` sem `expires_at`. Um rollback para a release 
 fechado para essas pessoas: o código anterior lê a verificação sem `expires_at` como vencida, nega a participação e
 oferece nova verificação. Ninguém ganha acesso indevido; quem foi verificada depois do deploy refaz a verificação.
 
+**Sessão fora do pedido etário** (`identity.age-verification-requested`, ADR-0024 adendo de 2026-10-16): o campo
+`loginSessionId` sai do payload em dois deploys, na ordem de remoção do [model.md](../data/model.md#convenções).
+Nesta release o worker já não o lê (aceita presente ou ausente), mas o web **continua gravando**, porque o worker da
+release anterior recusa o payload sem ele. A gravação sai na release seguinte; o campo some do leitor só depois que
+nenhuma entrega gravada com ele puder estar `Pending` ou `InFlight`. Até a release que para de gravar, o rollback
+para a anterior não tem restrição por esse campo.
+
 ### Falha no meio do deploy
 
 | Onde falhou | Estado | O que fazer |

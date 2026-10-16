@@ -35,6 +35,30 @@ public sealed class AgeVerificationProviderDispatchTests(PostgresFixture postgre
     }
 
     [Fact]
+    public async Task TaskWrittenWithoutTheSessionFieldIsStillOpened()
+    {
+        // Leitor tolerante: a release seguinte para de gravar o loginSessionId, e este worker já aceita a ausência.
+        await using var harness = await AgeVerificationOutboxHarness.CreateAsync(postgres, Ct);
+        var pending = await harness.CreatePendingVerificationAsync(Ct);
+        await harness.ExecuteAsync(
+            """
+            update ops.outbox_events
+            set payload = jsonb_build_object('verificationId', resource_id)
+            where resource_id = $1
+            """,
+            Ct,
+            pending.VerificationId);
+        var dispatcher = harness.StartWorker();
+
+        var claimed = await dispatcher.DispatchBatchAsync(Ct);
+
+        Assert.Equal(1, claimed);
+        Assert.Equal("Delivered", (await harness.ReadDeliveryAsync(pending.DeliveryId, Ct)).Status);
+        var verification = await harness.ReadVerificationAsync(pending.UserId, Ct);
+        Assert.Equal($"{FakeAgeEligibilityProvider.ReferenceFor(pending.VerificationId)}", verification.ProviderReference);
+    }
+
+    [Fact]
     [Trait("Acceptance", "T-17")]
     public async Task SlowProviderTimesOutAndTheAccountStaysPending()
     {
