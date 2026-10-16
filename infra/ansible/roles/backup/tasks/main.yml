@@ -53,6 +53,7 @@
     mode: "0644"
   loop:
     - duora-backup@.service
+    - duora-media-backup@.service
     - duora-backup-failed@.service
     - duora-backup-full.timer
     - duora-backup-diff.timer

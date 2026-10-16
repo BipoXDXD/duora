@@ -214,6 +214,87 @@ class HostConfigTests(unittest.TestCase):
             deploy.parse_host_config("DUORA_MIN_FREE_GIB=7\n")
 
 
+class MediaUploadGateTests(unittest.TestCase):
+    """Upload de fotos ligado só com o backup das fotos verificado (adendo do ADR-0010; I5 da revisão do #61)."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.paths = deploy.Paths(compose_file=root / "compose.prod.yml", host_env=root / "duora.env",
+                                  state_dir=root / "state", backup_command=root / "duora-backup")
+        self.paths.state_dir.mkdir()
+        self.release = parse(valid_manifest())
+        self.now = 1_760_000_000.0
+
+    def run_deploy(self, runner: "FakeRunner", *, enabled: bool = True) -> None:
+        deploy.deploy(self.release, self.paths, runner, readiness_timeout_seconds=5, sleep=lambda _: None,
+                      media_uploads_enabled=enabled, clock=lambda: self.now)
+
+    def record_media_verify(self, age_seconds: float) -> None:
+        (self.paths.state_dir / deploy.MEDIA_VERIFY_OK_FILE).write_text(f"{self.now - age_seconds}\n",
+                                                                         encoding="utf-8")
+
+    def test_host_env_switches_the_upload_on(self) -> None:
+        self.assertTrue(deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=Editorial\n")
+                        .media_uploads_enabled)
+        for text in ("DUORA_IMAGE_PREFIX=x\n", "DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=\n"):
+            with self.subTest(text=text):
+                self.assertFalse(deploy.parse_host_config(text).media_uploads_enabled)
+
+    def test_upload_off_does_not_look_at_the_media_backup(self) -> None:
+        runner = FakeRunner()
+
+        self.run_deploy(runner, enabled=False)
+
+        self.assertFalse(runner.ran("systemctl"))
+
+    def test_upload_on_with_active_timer_and_recent_verify_deploys_after_checking_first(self) -> None:
+        self.record_media_verify(deploy.MAX_MEDIA_VERIFY_AGE_HOURS * 3600)
+        runner = FakeRunner()
+
+        self.run_deploy(runner)
+
+        self.assertLess(runner.index_of(f"systemctl is-active --quiet {deploy.MEDIA_VERIFY_TIMER}"),
+                        runner.index_of("pull"))
+        self.assertTrue(runner.ran("up --detach --wait --no-deps web"))
+
+    def test_upload_on_refuses_before_touching_anything(self) -> None:
+        cases = {
+            "timer inativo": (FakeRunner(fail_on="is-active"), 3600),
+            "verify velho": (FakeRunner(), deploy.MAX_MEDIA_VERIFY_AGE_HOURS * 3600 + 1),
+            "verify no futuro": (FakeRunner(), -3600),
+        }
+        for name, (runner, age) in cases.items():
+            with self.subTest(case=name):
+                self.record_media_verify(age)
+                with self.assertRaisesRegex(deploy.DeployError, "fotos"):
+                    self.run_deploy(runner)
+                self.assertFalse(runner.ran("pull"))
+                self.assertFalse(runner.ran("stop"))
+
+    def test_upload_on_without_or_with_a_corrupt_marker_refuses(self) -> None:
+        for content in (None, "ontem", ""):
+            with self.subTest(content=content):
+                marker = self.paths.state_dir / deploy.MEDIA_VERIFY_OK_FILE
+                marker.unlink(missing_ok=True)
+                if content is not None:
+                    marker.write_text(content, encoding="utf-8")
+                runner = FakeRunner()
+                with self.assertRaisesRegex(deploy.DeployError, "fotos"):
+                    self.run_deploy(runner)
+                self.assertFalse(runner.ran("pull"))
+
+    def test_names_match_the_backup_wrapper_and_the_role(self) -> None:
+        import duora_backup
+        timer = (Path(__file__).resolve().parents[2] / "infra" / "ansible" / "roles" / "backup" / "files"
+                 / deploy.MEDIA_VERIFY_TIMER)
+
+        self.assertEqual(duora_backup.MEDIA_VERIFY_OK_FILE, deploy.MEDIA_VERIFY_OK_FILE)
+        self.assertTrue(timer.is_file())
+        self.assertGreater(deploy.MAX_MEDIA_VERIFY_AGE_HOURS, duora_backup.MAX_MEDIA_SNAPSHOT_AGE_HOURS)
+
+
 class FakeRunner:
     """Registra os comandos e responde como o Docker responderia; falha no comando indicado.
 
