@@ -52,7 +52,7 @@ public sealed record AgeVerificationSnapshot(
     AgeVerificationState State,
     DateTimeOffset RequestedAt,
     bool ProviderFlowReady,
-    bool MinorSuspected = false);
+    bool MinorSuspected);
 
 /// <summary>Elegibilidade etária de uma conta num instante e o próximo passo da pessoa.</summary>
 public sealed record AgeEligibilityResult(bool IsEligible, AgeVerificationNextStep NextStep)

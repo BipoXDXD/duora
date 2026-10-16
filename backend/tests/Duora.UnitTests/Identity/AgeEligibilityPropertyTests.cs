@@ -32,7 +32,7 @@ public sealed class AgeEligibilityPropertyTests
         Gen.Frequency(
             (1, Gen.Const((AgeVerificationSnapshot?)null)),
             (6, Gen.Select(AnyState, AnyInstant, Gen.Bool, (state, requestedAt, flowReady) =>
-                (AgeVerificationSnapshot?)new AgeVerificationSnapshot(state, requestedAt, flowReady))));
+                (AgeVerificationSnapshot?)new AgeVerificationSnapshot(state, requestedAt, flowReady, MinorSuspected: false))));
 
     [Fact]
     public void EligibilityAlwaysMeansAnActiveAccountWithAnAdultVerification()
@@ -126,7 +126,7 @@ public sealed class AgeEligibilityPropertyTests
         Gen.Select(AnyInstant, AnyLongDelay, Gen.Bool).Sample(
             (decidedAt, delay, flowReady) =>
             {
-                var latest = new AgeVerificationSnapshot(AgeVerificationState.VerifiedAdult, decidedAt, flowReady);
+                var latest = new AgeVerificationSnapshot(AgeVerificationState.VerifiedAdult, decidedAt, flowReady, MinorSuspected: false);
                 return AgeEligibility.Evaluate(AccountStatus.Active, latest, decidedAt + delay, Policy).IsEligible;
             },
             iter: Iterations);
@@ -139,7 +139,7 @@ public sealed class AgeEligibilityPropertyTests
         Gen.Select(AnyAccount, AnyInstant, AnyLongDelay).Sample(
             (account, decidedAt, delay) =>
             {
-                var latest = new AgeVerificationSnapshot(AgeVerificationState.VerifiedAdult, decidedAt, ProviderFlowReady: true);
+                var latest = new AgeVerificationSnapshot(AgeVerificationState.VerifiedAdult, decidedAt, ProviderFlowReady: true, MinorSuspected: false);
                 return !AgeEligibility.Evaluate(account, latest, decidedAt + delay, Policy).AllowsNewRequest;
             },
             iter: Iterations);
