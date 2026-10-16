@@ -191,8 +191,11 @@ class FakeRunner:
 
     def __init__(self, *, containers: str = CONTAINER_ID + "\n", fail_on: str | None = None,
                  info: str | None = None, archiver_line: str | None = None, verify: RepoCheck | None = None,
-                 bucket: dict[str, str] | None = None) -> None:
+                 bucket: dict[str, str] | None = None, repo_conf: str = REPO_CONF,
+                 b2_authorize: str | None = None) -> None:
         self.commands: list[list[str]] = []
+        self._repo_conf = repo_conf
+        self._b2_authorize = b2_authorize
         self.stdins: list[str | None] = []
         self._containers = containers
         self._fail_on = fail_on
@@ -214,7 +217,11 @@ class FakeRunner:
         if command[:2] == ["docker", "ps"]:
             return subprocess.CompletedProcess(command, 0, self._containers, "")
         if "cat" in command:
-            return subprocess.CompletedProcess(command, 0, REPO_CONF, "")
+            return subprocess.CompletedProcess(command, 0, self._repo_conf, "")
+        if "s_client" in command and "b2_authorize_account" in (stdin or ""):
+            if self._b2_authorize is None:
+                raise AssertionError("b2_authorize_account chamado sem resposta configurada no dublê")
+            return subprocess.CompletedProcess(command, 0, self._b2_authorize, "")
         if "s_client" in command:
             subresource = "object-lock" if "?object-lock=" in (stdin or "") else "versioning"
             return subprocess.CompletedProcess(command, 0, self._bucket[subresource], "")
@@ -1021,6 +1028,242 @@ class BucketProtectionActionTests(unittest.TestCase):
     def test_unreadable_response_blocks(self) -> None:
         with self.assertRaisesRegex(backup.BackupError, "ilegível"):
             self.verify(FakeRunner(bucket={"versioning": "", "object-lock": http(200, object_lock())}))
+
+
+# --- Backblaze B2 (ADR-0023, adendo de 2026-10-16; docs/operations/backblaze-setup.md) ---------------------------
+
+B2_ENDPOINT = "s3.us-east-005.backblazeb2.com"
+B2_KEY_ID = "005a1b2c3d4e5f60000000001"
+B2_SECRET = "K005SinteticoNaoRealParaTeste0000"
+B2_REPO_CONF = f"""[global]
+repo1-s3-endpoint={B2_ENDPOINT}
+repo1-s3-bucket=duora-prod-backup-x7k2q9
+repo1-s3-region=us-east-005
+repo1-s3-uri-style=host
+repo1-s3-key={B2_KEY_ID}
+repo1-s3-key-secret={B2_SECRET}
+"""
+B2_BACKUP_CAPABILITIES = ["listFiles", "readFiles", "writeFiles", "readBuckets", "readBucketRetentions"]
+# Como o B2 responde ao GetBucketVersioning (bucket do B2 é sempre versionado) e ao GetObjectLockConfiguration de um
+# bucket com File Lock e retenção padrão COMPLIANCE de 21 dias: XML do S3 com namespace.
+B2_VERSIONING = ('<?xml version="1.0" encoding="UTF-8"?>\n<VersioningConfiguration '
+                 'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status></VersioningConfiguration>')
+B2_OBJECT_LOCK = ('<?xml version="1.0" encoding="UTF-8"?>\n<ObjectLockConfiguration '
+                  'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ObjectLockEnabled>Enabled</ObjectLockEnabled>'
+                  "<Rule><DefaultRetention><Mode>COMPLIANCE</Mode><Days>21</Days></DefaultRetention></Rule>"
+                  "</ObjectLockConfiguration>")
+
+
+def b2_authorize(*, capabilities: list[str] | None = None, buckets: list[dict] | None = None,
+                 name_prefix: str | None = "duora/", s3_api_url: str = f"https://{B2_ENDPOINT}") -> str:
+    """Resposta do b2_authorize_account v4 (docs da Backblaze), só com os campos que o verify lê e o token."""
+    allowed = {"buckets": buckets if buckets is not None else [{"id": "4a5b6c", "name": "duora-prod-backup-x7k2q9"}],
+               "capabilities": capabilities if capabilities is not None else B2_BACKUP_CAPABILITIES,
+               "namePrefix": name_prefix}
+    body = json.dumps({"accountId": "conta-sintetica", "authorizationToken": "TOKEN-SINTETICO-NUNCA-IMPRESSO",
+                       "applicationKeyExpirationTimestamp": None,
+                       "apiInfo": {"storageApi": {"apiUrl": "https://api005.backblazeb2.com",
+                                                  "downloadUrl": "https://f005.backblazeb2.com",
+                                                  "s3ApiUrl": s3_api_url, "allowed": allowed}}})
+    return f"HTTP/1.1 200 OK\nContent-Type: application/json;charset=UTF-8\n\n{body}"
+
+
+def b2_runner(*, authorize: str | None = None, versioning: str = B2_VERSIONING,
+              object_lock_xml: str = B2_OBJECT_LOCK) -> FakeRunner:
+    return FakeRunner(repo_conf=B2_REPO_CONF, b2_authorize=authorize if authorize is not None else b2_authorize(),
+                      bucket={"versioning": http(200, versioning), "object-lock": http(200, object_lock_xml)})
+
+
+class B2RepoSettingsTests(unittest.TestCase):
+    def test_b2_endpoint_uses_virtual_host_and_signs_with_the_b2_region(self) -> None:
+        settings = backup.parse_repo_settings(B2_REPO_CONF)
+
+        request = backup.signed_bucket_request(settings, "object-lock", NOW)
+
+        self.assertTrue(settings.is_backblaze_b2)
+        self.assertEqual("duora-prod-backup-x7k2q9.s3.us-east-005.backblazeb2.com", settings.host)
+        self.assertIn("/us-east-005/s3/aws4_request", request)
+        self.assertTrue(request.startswith("GET /?object-lock= HTTP/1.1\r\n"
+                                           "Host: duora-prod-backup-x7k2q9.s3.us-east-005.backblazeb2.com\r\n"))
+
+    def test_other_endpoints_are_not_b2(self) -> None:
+        for endpoint in ("s3.example.test", "minio", "s3.us-east-005.backblazeb2.com.evil.test",
+                         "evilbackblazeb2.com"):
+            with self.subTest(endpoint=endpoint):
+                text = REPO_CONF.replace("repo1-s3-endpoint=s3.example.test", f"repo1-s3-endpoint={endpoint}")
+                self.assertFalse(backup.parse_repo_settings(text).is_backblaze_b2)
+
+    def test_authorize_request_uses_basic_auth_and_never_puts_the_secret_in_clear(self) -> None:
+        request = backup.b2_authorize_request(backup.parse_repo_settings(B2_REPO_CONF))
+
+        self.assertTrue(request.startswith("GET /b2api/v4/b2_authorize_account HTTP/1.1\r\n"
+                                           "Host: api.backblazeb2.com\r\n"))
+        self.assertIn("Authorization: Basic MDA1YTFiMmMzZDRlNWY2MDAwMDAwMDAwMTpLMDA1U2ludGV0aWNvTmFvUmVhbFBhcmFUZXN0"
+                      "ZTAwMDA=\r\n", request)
+        self.assertNotIn(B2_SECRET, request)
+        self.assertTrue(request.endswith("Connection: close\r\n\r\n"))
+
+
+class B2KeyProblemsTests(unittest.TestCase):
+    """A chave do backup na VPS só pode o que o backup usa: sem apagar versão, sem mexer em retenção (ADR-0023)."""
+
+    settings = backup.parse_repo_settings(B2_REPO_CONF)
+
+    def problems(self, response: str) -> list[str]:
+        return backup.b2_key_problems(backup.parse_http_response(response)[1], self.settings)
+
+    def test_minimal_key_restricted_to_the_bucket_and_prefix_has_no_problems(self) -> None:
+        self.assertEqual([], self.problems(b2_authorize()))
+
+    def test_harmless_read_capabilities_are_accepted(self) -> None:
+        capabilities = [*B2_BACKUP_CAPABILITIES, "listBuckets", "listAllBucketNames", "readBucketEncryption",
+                        "readFileRetentions", "readFileLegalHolds"]
+
+        self.assertEqual([], self.problems(b2_authorize(capabilities=capabilities)))
+
+    def test_each_dangerous_capability_is_a_problem(self) -> None:
+        for capability in ("deleteFiles", "bypassGovernance", "writeFileRetentions", "writeBucketRetentions",
+                           "writeFileLegalHolds", "writeBuckets", "deleteBuckets", "writeKeys", "deleteKeys",
+                           "listKeys", "writeBucketEncryption", "writeBucketReplications", "shareFiles",
+                           "capacidadeNovaDaBackblaze"):
+            with self.subTest(capability=capability):
+                problems = self.problems(b2_authorize(capabilities=[*B2_BACKUP_CAPABILITIES, capability]))
+
+                self.assertEqual([f"chave do backup com capacidades além do necessário: {capability}"], problems)
+
+    def test_missing_capability_is_a_problem(self) -> None:
+        capabilities = [c for c in B2_BACKUP_CAPABILITIES if c != "readBucketRetentions"]
+
+        self.assertEqual(["chave do backup sem as capacidades: readBucketRetentions"],
+                         self.problems(b2_authorize(capabilities=capabilities)))
+
+    def test_key_not_restricted_to_exactly_this_bucket_is_a_problem(self) -> None:
+        for buckets in ([], [{"id": "1", "name": "outro-projeto"}],
+                        [{"id": "4a5b6c", "name": "duora-prod-backup-x7k2q9"}, {"id": "2", "name": "outro-projeto"}],
+                        [{"id": "4a5b6c", "name": None}]):
+            with self.subTest(buckets=buckets):
+                self.assertEqual(["chave do backup não está restrita só ao bucket duora-prod-backup-x7k2q9"],
+                                 self.problems(b2_authorize(buckets=buckets)))
+
+    def test_key_without_the_repository_prefix_is_a_problem(self) -> None:
+        for prefix in (None, "", "duora", "media/", "duora/archive/"):
+            with self.subTest(prefix=prefix):
+                self.assertEqual([f"chave do backup sem a restrição de prefixo duora/ (namePrefix {prefix!r})"],
+                                 self.problems(b2_authorize(name_prefix=prefix)))
+
+    def test_endpoint_of_another_region_is_a_problem(self) -> None:
+        problems = self.problems(b2_authorize(s3_api_url="https://s3.us-east-004.backblazeb2.com"))
+
+        self.assertEqual(["repo1-s3-endpoint s3.us-east-005.backblazeb2.com não é o da conta "
+                          "(s3ApiUrl https://s3.us-east-004.backblazeb2.com): confira o número da região no bucket"],
+                         problems)
+
+    def test_reports_every_problem_at_once(self) -> None:
+        response = b2_authorize(capabilities=["deleteFiles", "writeFiles"], buckets=[], name_prefix=None)
+
+        self.assertEqual(4, len(self.problems(response)))
+
+    def test_unexpected_shape_is_a_problem_without_echoing_the_body(self) -> None:
+        for body in ("not json", "[]", '{"apiInfo": {}}', '{"apiInfo": {"storageApi": {"allowed": []}}}',
+                     '{"authorizationToken": "TOKEN-SINTETICO-NUNCA-IMPRESSO", "apiInfo": {"storageApi": '
+                     '{"allowed": {"capabilities": "writeFiles", "buckets": []}}}}'):
+            with self.subTest(body=body):
+                problems = backup.b2_key_problems(body, self.settings)
+
+                self.assertEqual(["resposta do b2_authorize_account em formato inesperado"], problems)
+                self.assertNotIn("TOKEN", " ".join(problems))
+
+
+class B2BucketProtectionActionTests(unittest.TestCase):
+    """O verify contra o B2: chave conferida primeiro, depois versionamento e File Lock pela API S3."""
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state_dir = Path(self._tmp.name)
+
+    def verify(self, runner: FakeRunner) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            backup.run_action("verify", runner, project="duora", state_dir=self.state_dir, egress_env=None)
+
+    def queries(self, runner: FakeRunner) -> list[tuple[list[str], str]]:
+        return [(command, stdin or "") for command, stdin in zip(runner.commands, runner.stdins)
+                if "s_client" in command]
+
+    def test_protected_bucket_with_minimal_key_passes(self) -> None:
+        runner = b2_runner()
+
+        self.verify(runner)
+
+        self.assertIn(["pgbackrest", "--stanza=duora", "check"], runner.pgbackrest_calls())
+        targets = [command[command.index("-connect") + 1] for command, _ in self.queries(runner)]
+        self.assertEqual(["api.backblazeb2.com:443", "duora-prod-backup-x7k2q9.s3.us-east-005.backblazeb2.com:443",
+                          "duora-prod-backup-x7k2q9.s3.us-east-005.backblazeb2.com:443"], targets)
+
+    def test_authorize_goes_out_of_the_backup_container_with_tls_verification_and_system_ca(self) -> None:
+        runner = b2_runner()
+
+        self.verify(runner)
+
+        command, stdin = self.queries(runner)[0]
+        self.assertEqual(["docker", "exec", "-i", CONTAINER_ID, "openssl", "s_client"], command[:6])
+        self.assertIn("-verify_return_error", command)
+        self.assertEqual("api.backblazeb2.com", command[command.index("-verify_hostname") + 1])
+        self.assertEqual("/etc/ssl/certs/ca-certificates.crt", command[command.index("-CAfile") + 1])
+        self.assertIn("b2_authorize_account", stdin)
+
+    def test_key_with_delete_files_blocks_before_any_pgbackrest_call(self) -> None:
+        runner = b2_runner(authorize=b2_authorize(capabilities=[*B2_BACKUP_CAPABILITIES, "deleteFiles"]))
+
+        with self.assertRaisesRegex(backup.BackupError, "deleteFiles"):
+            self.verify(runner)
+        self.assertEqual([], runner.pgbackrest_calls())
+
+    def test_rejected_key_blocks_without_echoing_the_response(self) -> None:
+        body = '{"code": "unauthorized", "message": "TOKEN-SINTETICO-NUNCA-IMPRESSO", "status": 401}'
+        runner = b2_runner(authorize=f"HTTP/1.1 401 Unauthorized\nContent-Type: application/json\n\n{body}")
+
+        with self.assertRaises(backup.BackupError) as raised:
+            self.verify(runner)
+        self.assertIn("HTTP 401", str(raised.exception))
+        self.assertNotIn("TOKEN", str(raised.exception))
+
+    def test_bucket_without_file_lock_blocks(self) -> None:
+        # Bucket do B2 criado sem File Lock: sem ObjectLockEnabled (ou 404, coberto pelos testes genéricos).
+        runner = b2_runner(object_lock_xml='<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>')
+
+        with self.assertRaisesRegex(backup.BackupError, "Object Lock do bucket não está habilitado"):
+            self.verify(runner)
+
+    def test_governance_default_retention_blocks(self) -> None:
+        runner = b2_runner(object_lock_xml=B2_OBJECT_LOCK.replace("COMPLIANCE", "GOVERNANCE"))
+
+        with self.assertRaisesRegex(backup.BackupError, "GOVERNANCE"):
+            self.verify(runner)
+
+    def test_secret_never_goes_to_a_command_line_nor_in_clear_to_stdin(self) -> None:
+        runner = b2_runner()
+
+        self.verify(runner)
+
+        self.assertFalse(any(B2_SECRET in " ".join(command) for command in runner.commands))
+        self.assertFalse(any(B2_SECRET in (stdin or "") for stdin in runner.stdins))
+
+    def test_non_b2_endpoint_does_not_call_the_b2_api(self) -> None:
+        runner = FakeRunner()
+
+        self.verify(runner)
+
+        self.assertFalse(any("b2_authorize_account" in (stdin or "") for stdin in runner.stdins))
+
+
+class B2RepositoryPrefixTests(unittest.TestCase):
+    def test_key_prefix_matches_the_repo_path_of_the_image(self) -> None:
+        # A restrição de prefixo da chave (namePrefix) precisa ser o repo1-path do pgBackRest, sem a barra inicial.
+        conf = (Path(__file__).resolve().parents[2] / "infra/images/postgres/pgbackrest-repo.conf").read_text(
+            encoding="utf-8")
+
+        self.assertIn(f"repo1-path=/{backup.B2_BACKUP_NAME_PREFIX.rstrip('/')}\n", conf)
 
 
 def _without(entry: dict, *path: str) -> dict:
