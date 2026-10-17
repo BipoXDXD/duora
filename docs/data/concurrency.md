@@ -450,3 +450,56 @@ chamadas sequenciais que só parecem simultâneas. Base: Testcontainers com Post
 Testes de M1 que também seguem a técnica: C11 (`DuplicateAgeCallbackAndProviderQueryConvergeToOneTransition`),
 C12 (`ConcurrentModerationDecisionsSecondGets409`) e C13 (T-19). Nomes "a criar" seguem o
 [threat-model.md](../security/threat-model.md#6-ameaça--mitigação--teste).
+
+## Concorrência na autenticação (issue #65)
+
+API-A04 e as operações de credenciais A07, A11–A16 preservam a exclusão por conta e o
+`SELECT ... FOR NO KEY UPDATE`; TM-01 (força bruta) e TM-06 (enumeração) são os riscos afetados.
+INV-12 continua exigindo revisão humana antes do merge. Não há migração nem alteração de contrato HTTP.
+
+| Limite (`Identity`) | Padrão | Recurso durante a espera | Ao exceder |
+|---|---:|---|---|
+| `AccountQueueTimeout` | 30 s | Sem conexão; cada admissão na fila tem seu teto | `503 TEMPORARILY_UNAVAILABLE`, `Retry-After` |
+| `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato; rollback e liberação da conexão |
+
+Ambos aceitam de 100 ms a 1 min e são validados no boot, independentemente. O teto SQL é removido
+após adquirir o lock, como antes. Não é prazo total do pedido: fila, lock, hash e gravações são fases
+separadas. A configuração antiga de `AccountLockTimeout` passa a controlar apenas PostgreSQL;
+instalações que ajustaram a fila devem definir também `Identity__AccountQueueTimeout`.
+
+O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
+Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o SHA-256
+do endereço normalizado, com namespace distinto da fila por UUID; nunca vai a log, métrica ou banco.
+Esse hash não anonimiza o endereço: a proteção é não persistir nem expor a chave. Entradas são removidas
+quando o último titular/esperador sai, inclusive por timeout ou cancelamento.
+
+Depois da admissão, uma conta existente entra na fila por UUID e adquire o lock SQL; endereços
+inexistentes verificam o hash de isca. Toda falha continua custando um hash. O piso de 350 ms mais jitter
+é contado **depois da admissão por e-mail**, ainda dentro dessa vez, e depois de liberar a transação.
+A espera na fila não pode consumir o piso da próxima falha. A ordem é e-mail → UUID → PostgreSQL;
+nenhuma operação com a conta já travada adquire a fila por e-mail. Rate limits por IP/e-mail continuam
+anteriores a essa admissão e respondem `429` sem consultar existência.
+
+O valor 30 s é uma hipótese conservadora, não garantia de capacidade: quatro verificações de 1,8 s
+podem esperar mais que os antigos 5 s, e passam com o novo limite. CPU arbitrariamente lenta, MFA com
+múltiplos hashes, filas maiores e disputa externa no banco ainda podem causar `503`. Não é correto
+afirmar que isso exige dezenas de pedidos. A fila protege o pool contra esperadores da mesma conta;
+não é limite global para ataques com muitos endereços diferentes. Não promete FIFO estrito.
+
+A proteção fecha a diferença estrutural de paralelismo entre logins existentes e inexistentes numa
+única instância (ADR-0009), mas não promete tempo constante: banco, auditoria, hashes antigos e
+concorrência com reset/reautenticação ainda podem produzir diferenças. Mais instâncias exigem nova
+avaliação, pois as filas são locais, embora o lock SQL preserve a correção. Medir distribuições de
+latência sob carga representativa é necessário antes de aceitar esses riscos; não registrar e-mail,
+IP ou UUID como rótulo. O teste controlado não substitui benchmark da VPS.
+
+Validação: `LoginConcurrencyTests` injeta atraso de 1,8 s sobre o hasher real para quatro logins
+simultâneos, verifica `204`/cookie e `401 INVALID_CREDENTIALS` sem cookie, serialização e latências
+ordenadas de conta existente/inexistente. Cobre também `503`/`Retry-After` da fila, normalização,
+retry, cancelamento e validação independente dos limites. `AccountLockTimeoutTests` mantém o lock
+PostgreSQL real e a prova de no máximo uma conexão esperando por conta. As suítes de lockout e MFA
+continuam protegendo contador, TOTP e uso único dos códigos de recuperação.
+
+Rollback: reverter o PR e remover `Identity__AccountQueueTimeout` se configurado. Não há dados a
+reverter; isso reintroduz a fila de 5 s e o canal de paralelismo da issue #65. Merge exige revisão
+humana e todos os gates; este texto não aceita automaticamente o risco residual.
