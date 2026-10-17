@@ -6,6 +6,31 @@ import type { Catalog } from './catalog'
  * and keep error messages just as neutral: they never reveal whether an email has an account.
  */
 export const en = {
+  'validation.passwordMismatch': 'Passwords do not match.',
+  'changePassword.title': 'Change your initial password',
+  'changePassword.instructions':
+    'Set your own password to continue. The temporary password lasts 24 hours; complete this step within 5 minutes of signing in. If it expired, ask your Duora administrator for a new one.',
+  'changePassword.currentPassword': 'Temporary password',
+  'changePassword.confirmation': 'Confirm new password',
+  'changePassword.reused': 'Choose a password different from the temporary password.',
+  'changePassword.invalidCredentials': 'Invalid current password. Check it and try again.',
+  'changePassword.reauthenticate': 'Sign in again to confirm your identity and continue.',
+  'changePassword.csrf': 'We could not validate this attempt. Try again to refresh session protection.',
+  'changePassword.signInAgain': 'Sign in again',
+  'mfa.title': 'Enable two-factor authentication',
+  'mfa.instructions':
+    'Your account requires an authenticator. Add a TOTP account in your authenticator app using the key below, then confirm with its 6-digit code.',
+  'mfa.start': 'Set up authenticator',
+  'mfa.key': 'Setup key:',
+  'mfa.code': 'Authenticator code',
+  'mfa.confirm': 'Enable MFA',
+  'mfa.confirming': 'Enabling…',
+  'mfa.invalidCode': 'Enter a valid 6-digit authenticator code.',
+  'mfa.recoveryTitle': 'Save your recovery codes',
+  'mfa.recoveryInstructions': 'Save these codes in a safe place. They appear only now and each can be used once.',
+  'mfa.saved': 'I saved the codes, continue',
+  'mfa.alreadyEnabled': 'MFA is already enabled. Sign in again to continue.',
+  'mfa.notStarted': 'Setup expired. Sign in again and set up your authenticator.',
   'app.name': 'Duora',
   'app.documentTitle': '{page} · Duora',
   'app.skipToContent': 'Skip to content',
@@ -89,7 +114,7 @@ export const en = {
   'login.submitting': 'Signing in…',
   'login.invalidCredentials': 'Incorrect email or password.',
   'login.mfaRequired':
-    "This account requires a second authentication factor, and that step isn't available here yet. Please contact support.",
+    'This account requires a second authentication factor. Enter your authenticator code and sign in again.',
   'login.sessionExpired': 'Your session has expired. Sign in again to continue.',
   'login.signInRequired': 'Sign in to continue.',
   'login.signedOut': "You've signed out.",
