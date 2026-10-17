@@ -149,6 +149,7 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
             Settings = new Dictionary<string, string?>
             {
                 ["Identity:AccountLockTimeout"] = "00:00:02",
+                ["Identity:AccountQueueTimeout"] = "00:00:02",
                 ["RateLimiting:LoginPerAccount:PermitLimit"] = "1000",
                 ["RateLimiting:LoginPerAccount:Window"] = "00:15:00",
                 ["RateLimiting:LoginPerIp:PermitLimit"] = "1000",

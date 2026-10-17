@@ -46,7 +46,7 @@ public static class AccountServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>()));
         services.AddOptions<AccountLockOptions>()
             .BindConfiguration(AccountLockOptions.Section)
-            .Validate(o => o.IsValid(), "Identity:AccountLockTimeout precisa ficar entre 100 ms e 1 min.")
+            .Validate(o => o.IsValid(), "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")
             .ValidateOnStart();
         services.AddSingleton<AccountCheckGate>();
         services.AddScoped(provider => new AccountSecurityService(
