@@ -17,6 +17,10 @@ const ForgotPasswordPage = routePage(
   async () => (await import('@/features/auth/ForgotPasswordPage')).ForgotPasswordPage,
 )
 const ResetPasswordPage = routePage(async () => (await import('@/features/auth/ResetPasswordPage')).ResetPasswordPage)
+const ChangePasswordPage = routePage(
+  async () => (await import('@/features/auth/ChangePasswordPage')).ChangePasswordPage,
+)
+const MfaEnrollmentPage = routePage(async () => (await import('@/features/auth/MfaEnrollmentPage')).MfaEnrollmentPage)
 const AccountPage = routePage(async () => (await import('@/features/account/AccountPage')).AccountPage)
 const ProfilePage = routePage(async () => (await import('@/features/profile/ProfilePage')).ProfilePage)
 // O guarda espera os chunks das rotas protegidas: assim, quando GET /me responde, a página entra sem um segundo
@@ -26,6 +30,8 @@ const RequireSession = routePage(async () => {
   const [{ RequireSession: guard }] = await Promise.all([
     import('@/features/session/RequireSession'),
     AccountPage.preload(),
+    ChangePasswordPage.preload(),
+    MfaEnrollmentPage.preload(),
     ProfilePage.preload(),
   ])
   return guard
@@ -46,6 +52,8 @@ export function AppRoutes(): React.JSX.Element {
         </Route>
         <Route element={<Area />}>
           <Route element={<RequireSession />}>
+            <Route path={paths.changePassword} element={<ChangePasswordPage />} />
+            <Route path={paths.mfaEnrollment} element={<MfaEnrollmentPage />} />
             <Route path={paths.account} element={<AccountPage />} />
             <Route path={paths.profile} element={<ProfilePage />} />
           </Route>

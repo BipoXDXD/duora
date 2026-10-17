@@ -5,7 +5,7 @@ import { useLocation } from 'react-router'
 import { z } from 'zod'
 import { readLoginState, type LoginNotice } from '@/features/session/login-state'
 import { useDiscardCachedIdentity, useSessionTransitions } from '@/features/session/session-hooks'
-import { classifyRequestFailure } from '@/shared/api'
+import { ApiProblemError, classifyRequestFailure } from '@/shared/api'
 import type { PlainMessageKey } from '@/shared/i18n/catalog'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
@@ -16,7 +16,11 @@ import { login } from './auth-api'
 import { currentPasswordSchema, emailSchema } from './auth-schemas'
 import { useValidationMessage } from './validation-message'
 
-const loginSchema = z.object({ email: emailSchema, password: currentPasswordSchema })
+const loginSchema = z.object({
+  email: emailSchema,
+  password: currentPasswordSchema,
+  twoFactorCode: z.string().optional(),
+})
 
 const NOTICE_MESSAGES: Readonly<Record<LoginNotice, PlainMessageKey>> = {
   'session-expired': 'login.sessionExpired',
@@ -79,6 +83,15 @@ export function LoginPage(): React.JSX.Element {
           error={fieldError(errors.password?.message)}
           {...form.register('password')}
         />
+        {(signIn.error instanceof ApiProblemError && signIn.error.problem.code === 'MFA_REQUIRED') ||
+        form.getValues('twoFactorCode') !== undefined ? (
+          <TextField
+            label={t('mfa.code')}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            {...form.register('twoFactorCode')}
+          />
+        ) : null}
         <SubmitButton pending={signIn.isPending} label={t('login.submit')} pendingLabel={t('login.submitting')} />
       </form>
       <nav aria-label={t('login.otherPaths')} className="flex flex-col items-start gap-2">

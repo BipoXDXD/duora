@@ -1,5 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router'
-import { classifyRequestFailure, isUnauthorized } from '@/shared/api'
+import { ApiProblemError, classifyRequestFailure, isUnauthorized } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { RequestFailureAlert } from '@/shared/ui/alert'
@@ -16,15 +16,30 @@ import { useMe } from './session-hooks'
  */
 export function RequireSession(): React.JSX.Element {
   const me = useMe()
+  const { pathname } = useLocation()
   const { t } = useI18n()
 
   if (me.isError && isUnauthorized(me.error)) {
     return <RedirectToLogin sessionExpired={me.data !== undefined} />
   }
+  if (me.isError && me.error instanceof ApiProblemError && me.error.status === 403) {
+    const destination =
+      me.error.problem.code === 'PASSWORD_CHANGE_REQUIRED'
+        ? paths.changePassword
+        : me.error.problem.code === 'MFA_ENROLLMENT_REQUIRED'
+          ? paths.mfaEnrollment
+          : null
+    if (destination !== null) {
+      return pathname === destination ? <Outlet /> : <Navigate to={destination} replace />
+    }
+  }
   if (me.data !== undefined) {
+    const needsMfa = me.data.mfaEnabled === false && me.data.roles?.some((role) => role !== 'participant')
+    if (needsMfa && pathname !== paths.mfaEnrollment) return <Navigate to={paths.mfaEnrollment} replace />
+    if (pathname === paths.changePassword) return <Navigate to={paths.account} replace />
     return (
       <AccountContext value={me.data}>
-        <Outlet />
+        <Outlet key={me.data.id} />
       </AccountContext>
     )
   }

@@ -24,6 +24,8 @@ const meSchema = z.object({
   email: z.string().min(1),
   status: z.string().transform(toAccountStatus),
   emailConfirmed: z.boolean(),
+  mfaEnabled: z.boolean().optional(),
+  roles: z.array(z.string()).optional(),
 })
 
 export type Me = z.output<typeof meSchema>
