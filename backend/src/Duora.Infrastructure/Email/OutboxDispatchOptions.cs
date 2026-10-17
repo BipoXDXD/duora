@@ -27,9 +27,14 @@ internal sealed class OutboxDispatchOptions
     public ExponentialBackoff Backoff => new(InitialRetryDelay, MaxRetryDelay);
 
     /// <summary>
-    /// O lease precisa durar mais que o envio: senão outro worker retoma a entrega enquanto o primeiro ainda
-    /// envia, e todo envio lento vira duplicado.
+    /// Reserva metade do lease para os envios sequenciais e metade para composição e persistência.
+    /// A divisão evita overflow mesmo com durações configuradas extremas.
     /// </summary>
+    public bool HasBatchLeaseBudget() =>
+        BatchSize is >= 1 and <= 100
+        && SendTimeout > TimeSpan.Zero
+        && SendTimeout.Ticks <= LeaseDuration.Ticks / 2 / BatchSize;
+
     public bool IsConsistent() =>
         BatchSize is >= 1 and <= 100
         && MaxAttempts >= 1

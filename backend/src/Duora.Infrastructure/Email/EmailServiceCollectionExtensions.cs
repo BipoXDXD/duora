@@ -23,8 +23,10 @@ public static class EmailServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddOptions<OutboxDispatchOptions>()
+            .Configure(o => o.LeaseDuration = TimeSpan.FromMinutes(10))
             .BindConfiguration(OutboxDispatchOptions.Section)
             .Validate(o => o.IsConsistent(), "Parâmetros de Outbox incoerentes: o lease deve durar mais que o envio.")
+            .Validate(o => o.HasBatchLeaseBudget(), "Outbox: BatchSize × SendTimeout deve ser menor ou igual a LeaseDuration / 2.")
             .ValidateOnStart();
 
         services.AddSingleton<ITransactionalEmailSender, PickupDirectoryEmailSender>();

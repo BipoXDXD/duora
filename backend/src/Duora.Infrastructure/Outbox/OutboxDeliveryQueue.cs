@@ -31,12 +31,7 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
     // conta como nova tentativa e troca o token, o que invalida qualquer conclusão do dono anterior.
     private const string ClaimSql =
         """
-        update ops.outbox_deliveries d
-        set status = @in_flight,
-            attempts = d.attempts + 1,
-            fencing_token = d.fencing_token + 1,
-            lease_expires_at = @lease_until
-        from (
+        with candidates as materialized (
             select id
             from ops.outbox_deliveries
             where consumer = @consumer
@@ -45,11 +40,38 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
             order by available_at, id
             limit @batch_size
             for update skip locked
-        ) claimable,
-        ops.outbox_events e
-        where d.id = claimable.id
-          and e.id = d.outbox_event_id
-        returning d.id, d.fencing_token, d.attempts, d.deadline_at, e.type, e.payload::text, e.occurred_at
+        ),
+        exhausted as (
+            update ops.outbox_deliveries d
+            set status = 'Failed', completed_at = @now, lease_expires_at = null,
+                last_error = 'MaxAttemptsExceeded', fencing_token = d.fencing_token + 1
+            from candidates c
+            where d.id = c.id and d.attempts >= @max_attempts
+            returning d.id, d.outbox_event_id
+        ),
+        scrubbed as (
+            update ops.outbox_events e
+            set payload = '{}'::jsonb
+            where exists (select 1 from exhausted x where x.outbox_event_id = e.id)
+              and not exists (
+                  select 1 from ops.outbox_deliveries other
+                  where other.outbox_event_id = e.id
+                    and other.status in (@pending, @in_flight)
+                    and not exists (select 1 from exhausted x where x.id = other.id))
+            returning e.id
+        ),
+        claimed as (
+            update ops.outbox_deliveries d
+            set status = @in_flight,
+                attempts = d.attempts + 1,
+                fencing_token = d.fencing_token + 1,
+                lease_expires_at = @lease_until
+            from candidates c
+            where d.id = c.id and d.attempts < @max_attempts
+            returning d.id, d.fencing_token, d.attempts, d.deadline_at, d.outbox_event_id
+        )
+        select d.id, d.fencing_token, d.attempts, d.deadline_at, e.type, e.payload::text, e.occurred_at
+        from claimed d join ops.outbox_events e on e.id = d.outbox_event_id
         """;
 
     // Estado final e, se era a última entrega aberta do evento, payload esvaziado no mesmo comando. O CTE de
@@ -84,14 +106,27 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         where id = @id and fencing_token = @fencing_token and status = @in_flight and lease_expires_at > @now
         """;
 
+    // O teto é opt-in por consumidor: o e-mail o fornece; os consumidores existentes mantêm seu contrato.
+    // Esgotadas consomem espaço no lote de manutenção, mas nunca voltam como trabalho a enviar.
+    public Task<IReadOnlyList<ClaimedDelivery>> ClaimAsync(
+        string consumer,
+        int batchSize,
+        DateTimeOffset now,
+        DateTimeOffset leaseUntil,
+        CancellationToken cancellationToken) =>
+        ClaimAsync(consumer, batchSize, now, leaseUntil, int.MaxValue, cancellationToken);
+
     public async Task<IReadOnlyList<ClaimedDelivery>> ClaimAsync(
         string consumer,
         int batchSize,
         DateTimeOffset now,
         DateTimeOffset leaseUntil,
+        int maxAttempts,
         CancellationToken cancellationToken)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxAttempts, 1);
         await using var command = dataSource.CreateCommand(ClaimSql);
+        command.Parameters.AddWithValue("max_attempts", maxAttempts);
         command.Parameters.AddWithValue("consumer", consumer);
         command.Parameters.AddWithValue("batch_size", batchSize);
         command.Parameters.AddWithValue("now", now);
@@ -114,6 +149,23 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         }
 
         return claimed;
+    }
+
+    /// <summary>Confere a posse e o orçamento restante antes de iniciar um efeito externo.</summary>
+    public async Task<bool> CanSendAsync(
+        ClaimedDelivery delivery,
+        DateTimeOffset requiredUntil,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(
+            """
+            select exists (
+                select 1 from ops.outbox_deliveries
+                where id = @id and fencing_token = @fencing_token and status = @in_flight
+                  and lease_expires_at > @now)
+            """);
+        AddOwnership(command, delivery, requiredUntil);
+        return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
     }
 
     /// <summary>Encerra a entrega; falso quando o lease venceu ou outro worker a assumiu.</summary>
