@@ -12,20 +12,23 @@ namespace Duora.Infrastructure.Identity;
 /// </remarks>
 internal sealed class AccountCheckGate
 {
-    private readonly Dictionary<Guid, Entry> _entries = [];
+    private readonly Dictionary<string, Entry> _entries = [];
     private readonly Lock _sync = new();
 
     /// <summary>Entra na vez da conta; ocupada por mais que <paramref name="timeout"/>, desiste.</summary>
     /// <exception cref="AccountBusyException">A espera passou do teto.</exception>
     public async Task<IAsyncDisposable> EnterAsync(Guid userId, TimeSpan timeout, CancellationToken cancellationToken)
+        => await EnterAsync($"account:{userId:D}", timeout, cancellationToken);
+
+    internal async Task<IAsyncDisposable> EnterAsync(string key, TimeSpan timeout, CancellationToken cancellationToken)
     {
         Entry entry;
         lock (_sync)
         {
-            if (!_entries.TryGetValue(userId, out entry!))
+            if (!_entries.TryGetValue(key, out entry!))
             {
                 entry = new Entry();
-                _entries[userId] = entry;
+                _entries[key] = entry;
             }
 
             entry.Users++;
@@ -40,14 +43,14 @@ internal sealed class AccountCheckGate
         }
         catch
         {
-            Leave(userId, entry, release: false);
+            Leave(key, entry, release: false);
             throw;
         }
 
-        return new Turn(this, userId, entry);
+        return new Turn(this, key, entry);
     }
 
-    private void Leave(Guid userId, Entry entry, bool release)
+    private void Leave(string key, Entry entry, bool release)
     {
         if (release)
         {
@@ -59,7 +62,7 @@ internal sealed class AccountCheckGate
             entry.Users--;
             if (entry.Users == 0)
             {
-                _entries.Remove(userId);
+                _entries.Remove(key);
                 entry.Semaphore.Dispose();
             }
         }
@@ -73,7 +76,7 @@ internal sealed class AccountCheckGate
         public int Users { get; set; }
     }
 
-    private sealed class Turn(AccountCheckGate gate, Guid userId, Entry entry) : IAsyncDisposable
+    private sealed class Turn(AccountCheckGate gate, string key, Entry entry) : IAsyncDisposable
     {
         private int _left;
 
@@ -81,7 +84,7 @@ internal sealed class AccountCheckGate
         {
             if (Interlocked.Exchange(ref _left, 1) == 0)
             {
-                gate.Leave(userId, entry, release: true);
+                gate.Leave(key, entry, release: true);
             }
 
             return ValueTask.CompletedTask;

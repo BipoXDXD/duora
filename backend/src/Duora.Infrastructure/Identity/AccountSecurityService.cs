@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Duora.Core.Identity;
 using Duora.Core.Notifications;
 using Duora.Infrastructure.Audit;
@@ -19,12 +21,15 @@ internal sealed class AccountLockOptions
     private static readonly TimeSpan Maximum = TimeSpan.FromMinutes(1);
 
     /// <summary>
-    /// Quanto uma verificação espera outra da mesma conta terminar (5 s, hipótese). Passou disso, a requisição
-    /// desiste com <see cref="AccountBusyException"/> em vez de segurar uma conexão do pool.
+    /// Teto do lock PostgreSQL (5 s). Não controla a fila em memória.
     /// </summary>
     public TimeSpan AccountLockTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
-    public bool IsValid() => AccountLockTimeout >= Minimum && AccountLockTimeout <= Maximum;
+    /// <summary>Teto da espera em memória, sem conexão (30 s, hipótese sujeita a medição).</summary>
+    public TimeSpan AccountQueueTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    public bool IsValid() => AccountLockTimeout >= Minimum && AccountLockTimeout <= Maximum
+        && AccountQueueTimeout >= Minimum && AccountQueueTimeout <= Maximum;
 }
 
 /// <summary>
@@ -192,8 +197,14 @@ public sealed class AccountCheck : IAsyncDisposable
     /// <summary>Encerra a transação (desfaz se não houve commit) e só então libera a vez da conta na fila.</summary>
     public async ValueTask DisposeAsync()
     {
-        await _transaction.DisposeAsync();
-        await _turn.DisposeAsync();
+        try
+        {
+            await _transaction.DisposeAsync();
+        }
+        finally
+        {
+            await _turn.DisposeAsync();
+        }
     }
 }
 
@@ -243,13 +254,26 @@ public sealed class AccountSecurityService
     }
 
     /// <summary>
+    /// Serializa logins antes de procurar a conta, inclusive endereços inexistentes. A chave usa a mesma
+    /// normalização do Identity, não é persistida nem registrada e sai da memória com o último interessado.
+    /// Sempre adquirir antes da vez por ID; nunca chamar de dentro de uma verificação já aberta.
+    /// </summary>
+    public Task<IAsyncDisposable> EnterLoginAsync(EmailAddress email, CancellationToken cancellationToken)
+    {
+        var normalized = _users.NormalizeEmail(email.Value)
+            ?? throw new InvalidOperationException("Normalizador de e-mail retornou null.");
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
+        return _gate.EnterAsync($"login:{key}", _lock.AccountQueueTimeout, cancellationToken);
+    }
+
+    /// <summary>
     /// Abre a verificação de credencial da conta: transação com a linha da conta travada e a entidade relida, para
     /// o bloqueio do Identity (que lê, soma e grava) não perder falhas sob requisições paralelas.
     /// </summary>
     public async Task<AccountCheck> LockAccountAsync(DuoraUser user, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(user);
-        var turn = await _gate.EnterAsync(user.Id, _lock.AccountLockTimeout, cancellationToken);
+        var turn = await _gate.EnterAsync(user.Id, _lock.AccountQueueTimeout, cancellationToken);
         try
         {
             var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
@@ -281,7 +305,7 @@ public sealed class AccountSecurityService
         Guid sessionId,
         CancellationToken cancellationToken)
     {
-        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountQueueTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if (user.TwoFactorEnabled)
@@ -309,7 +333,7 @@ public sealed class AccountSecurityService
         EmailLanguage language,
         CancellationToken cancellationToken)
     {
-        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountQueueTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if (user.HasTemporaryPassword)
@@ -348,7 +372,7 @@ public sealed class AccountSecurityService
         EmailLanguage language,
         CancellationToken cancellationToken)
     {
-        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountQueueTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if (!user.TwoFactorEnabled)
@@ -366,7 +390,7 @@ public sealed class AccountSecurityService
     /// <summary>Desativa o TOTP de participante e avisa o titular; MFA já inativo não muda nada nem avisa.</summary>
     public async Task<MfaDeactivation> DisableMfaAsync(Guid userId, EmailLanguage language, CancellationToken cancellationToken)
     {
-        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountQueueTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if ((await _users.GetRolesAsync(user)).Any(AccountRoles.IsPrivileged))
@@ -552,7 +576,7 @@ public sealed class AccountSecurityService
         EmailLanguage language,
         CancellationToken cancellationToken)
     {
-        await using var turn = await _gate.EnterAsync(userId, _lock.AccountLockTimeout, cancellationToken);
+        await using var turn = await _gate.EnterAsync(userId, _lock.AccountQueueTimeout, cancellationToken);
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var user = await LockUserAsync(userId, cancellationToken);
         if (await _users.IsLockedOutAsync(user))

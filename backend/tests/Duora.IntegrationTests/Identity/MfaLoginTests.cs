@@ -158,7 +158,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
         // (5 s) estoura com a máquina carregada e a espera vira 503, o que AccountLockTimeoutTests já cobre; aqui
         // interessa só quem consome o código, então a espera não pode ser o que decide.
         var settings = LoginLimits();
-        settings["Identity:AccountLockTimeout"] = "00:00:30";
+        settings["Identity:AccountQueueTimeout"] = "00:00:30";
         await using var factory = new DuoraWebFactory(_postgres.ConnectionString) { Time = _time, Settings = settings };
         var scenario = new IdentityScenario(_postgres, factory);
         var account = await scenario.CreateConfirmedAccountAsync();

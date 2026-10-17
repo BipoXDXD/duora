@@ -34,7 +34,7 @@ public sealed class SecondFactorHardeningTests : IAsyncDisposable
                 ["RateLimiting:AccountSecurityPerAccount:PermitLimit"] = "1000",
                 ["RateLimiting:AccountSecurityPerAccount:Window"] = "01:00:00",
                 // Dezenas de verificações da mesma conta em fila: a espera pelo lock passa do padrão de 5 s no CI.
-                ["Identity:AccountLockTimeout"] = "00:01:00",
+                ["Identity:AccountQueueTimeout"] = "00:01:00",
             },
         };
     }
