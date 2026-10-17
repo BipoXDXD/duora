@@ -2,9 +2,11 @@
 # Não use à mão em produção: o deploy é feito por scripts/deploy/duora-deploy (docs/operations/deploy.md), que
 # passa os digests da release e a configuração do host por --env-file.
 #
-# Variáveis (todas obrigatórias, sem default silencioso):
+# Variáveis obrigatórias, exceto DUORA_MEDIA_REVIEW (vazio = upload desligado):
 #   DUORA_*_IMAGE       imagem por digest (registry/repo@sha256:...), vinda do manifesto da release
 #   DUORA_SECRETS_DIR   diretório do host com os arquivos de segredo (0700; arquivos 0400 com dono = UID do consumidor)
+#   DUORA_MEDIA_DIR     diretório persistente preparado pelo Ansible (padrão do inventário: /var/lib/duora-media)
+#   DUORA_MEDIA_REVIEW  única origem de Media:Review; nunca ativar antes do ensaio B2 em homologação
 #   DUORA_DOMAIN        domínio público (produção: meetduora.com); DUORA_TLS: e-mail ACME ou "internal"
 #   DUORA_HTTP_PORT / DUORA_HTTPS_PORT   portas publicadas no host (80/443 na VPS)
 name: duora
@@ -182,6 +184,9 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       # Lê cada arquivo de /run/secrets como uma chave de configuração (ConnectionStrings__Duora).
       SecretsDirectory: /run/secrets
+      Media__Review: ${DUORA_MEDIA_REVIEW:-}
+      Media__Storage__Provider: FileSystem
+      Media__Storage__FileSystemRoot: /var/lib/duora-media
       # Obrigatórias no boot (docs/security/auth.md): origem da SPA (links de e-mail e CSRF), key ring no volume
       # persistente e a rede edge como único proxy confiável para X-Forwarded-* (ver networks).
       Duora__PublicOrigin: https://${DUORA_DOMAIN:?defina DUORA_DOMAIN}
@@ -199,6 +204,19 @@ services:
       - /tmp:size=64m,mode=1777
     volumes:
       - dataprotection:/home/app/.aspnet/DataProtection-Keys
+      # Quarentena RW para recepção/compensação; derivados RO para servir pela API.
+      - type: bind
+        source: ${DUORA_MEDIA_DIR:?defina DUORA_MEDIA_DIR}/quarantine
+        target: /var/lib/duora-media/quarantine
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DUORA_MEDIA_DIR:?defina DUORA_MEDIA_DIR}/derivatives
+        target: /var/lib/duora-media/derivatives
+        read_only: true
+        bind:
+          create_host_path: false
     # edge: recebe o proxy do Caddy (e sai para o object storage); data: fala com o banco.
     networks: [edge, data]
     depends_on:
@@ -221,6 +239,9 @@ services:
     environment:
       DOTNET_ENVIRONMENT: Production
       SecretsDirectory: /run/secrets
+      Media__Review: ${DUORA_MEDIA_REVIEW:-}
+      Media__Storage__Provider: FileSystem
+      Media__Storage__FileSystemRoot: /var/lib/duora-media
       Duora__PublicOrigin: https://${DUORA_DOMAIN:?defina DUORA_DOMAIN}
       # PROVISÓRIO: ainda não há provedor de e-mail (pendência M3). O adaptador de desenvolvimento grava .eml no
       # tmpfs, que some no restart: e-mails de conta não chegam a ninguém. Não abrir para participantes reais assim.
@@ -230,6 +251,20 @@ services:
         target: ConnectionStrings__Duora
     tmpfs:
       - /tmp:size=64m,mode=1777
+    volumes:
+      # O worker remove originais e publica/remove derivados. Nunca monta a raiz inteira.
+      - type: bind
+        source: ${DUORA_MEDIA_DIR:?defina DUORA_MEDIA_DIR}/quarantine
+        target: /var/lib/duora-media/quarantine
+        read_only: false
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${DUORA_MEDIA_DIR:?defina DUORA_MEDIA_DIR}/derivatives
+        target: /var/lib/duora-media/derivatives
+        read_only: false
+        bind:
+          create_host_path: false
     # data: banco; egress: saída para storage, e-mail e verificação etária. Sem porta e sem endpoint público.
     networks: [data, egress]
     depends_on:

@@ -89,7 +89,7 @@ volume pedir).
 - **Custo e capacidade:** sem egress de leitura (a foto sai do disco local). O disco da VPS passa a ter dois
   consumidores que crescem (banco e fotos); `duora_min_free_gib` do deploy já barra disco cheio.
 
-Gate novo: o upload de fotos **não liga em produção** (`Media:Review` ausente no `compose.prod.yml`) sem o backup das
+Gate novo: o upload de fotos **não liga em produção** (`DUORA_MEDIA_REVIEW` vazio por padrão, repassado pelo `compose.prod.yml`) sem o backup das
 fotos implementado, com verify que falhe fechado e um restore de ensaio que prove a volta dos derivados. Compliance
 acrescentado: `TheFileSystemStoreServesProductionFromAMountedDirectory`,
 `TheFileSystemStoreRefusesAMissingDirectoryInProduction`, `TheFileSystemStoreRefusesARelativeDirectoryInProduction`,

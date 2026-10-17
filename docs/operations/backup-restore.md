@@ -584,3 +584,41 @@ alvo do restore), `MediaBackupUnitsTests` (timers, alerta, padrões do inventár
 - **Alertas** fora da VPS (tabela acima).
 - **Backend** (passos 4 a 6 do restore): modo de recuperação com efeitos externos desligados, revogação em massa de
   sessões, registro externo de tombstones.
+
+### Integração do upload com o Compose (issue #69)
+
+`duora_media_review` no inventário gera `DUORA_MEDIA_REVIEW` no arquivo do host; o Compose atribui
+`Media__Review: ${DUORA_MEDIA_REVIEW:-}` a web e worker. Ausente ou vazio mantém upload desligado.
+Não defina `Media:Review` em appsettings padrão/Production, secrets, argumentos, env files de serviço ou outra
+variável. O executor remove `DUORA_*` e `COMPOSE_*` herdados do shell antes de chamar Compose, para que prevaleça o
+arquivo conferido pelo gate. O formato do interruptor é vazio ou nome sem aspas, expansão, comentário ou duplicata.
+`Editorial` nos testes do executor é apenas um valor sintético não vazio: **não é uma política implementada**.
+
+`DUORA_MEDIA_DIR` vem do mesmo `duora_media_dir` que o Ansible prepara (padrão `/var/lib/duora-media`). Os containers
+usam a raiz fixa `/var/lib/duora-media`, com bind mounts separados, `create_host_path: false`, UID/GID `1654:1654` e
+áreas `0700`. Web recebe quarentena RW e derivados RO; worker recebe ambas RW. Nenhum outro serviço monta fotos.
+Os marcadores `.duora-media-area` continuam obrigatórios no boot do adaptador em Production. Instalar o Compose
+novo exige reaplicar `app_dirs`, inclusive o template do arquivo do host, antes da próxima release.
+
+**Checklist antes de qualquer ativação em produção:**
+
+1. Manter `duora_media_review: ""` até haver política de revisão permitida em Production e pipeline de processamento
+   integrado na release. Na main examinada para esta correção, só `TechnicalOnly` existe (recusado em Production), e
+   o Worker ainda não registra o pipeline de mídia. Não trocar o ambiente para Development para contornar isso.
+2. Executar e anexar evidência sanitizada do [passo 6 do setup B2](backblaze-setup.md#6-validar),
+   em homologação e com dados sintéticos: provas negativas de chave/prefixo/File Lock, dois fulls, `expire`,
+   `media-backup`/prune e comparação das versões antes/depois. Zero versões correntes apagadas, novos hide markers e
+   nenhuma falha de autorização são condições de aprovação; um teste local com mocks não substitui essa prova.
+3. Ensaiar restore dos derivados em staging conforme este runbook, reconciliando apenas assets Approved após
+   tombstones (INV-11). Registrar release/digests, data, responsável e resultado; nunca anexar chaves ou fotos reais.
+4. Conferir montagens efetivas: UID 1654 escreve/remove canário sintético na quarentena nos dois serviços; escreve
+   derivados no worker; escrita/remoção de derivados pelo web falha com filesystem somente leitura. Conferir
+   persistência após recriação, marcadores e recusa de inicialização com área/marcador ausente.
+5. Com política suportada, ensaiar que timer parado, verify ausente/falho, futuro ou mais velho que 30 h barram o
+   deploy antes de pull/stop, inclusive com `--accept-missing-backup-check`. Restaurar timer e rodar
+   `duora-backup media-verify`; só então promover os mesmos digests pela revisão/gate de release.
+
+A correção da configuração **não constitui evidência de homologação nem autoriza ativação**. O timer ativo e o
+verify bom de até 30 h continuam obrigatórios; não atestam sozinhos o ensaio B2 ou uma política editorial pronta.
+Para reverter a ativação, esvaziar o interruptor pelo inventário e fazer deploy aprovado; não apagar os diretórios,
+marcadores ou backups. Nenhuma migração ou alteração de autorização/concorrência de API-M01–M04 acompanha este ajuste.
