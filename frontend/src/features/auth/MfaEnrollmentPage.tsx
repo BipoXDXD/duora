@@ -1,0 +1,125 @@
+import { useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { z } from 'zod'
+import { useSessionTransitions } from '@/features/session/session-hooks'
+import { classifyRequestFailure, sendMutationForJson } from '@/shared/api'
+import { useI18n } from '@/shared/i18n/i18n-context'
+import { paths } from '@/shared/paths'
+import { RequestFailureAlert } from '@/shared/ui/alert'
+import { Button } from '@/shared/ui/button'
+import { TextField } from '@/shared/ui/form-fields'
+import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
+
+const enrollmentSchema = z.object({ sharedKey: z.string().min(1), authenticatorUri: z.string().min(1) })
+const recoverySchema = z.object({ recoveryCodes: z.array(z.string().min(1)).min(1) })
+
+/** Segredo e códigos só em memória local; nunca no cache de consultas, URL ou armazenamento. */
+export function MfaEnrollmentPage(): React.JSX.Element {
+  const { t } = useI18n()
+  const transitions = useSessionTransitions()
+  const [sharedKey, setSharedKey] = useState<string | null>(null)
+  const [recoveryCodes, setRecoveryCodes] = useState<readonly string[] | null>(null)
+  const [code, setCode] = useState('')
+  const [invalid, setInvalid] = useState(false)
+  const start = useMutation({
+    gcTime: 0,
+    mutationFn: async () => {
+      const enrollment = enrollmentSchema.parse(
+        await sendMutationForJson({ method: 'POST', path: '/api/v1/me/mfa/enrollments' }),
+      )
+      setSharedKey(enrollment.sharedKey)
+    },
+  })
+  const confirm = useMutation({
+    gcTime: 0,
+    mutationFn: async () => {
+      const recovery = recoverySchema.parse(
+        await sendMutationForJson({ method: 'POST', path: '/api/v1/me/mfa/confirmations', body: { code } }),
+      )
+      setSharedKey(null)
+      setCode('')
+      setRecoveryCodes(recovery.recoveryCodes)
+    },
+  })
+  if (recoveryCodes !== null)
+    return (
+      <Page title={t('mfa.recoveryTitle')}>
+        <p>{t('mfa.recoveryInstructions')}</p>
+        <ul>
+          {recoveryCodes.map((value) => (
+            <li key={value}>
+              <code>{value}</code>
+            </li>
+          ))}
+        </ul>
+        <Button
+          onClick={() => {
+            setRecoveryCodes(null)
+            void transitions.signedIn(paths.account)
+          }}
+        >
+          {t('mfa.saved')}
+        </Button>
+      </Page>
+    )
+  const error = confirm.error ?? start.error
+  return (
+    <Page title={t('mfa.title')}>
+      <p>{t('mfa.instructions')}</p>
+      {error !== null ? (
+        <RequestFailureAlert
+          failure={classifyRequestFailure(error)}
+          problemMessages={{
+            MFA_CODE_INVALID: 'mfa.invalidCode',
+            REAUTHENTICATION_REQUIRED: 'changePassword.reauthenticate',
+            CSRF_VALIDATION_FAILED: 'changePassword.csrf',
+            MFA_ALREADY_ENABLED: 'mfa.alreadyEnabled',
+            MFA_ENROLLMENT_NOT_STARTED: 'mfa.notStarted',
+          }}
+        />
+      ) : null}
+      {sharedKey === null ? (
+        <Button
+          aria-disabled={start.isPending}
+          onClick={() => {
+            if (!start.isPending) start.mutate()
+          }}
+        >
+          {t('mfa.start')}
+        </Button>
+      ) : (
+        <>
+          <p>
+            {t('mfa.key')} <code className="break-all select-all">{sharedKey}</code>
+          </p>
+          <form
+            noValidate
+            method="post"
+            className="flex flex-col gap-6"
+            aria-busy={confirm.isPending}
+            onSubmit={(event) => {
+              event.preventDefault()
+              const valid = /^\d{6}$/.test(code)
+              setInvalid(!valid)
+              if (valid && !confirm.isPending) confirm.mutate()
+            }}
+          >
+            <TextField
+              label={t('mfa.code')}
+              name="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={code}
+              error={invalid ? t('mfa.invalidCode') : undefined}
+              onChange={(event) => {
+                setCode(event.target.value)
+              }}
+            />
+            <SubmitButton pending={confirm.isPending} label={t('mfa.confirm')} pendingLabel={t('mfa.confirming')} />
+          </form>
+        </>
+      )}
+      <TextLink to={paths.login}>{t('changePassword.signInAgain')}</TextLink>
+    </Page>
+  )
+}
