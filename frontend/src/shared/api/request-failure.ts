@@ -30,3 +30,12 @@ export function classifyRequestFailure(error: unknown): RequestFailure {
 export function isUnauthorized(error: unknown): boolean {
   return (error instanceof ApiProblemError || error instanceof ApiResponseError) && error.status === UNAUTHORIZED
 }
+
+/** Somente códigos de autorização autenticados, nunca texto livre do servidor. */
+export function isSessionRestriction(error: unknown): boolean {
+  return (
+    error instanceof ApiProblemError &&
+    error.status === 403 &&
+    (error.problem.code === 'PASSWORD_CHANGE_REQUIRED' || error.problem.code === 'MFA_ENROLLMENT_REQUIRED')
+  )
+}

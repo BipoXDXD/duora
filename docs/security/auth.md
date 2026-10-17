@@ -574,3 +574,36 @@ sem artefato do CI (spec 25.19).
   - Login com a senha temporária vencida auditado como `identity.login_failed`.
   - I5: reset bloqueado para conta privilegiada sem MFA; o pedido manda o aviso `PasswordResetUnavailable`.
   - Novo código `403` `PASSWORD_CHANGE_REQUIRED` e erro de validação `SAME_AS_TEMPORARY_PASSWORD` no A16.
+
+## SPA: senha inicial administrativa e cadastro de MFA
+
+O fluxo do bootstrap (spec 11.1; API-A04, A08, A11, A12 e A16) usa uma branch derivada do
+PR #71. A interface não amplia autorização: o servidor continua sendo a fonte da verdade.
+
+- `403 PASSWORD_CHANGE_REQUIRED` em `/me` leva a `/trocar-senha-inicial`, inclusive ao abrir
+  diretamente uma rota protegida. A resposta tem precedência sobre identidade antiga em cache.
+  O mesmo código em consultas ou mutações reconsulta `/me`; não há retry automático da escrita.
+- A16 recebe somente `currentPassword` e `newPassword`, sem normalização na SPA. O formulário
+  valida comprimento e confirmação, traduz `SAME_AS_TEMPORARY_PASSWORD`, senha incorreta,
+  CSRF, rate limit e autenticação recente vencida. A temporária vencida exige reemissão pelo operador.
+- Toda mutação renova o CSRF antes do envio. Depois do sucesso de A16, o cookie renovado pelo
+  backend é usado com CSRF novo, cache descartado e aviso entre abas. Uma nova leitura de `/me`
+  decide o destino; papéis privilegiados sem MFA seguem para `/conta/ativar-mfa`.
+- A11/A12 cadastram o autenticador por chave manual e confirmação de seis dígitos. A chave e os
+  códigos de recuperação ficam somente no estado local da tela; não entram em query/mutation
+  data, variables, URL, storage ou log. Após salvar os códigos, a transição limpa o cache e renova
+  o CSRF. O login oferece o campo TOTP quando o servidor responde `MFA_REQUIRED`.
+- Uma sessão sem autenticação recente recebe orientação para entrar novamente. O fluxo não tenta
+  reautenticar usando a senha temporária: A13 não está disponível nessa fase. A autorização de
+  cinco minutos e a validade de 24 horas continuam sendo verificadas pelo backend.
+
+Verificação: `ChangePasswordPage.test.tsx` integra componentes, navegação, CSRF e respostas HTTP
+simuladas com MSW; `query-client.test.ts` cobre a reconsulta centralizada;
+`LoginPage.test.tsx` cobre login normal e TOTP; `admin-bootstrap.spec.ts` percorre a jornada no
+bundle de produção com API simulada e axe nas duas telas. Os testes não substituem os testes
+HTTP reais de `AdminBootstrapTests` e `AdminMfaTests`. Invariantes pertinentes: INV-05 e INV-12;
+privacidade de sessão: T-14/T-21. Não há mudança de schema, auditoria ou endpoint.
+
+Rollback da SPA retira as telas e deixa as contas de bootstrap sem interface para concluir o
+cadastro; não remove as restrições do servidor. A guarda de rollback do backend permanece.
+O merge desta alteração de autenticação exige revisão humana e os gates do repositório.
