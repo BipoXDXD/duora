@@ -29,6 +29,7 @@ export function confirmEmail(link: EmailLink, password: string): Promise<void> {
 }
 
 export interface Credentials {
+  readonly twoFactorCode?: string | undefined
   readonly email: string
   readonly password: string
 }
@@ -37,7 +38,11 @@ export function login(credentials: Credentials): Promise<void> {
   return sendMutation({
     method: 'POST',
     path: '/api/v1/auth/login',
-    body: { email: credentials.email, password: credentials.password },
+    body: {
+      email: credentials.email,
+      password: credentials.password,
+      ...(credentials.twoFactorCode ? { twoFactorCode: credentials.twoFactorCode } : {}),
+    },
   })
 }
 
@@ -52,4 +57,8 @@ export function resetPassword(link: EmailLink, newPassword: string): Promise<voi
     path: '/api/v1/auth/password-resets',
     body: { userId: link.userId, token: link.token, newPassword },
   })
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  return sendMutation({ method: 'POST', path: '/api/v1/me/password-changes', body: { currentPassword, newPassword } })
 }
