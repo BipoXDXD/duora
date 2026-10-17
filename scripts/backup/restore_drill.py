@@ -196,6 +196,8 @@ class Drill:
             "DUORA_POSTGRES_IMAGE": self.report.image,
             "DUORA_SECRETS_DIR": str(secrets_dir),
             "DUORA_DOMAIN": "drill.invalid",
+            "DUORA_MEDIA_DIR": str(self._workdir / "media"),
+            "DUORA_MEDIA_REVIEW": "",
             "DUORA_TLS": "internal",
             "DUORA_HTTP_PORT": "0",
             "DUORA_HTTPS_PORT": "0",
