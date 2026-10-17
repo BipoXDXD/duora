@@ -221,7 +221,17 @@ def parse_host_config(text: str) -> HostConfig:
             continue
         key, separator, value = stripped.partition("=")
         if separator:
-            values[key.strip()] = value.strip()
+            key, value = key.strip(), value.strip()
+            if key.startswith("export "):
+                raise DeployError("configuração do host exige KEY=VALUE, sem export")
+            normalized = key.replace("__", ":").casefold()
+            if normalized == "media:review" or normalized.endswith((":media:review", "_media:review")):
+                raise DeployError("Media:Review deve vir somente de DUORA_MEDIA_REVIEW")
+            if key == "DUORA_MEDIA_REVIEW":
+                # Mesmo significado no parser do gate e no dotenv do Compose: sem aspas, expansão ou duplicatas.
+                if key in values or (value and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", value) is None):
+                    raise DeployError("DUORA_MEDIA_REVIEW deve ser único, vazio ou um nome sem aspas/expansão")
+            values[key] = value
 
     prefix = values.get("DUORA_IMAGE_PREFIX", "")
     if not prefix:
@@ -512,9 +522,15 @@ def _step(message: str) -> None:
 def run_command(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
     # Só se captura o que o deploy lê (arquitetura, migration, estado). O resto, inclusive a saída do migrador,
     # vai direto ao operador: "run --rm" apaga o container e os logs dele junto.
+    # Compose dá precedência ao shell sobre --env-file. O gate lê o arquivo do host, então o shell não pode
+    # substituir DUORA_* nem injetar arquivos/profiles via COMPOSE_*. Outros comandos preservam seu ambiente.
+    environment = None
+    if command[:2] == ["docker", "compose"]:
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith(("DUORA_", "COMPOSE_"))}
     try:
         return subprocess.run(command, text=True, check=False, capture_output=capture,
-                              timeout=COMMAND_TIMEOUT_SECONDS)
+                              timeout=COMMAND_TIMEOUT_SECONDS, env=environment)
     except subprocess.TimeoutExpired as error:
         raise DeployError(f"comando excedeu {COMMAND_TIMEOUT_SECONDS} s: {' '.join(command[:6])} ...") from error
 
