@@ -81,6 +81,7 @@ def main() -> int:
     workdir = Path(tempfile.mkdtemp(prefix="duora-smoke-"))
     host_env = workdir / "duora.env"
     compose = None
+    media_helper_image: str | None = None
     failures: list[str] = []
     try:
         architecture = run(["docker", "version", "--format", "{{.Server.Arch}}"]).strip()
@@ -97,12 +98,27 @@ def main() -> int:
                                                         "repo1-s3-key=smoke\nrepo1-s3-key-secret=smoke\n"),
                               ("pgbackrest_cipher.conf", "[global]\nrepo1-cipher-pass=smoke-synthetic\n")):
             (secrets_dir / name).write_text(content, encoding="utf-8")
+        media_dir = workdir / "media"
+        for area in ("quarantine", "derivatives"):
+            directory = media_dir / area
+            directory.mkdir(parents=True)
+            # Marcador sintético; mesmos UID e modos do role app_dirs no runner Linux.
+            marker = directory / ".duora-media-area"
+            marker.write_text("synthetic smoke mount\n", encoding="utf-8")
+
+        media_helper_image = images["postgres"]
+        run(["docker", "run", "--rm", "--network", "none", "--user", "0:0",
+             "--volume", f"{media_dir}:/media", "--entrypoint", "sh", media_helper_image, "-c",
+             "chown -R 1654:1654 /media && chmod 0700 /media/quarantine /media/derivatives "
+             "&& chmod 0400 /media/quarantine/.duora-media-area /media/derivatives/.duora-media-area"])
         host_env.write_text("\n".join([
             f"DUORA_IMAGE_PREFIX={IMAGE_PREFIX}",
             "DUORA_MIN_FREE_GIB=5",
             "DUORA_DISK_CHECK_PATH=/",
             f"DUORA_SECRETS_DIR={secrets_dir}",
             f"DUORA_DOMAIN={DOMAIN}",
+            f"DUORA_MEDIA_DIR={media_dir}",
+            "DUORA_MEDIA_REVIEW=",
             "DUORA_TLS=internal",
             "DUORA_HTTP_PORT=80",
             "DUORA_HTTPS_PORT=443",
@@ -126,6 +142,11 @@ def main() -> int:
     finally:
         if not args.keep:
             teardown(compose)
+            if media_helper_image is not None:
+                # Devolve o diretório sintético ao usuário do smoke para a limpeza local.
+                run(["docker", "run", "--rm", "--network", "none", "--user", "0:0",
+                     "--volume", f"{workdir / 'media'}:/media", "--entrypoint", "chown",
+                     media_helper_image, "-R", f"{os.getuid()}:{os.getgid()}", "/media"])
             shutil.rmtree(workdir, ignore_errors=True)
 
     for failure in failures:
