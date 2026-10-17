@@ -274,7 +274,7 @@ class MediaUploadGateTests(unittest.TestCase):
                 self.assertFalse(runner.ran("stop"))
 
     def test_upload_on_without_or_with_a_corrupt_marker_refuses(self) -> None:
-        for content in (None, "ontem", ""):
+        for content in (None, "ontem", "", "nan", "inf", "-inf"):
             with self.subTest(content=content):
                 marker = self.paths.state_dir / deploy.MEDIA_VERIFY_OK_FILE
                 marker.unlink(missing_ok=True)
@@ -284,6 +284,13 @@ class MediaUploadGateTests(unittest.TestCase):
                 with self.assertRaisesRegex(deploy.DeployError, "fotos"):
                     self.run_deploy(runner)
                 self.assertFalse(runner.ran("pull"))
+
+    def test_skipping_database_backup_does_not_skip_media_gate(self) -> None:
+        runner = FakeRunner()
+        with self.assertRaisesRegex(deploy.DeployError, "fotos"):
+            deploy.deploy(self.release, self.paths, runner, verify_backup=False,
+                          media_uploads_enabled=True, clock=lambda: self.now)
+        self.assertFalse(runner.ran("pull"))
 
     def test_names_match_the_backup_wrapper_and_the_role(self) -> None:
         import duora_backup
