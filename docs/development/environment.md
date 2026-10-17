@@ -146,6 +146,22 @@ defina também `ReverseProxy__KnownNetworks__0=172.30.10.0/24` (rede `edge`); se
 ignorado e o rate limit por IP vê só o IP do proxy. Os e-mails só
 saem com o Worker rodando: o Web grava na outbox e o Worker entrega.
 
+## Outbox de e-mail
+
+O worker valida `Outbox:BatchSize × Outbox:SendTimeout ≤ Outbox:LeaseDuration / 2` no boot.
+Padrões do e-mail: lote de 10, envio de 30 s, lease de 10 min e `MaxAttempts=8`.
+Configurações explícitas com lote 10 e lease 2 min precisam aumentar o lease para pelo menos 10 min
+ou reduzir o lote para 2. A verificação etária mantém suas opções nomeadas e seu lease de 2 min.
+
+Antes de cada envio, a fila confere token, estado e tempo restante para o timeout. Uma pausa prolongada
+pode deixar entregas para o próximo worker; não autoriza iniciar o restante do lote sem posse.
+No claim do e-mail, entregas elegíveis com tentativas esgotadas tornam-se `Failed`, com
+`last_error=MaxAttemptsExceeded`, sem incrementar tentativas nem enviar. O payload é removido quando
+não restam entregas abertas do evento. Inspecione status/erro sanitizado, nunca payloads ou tokens.
+
+Não há migração. Rollback de código preserva estados terminais e dados, mas reintroduz as falhas
+em entregas ainda abertas; prefira correção para frente. Nenhuma entrega `Failed` é reenviada automaticamente.
+
 ## Verificação etária simulada
 
 Sem configuração, o fluxo etário fica desligado: `POST /api/v1/me/age-verifications` responde 503 e a conta continua

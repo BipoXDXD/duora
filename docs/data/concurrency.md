@@ -277,7 +277,7 @@ stateDiagram-v2
     Failed --> [*]: fila de revisão
 ```
 
-**Claim** (transação curta, sem chamada externa):
+**Claim** (transação curta, sem chamada externa; esboço da aquisição abaixo, sujeito ao teto do consumidor):
 
 ```sql
 WITH picked AS (
@@ -295,7 +295,7 @@ SET status = 'InFlight',
     fencing_token = d.fencing_token + 1,
     attempts = d.attempts + 1
 FROM picked
-WHERE d.id = picked.id
+WHERE d.id = picked.id AND d.attempts < $max_attempts
 RETURNING d.id, d.outbox_event_id, d.consumer, d.recipient_key, d.fencing_token, d.deadline_at;
 ```
 
@@ -318,6 +318,19 @@ duas vezes; por isso o fornecedor recebe chave de idempotência e o destinatári
 
 Nomes da implementação do M1 (`OutboxDeliveryQueue`): o claim filtra por `consumer`, e a expiração por deadline é
 decidida pelo consumidor depois do claim, encerrando a entrega como `Expired`.
+O e-mail fornece `MaxAttempts`: no mesmo comando, candidatos esgotados passam a `Failed`, recebem
+`completed_at`, `MaxAttemptsExceeded`, lease nulo e token incrementado, sem nova tentativa. O comando
+só retorna candidatos abaixo do teto. Candidatos são limitados pelo lote e trancados com `SKIP LOCKED`;
+um lote composto apenas por esgotadas pode retornar zero e o worker continua na próxima consulta.
+Leases ativos nunca são encerrados por essa limpeza. Outros consumidores que omitem o teto preservam
+o contrato anterior. O payload só é limpo quando nenhuma entrega do evento permanece aberta, excluindo
+na verificação todas as entregas encerradas pelo próprio comando.
+
+Para o e-mail, o boot exige `BatchSize × SendTimeout ≤ LeaseDuration / 2` (padrão: 10 × 30 s ≤ 10 min / 2).
+Antes de chamar o fornecedor, o dispatcher consulta novamente estado, token e lease com tempo restante
+superior ao timeout do envio. A guarda evita começar os próximos itens depois de uma pausa prolongada;
+não elimina a janela entre a consulta e a chamada externa. Interrupção após o envio e antes do ACK
+continua dependendo da chave idempotente estável no fornecedor (ADR-0008).
 
 Jobs (`ops.jobs`) usam o mesmo claim, lease e fencing, com as diferenças do
 [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md): estado final `Done` e `Cancelled`
