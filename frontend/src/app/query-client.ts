@@ -1,7 +1,7 @@
 import { hashKey, MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 import { meQueryKey } from '@/features/session/query-keys'
 import { ApiNetworkError, ApiProblemError, ApiResponseError } from '@/shared/api/api-errors'
-import { isUnauthorized } from '@/shared/api/request-failure'
+import { isSessionRestriction, isUnauthorized } from '@/shared/api/request-failure'
 
 const MAX_QUERY_RETRIES = 2
 const FIRST_SERVER_ERROR_STATUS = 500
@@ -37,7 +37,7 @@ export function createQueryClient(): QueryClient {
     // expirada (spec 13.2 e 13.5; T-14). Se /me responde 200, a pessoa continua onde está.
     queryCache: new QueryCache({
       onError: (error, query) => {
-        if (isUnauthorized(error) && query.queryHash !== meQueryHash) {
+        if ((isUnauthorized(error) || isSessionRestriction(error)) && query.queryHash !== meQueryHash) {
           recheckIdentity()
         }
       },
@@ -58,7 +58,7 @@ export function createQueryClient(): QueryClient {
     }),
     mutationCache: new MutationCache({
       onError: (error) => {
-        if (isUnauthorized(error)) {
+        if (isUnauthorized(error) || isSessionRestriction(error)) {
           recheckIdentity()
         }
       },

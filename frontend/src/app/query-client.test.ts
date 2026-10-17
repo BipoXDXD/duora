@@ -157,3 +157,23 @@ describe('troca de identidade descoberta pela própria identidade (T-21)', () =>
     expect(queryClient.getQueryData(['publico'])).toBe('dado anônimo')
   })
 })
+
+describe('restrições da sessão', () => {
+  it.each(['PASSWORD_CHANGE_REQUIRED', 'MFA_ENROLLMENT_REQUIRED'])(
+    'reconsulta a identidade em leitura e escrita: %s',
+    async (code) => {
+      const client = createQueryClient()
+      const error = new ApiProblemError({ type: 'about:blank', title: code, status: 403, code })
+      client.setQueryData(meQueryKey, { id: 'u1' })
+      await client.query({ queryKey: ['private'], queryFn: () => Promise.reject(error) }).catch(() => undefined)
+      expect(client.getQueryState(meQueryKey)?.isInvalidated).toBe(true)
+      client.setQueryData(meQueryKey, { id: 'u1' })
+      await client
+        .getMutationCache()
+        .build(client, { mutationFn: () => Promise.reject(error) })
+        .execute(undefined)
+        .catch(() => undefined)
+      expect(client.getQueryState(meQueryKey)?.isInvalidated).toBe(true)
+    },
+  )
+})

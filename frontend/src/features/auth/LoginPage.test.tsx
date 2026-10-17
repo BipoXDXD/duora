@@ -118,7 +118,7 @@ describe('tela de entrada', () => {
     expect(screen.getByLabelText('Senha')).toHaveValue('senha-errada-longa')
   })
 
-  it('segundo fator exigido: mensagem neutra de fluxo indisponível', async () => {
+  it('segundo fator exigido: mensagem neutra e campo para o código', async () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
     const { user } = await renderApp('/entrar')
@@ -200,5 +200,24 @@ describe('tela de entrada', () => {
 
     expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
     expect(screen.queryByText('outra@exemplo.com')).not.toBeInTheDocument()
+  })
+})
+
+it('envia o TOTP solicitado e entra com MFA ativo', async () => {
+  useAntiforgeryEndpoint()
+  let attempt = 0
+  const received = useLoginEndpoint(() =>
+    ++attempt === 1 ? problem(401, 'MFA_REQUIRED') : new HttpResponse(null, { status: 204 }),
+  )
+  useAccountEndpoints()
+  const { user } = await renderApp('/entrar')
+  await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+  await user.type(await screen.findByLabelText('Código do autenticador'), '123456')
+  await user.click(screen.getByRole('button', { name: 'Entrar' }))
+  expect(await screen.findByRole('heading', { name: 'Sua conta' })).toBeInTheDocument()
+  expect(received[1]?.body).toEqual({
+    email: 'admin@exemplo.com',
+    password: 'frase longa de senha',
+    twoFactorCode: '123456',
   })
 })

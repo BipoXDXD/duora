@@ -5,6 +5,32 @@
  * Mensagens de erro são neutras: não revelam se um e-mail tem conta (spec 8.2, API-A02 e A06).
  */
 export const ptBR = {
+  'validation.passwordMismatch': 'As senhas não coincidem.',
+  'changePassword.title': 'Troque sua senha inicial',
+  'changePassword.instructions':
+    'Defina uma senha própria para continuar. A senha temporária vale 24 horas; conclua a troca em até 5 minutos após entrar. Se ela venceu, peça uma nova a quem administra o Duora.',
+  'changePassword.currentPassword': 'Senha temporária',
+  'changePassword.confirmation': 'Confirme a nova senha',
+  'changePassword.reused': 'Escolha uma senha diferente da senha temporária.',
+  'changePassword.invalidCredentials': 'Senha atual inválida. Confira e tente novamente.',
+  'changePassword.reauthenticate': 'Entre novamente para confirmar sua identidade e continuar.',
+  'changePassword.csrf': 'Não foi possível validar esta tentativa. Tente novamente para renovar a proteção da sessão.',
+  'changePassword.signInAgain': 'Entrar novamente',
+  'mfa.title': 'Ative a autenticação em duas etapas',
+  'mfa.instructions':
+    'Sua conta exige um autenticador. Adicione uma conta TOTP no aplicativo autenticador usando a chave abaixo e confirme com o código de 6 dígitos.',
+  'mfa.start': 'Configurar autenticador',
+  'mfa.key': 'Chave de configuração:',
+  'mfa.code': 'Código do autenticador',
+  'mfa.confirm': 'Ativar MFA',
+  'mfa.confirming': 'Ativando…',
+  'mfa.invalidCode': 'Informe um código válido de 6 dígitos do autenticador.',
+  'mfa.recoveryTitle': 'Guarde seus códigos de recuperação',
+  'mfa.recoveryInstructions':
+    'Salve estes códigos em um lugar seguro. Eles aparecem somente agora e cada um pode ser usado uma vez.',
+  'mfa.saved': 'Guardei os códigos, continuar',
+  'mfa.alreadyEnabled': 'O MFA já está ativo. Entre novamente para continuar.',
+  'mfa.notStarted': 'A configuração expirou. Entre novamente e configure o autenticador.',
   'app.name': 'Duora',
   'app.documentTitle': '{page} · Duora',
   'app.skipToContent': 'Pular para o conteúdo',
@@ -92,7 +118,7 @@ export const ptBR = {
   'login.submitting': 'Entrando…',
   'login.invalidCredentials': 'E-mail ou senha incorretos.',
   'login.mfaRequired':
-    'Esta conta exige um segundo fator de autenticação, e essa etapa ainda não está disponível por aqui. Fale com o suporte.',
+    'Esta conta exige segundo fator de autenticação. Informe o código do autenticador e entre novamente.',
   'login.sessionExpired': 'Sua sessão expirou. Entre de novo para continuar.',
   'login.signInRequired': 'Entre para continuar.',
   'login.signedOut': 'Você saiu da sua conta.',

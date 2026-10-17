@@ -11,6 +11,8 @@ export const paths = {
   login: '/entrar',
   forgotPassword: '/esqueci-a-senha',
   resetPassword: '/redefinir-senha',
+  changePassword: '/trocar-senha-inicial',
+  mfaEnrollment: '/conta/ativar-mfa',
   account: '/conta',
   profile: '/conta/perfil',
 } as const
