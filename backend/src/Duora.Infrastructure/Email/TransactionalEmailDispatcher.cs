@@ -51,6 +51,7 @@ public sealed partial class TransactionalEmailDispatcher
             _options.BatchSize,
             now,
             now + _options.LeaseDuration,
+            _options.MaxAttempts,
             cancellationToken);
 
         foreach (var delivery in claimed)
@@ -74,6 +75,15 @@ public sealed partial class TransactionalEmailDispatcher
         {
             LogInvalidPayload(_logger, delivery.Id);
             await SettleAsync(delivery, OutboxDeliveryStatus.Failed, InvalidPayloadError, cancellationToken);
+            return;
+        }
+
+        // Uma pausa ou SDK não cooperativo pode consumir a margem do lote. Não iniciar outro envio
+        // sem posse atual e tempo para o timeout; o próximo claim recupera o trabalho abandonado.
+        var now = _time.GetUtcNow();
+        if (!await _queue.CanSendAsync(delivery, now + _options.SendTimeout, cancellationToken))
+        {
+            LogLeaseLost(_logger, delivery.Id);
             return;
         }
 
