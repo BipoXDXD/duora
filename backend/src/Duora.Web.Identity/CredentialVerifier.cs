@@ -105,6 +105,9 @@ public sealed partial class CredentialVerifier
         SecondFactorProof? secondFactor,
         CancellationToken cancellationToken)
     {
+        await using var turn = await _security.EnterLoginAsync(email, cancellationToken);
+        // Piso por vez, não por chegada: a espera anterior não pode consumir a proteção do próximo login.
+        // CheckAsync encerra a transação antes deste piso, portanto o atraso não prende conexão.
         var startedAt = Stopwatch.GetTimestamp();
         var outcome = await CheckAsync(email, password, secondFactor, cancellationToken);
         if (outcome is LoginOutcome.InvalidCredentials)
