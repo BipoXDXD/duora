@@ -150,7 +150,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         Assert.Empty(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct));
         Assert.False(await queue.SettleAsync(claimed, OutboxDeliveryStatus.Delivered, null, now, Ct));
         Assert.False(await queue.RescheduleAsync(claimed, now, "IOException", now, Ct));
-        Assert.False(await queue.CanSendAsync(claimed, now, Ct));
+        Assert.False(await queue.CanSendAsync(claimed, TimeSpan.FromSeconds(30), harness.Time, Ct));
         var row = await harness.ReadDeliveryAsync(id, Ct);
         Assert.Equal(("Failed", 1, "{}"), (row.Status, row.Attempts, row.Payload));
     }
@@ -203,6 +203,157 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         var row = await harness.ReadDeliveryAsync(id, Ct);
         Assert.Equal(("Failed", 2, "IOException", "{}"), (row.Status, row.Attempts, row.LastError, row.Payload));
         Assert.Empty(harness.MailFiles());
+    }
+
+    [Theory]
+    [InlineData(89, true)]
+    [InlineData(90, false)]
+    [InlineData(121, false)]
+    public async Task SendBudgetIncludesTimeWaitingForTheConnectionPool(int elapsedSeconds, bool allowed)
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "token", Ct);
+        var settings = new NpgsqlConnectionStringBuilder(harness.ConnectionString) { MaxPoolSize = 1 };
+        await using var source = NpgsqlDataSource.Create(settings.ConnectionString);
+        var queue = new OutboxDeliveryQueue(source);
+        var now = harness.Time.GetUtcNow();
+        var delivery = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), Ct));
+
+        Task<bool> permission;
+        await using (var occupied = await source.OpenConnectionAsync(Ct))
+        {
+            permission = queue.CanSendAsync(delivery, TimeSpan.FromSeconds(30), harness.Time, Ct);
+            Assert.False(permission.IsCompleted);
+            harness.Time.Advance(TimeSpan.FromSeconds(elapsedSeconds));
+        }
+
+        Assert.Equal(allowed, await permission);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentFinalDeliveriesScrubPayloadWithAFreshSnapshot(bool exhaustFirst)
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var now = harness.Time.GetUtcNow();
+        var ev = AccountEmailOutbox.Create(new AccountEmailRequested(
+            AccountEmailKind.EmailConfirmation, "ana@example.com", Guid.CreateVersion7(), "token", "pt-BR"), now);
+        ev.AddDelivery("other-consumer", "recipient", now.AddHours(1));
+        await using (var db = PostgresFixture.CreateDbContext(harness.ConnectionString))
+        {
+            db.Add(ev);
+            await db.SaveChangesAsync(Ct);
+        }
+
+        await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
+        var queue = new OutboxDeliveryQueue(source);
+        var first = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now,
+            now.AddMinutes(exhaustFirst ? 2 : 10), 1, Ct));
+        var second = Assert.Single(await queue.ClaimAsync("other-consumer", 1, now, now.AddMinutes(10), Ct));
+        now = now.AddMinutes(3);
+
+        var application = $"outbox-review-{Guid.NewGuid():N}";
+        var settings = new NpgsqlConnectionStringBuilder(harness.ConnectionString) { ApplicationName = application };
+        await using var competingSource = NpgsqlDataSource.Create(settings.ConnectionString);
+        var competitor = new OutboxDeliveryQueue(competingSource);
+        await using var holder = await source.OpenConnectionAsync(Ct);
+        await using var transaction = await holder.BeginTransactionAsync(Ct);
+        await using (var takeLock = new NpgsqlCommand(
+            "select id from ops.outbox_deliveries where id = @id for update", holder, transaction))
+        {
+            takeLock.Parameters.AddWithValue("id", second.Id);
+            await takeLock.ExecuteNonQueryAsync(Ct);
+        }
+
+        // O UPDATE do segundo começa ANTES do encerramento do primeiro, mas só pode prosseguir
+        // depois. Um CTE único mantém o snapshot antigo e deixa ambos finais com o token no payload.
+        var settling = competitor.SettleAsync(second, OutboxDeliveryStatus.Delivered, null, now, Ct);
+        try
+        {
+            await WaitForDatabaseLockAsync(source, application);
+            if (exhaustFirst)
+            {
+                Assert.Empty(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(10), 1, Ct));
+            }
+            else
+            {
+                Assert.True(await queue.SettleAsync(first, OutboxDeliveryStatus.Delivered, null, now, Ct));
+            }
+
+            Assert.Contains("token", (await harness.ReadDeliveryAsync(first.Id, Ct)).Payload, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await transaction.RollbackAsync(Ct);
+        }
+
+        Assert.True(await settling);
+        var completed = await harness.ReadDeliveryAsync(first.Id, Ct);
+        Assert.Equal(exhaustFirst ? "Failed" : "Delivered", completed.Status);
+        Assert.Equal("Delivered", (await harness.ReadDeliveryAsync(second.Id, Ct)).Status);
+        Assert.Equal("{}", completed.Payload);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationDuringScrubRollsBackTerminalTransition(bool exhaust)
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var id = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "token", Ct);
+        var now = harness.Time.GetUtcNow();
+        await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
+        var queue = new OutboxDeliveryQueue(source);
+        var delivery = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), 1, Ct));
+        await using var holder = await source.OpenConnectionAsync(Ct);
+        await using var transaction = await holder.BeginTransactionAsync(Ct);
+        await using (var takeLock = new NpgsqlCommand(
+            """
+            select e.id from ops.outbox_events e join ops.outbox_deliveries d on d.outbox_event_id = e.id
+            where d.id = @id for no key update of e
+            """, holder, transaction))
+        {
+            takeLock.Parameters.AddWithValue("id", id);
+            await takeLock.ExecuteNonQueryAsync(Ct);
+        }
+
+        var application = $"outbox-cancel-{Guid.NewGuid():N}";
+        var settings = new NpgsqlConnectionStringBuilder(harness.ConnectionString) { ApplicationName = application };
+        await using var competingSource = NpgsqlDataSource.Create(settings.ConnectionString);
+        var competitor = new OutboxDeliveryQueue(competingSource);
+        using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        Task finishing = exhaust
+            ? competitor.ClaimAsync(AccountEmailOutbox.Consumer, 1, now.AddMinutes(3), now.AddMinutes(13), 1, cancelled.Token)
+            : competitor.SettleAsync(delivery, OutboxDeliveryStatus.Delivered, null, now, cancelled.Token);
+        try
+        {
+            await WaitForDatabaseLockAsync(source, application);
+            await cancelled.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => finishing);
+        }
+        finally
+        {
+            await cancelled.CancelAsync();
+            await transaction.RollbackAsync(Ct);
+        }
+
+        var row = await harness.ReadDeliveryAsync(id, Ct);
+        Assert.Equal(("InFlight", 1, 1L), (row.Status, row.Attempts, row.FencingToken));
+        Assert.Contains("token", row.Payload, StringComparison.Ordinal);
+    }
+
+    private static async Task WaitForDatabaseLockAsync(NpgsqlDataSource source, string application)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+        await using var command = source.CreateCommand(
+            "select exists (select 1 from pg_stat_activity where application_name = @application and wait_event_type = 'Lock')");
+        command.Parameters.AddWithValue("application", application);
+        while (!(bool)(await command.ExecuteScalarAsync(deadline.Token))!)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(10), deadline.Token);
+        }
     }
 
     private sealed class CallbackSender(Func<TransactionalEmail, string, CancellationToken, Task> send) : ITransactionalEmailSender
