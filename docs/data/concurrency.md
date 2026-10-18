@@ -323,12 +323,18 @@ O e-mail fornece `MaxAttempts`: no mesmo comando, candidatos esgotados passam a 
 só retorna candidatos abaixo do teto. Candidatos são limitados pelo lote e trancados com `SKIP LOCKED`;
 um lote composto apenas por esgotadas pode retornar zero e o worker continua na próxima consulta.
 Leases ativos nunca são encerrados por essa limpeza. Outros consumidores que omitem o teto preservam
-o contrato anterior. O payload só é limpo quando nenhuma entrega do evento permanece aberta, excluindo
-na verificação todas as entregas encerradas pelo próprio comando.
+o contrato anterior. O payload só é limpo quando nenhuma entrega do evento permanece aberta.
+Claim e conclusão usam transações curtas: depois de alterar as entregas, trancam os eventos a limpar
+com `FOR NO KEY UPDATE`, em ordem de UUID, e verificam entregas abertas em **outro comando** na mesma
+transação READ COMMITTED. O novo snapshot é necessário: num único CTE, dois consumidores podem enxergar
+um ao outro ainda aberto e ambos deixar o payload com tokens retido. Depois do lock do evento, a limpeza
+não adquire locks de entregas. Cancelamento antes do commit desfaz também as transições e o fencing;
+o envio externo continua fora da transação.
 
 Para o e-mail, o boot exige `BatchSize × SendTimeout ≤ LeaseDuration / 2` (padrão: 10 × 30 s ≤ 10 min / 2).
 Antes de chamar o fornecedor, o dispatcher consulta novamente estado, token e lease com tempo restante
-superior ao timeout do envio. A guarda evita começar os próximos itens depois de uma pausa prolongada;
+superior ao timeout do envio, comparando a expiração retornada com o relógio **após** aguardar a consulta.
+A espera pelo pool/banco também consome esse orçamento. A guarda evita começar os próximos itens depois de uma pausa prolongada;
 não elimina a janela entre a consulta e a chamada externa. Interrupção após o envio e antes do ACK
 continua dependendo da chave idempotente estável no fornecedor (ADR-0008).
 
