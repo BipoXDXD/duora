@@ -164,3 +164,9 @@ cada mudança de rede (spec 15.2), não a leitura das regras.
   schema fora de `min..max`.
 - **Dependabot** para as imagens em `infra/images/*` (área protegida, PR próprio).
 - **Rebuild periódico** das imagens para pegar correções das bases, mesmo sem mudança de código.
+
+## Agente operacional isolado (proposta)
+
+Configuração separada em [`telemetry/`](telemetry/) e scripts em [`scripts/telemetry/`](../scripts/telemetry/).
+O [runbook gateway/Slack](../docs/operations/telemetry.md) documenta instalação, permissões, alertas, atualização,
+rollback e aceite real. Não altera o executor de deploy nem habilita serviços automaticamente.
