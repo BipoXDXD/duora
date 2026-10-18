@@ -1,0 +1,9 @@
+[Unit]
+Description=Bounded persistent state for OpenClaw (2 GiB)
+Before=duora-agent.service
+[Mount]
+What=/var/lib/duoraagent.ext4
+Where=/var/lib/duoraagent
+Type=ext4
+Options=loop,nosuid,nodev,noexec
+TimeoutSec=30

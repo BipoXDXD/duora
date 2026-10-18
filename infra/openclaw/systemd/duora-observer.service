@@ -1,0 +1,25 @@
+[Unit]
+Description=Sanitized Duora host telemetry (fixed read-only probes)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/duora-agent/collect.py
+User=root
+Group=root
+UMask=0022
+StateDirectory=duora-observer
+StateDirectoryMode=0755
+ProtectSystem=strict
+ReadWritePaths=/var/lib/duora-observer
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=128M
+CPUQuota=20%
+TasksMax=16
+TimeoutStartSec=90
