@@ -80,8 +80,7 @@ public sealed partial class TransactionalEmailDispatcher
 
         // Uma pausa ou SDK não cooperativo pode consumir a margem do lote. Não iniciar outro envio
         // sem posse atual e tempo para o timeout; o próximo claim recupera o trabalho abandonado.
-        var now = _time.GetUtcNow();
-        if (!await _queue.CanSendAsync(delivery, now + _options.SendTimeout, cancellationToken))
+        if (!await _queue.CanSendAsync(delivery, _options.SendTimeout, _time, cancellationToken))
         {
             LogLeaseLost(_logger, delivery.Id);
             return;
