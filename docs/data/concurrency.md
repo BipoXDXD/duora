@@ -459,9 +459,17 @@ INV-12 continua exigindo revisão humana antes do merge. Não há migração nem
 
 | Limite (`Identity`) | Padrão | Recurso durante a espera | Ao exceder |
 |---|---:|---|---|
-| `AccountQueueTimeout` | 30 s | Sem conexão; cada admissão na fila tem seu teto | `503 TEMPORARILY_UNAVAILABLE`, `Retry-After` |
-| `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato; rollback e liberação da conexão |
-| `LoginTimeout` | 30 s | Prazo do login (A04) inteiro: filas, lock, hash e piso | Mesmo contrato; o que estava em andamento é cancelado e a transação desfeita |
+| `AccountQueueTimeout` | 30 s | Sem conexão; cada admissão na fila tem seu teto | `503 TEMPORARILY_UNAVAILABLE`, `Retry-After: 30` |
+| `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato, `Retry-After: 5`; rollback e liberação da conexão |
+| `LoginTimeout` | 30 s | Prazo do login (A04) inteiro: filas, lock, hash e piso | Mesmo contrato, `Retry-After: 30`; o que estava em andamento é cancelado e a transação desfeita |
+
+O `Retry-After` é sempre o teto que estourou, arredondado para cima em segundos (a mesma regra que o
+lock já seguia antes da #65). Um `Retry-After` fixo e curto foi considerado e descartado: quem
+estourou a fila de 30 s ficou atrás de 30 s de verificações da mesma conta, que não esvaziam em 1 s,
+e voltar logo só entraria de novo no fim da mesma fila. O valor depende só da configuração, nunca da
+conta, então é igual para e-mail existente e inexistente (TM-06). O custo é um cliente legítimo
+esperar 30 s depois de um `503` raro; o frontend não repete o login sozinho (`mutations: { retry: false }`
+em `frontend/src/app/query-client.ts`).
 
 Os dois primeiros aceitam de 100 ms a 1 min e são validados no boot, independentemente. O teto SQL é
 removido após adquirir o lock, como antes. Os dois são tetos de fase; o prazo do pedido inteiro é o
