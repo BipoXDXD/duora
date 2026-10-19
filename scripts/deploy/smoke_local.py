@@ -144,10 +144,7 @@ def main() -> int:
         if not args.keep:
             teardown(compose)
             if media_helper_image is not None:
-                # Devolve o diretório sintético ao usuário do smoke para a limpeza local.
-                run(["docker", "run", "--rm", "--network", "none", "--user", "0:0",
-                     "--volume", f"{workdir / 'media'}:/media", "--entrypoint", "chown",
-                     media_helper_image, "-R", f"{os.getuid()}:{os.getgid()}", "/media"])
+                return_media_dir_to_user(workdir / "media", media_helper_image)
             shutil.rmtree(workdir, ignore_errors=True)
 
     for failure in failures:
@@ -415,6 +412,24 @@ def run(command: list[str]) -> str:
     if result.returncode != 0:
         raise SmokeFailure(f"{' '.join(command[:4])} ... saiu com {result.returncode}: {result.stderr.strip()[-500:]}")
     return result.stdout
+
+
+def return_media_dir_to_user(media_dir: Path, helper_image: str) -> None:
+    """Devolve o diretório sintético (dono 1654) ao usuário do smoke para a limpeza local.
+
+    Roda dentro do finally: uma falha aqui é registrada e não substitui o resultado do smoke nem interrompe o resto da
+    limpeza.
+    """
+    command = ["docker", "run", "--rm", "--network", "none", "--user", "0:0", "--volume", f"{media_dir}:/media",
+               "--entrypoint", "chown", helper_image, "-R", f"{os.getuid()}:{os.getgid()}", "/media"]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError as error:
+        print(f"[smoke] AVISO: não devolvi {media_dir} ao usuário ({error}); apague-o com sudo", file=sys.stderr)
+        return
+    if result.returncode != 0:
+        print(f"[smoke] AVISO: não devolvi {media_dir} ao usuário (chown saiu com {result.returncode}: "
+              f"{result.stderr.strip()[-500:]}); apague-o com sudo", file=sys.stderr)
 
 
 def teardown(compose: list[str] | None) -> None:
