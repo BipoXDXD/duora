@@ -31,6 +31,12 @@ internal sealed record ClaimResult(IReadOnlyList<ClaimedDelivery> Claimed, IRead
 /// </summary>
 internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
 {
+    /// <summary>
+    /// Ponto de teste: roda na conclusão depois da limpeza do payload e antes do commit, para um teste prender uma
+    /// transação ali e provar a serialização pelo lock do evento. Em produção não faz nada.
+    /// </summary>
+    internal Func<CancellationToken, Task> BeforeSettleCommit { get; init; } = static _ => Task.CompletedTask;
+
     private const string Pending = nameof(OutboxDeliveryStatus.Pending);
     private const string InFlight = nameof(OutboxDeliveryStatus.InFlight);
     private const string MaxAttemptsExceeded = "MaxAttemptsExceeded";
@@ -229,6 +235,7 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
             await ScrubCompletedEventsAsync(connection, transaction, [eventId], cancellationToken);
         }
 
+        await BeforeSettleCommit(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return settled is Guid;
     }

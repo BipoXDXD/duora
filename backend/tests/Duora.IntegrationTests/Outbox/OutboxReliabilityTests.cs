@@ -404,6 +404,52 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         Assert.Equal("{}", completed.Payload);
     }
 
+    [Fact]
+    public async Task SiblingSettlesSerializeOnTheEventLockSoTheLastOneScrubsThePayload()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var now = harness.Time.GetUtcNow();
+        var ev = AccountEmailOutbox.Create(new AccountEmailRequested(
+            AccountEmailKind.EmailConfirmation, "ana@example.com", Guid.CreateVersion7(), "token", "pt-BR"), now);
+        ev.AddDelivery("other-consumer", "recipient", now.AddHours(1));
+        await using (var db = PostgresFixture.CreateDbContext(harness.ConnectionString))
+        {
+            db.Add(ev);
+            await db.SaveChangesAsync(Ct);
+        }
+
+        await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
+        var firstReachedCommit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // O primeiro para depois de encerrar a entrega e de conferir as irmãs (ainda aberta), antes do commit.
+        var firstQueue = new OutboxDeliveryQueue(source)
+        {
+            BeforeSettleCommit = async ct =>
+            {
+                firstReachedCommit.TrySetResult();
+                await releaseFirst.Task.WaitAsync(ct);
+            },
+        };
+        var application = $"outbox-sibling-{Guid.NewGuid():N}";
+        var settings = new NpgsqlConnectionStringBuilder(harness.ConnectionString) { ApplicationName = application };
+        await using var secondSource = NpgsqlDataSource.Create(settings.ConnectionString);
+        var secondQueue = new OutboxDeliveryQueue(secondSource);
+        var first = Assert.Single(await firstQueue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(10), Ct));
+        var second = Assert.Single(await secondQueue.ClaimAsync("other-consumer", 1, now, now.AddMinutes(10), Ct));
+
+        var settlingFirst = firstQueue.SettleAsync(first, OutboxDeliveryStatus.Delivered, null, now, Ct);
+        await firstReachedCommit.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        // Com o lock do evento, o segundo espera o commit do primeiro e confere as irmãs num snapshot novo. Sem o
+        // lock, ele termina já, vendo a irmã ainda aberta, e o primeiro também não limpou: o payload ficaria.
+        var settlingSecond = secondQueue.SettleAsync(second, OutboxDeliveryStatus.Delivered, null, now, Ct);
+        await WaitUntilWaitingOnLockOrDoneAsync(source, application, settlingSecond);
+        releaseFirst.SetResult();
+
+        Assert.True(await settlingFirst);
+        Assert.True(await settlingSecond);
+        Assert.Equal("{}", (await harness.ReadDeliveryAsync(first.Id, Ct)).Payload);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -460,6 +506,19 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
             "select exists (select 1 from pg_stat_activity where application_name = @application and wait_event_type = 'Lock')");
         command.Parameters.AddWithValue("application", application);
         while (!(bool)(await command.ExecuteScalarAsync(deadline.Token))!)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(10), deadline.Token);
+        }
+    }
+
+    private static async Task WaitUntilWaitingOnLockOrDoneAsync(NpgsqlDataSource source, string application, Task work)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+        await using var command = source.CreateCommand(
+            "select exists (select 1 from pg_stat_activity where application_name = @application and wait_event_type = 'Lock')");
+        command.Parameters.AddWithValue("application", application);
+        while (!work.IsCompleted && !(bool)(await command.ExecuteScalarAsync(deadline.Token))!)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(10), deadline.Token);
         }
