@@ -1,6 +1,7 @@
 # ADR-0024: Fluxo da verificação etária: worker com outbox, webhook inline e regra pura no Core
 
 - **Status:** Accepted (2026-10-15)
+- **Substituído em parte:** a noção de "adulto" sem jurisdição, pelo [ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md) (2026-10-19; adendo de maioridade por jurisdição)
 - **Origem:** spec 4.2, 8.2 (API-P05, API-P06), 8.5 (webhooks), 12.2, 16.3 e 16.4; threat model TM-35 a TM-40 e
   TM-64; [ADR-0003](0003-monolito-modular-web-worker.md), [ADR-0019](0019-implementacao-identidade-sessao-outbox.md)
   e [ADR-0021](0021-jobs-duraveis-e-leases-no-postgresql.md); issue #9, item 5 (ECA Digital)
