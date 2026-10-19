@@ -508,7 +508,7 @@ Todos os caminhos desta tabela são relativos a `/api/v1`. “Público” não s
 |---|---|---|---|
 | API-A01 | `GET /auth/csrf` | Token antiforgery para header; `no-store` | Bootstrap same-origin |
 | API-A02 | `POST /auth/register` | E-mail, senha e versões de termos → resultado neutro | Público, rate limit e fluxo anti-enumeração |
-| API-A03 | `POST /auth/confirm-email` | Token → confirmação | Token de uso controlado; não confirmar por GET automático de um scanner |
+| API-A03 | `POST /auth/confirm-email` | Código de oito dígitos + senha (token legado tolerado) → confirmação | Prova de uso controlado; não confirmar por GET automático de um scanner |
 | API-A04 | `POST /auth/login` | Credenciais e eventual MFA → cookie | Erros neutros; sem token de login no JavaScript |
 | API-A05 | `POST /auth/logout` | Sem corpo relevante → `204` | Revoga a sessão corrente e sinaliza desconexão |
 | API-A06 | `POST /auth/password-reset-requests` | E-mail → `202` neutro | Rate limit; não revela cadastro |
@@ -918,6 +918,8 @@ A implementação deve ser revisada à luz da LGPD, das regras aplicáveis do Ma
 | Exportações | Somente dados legitimamente exportáveis do titular | Decisões privadas, dados e evidências de terceiros |
 
 ### 12.2. Aferição de idade como dependência de lançamento
+
+**Decisão de produto (#93):** confirmação por código de e-mail e verificação etária por selfie orientada, sem documentos em nenhum caminho. SMS permanece hipótese futura para app. A implementação parcial e a integração real pendente estão no [ADR-0029](../architecture/adr/0029-codigo-email-selfie-sem-documentos.md). Não confundir qualidade da foto com aprovação etária.
 
 Definir adaptador `IAgeEligibilityProvider`, política versionada e estados `Pending`, `VerifiedAdult`, `Rejected`, `Expired`, `ManualReview`. Autodeclaração pode orientar o início do cadastro, mas não é tratada neste plano como garantia suficiente para liberar participação.
 

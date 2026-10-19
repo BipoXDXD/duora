@@ -1,4 +1,5 @@
 using System.Buffers.Text;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Duora.Core.Identity;
@@ -46,6 +47,9 @@ public sealed class AccountService
 {
     /// <summary>Mesma entropia do security stamp que o Identity gera (160 bits).</summary>
     private const int SecurityStampBytes = 20;
+    private const string ConfirmationCodeProvider = "Duora.EmailConfirmation";
+    private const string ConfirmationCodeName = "CodeHash";
+    private static readonly TimeSpan ConfirmationCodeLifetime = TimeSpan.FromMinutes(15);
 
     private readonly DuoraDbContext _db;
     private readonly UserManager<DuoraUser> _users;
@@ -80,7 +84,7 @@ public sealed class AccountService
     /// </summary>
     /// <remarks>
     /// Os três casos fazem o mesmo trabalho (TM-06): um hash, um upsert que grava uma versão da linha do usuário,
-    /// os mesmos comandos de aceite, uma leitura, um token e uma linha de outbox, na mesma transação. O upsert com
+    /// os mesmos comandos de aceite, uma leitura, um hash de código e uma linha de outbox, na mesma transação. O upsert com
     /// <c>ON CONFLICT</c> no e-mail normalizado também serializa cadastros simultâneos do mesmo e-mail.
     /// </remarks>
     public async Task RegisterAsync(
@@ -101,14 +105,27 @@ public sealed class AccountService
         await GrantParticipantRoleUnlessAnyAsync(registration.UserId, cancellationToken);
         var user = await _users.FindByIdAsync(registration.UserId.ToString("D"))
             ?? throw new InvalidOperationException("Conta sumiu dentro da transação do cadastro.");
-        var token = await _users.GenerateEmailConfirmationTokenAsync(user);
+        var code = RandomNumberGenerator.GetInt32(100_000_000).ToString("D8", CultureInfo.InvariantCulture);
+        var codeHash = _users.PasswordHasher.HashPassword(user, code);
+        var codeValue = $"{user.SecurityStamp}|{codeHash}";
+        var storeCode = !registration.EmailConfirmed;
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            insert into identity.user_tokens (user_id, login_provider, name, value)
+            select {user.Id}, {ConfirmationCodeProvider}, {ConfirmationCodeName}, {codeValue}
+            where {storeCode}
+            on conflict (user_id, login_provider, name) do update set value = excluded.value
+            """, cancellationToken);
         if (registration.EmailConfirmed)
         {
             Enqueue(AccountEmailKind.RegistrationAttemptOnExistingAccount, StoredAddress(user), user.Id, token: null, language);
         }
         else
         {
-            Enqueue(AccountEmailKind.EmailConfirmation, StoredAddress(user), user.Id, token, language);
+            // Mesmo envelope da outbox; o código numérico não é um link/token Data Protection.
+            _db.Add(AccountEmailOutbox.Create(new AccountEmailRequested(
+                AccountEmailKind.EmailConfirmation, StoredAddress(user), user.Id, code,
+                EmailLanguageTag.Format(language)), now));
         }
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -116,15 +133,15 @@ public sealed class AccountService
     }
 
     /// <summary>
-    /// Confirma o e-mail só com o link (posse do e-mail) e a senha do cadastro pendente (conhecimento da senha).
+    /// Confirma o e-mail com o código (ou link legado, posse do e-mail) e a senha do cadastro pendente (conhecimento da senha).
     /// Assim um link gerado por outra pessoa, que chegou à caixa da vítima, não confirma a conta dela com a senha
     /// de outra pessoa (TM-66). Senha errada e token inválido dão o mesmo resultado, e toda tentativa custa um hash.
     /// </summary>
     /// <remarks>
     /// Confirmar troca o security stamp: o link morre na hora e nunca serve de oráculo de senha depois da
     /// confirmação. Uma conta pendente não tem sessão (não faz login), então a troca não derruba ninguém. A gravação
-    /// é condicionada ao stamp verificado: um recadastro concorrente (que troca o stamp) faz a confirmação falhar
-    /// como token inválido, sem exceção de concorrência.
+    /// é serializada com a conta travada e relida antes de verificar a prova e contar falhas. Um recadastro
+    /// que ganha a trava invalida a prova anterior; confirmação e consumo do código têm um commit só.
     /// </remarks>
     public async Task<bool> ConfirmEmailAsync(
         Guid userId,
@@ -139,24 +156,23 @@ public sealed class AccountService
             return false;
         }
 
+        await using var check = await _security.LockAccountAsync(user, cancellationToken);
         var verifiedStamp = user.SecurityStamp ?? "";
         var passwordMatches = user.PasswordHash is { } hash
             && _users.PasswordHasher.VerifyHashedPassword(user, hash, password) != PasswordVerificationResult.Failed;
         var tokenIsValid = !user.EmailConfirmed
             && !IsExpiredPendingRegistration(user)
-            && TryDecodeLinkToken(linkToken, out var token)
-            && await _users.VerifyUserTokenAsync(
-                user,
-                _users.Options.Tokens.EmailConfirmationTokenProvider,
-                UserManager<DuoraUser>.ConfirmEmailTokenPurpose,
-                token);
+            && await VerifyConfirmationProofAsync(user, linkToken);
         if (!passwordMatches || !tokenIsValid)
         {
-            await CountConfirmationFailureAsync(user.Id, cancellationToken);
+            await CountConfirmationFailureAsync(user.Id, verifiedStamp, cancellationToken);
+            await check.CommitAsync(cancellationToken);
             return false;
         }
 
-        return await MarkEmailConfirmedAsync(user.Id, verifiedStamp, cancellationToken);
+        var confirmed = await MarkEmailConfirmedAsync(user.Id, verifiedStamp, cancellationToken);
+        await check.CommitAsync(cancellationToken);
+        return confirmed;
     }
 
     /// <summary>
@@ -448,6 +464,15 @@ public sealed class AccountService
             where id = {userId} and security_stamp = {verifiedStamp} and not email_confirmed
             """,
             cancellationToken);
+        if (updated == 1)
+        {
+            await _db.Database.ExecuteSqlAsync(
+                $"""
+                delete from identity.user_tokens
+                where user_id = {userId} and login_provider = {ConfirmationCodeProvider} and name = {ConfirmationCodeName}
+                """, cancellationToken);
+        }
+
         return updated == 1;
     }
 
@@ -457,7 +482,7 @@ public sealed class AccountService
     /// contador do Identity, que numa conta pendente não serve a mais nada; conta confirmada não conta aqui (o
     /// lockout dela é o do login).
     /// </summary>
-    private async Task CountConfirmationFailureAsync(Guid userId, CancellationToken cancellationToken)
+    private async Task CountConfirmationFailureAsync(Guid userId, string verifiedStamp, CancellationToken cancellationToken)
     {
         var ceiling = _lifecycle.MaxConfirmationFailures;
         await _db.Database.ExecuteSqlAsync(
@@ -466,9 +491,30 @@ public sealed class AccountService
             set access_failed_count = case when access_failed_count + 1 >= {ceiling} then 0 else access_failed_count + 1 end,
                 security_stamp = case when access_failed_count + 1 >= {ceiling} then {NewSecurityStamp()} else security_stamp end,
                 concurrency_stamp = {Guid.NewGuid().ToString("D")}
-            where id = {userId} and not email_confirmed
+            where id = {userId} and security_stamp = {verifiedStamp} and not email_confirmed
             """,
             cancellationToken);
+    }
+
+    private async Task<bool> VerifyConfirmationProofAsync(DuoraUser user, string proof)
+    {
+        var stored = await _users.GetAuthenticationTokenAsync(user, ConfirmationCodeProvider, ConfirmationCodeName);
+        if (stored is not null)
+        {
+            // Um cadastro por código nunca aceita o token legado como alternativa.
+            var parts = stored.Split('|', 2);
+            return parts.Length == 2
+                && parts[0] == user.SecurityStamp
+                && user.CreatedAt + ConfirmationCodeLifetime > _time.GetUtcNow()
+                && proof.Length == 8
+                && proof.All(char.IsAsciiDigit)
+                && _users.PasswordHasher.VerifyHashedPassword(user, parts[1], proof) != PasswordVerificationResult.Failed;
+        }
+
+        // Leitor tolerante: somente cadastros anteriores, ainda sem código, aceitam o link antigo.
+        return TryDecodeLinkToken(proof, out var token)
+            && await _users.VerifyUserTokenAsync(user, _users.Options.Tokens.EmailConfirmationTokenProvider,
+                UserManager<DuoraUser>.ConfirmEmailTokenPurpose, token);
     }
 
     private static string NewSecurityStamp() => Convert.ToHexString(RandomNumberGenerator.GetBytes(SecurityStampBytes));

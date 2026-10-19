@@ -50,6 +50,12 @@ public sealed record AgeCheckStart
 
     public string PolicyVersion { get; }
 
+    /// <summary>Contrato obrigatório do adaptador: captura orientada de selfie, nunca documentos.</summary>
+    public bool RequiresSelfie { get; } = true;
+
+    /// <summary>Também proíbe fallback documental em resultado inconclusivo.</summary>
+    public bool DocumentsAllowed { get; }
+
     /// <summary>Chave estável da abertura no fornecedor: o id da solicitação.</summary>
     public string IdempotencyKey => VerificationId.ToString("N");
 }

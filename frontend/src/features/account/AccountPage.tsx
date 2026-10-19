@@ -55,6 +55,11 @@ export function AccountPage(): React.JSX.Element {
       <p>
         <TextLink to={paths.profile}>{t('account.editProfile')}</TextLink>
       </p>
+      {account.status === 'PendingEligibility' ? (
+        <p>
+          <TextLink to={paths.ageVerification}>{t('age.title')}</TextLink>
+        </p>
+      ) : null}
       <SessionList userId={account.id} />
     </Page>
   )

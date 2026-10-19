@@ -38,6 +38,8 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0027](0027-midia-das-experiencias-cenario-audio-e-3d.md) | Cenários e personagens, áudio pré-gerado mudo por padrão, mídia na `ExperienceVersion` e 3D offline por padrão e em tempo real por experiência | Accepted | 3D em tempo real ou mídia acima do orçamento medido, mudança de plano ou termos de ElevenLabs, Freesound ou Sonniss, ou terceiro idioma |
 | [0028](0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md) | Voz ao vivo por WebRTC P2P com relay forçado na Cloudflare Realtime TURN; LiveKit Cloud como plano B | Accepted | Mute pelo servidor, sala com mais de 2 pessoas ou relay instável no Safari |
 
+| [0029](0029-codigo-email-selfie-sem-documentos.md) | Código digitável de e-mail e jornada de selfie sem documentos; integração real pendente | Proposed | Fornecedor, fraude/atrito ou app móvel |
+
 ## Regras
 
 - Um arquivo por decisão: `NNNN-titulo-em-kebab-case.md`, numeração sequencial.

@@ -160,3 +160,7 @@ O smoke local da release (`scripts/deploy/smoke_local.py`) sobe o Worker na imag
 - Nomes snake_case nos schemas `identity` e `ops`: `MigrationsTests.PhysicalNamesAreSnakeCase`.
 - Rotas fora da allowlist pública exigem sessão: `EndpointAuthorizationTests`.
 - Revisão humana obrigatória (autenticação, [permissions.md](../../automation/permissions.md)).
+
+## Proposta complementar de 2026-10-19 — issue #93
+
+O [ADR-0029](0029-codigo-email-selfie-sem-documentos.md) registra a confirmação por código e a jornada de selfie sem documentos. A decisão de produto foi aprovada; esta implementação está em revisão. Preserva senha do cadastro, proteções de conta e resultado etário autenticado. Não representa integração de fornecedor real.
