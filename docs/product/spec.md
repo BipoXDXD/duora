@@ -138,7 +138,7 @@ Não introduzir Redux, Next.js, um BFF Node ou renderização no servidor na ár
 | Mensageria | PostgreSQL, outbox e jobs específicos | Broker apenas quando métricas mostrarem necessidade; sem Kafka no início |
 | Escala SignalR | Uma instância web ativa | Backplane/serviço de fan-out e política de afinidade antes de múltiplas instâncias |
 | Cache | Cache local limitado para conteúdo não sensível | Redis/Valkey somente mediante ADR de consistência, operação e capacidade |
-| 3D | Fonte offline renderizada em WebP pelo pipeline de ilustração | `<model-viewer>` (recomendado) ou three.js por experiência, com orçamento de peso, fallback 2D e revisão da CSP (ADR-0027) |
+| 3D | Fonte offline renderizada em WebP pelo pipeline de ilustração | Tempo real por experiência com `<model-viewer>` (three.js direto só se a interação não couber nele), com orçamento de peso, fallback 2D e a CSP de produção liberando o que ele exige (ADR-0027) |
 | Voz ao vivo | WebRTC P2P com `iceTransportPolicy: "relay"` nos dois lados e Cloudflare Realtime TURN; nenhuma mídia na VPS (ADR-0028) | LiveKit Cloud se o produto exigir mute pelo servidor, sala com mais de 2 pessoas ou o relay for instável no Safari |
 
 **Governança de pacotes:** `Directory.Packages.props`, lockfiles NuGet e pnpm, fontes de pacote explícitas, auditoria de vulnerabilidades, inventário de licenças e SBOM. Não acrescentar MediatR, AutoMapper, FluentAssertions, Hangfire ou bibliotecas de imagem por reflexo: primeiro avaliar necessidade, manutenção, compatibilidade e licença vigente. A base funciona com DI, handlers e mapeamentos explícitos.
@@ -1291,7 +1291,7 @@ A base entrega mídia por stream autenticado da API. Isso simplifica revogação
 | Verificação etária | `IAgeEligibilityProvider` | Método adequado, minimização, acessibilidade, callbacks autenticados, revisão e prazo de retenção |
 | Moderação assistida | `IContentReviewProvider`, condicional | Dados estritamente necessários, avaliação de erro, revisão humana e política de uso/treinamento |
 | Monitoramento | OTLP e alertas externos | Filtragem, retenção, controle de acesso e exportação |
-| Geração de mídia (offline) | Nenhuma: ferramenta fora do runtime (imagem e 3D: Tripo, Rodin; voz, música e efeitos: ElevenLabs Creator, com SFX v2; complemento de efeitos: Freesound CC0 e Sonniss) | Uso comercial confirmado, nenhum dado de participante no prompt ou roteiro, consentimento da voz de referência, registro em `assets-licenses.md` |
+| Geração de mídia (offline) | Nenhuma: ferramenta fora do runtime (imagem e 3D: Tripo, Rodin; voz, música e efeitos: ElevenLabs Creator, com SFX v2; complemento de efeitos: Freesound CC0 e Sonniss) | Uso comercial confirmado, nenhum dado de participante no prompt ou roteiro, consentimento da voz de referência, registro em `assets-licenses.md`; nenhuma rota, job ou consumidor do produto chama esses fornecedores (teste de arquitetura); o script de geração tem teto de créditos por execução, teto de tentativas por asset e respeita o `429`/`Retry-After` do fornecedor (ADR-0027) |
 | Voz ao vivo | `ITurnCredentialIssuer` (Cloudflare Realtime TURN; ADR-0028) | Credencial de ~5 min e revogável, só relay, DTLS-SRTP entre os navegadores (protege contra VPS honesta, não contra VPS comprometida, TM-78); Cloudflare como sub-processador de IP e metadados; alerta de gasto e kill switch |
 | Pagamento futuro | `IPaymentGateway`, somente quando aprovado | Checkout hospedado, assinatura de webhooks, idempotência e conciliação; sem cartão no Duora |
 
