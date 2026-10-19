@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
+using Duora.Web.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -138,6 +139,51 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         using var retryBrowser = new Browser(factory);
         using var retry = await IdentityScenario.LoginAsync(retryBrowser, email, "senha incorreta longa");
         await ProblemAssert.IsProblemAsync(retry, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ALoginPastItsTotalDeadlineAnswers503BeforeTheQueueTimeout(bool exists)
+    {
+        // Fila de 30 s (padrão) e prazo total de 1 s: quem decide é o prazo do pedido inteiro, não o teto da fase.
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            Settings = new Dictionary<string, string?> { ["Identity:LoginTimeout"] = "00:00:01" },
+        };
+        var email = exists
+            ? (await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync()).Email
+            : IdentityScenario.NewEmail();
+        Assert.True(EmailAddress.TryParse(email, out var address));
+        using var browser = new Browser(factory);
+        await browser.FetchCsrfTokenAsync();
+        using var scope = factory.Services.CreateScope();
+        var security = scope.ServiceProvider.GetRequiredService<AccountSecurityService>();
+        await using (await security.EnterLoginAsync(address, TestContext.Current.CancellationToken))
+        {
+            var waited = Stopwatch.StartNew();
+            using var response = await IdentityScenario.LoginAsync(browser, email, "senha incorreta longa");
+            waited.Stop();
+
+            await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+            Assert.Equal(1, ProblemAssert.RetryAfterSeconds(response));
+            Assert.Null(browser.Cookie("__Host-duora"));
+            Assert.True(waited.Elapsed >= TimeSpan.FromSeconds(1), $"Desistiu cedo: {waited.Elapsed}.");
+            Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), $"Esperou {waited.Elapsed}, além do prazo total.");
+        }
+    }
+
+    [Theory]
+    [InlineData(450, true)]
+    [InlineData(449, false)]
+    [InlineData(60000, true)]
+    [InlineData(60001, false)]
+    public void TheLoginDeadlineMustCoverTheFailureFloorAndStayUnderAMinute(int timeoutMs, bool valid)
+    {
+        // O padrão do piso é 350 ms mais até 100 ms de sorteio: um prazo menor transformaria toda falha em 503.
+        var options = new LoginTimingOptions { LoginTimeout = TimeSpan.FromMilliseconds(timeoutMs) };
+
+        Assert.Equal(valid, options.IsValid());
     }
 
     [Fact]
