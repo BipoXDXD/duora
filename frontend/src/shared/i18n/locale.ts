@@ -1,9 +1,10 @@
-/** Idiomas da interface; o primeiro é o padrão (spec 13.6). */
-export const SUPPORTED_LOCALES = ['pt-BR', 'en'] as const
+/** Idiomas da interface, com as tags BCP 47 do ADR-0026. */
+export const SUPPORTED_LOCALES = ['pt-BR', 'en-US'] as const
 
 export type Locale = (typeof SUPPORTED_LOCALES)[number]
 
-export const DEFAULT_LOCALE: Locale = 'pt-BR'
+/** Fallback para idioma fora da lista: o público principal não é brasileiro (ADR-0026). */
+export const DEFAULT_LOCALE: Locale = 'en-US'
 
 /**
  * Nome de cada idioma nele mesmo (autônimo). Não se traduz: quem não lê o idioma atual precisa
@@ -11,13 +12,13 @@ export const DEFAULT_LOCALE: Locale = 'pt-BR'
  */
 export const LOCALE_AUTONYMS: Readonly<Record<Locale, string>> = {
   'pt-BR': 'Português',
-  en: 'English',
+  'en-US': 'English',
 }
 
 // Qualquer variante regional cai no idioma suportado mais próximo: pt-PT lê melhor em pt-BR que em inglês.
 const LOCALE_BY_LANGUAGE: Readonly<Partial<Record<string, Locale>>> = {
   pt: 'pt-BR',
-  en: 'en',
+  en: 'en-US',
 }
 
 /** Idioma suportado para uma tag BCP 47 (`en-US`, `pt`), ou `null` se nenhum serve. */
@@ -33,7 +34,7 @@ interface LocaleSources {
   readonly preferred: readonly string[]
 }
 
-/** Idioma inicial: a escolha explícita vence; depois a ordem do navegador; por fim pt-BR. */
+/** Idioma inicial: a escolha explícita vence; depois a ordem do navegador; por fim en-US. */
 export function resolveInitialLocale({ stored, preferred }: LocaleSources): Locale {
   const storedLocale = SUPPORTED_LOCALES.find((locale) => locale === stored)
   if (storedLocale !== undefined) {

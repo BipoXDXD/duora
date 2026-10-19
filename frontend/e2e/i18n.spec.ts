@@ -24,7 +24,7 @@ test.describe('interface em inglês (navegador em en-US)', () => {
   test('sign up → check email → confirm → sign in → account → sign out, com axe em cada tela', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
     await page.goto('/')
-    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
     await expect(page.getByRole('heading', { level: 1, name: 'Duora' })).toBeVisible()
     await expectNoAxeViolations(page)
 
@@ -121,14 +121,14 @@ test.describe('seletor de idioma', () => {
     await expect(english).toBeFocused()
     await page.keyboard.press('Enter')
 
-    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
     await expect(page).toHaveTitle('Sign in · Duora')
     await expect(page.getByRole('heading', { level: 1, name: 'Sign in' })).toBeVisible()
     await expect(page.getByRole('banner').getByRole('group', { name: 'Language' })).toBeVisible()
     await expect(english).toHaveAttribute('aria-pressed', 'true')
 
     await page.reload()
-    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
     await expect(page.getByRole('heading', { level: 1, name: 'Sign in' })).toBeVisible()
 
     await page.getByRole('banner').getByRole('button', { name: 'Português' }).click()

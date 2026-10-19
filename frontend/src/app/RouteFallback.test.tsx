@@ -40,7 +40,7 @@ describe('RouteFallback (carregando a tela)', () => {
   })
 
   it('anuncia no idioma ativo', () => {
-    renderWithI18n(<RouteFallback />, 'en')
+    renderWithI18n(<RouteFallback />, 'en-US')
 
     act(() => {
       vi.advanceTimersByTime(ROUTE_FALLBACK_DELAY_MS)

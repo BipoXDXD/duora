@@ -126,7 +126,7 @@ describe('área da conta', () => {
   it('em inglês, textos, situação e datas seguem o idioma ativo', async () => {
     useMeEndpoint()
     useSessionsEndpoint()
-    await renderApp('/conta', createTestQueryClient(), 'en')
+    await renderApp('/conta', createTestQueryClient(), 'en-US')
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeInTheDocument()
     expect(document.title).toBe('Your account · Duora')

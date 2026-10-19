@@ -53,7 +53,7 @@ Nada de segredo em `VITE_*`: essas variáveis entram no JavaScript público.
 Decisão e alternativas: [ADR-0022](../docs/architecture/adr/0022-i18n-intl-messageformat-catalogo-tipado.md).
 
 - Todo texto visível vem de `src/shared/i18n/catalog.pt-BR.ts` (catálogo de origem) e
-  `catalog.en.ts`, em ICU MessageFormat, formatado pelo `intl-messageformat`. Nos componentes:
+  `catalog.en-US.ts`, em ICU MessageFormat, formatado pelo `intl-messageformat`. Nos componentes:
   `const { t } = useI18n()` e `t('login.title')` ou `t('register.passwordHint', { min, max })`.
 - Chave inexistente, valor faltando ou de tipo errado não compilam: os argumentos saem do texto ICU do
   catálogo de origem (`{nome}` aceita texto ou número; `{n, number}`, `{n, plural, …}` exigem número;
@@ -73,14 +73,14 @@ Para adicionar ou mudar um texto:
 1. Crie a chave em `catalog.pt-BR.ts`, no grupo da tela (`tela.assunto`), com argumentos em ICU; nada de
    montar frase concatenando strings no componente. Plural e variação vão para `{n, plural, …}` ou
    `{x, select, …}`.
-2. Acrescente a mesma chave, com os mesmos argumentos, em `catalog.en.ts`. Traduza a intenção, não palavra a
+2. Acrescente a mesma chave, com os mesmos argumentos, em `catalog.en-US.ts`. Traduza a intenção, não palavra a
    palavra, e mantenha a neutralidade das mensagens de erro (não revelar se um e-mail tem conta). Esquecer a
    chave falha o `typecheck` (`satisfies Catalog`); argumento diferente falha o `typecheck` e o
    `catalog.test.ts`.
 3. Use `t('chave', valores)` no componente. Para chave guardada numa tabela, tipe a tabela com
    `PlainMessageKey`.
 4. Teste o comportamento pelo texto visível em pt-BR (o padrão do `renderApp`/`renderWithI18n`); quando o
-   idioma importar, passe `'en'` ao helper.
+   idioma importar, passe `'en-US'` ao helper.
 
 Fora do escopo do frontend: os e-mails (confirmação e recuperação) são montados pelo backend e seguem só em
 PT-BR.
