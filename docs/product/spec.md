@@ -508,7 +508,7 @@ Todos os caminhos desta tabela são relativos a `/api/v1`. “Público” não s
 | API-P07 | `GET /me/preferences` | Preferências privadas e `ETag` | Apenas titular; recurso versionado independentemente do perfil público |
 | API-P03 | `PUT /me/preferences` | Preferências e `If-Match` | Atualizar guarda de elegibilidade; não alterar sala já iniciada sem necessidade de segurança |
 | API-P04 | `GET /profiles/{userId}` | Projeção autorizada | Apenas contexto legítimo de sala/conexão; sem diretório global |
-| API-P05 | `POST /me/age-verifications` | Solicitação → tarefa ou fluxo do provedor | Sem documento bruto no JSON; política aprovada |
+| API-P05 | `POST /me/age-verifications` | Solicitação → tarefa ou fluxo do provedor | Sem documento bruto no JSON; política aprovada; rate limit por conta e por IP e teto de solicitações criadas por conta no banco, ambos com `429` e `Retry-After` (12.2; ADR-0024, adendo de 2026-10-19) |
 | API-P06 | `GET /me/age-verifications/current` | Estado mínimo e próximo passo | Titular; não expor inferências do fornecedor |
 
 Após login, logout ou mudança de identidade, renovar o token antiforgery no cliente conforme o fluxo do framework. Retornar erros de API como `401`/`403`, não como uma página HTML de login. Notificar mudanças de senha/MFA sem incluir segredo. Endpoints padrão de Identity não dispensam revisão de CSRF, enumeração e autorização.
@@ -902,6 +902,8 @@ Definir adaptador `IAgeEligibilityProvider`, política versionada e estados `Pen
 Selecionar e validar um mecanismo proporcional ao risco, considerando privacidade, taxa de erro, contestação, acessibilidade, recuperação, disponibilidade e transferências. Sem fornecedor/processo aprovado, o piloto com dados reais fica bloqueado; desenvolvimento usa pessoas sintéticas e respostas simuladas.
 
 A evidência mínima vincula resultado ao usuário, procedimento e validade. Callback recebido é autenticado, deduplicado e associado a uma solicitação criada pelo servidor. Nunca aceitar `isAdult: true` do navegador. Indisponibilidade mantém conta pendente; suspeita de menor restringe acesso e aciona revisão apropriada. Não improvisar “estimativa de idade” com um prompt em um modelo genérico de visão.
+
+> **Requisito ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md), adendo de 2026-10-19):** cada solicitação nova em API-P05 é uma verificação paga no fornecedor. API-P05 tem rate limit por conta e por IP (hipótese: 10 por hora em cada partição) e teto de tentativas por pessoa no banco (hipótese: 3 solicitações criadas por conta em 7 dias, contadas sob o lock da conta, na transação que cria a solicitação); acima de qualquer um, `429` com `Retry-After`, sem linha nova nem evento na outbox. Devolver a solicitação aberta não consome o teto. Testes: N+1 por conta e por IP → `429`; teto + 1 → `429` com banco inalterado; duas chamadas paralelas com uma vaga → uma solicitação.
 
 > **Divergência registrada ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), adendo do ADR-0024 de 2026-10-19):** a maioridade e as regras de verificação etária dependem da jurisdição da pessoa; o critério passado ao fornecedor (idade mínima por país ou subdivisão) e a cobertura do fornecedor nos países do lançamento são lacunas (J-05 no mapa de dados).
 

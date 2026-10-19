@@ -197,3 +197,34 @@ calcula idade, só recebe do fornecedor um resultado `VerifiedAdult`, `NotAdult`
 mínima nem data de nascimento). O que fica em aberto é o critério que a política versionada passa ao fornecedor (idade
 mínima por país ou subdivisão) e se um fornecedor cobre todos os países do lançamento. A decisão do dono de não fazer
 análise jurídica do ECA Digital (adendo de 2026-10-16) continua valendo para o Brasil.
+
+## Adendo (2026-10-19): rate limit e teto de tentativas em API-P05
+
+Regra do dono (2026-10-19): toda operação disparada pela pessoa que custa dinheiro tem rate limit por conta e por
+IP, teto de tentativas e `429` com `Retry-After`. API-P05 dispara uma verificação paga no fornecedor, e a
+idempotência da decisão 6 só limita as solicitações **abertas**: depois de uma abandonada (`RequestLifetime`) ou de
+uma tarefa `Failed`, cada novo pedido é outra verificação paga, e várias contas atrás do mesmo IP não têm limite
+nenhum. Este adendo substitui a regra "Rate limit de API-P05 e do webhook: aceito sem limite próprio por ora" na
+parte de API-P05; o webhook continua como estava (não é disparado pela pessoa, e a assinatura é conferida antes de
+qualquer escrita).
+
+- **Rate limit por conta e por IP** em API-P05, nas duas partições ao mesmo tempo (o padrão de
+  `PhotoUploadRateLimiting`), com `429`, `Retry-After` e corpo `application/problem+json` sem dado da conta.
+  Valores iniciais a medir e versionar (spec 11.5); hipótese: 10 por hora em cada partição. Pedido repetido que
+  devolve a solicitação aberta também conta, porque é a mesma rota.
+- **Teto de tentativas por pessoa no banco** (spec 11.5: quota de abuso financeiro fica no banco, não no limitador
+  em memória): no máximo 3 solicitações **criadas** por conta numa janela móvel de 7 dias (hipótese), contadas em
+  `identity.age_verifications` sob o lock da linha da conta (`SELECT ... FOR UPDATE` em `identity.users`), na
+  mesma transação que cria a solicitação; nunca contar e depois inserir sem lock. Acima do teto, API-P05 responde
+  `429` com `Retry-After` até a solicitação mais antiga sair da janela, sem criar linha nem evento na outbox.
+  Devolver a solicitação aberta não conta no teto.
+- O teto do worker (decisão 1: timeout, backoff e teto de tentativas por chamada ao fornecedor) continua valendo e
+  não substitui os dois acima: um limita o retry de uma solicitação; estes limitam quantas solicitações pagas a
+  pessoa pode abrir.
+
+Compliance (a criar com a implementação; outro PR, código já mergeado não muda aqui):
+`AgeVerificationRequestIsRateLimitedPerAccount` e `AgeVerificationRequestIsRateLimitedPerIp` (N+1 → `429` com
+`Retry-After`, e a contagem por IP vale trocando de conta), `AgeVerificationRequestsAboveTheWeeklyCapAreRefused`
+(teto + 1 → `429`, banco e outbox inalterados), `ReturningTheOpenRequestDoesNotConsumeTheCap` e
+`ConcurrentRequestsAtTheCapCreateOnlyOne` (duas chamadas paralelas com uma vaga → uma solicitação, prova
+determinística do lock, sem `sleep`).
