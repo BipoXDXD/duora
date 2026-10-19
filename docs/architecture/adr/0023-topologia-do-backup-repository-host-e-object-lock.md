@@ -128,8 +128,7 @@ capacidade proibida, chave sem restrição de bucket ou prefixo, região errada,
 ## Adendo (2026-10-19): o servidor também fica nos EUA
 
 Decisão do dono, registrada no [ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md): a VPS de produção fica em
-Boston (EUA) e o público principal não é brasileiro. O item "Jurisdição" do adendo do B2 deixa de descrever o backup
-como a transferência internacional: banco, fotos e backup estão todos nos EUA, e a transferência registrada passa a ser
-a de **todos os dados de pessoas no Brasil**
-([data-map.md](../../privacy/data-map.md#transferências-internacionais-registradas)). O backup continua sendo uma
+Boston (EUA) e o público principal não é brasileiro. O item "Jurisdição" do adendo do B2 deixa de tratar o backup como o
+único dado nos EUA: banco, fotos e backup estão todos lá (fato), inclusive os de pessoas no Brasil; se isso é transferência internacional (LGPD art. 33) ou coleta internacional (Resolução CD/ANPD 19/2024, a confirmar) e qual salvaguarda se aplica é a confirmar (J-02)
+([data-map.md](../../privacy/data-map.md#local-do-tratamento-e-transferências-a-confirmar)). O backup continua sendo uma
 cópia nos EUA, num provedor diferente do servidor. Nada muda na topologia, nas chaves nem no Object Lock.
