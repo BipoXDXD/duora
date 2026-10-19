@@ -256,6 +256,20 @@ class MediaStoragePreflightTests(unittest.TestCase):
                 self.assertIn(str(media_dir / area / ".duora-media-area"), message)
                 self.assertIn("app_dirs", message)
 
+    def test_marker_unreadable_for_lack_of_permission_asks_for_root(self) -> None:
+        media_dir = make_media_dir(self.root)
+
+        with patch.object(Path, "stat", side_effect=PermissionError(13, "Permission denied")):
+            with self.assertRaisesRegex(deploy.DeployError, r"rode como root \(sudo\)"):
+                deploy.require_media_areas(media_dir)
+
+    def test_marker_that_is_not_a_regular_file_is_refused(self) -> None:
+        media_dir = make_media_dir(self.root, without_marker_in="derivatives")
+        (media_dir / "derivatives" / ".duora-media-area").mkdir()
+
+        with self.assertRaisesRegex(deploy.DeployError, "sem o marcador"):
+            deploy.require_media_areas(media_dir)
+
     def test_missing_area_directory_is_refused(self) -> None:
         with self.assertRaisesRegex(deploy.DeployError, "quarantine"):
             deploy.preflight(self.release, self.host(self.root / "nao-existe"))
