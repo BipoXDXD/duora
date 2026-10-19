@@ -30,22 +30,34 @@
 
 (security_headers) {
 	header {
+		# defer: aplicados quando a resposta sai, por cima dos do upstream. A API não troca nem duplica a CSP nem a
+		# Permissions-Policy (test_upstream_cannot_replace_or_add_edge_policies). O -Server também ligaria o defer;
+		# explícito para não depender desse efeito colateral.
+		defer
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
-		# Microfone só para a própria origem; gesto e consentimento são responsabilidade da SPA (ADR-0028).
-		# A política não exige gesto nem concede permissão. Nenhum iframe de outra origem o recebe; e a CSP não carrega iframe algum (default-src 'none', sem frame-src).
-		Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), browsing-topics=()"
-		# Coerente com o build do Vite: só módulos e CSS próprios, sem inline e sem eval. wss explícito para o hub
-		# (navegadores antigos não estendem 'self' a WebSocket). media-src 'self' para o áudio do catálogo
-		# (ADR-0027), sem blob:: a Web Audio lê por fetch() (connect-src) e a voz ao vivo entra por srcObject, fora
-		# do Fetch. ICE/TURN não passa por connect-src; sem diretiva webrtc, o WebRTC fica permitido (ADR-0028).
-		# Mudou aqui, mude scripts/deploy/test_caddy_security_headers.py.
-		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' wss://{hostport}; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+		# Allowlist contra a matriz de capacidades (docs/operations/deploy.md, "Cabeçalhos de segurança da borda"):
+		# (self) só para o que a voz ao vivo e o áudio usam (microphone, autoplay, speaker-selection); toda outra feature
+		# que o Chromium reconhece numa página comum fica (), inclusive fullscreen, câmera, tela, AR e sensores (o
+		# <model-viewer> sem ar). Ficam fora as ch-*, as só de Isolated Web App e quatro experimentais que, negadas,
+		# quebrariam a SPA. Feature que o navegador não conhece gera só um aviso no console. Só o Chromium lê este
+		# cabeçalho (MDN BCD); gesto e consentimento do microfone são regra da SPA (ADR-0028), não desta política.
+		Permissions-Policy "accelerometer=(), ambient-light-sensor=(), aria-notify=(), autoplay=(self), bluetooth=(), browsing-topics=(), camera=(), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), deferred-fetch-minimal=(), device-attributes=(), digital-credentials-create=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), haptics=(), hid=(), identity-credentials-get=(), idle-detection=(), interest-cohort=(), keyboard-map=(), language-detector=(), language-model=(), local-fonts=(), local-network=(), local-network-access=(), loopback-network=(), magnetometer=(), media-playback-while-not-visible=(), microphone=(self), midi=(), on-device-speech-recognition=(), otp-credentials=(), payment=(), picture-in-picture=(), private-state-token-issuance=(), private-state-token-redemption=(), publickey-credentials-create=(), publickey-credentials-get=(), publickey-credentials-remote-client-data-json=(), rewriter=(), screen-wake-lock=(), serial=(), speaker-selection=(self), storage-access=(), summarizer=(), sync-xhr=(), tools=(), translator=(), unbounded-element=(), unload=(), usb=(), web-app-installation=(), web-share=(), webnn=(), window-management=(), writer=(), xr-spatial-tracking=()"
+		# Só fontes próprias, sem inline, sem eval e sem worker. wss explícito para o hub (navegadores antigos não
+		# estendem 'self' a WebSocket). media-src 'self': áudio do catálogo e o fallback Opus (ADR-0027); a voz ao vivo
+		# entra por srcObject, fora do Fetch, e ICE/TURN não passa por connect-src (sem diretiva webrtc, ADR-0028).
+		# 3D em tempo real com <model-viewer> 4.4.0 e GLB autocontido sem Draco, meshopt nem KTX2: o hash libera só o
+		# <style> do shadow root dele, e blob: em connect-src é a textura embutida, lida por fetch(blob:). Trusted Types:
+		# nenhum sink de HTML/script aceita string; só a política lit-html, do Lit que o <model-viewer> usa.
+		# Mudou aqui, mude scripts/deploy/caddy_test_support.py.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'sha256-PXtZZkJMMyc18o/DN1ZEFOJ2qEGq95IQbVaJFMOXOb0='; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' blob: wss://{hostport}; manifest-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types lit-html"
+		# Sem Server nem o Via que o reverse_proxy acrescenta: a resposta não diz qual servidor está na frente.
 		-Server
+		-Via
 	}
 }
 
@@ -84,7 +96,8 @@
 	# Saúde e documentação técnica ficam na rede interna (web:8080), nunca na borda pública.
 	@internal path /health /health/* /openapi /openapi/*
 	handle @internal {
-		respond 404
+		# error, não respond: passa pelo handle_errors e sai com no-store, como todo erro da borda.
+		error 404
 	}
 
 	# API: status, cookies e cabeçalhos de cache do backend passam intactos; sem Cache-Control, nada é guardado.
