@@ -461,10 +461,17 @@ INV-12 continua exigindo revisão humana antes do merge. Não há migração nem
 |---|---:|---|---|
 | `AccountQueueTimeout` | 30 s | Sem conexão; cada admissão na fila tem seu teto | `503 TEMPORARILY_UNAVAILABLE`, `Retry-After` |
 | `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato; rollback e liberação da conexão |
+| `LoginTimeout` | 30 s | Prazo do login (A04) inteiro: filas, lock, hash e piso | Mesmo contrato; o que estava em andamento é cancelado e a transação desfeita |
 
-Ambos aceitam de 100 ms a 1 min e são validados no boot, independentemente. O teto SQL é removido
-após adquirir o lock, como antes. Não é prazo total do pedido: fila, lock, hash e gravações são fases
-separadas. A configuração antiga de `AccountLockTimeout` passa a controlar apenas PostgreSQL;
+Os dois primeiros aceitam de 100 ms a 1 min e são validados no boot, independentemente. O teto SQL é
+removido após adquirir o lock, como antes. Os dois são tetos de fase; o prazo do pedido inteiro é o
+`LoginTimeout`, um `CancellationTokenSource` ligado ao `RequestAborted`, em tempo real como o piso
+(`LoginConcurrencyTests.ALoginPastItsTotalDeadlineAnswers503BeforeTheQueueTimeout`). Ele aceita do
+piso com o sorteio (450 ms no padrão) até 1 min, porque um prazo menor que o piso transformaria toda
+falha em `503`. O hash é síncrono e não cancela, então o pior caso de um login é o prazo mais um hash.
+O estouro durante o piso, depois de a falha já ter sido gravada, também responde `503`: a falha conta
+para o bloqueio, e a resposta não diz se a senha conferia. As outras rotas que travam a conta (A07,
+A11–A16) seguem só com os tetos de fase. A configuração antiga de `AccountLockTimeout` passa a controlar apenas PostgreSQL;
 instalações que ajustaram a fila devem definir também `Identity__AccountQueueTimeout`.
 
 O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
@@ -501,6 +508,7 @@ retry, cancelamento e validação independente dos limites. `AccountLockTimeoutT
 PostgreSQL real e a prova de no máximo uma conexão esperando por conta. As suítes de lockout e MFA
 continuam protegendo contador, TOTP e uso único dos códigos de recuperação.
 
-Rollback: reverter o PR e remover `Identity__AccountQueueTimeout` se configurado. Não há dados a
+Rollback: reverter o PR e remover `Identity__AccountQueueTimeout` e `Identity__LoginTimeout` se
+configurados. Não há dados a
 reverter; isso reintroduz a fila de 5 s e o canal de paralelismo da issue #65. Merge exige revisão
 humana e todos os gates; este texto não aceita automaticamente o risco residual.

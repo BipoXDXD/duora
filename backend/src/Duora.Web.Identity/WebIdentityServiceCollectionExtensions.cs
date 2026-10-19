@@ -134,7 +134,7 @@ public static class WebIdentityServiceCollectionExtensions
         services.AddSingleton<ITicketStore, PostgresTicketStore>();
         services.AddOptions<LoginTimingOptions>()
             .BindConfiguration(LoginTimingOptions.Section)
-            .Validate(o => o.IsValid(), "Identity: os tempos do login com falha não podem ser negativos.")
+            .Validate(o => o.IsValid(), "Identity: os tempos do login com falha não podem ser negativos, e o LoginTimeout precisa caber o piso com o sorteio e ficar até 1 min.")
             .ValidateOnStart();
         services.AddScoped(provider => new CredentialVerifier(
             provider.GetRequiredService<UserManager<DuoraUser>>(),
