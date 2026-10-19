@@ -83,14 +83,15 @@ requisição e `stream_close_delay 5m` em recarga de config); `/assets/*` é imu
 dá 404; `index.html` e demais estáticos com `no-cache`; o fallback da SPA só vale para navegação de documento
 (`Sec-Fetch-Mode: navigate` ou `Accept: text/html`); `/health` e `/openapi` respondem 404 na borda.
 
-CSP, fixada diretiva por diretiva contra o Caddy real por `scripts/deploy/test_caddy_security_headers.py` (rotas normais e erros; probe de navegador
-preparado, mas ainda sem execução funcional validada):
-`default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self';
-connect-src 'self' wss://<host>; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';
-object-src 'none'`. Mais HSTS (1 ano, sem preload), `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
-no-referrer`, COOP/CORP `same-origin`, `Permissions-Policy` (só `microphone=(self)`, para a voz ao vivo; o resto
-`()`) e sem `Server`. O porquê de `media-src` e do microfone (ADR-0027 e ADR-0028) e o teste que fixa a política
-estão em [deploy.md](../docs/operations/deploy.md#cabeçalhos-de-segurança-da-borda).
+CSP e `Permissions-Policy` em allowlist contra a matriz de capacidades (SPA, API, hub, fotos, áudio, voz ao vivo e
+3D em tempo real), fixadas diretiva por diretiva contra o Caddy real por
+`scripts/deploy/test_caddy_security_headers.py` em documento, assets, mídia, API, hub e erros:
+`default-src 'none'`, só fontes próprias, o hash do `<style>` do `<model-viewer>` 4.4.0, `blob:` só em `connect-src`
+(textura embutida no GLB), `worker-src 'none'` e Trusted Types (só a política `lit-html`); na `Permissions-Policy`,
+`microphone`, `autoplay` e `speaker-selection` em `(self)` e toda outra feature reconhecida pelo Chromium em `()`.
+Mais HSTS (1 ano, sem preload), `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, COOP/CORP
+`same-origin` e sem `Server` nem `Via`, também nos erros gerados pela borda (`handle_errors`, `no-store`). O porquê de cada
+valor, com fonte, e a medição do 3D estão em [deploy.md](../docs/operations/deploy.md#cabeçalhos-de-segurança-da-borda).
 
 Logs de acesso em JSON no stdout sem query string, sem cabeçalhos de requisição e resposta (logo sem `Cookie`,
 `Authorization` e `Set-Cookie`) e com IP truncado (/24 e /48) (spec 19.2).

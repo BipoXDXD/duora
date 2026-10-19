@@ -481,66 +481,145 @@ checagem na edge.
 
 ## Cabeçalhos de segurança da borda
 
-A CSP e a `Permissions-Policy` vivem só no `infra/caddy/Caddyfile`, e `scripts/deploy/test_caddy_security_headers.py`
-compara as duas, diretiva por diretiva, com a política esperada em `scripts/deploy/caddy_test_support.py`, contra o
-Caddy real (job `ops`; pula sem Docker). O smoke local confere a mesma política, por inteiro, na edge. O mesmo teste recusa diretiva ou feature repetida, um segundo cabeçalho, curinga, qualquer
-palavra-chave unsafe (`'unsafe-*'` e `'wasm-unsafe-eval'`), esquema genérico (`https:`, `wss:`), qualquer `http:`
-e os esquemas `blob:`, `data:`, `mediastream:` e `filesystem:`. Mudar a política exige mudar o teste no mesmo PR,
-com revisão humana.
+A CSP e a `Permissions-Policy` vivem só no `infra/caddy/Caddyfile` e valem para toda resposta da borda: documento,
+assets, API, hub, webhooks e os erros gerados pelo próprio Caddy (`handle_errors`, com `Cache-Control: no-store`).
+As duas são **allowlist contra a matriz de capacidades** abaixo: cada fonte e cada feature liberada tem uma
+capacidade que a usa, e o resto fica negado. A política esperada mora em `scripts/deploy/caddy_test_support.py`;
+mudar o Caddyfile sem mudar o teste no mesmo PR falha o job `ops`, e a mudança exige revisão humana.
+
+### Matriz de capacidades
+
+| Capacidade | O que o navegador faz | CSP | Permissions-Policy |
+|---|---|---|---|
+| SPA (React 19, Vite) | módulos e CSS do bundle, sem inline nem eval | `script-src 'self'`, `style-src 'self'`, `font-src 'self'`, `img-src 'self'`, `manifest-src 'self'`; Trusted Types | nenhuma |
+| API | `fetch()` na mesma origem | `connect-src 'self'` | nenhuma |
+| Hub SignalR | WebSocket na mesma origem | `connect-src wss://<host>` | nenhuma |
+| Fotos | envio por `fetch()` com o corpo cru ([ADR-0025](../architecture/adr/0025-pipeline-de-fotos-imagesharp-s3-outbox.md)); exibição por `<img>` lida pela API ([ADR-0010](../architecture/adr/0010-object-storage-externo-leitura-via-api.md)) | `connect-src 'self'`, `img-src 'self'` | nenhuma |
+| Áudio pré-gerado | `<audio>` com `.m4a` e o fallback Opus (`.webm`/`.ogg`) de `/assets/`; Web Audio por `fetch()` + `decodeAudioData` | `media-src 'self'`, `connect-src 'self'` | `autoplay=(self)` |
+| Voz ao vivo | `getUserMedia`; `<audio>.srcObject = MediaStream`; `RTCPeerConnection` com relay TURN; credencial por `POST /api/v1/rooms/{roomId}/voice/credentials` | nenhuma fonte nova: `srcObject` não passa pelo Fetch e ICE não passa por `connect-src` | `microphone=(self)`, `speaker-selection=(self)` |
+| 3D em tempo real (`<model-viewer>` 4.4.0) | bundle próprio; um `<style>` no shadow root; GLB por `fetch()`; textura embutida por `fetch(blob:)`; WebGL; política `lit-html` do Lit | hash do `<style>`, `connect-src blob:`, `trusted-types lit-html` | nenhuma (sem `ar`: `xr-spatial-tracking` e sensores negados) |
+
+Fora da matriz, e por isso negado: vídeo e câmera, compartilhamento de tela, tela cheia, AR, sensores, clipboard,
+passkeys (spec 11.1 as deixa para depois; o PR delas libera `publickey-credentials-*`), pagamento, hardware
+(USB, serial, HID, Bluetooth, MIDI, gamepad), geolocalização, worker e service worker, WebAssembly, iframe e
+plugin. Pré-visualizar a foto antes do envio por `URL.createObjectURL` não existe hoje; se entrar, pede
+`img-src blob:` no PR das fotos.
+
+### CSP, diretiva por diretiva
 
 | Diretiva | Valor | Por quê |
 |---|---|---|
-| `media-src` | `'self'` | Áudio do catálogo (AAC-LC `.m4a` com nome por hash, servido em `/assets/`) tocado por `<audio>` ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md), seção 4). Sem `blob:`: a Web Audio lê o arquivo por `fetch()`, coberto por `connect-src 'self'`, e decodifica um `ArrayBuffer`, sem URL; a voz ao vivo entra por `srcObject = MediaStream`, que não passa pelo Fetch e não consulta a CSP. `'self'` não cobre `blob:` (CSP3 6.7.2.8), então `<audio src="blob:...">` seria bloqueado, de propósito |
-| `connect-src` | `'self' wss://<host>` | Inalterado. A credencial TURN vem de `POST /api/v1/rooms/{roomId}/voice/credentials`, na mesma origem. ICE/STUN/TURN não é regido por `connect-src` (CSP3 6.1.2 lista fetch, XHR, EventSource, Beacon, ping e WebSocket) |
-| `webrtc` | ausente | A CSP3 (6.2.1, 4.3.1) só bloqueia candidatos ICE quando a diretiva `webrtc` existe com `'block'`; `default-src` não a substitui. Ausente, o WebRTC da voz ao vivo funciona ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)) |
-| `Permissions-Policy: microphone` | `(self)` | Voz ao vivo da sala ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)): `getUserMedia` só no documento da própria origem, depois do gesto. Nenhum iframe de outra origem o recebe; e a CSP não carrega iframe algum (`default-src 'none'`, sem `frame-src`). Câmera, geolocalização, pagamento, USB e Topics continuam `()` |
+| `default-src` | `'none'` | Tudo que não está listado fica bloqueado, inclusive `frame-src` e `child-src`, logo nenhum iframe (CSP3 6.1.3) |
+| `style-src` | `'self' 'sha256-PXtZ…OXOb0='` | O `<model-viewer>` põe um `<style>` no shadow root (`lib/template.js` da 4.4.0; o mesmo texto e o mesmo hash nos bundles de `dist/`). O hash libera só esse texto exato, sem `'unsafe-inline'` (CSP3 2.3.1 e 6.7.3.3, *hash-source*; 6.1.14 `style-src-elem`; MDN `style-src`). Subir o pacote exige recalcular o hash |
+| `media-src` | `'self'` | `<audio src>` do catálogo e o fallback Opus, na mesma origem (CSP3 6.1.8). Sem `blob:` nem `data:` |
+| `connect-src` | `'self' blob: wss://<host>` | API, credencial TURN, Web Audio e GLB por `fetch()`; hub por WebSocket. `blob:` só para a textura embutida no GLB: o `GLTFLoader` do three.js cria uma URL `blob:` para a imagem do *bufferView* e, com `createImageBitmap` (Chromium, Safari 17+, Firefox 98+), a lê por `fetch()`, que cai em `connect-src` (CSP3 6.1.2). `'self'` não casa `blob:` (CSP3 6.7.2.8). Uma URL `blob:` só lê bytes que a própria página criou: não abre destino de rede |
+| `img-src` | `'self'` | `blob:` não é pedido: o `<img src="blob:">` do three.js só existe no `TextureLoader`, usado sem `createImageBitmap` (Safari < 17, Firefox < 98) |
+| `worker-src` | `'none'` | Sem ela, `worker-src` cai em `script-src 'self'` (CSP3 6.2.2 e a lista de *fallback* de 6.8.3: `worker-src` → `child-src` → `script-src` → `default-src`), e qualquer script da origem poderia registrar worker ou service worker. Nada usa worker; os decodificadores Draco e KTX2 do three.js criam worker a partir de `blob:` e ficam fora do pipeline |
+| `script-src` | `'self'` | Sem `'wasm-unsafe-eval'`: o pipeline do 3D não usa Draco, meshopt nem KTX2, os três decodificadores em WebAssembly |
+| `require-trusted-types-for`, `trusted-types` | `'script'`, `lit-html` | Nenhum *sink* de HTML ou script (`innerHTML`, `new Function`, `script.src`, `new Worker`) aceita string (W3C Trusted Types; MDN `require-trusted-types-for`). O bundle do React só toca `innerHTML` nos caminhos de `<script>` em JSX e `dangerouslySetInnerHTML`, que a SPA não usa; o Zod roda em `jitless` (`frontend/src/app/zod-config.ts`) para não testar `new Function` em toda página. `lit-html` é a única política permitida, uma vez só, para o Lit do `<model-viewer>` |
+| `base-uri`, `form-action`, `frame-ancestors`, `object-src` | `'none'`, `'self'`, `'none'`, `'none'` | Inalterados |
+| `webrtc` | ausente | A CSP3 (6.2.1, 4.3.1) só bloqueia candidatos ICE com `webrtc 'block'`; `default-src` não a substitui. Ausente, a voz ao vivo funciona. A CSP não impõe relay-only nem restringe servidores ICE: isso é `iceTransportPolicy: "relay"` e a sinalização do [ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md) |
+| `upgrade-insecure-requests` | ausente | Ela reescreve URLs `http:` de subrecurso para `https:` (MDN). Aqui toda fonte é `'self'` em HTTPS com HSTS, e um `http:` é bloqueado em vez de reescrito em silêncio, o que mostra o defeito |
+| `report-to`/`report-uri` | ausente | Não há coletor. Um endpoint de relatório é rota pública que recebe `POST` de qualquer navegador e precisaria de rate limit e teto próprios; entra quando houver monitoramento de CSP |
 
-`microphone=(self)` permite solicitar captura; não concede consentimento e não impõe gesto do usuário.
-O requisito de só pedir o microfone após ação explícita pertence à SPA, inclusive com permissão já persistida.
-`getUserMedia` exige contexto seguro e pode rejeitar com `NotAllowedError`; a experiência deve continuar sem voz.
-Autoplay é outra política do navegador: tratar rejeição de `audio.play()` e retomar `AudioContext` no gesto.
-A allowlist `self` também abrange documentos da mesma origem; não é uma restrição a uma rota nem apenas ao
-frame superior. A CSP impede navegação de iframes; a Permissions-Policy nega microfone a frames de outra origem.
+`Cross-Origin-Resource-Policy: same-origin` também vale para os assets. Ele só barra leitura *no-cors* por outra
+origem (Fetch, "Cross-Origin-Resource-Policy header"): a SPA, o `<audio>`, o GLB e o `fetch()` são da mesma
+origem e não são afetados, e outro site não embute nossos áudios e modelos. Os assets de mídia saem com o tipo
+certo (`.m4a` → `audio/mp4`, `.ogg`/`.opus` → `audio/ogg`, `.webm` → `video/webm`, `.glb` → `model/gltf-binary`),
+respondem `206` a `Range` e não são recomprimidos pelo `encode`; com outro tipo, o `nosniff` faria o navegador
+recusar o arquivo.
 
-A CSP não impõe relay-only nem restringe os servidores ICE. Isso depende de `iceTransportPolicy: "relay"`,
-validação de candidatos/SDP e autorização da sinalização previstas no ADR-0028. Não acrescentar TURN a
-`connect-src`. A diretiva `webrtc` é parte de um draft e sua implementação não deve ser presumida uniforme.
+O `header` da borda usa `defer`: os valores saem por cima dos do upstream, então o backend não consegue trocar nem
+duplicar a CSP ou a `Permissions-Policy` (teste com upstream que manda as suas). Sem `defer` (e sem o `-Server`,
+que também o liga), a resposta da API saía com duas CSPs. A borda também tira o `Server` e o `Via` que o
+`reverse_proxy` acrescenta.
 
-Erros gerados por handlers do Caddy passam por `handle_errors`, que importa o mesmo snippet de cabeçalhos e
-responde sem detalhes internos e com `Cache-Control: no-store`. Sem esse caminho, os 404 do `file_server`
-perdiam as políticas e podiam receber cache imutável. Respostas de erro devolvidas normalmente pelo backend
-continuam passando intactas pelo proxy.
+### Permissions-Policy
 
-A suíte cobre 15 casos de rotas/status e mais 502 de API e hubs com upstream indisponível. O upstream é
-sintético: isso não valida autenticação, SignalR ou TURN. O smoke completo também confere as políticas em
-assets, API, hubs e no handshake WebSocket. Para execução local sem Docker, com Caddy 2.11.7 instalado:
+| Feature | Valor | Por quê |
+|---|---|---|
+| `microphone` | `(self)` | `getUserMedia` da voz ao vivo, só no documento da própria origem ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)). Não concede permissão nem impõe gesto: microfone desligado por padrão e pedido só depois do gesto são regras da SPA, inclusive com permissão já persistida. Frame de outra origem não o recebe, nem com `allow="microphone *"` |
+| `autoplay` | `(self)` | No HTML Living Standard, um elemento de mídia só é *eligible for autoplay* se o documento tiver a feature: o `<audio autoplay>` que recebe a voz da outra pessoa começa a tocar quando ela fala, sem gesto novo. A feature não dispensa a ativação do usuário que o navegador exige para som; mudo por padrão continua regra da SPA (ADR-0027) |
+| `speaker-selection` | `(self)` | Escolha da saída de áudio da voz ao vivo (fone ou alto-falante). A Audio Output Devices API (W3C) faz `selectAudioOutput()` e `setSinkId()` rejeitarem e esconde as saídas de `enumerateDevices()` quando a feature não é permitida. Liberado por decisão do responsável; nenhum código a usa ainda |
+| as outras 65 | `()` | Toda feature que o Chromium reconhece numa página comum, conforme `permissions_policy_features.json5` (consultado em 2026-10-19); lista em `DENIED_FEATURES` |
+
+Ficam fora da lista, de propósito:
+
+- **`ch-*`** (dicas de cliente): controlam quais cabeçalhos `Sec-CH-*` o navegador envia, não APIs da página, e a
+  CSP já não deixa a SPA falar com terceiros.
+- **Só de Isolated Web App**: `all-screens-capture`, `controlled-frame`, `direct-sockets`,
+  `direct-sockets-multicast`, `smart-card`, `sub-apps`, `usb-unrestricted` e `web-printing` não existem numa página
+  comum.
+- **Experimentais que, negadas, quebrariam a SPA**: `autofill` e `manual-text` (autofill e digitação nos
+  formulários de conta), `focus-without-user-activation` (o `RouteAnnouncer` move o foco em toda navegação) e
+  `vertical-scroll` (rolagem e `scrollIntoView`).
+
+Feature que o navegador não conhece gera só um aviso no console (`Unrecognized feature` ou `Origin trial
+controlled feature not enabled`) e passa a valer quando ele a reconhecer. No Chromium 156 são 13: `ambient-light-sensor`,
+`device-attributes`, `execution-while-not-rendered`, `execution-while-out-of-viewport`, `haptics`,
+`publickey-credentials-remote-client-data-json`, `rewriter`, `tools`, `unbounded-element`, `web-app-installation`,
+`web-share`, `webnn` e `writer`. Só o Chromium lê o cabeçalho `Permissions-Policy` (MDN BCD: Firefox e Safari
+não); neles valem o pedido de permissão do navegador e a CSP. A lista envelhece: a sonda de navegador afirma
+que `document.featurePolicy.allowedFeatures()` é exatamente `autoplay`, `microphone` e `speaker-selection`, então
+uma feature nova do Chromium com padrão `self` a faz falhar, quando ela roda, e pede a revisão da lista.
+
+### 3D em tempo real: o que foi medido
+
+Com o `<model-viewer>` 4.4.0 (three.js 0.183.2, a versão do `peerDependencies`) empacotado pelo Vite 8.3.4 e
+servido por este Caddyfile, nos motores do Playwright 1.64.1 (Chromium 156, WebKit e Firefox), em 2026-10-19:
+
+- com a CSP anterior, nos três: o `<style>` do shadow root bloqueado (`style-src-elem`), a textura embutida
+  recusada (`connect-src blob:`; `THREE.GLTFLoader: Couldn't load texture blob:`) e um `WebAssembly.instantiate`
+  bloqueado ao carregar o pacote;
+- com esta CSP, GLB com PNG embutido, GLB com WebP (`EXT_texture_webp`) e GLB com textura externa carregam com
+  textura, nos três motores;
+- o `WebAssembly.instantiate` que sobra vem de `three/examples/jsm/libs/meshopt_decoder.module.js`, que instancia
+  o decodificador ao ser importado, mesmo sem modelo meshopt. Com um `resolve.alias` do Vite apontando esse módulo
+  para um stub (`MeshoptDecoder` com `supported: false`), não sobra violação nenhuma nos três motores.
+
+O pipeline do 3D, então: GLB autocontido, texturas WebP via `EXT_texture_webp` (ou PNG/JPEG), sem
+`KHR_draco_mesh_compression`, `EXT_meshopt_compression` nem `KHR_texture_basisu`, e o alias do meshopt no
+`vite.config.ts`. A medição foi feita fora do repositório, porque o `<model-viewer>` ainda não é dependência; o
+PR da primeira experiência com 3D traz o teste no navegador (ver ADR-0027, seção 7).
+
+### Testes
+
+`scripts/deploy/test_caddy_security_headers.py` (job `ops`; pula sem Docker) sobe o Caddyfile na imagem da edge,
+com um site sintético (HTML, JavaScript, `.m4a`, `.ogg`, `.opus`, `.webm` e `.glb`) e um upstream sintético no
+lugar do web, e fala HTTPS com ele pela porta publicada só no loopback, confiando só na CA local do Caddy. Afirma:
+
+- CSP e `Permissions-Policy` exatas e únicas em documento, rota da SPA, assets, mídia, 404 de asset e de rota,
+  `/health` e `/openapi`, API (200, 401, 403, 500), hub (200, 401, 404), webhook e 502 com o upstream parado;
+- nenhuma fonte curinga, `'unsafe-*'`, `'wasm-unsafe-eval'`, esquema genérico, `http:` ou esquema local, exceto
+  `blob:` em `connect-src`; nenhuma diretiva `webrtc`;
+- só `autoplay`, `microphone` e `speaker-selection` liberados, e só para `self`;
+- upstream que manda CSP e `Permissions-Policy` próprias não troca nem duplica as da borda;
+- erros da borda com `no-store`; mídia com o tipo certo, cache imutável, sem `Content-Encoding` e `206` a `Range`.
+
+Com `DUORA_TEST_BROWSER=1` roda também `scripts/deploy/test_caddy_browser.cjs` no Chromium do Playwright do
+frontend (dependências do frontend instaladas e `pnpm exec playwright install chromium`):
 
 ```sh
-DUORA_TEST_CADDY=/caminho/caddy python3 -m unittest discover -s scripts/deploy -p test_caddy_security_headers.py -v
+DUORA_TEST_BROWSER=1 python3 -m unittest discover -s scripts/deploy -p test_caddy_security_headers.py -v
 ```
 
-Esse modo usa loopback, HTTPS 8443 e portas 8080/8081/2020 livres, CA/storage temporários e não instala confiança
-no sistema. Adapta apenas endereços, paths e opções de execução local; não substitui o smoke do Compose.
-Para o probe Chromium, instalar as dependências já declaradas do frontend e informar também
-`DUORA_TEST_CHROME=/caminho/chrome`. A suíte `test_caddy_browser.cjs` verifica mídia própria, negação de origens,
-blob/data, autoplay sem gesto, Web Audio, microfone negado/concedido, câmera proibida, MediaStream e ICE.
-Um diagnóstico separado permite frame só na resposta interceptada de teste para isolar a Permissions-Policy;
-essa exceção não entra no Caddyfile. Usa captura sintética e nenhum TURN externo. Execução funcional ainda
-pendente: o ambiente da revisão bloqueou o processo Chrome na criação de socket. WebKit/Safari/iOS e o fluxo
-de voz completo também continuam pendentes. Resultados em [revisão do PR #85](../security/pr85-review.md).
+A sonda confere, com captura sintética e sem TURN: mídia e Web Audio da própria origem; mídia de outra origem,
+`data:` e `blob:` bloqueadas; `fetch` e WebSocket de outra origem, estilo inline, WebAssembly, worker e iframe
+bloqueados; `fetch(blob:)` permitido; Trusted Types recusando string em `innerHTML` e qualquer política além de
+uma `lit-html`; as features permitidas exatas; tela cheia e câmera negadas pela política; microfone negado e
+concedido sem gesto exigido pela política; `MediaStream` no `<audio>` sem fonte na CSP; ICE coletado apesar de
+`default-src 'none'`; frame de outra origem sem microfone mesmo com `allow`. A sonda não roda no CI: o job `ops`
+não tem navegador, e acrescentá-lo é mudança de workflow, em PR próprio. O e2e do frontend roda no `vite
+preview`, sem a CSP da borda.
 
-Fica para depois, de propósito:
-
-- **3D em tempo real (`<model-viewer>`, ADR-0027 seção 7).** Nenhuma experiência o usa hoje, então nada foi
-  liberado para ele. O GLB chega por `fetch()` (já coberto por `connect-src 'self'`), mas texturas em `blob:`
-  (`img-src`) e decodificador WebAssembly (`'wasm-unsafe-eval'`) entram só no PR da primeira experiência com 3D em
-  tempo real, medidos no navegador.
-- **AudioWorklet.** `audioWorklet.addModule()` é regido por `script-src`; se um dia entrar, o módulo vem de
-  `/assets/` e `'self'` já cobre.
-
-Fontes: W3C CSP Level 3 (Editor's Draft, seções 4.3, 6.1.2, 6.1.8, 6.2.1 e 6.7.2.8); HTML Living Standard,
-algoritmo de carga do elemento de mídia (modo `object` sem Fetch); MDN `media-src`, `HTMLMediaElement.srcObject`,
-`BaseAudioContext.decodeAudioData()` e `Permissions-Policy: microphone`.
+Fontes: W3C CSP Level 3 (Editor's Draft: 2.3.1, 4.3, 6.1.2, 6.1.3, 6.1.8, 6.1.14, 6.2.1, 6.2.2, 6.7.2.8, 6.7.3.3 e 6.8.3); W3C Trusted
+Types; W3C Permissions Policy e a lista de features do repositório `w3c/webappsec-permissions-policy`;
+`permissions_policy_features.json5` do Chromium; W3C Audio Output Devices API (`speaker-selection`); HTML Living
+Standard (*eligible for autoplay* e algoritmo de carga do elemento de mídia, modo `object` sem Fetch); Fetch Standard
+(`Cross-Origin-Resource-Policy`); MDN `Permissions-Policy` e browser-compat-data, `style-src`, `worker-src`,
+`upgrade-insecure-requests`, `require-trusted-types-for` e `trusted-types`; código do `@google/model-viewer`
+4.4.0 (`lib/template.js`, `three-components/CachingGLTFLoader.js`) e do three.js 0.183.2 (`GLTFLoader.js`,
+`ImageBitmapLoader.js`, `meshopt_decoder.module.js`); Zod 4 (`z.config({ jitless: true })`).
 
 ## Smoke local
 
