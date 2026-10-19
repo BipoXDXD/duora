@@ -46,6 +46,8 @@ O Duora organiza encontros entre duas pessoas adultas em eventos com rodadas e e
 
 O frontend é uma SPA React/TypeScript, com build estático. ASP.NET Core concentra API, autenticação e tempo real; não há servidor Node em produção nem dependência de Blazor.
 
+> **Divergência registrada ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), decisão do dono de 2026-10-19):** o público-alvo principal **não é brasileiro**; os países do lançamento ainda não foram fixados. O produto inteiro funciona em **PT-BR e EN-US** (interface, e-mails, conteúdo das experiências, documentos voltados ao usuário e mensagens de erro). O servidor de produção fica em **Boston, EUA**, e o backup no Backblaze B2 **US East**. Onde esta spec supõe público brasileiro, legislação só brasileira ou um idioma só, vale o ADR.
+
 ### 1.2. Invariantes que não podem depender apenas da interface
 
 | ID | Regra | Mecanismo principal | Teste |
@@ -880,6 +882,8 @@ O Duora trata dados potencialmente sensíveis em um contexto de relacionamento. 
 
 A implementação deve ser revisada à luz da LGPD, das regras aplicáveis do Marco Civil da Internet e do ECA Digital, incluindo orientações da ANPD sobre aferição de idade. O rótulo “18+” e a confirmação por checkbox não substituem a análise do mecanismo necessário. Aplicabilidade, bases legais, prazos obrigatórios, transferências e preservação devem ser definidos com apoio qualificado; este plano não declara conformidade jurídica. Fontes: [D-PRIV-01](#d-priv-01) e [D-PRIV-02](#d-priv-02).
 
+> **Divergência registrada ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)):** com o público principal fora do Brasil, a LGPD, o Marco Civil e o ECA Digital continuam valendo para quem está no Brasil, mas deixam de ser o conjunto aplicável. As leis prováveis das demais jurisdições (leis estaduais de privacidade dos EUA, GDPR se houver pessoas na UE, COPPA e regras de idade, entre outras) estão mapeadas como **lacunas a confirmar com apoio jurídico** no [mapa de dados](../privacy/data-map.md#jurisdições-a-confirmar); nenhuma conclusão sobre aplicabilidade é tirada aqui. Como o servidor e o backup ficam nos EUA, a transferência internacional a registrar é a dos dados de pessoas no Brasil. Fontes: [D-PRIV-03](#d-priv-03).
+
 | Tipo de dado | Tratamento padrão | Evitar |
 |---|---|---|
 | Perfil exibido | Nome de exibição, faixa etária e região aproximada | Data de nascimento integral e localização precisa para outras pessoas |
@@ -898,6 +902,8 @@ Definir adaptador `IAgeEligibilityProvider`, política versionada e estados `Pen
 Selecionar e validar um mecanismo proporcional ao risco, considerando privacidade, taxa de erro, contestação, acessibilidade, recuperação, disponibilidade e transferências. Sem fornecedor/processo aprovado, o piloto com dados reais fica bloqueado; desenvolvimento usa pessoas sintéticas e respostas simuladas.
 
 A evidência mínima vincula resultado ao usuário, procedimento e validade. Callback recebido é autenticado, deduplicado e associado a uma solicitação criada pelo servidor. Nunca aceitar `isAdult: true` do navegador. Indisponibilidade mantém conta pendente; suspeita de menor restringe acesso e aciona revisão apropriada. Não improvisar “estimativa de idade” com um prompt em um modelo genérico de visão.
+
+> **Divergência registrada ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), adendo do ADR-0024 de 2026-10-19):** a maioridade e as regras de verificação etária dependem da jurisdição da pessoa; o critério passado ao fornecedor (idade mínima por país ou subdivisão) e a cobertura do fornecedor nos países do lançamento são lacunas (J-05 no mapa de dados).
 
 > **Divergência registrada ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md), adendo de 2026-10-16):** por decisão do dono (issue #9), a verificação etária acontece uma vez, no cadastro, e uma `VerifiedAdult` **não tem validade**: a evidência vincula o resultado ao usuário, ao procedimento, à versão da política e ao instante da decisão, sem data de expiração, e não há reverificação por acesso ou sessão. `Expired` vale só para solicitação abandonada. Onde esta spec fala em "validade" ou "data de expiração" da verificação etária (10.2, 12.1 e este item), vale o ADR.
 
@@ -1050,6 +1056,8 @@ Usar divisão de bundle por rota, carregar administração separadamente, reserv
 
 Interface inicialmente em PT-BR, textos centralizados e preparados para tradução. Exibir horário no fuso da pessoa, identificando o fuso em eventos; persistir identificador IANA quando houver preferência explícita. Usar `Intl` para apresentação e manter datas civis distintas de instantes UTC.
 
+> **Divergência registrada ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)):** não há idioma "inicial": o produto inteiro sai em PT-BR e EN-US (`pt-BR` e `en-US`), com o mesmo conjunto de textos nos dois. O idioma de fallback para quem não usa nenhum dos dois, os formatos de data, fuso, número e moeda e o conteúdo das experiências nos dois idiomas estão nas mudanças de código propostas do ADR.
+
 Testes de compreensão devem perguntar se a pessoa sabe o que a outra vê, quando o chat existe, como sair e o que acontece ao bloquear. Medir conclusão segura das tarefas e obstáculos; não otimizar apenas permanência. Sem session replay em telas privadas, gravação de digitação ou analytics contendo mensagens, preferências ou evidências.
 
 <a id="a11y-protocolo"></a>
@@ -1156,6 +1164,8 @@ O sistema da VPS é **Ubuntu Server 24.04 LTS**. O inventário registra release,
 | Região | Próxima da maioria das pessoas do piloto | Medir latência e revisar residência/transferência dos fornecedores |
 | Arquitetura | `linux/amd64` ou `linux/arm64`, escolhida e fixada | Construir e testar exatamente a arquitetura da VPS |
 | Homologação | Host/ambiente separado, com dados sintéticos | Não competir com recursos e segredos do piloto real |
+
+> **Decisão registrada ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)):** a VPS de produção fica em **Boston, EUA** (Hostinger), e o backup no Backblaze B2 US East. A linha "Região" acima passa a ser a validação: medir a latência a partir do Brasil e dos países do lançamento no ensaio de capacidade (20.4).
 
 Um orçamento inicial de memória é: PostgreSQL até 2,5 GiB; web até 1,5 GiB; worker até 1 GiB; Caddy até 128 MiB; Collector até 256 MiB; reservar aproximadamente 2 GiB para sistema, cache e folga. São limites experimentais, não tuning pronto. PostgreSQL precisa ajustar `shared_buffers`, `work_mem`, conexões e paralelismo ao conjunto; `work_mem` não é um orçamento global único. Swap pode amortecer um pico, mas não transforma falta de RAM em capacidade sustentável.
 
@@ -1719,6 +1729,8 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 
 Essas pendências não são permissão para deixar a implementação vaga: cada uma tem responsável a designar e evidência exigida. O plano não inventa fornecedor, infraestrutura existente, política jurídica aprovada ou benchmark que não foi fornecido.
 
+> **Atualização ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)):** a região da VPS está decidida (Boston, EUA, Hostinger) e o backup no Backblaze B2 US East; continuam pendentes IOPS, suporte, arquitetura e teste. Na linha "Privacidade", entram as jurisdições fora do Brasil, ainda não analisadas.
+
 ### 23.3. Gate de lançamento
 
 | Gate | Evidência mínima | Situação neste documento |
@@ -1985,6 +1997,7 @@ O catálogo contém **77 fichas temáticas**, agrupadas por trabalho técnico. U
 |---|---|---|
 | <a id="d-priv-01"></a>D-PRIV-01 | **Proteção de dados e registros** — [LGPD](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm) · [Marco Civil da Internet](https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12965.htm) | Avaliar finalidades, bases legais, dados sensíveis, direitos, registros e retenção com orientação qualificada. A especificação não declara conformidade jurídica. |
 | <a id="d-priv-02"></a>D-PRIV-02 | **Proteção etária** — [ECA Digital](https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15211.htm) · [ANPD — ECA Digital](https://www.gov.br/anpd/pt-br/assuntos/eca-digital) | Requisitos aplicáveis e atos/orientações vigentes; documentar versão, método, erros, contestação e minimização. Não tratar checkbox 18+ como comprovação suficiente. |
+| <a id="d-priv-03"></a>D-PRIV-03 | **Jurisdições fora do Brasil** — fontes a registrar com apoio jurídico, conforme os países do lançamento ([mapa de dados](../privacy/data-map.md#jurisdições-a-confirmar)) | Lista de hipóteses, não de obrigações: leis estaduais de privacidade e de serviços de encontro dos EUA, COPPA, GDPR/UK GDPR e outras. Cada fonte entra aqui com versão e página quando a análise for feita ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)). |
 
 ### 25.16. Ferramentas condicionais e alternativas arquiteturais
 
@@ -2031,7 +2044,7 @@ Não atribuir garantias de um serviço ao outro apenas porque ambos anunciam com
 | Chaves, segredos e logs privados | [D-AUTH-02](#d-auth-02), [D-SEC-05](#d-sec-05), [D-OBS-01](#d-obs-01)/02 | 11.2 e 19.2; T-15; inventário/rotação e telemetria sanitizada |
 | Backup físico, WAL e restauração | [D-BKP-01](#d-bkp-01)/02, [D-INF-04](#d-inf-04), fornecedor de backup | 18; T-11/T-25; RPO/RTO observados |
 | Revisão de código e proteção da automação | [D-CI-01](#d-ci-01)/02/03, [D-SEC-02](#d-sec-02)/06, [D-OPT-03](#d-opt-03) | 14; T-12; políticas/workflows e suíte protegidos |
-| Privacidade, exclusão e elegibilidade etária | [D-PRIV-01](#d-priv-01)/02, contratos dos fornecedores | 12 e 18.4; T-01/T-10/T-11; revisão técnica/jurídica |
+| Privacidade, exclusão e elegibilidade etária | [D-PRIV-01](#d-priv-01)/02/03, contratos dos fornecedores | 12 e 18.4; T-01/T-10/T-11; revisão técnica/jurídica |
 | Incidentes e indisponibilidade total | [D-OBS-01](#d-obs-01)/02, [D-INF-01](#d-inf-01)/07, [D-BKP-01](#d-bkp-01)/02 | 19.3; alertas fora da VPS e runbooks exercitados |
 
 A matriz assegura rastreabilidade **documental** dos controles listados. Aprovação depende de execução e revisão das evidências; presença de links não comprova segurança, acessibilidade, capacidade ou recuperação.
