@@ -24,7 +24,7 @@ public static class PhotoCompleteness
 
     public static bool IsComplete(PhotoFormat format, ReadOnlySpan<byte> content) => format switch
     {
-        PhotoFormat.Jpeg => JpegEndsAfterTheScan(content),
+        PhotoFormat.Jpeg => WalkJpeg(content).EndsAfterTheScan,
         PhotoFormat.Png => PngHasEndChunk(content),
         PhotoFormat.WebP => WebPHoldsDeclaredSize(content),
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Formato sem regra de completude."),
@@ -33,12 +33,13 @@ public static class PhotoCompleteness
     /// <summary>
     /// Percorre os segmentos pelo comprimento declarado, pulando APPn e COM inteiros (a miniatura do EXIF é um JPEG
     /// completo dentro do APP1, com SOS e EOI próprios), e exige o EOI depois do dado comprimido do último scan.
-    /// Comprimento que passa do arquivo, ou que não cai num marcador, é arquivo incompleto.
+    /// Comprimento que passa do arquivo, ou que não cai num marcador, é arquivo incompleto. Conta os scans do arquivo
+    /// principal no caminho, para o teto de custo do decode (<see cref="PhotoDecodeCost"/>).
     /// </summary>
-    private static bool JpegEndsAfterTheScan(ReadOnlySpan<byte> content)
+    internal static JpegWalk WalkJpeg(ReadOnlySpan<byte> content)
     {
         var position = JpegStartOfImageLength;
-        var scanned = false;
+        var scans = 0;
         while (position + 1 < content.Length && content[position] == Marker)
         {
             var marker = content[position + 1];
@@ -51,7 +52,7 @@ public static class PhotoCompleteness
             position += 2;
             if (marker == EndOfImage)
             {
-                return scanned;
+                return new JpegWalk(scans > 0, scans);
             }
 
             if (marker == StandaloneTemporary || IsRestart(marker))
@@ -61,17 +62,17 @@ public static class PhotoCompleteness
 
             if (!TrySkipSegment(marker, content, ref position))
             {
-                return false;
+                return new JpegWalk(false, scans);
             }
 
             if (marker == StartOfScan)
             {
-                scanned = true;
+                scans++;
                 position = NextMarkerAfterEntropyCodedData(content, position);
             }
         }
 
-        return false;
+        return new JpegWalk(false, scans);
     }
 
     /// <summary>Marcador com comprimento: avança até o fim do segmento, se ele couber no arquivo.</summary>
@@ -148,3 +149,6 @@ public static class PhotoCompleteness
         content.Length >= RiffHeaderLength
         && RiffHeaderLength + (long)BinaryPrimitives.ReadUInt32LittleEndian(content[4..]) <= content.Length;
 }
+
+/// <summary>Resultado da caminhada pelos segmentos de um JPEG: se termina no EOI depois de um scan, e quantos scans viu.</summary>
+internal readonly record struct JpegWalk(bool EndsAfterTheScan, int Scans);

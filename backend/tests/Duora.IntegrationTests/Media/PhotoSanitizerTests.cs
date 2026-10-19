@@ -232,6 +232,40 @@ public sealed class PhotoSanitizerTests
     }
 
     [Fact]
+    public async Task AProgressiveJpegWithTheMaximumNumberOfScansIsSanitized()
+    {
+        var jpeg = TestImages.ProgressiveJpegWithScans(PhotoDecodeCost.MaxJpegScans);
+
+        Assert.IsType<SanitizeOutcome.Sanitized>(await SanitizeAsync(PhotoFormat.Jpeg, jpeg));
+    }
+
+    [Fact]
+    public async Task AProgressiveJpegWithTooManyScansIsAProcessingLimitBeforeTheDecode()
+    {
+        // O arquivo é decodificável: sem o teto, o decoder o aceitaria, gastando tempo proporcional aos scans.
+        var jpeg = TestImages.ProgressiveJpegWithScans(PhotoDecodeCost.MaxJpegScans + 1);
+
+        Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit), await SanitizeAsync(PhotoFormat.Jpeg, jpeg));
+    }
+
+    [Fact]
+    public async Task APngWithTheMaximumNumberOfCompressedTextChunksIsSanitized()
+    {
+        var png = TestImages.PngWithCompressedText(PhotoDecodeCost.MaxPngInflatedChunks, inflatedBytes: 1024);
+
+        Assert.IsType<SanitizeOutcome.Sanitized>(await SanitizeAsync(PhotoFormat.Png, png));
+    }
+
+    [Fact]
+    public async Task APngWithTooManyCompressedTextChunksIsAProcessingLimitBeforeTheDecode()
+    {
+        // Cada zTXt infla para 1 MiB fora do alocador limitado; sem o teto, o decoder os aceitaria todos.
+        var png = TestImages.PngWithCompressedText(PhotoDecodeCost.MaxPngInflatedChunks + 1, inflatedBytes: 1024 * 1024);
+
+        Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit), await SanitizeAsync(PhotoFormat.Png, png));
+    }
+
+    [Fact]
     public async Task AnOriginalOverTheUploadCeilingIsNotDecoded()
     {
         // A recepção já recusa acima de 5 MiB; o sanitizador não depende disso para não decodificar o que passar.
@@ -318,9 +352,8 @@ public sealed class PhotoSanitizerTests
     }
 
     /// <summary>
-    /// O prazo é cooperativo: o ImageSharp confere o token entre etapas (identificação, decode, cada reencode), não no
-    /// meio do decode. Este teste prova só que um prazo vencido vira PROCESSING_LIMIT na etapa seguinte; o tempo de um
-    /// decode é limitado pelo teto de 20 MP e pelo paralelismo 1.
+    /// O prazo é cooperativo (o token do ImageSharp). Este teste prova que um prazo vencido vira PROCESSING_LIMIT, não
+    /// exceção; o tempo de cada etapa é limitado pelo teto de 20 MP, pelo paralelismo 1 e por <see cref="PhotoDecodeCost"/>.
     /// </summary>
     [Fact]
     public async Task AnExpiredTimeLimitIsAProcessingLimitAtTheNextStep()
