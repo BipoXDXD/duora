@@ -97,7 +97,7 @@ test.describe('jornada do bootstrap em inglês (navegador em en-US)', () => {
   test('initial password → own password → MFA, com axe em cada tela', async ({ page, context }) => {
     const received = await mockBootstrapApi(page, context)
     await page.goto('/conta')
-    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
     await expect(page.getByRole('heading', { level: 1, name: 'Change your initial password' })).toBeVisible()
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
     await page.getByLabel('Temporary password').fill('SYNTHETIC-TEMPORARY')

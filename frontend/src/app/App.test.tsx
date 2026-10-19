@@ -39,19 +39,38 @@ describe('idioma inicial', () => {
     await renderAppAt('/')
 
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Create account' })).toBeInTheDocument()
-    expect(document.documentElement.lang).toBe('en')
+    expect(document.documentElement.lang).toBe('en-US')
   })
 
-  it('idioma não suportado cai para pt-BR', async () => {
+  // ADR-0026: o público principal não é brasileiro, então o fallback é en-US.
+  it('idioma não suportado cai para en-US', async () => {
     useBrowserLanguages(['fr-FR', 'de-DE'])
+    await renderAppAt('/')
+
+    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Create account' })).toBeInTheDocument()
+    expect(document.documentElement.lang).toBe('en-US')
+  })
+
+  it('qualquer variante do português cai em pt-BR', async () => {
+    useBrowserLanguages(['pt-PT'])
     await renderAppAt('/')
 
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Criar conta' })).toBeInTheDocument()
     expect(document.documentElement.lang).toBe('pt-BR')
   })
 
-  it('a escolha guardada vence o idioma do navegador', async () => {
+  it('a tag antiga en, guardada antes do ADR-0026, abre em en-US e é regravada', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en')
+    useBrowserLanguages(['pt-BR'])
+    await renderAppAt('/entrar')
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Sign in' })).toBeInTheDocument()
+    expect(document.documentElement.lang).toBe('en-US')
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en-US')
+  })
+
+  it('a escolha guardada vence o idioma do navegador', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en-US')
     useBrowserLanguages(['pt-BR'])
     await renderAppAt('/entrar')
 
@@ -79,8 +98,8 @@ describe('seletor de idioma', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Sign in' })).toBeInTheDocument()
     expect(screen.getByLabelText('Email', { exact: true })).toBeInTheDocument()
     expect(document.title).toBe('Sign in · Duora')
-    expect(document.documentElement.lang).toBe('en')
-    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en')
+    expect(document.documentElement.lang).toBe('en-US')
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe('en-US')
   })
 
   it('é um grupo rotulado no idioma ativo, que marca o idioma atual com aria-pressed', async () => {
@@ -92,7 +111,7 @@ describe('seletor de idioma', () => {
     const english = within(languageGroup()).getByRole('button', { name: 'English' })
     expect(portuguese).toHaveAttribute('aria-pressed', 'true')
     expect(english).toHaveAttribute('aria-pressed', 'false')
-    expect(english).toHaveAttribute('lang', 'en')
+    expect(english).toHaveAttribute('lang', 'en-US')
 
     await user.click(english)
 
@@ -111,12 +130,12 @@ describe('seletor de idioma', () => {
     }
     await user.keyboard('{Enter}')
 
-    expect(document.documentElement.lang).toBe('en')
+    expect(document.documentElement.lang).toBe('en-US')
     expect(english).toHaveFocus()
   })
 
   it('volta para português e guarda a nova escolha', async () => {
-    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en')
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en-US')
     const { user } = await renderAppAt('/')
 
     await user.click(within(languageGroup()).getByRole('button', { name: 'Português' }))
@@ -135,7 +154,7 @@ describe('seletor de idioma', () => {
 
     await user.click(within(languageGroup()).getByRole('button', { name: 'English' }))
 
-    expect(document.documentElement.lang).toBe('en')
+    expect(document.documentElement.lang).toBe('en-US')
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Sign in' })).toBeInTheDocument()
   })
 

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
-import { en } from '@/shared/i18n/catalog.en'
+import { en } from '@/shared/i18n/catalog.en-US'
 import { ptBR } from '@/shared/i18n/catalog.pt-BR'
 import { REGION_CODES, REGION_LABEL_KEYS } from './profile-region'
 
