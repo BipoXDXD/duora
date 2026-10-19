@@ -205,11 +205,8 @@ permite teto de bytes por credencial é **a confirmar**; sem isso, o que limita 
 
 ### Orçamento de CPU
 
-A VPS é uma KVM 2 com **2 vCPU**, mas a spec (15.1 e 23.2) ainda supõe 4 vCPU, e os limites `cpus` dos
-serviços permanentes de `infra/compose/compose.prod.yml` somam 6,5 (postgres 2, backup 1, web 2, worker 1,
-edge 0,5). Lacuna registrada na **issue #86**: cada `cpus` deve ser ≤ 2, a distribuição precisa ser revista e a
-spec, corrigida. A voz não põe mídia na VPS: o custo nela
-é emitir credencial e repassar sinalização.
+O orçamento de CPU e memória da VPS (KVM 2, 2 vCPU e 8 GB) fica no PR de infra #87 (issue #86). A voz não põe
+mídia na VPS: o custo nela é emitir credencial e repassar sinalização, no `web`, e revogar pela outbox, no `worker`.
 
 Porquê técnico: é o caminho com menos componentes que atende a regra do IP e mantém a mídia cifrada entre os
 navegadores, sem CPU nem portas novas numa VPS de 2 vCPU. Porquê de negócio: voz opcional e segura sem operar um
