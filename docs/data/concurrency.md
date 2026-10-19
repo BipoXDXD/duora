@@ -461,7 +461,7 @@ INV-12 continua exigindo revisão humana antes do merge. Não há migração nem
 |---|---:|---|---|
 | `AccountQueueTimeout` | 30 s | Sem conexão; cada admissão na fila tem seu teto | `503 TEMPORARILY_UNAVAILABLE`, `Retry-After: 30` |
 | `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato, `Retry-After: 5`; rollback e liberação da conexão |
-| `LoginTimeout` | 30 s | Prazo das esperas do login (A04): filas, lock e piso | Mesmo contrato, `Retry-After: 30`; a espera em andamento é cancelada, e nada da verificação foi gravado |
+| `LoginTimeout` | 30 s | Prazo das esperas do login (A04): filas, lock e piso | Mesmo contrato, `Retry-After: 30`; a espera em andamento é cancelada, e nada foi gravado, exceto no estouro durante o piso, quando a falha já conta |
 
 O `Retry-After` é sempre o teto que estourou, arredondado para cima em segundos (a mesma regra que o
 lock já seguia antes da #65). Um `Retry-After` fixo e curto foi considerado e descartado: quem
