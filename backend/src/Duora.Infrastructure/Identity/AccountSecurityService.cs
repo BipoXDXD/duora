@@ -56,7 +56,7 @@ public sealed class AccountBusyException : Exception
         RetryAfter = TimeSpan.FromSeconds(1);
     }
 
-    internal AccountBusyException(TimeSpan retryAfter, Exception? innerException = null)
+    public AccountBusyException(TimeSpan retryAfter, Exception? innerException = null)
         : base("Conta ocupada por outra verificação.", innerException)
     {
         RetryAfter = retryAfter;
@@ -257,11 +257,12 @@ public sealed class AccountSecurityService
     /// <summary>
     /// Serializa logins antes de procurar a conta, inclusive endereços inexistentes. A chave usa a mesma
     /// normalização do Identity, não é persistida nem registrada e sai da memória com o último interessado.
-    /// Sempre adquirir antes da vez por ID; nunca chamar de dentro de uma verificação já aberta. É <c>internal</c>
-    /// para só o login (<c>CredentialVerifier</c>, no Duora.Web.Identity) poder pegar essa vez.
+    /// Sempre adquirir antes da vez por ID: chamar com a vez da conta aberta neste fluxo falha alto.
     /// </summary>
-    internal Task<IAsyncDisposable> EnterLoginAsync(EmailAddress email, CancellationToken cancellationToken)
+    /// <exception cref="InvalidOperationException">Este fluxo já tem a vez de uma conta (ordem invertida).</exception>
+    public Task<IAsyncDisposable> EnterLoginAsync(EmailAddress email, CancellationToken cancellationToken)
     {
+        _gate.ThrowIfAccountTurnHeld();
         var normalized = _users.NormalizeEmail(email.Value)
             ?? throw new InvalidOperationException("Normalizador de e-mail retornou null.");
         return _gate.EnterAsync($"login:{normalized}", _lock.AccountQueueTimeout, cancellationToken);
@@ -271,10 +272,22 @@ public sealed class AccountSecurityService
     /// Abre a verificação de credencial da conta: transação com a linha da conta travada e a entidade relida, para
     /// o bloqueio do Identity (que lê, soma e grava) não perder falhas sob requisições paralelas.
     /// </summary>
-    public async Task<AccountCheck> LockAccountAsync(DuoraUser user, CancellationToken cancellationToken)
+    /// <remarks>
+    /// Não é <c>async</c>: a vez da conta é pedida no contexto de quem chama, para a marca de vez aberta
+    /// (<see cref="AccountCheckGate"/>) valer até o <see cref="AccountCheck"/> ser descartado.
+    /// </remarks>
+    public Task<AccountCheck> LockAccountAsync(DuoraUser user, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(user);
-        var turn = await _gate.EnterAsync(user.Id, _lock.AccountQueueTimeout, cancellationToken);
+        return OpenCheckAsync(user, _gate.EnterAsync(user.Id, _lock.AccountQueueTimeout, cancellationToken), cancellationToken);
+    }
+
+    private async Task<AccountCheck> OpenCheckAsync(
+        DuoraUser user,
+        Task<IAsyncDisposable> enteringTurn,
+        CancellationToken cancellationToken)
+    {
+        var turn = await enteringTurn;
         try
         {
             var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
