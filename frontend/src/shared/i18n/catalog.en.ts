@@ -26,6 +26,7 @@ export const en = {
   'mfa.confirm': 'Enable MFA',
   'mfa.confirming': 'Enabling…',
   'mfa.invalidCode': 'Enter a valid 6-digit authenticator code.',
+  'mfa.enabled': 'Two-factor authentication enabled.',
   'mfa.recoveryTitle': 'Save your recovery codes',
   'mfa.recoveryInstructions': 'Save these codes in a safe place. They appear only now and each can be used once.',
   'mfa.saved': 'I saved the codes, continue',
