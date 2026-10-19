@@ -410,6 +410,7 @@ def check_security_headers(checks: Checks, response: Response, label: str) -> No
     checks.expect(is_exact_policy(permissions, parse_permissions_policy, EXPECTED_PERMISSIONS_POLICY),
                   f"{label}: Permissions-Policy exata e única: {permissions!r}")
     checks.expect("server" not in response.headers, f"{label}: sem Server")
+    checks.expect("via" not in response.headers, f"{label}: sem Via")
     checks.expect("max-age=31536000" in response.headers.get("strict-transport-security", ""),
                   f"{label}: HSTS presente")
 
