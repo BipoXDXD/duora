@@ -87,12 +87,14 @@ public sealed class SecurityNoticeDispatchTests(PostgresFixture postgres)
         Assert.Equal(0, await CountNoticesToDrainAsync(harness));
     }
 
-    [Fact]
-    public async Task NoticeIsBilingualWhateverTheLanguageOfTheRequest()
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("en")]
+    public async Task NoticeIsBilingualWhateverTheLanguageOfTheRequest(string language)
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
         harness.Time.SetUtcNow(OccurredAt);
-        await harness.EnqueueAsync(AccountEmailKind.PasswordChangedNotice, token: null, "en", Ct);
+        await harness.EnqueueAsync(AccountEmailKind.PasswordChangedNotice, token: null, language, Ct);
         var dispatcher = harness.StartWorker();
 
         await dispatcher.DispatchBatchAsync(Ct);

@@ -217,10 +217,14 @@ Testes: `LookalikeEmailTests`, `EmailAddressTests`.
 
 ### Idioma dos e-mails de conta
 
-Os e-mails de conta saem em pt-BR (padrão) ou en, os idiomas da interface ([ADR-0022](../architecture/adr/0022-i18n-intl-messageformat-catalogo-tipado.md)).
-O [ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md) fixa os dois idiomas como `pt-BR` e
-`en-US` e propõe `en-US` como fallback para idioma fora da lista (proposta 3); até esse PR, vale o comportamento
-descrito aqui.
+Os e-mails de conta saem em `pt-BR` (fallback atual) ou `en-US`, as tags da interface fixadas pelo
+[ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md). Novos pedidos gravam essas tags;
+o worker continua lendo `en` em mensagens antigas da outbox. A SPA também aceita a preferência local
+legada `en`, mas novas escolhas gravam `en-US`. A proposta de fallback `en-US` permanece pendente (#80);
+esta padronização não muda rotas, Problem Details nem adiciona preferência na conta.
+Não há migração de dados: o leitor anterior dos e-mails já aceita `en-US`. Em rollback da SPA para uma versão
+anterior, escolhas locais `en-US` podem ser ignoradas e o idioma volta a ser negociado pelo navegador;
+`en` legado continua armazenado até a próxima escolha explícita.
 A SPA manda o idioma ativo no `Accept-Language` de toda requisição; o cadastro (API-A02) e o pedido de reset
 (API-A06) escolhem o idioma por esse header, só pelo idioma primário e só entre `pt` e `en`, e gravam a tag no
 pedido da outbox (`language`). Header ausente, malformado, só com `q=0` ou com outro idioma dá pt-BR, sem erro

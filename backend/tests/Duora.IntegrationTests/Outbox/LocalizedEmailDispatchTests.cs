@@ -14,6 +14,7 @@ public sealed class LocalizedEmailDispatchTests(PostgresFixture postgres)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Theory]
+    [InlineData("en-US", "Subject: Confirm your email on Duora", "To confirm this email address on Duora, open the link below.")]
     [InlineData("en", "Subject: Confirm your email on Duora", "To confirm this email address on Duora, open the link below.")]
     [InlineData("pt-BR", PortugueseSubject, PortugueseBody)]
     [InlineData("fr-FR", PortugueseSubject, PortugueseBody)]
@@ -33,11 +34,13 @@ public sealed class LocalizedEmailDispatchTests(PostgresFixture postgres)
         Assert.Contains($"{EmailOutboxHarness.PublicOrigin}/confirmar-email#userId=", mail, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task PasswordResetInEnglishKeepsTheTokenInTheFragment()
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("en")]
+    public async Task PasswordResetInEnglishKeepsTheTokenInTheFragment(string language)
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
-        await harness.EnqueueAsync(AccountEmailKind.PasswordReset, "tok-1", "en", Ct);
+        await harness.EnqueueAsync(AccountEmailKind.PasswordReset, "tok-1", language, Ct);
         var dispatcher = harness.StartWorker();
 
         await dispatcher.DispatchBatchAsync(Ct);

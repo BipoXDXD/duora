@@ -109,7 +109,7 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         var notice = Assert.Single(await NoticesAsync(account.UserId));
         Assert.Equal("PasswordChangedNotice", notice.Kind);
-        Assert.Equal("en", notice.Language);
+        Assert.Equal("en-US", notice.Language);
         Assert.Equal(0, await CountOutboxPayloadsContainingAsync(canary));
         Assert.Equal(0, await CountOutboxPayloadsContainingAsync(account.Password));
     }
@@ -144,7 +144,7 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         var notice = Assert.Single(await NoticesAsync(account.UserId));
         Assert.Equal("PasswordResetNotice", notice.Kind);
-        Assert.Equal("en", notice.Language);
+        Assert.Equal("en-US", notice.Language);
         Assert.DoesNotContain(link.Token, notice.Payload, StringComparison.Ordinal);
         Assert.Equal(0, await CountOutboxPayloadsContainingAsync(canary));
     }
