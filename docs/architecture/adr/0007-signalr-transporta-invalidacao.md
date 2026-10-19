@@ -44,3 +44,11 @@ revogada fecha a conexão (spec 9.3). A publicação parte só do processo web (
   ordem) e T-14 (sessão revogada com hub ativo): a implementar em M1/M2.
 - Teste que enumera os métodos públicos do hub e rejeita métodos genéricos de grupo ou envio: a implementar
   quando o hub existir (M1).
+
+## Adendo (2026-10-19): sinalização da voz ao vivo
+
+O [ADR-0028](0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md) abre uma exceção delimitada: o método
+`SendVoiceSignal`, específico da sala, leva oferta, resposta e candidatos WebRTC de um participante ao outro.
+São dados de transporte efêmeros, não verdade do domínio, e não são persistidos. O método é autorizado como a
+leitura da sala, aceita só DTO estrito de até ~16 KiB, rejeita candidato que não seja `typ relay` e não vira
+canal genérico. O resto desta decisão continua valendo.
