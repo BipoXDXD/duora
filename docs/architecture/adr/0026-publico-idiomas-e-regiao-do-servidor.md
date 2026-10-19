@@ -99,20 +99,55 @@ Hoje: `profiles.profiles.region_code text null` com `ck_profiles_region_code` ac
 
 | Opção | Prós | Contras |
 |---|---|---|
-| **A. Uma coluna ISO 3166-2 de qualquer país** (`US-MA`, `BR-SP`) | Uma coluna, a forma atual dos dados já é ISO 3166-2, migração trivial | ~5.000 subdivisões: o `CHECK` com lista vira inviável e o `enum` do OpenAPI explode; não há "só o país"; subdivisão de país pequeno pode identificar demais (minimização); o ISO 3166-2 muda várias vezes por ano |
-| **B. País (ISO 3166-1 alfa-2) + subdivisão opcional (ISO 3166-2), com lookup table dos países do lançamento** | "Só o país" é possível (melhor minimização); consulta por país é trivial; o conjunto habilitado é dado que o negócio altera, então tabela de referência com FK (*SQL Antipatterns* cap. 11), não `CHECK`; rótulo de país sai de `Intl.DisplayNames` no navegador, sem catálogo | Duas colunas e uma tabela de referência com seed; `CHECK` de coerência (prefixo da subdivisão = país); rótulos de subdivisão continuam no catálogo, por país habilitado |
+| **A. Uma coluna ISO 3166-2** (`US-MA`, `BR-SP`) | Uma coluna, a forma atual dos dados já é ISO 3166-2, migração trivial | Para qualquer país, ~5.000 subdivisões (`CHECK` e `enum` inviáveis; restrita aos países habilitados, viável, ver abaixo); não há "só o país"; subdivisão de país pequeno pode identificar demais (minimização); o ISO 3166-2 muda várias vezes por ano |
+| **B. País (ISO 3166-1 alfa-2) + subdivisão opcional (ISO 3166-2), com lookup table dos países do lançamento** | "Só o país" é possível (melhor minimização); consulta por país é trivial; o conjunto habilitado é dado que o negócio altera, então tabela de referência com FK (*SQL Antipatterns* cap. 11), não `CHECK`; rótulo de país sai de `Intl.DisplayNames` no navegador, sem catálogo | Duas colunas e duas tabelas de referência com seed; FK composta para a coerência país × subdivisão; rótulos de subdivisão continuam no catálogo, por país habilitado |
 | **C. Texto livre** ("Boston, MA") | Zero manutenção de lista | Não valida, não compara, convida a precisão demais (cidade, bairro), viola a minimização da spec 1.1 |
 | **D. Manter UF e acrescentar `country_code` só para quem não é do Brasil** | Menor mudança imediata | Duas regras para o mesmo conceito; repete o problema no próximo país |
 
-**Recomendação: B.** Colunas `country_code text null` (alfa-2) e `subdivision_code text null` (ISO 3166-2), FK
-para `profiles.regions` (ou `reference.regions`, a decidir com o dono do schema em
-[modules.md](../modules.md)) contendo só os países e subdivisões habilitados para o lançamento, e
-`CHECK (subdivision_code is null or (country_code is not null and left(subdivision_code, 3) = country_code || '-'))`.
-Migração expand/contract: (1) criar as colunas e a tabela, preencher `country_code = 'BR'` e
+**Reavaliação da A restrita aos países habilitados.** O argumento de tamanho contra a A só vale para "qualquer
+país": restrita aos países do lançamento (por exemplo, 27 UFs + 51 códigos dos EUA), a lista tem poucas dezenas de
+códigos, e `CHECK`/`enum` continuam viáveis. O que sobra contra a A é estrutural: não há "só o país" sem misturar
+dois níveis na mesma coluna, e "mesmo país" vira `left(region_code, 2)`, uma função sobre a coluna (*PostgreSQL
+Mistakes* 2.2). Por isso a recomendação continua B, mas a A restrita é alternativa legítima se "só o país" não for
+requisito.
+
+**Recomendação: B.** Colunas `country_code text null` (ISO 3166-1 alfa-2) e `subdivision_code text null`
+(ISO 3166-2), com integridade por FK, não por `CHECK` de prefixo:
+
+- `countries (code text primary key)`, com os países habilitados; FK `profiles.country_code → countries(code)`;
+- `subdivisions (country_code text not null references countries(code), code text not null, primary key (code),
+  unique (country_code, code))`; FK composta `profiles (country_code, subdivision_code) → subdivisions
+  (country_code, code)`, que garante a coerência (subdivisão do país informado) sem `CHECK` de texto. Com `MATCH
+  SIMPLE` (padrão), subdivisão `null` deixa só o país; `CHECK (subdivision_code is null or country_code is not
+  null)` impede subdivisão sem país;
+- índices nas colunas das FKs (o PostgreSQL não os cria): `(country_code, subdivision_code)` em `profiles.profiles`
+  serve às duas FKs (a coluna inicial cobre a de país); em `subdivisions`, o `unique (country_code, code)` já cobre a
+  FK para `countries`.
+
+Onde as tabelas moram (`profiles` ou um schema de referência) se decide com o dono do schema em
+[modules.md](../modules.md).
+
+**Escolha pendente: fonte da lista.**
+
+| Fonte | Prós | Contras |
+|---|---|---|
+| Constante no Core (como `RegionCode.All` hoje), que gera o seed da migração, o `enum` do OpenAPI e o `Record` tipado de rótulos do frontend | Uma fonte; chave inexistente é erro de compilação na SPA; contrato documenta os valores aceitos | Habilitar país exige release e migração; `enum` do OpenAPI cresce a cada país (mudança aditiva, não quebra) |
+| Tabela como fonte, com endpoint de leitura (`GET /api/v1/regions`) | Habilitar país é dado, sem release; o `enum` não cresce | Rótulos de subdivisão saem do catálogo tipado (ou vêm da API nos dois idiomas); a SPA perde a checagem em compilação; endpoint, cache e teste a mais |
+
+Recomendação: constante no Core enquanto os países forem poucos e mudarem por decisão do dono, porque mantém a
+checagem em compilação e o contrato explícito; revisar se habilitar país virar operação frequente.
+
+**Nível do ISO 3166-2 por país.** O ISO 3166-2 tem vários níveis em muitos países, e o nível escolhido define a
+minimização. Regra: vale a subdivisão de primeiro nível, e cada país habilitado declara o nível no seed. Brasil: as 27
+UFs (estados e `BR-DF`). EUA: os 50 estados e `US-DC`; territórios com código ISO 3166-1 próprio (`PR`, `GU`, `VI`
+e outros) entram como país, se habilitados, e não como `US-xx`. País cujo primeiro nível for fino demais para a
+minimização (ou grosso demais para o pareamento) é decidido caso a caso, na mesma PR que o habilita.
+
+Migração expand/contract: (1) criar as colunas e as tabelas, preencher `country_code = 'BR'` e
 `subdivision_code = region_code` nas linhas existentes, leitor tolerante; (2) API e SPA passam a ler e gravar as
 novas colunas; (3) remover `region_code` e o `CHECK` antigo num PR de contract. O contrato muda (API-P01/P02): campo
 novo aditivo primeiro, remoção de `regionCode` depois, com `breaking-change-approved` só nesse último passo.
-Custo principal: uma tabela de referência e seed por país habilitado, e a definição de quais países entram (J-01).
+Custo principal: duas tabelas de referência e seed por país habilitado, e a definição de quais países entram (J-01).
 
 ### 2. Conteúdo das experiências em PT-BR e EN-US
 
