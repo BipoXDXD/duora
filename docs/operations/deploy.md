@@ -479,6 +479,33 @@ trunca IP, troca a query por `?redacted` e todo UUID do caminho por `{id}`, para
 confere isso contra o Caddy real com UUID canário (roda no job `ops`; pula sem Docker), e o smoke local repete a
 checagem na edge.
 
+## Cabeçalhos de segurança da borda
+
+A CSP e a `Permissions-Policy` vivem só no `infra/caddy/Caddyfile`, e `scripts/deploy/test_caddy_security_headers.py`
+compara as duas, diretiva por diretiva, com a política esperada escrita no teste, contra o Caddy real (job `ops`;
+pula sem Docker). O mesmo teste recusa curinga, qualquer `'unsafe-*'`, `blob:` e `data:`. Mudar a política exige
+mudar o teste no mesmo PR, com revisão humana.
+
+| Diretiva | Valor | Por quê |
+|---|---|---|
+| `media-src` | `'self'` | Áudio do catálogo (AAC-LC `.m4a` com nome por hash, servido em `/assets/`) tocado por `<audio>` ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md), seção 4). Sem `blob:`: a Web Audio lê o arquivo por `fetch()`, coberto por `connect-src 'self'`, e decodifica um `ArrayBuffer`, sem URL; a voz ao vivo entra por `srcObject = MediaStream`, que não passa pelo Fetch e não consulta a CSP. `'self'` não cobre `blob:` (CSP3 6.7.2.8), então `<audio src="blob:...">` seria bloqueado, de propósito |
+| `connect-src` | `'self' wss://<host>` | Inalterado. A credencial TURN vem de `POST /api/v1/rooms/{roomId}/voice/credentials`, na mesma origem. ICE/STUN/TURN não é regido por `connect-src` (CSP3 6.1.2 lista fetch, XHR, EventSource, Beacon, ping e WebSocket) |
+| `webrtc` | ausente | A CSP3 (6.2.1, 4.3.1) só bloqueia candidatos ICE quando a diretiva `webrtc` existe com `'block'`; `default-src` não a substitui. Ausente, o WebRTC da voz ao vivo funciona ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)) |
+| `Permissions-Policy: microphone` | `(self)` | Voz ao vivo da sala ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)): `getUserMedia` só no documento da própria origem, depois do gesto; nenhum iframe herda. Câmera, geolocalização, pagamento, USB e Topics continuam `()` |
+
+Fica para depois, de propósito:
+
+- **3D em tempo real (`<model-viewer>`, ADR-0027 seção 7).** Nenhuma experiência o usa hoje, então nada foi
+  liberado para ele. O GLB chega por `fetch()` (já coberto por `connect-src 'self'`), mas texturas em `blob:`
+  (`img-src`) e decodificador WebAssembly (`'wasm-unsafe-eval'`) entram só no PR da primeira experiência com 3D em
+  tempo real, medidos no navegador.
+- **AudioWorklet.** `audioWorklet.addModule()` é regido por `script-src`; se um dia entrar, o módulo vem de
+  `/assets/` e `'self'` já cobre.
+
+Fontes: W3C CSP Level 3 (Editor's Draft, seções 4.3, 6.1.2, 6.1.8, 6.2.1 e 6.7.2.8); HTML Living Standard,
+algoritmo de carga do elemento de mídia (modo `object` sem Fetch); MDN `media-src`, `HTMLMediaElement.srcObject`,
+`BaseAudioContext.decodeAudioData()` e `Permissions-Policy: microphone`.
+
 ## Smoke local
 
 Exercita o caminho inteiro numa máquina com Docker (portas 80 e 443 livres): registry descartável em
