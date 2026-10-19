@@ -59,8 +59,9 @@ internal sealed class LoginTimingOptions
     public TimeSpan FailedLoginJitter { get; set; } = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
-    /// Prazo das esperas do login (filas, lock e piso), 30 s, hipótese; as gravações depois do hash não cancelam. Estourou, <see cref="AccountBusyException"/>
-    /// (503) com esse valor no <c>Retry-After</c>. Precisa caber o piso inteiro, ou toda falha viraria 503.
+    /// Prazo das esperas do login (filas, lock e piso), 30 s, hipótese; as gravações depois do hash não
+    /// cancelam. Estourou, <see cref="AccountBusyException"/> (503) com esse valor no <c>Retry-After</c>. Precisa
+    /// caber o piso inteiro, ou toda falha viraria 503.
     /// </summary>
     public TimeSpan LoginTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -125,7 +126,8 @@ public sealed partial class CredentialVerifier
         {
             return await VerifyWithinDeadlineAsync(email, password, secondFactor, deadline.Token, cancellationToken);
         }
-        catch (OperationCanceledException expired) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException expired)
+            when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             throw new AccountBusyException(_timing.LoginTimeout, expired);
         }
