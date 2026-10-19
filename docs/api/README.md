@@ -70,7 +70,7 @@ autoaprovar. Remover o label volta a reprovar.
 ## Códigos de problema fora do OpenAPI
 
 O documento gerado lista os status de cada rota, não o valor de `code` no corpo (`application/problem+json`). Os
-códigos novos entram aqui e no contrato de rotas do [auth.md](../security/auth.md#contrato-de-rotas-api-a01-a16),
+códigos novos entram aqui e no contrato de rotas do [auth.md](../security/auth.md#contrato-de-rotas-api-a01-a-a16),
 para a SPA tratá-los:
 
 | Código | Status | Onde | Significado |
