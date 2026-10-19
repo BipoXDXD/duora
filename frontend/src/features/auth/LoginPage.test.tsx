@@ -223,3 +223,60 @@ it('envia o TOTP solicitado e entra com MFA ativo', async () => {
     twoFactorCode: '123456',
   })
 })
+
+describe('segundo fator na entrada', () => {
+  it.each(['', '12345', '1234567', 'abcdef'])('recusa o código %s sem chamar a API de novo', async (code) => {
+    useAntiforgeryEndpoint()
+    const received = useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
+    const { user } = await renderApp('/entrar')
+    await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+    const field = await screen.findByLabelText('Código do autenticador')
+    if (code !== '') await user.type(field, code)
+
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+
+    expect(field).toHaveAccessibleDescription('Informe o código de 6 dígitos do autenticador.')
+    expect(received).toHaveLength(1)
+  })
+
+  it('o campo do código continua depois de um segundo erro', async () => {
+    useAntiforgeryEndpoint()
+    let attempt = 0
+    useLoginEndpoint(() => (++attempt === 1 ? problem(401, 'MFA_REQUIRED') : problem(401, 'INVALID_CREDENTIALS')))
+    const { user } = await renderApp('/entrar')
+    await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+    await user.type(await screen.findByLabelText('Código do autenticador'), '654321')
+
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('E-mail ou senha incorretos.')
+    expect(screen.getByLabelText('Código do autenticador')).toHaveValue('654321')
+  })
+
+  it('senha e código não ficam nas variables do MutationCache', async () => {
+    useAntiforgeryEndpoint()
+    let attempt = 0
+    useLoginEndpoint(() => (++attempt === 1 ? problem(401, 'MFA_REQUIRED') : new HttpResponse(null, { status: 204 })))
+    useAccountEndpoints()
+    const queryClient = createTestQueryClient()
+    const states: string[] = []
+    queryClient.getMutationCache().subscribe(() => {
+      states.push(
+        JSON.stringify(
+          queryClient
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => mutation.state),
+        ),
+      )
+    })
+    const { user } = await renderApp('/entrar', queryClient)
+    await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+    await user.type(await screen.findByLabelText('Código do autenticador'), '123456')
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+    await screen.findByRole('heading', { name: 'Sua conta' })
+
+    expect(states.length).toBeGreaterThan(0)
+    for (const secret of ['frase longa de senha', '123456']) expect(states.join('\n')).not.toContain(secret)
+  })
+})
