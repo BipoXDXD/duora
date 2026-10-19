@@ -253,8 +253,8 @@ Ver o último item da proposta 3; fica numa issue própria porque depende da def
 
 ## Segurança e operação
 
-Nenhuma superfície de ataque nova. Dados pessoais: todo o tratamento acontece nos EUA (VPS e backup), o que mexe no
-mapa de dados e nas salvaguardas, não nos controles técnicos (cifra no cliente do backup, autorização por
+Nenhuma superfície de ataque nova. Dados pessoais: o armazenamento fica nos EUA (VPS e backup); acessos de suporte
+e subprocessadores, a confirmar (J-11). Isso mexe no mapa de dados e nas salvaguardas, não nos controles técnicos (cifra no cliente do backup, autorização por
 requisição das fotos, minimização). Backup e servidor ficam no mesmo país e em provedores diferentes; um incidente
 regional nos EUA pode atingir os dois, risco aceito para o piloto e coberto pelo restore ensaiado (spec 18). A
 latência do Brasil até Boston precisa entrar no ensaio de capacidade (spec 15.1, 20.4).
