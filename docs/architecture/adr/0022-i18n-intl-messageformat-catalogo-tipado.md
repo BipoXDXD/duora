@@ -1,6 +1,7 @@
 # ADR-0022: Interface em PT-BR e EN com intl-messageformat e catálogo tipado próprio
 
 - **Status:** Accepted (2026-10-15), decidido pelo usuário em 2026-10-15
+- **Substituído em parte:** escopo dos idiomas e tag do inglês, pelo [ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md) (2026-10-19)
 - **Origem:** spec 13.6 (textos centralizados, `Intl`, fuso), 13.4 e 13.7; decisão do responsável técnico de
   oferecer a interface em PT-BR (padrão) e EN
 - **Revisar quando:** entrar um terceiro idioma, o catálogo passar de algumas centenas de chaves ou houver
@@ -70,3 +71,12 @@ armazenamento. Textos são renderizados como texto pelo React; o catálogo não 
 - `typecheck`: chave inexistente, valor faltando ou de tipo errado não compilam (`translator.test.ts`).
 - Lint `duora/no-literal-ui-text`: texto visível escrito direto no JSX falha o CI.
 - E2E `i18n.spec.ts`: jornada principal em inglês com axe (WCAG 2.2 A/AA) e troca de idioma pelo teclado.
+
+## Adendo (2026-10-19): produto inteiro em PT-BR e EN-US
+
+Decisão do dono, registrada no [ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md): os dois idiomas valem para
+o produto inteiro (interface, e-mails, conteúdo das experiências, documentos voltados ao usuário e mensagens de erro),
+não só para a SPA, e o inglês é o **EN-US** (`en-US`), não `en`. O público principal não é brasileiro, então o
+"pt-BR (padrão)" desta decisão deixa de ser pressuposto: o idioma de fallback para quem não tem `pt` nem `en` no
+navegador está em proposta (`en-US`, ADR-0026, proposta 3). A biblioteca, o catálogo tipado e os testes desta
+decisão não mudam.
