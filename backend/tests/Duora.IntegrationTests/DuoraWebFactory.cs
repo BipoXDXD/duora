@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -61,6 +62,9 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
             ["Media:Review"] = "TechnicalOnly",
             ["Media:Storage:Provider"] = "FileSystem",
             ["Media:Storage:FileSystemRoot"] = _media.FullName,
+            // O banco compartilhado acumula uploads de todas as classes de teste; o teto global (somando contas) só
+            // vale onde o teste o configura num banco próprio (UploadQueueLimitTests).
+            ["Media:MaxQueuedUploads"] = int.MaxValue.ToString(CultureInfo.InvariantCulture),
         };
         foreach (var (key, value) in Settings)
         {

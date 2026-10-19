@@ -54,10 +54,11 @@ public static class MediaServiceCollectionExtensions
                 $"Media:Review não é aceito em {environmentName}: TechnicalOnly aprova sem revisão editorial (ADR-0025).")
             .Validate(
                 o => o.MaxPendingUploadsPerAccount >= 1
+                    && o.MaxQueuedUploads >= 1
                     && o.UploadTimeout > TimeSpan.Zero
                     && o.MinUploadBytesPerSecond > 0
                     && o.MinUploadRateGracePeriod > TimeSpan.FromSeconds(1),
-                "Media:MaxPendingUploadsPerAccount deve ser ao menos 1; Media:UploadTimeout e a taxa mínima, positivos; "
+                "Media:MaxPendingUploadsPerAccount e Media:MaxQueuedUploads devem ser ao menos 1; Media:UploadTimeout e a taxa mínima, positivos; "
                 + "a tolerância da taxa, acima de 1 s (o Kestrel recusa menos).")
             .ValidateOnStart();
 

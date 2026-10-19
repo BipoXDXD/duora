@@ -20,6 +20,7 @@ internal static class ApiProblems
     public const string InvalidRequest = "INVALID_REQUEST";
     public const string InvalidToken = "INVALID_TOKEN";
     public const string LengthRequired = "LENGTH_REQUIRED";
+    public const string MediaQueueFull = "MEDIA_QUEUE_FULL";
     public const string MediaUploadsDisabled = "MEDIA_UPLOADS_DISABLED";
     public const string MfaRequired = "MFA_REQUIRED";
     public const string PasswordChangeRequired = "PASSWORD_CHANGE_REQUIRED";
