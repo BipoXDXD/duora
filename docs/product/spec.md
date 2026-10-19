@@ -128,11 +128,11 @@ Não introduzir Redux, Next.js, um BFF Node ou renderização no servidor na ár
 
 | Área | Base | Condicional, com justificativa |
 |---|---|---|
-| Hospedagem | VPS Ubuntu Server 24.04 LTS com Docker Engine + Compose | Segunda VPS quando isolamento ou disponibilidade justificarem |
-| Entrada HTTPS | Caddy, domínio único para SPA/API/hub | CDN/WAF somente após revisar dados, cache, WebSockets e exposição da origem |
+| Hospedagem | VPS Ubuntu Server 24.04 LTS com Docker Engine + Compose; Hostinger KVM 2 (2 vCPU, 8 GB) em Boston, EUA ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md); orçamento de CPU e memória no PR #87, issue #86) | Segunda VPS quando isolamento ou disponibilidade justificarem |
+| Entrada HTTPS | Caddy, domínio único para SPA/API/hub; DNS na Cloudflare | CDN/WAF somente após revisar dados, cache, WebSockets e exposição da origem; registro proxied pela Cloudflare (a confirmar) cai nesta condição |
 | Infraestrutura | Ansible; OpenTofu para recursos que o provedor suportar | Não inventar um provider para uma VPS ainda não escolhida |
 | Artefatos | Registry privado, imagens por digest, release manifest | Assinatura e verificação de proveniência conforme suporte escolhido |
-| Arquivos | Object storage privado compatível com S3, fora da VPS | Upload direto por URL assinada apenas quando houver necessidade e controles equivalentes |
+| Arquivos | Fotos no disco da VPS, com cópia externa dos derivados (restic no Backblaze B2 US East); nada na AWS ([ADR-0010](../architecture/adr/0010-object-storage-externo-leitura-via-api.md), adendo de 2026-10-16; 15.4) | Object storage privado compatível com S3 só por novo ADR; upload direto por URL assinada apenas quando houver necessidade e controles equivalentes |
 | Backup | pgBackRest, WAL e repositório externo | Réplica de banco depois; réplica não substitui backup |
 | Monitoramento | OpenTelemetry Collector local leve e destino externo | Prometheus/Grafana/Loki/Tempo locais apenas com orçamento de recursos separado |
 | Mensageria | PostgreSQL, outbox e jobs específicos | Broker apenas quando métricas mostrarem necessidade; sem Kafka no início |
@@ -1719,7 +1719,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 |---|---|---|---|
 | VPS | Ubuntu Server 24.04 LTS/Compose; hipótese 4 vCPU/8 GiB | Provedor, região, IOPS, suporte, arquitetura e teste | Provisionamento final/capacidade |
 | Storage e backup | Externos, privados e separados | Recursos, credenciais, retenção, exportação e teste | Dados reais |
-| Domínio/e-mail | Mesma origem e e-mail transacional | Domínio, DNS, provedor e autenticação de envio | Cadastro real |
+| Domínio/e-mail | Mesma origem (`meetduora.com`), DNS na Cloudflare e e-mail transacional | Registro só DNS ou proxied, provedor de e-mail e autenticação de envio | Cadastro real |
 | Verificação etária | Controle adequado antes de participação | Método/provedor, revisão e critérios legais/técnicos | Participação real |
 | Privacidade | Minimização e exclusão rastreável | Prazos finais, bases, fornecedores e responsáveis | Coleta real |
 | Moderação | Triagem automatizada, decisões críticas revisadas | Política, cobertura, escalonamento e recurso | Piloto |
