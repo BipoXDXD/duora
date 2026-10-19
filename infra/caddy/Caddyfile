@@ -58,7 +58,8 @@
 		Referrer-Policy "no-referrer"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
-		# Microfone só para a própria origem: voz ao vivo da sala (ADR-0028), pedido depois do gesto; iframe nenhum herda.
+		# Microfone só para a própria origem: voz ao vivo da sala (ADR-0028), pedido depois do gesto. Nenhum iframe de
+		# outra origem o recebe; e a CSP não carrega iframe algum (default-src 'none', sem frame-src).
 		Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), browsing-topics=()"
 		# Coerente com o build do Vite: só módulos e CSS próprios, sem inline e sem eval. wss explícito para o hub
 		# (navegadores antigos não estendem 'self' a WebSocket). media-src 'self' para o áudio do catálogo
