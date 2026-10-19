@@ -102,6 +102,8 @@ describe('fase do cadastro de MFA', () => {
     expect(screen.getByLabelText('Código do autenticador')).toHaveAccessibleDescription(
       'Informe um código válido de 6 dígitos do autenticador.',
     )
+    // O erro não é região viva: sem o foco no campo, o leitor de tela não diria nada depois do envio.
+    expect(screen.getByLabelText('Código do autenticador')).toHaveFocus()
     expect(confirmation.calls()).toBe(0)
   })
 

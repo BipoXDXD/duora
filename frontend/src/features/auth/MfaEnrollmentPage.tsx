@@ -20,6 +20,12 @@ export function MfaEnrollmentPage(): React.JSX.Element {
   const [recoveryCodes, setRecoveryCodes] = useState<readonly string[] | null>(null)
   const [code, setCode] = useState('')
   const [invalid, setInvalid] = useState(false)
+  const [rejections, setRejections] = useState(0)
+  const codeInput = useRef<HTMLInputElement>(null)
+  // O erro do campo não é região viva: o foco nele, depois de renderizar a descrição, faz o leitor de tela ler o erro.
+  useEffect(() => {
+    if (rejections > 0) codeInput.current?.focus()
+  }, [rejections])
   const start = useMutation({
     gcTime: 0,
     mutationFn: async () => {
@@ -100,11 +106,13 @@ export function MfaEnrollmentPage(): React.JSX.Element {
               event.preventDefault()
               const valid = totpCodeSchema.safeParse(code).success
               setInvalid(!valid)
+              if (!valid) setRejections((count) => count + 1)
               if (valid && !confirm.isPending) confirm.mutate()
             }}
           >
             <TextField
               label={t('mfa.code')}
+              ref={codeInput}
               name="code"
               inputMode="numeric"
               autoComplete="one-time-code"
