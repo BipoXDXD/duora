@@ -148,13 +148,14 @@ saem com o Worker rodando: o Web grava na outbox e o Worker entrega.
 
 ## Outbox de e-mail
 
-O worker valida `Outbox:BatchSize × Outbox:SendTimeout ≤ Outbox:LeaseDuration / 2` no boot.
-Padrões do e-mail: lote de 10, envio de 30 s, lease de 10 min e `MaxAttempts=8`.
-Configurações explícitas com lote 10 e lease 2 min precisam aumentar o lease para pelo menos 10 min
-ou reduzir o lote para 2. A verificação etária mantém suas opções nomeadas e seu lease de 2 min.
+O worker valida `Outbox:SendTimeout ≤ Outbox:LeaseDuration / 2` no boot.
+Padrões do e-mail: lote de 10, envio de 30 s, lease de 2 min e `MaxAttempts=8`. O lote não entra na conta:
+antes de cada envio, o worker renova (heartbeat) o lease da entrega e das que ainda esperam no lote. A
+verificação etária mantém suas opções nomeadas e seu lease de 2 min.
 
-Antes de cada envio, a fila confere token, estado e tempo restante para o timeout. Uma pausa prolongada
-pode deixar entregas para o próximo worker; não autoriza iniciar o restante do lote sem posse.
+Se o heartbeat não renova a entrega (pausa maior que o lease, outro worker a assumiu), ela não é enviada e
+volta no próximo claim.
+
 No claim do e-mail, entregas elegíveis com tentativas esgotadas tornam-se `Failed`, com
 `last_error=MaxAttemptsExceeded` e log `Error`, sem incrementar tentativas nem enviar; se o deadline já
 venceu, tornam-se `Expired`. O payload é removido quando
