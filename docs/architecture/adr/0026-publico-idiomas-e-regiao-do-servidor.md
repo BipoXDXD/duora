@@ -147,7 +147,8 @@ Estado atual (levantado em 71381f2):
 - **E-mails:** PT-BR e EN já existem (`AccountEmailCatalog.cs`, escolha por `Accept-Language`; avisos de segurança
   bilíngues desde o PR #51). Restam: a tag `en` → `en-US` (`EmailLanguage.cs:21`); o fallback
   `EmailLanguage.Default = BrazilianPortuguese` (`EmailLanguage.cs:19`) para idioma fora da lista, mesmo ponto da
-  SPA.
+  SPA. O idioma é o da requisição, não da conta: e-mails que não nascem de uma requisição (lembretes, avisos de
+  evento, avisos do worker) não têm de onde tirá-lo.
 - **Erros da API:** `title` do Problem Details só em PT-BR (`ApiProblems.cs:52` e `:59`, e os `Problem(...)` dos
   endpoints). A SPA decide pelo `code` e mostra texto do catálogo, mas o `title` aparece para quem integra a API e em
   logs do navegador.
@@ -161,6 +162,10 @@ Proposta: trocar as tags para `pt-BR`/`en-US`; fallback `en-US` para idioma não
 contrato (recomendado: neutro em inglês, porque o `title` não é texto de interface e assim não há segundo catálogo
 no backend); rotas neutras ou localizadas (recomendado: manter um conjunto só de rotas, em inglês, com redirect das
 atuais, porque rota localizada duplica links de e-mail e testes).
+
+Proposta complementar: `preferred_locale` guardado na conta (`pt-BR` ou `en-US`, `CHECK` com a lista; gravado no
+cadastro a partir do idioma da requisição e alterável no perfil). Serve aos e-mails que não nascem de requisição e ao
+pareamento por idioma da proposta 2 (#79); o `Accept-Language` continua valendo para quem ainda não tem conta.
 
 ### 4. Datas, fusos, números e moeda
 
