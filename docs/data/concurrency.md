@@ -486,6 +486,14 @@ senha conferia. As outras rotas que travam a conta (A07, A11–A16) seguem só c
 configuração antiga de `AccountLockTimeout` passa a controlar apenas PostgreSQL; instalações que
 ajustaram a fila devem definir também `Identity__AccountQueueTimeout`.
 
+No A04 quem decide é o `LoginTimeout`. O prazo começa antes da fila por e-mail, então, com os dois
+em 30 s, o teto dessa fila nunca vence antes do prazo e fica redundante no login; o resultado é o
+mesmo `503` com `Retry-After: 30`. Ficou assim de propósito, em vez de um teto próprio menor para a
+fila por e-mail: o `AccountQueueTimeout` existe para a fila por UUID, a única espera das rotas
+A07 e A11–A16, e um terceiro valor só para o login seria configuração sem efeito observável enquanto
+ficar abaixo do prazo. Quem baixar o `AccountQueueTimeout` abaixo do `LoginTimeout` passa a ter a
+fila desistindo primeiro, com o `Retry-After` dela.
+
 O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
 Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o endereço
 normalizado, com namespace distinto da fila por UUID; nunca vai a log, métrica ou banco. Não há hash:
@@ -496,9 +504,13 @@ titular/esperador sai, inclusive por timeout ou cancelamento.
 Depois da admissão, uma conta existente entra na fila por UUID e adquire o lock SQL; endereços
 inexistentes verificam o hash de isca. Toda falha continua custando um hash. O piso de 350 ms mais jitter
 é contado **depois da admissão por e-mail**, ainda dentro dessa vez, e depois de liberar a transação.
-A espera na fila não pode consumir o piso da próxima falha. A ordem é e-mail → UUID → PostgreSQL;
-nenhuma operação com a conta já travada adquire a fila por e-mail. Rate limits por IP/e-mail continuam
-anteriores a essa admissão e respondem `429` sem consultar existência.
+A espera na fila não pode consumir o piso da próxima falha. A ordem é e-mail → UUID → PostgreSQL, e
+vale em tempo de execução: o `AccountCheckGate` marca num `AsyncLocal` a vez por UUID aberta no fluxo,
+e `EnterLoginAsync` lança `InvalidOperationException` se ela existir
+(`TakingTheTurnByEmailWhileHoldingTheAccountTurnFailsLoudly`). Não é visibilidade de compilador: o
+ADR-0019 descartou expor internals do Infrastructure ao `Duora.Web.Identity`, e um teste de
+arquitetura mantém o `InternalsVisibleTo` só para os testes de integração. Rate limits por IP/e-mail
+continuam anteriores a essa admissão e respondem `429` sem consultar existência.
 
 O valor 30 s é uma hipótese conservadora, não garantia de capacidade: quatro verificações de 1,8 s
 podem esperar mais que os antigos 5 s, e passam com o novo limite. CPU arbitrariamente lenta, MFA com
@@ -513,9 +525,9 @@ diferença por pedido quando a verificação passa do piso: o piso só iguala o 
 o que a conta existente custa a mais (transação, lock, auditoria) se soma a cada posição da fila.
 Numa rajada de quatro com hash de 1,8 s, a diferença entre existente e inexistente chegou a 1,15 s
 na quarta posição com a máquina carregada (medido em 2026-10-19). Por isso `LoginConcurrencyTests`
-afirma limites inferiores (o i-ésimo a terminar esperou i + 1 hashes), não proximidade. Medir distribuições de
-latência sob carga representativa é necessário antes de aceitar esses riscos; não registrar e-mail,
-IP ou UUID como rótulo. O teste controlado não substitui benchmark da VPS.
+afirma limites inferiores (o i-ésimo a terminar esperou i + 1 hashes), não proximidade. Medir
+distribuições de latência sob carga representativa é necessário antes de aceitar esses riscos; não
+registrar e-mail, IP ou UUID como rótulo. O teste controlado não substitui benchmark da VPS.
 
 ### Com mais de uma instância web
 
