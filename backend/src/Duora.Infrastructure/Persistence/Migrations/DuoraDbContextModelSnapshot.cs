@@ -277,6 +277,12 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("last_totp_step");
 
+                    b.Property<long>("LocaleVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("locale_version");
+
                     b.Property<bool>("LockoutEnabled")
                         .HasColumnType("boolean")
                         .HasColumnName("lockout_enabled");
@@ -306,6 +312,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("boolean")
                         .HasColumnName("phone_number_confirmed");
+
+                    b.Property<string>("PreferredLocale")
+                        .HasColumnType("text")
+                        .HasColumnName("preferred_locale");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text")
@@ -342,6 +352,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
 
                     b.ToTable("users", "identity", t =>
                         {
+                            t.HasCheckConstraint("ck_users_locale_version", "locale_version >= 0");
+
+                            t.HasCheckConstraint("ck_users_preferred_locale", "preferred_locale IN ('en-US', 'pt-BR')");
+
                             t.HasCheckConstraint("ck_users_status", "status IN ('PendingEmail', 'PendingEligibility', 'Active', 'Restricted', 'Suspended', 'DeletionPending')");
 
                             t.HasCheckConstraint("ck_users_temporary_password_requires_confirmed_email", "temporary_password_expires_at IS NULL OR email_confirmed");
@@ -890,6 +904,52 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.ToTable("outbox_events", "ops");
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.CommunicationLanguageRecord", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("LanguageCode")
+                        .HasColumnType("text")
+                        .HasColumnName("language_code");
+
+                    b.HasKey("UserId", "LanguageCode")
+                        .HasName("pk_communication_languages");
+
+                    b.ToTable("communication_languages", "profiles", t =>
+                        {
+                            t.HasCheckConstraint("ck_communication_languages_code", "language_code IN ('en', 'pt')");
+                        });
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.PreferenceRecord", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<bool>("AllowDifferentDisplayLocales")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_different_display_locales");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_preferences");
+
+                    b.ToTable("preferences", "profiles", t =>
+                        {
+                            t.HasCheckConstraint("ck_preferences_version", "version >= 1");
+                        });
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Profiles.ProfileRecord", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -1263,6 +1323,26 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_outbox_deliveries_outbox_events");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.CommunicationLanguageRecord", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Profiles.PreferenceRecord", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_communication_languages_preferences");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.PreferenceRecord", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithOne()
+                        .HasForeignKey("Duora.Infrastructure.Profiles.PreferenceRecord", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_preferences_users");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Profiles.ProfileRecord", b =>

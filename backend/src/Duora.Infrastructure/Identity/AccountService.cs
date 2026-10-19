@@ -97,6 +97,12 @@ public sealed class AccountService
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var registration = await UpsertRegistrationAsync(email, passwordHash, now, cancellationToken);
+        if (!registration.EmailConfirmed)
+        {
+            var locale = EmailLanguageTag.Format(language);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"update identity.users set preferred_locale = {locale} where id = {registration.UserId}", cancellationToken);
+        }
         await ReplaceConsentsUnlessConfirmedAsync(registration, termsVersion, privacyVersion, now, cancellationToken);
         await GrantParticipantRoleUnlessAnyAsync(registration.UserId, cancellationToken);
         var user = await _users.FindByIdAsync(registration.UserId.ToString("D"))
