@@ -41,7 +41,11 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
     [Fact]
     public async Task ParallelWrongPasswordsCannotSlipPastTheAttemptCeiling()
     {
-        await using var factory = new DuoraWebFactory(postgres.ConnectionString);
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            // Isola o teto do banco: a cota por conta em memória (10 / hora) responderia 429 antes dele.
+            Settings = new Dictionary<string, string?> { ["RateLimiting:TokenRedemptionPerAccount:PermitLimit"] = "1000" },
+        };
         var scenario = new IdentityScenario(postgres, factory);
         var email = IdentityScenario.NewEmail();
         using var browser = new Browser(factory);

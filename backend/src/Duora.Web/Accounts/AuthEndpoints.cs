@@ -88,7 +88,9 @@ internal static class AuthEndpoints
 
     private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> ConfirmEmailAsync(
         ConfirmEmailRequest request,
+        HttpContext context,
         AccountService accounts,
+        AccountSecurityAttemptLimiter limiter,
         CancellationToken cancellationToken)
     {
         var validation = new RequestValidation();
@@ -98,6 +100,11 @@ internal static class AuthEndpoints
         if (!validation.IsValid || token is null || password is null)
         {
             return ApiProblems.Validation(validation.Errors);
+        }
+
+        if (limiter.TryConsume(AccountIdOperation.TokenRedemption, userId) is { } retryAfter)
+        {
+            return ApiProblems.TooManyRequests(context, retryAfter);
         }
 
         // Sem login automático: confirmar só muda o estado da conta. Abrir sessão aqui seria um segundo caminho de
@@ -230,6 +237,7 @@ internal static class AuthEndpoints
         ResetPasswordRequest request,
         HttpContext context,
         AccountService accounts,
+        AccountSecurityAttemptLimiter limiter,
         CancellationToken cancellationToken)
     {
         var validation = new RequestValidation();
@@ -239,6 +247,11 @@ internal static class AuthEndpoints
         if (!validation.IsValid || token is null || newPassword is null)
         {
             return ApiProblems.Validation(validation.Errors);
+        }
+
+        if (limiter.TryConsume(AccountIdOperation.TokenRedemption, userId) is { } retryAfter)
+        {
+            return ApiProblems.TooManyRequests(context, retryAfter);
         }
 
         return await accounts.ResetPasswordAsync(

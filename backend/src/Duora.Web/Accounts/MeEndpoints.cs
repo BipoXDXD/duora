@@ -19,9 +19,11 @@ internal static class MeEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized);
         sessions.MapGet("", ListSessionsAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
         sessions.MapDelete("/{sessionId:guid}", RevokeSessionAsync)
+            .RequireAccountRateLimit(AccountIdOperation.SessionRevocation)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
     }
 
     private static async Task<Results<Ok<MeResponse>, UnauthorizedHttpResult>> GetMeAsync(

@@ -43,17 +43,32 @@ internal sealed class AuthRateLimitOptions
     public WindowLimit TokenRedemptionPerIp { get; set; } = new() { PermitLimit = 20, Window = TimeSpan.FromMinutes(10) };
 
     /// <summary>
+    /// Os mesmos resgates por token, pelo id de conta do corpo, exista a conta ou não: trocar de IP não renova a cota
+    /// de uma conta.
+    /// </summary>
+    public WindowLimit TokenRedemptionPerAccount { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
+
+    /// <summary>
     /// Reautenticação, cadastro, ativação, novos códigos e desativação do MFA, e troca de senha (A11 a A16), por
     /// conta: abrir outra sessão não renova o limite (M1 da revisão do #38).
     /// </summary>
     public WindowLimit AccountSecurityPerAccount { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
 
+    /// <summary>Revogar sessão (A10), por conta, com contador próprio: limpar sessões não gasta a cota do MFA.</summary>
+    public WindowLimit SessionRevocationPerAccount { get; set; } = new() { PermitLimit = 30, Window = TimeSpan.FromHours(1) };
+
+    /// <summary>
+    /// As rotas autenticadas de segurança da conta (A10 a A16), por IP, somadas: várias contas atrás de um IP dividem
+    /// esta cota, então abrir contas novas não multiplica as tentativas.
+    /// </summary>
+    public WindowLimit AccountSecurityPerIp { get; set; } = new() { PermitLimit = 30, Window = TimeSpan.FromHours(1) };
+
     public bool IsValid() =>
         new[]
         {
             LoginPerIp, LoginPerAccount, RegisterPerIp, RegisterPerAccount,
-            PasswordResetRequestPerIp, PasswordResetRequestPerAccount, TokenRedemptionPerIp,
-            AccountSecurityPerAccount,
+            PasswordResetRequestPerIp, PasswordResetRequestPerAccount, TokenRedemptionPerIp, TokenRedemptionPerAccount,
+            AccountSecurityPerAccount, SessionRevocationPerAccount, AccountSecurityPerIp,
         }.All(limit => limit.IsValid());
 }
 
@@ -62,6 +77,19 @@ internal enum AccountOperation
     Login,
     Register,
     PasswordResetRequest,
+}
+
+/// <summary>Operações limitadas pelo id da conta, cada uma com o seu contador.</summary>
+internal enum AccountIdOperation
+{
+    /// <summary>Reautenticação, MFA e troca de senha (A11 a A16).</summary>
+    AccountSecurity,
+
+    /// <summary>Revogar uma sessão (A10).</summary>
+    SessionRevocation,
+
+    /// <summary>Confirmação de e-mail e conclusão do reset (A03 e A07), pelo id do corpo.</summary>
+    TokenRedemption,
 }
 
 /// <summary>
@@ -110,24 +138,29 @@ internal sealed class AccountAttemptLimiter : IDisposable
 }
 
 /// <summary>
-/// Limite por conta das operações de segurança da conta (spec 11.5). Aplicado como filtro de endpoint, porque o
-/// middleware de rate limit roda antes da autenticação e não conhece a conta.
+/// Limite pelo id da conta (spec 11.5), um contador por <see cref="AccountIdOperation"/>. Nas rotas com sessão é um
+/// filtro de endpoint, porque o middleware de rate limit roda antes da autenticação e não conhece a conta; nos
+/// resgates por token, o handler consome depois de ler o id do corpo.
 /// </summary>
 internal sealed class AccountSecurityAttemptLimiter : IDisposable
 {
-    private readonly PartitionedRateLimiter<Guid> _limiter;
+    private readonly Dictionary<AccountIdOperation, PartitionedRateLimiter<Guid>> _limiters;
 
     public AccountSecurityAttemptLimiter(IOptions<AuthRateLimitOptions> options)
     {
-        var limit = options.Value.AccountSecurityPerAccount;
-        _limiter = PartitionedRateLimiter.Create<Guid, Guid>(session =>
-            RateLimitPartition.GetFixedWindowLimiter(session, _ => limit.ToLimiterOptions()));
+        var limits = options.Value;
+        _limiters = new()
+        {
+            [AccountIdOperation.AccountSecurity] = Create(limits.AccountSecurityPerAccount),
+            [AccountIdOperation.SessionRevocation] = Create(limits.SessionRevocationPerAccount),
+            [AccountIdOperation.TokenRedemption] = Create(limits.TokenRedemptionPerAccount),
+        };
     }
 
     /// <summary>Consome uma tentativa da conta; devolve o tempo de espera quando o limite estourou, ou null.</summary>
-    public TimeSpan? TryConsume(Guid userId)
+    public TimeSpan? TryConsume(AccountIdOperation operation, Guid userId)
     {
-        using var lease = _limiter.AttemptAcquire(userId);
+        using var lease = _limiters[operation].AttemptAcquire(userId);
         if (lease.IsAcquired)
         {
             return null;
@@ -136,23 +169,42 @@ internal sealed class AccountSecurityAttemptLimiter : IDisposable
         return lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter) ? retryAfter : TimeSpan.FromMinutes(1);
     }
 
-    public void Dispose() => _limiter.Dispose();
+    public void Dispose()
+    {
+        foreach (var limiter in _limiters.Values)
+        {
+            limiter.Dispose();
+        }
+    }
+
+    private static PartitionedRateLimiter<Guid> Create(WindowLimit limit) =>
+        PartitionedRateLimiter.Create<Guid, Guid>(account =>
+            RateLimitPartition.GetFixedWindowLimiter(account, _ => limit.ToLimiterOptions()));
 }
 
 internal static class AccountSecurityRateLimiting
 {
-    /// <summary>429 com <c>Retry-After</c> quando a conta passou do limite das operações de segurança.</summary>
-    public static TBuilder RequireAccountRateLimit<TBuilder>(this TBuilder builder)
+    /// <summary>
+    /// 429 com <c>Retry-After</c> quando a conta ou o IP passou do limite das operações de segurança da conta. O IP
+    /// é a cota somada das rotas autenticadas (<see cref="AuthRateLimitPolicies.AccountSecurity"/>); a conta tem o
+    /// contador de <paramref name="operation"/>.
+    /// </summary>
+    public static TBuilder RequireAccountRateLimit<TBuilder>(
+        this TBuilder builder,
+        AccountIdOperation operation = AccountIdOperation.AccountSecurity)
         where TBuilder : IEndpointConventionBuilder =>
-        builder.AddEndpointFilter((context, next) =>
-        {
-            var http = context.HttpContext;
-            var userId = Duora.Web.Identity.DuoraClaims.ReadUserId(http.User)
-                ?? throw new InvalidOperationException("Limite por conta numa rota sem sessão.");
-            return http.RequestServices.GetRequiredService<AccountSecurityAttemptLimiter>().TryConsume(userId) is { } retryAfter
-                ? ValueTask.FromResult<object?>(ApiProblems.TooManyRequests(http, retryAfter))
-                : next(context);
-        });
+        builder
+            .RequireRateLimiting(AuthRateLimitPolicies.AccountSecurity)
+            .AddEndpointFilter((context, next) =>
+            {
+                var http = context.HttpContext;
+                var userId = Duora.Web.Identity.DuoraClaims.ReadUserId(http.User)
+                    ?? throw new InvalidOperationException("Limite por conta numa rota sem sessão.");
+                var limiter = http.RequestServices.GetRequiredService<AccountSecurityAttemptLimiter>();
+                return limiter.TryConsume(operation, userId) is { } retryAfter
+                    ? ValueTask.FromResult<object?>(ApiProblems.TooManyRequests(http, retryAfter))
+                    : next(context);
+            });
 }
 
 internal static class AuthRateLimitPolicies
@@ -161,6 +213,7 @@ internal static class AuthRateLimitPolicies
     public const string Register = "auth-register";
     public const string PasswordResetRequest = "auth-password-reset-request";
     public const string TokenRedemption = "auth-token-redemption";
+    public const string AccountSecurity = "auth-account-security";
 
     public static IServiceCollection AddAuthRateLimiting(this IServiceCollection services)
     {
@@ -182,6 +235,7 @@ internal static class AuthRateLimitPolicies
                 AddPerIpPolicy(rateLimiter, Register, limits.RegisterPerIp);
                 AddPerIpPolicy(rateLimiter, PasswordResetRequest, limits.PasswordResetRequestPerIp);
                 AddPerIpPolicy(rateLimiter, TokenRedemption, limits.TokenRedemptionPerIp);
+                AddPerIpPolicy(rateLimiter, AccountSecurity, limits.AccountSecurityPerIp);
             });
 
         return services;
