@@ -256,9 +256,10 @@ public sealed class AccountSecurityService
     /// <summary>
     /// Serializa logins antes de procurar a conta, inclusive endereços inexistentes. A chave usa a mesma
     /// normalização do Identity, não é persistida nem registrada e sai da memória com o último interessado.
-    /// Sempre adquirir antes da vez por ID; nunca chamar de dentro de uma verificação já aberta.
+    /// Sempre adquirir antes da vez por ID; nunca chamar de dentro de uma verificação já aberta. É <c>internal</c>
+    /// para só o login (<c>CredentialVerifier</c>, no Duora.Web.Identity) poder pegar essa vez.
     /// </summary>
-    public Task<IAsyncDisposable> EnterLoginAsync(EmailAddress email, CancellationToken cancellationToken)
+    internal Task<IAsyncDisposable> EnterLoginAsync(EmailAddress email, CancellationToken cancellationToken)
     {
         var normalized = _users.NormalizeEmail(email.Value)
             ?? throw new InvalidOperationException("Normalizador de e-mail retornou null.");
