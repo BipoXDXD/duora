@@ -5,7 +5,7 @@ import { translateValidationMessage } from './validation-message'
 
 describe('translateValidationMessage', () => {
   const pt = createTranslator('pt-BR')
-  const en = createTranslator('en')
+  const en = createTranslator('en-US')
 
   it('sem erro, sem mensagem', () => {
     expect(translateValidationMessage(pt, undefined)).toBeUndefined()

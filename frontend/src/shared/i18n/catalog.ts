@@ -1,4 +1,4 @@
-import { en } from './catalog.en'
+import { en } from './catalog.en-US'
 import { ptBR } from './catalog.pt-BR'
 import type { IcuArguments } from './icu-arguments'
 import type { Locale } from './locale'
@@ -33,5 +33,5 @@ export type ArgumentMismatch<Translation extends Catalog> = {
 
 export const CATALOGS: Readonly<Record<Locale, Catalog>> = {
   'pt-BR': ptBR,
-  en,
+  'en-US': en,
 }

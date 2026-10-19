@@ -176,7 +176,7 @@ describe('requestJson: antiforgery', () => {
 })
 
 describe('requestJson: idioma', () => {
-  it.each(['pt-BR', 'en'] as const)('envia o idioma ativo %s no Accept-Language', async (locale) => {
+  it.each(['pt-BR', 'en-US'] as const)('envia o idioma ativo %s no Accept-Language', async (locale) => {
     const { client, sentRequest } = setup(undefined, CSRF_TOKEN, () => locale)
 
     await client.requestJson({ method: 'POST', path: '/api/v1/auth/register', body: {} })
@@ -185,14 +185,14 @@ describe('requestJson: idioma', () => {
   })
 
   it('lê o idioma a cada requisição, para a troca no seletor valer sem recarregar', async () => {
-    let locale: 'pt-BR' | 'en' = 'pt-BR'
+    let locale: 'pt-BR' | 'en-US' = 'pt-BR'
     const { client, fetch } = setup(undefined, CSRF_TOKEN, () => locale)
 
     await client.requestJson({ method: 'GET', path: '/api/v1/me' })
-    locale = 'en'
+    locale = 'en-US'
     await client.requestJson({ method: 'GET', path: '/api/v1/me' })
 
-    expect(fetch.mock.calls.map(([request]) => request.headers.get('Accept-Language'))).toEqual(['pt-BR', 'en'])
+    expect(fetch.mock.calls.map(([request]) => request.headers.get('Accept-Language'))).toEqual(['pt-BR', 'en-US'])
   })
 })
 

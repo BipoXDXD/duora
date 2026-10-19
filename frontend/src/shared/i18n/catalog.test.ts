@@ -2,7 +2,7 @@
 import { isStructurallySame, parse } from '@formatjs/icu-messageformat-parser'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { CATALOGS, type ArgumentMismatch } from './catalog'
-import { en } from './catalog.en'
+import { en } from './catalog.en-US'
 import { ptBR } from './catalog.pt-BR'
 import { SUPPORTED_LOCALES } from './locale'
 

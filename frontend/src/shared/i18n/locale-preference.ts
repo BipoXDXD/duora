@@ -9,12 +9,23 @@ export const LOCALE_STORAGE_KEY = 'duora.locale'
  * resolveInitialLocale antes de virar Locale.
  */
 
+/** Tags gravadas antes do ADR-0026 e a tag que as substitui. */
+const LEGACY_LOCALES: Readonly<Partial<Record<string, Locale>>> = { en: 'en-US' }
+
 export function loadLocalePreference(): string | null {
+  let stored: string | null
   try {
-    return window.localStorage.getItem(LOCALE_STORAGE_KEY)
+    stored = window.localStorage.getItem(LOCALE_STORAGE_KEY)
   } catch {
     return null
   }
+  const migrated = stored === null ? undefined : LEGACY_LOCALES[stored]
+  if (migrated === undefined) {
+    return stored
+  }
+  // Regrava a tag nova uma vez; se a escrita falhar, a migração refaz na próxima carga.
+  saveLocalePreference(migrated)
+  return migrated
 }
 
 export function saveLocalePreference(locale: Locale): void {
