@@ -16,6 +16,8 @@ describe('fetchMe', () => {
           email: 'ana@exemplo.com',
           status: 'Active',
           emailConfirmed: true,
+          mfaEnabled: false,
+          roles: ['participant'],
           passwordHash: 'nunca-deveria-vir',
         }),
       ),
@@ -26,13 +28,22 @@ describe('fetchMe', () => {
       email: 'ana@exemplo.com',
       status: 'Active',
       emailConfirmed: true,
+      mfaEnabled: false,
+      roles: ['participant'],
     })
   })
 
   it('trata status desconhecido sem quebrar (spec 8.1)', async () => {
     server.use(
       http.get(`${API}/me`, () =>
-        HttpResponse.json({ id: USER_ID, email: 'ana@exemplo.com', status: 'NovoEstado', emailConfirmed: true }),
+        HttpResponse.json({
+          id: USER_ID,
+          email: 'ana@exemplo.com',
+          status: 'NovoEstado',
+          emailConfirmed: true,
+          mfaEnabled: false,
+          roles: [],
+        }),
       ),
     )
 
@@ -44,6 +55,13 @@ describe('fetchMe', () => {
     ['emailConfirmed em texto', { id: USER_ID, email: 'a@b.test', status: 'Active', emailConfirmed: 'true' }],
     ['sem e-mail', { id: USER_ID, status: 'Active', emailConfirmed: true }],
     ['null', null],
+    // Sem estes campos a guarda de MFA da SPA não teria como decidir: falha no parse em vez de liberar.
+    ['sem roles', { id: USER_ID, email: 'a@b.test', status: 'Active', emailConfirmed: true, mfaEnabled: false }],
+    ['sem mfaEnabled', { id: USER_ID, email: 'a@b.test', status: 'Active', emailConfirmed: true, roles: ['operator'] }],
+    [
+      'roles fora de lista',
+      { id: USER_ID, email: 'a@b.test', status: 'Active', emailConfirmed: true, mfaEnabled: false, roles: 'operator' },
+    ],
   ])('rejeita payload fora do contrato: %s', async (_caso, body) => {
     server.use(http.get(`${API}/me`, () => HttpResponse.json(body)))
 

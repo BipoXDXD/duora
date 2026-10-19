@@ -10,6 +10,8 @@ const ME = {
   email: 'ana@exemplo.com',
   status: 'Active',
   emailConfirmed: true,
+  mfaEnabled: false,
+  roles: ['participant'],
 }
 
 interface StoredProfile {
