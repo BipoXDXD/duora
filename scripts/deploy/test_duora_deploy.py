@@ -4,11 +4,13 @@ import contextlib
 import io
 import json
 import platform
+import re
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import duora_deploy as deploy
 
@@ -325,12 +327,33 @@ class MediaUploadGateTests(unittest.TestCase):
         (self.paths.state_dir / deploy.MEDIA_VERIFY_OK_FILE).write_text(f"{self.now - age_seconds}\n",
                                                                          encoding="utf-8")
 
-    def test_host_env_switches_the_upload_on(self) -> None:
-        self.assertTrue(deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=Editorial\n")
-                        .media_uploads_enabled)
+    def test_host_env_switches_the_upload_on_with_a_policy_accepted_in_production(self) -> None:
+        # "Editorial" é sintético: simula a política que ainda não existe entrando na allowlist.
+        with patch.object(deploy, "PRODUCTION_MEDIA_REVIEW_POLICIES", frozenset({"Editorial"})):
+            self.assertTrue(deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=Editorial\n")
+                            .media_uploads_enabled)
         for text in ("DUORA_IMAGE_PREFIX=x\n", "DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=\n"):
             with self.subTest(text=text):
                 self.assertFalse(deploy.parse_host_config(text).media_uploads_enabled)
+
+    def test_review_outside_the_production_allowlist_is_refused(self) -> None:
+        # TechnicalOnly existe no backend, mas o boot de Production a recusa: aceitá-la aqui derrubaria o web
+        # depois da migração. Hoje a allowlist é vazia, então qualquer valor não vazio é recusado.
+        for value in ("TechnicalOnly", "technicalonly", "Editorial"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(deploy.DeployError, f"DUORA_MEDIA_REVIEW={value} .*Production"):
+                    deploy.parse_host_config(f"DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW={value}\n")
+
+    def test_production_allowlist_names_only_backend_policies_and_never_technical_only(self) -> None:
+        source = (Path(__file__).resolve().parents[2] / "backend" / "src" / "Duora.Core" / "Media"
+                  / "MediaReview.cs").read_text(encoding="utf-8")
+        body = re.search(r"public enum MediaReviewPolicy\s*\{(?P<body>.*?)\}", source, re.DOTALL)
+        assert body is not None
+        policies = set(re.findall(r"^\s*([A-Z][A-Za-z0-9]*),", body["body"], re.MULTILINE))
+
+        self.assertIn("TechnicalOnly", policies)
+        self.assertNotIn("TechnicalOnly", deploy.PRODUCTION_MEDIA_REVIEW_POLICIES)
+        self.assertLessEqual(deploy.PRODUCTION_MEDIA_REVIEW_POLICIES, policies)
 
     def test_upload_off_does_not_look_at_the_media_backup(self) -> None:
         runner = FakeRunner()
