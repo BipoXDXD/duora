@@ -20,7 +20,11 @@ namespace Duora.IntegrationTests.Identity;
 /// </summary>
 public sealed class AdminBootstrapTests : IAsyncDisposable
 {
-    private const string Operator = "ana.ops";
+    /// <summary>
+    /// Exclusivo desta classe: os testes contam eventos de auditoria pelo rótulo do operador no banco compartilhado,
+    /// e outras classes (CredentialChangeRollbackTests, AuditTrailTests) gravam com "ana.ops" em paralelo.
+    /// </summary>
+    private const string Operator = "bootstrap.tests";
     private const string NewPassword = "uma frase nova e longa para o admin";
     private const string ChangePassword = "/api/v1/me/password-changes";
     private const string CrockfordSymbols = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
