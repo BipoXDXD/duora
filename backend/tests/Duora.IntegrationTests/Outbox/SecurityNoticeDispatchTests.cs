@@ -92,7 +92,7 @@ public sealed class SecurityNoticeDispatchTests(PostgresFixture postgres)
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
         harness.Time.SetUtcNow(OccurredAt);
-        await harness.EnqueueAsync(AccountEmailKind.PasswordChangedNotice, token: null, "en", Ct);
+        await harness.EnqueueAsync(AccountEmailKind.PasswordChangedNotice, token: null, "en-US", Ct);
         var dispatcher = harness.StartWorker();
 
         await dispatcher.DispatchBatchAsync(Ct);
