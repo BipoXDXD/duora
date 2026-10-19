@@ -1,5 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useLocation } from 'react-router'
 import { z } from 'zod'
@@ -13,13 +14,14 @@ import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { PasswordField, TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { login } from './auth-api'
-import { currentPasswordSchema, emailSchema } from './auth-schemas'
+import { currentPasswordSchema, emailSchema, totpCodeSchema } from './auth-schemas'
 import { useValidationMessage } from './validation-message'
 
 const loginSchema = z.object({
   email: emailSchema,
   password: currentPasswordSchema,
-  twoFactorCode: z.string().optional(),
+  // Só existe no formulário depois do MFA_REQUIRED; antes, o campo não é registrado e fica undefined.
+  twoFactorCode: totpCodeSchema.optional(),
 })
 
 const NOTICE_MESSAGES: Readonly<Record<LoginNotice, PlainMessageKey>> = {
@@ -43,13 +45,19 @@ export function LoginPage(): React.JSX.Element {
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' },
   })
+  const [mfaRequested, setMfaRequested] = useState(false)
   const signIn = useMutation({
-    mutationFn: login,
+    // Credenciais saem do formulário validado, nunca das variables do MutationCache (como na troca de senha).
+    mutationFn: () => login(loginSchema.parse(form.getValues())),
+    gcTime: 0,
+    onError: (error) => {
+      if (error instanceof ApiProblemError && error.problem.code === 'MFA_REQUIRED') setMfaRequested(true)
+    },
     onSuccess: () => transitions.signedIn(from ?? paths.account),
   })
-  const submit = form.handleSubmit((credentials) => {
+  const submit = form.handleSubmit(() => {
     if (!signIn.isPending) {
-      signIn.mutate(credentials)
+      signIn.mutate()
     }
   })
   const { errors } = form.formState
@@ -83,12 +91,12 @@ export function LoginPage(): React.JSX.Element {
           error={fieldError(errors.password?.message)}
           {...form.register('password')}
         />
-        {(signIn.error instanceof ApiProblemError && signIn.error.problem.code === 'MFA_REQUIRED') ||
-        form.getValues('twoFactorCode') !== undefined ? (
+        {mfaRequested ? (
           <TextField
             label={t('mfa.code')}
             inputMode="numeric"
             autoComplete="one-time-code"
+            error={fieldError(errors.twoFactorCode?.message)}
             {...form.register('twoFactorCode')}
           />
         ) : null}
