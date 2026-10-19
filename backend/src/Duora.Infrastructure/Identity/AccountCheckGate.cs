@@ -22,7 +22,10 @@ internal sealed class AccountCheckGate
     /// <summary>Entra na vez da conta (UUID); ocupada por mais que <paramref name="timeout"/>, desiste.</summary>
     /// <remarks>
     /// Não é <c>async</c> de propósito: a marca de vez aberta é gravada no contexto de execução de quem chama, e um
-    /// método <c>async</c> descartaria a mudança ao retornar.
+    /// método <c>async</c> descartaria a mudança ao retornar. Pelo mesmo motivo, não encapsule
+    /// <c>AccountSecurityService.LockAccountAsync</c> num método <c>async</c> que devolva o check: a marca morre
+    /// quando esse método termina, e <see cref="ThrowIfAccountTurnHeld"/> deixa de ver a vez ainda aberta. Chame-o
+    /// direto de onde o check é usado e descartado.
     /// </remarks>
     /// <exception cref="AccountBusyException">A espera passou do teto.</exception>
     public Task<IAsyncDisposable> EnterAsync(Guid userId, TimeSpan timeout, CancellationToken cancellationToken)
