@@ -9,6 +9,10 @@
 #   DUORA_HTTP_PORT / DUORA_HTTPS_PORT   portas publicadas no host (80/443 na VPS)
 name: duora
 
+# CPU e memória (spec 15.1; VPS Hostinger KVM 2, 2 vCPU e 8 GB): limits.cpus é teto, não reserva, e cpu_shares
+# decide a disputa quando os 2 vCPU estão ocupados. Reserva de CPU fora do Swarm é ignorada pelo Compose.
+# Tabela e porquê em docs/operations/deploy.md ("Orçamento de CPU e memória"); test_compose_resources.py
+# confere os tetos e a soma da memória.
 x-logging: &logging
   # Driver local com rotação: uma falha em laço não enche o disco com log (spec 19.2).
   driver: local
@@ -85,11 +89,12 @@ services:
       timeout: 3s
       retries: 12
       start_period: 30s
+    cpu_shares: 2048  # caminho da requisição
     deploy:
       resources:
         limits:
           memory: 2560M
-          cpus: "2"
+          cpus: "1.5"
           pids: 256
 
   # Repository host do pgBackRest (spec 18.2 e 18.3; decidido pelo usuário em 2026-10-15): o único container com
@@ -140,6 +145,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    cpu_shares: 256  # último sob contenção
     deploy:
       resources:
         limits:
@@ -167,6 +173,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql
     networks: [backup-egress]
+    cpu_shares: 1024  # manutenção, com a aplicação parada
     deploy:
       resources:
         limits:
@@ -207,11 +214,12 @@ services:
     stop_grace_period: 30s
     # Sem healthcheck de container: a imagem chiseled não tem shell nem cliente HTTP, e o Docker não reinicia
     # container "unhealthy" fora do Swarm. O deploy verifica /health/ready pela rede interna.
+    cpu_shares: 2048  # caminho da requisição
     deploy:
       resources:
         limits:
           memory: 1536M
-          cpus: "2"
+          cpus: "1.5"
           pids: 512
 
   worker:
@@ -236,6 +244,7 @@ services:
       postgres:
         condition: service_healthy
     stop_grace_period: 30s
+    cpu_shares: 512  # segundo plano
     deploy:
       resources:
         limits:
@@ -274,6 +283,7 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+    cpu_shares: 2048  # caminho da requisição
     deploy:
       resources:
         limits:
@@ -296,6 +306,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    cpu_shares: 1024  # roda com o worker parado
     deploy:
       resources:
         limits:
