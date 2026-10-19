@@ -394,17 +394,20 @@ remetente. Rede inválida impede o boot. Testes: `ForwardedHeadersTests` (inclus
 | Pedido de reset (A06) | E-mail normalizado | 3 / hora | `429` + `Retry-After` |
 | Pedido de reset (A06) | IP | 10 / hora | `429` + `Retry-After` |
 | Conclusão de reset (A07), confirmação (A03) | IP | 20 / 10 min | `429` + `Retry-After` |
-| Conclusão de reset (A07), confirmação (A03) | Conta: o `userId` do corpo, exista a conta ou não (um contador para as duas rotas, `RateLimiting:TokenRedemptionPerAccount`) | 10 / hora | `429` + `Retry-After` |
+| Conclusão de reset (A07), confirmação (A03) | Conta: o `userId` do corpo, exista a conta ou não, contando **só as falhas**, depois de conferir o token (contadores separados, `RateLimiting:EmailConfirmationFailuresPerAccount` e `PasswordResetFailuresPerAccount`). O `userId` é público: o link válido do titular passa mesmo com a cota esgotada por terceiros | 10 falhas / hora em cada | `429` + `Retry-After` no lugar do `400` |
 | Reautenticação (A13) | Conta (banco) e conta (memória) | Mesmo lockout da conta, com a conta travada; e o limite por conta abaixo | `401`; `429` + `Retry-After` |
 | Reautenticação e MFA (A11 a A15), troca de senha (A16) | Conta (um contador para as seis rotas, `RateLimiting:AccountSecurityPerAccount`; abrir outra sessão não renova) | 10 / hora | `429` + `Retry-After` |
-| Revogar sessão (A10) | Conta (contador próprio, `RateLimiting:SessionRevocationPerAccount`; outra sessão ou outro IP não renova) | 30 / hora | `429` + `Retry-After` |
-| Revogar sessão, reautenticação, MFA e troca de senha (A10 a A16) | IP (IPv6: prefixo /64), um contador para as sete rotas (`RateLimiting:AccountSecurityPerIp`): várias contas atrás de um IP dividem a cota | 30 / hora | `429` + `Retry-After`, antes da autenticação |
+| Revogar sessão (A10) | Conta, só as revogações que falham (inexistente, alheia ou já revogada; `RateLimiting:SessionRevocationFailuresPerAccount`). Revogar uma sessão própria e ativa não conta: quem roubou uma sessão não consegue impedir o titular de derrubá-la | 30 falhas / hora | `429` + `Retry-After` no lugar do `404` |
+| Reautenticação, cadastro do MFA e novos códigos (A11 a A14) | IP (IPv6: prefixo /64), um contador para as quatro rotas (`RateLimiting:AccountSecurityPerIp`): várias contas atrás de um IP dividem a cota. Alto de propósito, só contra abuso em massa, para vizinhos de NAT/CGNAT não se travarem; a força bruta numa conta fica com a cota por conta e o bloqueio | 300 / hora | `429` + `Retry-After`, antes da autenticação |
+| Remediação: revogar sessão (A10), desativar MFA (A15), trocar senha (A16) | Fora da cota por IP: um vizinho que a esgota não bloqueia a remediação de outra conta. Valem a cota por conta e, na troca de senha, o bloqueio | — | — |
 | Bloquear (API-S01) | Conta (id da sessão; vale para todas as sessões e IPs da conta) | 30 / hora (`RateLimiting:BlockPerAccount`, decisão G6) | `429` + `Retry-After` |
 | Enviar foto (API-M01) | Conta e IP, cada um com o seu limite | 20 / hora em cada um (`RateLimiting:PhotoUploadPerAccount` e `PhotoUploadPerIp`, **hipótese**, ADR-0025) | `429` + `Retry-After`, antes de ler o corpo |
 
-Toda rota de autenticação conta por conta-alvo **e** por IP. Trocar de IP não renova a cota de uma conta nem
-destrava o bloqueio (que está no banco); abrir contas novas atrás do mesmo IP não multiplica a cota do IP; e esgotar
-a cota de uma conta ou de um IP não atinge outra conta noutro IP. Testes: `AuthLimitsAcrossAccountsAndAddressesTests`.
+As rotas sujeitas a força bruta contam por conta-alvo **e** por IP. Trocar de IP não renova a cota de uma conta
+nem destrava o bloqueio (que está no banco); abrir contas novas atrás do mesmo IP não multiplica a cota do IP; e
+esgotar a cota de uma conta ou de um IP não atinge outra conta noutro IP. Duas exceções de propósito: onde o
+identificador da conta é público (resgate por token) ou onde quem ataca já tem uma sessão (revogação), só a falha
+conta, para a cota não virar meio de travar o titular; e a remediação fica fora da cota por IP. Testes: `AuthLimitsAcrossAccountsAndAddressesTests`.
 Os testes que medem o teto do banco (bloqueio, teto da confirmação) sobem a cota em memória só neles.
 
 O limite do bloqueio fica no handler, depois da autenticação (o middleware de rate limit roda antes dela e não
