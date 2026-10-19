@@ -51,9 +51,9 @@ Brasil e cuja infraestrutura está nos EUA:
   Brasil ficam mapeadas como **lacunas a confirmar com apoio jurídico** em
   [data-map.md](../../privacy/data-map.md#jurisdições-a-confirmar); este ADR não conclui nada sobre aplicabilidade.
 - **Região do servidor.** A VPS de produção fica em Boston (EUA); o backup (pgBackRest e restic) fica no Backblaze
-  B2 US East. Banco, fotos e backup estão todos nos EUA. A "transferência internacional" registrada deixa de ser só a
-  do backup: passa a ser a de **todos os dados de pessoas no Brasil**, coletados pela aplicação e guardados nos EUA
-  desde o primeiro request ([data-map.md](../../privacy/data-map.md#transferências-internacionais-registradas)).
+  B2 US East. Banco, fotos e backup estão todos nos EUA (fato), inclusive os dados de pessoas no Brasil, desde o
+  primeiro request. Para esses dados, se isso é transferência internacional (LGPD art. 33) ou coleta internacional (Resolução CD/ANPD 19/2024, a confirmar) e qual salvaguarda se aplica é a confirmar (J-02); o registro deixa de ser só o do backup
+  ([data-map.md](../../privacy/data-map.md#local-do-tratamento-e-transferências-a-confirmar)).
 - **Formatos.** Instantes continuam em UTC na API e no banco; apresentação por `Intl` no idioma ativo e no fuso da
   pessoa, com o fuso identificado em eventos (spec 13.6; `events.time_zone` IANA já existe). Nada de fuso, moeda,
   formato de data ou de telefone fixo do Brasil no código.
@@ -70,7 +70,7 @@ padrão) e mantém a spec rastreável.
 | spec 12.1 | Título "requisitos brasileiros"; LGPD, Marco Civil e ECA Digital como o conjunto aplicável | Brasil como país provável (J-01); aplicabilidade da LGPD a confirmar (J-02); demais jurisdições como lacunas (data-map) |
 | spec 15.1 | Região "próxima da maioria das pessoas do piloto" | Boston, EUA (decidido); latência a medir para o Brasil e para os países do lançamento |
 | ADR-0022 | Interface em PT-BR (padrão) e `en` | Produto inteiro em `pt-BR` e `en-US`; idioma padrão do fallback em proposta (proposta 3) |
-| ADR-0023, adendo B2, item "Jurisdição" | Transferência internacional (LGPD) só do backup | O backup é uma das cópias nos EUA; a transferência é de todos os dados de pessoas no Brasil |
+| ADR-0023, adendo B2, item "Jurisdição" | Transferência internacional (LGPD) só do backup | Todos os dados ficam nos EUA (fato), e o backup é uma das cópias; se há transferência (art. 33) ou coleta internacional (Res. CD/ANPD 19/2024) e qual salvaguarda é a confirmar (J-02) |
 | ADR-0024 | "Adulto" sem jurisdição, ECA Digital como referência | Maioridade depende da jurisdição da pessoa (lacuna J-05); a decisão do dono sobre o ECA Digital continua valendo para o Brasil |
 | model.md, `region_code` | UF em ISO 3166-2:BR | Continua implementado assim até a [proposta 1](#1-region_code-além-das-uf) ser escolhida e implementada |
 
@@ -182,8 +182,8 @@ Ver o último item da proposta 3; fica numa issue própria porque depende da def
 
 ## Consequências
 
-- Positivas: o pressuposto "público brasileiro" sai dos documentos que guiam os próximos PRs; a transferência
-  internacional fica descrita como ela é (o servidor inteiro está nos EUA); o mapa de leis prováveis deixa claro o
+- Positivas: o pressuposto "público brasileiro" sai dos documentos que guiam os próximos PRs; o local do
+  tratamento fica descrito como ele é (o servidor inteiro está nos EUA), com o enquadramento jurídico em aberto (J-02); o mapa de leis prováveis deixa claro o
   que bloqueia dados reais fora do Brasil.
 - Negativas: o gate "Privacidade" fica maior, porque agora há várias jurisdições prováveis, e nenhuma está
   analisada; todo texto novo custa duas versões revisadas; o pareamento ganha uma pergunta de produto (pareamento por idioma).

@@ -101,6 +101,6 @@ acrescentado: `TheFileSystemStoreServesProductionFromAMountedDirectory`,
 ## Adendo (2026-10-19): localização da VPS
 
 A VPS Hostinger onde as fotos ficam é a de produção, em **Boston, EUA** (decisão do dono, registrada no
-[ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md)). As fotos de pessoas no Brasil são, portanto, tratadas
-nos EUA desde o upload; a salvaguarda dessa transferência está no
-[data-map.md](../../privacy/data-map.md#transferências-internacionais-registradas). Nada muda no desenho acima.
+[ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md)). As fotos de pessoas no Brasil ficam, portanto, nos EUA
+desde o upload (fato); se isso é transferência internacional (LGPD art. 33) ou coleta internacional (Resolução CD/ANPD 19/2024, a confirmar) e qual salvaguarda se aplica é a confirmar (J-02)
+([data-map.md](../../privacy/data-map.md#local-do-tratamento-e-transferências-a-confirmar)). Nada muda no desenho acima.
