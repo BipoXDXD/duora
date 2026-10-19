@@ -47,7 +47,7 @@ Brasil e cuja infraestrutura está nos EUA:
   ser `en-US` (a mudança de código está na [proposta 3](#3-textos-da-interface-dos-e-mails-e-dos-erros)). Conteúdo
   de experiência, e-mail, erro exibido e documento legal só é publicado com os dois idiomas revisados.
 - **Público e jurisdições.** O público principal está fora do Brasil; os países do lançamento ainda não foram
-  fixados (lacuna J-01). A LGPD continua valendo para quem está no Brasil. As leis prováveis para o público fora do
+  fixados (lacuna J-01). O Brasil é país provável (J-01); a aplicabilidade da LGPD, inclusive a quem está fora do Brasil, é a confirmar (J-02). As leis prováveis para o público fora do
   Brasil ficam mapeadas como **lacunas a confirmar com apoio jurídico** em
   [data-map.md](../../privacy/data-map.md#jurisdições-a-confirmar); este ADR não conclui nada sobre aplicabilidade.
 - **Região do servidor.** A VPS de produção fica em Boston (EUA); o backup (pgBackRest e restic) fica no Backblaze
@@ -67,7 +67,7 @@ padrão) e mantém a spec rastreável.
 | Onde | Antes | Agora |
 |---|---|---|
 | spec 13.6 | "Interface inicialmente em PT-BR" | Produto inteiro em PT-BR e EN-US |
-| spec 12.1 | Título "requisitos brasileiros"; LGPD, Marco Civil e ECA Digital como o conjunto aplicável | LGPD para quem está no Brasil; demais jurisdições como lacunas (data-map) |
+| spec 12.1 | Título "requisitos brasileiros"; LGPD, Marco Civil e ECA Digital como o conjunto aplicável | Brasil como país provável (J-01); aplicabilidade da LGPD a confirmar (J-02); demais jurisdições como lacunas (data-map) |
 | spec 15.1 | Região "próxima da maioria das pessoas do piloto" | Boston, EUA (decidido); latência a medir para o Brasil e para os países do lançamento |
 | ADR-0022 | Interface em PT-BR (padrão) e `en` | Produto inteiro em `pt-BR` e `en-US`; idioma padrão do fallback em proposta (proposta 3) |
 | ADR-0023, adendo B2, item "Jurisdição" | Transferência internacional (LGPD) só do backup | O backup é uma das cópias nos EUA; a transferência é de todos os dados de pessoas no Brasil |
@@ -204,7 +204,7 @@ latência do Brasil até Boston precisa entrar no ensaio de capacidade (spec 15.
   por `catalog.test.ts` e no e-mail por `AccountEmailLanguageTests`; conteúdo de experiência e erros da API ganham
   teste equivalente nas propostas 2 e 3).
 - Issues das propostas 1 a 5 (#78 a #82), abertas junto com este ADR, e o PR de cada uma com testes.
-- Lacunas jurídicas J-01 a J-12 em [data-map.md](../../privacy/data-map.md#jurisdições-a-confirmar): cada uma
+- Lacunas jurídicas J-01 a J-13 em [data-map.md](../../privacy/data-map.md#jurisdições-a-confirmar): cada uma
   bloqueia dados reais da jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 
 ## Levantamento dos pressupostos contrários
