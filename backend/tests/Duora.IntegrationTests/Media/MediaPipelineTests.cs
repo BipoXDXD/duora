@@ -277,6 +277,34 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
     }
 
     [Fact]
+    public async Task ADeliveryThatAlsoExhaustedTheGiveUpAttemptsEndsAtTheClaimWithTheUploadRejected()
+    {
+        // Teto no claim (poison message): nem as tentativas de encerrar sem decodificar terminaram (o processo caiu
+        // nelas também). O claim encerra a entrega em Failed, e o Worker ainda leva o upload a Rejected para ele não
+        // ficar ocupando vaga de pendente com o original na quarentena.
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        var upload = (await media.UploadsOfAsync(await OwnerOfAsync(photoId))).Single();
+        await ExecuteAsync(
+            $"""
+            update ops.outbox_deliveries set attempts = {2 + MediaProcessingDispatcher.GiveUpAttempts}
+            where outbox_event_id in (select id from ops.outbox_events where resource_id = $1)
+            """,
+            photoId);
+        var sanitizer = new CountingSanitizer();
+        var worker = StartWorker(
+            services => services.AddSingleton<IPhotoSanitizer>(sanitizer),
+            "--Media:Processing:MaxAttempts=2");
+
+        Assert.Equal(1, await DispatchOnceAsync(worker));
+
+        Assert.Equal(0, sanitizer.Calls);
+        await AssertAbandonedAsync(media, browser, upload, "MaxAttemptsExceeded");
+        Assert.Equal(0, await DispatchOnceAsync(worker));
+    }
+
+    [Fact]
     public async Task ADeliveryPastItsDeadlineEndsTheUploadRejectedAndLogsIt()
     {
         // Issue #66: a entrega vencida (24 h) não pode deixar o upload em Quarantined ocupando vaga de pendente.
