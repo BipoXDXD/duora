@@ -4,6 +4,8 @@ using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Security;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.OpenApi;
+using Microsoft.OpenApi;
 
 namespace Duora.Web.Accounts;
 
@@ -17,13 +19,34 @@ internal static class MeEndpoints
 
         me.MapGet("", GetMeAsync)
             .AllowDuringMfaEnrollment()
-            .ProducesProblem(StatusCodes.Status401Unauthorized);
-        sessions.MapGet("", ListSessionsAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .AddOpenApiOperationTransformer(DocumentRestrictedSession);
+        sessions.MapGet("", ListSessionsAsync)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
         sessions.MapDelete("/{sessionId:guid}", RevokeSessionAsync)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
+    }
+
+    /// <summary>A SPA decide a fase restrita por este 403 (auth.md, "SPA: senha inicial administrativa").</summary>
+    private static Task DocumentRestrictedSession(
+        OpenApiOperation operation,
+        OpenApiOperationTransformerContext context,
+        CancellationToken cancellationToken)
+    {
+        if (operation.Responses?.TryGetValue("403", out var forbidden) == true && forbidden is OpenApiResponse response)
+        {
+            response.Description =
+                "PASSWORD_CHANGE_REQUIRED: a sessão foi aberta com a senha temporária do bootstrap e só alcança a "
+                + "troca de senha (API-A16). Conta privilegiada sem MFA recebe 200, com mfaEnabled false e os papéis.";
+        }
+
+        return Task.CompletedTask;
     }
 
     private static async Task<Results<Ok<MeResponse>, UnauthorizedHttpResult>> GetMeAsync(

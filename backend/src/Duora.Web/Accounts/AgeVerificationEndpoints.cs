@@ -24,7 +24,9 @@ internal static class AgeVerificationEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
-        verifications.MapGet("/current", GetCurrentAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
+        verifications.MapGet("/current", GetCurrentAsync)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
     }
 
     /// <summary>

@@ -25,6 +25,7 @@ internal static class ProfileEndpoints
         profile.MapGet("", GetOwnProfileAsync)
             .WithDescription("Perfil editável do titular. O header ETag traz a mesma versão do campo version.")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .AddOpenApiOperationTransformer(DocumentETag);
         profile.MapPatch("", UpdateOwnProfileAsync)
             .WithDescription(
