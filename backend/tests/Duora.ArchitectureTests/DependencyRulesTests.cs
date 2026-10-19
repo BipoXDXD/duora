@@ -59,6 +59,21 @@ public sealed class DependencyRulesTests
         Assert.Null(cycle);
     }
 
+    /// <summary>
+    /// O Infrastructure só abre internals para os testes de integração. O ADR-0019 descartou expô-los ao
+    /// Duora.Web.Identity: o adaptador usa só a API pública, e a ordem das filas da conta é garantida em tempo de
+    /// execução (AccountCheckGate), não por visibilidade.
+    /// </summary>
+    [Fact]
+    public void InfrastructureExposesInternalsOnlyToIntegrationTests()
+    {
+        var friends = Assembly.Load(Infrastructure)
+            .GetCustomAttributes<InternalsVisibleToAttribute>()
+            .Select(attribute => attribute.AssemblyName);
+
+        Assert.Equal(["Duora.IntegrationTests"], friends);
+    }
+
     [Theory]
     [InlineData(Core)]
     [InlineData(Contracts)]

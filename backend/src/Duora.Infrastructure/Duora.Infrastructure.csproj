@@ -22,9 +22,5 @@
   <ItemGroup>
     <!-- Os testes de integração aplicam as migrations com o DbContext interno, como fará o job migrador. -->
     <InternalsVisibleTo Include="Duora.IntegrationTests" />
-    <!-- O login (CredentialVerifier) pega a vez por e-mail antes da vez por UUID; a operação fica internal para
-         nenhum outro chamador inverter essa ordem (revisão do PR #74). Duora.Web.Identity é o adaptador web do
-         mesmo módulo de identidade (ADR-0019). -->
-    <InternalsVisibleTo Include="Duora.Web.Identity" />
   </ItemGroup>
 </Project>
