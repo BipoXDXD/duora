@@ -241,3 +241,26 @@ Backblaze B2 US East. O `S3ObjectStore` (`AWSSDK.S3`) e o contrato contra o MinI
 **alternativa futura**: não há bucket de mídia nem conta na AWS, e adotar S3 em produção exige novo ADR, com as
 regras de credencial do item 5 revistas para o fornecedor escolhido. O título do arquivo fica como está, para não
 quebrar links.
+
+## Adendo (2026-10-19): limites de abuso medidos na revisão do PR #40
+
+Medido no ImageSharp 4.1.3, fora da VPS (um núcleo, `MaxDegreeOfParallelism = 1`): uma foto de 20 MP leva de 1,1 a
+2 s e ~165 MB de RSS. Duas entradas de 5 MiB fugiam dos limites do item 7: um PNG com 640 chunks `zTXt` levou o
+processo a 3,3 GB (o decoder infla cada um, até 8 MB, fora do alocador limitado), e um JPEG progressivo de 20 MP
+com 135 mil scans levou 84 s (só o timeout de 30 s o cortava). O tempo na VPS KVM 2 está **a confirmar**. Decisões:
+
+1. **Custo estrutural antes do decode** (passo novo entre 3 e 4 do item 7): mais de 100 scans num JPEG ou mais de 4
+   chunks `zTXt`/`iTXt`/`iCCP` num PNG → `Rejected PROCESSING_LIMIT`, sem decodificar (`PhotoDecodeCost`).
+2. **Teto global da fila** (complementa o item 3): o teto por conta não para quem tem várias contas, e a quarentena
+   fica no disco da VPS. A reserva conta os uploads sem veredito de todas as contas sob um advisory lock da
+   transação, tomado depois da guarda do dono; acima de `Media:MaxQueuedUploads` (100, hipótese: até 500 MiB de
+   quarentena) responde `503 MEDIA_QUEUE_FULL` com `Retry-After`, sem gravar nada. Custo: num ataque com muitas
+   contas, quem envia de boa-fé também recebe `503` até a fila andar.
+3. **Teto de tentativas no claim** (complementa o item 6): o consumidor `media-processing` usa o claim com teto de
+   `MaxAttempts + 2` (as duas últimas só encerram o upload, sem decodificar). A entrega esgotada no claim leva o
+   upload a `Rejected PROCESSING_LIMIT`. Sem heartbeat de lease: o lote é de um, o lease passa de duas vezes o prazo
+   da sanitização (conferido no boot) e o efeito no storage é protegido pela versão do upload.
+
+Compliance: `PhotoDecodeCostTests`, os testes de scans e `zTXt` em `PhotoSanitizerTests`, `UploadQueueLimitTests`
+(conferido sem o advisory lock: 9 envios de 9 contas passam de um teto de 3) e
+`ADeliveryThatAlsoExhaustedTheGiveUpAttemptsEndsAtTheClaimWithTheUploadRejected`.
