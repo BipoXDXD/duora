@@ -34,6 +34,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0023](0023-topologia-do-backup-repository-host-e-object-lock.md) | Backup por repository host separado com mTLS, credenciais fora do postgres e bucket com versionamento + Object Lock | Accepted | pgBackRest restringir operações por certificado ou provedor sem Object Lock |
 | [0024](0024-fluxo-de-verificacao-etaria.md) | Verificação etária: fornecedor só no worker via outbox, webhook HMAC inline e regra pura no Core | Accepted | Fornecedor contratado ou parecer sobre o ECA Digital |
 | [0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md) | Fotos por corpo cru, quarentena em S3 (`AWSSDK.S3`), fila na outbox e sanitização com ImageSharp no Worker | Accepted | Receita acima de US$ 1 mi, revisão editorial, URL assinada ou `media-sanitizer` isolado |
+| [0026](0026-publico-idiomas-e-regiao-do-servidor.md) | Público principal fora do Brasil, produto inteiro em PT-BR e EN-US e servidor em Boston (EUA) | Accepted | Países do lançamento fixados, terceiro idioma ou servidor/backup em outro país |
 
 ## Regras
 
