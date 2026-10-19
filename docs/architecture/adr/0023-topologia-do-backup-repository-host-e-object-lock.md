@@ -1,6 +1,7 @@
 # ADR-0023: Backup por repository host em container separado, mTLS e bucket com Object Lock
 
 - **Status:** Accepted (2026-10-15, decisão do usuário)
+- **Substituído em parte:** item "Jurisdição" do adendo do B2, pelo [ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md) (2026-10-19)
 - **Origem:** spec 15.2, 18.2 e 18.3; revisão de segurança do PR #19 (`network-egress-control-missing` e exclusão
   pelo certificado do postgres)
 - **Revisar quando:** o pgBackRest passar a restringir operações por certificado, o provedor S3 escolhido não
@@ -123,3 +124,12 @@ Compliance acrescentado: `B2KeyProblemsTests` e `B2BucketProtectionActionTests` 
 capacidade proibida, chave sem restrição de bucket ou prefixo, região errada, 401, bucket sem File Lock, modo
 `GOVERNANCE`) e `B2RepositoryPrefixTests` (o prefixo da chave é o `repo1-path` da imagem). A prova contra a conta real
 (canário recusado sem `deleteFiles` e pelo lock) está no passo 6 do runbook e fica com o responsável.
+
+## Adendo (2026-10-19): o servidor também fica nos EUA
+
+Decisão do dono, registrada no [ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md): a VPS de produção fica em
+Boston (EUA) e o público principal não é brasileiro. O item "Jurisdição" do adendo do B2 deixa de descrever o backup
+como a transferência internacional: banco, fotos e backup estão todos nos EUA, e a transferência registrada passa a ser
+a de **todos os dados de pessoas no Brasil**
+([data-map.md](../../privacy/data-map.md#transferências-internacionais-registradas)). O backup continua sendo uma
+cópia nos EUA, num provedor diferente do servidor. Nada muda na topologia, nas chaves nem no Object Lock.
