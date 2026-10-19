@@ -9,6 +9,8 @@ const ME = {
   email: 'ana@exemplo.com',
   status: 'Active',
   emailConfirmed: true,
+  mfaEnabled: false,
+  roles: ['participant'],
 }
 const CURRENT = {
   id: 'sessao-atual',
@@ -76,6 +78,23 @@ describe('rota protegida', () => {
     expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
   })
 })
+
+it.each(['mfaEnabled', 'roles'])(
+  'identidade sem %s não libera a área: erro controlado em vez de pular a guarda de MFA',
+  async (missing) => {
+    const incomplete = Object.fromEntries(
+      Object.entries({ ...ME, roles: ['operator'] }).filter(([key]) => key !== missing),
+    )
+    useMeEndpoint(() => HttpResponse.json(incomplete))
+    useSessionsEndpoint()
+    await renderApp('/conta')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Algo deu errado do nosso lado')
+    expect(screen.getByText('Não foi possível carregar sua conta.')).toBeInTheDocument()
+    expect(screen.queryByText('ana@exemplo.com')).not.toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/conta')
+  },
+)
 
 describe('área da conta', () => {
   it('mostra e-mail, situação e as sessões, marcando a corrente', async () => {

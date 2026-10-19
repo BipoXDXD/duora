@@ -15,6 +15,8 @@ const ME: Me = {
   email: 'ana@exemplo.com',
   status: 'Active',
   emailConfirmed: true,
+  mfaEnabled: false,
+  roles: ['participant'],
 }
 
 function session(overrides: Partial<AccountSession>): AccountSession {

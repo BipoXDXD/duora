@@ -1,5 +1,13 @@
-import { sendMutation } from '@/shared/api'
+import { z } from 'zod'
+import { sendMutation, sendMutationForJson } from '@/shared/api'
+import type { components } from '@/shared/api/schema'
 import type { EmailLink } from './auth-schemas'
+
+type LoginRequest = components['schemas']['LoginRequest']
+type ChangePasswordRequest = components['schemas']['ChangePasswordRequest']
+type ConfirmMfaRequest = components['schemas']['ConfirmMfaRequest']
+type MfaEnrollmentResponse = components['schemas']['MfaEnrollmentResponse']
+type RecoveryCodesResponse = components['schemas']['RecoveryCodesResponse']
 
 // Chamadas de autenticação do M1. Todas são mutações com token antiforgery renovado antes do envio.
 
@@ -42,7 +50,7 @@ export function login(credentials: Credentials): Promise<void> {
       email: credentials.email,
       password: credentials.password,
       ...(credentials.twoFactorCode ? { twoFactorCode: credentials.twoFactorCode } : {}),
-    },
+    } satisfies LoginRequest,
   })
 }
 
@@ -60,5 +68,35 @@ export function resetPassword(link: EmailLink, newPassword: string): Promise<voi
 }
 
 export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  return sendMutation({ method: 'POST', path: '/api/v1/me/password-changes', body: { currentPassword, newPassword } })
+  return sendMutation({
+    method: 'POST',
+    path: '/api/v1/me/password-changes',
+    body: { currentPassword, newPassword } satisfies ChangePasswordRequest,
+  })
+}
+
+const mfaEnrollmentSchema = z.object({
+  sharedKey: z.string().min(1),
+  authenticatorUri: z.string().min(1),
+}) satisfies z.ZodType<MfaEnrollmentResponse>
+
+const recoveryCodesSchema = z.object({
+  recoveryCodes: z.array(z.string().min(1)).min(1),
+}) satisfies z.ZodType<RecoveryCodesResponse>
+
+export type MfaEnrollment = z.output<typeof mfaEnrollmentSchema>
+
+/** Inicia o cadastro do TOTP (API-A11). A chave volta uma vez; quem chama a guarda só em memória local. */
+export async function startMfaEnrollment(): Promise<MfaEnrollment> {
+  return mfaEnrollmentSchema.parse(await sendMutationForJson({ method: 'POST', path: '/api/v1/me/mfa/enrollments' }))
+}
+
+/** Confirma o TOTP (API-A12) e devolve os códigos de recuperação, mostrados uma vez. */
+export async function confirmMfa(code: string): Promise<readonly string[]> {
+  const body = await sendMutationForJson({
+    method: 'POST',
+    path: '/api/v1/me/mfa/confirmations',
+    body: { code } satisfies ConfirmMfaRequest,
+  })
+  return recoveryCodesSchema.parse(body).recoveryCodes
 }

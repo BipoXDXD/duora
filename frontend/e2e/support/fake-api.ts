@@ -304,6 +304,8 @@ export class FakeDuoraApi {
       email: user.email,
       status: user.emailConfirmed ? 'Active' : 'PendingEmail',
       emailConfirmed: user.emailConfirmed,
+      mfaEnabled: false,
+      roles: ['participant'],
     })
   }
 
