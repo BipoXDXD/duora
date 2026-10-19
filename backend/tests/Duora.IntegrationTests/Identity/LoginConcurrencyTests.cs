@@ -26,6 +26,9 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     /// <summary>Bem acima do teto da fila do teste (1 s) e bem abaixo dos 30 s padrão.</summary>
     private static readonly TimeSpan QueueCeilingLimit = TimeSpan.FromSeconds(10);
 
+    /// <summary>Hash que termina depois de um prazo de login de 1 s.</summary>
+    private static readonly TimeSpan HashPastTheDeadline = TimeSpan.FromMilliseconds(1500);
+
     /// <summary>Quanto a vez fica presa: bem mais que o piso, para a espera poder consumi-lo se contasse.</summary>
     private static readonly TimeSpan HeldTurn = TimeSpan.FromSeconds(1);
 
@@ -177,6 +180,38 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         }
     }
 
+    [Fact]
+    public async Task AFailureVerifiedAfterTheDeadlineStillCountsTowardsLockout()
+    {
+        // O prazo vence durante o hash (1,5 s contra 1 s). Gravar e confirmar a falha vem depois e não pode ser
+        // cancelado pelo prazo, ou a tentativa sairia de graça do bloqueio (TM-01).
+        var hasher = new SlowHasher();
+        await using var factory = CreateFactory(hasher, loginTimeout: "00:00:01");
+        var account = await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync();
+        hasher.Delay = HashPastTheDeadline;
+        using var browser = new Browser(factory);
+
+        using var response = await IdentityScenario.LoginAsync(browser, account.Email, "senha incorreta longa");
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
+        Assert.Equal(1, await AccessFailedCountAsync(factory, account.UserId));
+    }
+
+    [Fact]
+    public async Task ASuccessVerifiedAfterTheDeadlineStillOpensTheSession()
+    {
+        var hasher = new SlowHasher();
+        await using var factory = CreateFactory(hasher, loginTimeout: "00:00:01");
+        var account = await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync();
+        hasher.Delay = HashPastTheDeadline;
+        using var browser = new Browser(factory);
+
+        using var response = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.NotNull(browser.Cookie("__Host-duora"));
+    }
+
     [Theory]
     [InlineData(450, true)]
     [InlineData(449, false)]
@@ -300,10 +335,21 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(valid, options.IsValid());
     }
 
-    private DuoraWebFactory CreateFactory(SlowHasher hasher) => new(postgres.ConnectionString)
+    private DuoraWebFactory CreateFactory(SlowHasher hasher, string? loginTimeout = null) => new(postgres.ConnectionString)
     {
         TestServices = services => services.AddSingleton<IPasswordHasher<DuoraUser>>(hasher),
+        Settings = loginTimeout is null
+            ? new Dictionary<string, string?>()
+            : new Dictionary<string, string?> { ["Identity:LoginTimeout"] = loginTimeout },
     };
+
+    private static async Task<int> AccessFailedCountAsync(DuoraWebFactory factory, Guid userId)
+    {
+        using var scope = factory.Services.CreateScope();
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<DuoraUser>>().FindByIdAsync($"{userId:D}");
+        Assert.NotNull(user);
+        return user.AccessFailedCount;
+    }
 
     private static async Task<TimeSpan[]> BurstAsync(
         DuoraWebFactory factory, string email, string password, HttpStatusCode expected)
