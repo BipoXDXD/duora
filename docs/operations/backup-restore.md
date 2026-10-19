@@ -540,6 +540,9 @@ com uma chave só de leitura de `media/`, para notar a falta de um pacote antes 
 sudo duora-backup media-restore --target /var/tmp/duora-media-restore
 ```
 
+Os timers passam `--media-root {{ duora_media_dir }}` pela unit `duora-media-backup@.service`; à mão, o padrão é
+`/var/lib/duora-media`. Com outro `duora_media_dir` no inventário, acrescente `--media-root` com ele.
+
 O restic recria o caminho original dentro do staging (`/var/tmp/duora-media-restore/var/lib/duora-media/derivatives`).
 **Antes de copiar** para o diretório em uso, aplique as exclusões do banco já restaurado (INV-11; o banco vem
 primeiro, com os tombstones): só voltam os derivados de assets `Approved`.
