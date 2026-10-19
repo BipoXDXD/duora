@@ -12,7 +12,7 @@ public sealed class GameSession<TState, TAction>
     where TState : class
     where TAction : class, IGameAction
 {
-    private GameSession(
+    internal GameSession(
         ExperienceVersion experience,
         ParticipantPair participants,
         GameSchedule schedule,
