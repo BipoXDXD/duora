@@ -31,6 +31,22 @@ mensagem (spec 7.2).
 decidem com privacidade e saem com segurança; o sistema continua consistente após retry, bloqueio concorrente,
 reinício e recuperação.
 
+## Público, idiomas e região (ADR-0026)
+
+Decisões do dono de 2026-10-19 ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)):
+
+- **Público:** o principal **não é brasileiro**; os países do lançamento ainda não foram fixados. Pessoas no Brasil
+  continuam atendidas, e a LGPD vale para elas. As demais jurisdições são lacunas a confirmar com apoio jurídico
+  ([data-map.md](../privacy/data-map.md#jurisdições-a-confirmar)).
+- **Idiomas:** o produto inteiro funciona em **PT-BR e EN-US**: interface, e-mails, conteúdo das experiências,
+  documentos voltados ao usuário e mensagens de erro. Nenhum texto voltado à pessoa existe só num dos dois.
+- **Região:** servidor de produção em **Boston, EUA** (VPS Hostinger); backup no Backblaze B2 **US East**. Todos os
+  dados ficam nos EUA.
+- **Formatos:** instantes em UTC na API e no banco; apresentação no idioma e no fuso da pessoa, com o fuso do evento
+  identificado; nada de fuso, moeda, data ou telefone fixos do Brasil.
+- **Região do perfil:** hoje é a UF (só Brasil); a troca para país mais subdivisão está proposta no ADR-0026 e
+  espera decisão.
+
 ## Invariantes (spec 1.2)
 
 Nenhuma delas pode depender só da interface. A matriz de testes está em
