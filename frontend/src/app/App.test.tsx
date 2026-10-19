@@ -164,6 +164,8 @@ describe('troca de identidade em outra aba (T-21)', () => {
               email: 'ana@exemplo.com',
               status: 'Active',
               emailConfirmed: true,
+              mfaEnabled: false,
+              roles: ['participant'],
             })
           : problem(401, 'UNAUTHENTICATED'),
       ),
