@@ -50,11 +50,13 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
     }
 
     [Theory]
-    [InlineData("--AgeVerification:Dispatch:BatchSize=20")]
-    [InlineData("--AgeVerification:Dispatch:LeaseDuration=00:01:40")]
-    public async Task WorkerDoesNotStartWhenALeaseCannotCoverAWholeBatch(string setting)
+    [InlineData("--AgeVerification:Dispatch:SendTimeout=00:01:00.0000001")]
+    [InlineData("--AgeVerification:Dispatch:LeaseDuration=00:00:19.9999999")]
+    [InlineData("--AgeVerification:Dispatch:MaxAttempts=0")]
+    [InlineData("--AgeVerification:Dispatch:SendTimeout=00:00:00")]
+    public async Task WorkerDoesNotStartWithUnsafeDispatchSettings(string setting)
     {
-        // Lote de 10 com chamada de até 10 s: o lease precisa passar de 100 s, senão outro worker retoma no meio.
+        // Metade do lease fica reservada para persistência, pool e o próximo heartbeat.
         using var host = BuildWorker("Testing", [.. FakeArgs(), setting]);
 
         var exception = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync(Ct));

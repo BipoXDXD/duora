@@ -85,23 +85,42 @@ public sealed partial class AgeVerificationDispatcher
         }
 
         var now = _time.GetUtcNow();
-        var claimed = await _queue.ClaimAsync(
+        var result = await _queue.ClaimWithAttemptLimitAsync(
             AgeVerificationOutbox.Consumer,
             _dispatch.BatchSize,
             now,
             now + _dispatch.LeaseDuration,
+            _dispatch.MaxAttempts,
             cancellationToken);
 
-        // Um por vez: o lote limita a concorrência contra o fornecedor a uma chamada por worker.
-        foreach (var delivery in claimed)
+        // O domínio continua dono das compensações: Failed/Expired sem referência permite novo pedido
+        // por API-P05; uma referência já persistida continua disponível para callback. Nunca decidir idade aqui.
+        foreach (var exhausted in result.Exhausted)
         {
-            await OpenAsync(delivery, cancellationToken);
+            if (exhausted.Status == OutboxDeliveryStatus.Expired)
+            {
+                LogExpired(_logger, exhausted.Id);
+            }
+            else
+            {
+                LogExhausted(_logger, exhausted.Id, AgeVerificationOutbox.Consumer, exhausted.Attempts);
+            }
         }
 
-        return claimed.Count;
+        // Um por vez: o lote limita a concorrência contra o fornecedor a uma chamada por worker.
+        var waiting = new Queue<ClaimedDelivery>(result.Claimed);
+        while (waiting.TryDequeue(out var delivery))
+        {
+            await OpenAsync(delivery, waiting, cancellationToken);
+        }
+
+        return result.Claimed.Count;
     }
 
-    private async Task OpenAsync(ClaimedDelivery delivery, CancellationToken cancellationToken)
+    private async Task OpenAsync(
+        ClaimedDelivery delivery,
+        IReadOnlyCollection<ClaimedDelivery> waiting,
+        CancellationToken cancellationToken)
     {
         if (_time.GetUtcNow() >= delivery.DeadlineAt)
         {
@@ -130,6 +149,15 @@ public sealed partial class AgeVerificationDispatcher
             // Configuração trocada com solicitações abertas: outro fornecedor não conhece esta referência.
             LogProviderMismatch(_logger, delivery.Id);
             await SettleAsync(delivery, OutboxDeliveryStatus.Failed, ProviderMismatchError, cancellationToken);
+            return;
+        }
+
+        // Renova também o restante do lote: nenhum item esperando pode ser retomado durante chamadas lentas.
+        // Depois da leitura do domínio, imediatamente antes do efeito externo, confere lease e fencing.
+        var renewed = await _queue.RenewLeasesAsync([delivery, .. waiting], _dispatch.LeaseDuration, _time, cancellationToken);
+        if (!renewed.Contains(delivery.Id))
+        {
+            LogSkippedWithoutOwnership(_logger, delivery.Id);
             return;
         }
 
@@ -281,6 +309,16 @@ public sealed partial class AgeVerificationDispatcher
         Level = LogLevel.Warning,
         Message = "Abertura etária {DeliveryId} não foi encerrada por este worker: o lease venceu ou outro worker a assumiu")]
     private static partial void LogLeaseLost(ILogger logger, Guid deliveryId);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Abertura etária {DeliveryId} do consumidor {Consumer} esgotou {Attempts} tentativa(s) sem resultado gravado; vai para revisão")]
+    private static partial void LogExhausted(ILogger logger, Guid deliveryId, string consumer, int attempts);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Abertura etária {DeliveryId} não chamou o fornecedor: heartbeat não renovou a posse")]
+    private static partial void LogSkippedWithoutOwnership(ILogger logger, Guid deliveryId);
 
     private sealed record StoredVerification(
         string State,

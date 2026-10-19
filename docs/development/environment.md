@@ -222,3 +222,23 @@ dotnet run --project src/Duora.Worker
 | `GET /health/live` | Processo responde. Não consulta dependências. |
 | `GET /health/ready` | Inclui o banco: 503 quando ele recusa a conexão ou não responde em 3 s. |
 | `GET /openapi/v1.json` | Documento OpenAPI, só em `Development`. |
+
+### Confiabilidade do despacho etário
+
+`AgeVerification:Dispatch:MaxAttempts` limita as aquisições por entrega (padrão 8), inclusive após interrupção
+antes do ACK; é independente de `Outbox:MaxAttempts`. O boot exige `SendTimeout ≤ LeaseDuration / 2`:
+com os padrões de 10 s e 2 min, metade do lease fica disponível para persistência, pool e banco.
+Antes de cada chamada, o heartbeat renova a entrega atual e as que esperam no lote, conferindo fencing,
+`InFlight` e lease ainda válido. Sem posse, não chama o fornecedor nem ressuscita a entrega.
+
+Candidatas esgotadas terminam `Failed/MaxAttemptsExceeded`, ou `Expired` quando o deadline passou,
+sem incrementar tentativas ou ler o payload. O log de falha contém somente id, consumidor e tentativas.
+A conta permanece pendente: o dispatcher não decide idade nem faz compensações de domínio. API-P05 mantém
+a compensação transacional existente: solicitação sem referência cuja entrega terminou pode ser substituída;
+com referência já persistida, o fluxo e o callback continuam válidos. A limpeza do payload da outbox não apaga
+`resource_id` nem a solicitação, usados nessa compensação. Não reabrir entregas terminais por SQL.
+
+Sem migração ou mudança de contrato HTTP. Rollback preserva estados finais, mas reintroduz tentativas ilimitadas
+nas entregas abertas e a validação antiga por lote pode recusar configurações novas. Preferir correção para frente.
+O efeito externo continua at-least-once: queda após chamada antes de persistir exige idempotência do fornecedor
+pela mesma solicitação. Os testes simulam interrupção por cancelamento, não encerram um processo do SO.
