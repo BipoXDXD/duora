@@ -1,12 +1,12 @@
 # Catálogo de fontes técnicas do Duora (spec 21.2 e 25.1).
 #
-# Uma entrada por ficha D-* da seção 25 da spec (77 fichas). Campos:
+# Uma entrada por ficha D-* da seção 25 da spec (78 fichas). Campos:
 #   id          ID da ficha na spec
 #   topico      tópico consultado (título da ficha)
 #   urls        páginas da ficha, na ordem da spec
 #   versao      versão/commit da documentação consultada; "página atual" quando o site não tem seletor
 #   consultado  data de consulta (AAAA-MM-DD)
-#   download    status da cópia local: ok | parcial | fonte alternativa
+#   download    status da cópia local: ok | parcial | fonte alternativa | pendente (ficha de lacuna, sem fonte consultada)
 #   requisitos  IDs da spec sustentados (INV, A11Y, ADR, seção ou gate)
 #   testes      testes de aceite (T-*) que dependem da ficha; vazio quando a ficha só sustenta construção
 #   responsavel dono da ficha
@@ -898,6 +898,19 @@ fontes:
     download: "ok"
     requisitos: ["12", "12.2", "18.4"]
     testes: [T-01, T-10, T-11]
+    responsavel: "a designar"
+
+  # Ficha de lacuna (ADR-0026): as leis prováveis fora do Brasil estão em docs/privacy/data-map.md
+  # (J-01 a J-13), sem fonte verificada. Cada URL entra aqui, com versão e data, quando o apoio jurídico
+  # confirmar a jurisdição; até lá, nenhuma fonte foi consultada e não há cópia local.
+  - id: D-PRIV-03
+    topico: "Jurisdições fora do Brasil"
+    urls: []
+    versao: "nenhuma fonte consultada; lista de hipóteses em docs/privacy/data-map.md#jurisdições-a-confirmar"
+    consultado: 2026-10-19
+    download: "pendente"
+    requisitos: ["12", "12.1", "12.2", "ADR-0026", "gate Privacidade"]
+    testes: []
     responsavel: "a designar"
 
   - id: D-OPT-01
