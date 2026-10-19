@@ -158,7 +158,8 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 ### Lista de eventos
 
 - **Propósito:** encontrar eventos autorizados e ver a própria participação.
-- **Conteúdo:** cards com título, data e horário local com fuso ("qui., 16 out., 20:00 (BRT)"), regras
+- **Conteúdo:** cards com título, data e horário local com fuso ("qui., 16 out., 20:00 (BRT)" em PT-BR; "Thu, Oct 16, 7:00 PM
+  EDT" em EN-US; ADR-0026), regras
   resumidas, situação própria. Sem lista de participantes nem contadores de popularidade.
 - **Ações:** cada card é um link para o detalhe.
 - **Estados:** `loading` (skeleton de 3 cards); `empty` ("Nenhum evento aberto agora. Avisaremos por e-mail
