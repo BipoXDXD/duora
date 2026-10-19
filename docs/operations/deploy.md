@@ -43,7 +43,9 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   disco da VPS) não sobem com o Compose atual; ver [rollback](#rollback-de-aplicação).
 - [ ] **Contato de suporte:** `Duora:SupportContact` traz um placeholder (`suporte@meetduora.com`) nas configurações
   base; a spec ainda não define o canal. Antes de abrir a participantes reais, troque pelo canal definido e confira
-  que a caixa recebe.
+  que a caixa recebe. O público principal não é brasileiro e o atendimento é em PT-BR e EN-US
+  ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), proposta 5): prefira um endereço
+  neutro (`support@`) a `suporte@`.
 
 ## Manifesto da release (spec 17.2)
 
