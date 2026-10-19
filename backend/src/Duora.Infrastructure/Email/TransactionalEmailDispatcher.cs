@@ -56,7 +56,7 @@ public sealed partial class TransactionalEmailDispatcher
 
         foreach (var exhausted in result.Exhausted)
         {
-            LogExhausted(_logger, exhausted.Id, AccountEmailOutbox.Consumer, exhausted.Attempts);
+            LogExhausted(exhausted);
         }
 
         foreach (var delivery in result.Claimed)
@@ -104,6 +104,18 @@ public sealed partial class TransactionalEmailDispatcher
         }
 
         await SettleAsync(delivery, OutboxDeliveryStatus.Delivered, error: null, cancellationToken);
+    }
+
+    private void LogExhausted(ExhaustedDelivery exhausted)
+    {
+        // Passado o deadline, o e-mail já não serve (link vencido): expira como no caminho normal, sem revisão.
+        if (exhausted.Status == OutboxDeliveryStatus.Expired)
+        {
+            LogExpired(_logger, exhausted.Id);
+            return;
+        }
+
+        LogExhaustedForReview(_logger, exhausted.Id, AccountEmailOutbox.Consumer, exhausted.Attempts);
     }
 
     private bool TryCompose(ClaimedDelivery delivery, [NotNullWhen(true)] out TransactionalEmail? email)
@@ -200,7 +212,7 @@ public sealed partial class TransactionalEmailDispatcher
     [LoggerMessage(
         Level = LogLevel.Error,
         Message = "Entrega {DeliveryId} do consumidor {Consumer} esgotou as tentativas após {Attempts} tentativa(s) sem resultado gravado; vai para revisão")]
-    private static partial void LogExhausted(ILogger logger, Guid deliveryId, string consumer, int attempts);
+    private static partial void LogExhaustedForReview(ILogger logger, Guid deliveryId, string consumer, int attempts);
 
     [LoggerMessage(
         Level = LogLevel.Warning,
