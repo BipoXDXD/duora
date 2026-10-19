@@ -8,8 +8,9 @@ import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { PasswordField } from '@/shared/ui/form-fields'
-import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
+import { Page, SubmitButton } from '@/shared/ui/page'
 import { changePassword } from './auth-api'
+import { SignInAgainButton } from './SignInAgainButton'
 import { currentPasswordSchema, newPasswordSchema, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH } from './auth-schemas'
 import { useValidationMessage } from './validation-message'
 
@@ -100,7 +101,7 @@ export function ChangePasswordPage(): React.JSX.Element {
           pendingLabel={t('resetPassword.submitting')}
         />
       </form>
-      <TextLink to={paths.login}>{t('changePassword.signInAgain')}</TextLink>
+      <SignInAgainButton />
     </Page>
   )
 }

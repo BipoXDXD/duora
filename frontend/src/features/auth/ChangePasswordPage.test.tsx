@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
-import { renderApp, type RenderedApp } from '@/test/render'
+import { renderApp, ROUTE_CHUNK_TIMEOUT_MS, type RenderedApp } from '@/test/render'
 
 const ME = {
   id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
@@ -161,4 +161,47 @@ it('falha de rede mantém a troca disponível sem reenviar a senha', async () =>
   await fill(user)
   expect(await screen.findByRole('alert')).toHaveTextContent('conexão')
   expect(calls).toBe(1)
+})
+
+describe('entrar novamente encerra a sessão restrita', () => {
+  it.each([
+    ['troca de senha', '/trocar-senha-inicial', () => problem(403, 'PASSWORD_CHANGE_REQUIRED')],
+    ['cadastro de MFA', '/conta/ativar-mfa', () => problem(403, 'MFA_ENROLLMENT_REQUIRED')],
+  ])('%s: chama o logout antes de ir à entrada', async (_fase, path, me) => {
+    useAntiforgeryEndpoint()
+    const logouts: (string | null)[] = []
+    server.use(
+      http.get(`${API}/me`, me),
+      http.post(`${API}/auth/logout`, ({ request }) => {
+        logouts.push(request.headers.get('X-XSRF-TOKEN'))
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const { user } = await renderApp(path)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Entrar novamente' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/entrar$/)
+    })
+    expect(logouts).toHaveLength(1)
+    expect(logouts[0]).toMatch(/^token-\d+$/)
+    expect(await screen.findByRole('status')).toHaveTextContent('Você saiu da sua conta.')
+  })
+
+  it('falha de rede no logout fica na tela e avisa', async () => {
+    restricted()
+    useAntiforgeryEndpoint()
+    server.use(http.post(`${API}/auth/logout`, () => HttpResponse.error()))
+    const { user } = await renderApp('/trocar-senha-inicial')
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Entrar novamente' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('conexão')
+    expect(screen.getByTestId('location')).toHaveTextContent('/trocar-senha-inicial')
+  })
 })
