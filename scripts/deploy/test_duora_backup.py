@@ -1549,7 +1549,7 @@ class MediaBackupUnitsTests(unittest.TestCase):
         unit = (self.role / "templates" / "duora-media-backup@.service.j2").read_text(encoding="utf-8")
         tasks = (self.role / "tasks" / "main.yml").read_text(encoding="utf-8")
 
-        self.assertIn("ExecStart=/usr/local/sbin/duora-backup %i --media-root {{ duora_media_dir }}\n", unit)
+        self.assertIn('ExecStart=/usr/local/sbin/duora-backup %i --media-root "{{ duora_media_dir }}"\n', unit)
         self.assertIn("    src: duora-media-backup@.service.j2\n"
                       "    dest: /etc/systemd/system/duora-media-backup@.service\n", tasks)
         self.assertFalse((self.role / "files" / "duora-media-backup@.service").exists())
