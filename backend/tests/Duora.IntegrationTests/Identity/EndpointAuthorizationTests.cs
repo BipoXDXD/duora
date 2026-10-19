@@ -1,5 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -56,6 +58,29 @@ public sealed class EndpointAuthorizationTests(PostgresFixture postgres) : IAsyn
                 $"{route.Name} respondeu {(int)response.StatusCode} sem sessão.");
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
         }
+    }
+
+    /// <summary>
+    /// Toda rota com sessão pode responder 403 de sessão restrita (<c>PASSWORD_CHANGE_REQUIRED</c> ou
+    /// <c>MFA_ENROLLMENT_REQUIRED</c>, <see cref="Duora.Web.Security.SessionAuthorization"/>), inclusive <c>GET /me</c>, que a
+    /// SPA lê para decidir a fase restrita. O contrato gerado precisa dizer isso.
+    /// </summary>
+    [Fact]
+    public void EveryProtectedRouteDocumentsTheRestrictedSession403()
+    {
+        var undocumented = Routes()
+            .Where(route => !PublicRoutes.Contains(route.Name))
+            .Where(route => route.Endpoint.Metadata.GetMetadata<IExcludeFromDescriptionMetadata>() is not
+            {
+                ExcludeFromDescription: true,
+            })
+            .Where(route => !route.Endpoint.Metadata
+                .OfType<IProducesResponseTypeMetadata>()
+                .Any(response => response.StatusCode == StatusCodes.Status403Forbidden))
+            .Select(route => route.Name)
+            .ToList();
+
+        Assert.True(undocumented.Count == 0, $"Sem 403 no contrato: {string.Join(", ", undocumented)}");
     }
 
     private IEnumerable<(string Name, string Method, string Path, RouteEndpoint Endpoint)> Routes()
