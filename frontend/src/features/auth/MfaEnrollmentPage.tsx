@@ -9,6 +9,7 @@ import { Button } from '@/shared/ui/button'
 import { TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton } from '@/shared/ui/page'
 import { confirmMfa, startMfaEnrollment } from './auth-api'
+import { totpCodeSchema } from './auth-schemas'
 import { SignInAgainButton } from './SignInAgainButton'
 
 /** Segredo e códigos só em memória local; nunca no cache de consultas, URL ou armazenamento. */
@@ -97,7 +98,7 @@ export function MfaEnrollmentPage(): React.JSX.Element {
             aria-busy={confirm.isPending}
             onSubmit={(event) => {
               event.preventDefault()
-              const valid = /^\d{6}$/.test(code)
+              const valid = totpCodeSchema.safeParse(code).success
               setInvalid(!valid)
               if (valid && !confirm.isPending) confirm.mutate()
             }}

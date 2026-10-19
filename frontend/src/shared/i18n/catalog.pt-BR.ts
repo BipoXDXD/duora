@@ -61,6 +61,7 @@ export const ptBR = {
   'validation.passwordTooLong': 'A senha pode ter no máximo {max} caracteres.',
   'validation.termsRequired': 'Para criar a conta, aceite os Termos de uso.',
   'validation.privacyRequired': 'Para criar a conta, confirme que leu a Política de privacidade.',
+  'validation.totpCodeInvalid': 'Informe o código de 6 dígitos do autenticador.',
   'validation.invalidValue': 'Confira o valor deste campo.',
 
   'navigation.pageLoaded': 'Página carregada: {title}',

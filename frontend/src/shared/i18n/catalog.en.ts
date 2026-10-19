@@ -59,6 +59,7 @@ export const en = {
   'validation.passwordTooLong': 'Your password can be at most {max} characters long.',
   'validation.termsRequired': 'To create an account, please accept the Terms of Use.',
   'validation.privacyRequired': 'To create an account, please confirm you have read the Privacy Policy.',
+  'validation.totpCodeInvalid': 'Enter the 6-digit authenticator code.',
   'validation.invalidValue': 'Check the value in this field.',
 
   'navigation.pageLoaded': 'Page loaded: {title}',
