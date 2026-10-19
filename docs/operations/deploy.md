@@ -495,6 +495,40 @@ com revisão humana.
 | `webrtc` | ausente | A CSP3 (6.2.1, 4.3.1) só bloqueia candidatos ICE quando a diretiva `webrtc` existe com `'block'`; `default-src` não a substitui. Ausente, o WebRTC da voz ao vivo funciona ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)) |
 | `Permissions-Policy: microphone` | `(self)` | Voz ao vivo da sala ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)): `getUserMedia` só no documento da própria origem, depois do gesto. Nenhum iframe de outra origem o recebe; e a CSP não carrega iframe algum (`default-src 'none'`, sem `frame-src`). Câmera, geolocalização, pagamento, USB e Topics continuam `()` |
 
+`microphone=(self)` permite solicitar captura; não concede consentimento e não impõe gesto do usuário.
+O requisito de só pedir o microfone após ação explícita pertence à SPA, inclusive com permissão já persistida.
+`getUserMedia` exige contexto seguro e pode rejeitar com `NotAllowedError`; a experiência deve continuar sem voz.
+Autoplay é outra política do navegador: tratar rejeição de `audio.play()` e retomar `AudioContext` no gesto.
+A allowlist `self` também abrange documentos da mesma origem; não é uma restrição a uma rota nem apenas ao
+frame superior. A CSP impede navegação de iframes; a Permissions-Policy nega microfone a frames de outra origem.
+
+A CSP não impõe relay-only nem restringe os servidores ICE. Isso depende de `iceTransportPolicy: "relay"`,
+validação de candidatos/SDP e autorização da sinalização previstas no ADR-0028. Não acrescentar TURN a
+`connect-src`. A diretiva `webrtc` é parte de um draft e sua implementação não deve ser presumida uniforme.
+
+Erros gerados por handlers do Caddy passam por `handle_errors`, que importa o mesmo snippet de cabeçalhos e
+responde sem detalhes internos e com `Cache-Control: no-store`. Sem esse caminho, os 404 do `file_server`
+perdiam as políticas e podiam receber cache imutável. Respostas de erro devolvidas normalmente pelo backend
+continuam passando intactas pelo proxy.
+
+A suíte cobre 15 casos de rotas/status e mais 502 de API e hubs com upstream indisponível. O upstream é
+sintético: isso não valida autenticação, SignalR ou TURN. O smoke completo também confere as políticas em
+assets, API, hubs e no handshake WebSocket. Para execução local sem Docker, com Caddy 2.11.7 instalado:
+
+```sh
+DUORA_TEST_CADDY=/caminho/caddy python3 -m unittest discover -s scripts/deploy -p test_caddy_security_headers.py -v
+```
+
+Esse modo usa loopback, HTTPS 8443 e portas 8080/8081/2020 livres, CA/storage temporários e não instala confiança
+no sistema. Adapta apenas endereços, paths e opções de execução local; não substitui o smoke do Compose.
+Para o probe Chromium, instalar as dependências já declaradas do frontend e informar também
+`DUORA_TEST_CHROME=/caminho/chrome`. A suíte `test_caddy_browser.cjs` verifica mídia própria, negação de origens,
+blob/data, autoplay sem gesto, Web Audio, microfone negado/concedido, câmera proibida, MediaStream e ICE.
+Um diagnóstico separado permite frame só na resposta interceptada de teste para isolar a Permissions-Policy;
+essa exceção não entra no Caddyfile. Usa captura sintética e nenhum TURN externo. Execução funcional ainda
+pendente: o ambiente da revisão bloqueou o processo Chrome na criação de socket. WebKit/Safari/iOS e o fluxo
+de voz completo também continuam pendentes. Resultados em [revisão do PR #85](../security/pr85-review.md).
+
 Fica para depois, de propósito:
 
 - **3D em tempo real (`<model-viewer>`, ADR-0027 seção 7).** Nenhuma experiência o usa hoje, então nada foi
