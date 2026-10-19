@@ -275,6 +275,18 @@ describe('segundo fator na entrada', () => {
     )
     useAccountEndpoints()
     const queryClient = createTestQueryClient()
+    // Assina o cache durante toda a entrada: com gcTime 0 a mutação concluída sai dele, e olhar só no fim não prova nada.
+    const states: string[] = []
+    queryClient.getMutationCache().subscribe(() => {
+      states.push(
+        JSON.stringify(
+          queryClient
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => mutation.state),
+        ),
+      )
+    })
     const { user } = await renderApp('/entrar', queryClient)
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
     await user.type(await screen.findByLabelText('Código do autenticador'), '12')
@@ -294,13 +306,8 @@ describe('segundo fator na entrada', () => {
       password: 'frase longa de senha',
       recoveryCode: 'synthetic-recovery-1',
     })
-    const cached = JSON.stringify(
-      queryClient
-        .getMutationCache()
-        .getAll()
-        .map((mutation) => mutation.state),
-    )
-    expect(cached).not.toContain('synthetic-recovery-1')
+    expect(states.length).toBeGreaterThan(0)
+    expect(states.join('\n')).not.toContain('synthetic-recovery-1')
   })
 
   it('volta ao código do autenticador', async () => {
