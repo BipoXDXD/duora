@@ -482,8 +482,8 @@ checagem na edge.
 ## Cabeçalhos de segurança da borda
 
 A CSP e a `Permissions-Policy` vivem só no `infra/caddy/Caddyfile`, e `scripts/deploy/test_caddy_security_headers.py`
-compara as duas, diretiva por diretiva, com a política esperada escrita no teste, contra o Caddy real (job `ops`;
-pula sem Docker). O mesmo teste recusa diretiva ou feature repetida, um segundo cabeçalho, curinga, qualquer
+compara as duas, diretiva por diretiva, com a política esperada em `scripts/deploy/caddy_test_support.py`, contra o
+Caddy real (job `ops`; pula sem Docker). O smoke local confere a mesma política, por inteiro, na edge. O mesmo teste recusa diretiva ou feature repetida, um segundo cabeçalho, curinga, qualquer
 palavra-chave unsafe (`'unsafe-*'` e `'wasm-unsafe-eval'`), esquema genérico (`https:`, `wss:`), qualquer `http:`
 e os esquemas `blob:`, `data:`, `mediastream:` e `filesystem:`. Mudar a política exige mudar o teste no mesmo PR,
 com revisão humana.

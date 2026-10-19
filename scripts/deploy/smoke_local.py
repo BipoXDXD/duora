@@ -37,6 +37,8 @@ from pathlib import Path
 
 import duora_deploy
 import duora_secrets
+from caddy_test_support import (EXPECTED_CSP, EXPECTED_PERMISSIONS_POLICY, is_exact_policy, parse_csp,
+                                parse_permissions_policy)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "infra" / "compose" / "compose.prod.yml"
@@ -72,6 +74,11 @@ class Response:
     headers: dict[str, str]
     body: bytes
     set_cookies: list[str]
+    # Todos os pares, na ordem: headers guarda só o último valor de cada nome e esconderia um cabeçalho repetido.
+    raw_headers: list[tuple[str, str]]
+
+    def header_values(self, name: str) -> list[str]:
+        return [value for key, value in self.raw_headers if key.lower() == name]
 
 
 def main() -> int:
@@ -224,9 +231,11 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     index = get(context, "/", {"Accept": "text/html", "Sec-Fetch-Mode": "navigate"})
     checks.expect(index.status == 200 and b'<div id="root">' in index.body, "GET / serve o index.html da SPA")
     checks.expect(index.headers.get("cache-control") == "no-cache", "index.html com Cache-Control no-cache")
-    csp = index.headers.get("content-security-policy", "")
-    checks.expect("frame-ancestors 'none'" in csp and "unsafe-eval" not in csp and "wss://localhost" in csp,
-                  f"CSP restritiva com wss (recebido: {csp!r})")
+    csp = index.header_values("content-security-policy")
+    checks.expect(is_exact_policy(csp, parse_csp, EXPECTED_CSP), f"CSP exatamente a esperada (recebido: {csp!r})")
+    permissions = index.header_values("permissions-policy")
+    checks.expect(is_exact_policy(permissions, parse_permissions_policy, EXPECTED_PERMISSIONS_POLICY),
+                  f"Permissions-Policy exatamente a esperada (recebido: {permissions!r})")
     checks.expect("server" not in index.headers, "sem cabeçalho Server")
     checks.expect("max-age=31536000" in index.headers.get("strict-transport-security", ""), "HSTS presente")
 
@@ -401,8 +410,9 @@ def request(context: ssl.SSLContext, method: str, path: str, body: bytes | None 
     try:
         connection.request(method, path, body=body, headers=headers or {})
         response = connection.getresponse()
-        return Response(response.status, {k.lower(): v for k, v in response.getheaders()}, response.read(),
-                        response.headers.get_all("Set-Cookie") or [])
+        raw_headers = response.getheaders()
+        return Response(response.status, {k.lower(): v for k, v in raw_headers}, response.read(),
+                        response.headers.get_all("Set-Cookie") or [], raw_headers)
     finally:
         connection.close()
 

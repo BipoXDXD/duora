@@ -6,8 +6,8 @@ Docker o teste é pulado:
 
     python3 -m unittest discover -s scripts/deploy -p 'test_caddy_security_headers.py' -v
 
-A política esperada mora aqui de propósito: mudar a CSP ou a Permissions-Policy exige mudar este teste no mesmo PR
-(docs/operations/deploy.md, "Cabeçalhos de segurança da borda").
+A política esperada mora em caddy_test_support.py, compartilhada com o smoke_local.py: mudar a CSP ou a
+Permissions-Policy exige mudá-la no mesmo PR (docs/operations/deploy.md, "Cabeçalhos de segurança da borda").
 """
 
 from __future__ import annotations
@@ -21,34 +21,9 @@ import unittest
 import uuid
 from pathlib import Path
 
-from caddy_test_support import (CADDYFILE, IMAGE, READY_TIMEOUT_SECONDS, docker_available, parse_csp,
-                                parse_permissions_policy, remove_container)
-
-# Diretiva -> fontes. 'self' não cobre blob: (CSP3 6.7.2.8), e nenhuma diretiva libera blob: hoje: a Web Audio lê o
-# arquivo por fetch() (connect-src) e a voz ao vivo chega por srcObject, que não passa pelo Fetch.
-EXPECTED_CSP = {
-    "default-src": ["'none'"],
-    "script-src": ["'self'"],
-    "style-src": ["'self'"],
-    "img-src": ["'self'"],
-    "font-src": ["'self'"],
-    "media-src": ["'self'"],
-    "connect-src": ["'self'", "wss://localhost"],
-    "manifest-src": ["'self'"],
-    "base-uri": ["'none'"],
-    "form-action": ["'self'"],
-    "frame-ancestors": ["'none'"],
-    "object-src": ["'none'"],
-}
-
-EXPECTED_PERMISSIONS_POLICY = {
-    "camera": "()",
-    "microphone": "(self)",
-    "geolocation": "()",
-    "payment": "()",
-    "usb": "()",
-    "browsing-topics": "()",
-}
+from caddy_test_support import (CADDYFILE, EXPECTED_CSP, EXPECTED_PERMISSIONS_POLICY, IMAGE, READY_TIMEOUT_SECONDS,
+                                docker_available, is_exact_policy, parse_csp, parse_permissions_policy,
+                                remove_container)
 
 # Fontes que abririam a política: curinga em qualquer posição, qualquer palavra-chave unsafe ('unsafe-*' e
 # 'wasm-unsafe-eval'), esquema genérico, qualquer http: e os esquemas locais blob:, data:, mediastream: e filesystem:.
@@ -93,6 +68,20 @@ class PolicyParserTests(unittest.TestCase):
         for source in ["'self'", "'none'", "wss://localhost", "https://meetduora.com"]:
             with self.subTest(source=source):
                 self.assertNotRegex(source, FORBIDDEN_SOURCE)
+
+    def test_single_header_with_the_expected_policy_matches(self) -> None:
+        self.assertTrue(is_exact_policy(["camera=(), microphone=(self)"], parse_permissions_policy,
+                                        {"camera": "()", "microphone": "(self)"}))
+
+    def test_two_headers_never_match_even_if_one_is_the_expected_policy(self) -> None:
+        self.assertFalse(is_exact_policy(["default-src *", "default-src 'none'"], parse_csp,
+                                         {"default-src": ["'none'"]}))
+
+    def test_missing_header_never_matches(self) -> None:
+        self.assertFalse(is_exact_policy([], parse_csp, {}))
+
+    def test_ambiguous_policy_does_not_match_instead_of_raising(self) -> None:
+        self.assertFalse(is_exact_policy(["script-src *; script-src 'self'"], parse_csp, {"script-src": ["'self'"]}))
 
     def test_permissions_policy_features_keep_their_allowlist(self) -> None:
         self.assertEqual({"camera": "()", "microphone": "(self)"},
