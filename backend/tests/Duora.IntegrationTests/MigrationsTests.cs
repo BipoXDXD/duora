@@ -27,15 +27,17 @@ public sealed class MigrationsTests(PostgresFixture postgres)
         var tables = await QueryNamesAsync(
             """
             select table_schema || '.' || table_name from information_schema.tables
-            where table_schema in ('identity', 'ops', 'profiles', 'safety') and table_name <> '__ef_migrations_history'
+            where table_schema in ('events', 'experiences', 'identity', 'ops', 'profiles', 'safety') and table_name <> '__ef_migrations_history'
             """);
 
         Assert.Equal(
             [
+                "events.events", "events.pairing_participants", "events.pairings", "events.registrations", "events.rounds",
+                "experiences.audio_assets", "experiences.experience_versions", "experiences.game_actions", "experiences.game_participants", "experiences.game_sessions",
                 "identity.age_verifications", "identity.consent_records", "identity.login_sessions", "identity.role_claims", "identity.roles", "identity.selfie_verifications",
                 "identity.user_claims", "identity.user_logins", "identity.user_roles", "identity.user_tokens",
-                "identity.users", "ops.audit_events", "ops.outbox_deliveries", "ops.outbox_events", "ops.webhook_receipts",
-                "profiles.profiles",
+                "identity.users", "ops.audit_events", "ops.jobs", "ops.outbox_deliveries", "ops.outbox_events", "ops.webhook_receipts",
+                "profiles.communication_languages", "profiles.preferences", "profiles.profiles",
                 "safety.blocks", "safety.user_guards",
             ],
             tables.Order(StringComparer.Ordinal));
@@ -51,17 +53,17 @@ public sealed class MigrationsTests(PostgresFixture postgres)
         var names = await QueryNamesAsync(
             """
             select table_name from information_schema.tables
-             where table_schema in ('identity', 'ops', 'profiles', 'safety') and table_name <> '__ef_migrations_history'
+             where table_schema in ('events', 'experiences', 'identity', 'ops', 'profiles', 'safety') and table_name <> '__ef_migrations_history'
             union all
             select column_name from information_schema.columns
-             where table_schema in ('identity', 'ops', 'profiles', 'safety') and table_name <> '__ef_migrations_history'
+             where table_schema in ('events', 'experiences', 'identity', 'ops', 'profiles', 'safety') and table_name <> '__ef_migrations_history'
             union all
             select constraint_name from information_schema.table_constraints
-             where table_schema in ('identity', 'ops', 'profiles', 'safety') and table_name <> '__ef_migrations_history'
+             where table_schema in ('events', 'experiences', 'identity', 'ops', 'profiles', 'safety') and table_name <> '__ef_migrations_history'
                and constraint_type <> 'CHECK'
             union all
             select indexname from pg_indexes
-             where schemaname in ('identity', 'ops', 'profiles', 'safety') and tablename <> '__ef_migrations_history'
+             where schemaname in ('events', 'experiences', 'identity', 'ops', 'profiles', 'safety') and tablename <> '__ef_migrations_history'
             """);
 
         Assert.NotEmpty(names);

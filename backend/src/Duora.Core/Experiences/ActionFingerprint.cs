@@ -35,6 +35,16 @@ public sealed record ActionFingerprint
     /// <summary>Hash em hexadecimal minúsculo, 64 caracteres.</summary>
     public string Sha256Hex { get; }
 
+    internal static ActionFingerprint Restore(string sha256Hex)
+    {
+        if (sha256Hex.Length != 64 || sha256Hex.Any(c => !char.IsAsciiHexDigitLower(c)))
+        {
+            throw new ArgumentException("Invalid SHA-256 fingerprint.", nameof(sha256Hex));
+        }
+
+        return new ActionFingerprint(sha256Hex);
+    }
+
     public static ActionFingerprint Of(IGameAction action)
     {
         ArgumentNullException.ThrowIfNull(action);

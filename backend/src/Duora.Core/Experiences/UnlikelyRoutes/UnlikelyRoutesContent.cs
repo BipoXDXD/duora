@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+
 namespace Duora.Core.Experiences.UnlikelyRoutes;
 
 /// <summary>
@@ -47,7 +49,7 @@ public sealed record UnlikelyRoutesContent : IExperienceContent
     /// <summary>Exatamente dois conjuntos disjuntos; cada participante recebe um, por sorteio.</summary>
     public IReadOnlyList<IReadOnlyList<Clue>> ClueSets { get; }
 
-    private static RouteStop[] RequireStops(IReadOnlyList<RouteStop> stops)
+    private static ReadOnlyCollection<RouteStop> RequireStops(IReadOnlyList<RouteStop> stops)
     {
         if (stops.Count is 0 or > MaxStops)
         {
@@ -59,10 +61,10 @@ public sealed record UnlikelyRoutesContent : IExperienceContent
             throw new ArgumentException("Cada parada precisa de um stepId único.", nameof(stops));
         }
 
-        return [.. stops];
+        return Array.AsReadOnly(stops.ToArray());
     }
 
-    private static IReadOnlyList<Clue>[] RequireClueSets(IReadOnlyList<IReadOnlyList<Clue>> clueSets)
+    private static ReadOnlyCollection<IReadOnlyList<Clue>> RequireClueSets(IReadOnlyList<IReadOnlyList<Clue>> clueSets)
     {
         if (clueSets.Count != ClueSetCount)
         {
@@ -79,7 +81,7 @@ public sealed record UnlikelyRoutesContent : IExperienceContent
             throw new ArgumentException("Os conjuntos de pistas não podem compartilhar uma pista.", nameof(clueSets));
         }
 
-        return [.. clueSets.Select(set => (IReadOnlyList<Clue>)[.. set])];
+        return Array.AsReadOnly(clueSets.Select(set => (IReadOnlyList<Clue>)Array.AsReadOnly(set.ToArray())).ToArray());
     }
 }
 
@@ -104,7 +106,7 @@ public sealed record RouteStop
 
         StepId = Slug.Require(stepId, nameof(stepId));
         Prompt = CatalogText.Require(prompt, UnlikelyRoutesContent.MaxTextLength, nameof(prompt));
-        Options = [.. options];
+        Options = Array.AsReadOnly(options.ToArray());
     }
 
     public string StepId { get; }

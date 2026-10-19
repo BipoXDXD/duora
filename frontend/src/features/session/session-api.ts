@@ -30,7 +30,8 @@ const meSchema = z.object({
   // Obrigatórios: sem eles a guarda de MFA não decide, e a leitura falha em vez de liberar a área.
   mfaEnabled: z.boolean(),
   roles: z.array(z.string()),
-}) satisfies z.ZodType<MeResponse>
+  preferredLocale: z.enum(['en-US', 'pt-BR']).nullable().optional(),
+}) satisfies z.ZodType<Omit<MeResponse, 'preferredLocale'> & { preferredLocale?: string | null | undefined }>
 
 export type Me = z.output<typeof meSchema>
 

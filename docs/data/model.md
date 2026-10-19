@@ -1205,3 +1205,31 @@ imagem real):
 Tabela implementada `identity.selfie_verifications`: PK id; FK user_id com Restrict; estados Pending/Capturing/Processing/Passed/RecaptureRequired/Inconclusive/Expired; policy_version, provider_reference transitório único, feedback_code, requested_at, expires_at, completed_at e version de concorrência. Índice único parcial permite uma tentativa aberta por conta, índice user_id/requested_at atende status e orçamento. duora_app tem SELECT/INSERT/UPDATE/DELETE conforme allowlist explícita. Não armazena imagens, idade, documentos ou scores. Registros etários antigos ficam somente para compatibilidade histórica.
 
 Código de e-mail: identity.user_tokens guarda hash ligado ao security stamp e instante de emissão explícito. O registro separado Duora.RegistrationBudget/Hourly guarda início/contador do limite de emissões e não é segredo de autenticação nem fator MFA. Ambos são serializados pelo lock da conta.
+## Estado implementado da fatia linguística (2026-10-19)
+
+A migration aditiva `Participation` cria tabelas SQL de Events/Matching (`events`, `registrations`, `rounds`,
+`pairings`, `pairing_participants`), Experiences (`experience_versions`, `audio_assets`, `game_sessions`,
+`game_participants`, `game_actions`) e `ops.jobs`. `ParticipationSchema` é o DDL explícito; esses snapshots não
+são entidades EF do domínio. A lista de privilégios de integração inclui cada tabela e continua verificando
+DML exato do papel da aplicação.
+
+As descrições acima continuam o modelo alvo completo. Esta fatia operacional suporta Constelação, catálogo
+bilíngue aprovado por administrador autenticado com MFA recente, eventos de três rodadas, inscrição com fila,
+check-in, reserva, aceite bilateral, ação, saída e prazos. Limites atuais são fixos (100 pessoas, rodadas de
+12 minutos, convite de 60 segundos, jogo de até 8 minutos e teto de 9 minutos desde a rodada); o módulo geral
+de `parameter_sets`, retirada/promoção de inscrições, conexões/interesse, chat e voz permanecem separados.
+Rotas Improváveis mantém regras e localização no Core, sem adaptador de persistência HTTP nesta fatia.
+
+`pairings` fixa `communication_language` e `communication_policy_version=1`; cada participante fixa
+`display_locale`. Conteúdo EN/PT e manifesto de áudio compartilhado são guardados na mesma versão; triggers
+impedem regressão editorial e alteração/exclusão de versões publicadas e de seus assets. Sessões conservam a
+FK mesmo após retirada editorial. Áudio declarado exige as duas variantes e hash verificado; a rota de bytes
+reautoriza a sala e só entrega o asset do locale fixado do participante. Dados sintéticos e WAVs de teste estão
+somente nos projetos de teste, nunca em endpoints ou catálogo inicial de produção.
+
+O snapshot do jogo separa estado público, privado por usuário e controle. Recibos de ações persistem hash e
+versões, sem corpo de escolha. A API entrega DTO de projeção, nunca snapshot, private_state ou controle. Ações
+trancam sala e gravam com versão esperada; zero linhas no UPDATE provoca rollback. Reserva ativa é única por
+usuário e par não se repete no evento. Aborto, recusa, expiração e conclusão liberam as duas reservas; bloqueio
+executa aborto/liberação na própria transação. Não se implementou entrega push de invalidações: HTTP e polling
+são os caminhos de recuperação desta fatia.

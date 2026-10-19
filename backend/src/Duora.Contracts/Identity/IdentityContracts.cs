@@ -44,7 +44,8 @@ public sealed record MeResponse(
     string Status,
     bool EmailConfirmed,
     bool MfaEnabled,
-    IReadOnlyList<string> Roles);
+    IReadOnlyList<string> Roles,
+    string? PreferredLocale = null);
 
 /// <summary>Cadastro do TOTP (API-A11): mostrado uma vez, com <c>Cache-Control: no-store</c>.</summary>
 public sealed record MfaEnrollmentResponse(string SharedKey, string AuthenticatorUri);

@@ -26,6 +26,9 @@ const SelfieVerificationPage = routePage(
 )
 const AccountPage = routePage(async () => (await import('@/features/account/AccountPage')).AccountPage)
 const ProfilePage = routePage(async () => (await import('@/features/profile/ProfilePage')).ProfilePage)
+const PreferencesPage = routePage(async () => (await import('@/features/preferences/PreferencesPage')).PreferencesPage)
+const EventsPage = routePage(async () => (await import('@/features/participation/EventsPage')).EventsPage)
+const RoomPage = routePage(async () => (await import('@/features/participation/RoomPage')).RoomPage)
 // O guarda espera os chunks das rotas protegidas: assim, quando GET /me responde, a página entra sem um segundo
 // fallback. Uma rota protegida nova entra aqui também, senão ela mostra o fallback de novo depois do
 // "Carregando sua conta…".
@@ -36,6 +39,9 @@ const RequireSession = routePage(async () => {
     ChangePasswordPage.preload(),
     MfaEnrollmentPage.preload(),
     ProfilePage.preload(),
+    PreferencesPage.preload(),
+    EventsPage.preload(),
+    RoomPage.preload(),
   ])
   return guard
 })
@@ -60,6 +66,9 @@ export function AppRoutes(): React.JSX.Element {
             <Route path={paths.selfie} element={<SelfieVerificationPage />} />
             <Route path={paths.account} element={<AccountPage />} />
             <Route path={paths.profile} element={<ProfilePage />} />
+            <Route path={paths.preferences} element={<PreferencesPage />} />
+            <Route path={paths.events} element={<EventsPage />} />
+            <Route path="/rooms/:roomId" element={<RoomPage />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />
