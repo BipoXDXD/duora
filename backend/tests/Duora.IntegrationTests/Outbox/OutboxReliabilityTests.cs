@@ -1,6 +1,7 @@
 using Duora.Core.Notifications;
 using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Outbox;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
@@ -145,14 +146,38 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         await using var dataSource = NpgsqlDataSource.Create(harness.ConnectionString);
         var queue = new OutboxDeliveryQueue(dataSource);
         var now = harness.Time.GetUtcNow();
-        var claimed = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct));
+        var claimed = Assert.Single((await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct)).Claimed);
         Assert.True(await queue.RescheduleAsync(claimed, now, "IOException", now, Ct));
-        Assert.Empty(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct));
+        var exhaustion = await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct);
+        Assert.Empty(exhaustion.Claimed);
+        Assert.Equal([new ExhaustedDelivery(id, 1)], exhaustion.Exhausted);
         Assert.False(await queue.SettleAsync(claimed, OutboxDeliveryStatus.Delivered, null, now, Ct));
         Assert.False(await queue.RescheduleAsync(claimed, now, "IOException", now, Ct));
         Assert.False(await queue.CanSendAsync(claimed, TimeSpan.FromSeconds(30), harness.Time, Ct));
         var row = await harness.ReadDeliveryAsync(id, Ct);
         Assert.Equal(("Failed", 1, "{}"), (row.Status, row.Attempts, row.Payload));
+    }
+
+    [Fact]
+    public async Task ExhaustedClaimIsLoggedAsErrorWithDeliveryConsumerAndAttempts()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var id = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "token", Ct);
+        await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
+        var now = harness.Time.GetUtcNow();
+        Assert.Single(await new OutboxDeliveryQueue(source).ClaimAsync(
+            AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), Ct));
+        harness.Time.Advance(TimeSpan.FromMinutes(3));
+        var logs = new CapturingLoggerProvider();
+
+        Assert.Equal(0, await harness.StartWorker(["--Outbox:MaxAttempts=1"], logs: logs).DispatchBatchAsync(Ct));
+
+        var entry = Assert.Single(logs.Entries, e =>
+            e.Category == typeof(TransactionalEmailDispatcher).FullName && e.Level == LogLevel.Error);
+        Assert.Contains(id.ToString(), entry.Text, StringComparison.Ordinal);
+        Assert.Contains($"consumidor {AccountEmailOutbox.Consumer}", entry.Text, StringComparison.Ordinal);
+        Assert.Contains("após 1 tentativa(s)", entry.Text, StringComparison.Ordinal);
+        Assert.Equal("Failed", (await harness.ReadDeliveryAsync(id, Ct)).Status);
     }
 
     [Fact]
@@ -171,9 +196,9 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
 
         await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
         var queue = new OutboxDeliveryQueue(source);
-        Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct));
+        Assert.Single((await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct)).Claimed);
         now = now.AddMinutes(3);
-        Assert.Empty(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct));
+        Assert.Empty((await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct)).Claimed);
         var other = Assert.Single(await queue.ClaimAsync("other-consumer", 10, now, now.AddMinutes(2), Ct));
         Assert.Contains("token", other.Payload, StringComparison.Ordinal);
         Assert.True(await queue.SettleAsync(other, OutboxDeliveryStatus.Delivered, null, now, Ct));
@@ -248,8 +273,8 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
 
         await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
         var queue = new OutboxDeliveryQueue(source);
-        var first = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now,
-            now.AddMinutes(exhaustFirst ? 2 : 10), 1, Ct));
+        var first = Assert.Single((await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 1, now,
+            now.AddMinutes(exhaustFirst ? 2 : 10), 1, Ct)).Claimed);
         var second = Assert.Single(await queue.ClaimAsync("other-consumer", 1, now, now.AddMinutes(10), Ct));
         now = now.AddMinutes(3);
 
@@ -274,7 +299,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
             await WaitForDatabaseLockAsync(source, application);
             if (exhaustFirst)
             {
-                Assert.Empty(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(10), 1, Ct));
+                Assert.Empty((await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(10), 1, Ct)).Claimed);
             }
             else
             {
@@ -305,7 +330,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         var now = harness.Time.GetUtcNow();
         await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
         var queue = new OutboxDeliveryQueue(source);
-        var delivery = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), 1, Ct));
+        var delivery = Assert.Single((await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), 1, Ct)).Claimed);
         await using var holder = await source.OpenConnectionAsync(Ct);
         await using var transaction = await holder.BeginTransactionAsync(Ct);
         await using (var takeLock = new NpgsqlCommand(
@@ -324,7 +349,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         var competitor = new OutboxDeliveryQueue(competingSource);
         using var cancelled = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         Task finishing = exhaust
-            ? competitor.ClaimAsync(AccountEmailOutbox.Consumer, 1, now.AddMinutes(3), now.AddMinutes(13), 1, cancelled.Token)
+            ? competitor.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 1, now.AddMinutes(3), now.AddMinutes(13), 1, cancelled.Token)
             : competitor.SettleAsync(delivery, OutboxDeliveryStatus.Delivered, null, now, cancelled.Token);
         try
         {

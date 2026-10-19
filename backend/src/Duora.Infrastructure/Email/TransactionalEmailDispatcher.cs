@@ -46,7 +46,7 @@ public sealed partial class TransactionalEmailDispatcher
     public async Task<int> DispatchBatchAsync(CancellationToken cancellationToken)
     {
         var now = _time.GetUtcNow();
-        var claimed = await _queue.ClaimAsync(
+        var result = await _queue.ClaimWithAttemptLimitAsync(
             AccountEmailOutbox.Consumer,
             _options.BatchSize,
             now,
@@ -54,12 +54,17 @@ public sealed partial class TransactionalEmailDispatcher
             _options.MaxAttempts,
             cancellationToken);
 
-        foreach (var delivery in claimed)
+        foreach (var exhausted in result.Exhausted)
+        {
+            LogExhausted(_logger, exhausted.Id, AccountEmailOutbox.Consumer, exhausted.Attempts);
+        }
+
+        foreach (var delivery in result.Claimed)
         {
             await DeliverAsync(delivery, cancellationToken);
         }
 
-        return claimed.Count;
+        return result.Claimed.Count;
     }
 
     private async Task DeliverAsync(ClaimedDelivery delivery, CancellationToken cancellationToken)
@@ -191,6 +196,11 @@ public sealed partial class TransactionalEmailDispatcher
         Level = LogLevel.Error,
         Message = "Envio da entrega {DeliveryId} falhou na tentativa {Attempt} ({Cause}); sem novas tentativas, vai para revisão")]
     private static partial void LogGaveUp(ILogger logger, Guid deliveryId, int attempt, string cause);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Entrega {DeliveryId} do consumidor {Consumer} esgotou as tentativas após {Attempts} tentativa(s) sem resultado gravado; vai para revisão")]
+    private static partial void LogExhausted(ILogger logger, Guid deliveryId, string consumer, int attempts);
 
     [LoggerMessage(
         Level = LogLevel.Warning,

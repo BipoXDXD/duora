@@ -320,7 +320,9 @@ Nomes da implementação do M1 (`OutboxDeliveryQueue`): o claim filtra por `cons
 decidida pelo consumidor depois do claim, encerrando a entrega como `Expired`.
 O e-mail fornece `MaxAttempts`: no mesmo comando, candidatos esgotados passam a `Failed`, recebem
 `completed_at`, `MaxAttemptsExceeded`, lease nulo e token incrementado, sem nova tentativa. O comando
-só retorna candidatos abaixo do teto. Candidatos são limitados pelo lote e trancados com `SKIP LOCKED`;
+só retorna como trabalho os candidatos abaixo do teto; as esgotadas voltam à parte (`ClaimResult.Exhausted`,
+id e tentativas, sem ler o payload) e o dispatcher registra cada uma em `Error`, com id, consumidor e
+tentativas. Candidatos são limitados pelo lote e trancados com `SKIP LOCKED`;
 um lote composto apenas por esgotadas pode retornar zero e o worker continua na próxima consulta.
 Leases ativos nunca são encerrados por essa limpeza. Outros consumidores que omitem o teto preservam
 o contrato anterior. O payload só é limpo quando nenhuma entrega do evento permanece aberta.
