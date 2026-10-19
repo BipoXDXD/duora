@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
-import { renderApp, ROUTE_CHUNK_TIMEOUT_MS, type RenderedApp } from '@/test/render'
+import { createTestQueryClient, renderApp, ROUTE_CHUNK_TIMEOUT_MS, type RenderedApp } from '@/test/render'
 
 const ME = {
   id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
@@ -86,7 +86,21 @@ describe('troca obrigatória da senha inicial', () => {
       }),
       http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
     )
-    const { user, queryClient } = await renderApp('/entrar')
+    const queryClient = createTestQueryClient()
+    // Assina o cache desde o início: com gcTime 0 cada mutação concluída sai dele, e olhar só no fim não veria a
+    // senha nas variables da troca, que terminou duas telas antes.
+    const states: string[] = []
+    queryClient.getMutationCache().subscribe(() => {
+      states.push(
+        JSON.stringify(
+          queryClient
+            .getMutationCache()
+            .getAll()
+            .map((mutation) => mutation.state),
+        ),
+      )
+    })
+    const { user } = await renderApp('/entrar', queryClient)
     await enter(user, screen.getByLabelText('E-mail'), ME.email)
     await enter(user, screen.getByLabelText('Senha'), TEMPORARY)
     await user.click(screen.getByRole('button', { name: 'Entrar' }))
@@ -106,12 +120,8 @@ describe('troca obrigatória da senha inicial', () => {
     await user.type(screen.getByLabelText('Código do autenticador'), '123456')
     await user.click(screen.getByRole('button', { name: 'Ativar MFA' }))
     expect(await screen.findByText('synthetic-recovery')).toBeInTheDocument()
-    const cached = JSON.stringify(
-      queryClient
-        .getMutationCache()
-        .getAll()
-        .map((mutation) => mutation.state),
-    )
+    expect(states.length).toBeGreaterThan(0)
+    const cached = states.join('\n')
     for (const secret of [PASSWORD, TEMPORARY, 'SYNTHETICKEY', 'synthetic-recovery', '123456'])
       expect(cached).not.toContain(secret)
     await user.click(screen.getByRole('button', { name: 'Guardei os códigos, continuar' }))
