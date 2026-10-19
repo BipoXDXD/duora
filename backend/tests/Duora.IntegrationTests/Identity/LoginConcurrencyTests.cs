@@ -150,6 +150,19 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         await using var next = await gate.EnterAsync(key, timeout, TestContext.Current.CancellationToken);
     }
 
+    [Fact]
+    public void OnlyTheLoginFlowCanTakeTheTurnByEmail()
+    {
+        // A ordem e-mail → UUID → PostgreSQL só se mantém se ninguém fora do login pegar a vez por e-mail; quem
+        // a pegasse com a conta já travada inverteria a ordem e as duas filas esperariam uma à outra até o teto.
+        var method = typeof(AccountSecurityService).GetMethod(
+            nameof(AccountSecurityService.EnterLoginAsync),
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+
+        Assert.NotNull(method);
+        Assert.True(method.IsAssembly, "EnterLoginAsync deveria ser internal (só o CredentialVerifier o usa).");
+    }
+
     [Theory]
     [InlineData(99, 5000, false)]
     [InlineData(30000, 99, false)]
