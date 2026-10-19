@@ -240,6 +240,26 @@ service, **E** elevation of privilege. Cada linha cita a ameaça (TM-xx) detalha
 | E | Mass assignment, BOLA e BFLA nas rotas de perfil, sala e administração | TM-04, TM-62, TM-18 |
 | I | Erro com stack trace, SQL ou nome de classe | TM-63 |
 
+### 5.12 Voz ao vivo na sala
+
+Decisão do responsável de 2026-10-19: WebRTC P2P com `iceTransportPolicy: "relay"` nos dois lados e
+Cloudflare Realtime TURN ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)). Credencial por API-R08, sinalização pelo hub
+(adendo ao ADR-0007), nenhuma mídia na VPS. Voz identifica: o livro de
+áudio registra hostilidade contra jogadoras reconhecidas pela voz (*The Game Audio Strategy Guide*, cap. 12,
+p. 383).
+
+| STRIDE | Ameaça | Ref. |
+|---|---|---|
+| S | Terceiro, ou participante de outra sala, entra na voz com credencial forjada, vazada ou reaproveitada | TM-68 |
+| S | Página hostil obtém a credencial de voz com o cookie da vítima | TM-75 |
+| I | IP de uma pessoa exposto à outra por candidato ICE direto | TM-69 |
+| I | Áudio gravado, transcrito, logado ou enviado a LLM, moderação ou fornecedor | TM-70 |
+| I | Microfone aberto sem gesto (permissão pedida ao entrar, captura que continua depois de "desligar") | TM-71 |
+| I | Telemetria ou metadados da voz que identificam a pessoa (endereço, impressão de voz) | TM-76 |
+| E | Voz continua depois de bloqueio, saída, fim da sala ou revogação da sessão (INV-03) | TM-72 |
+| R | Assédio por voz sem registro que sustente a denúncia | TM-73 |
+| D | Relay TURN/SFU usado como proxy aberto, para a rede interna ou para esgotar banda | TM-74 |
+
 ## 6. Ameaça → mitigação → teste
 
 Convenções:
@@ -321,6 +341,15 @@ Convenções:
 | TM-65 | Exportação com dados de terceiros | Exportação só de dados do titular; sem decisões alheias, evidências nem dados de terceiros; arquivo via API-D04 com reautenticação e expiração de 24 h (spec 12.1, 12.4) | a criar: `ExportContainsOnlySubjectDataAndExpires` (M3) |
 | TM-66 | Pré-sequestro de conta por cadastro pendente, nas duas ordens (atacante antes da vítima; vítima antes, atacante depois e a vítima clica no link do atacante) | Confirmação exige token válido **e** a senha do cadastro pendente, com resposta única para as duas falhas e teto de 5 falhas que invalida o link; cadastro sobre conta pendente a substitui (senha, aceites e security stamp novos) num upsert atômico; pendente expira em 72 h; reset não serve a conta pendente nem confirma o e-mail. Risco residual: negação de serviço do cadastro de outra pessoa (sobrescrever o pendente ou esgotar as tentativas), sem acesso à conta ([auth.md](auth.md#cadastro-pendente-e-pré-sequestro-de-conta)) | `AccountTakeoverTests.OwnerCannotBeTrickedIntoConfirmingTheAttackersLaterRegistration`, `OwnersRegistrationReplacesAPendingRegistrationMadeBySomeoneElse`, `WrongPasswordAndInvalidTokenAreIndistinguishable`, `TooManyWrongPasswordsInvalidateTheConfirmationLink`, `PendingRegistrationExpiresAndCanNoLongerBeConfirmed`, `PasswordResetIsNotOfferedForAPendingRegistration`, `ConfirmedAccountIsNotReplacedByALaterRegistration`; `ConfirmationAbuseTests` (link reaproveitado não é oráculo de senha, teto atômico em paralelo, corrida com recadastro); `RegistrationTests.ConcurrentRegistrationsOfTheSameEmailCreateOneAccount` |
 | TM-67 | Endereço parecido (Unicode) acha a conta de outra pessoa | `EmailAddress` só aceita ASCII imprimível, com domínio internacional em punycode; e-mails de conta vão para o endereço gravado, nunca para o digitado ([auth.md](auth.md#endereço-de-e-mail)) | `LookalikeEmailTests`; `EmailAddressTests.TryParseRejectsNonAsciiAddresses` |
+| TM-68 | Entrada indevida na voz | Credencial TURN por API-R08 só para participante ativo daquela sala, com TTL até o fim da sessão e teto de ~20 min; alheio → `404` como a sala (ADR-0016); sinalização só entre os dois participantes | a criar: `VoiceCredentialIsIssuedOnlyToActiveParticipantsOfTheRoom`; a criar: `ExpiredOrForeignVoiceCredentialIsRejected` |
+| TM-69 | IP exposto ao par | `iceTransportPolicy: "relay"` nos dois lados; o hub rejeita candidato que não seja `typ relay`, inclusive no SDP, contra cliente modificado | a criar: `VoiceSignalWithNonRelayCandidateIsRejected`; a criar (E2E com coturn local via Testcontainers, Chromium e WebKit): `RemoteIceCandidatesContainOnlyRelayAddresses`; manual no Safari/iOS (bug 312332 do WebKit) |
+| TM-70 | Áudio gravado ou enviado a terceiros | Mídia DTLS-SRTP de navegador a navegador: nem a VPS nem o relay têm o áudio em claro; nenhuma gravação, transcrição ou STT; nenhum módulo referencia cliente de STT ou de LLM para voz; denúncia sem áudio (ADR-0027) | a criar: `NoModuleReferencesSpeechToTextForLiveVoice` (arquitetura); a criar: `VoiceReportCarriesMetadataButNoAudio` |
+| TM-71 | Microfone sem consentimento | `getUserMedia` só no handler do gesto "Ligar meu microfone"; desligar para a trilha (`stop`), não só a muta; indicador de microfone aberto sempre visível | a criar: `MicrophonePermissionIsRequestedOnlyAfterExplicitGesture`; a criar: `TurningMicrophoneOffStopsTheCaptureTrack` |
+| TM-72 | Voz depois do bloqueio | Saída, bloqueio, denúncia, kick e fim da sessão gravam na outbox a revogação da credencial TURN no mesmo commit; evento no hub fecha a conexão nos dois clientes; nova credencial negada (spec 7.3). Mute da outra pessoa é no cliente de quem ouve | a criar: `BlockEndsLiveVoiceForBothParticipants`; a criar: `RevokedLoginSessionCannotRejoinVoice` |
+| TM-73 | Assédio sem evidência | Aceito por decisão do responsável: a denúncia não leva áudio. Ela registra que havia voz ativa, horário e duração; bloquear e denunciar ficam na tela de voz; silenciar e sair da voz são imediatos. Rever só por ADR | a criar: `VoiceReportCarriesMetadataButNoAudio` |
+| TM-74 | Abuso do relay | Credencial de vida curta e revogável por sala; relay gerenciado pela Cloudflare (fora da rede da VPS); rate limit por conta e por sala na emissão (`429` com `Retry-After`); sinalização com teto de ~16 KiB | a criar: `VoiceCredentialIssuanceIsRateLimited`; a criar: `OversizedVoiceSignalIsRejected` |
+| TM-75 | Credencial obtida por página hostil | Emissão por `POST` autenticado com antiforgery e `Origin` validado, resposta `no-store`; credencial nunca em URL nem em log | a criar: `VoiceCredentialRequiresAntiforgeryAndSameOrigin` |
+| TM-76 | Metadados identificantes | Telemetria da voz só com contagens e duração; sem IP do par, sem SDP nem candidatos em log; nenhuma impressão de voz; Cloudflare como sub-processador de IP e metadados no mapa de dados, depois do PR #83; aviso de que a outra pessoa pode gravar localmente | a criar: `VoiceTelemetryContainsNoPeerAddressesOrSdp` |
 
 ## 7. Riscos aceitos e pendências
 
@@ -333,3 +362,6 @@ Convenções:
 | Base legal, prazos e responsável por incidentes | Pendente de apoio jurídico (spec 12.1, 12.5); bloqueia dados reais | A designar |
 | Chave do autenticador e códigos de recuperação em `identity.user_tokens` | Verificar se a versão do Identity guarda em claro; se sim, decidir proteção adicional antes do M1 ([auth.md](auth.md#mfa)) | Responsável técnico |
 | Segunda instância web | Fora do escopo: exige revogação distribuída e limites compartilhados (ADR-0009) | — |
+| Voz ao vivo: mute e kick no cliente | Aceito (ADR-0028): sem servidor de mídia, silenciar é no cliente de quem ouve e o kick depende da revogação no relay; mute pelo servidor leva ao plano B (LiveKit Cloud) | Responsável pelo produto |
+| Voz ao vivo: gravação local pela outra pessoa | Aceito: impossível impedir; a tela de voz avisa | Produto |
+| Voz ao vivo: denúncia sem áudio | Aceito por decisão do responsável (TM-73); rever só por ADR | Responsável pelo produto |
