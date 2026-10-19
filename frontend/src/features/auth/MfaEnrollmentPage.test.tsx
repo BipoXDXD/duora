@@ -1,5 +1,5 @@
-import { screen } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { screen, waitFor } from '@testing-library/react'
+import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { renderApp, ROUTE_CHUNK_TIMEOUT_MS, type RenderedApp } from '@/test/render'
@@ -13,6 +13,7 @@ const ADMIN_WITHOUT_MFA = {
   mfaEnabled: false,
 }
 const SHARED_KEY = 'SYNTHETICKEY'
+const RECHECK_LATENCY_MS = 50
 
 /** Fase do MFA como o servidor a expõe: toda rota fora do cadastro responde 403 MFA_ENROLLMENT_REQUIRED. */
 function mfaPhase() {
@@ -261,5 +262,58 @@ describe('textos da tela', () => {
     ).toHaveAttribute('aria-disabled', 'true')
     release()
     expect(await screen.findByText(SHARED_KEY, {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toBeInTheDocument()
+  })
+})
+
+describe('erro 401 nas fases restritas', () => {
+  /**
+   * /me da fase, contando as leituras: o 401 de uma escrita reconsulta a identidade (query-client.ts). A reconsulta
+   * demora um pouco, como numa rede real, para a tela atravessar o estado de busca.
+   */
+  function countedRestriction(code: string) {
+    let calls = 0
+    server.use(
+      http.get(`${API}/me`, async () => {
+        calls++
+        if (calls > 1) await delay(RECHECK_LATENCY_MS)
+        return problem(403, code)
+      }),
+    )
+    return { calls: () => calls }
+  }
+
+  it('o erro e a chave continuam depois da reconsulta de /me', async () => {
+    const me = countedRestriction('MFA_ENROLLMENT_REQUIRED')
+    useAntiforgeryEndpoint()
+    useEnrollmentEndpoint()
+    useConfirmationEndpoint(() => problem(401, 'REAUTHENTICATION_REQUIRED'))
+    const { user, queryClient } = await renderApp('/conta/ativar-mfa')
+    await startEnrollment(user)
+
+    await submitCode(user, '123456')
+    await waitFor(() => {
+      expect(me.calls()).toBe(2)
+      expect(queryClient.isFetching()).toBe(0)
+    })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Entre novamente para confirmar sua identidade')
+    expect(screen.getByText(SHARED_KEY)).toBeInTheDocument()
+  })
+
+  it('a troca de senha mantém o erro depois da reconsulta de /me', async () => {
+    const me = countedRestriction('PASSWORD_CHANGE_REQUIRED')
+    useAntiforgeryEndpoint()
+    server.use(http.post(`${API}/me/password-changes`, () => problem(401, 'INVALID_CREDENTIALS')))
+    const { user, queryClient } = await renderApp('/trocar-senha-inicial')
+    await user.type(await screen.findByLabelText('Senha temporária', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS }), 'X')
+    await user.type(screen.getByLabelText('Senha nova'), ' minha senha própria longa ')
+    await user.type(screen.getByLabelText('Confirme a nova senha'), ' minha senha própria longa ')
+    await user.click(screen.getByRole('button', { name: 'Salvar senha nova' }))
+    await waitFor(() => {
+      expect(me.calls()).toBe(2)
+      expect(queryClient.isFetching()).toBe(0)
+    })
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Senha atual inválida')
   })
 })
