@@ -83,7 +83,8 @@ requisição e `stream_close_delay 5m` em recarga de config); `/assets/*` é imu
 dá 404; `index.html` e demais estáticos com `no-cache`; o fallback da SPA só vale para navegação de documento
 (`Sec-Fetch-Mode: navigate` ou `Accept: text/html`); `/health` e `/openapi` respondem 404 na borda.
 
-CSP, conferida contra o build do Vite em Chromium e WebKit sem nenhuma violação:
+CSP, fixada diretiva por diretiva contra o Caddy real por `scripts/deploy/test_caddy_security_headers.py` (nenhum
+teste confere hoje violações no navegador):
 `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self';
 connect-src 'self' wss://<host>; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';
 object-src 'none'`. Mais HSTS (1 ano, sem preload), `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
