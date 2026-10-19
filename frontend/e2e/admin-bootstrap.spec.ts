@@ -1,7 +1,8 @@
 import { AxeBuilder } from '@axe-core/playwright'
-import { expect, test } from '@playwright/test'
+import { type BrowserContext, expect, type Page, test } from '@playwright/test'
 
-test('senha temporária → senha própria → MFA, inclusive reload e navegação direta', async ({ page, context }) => {
+/** API do bootstrap simulada: senha temporária → senha própria → MFA. Devolve os corpos da troca de senha. */
+async function mockBootstrapApi(page: Page, context: BrowserContext): Promise<unknown[]> {
   let phase = 'temporary'
   let csrf = 0
   const received: unknown[] = []
@@ -60,6 +61,11 @@ test('senha temporária → senha própria → MFA, inclusive reload e navegaç�
     }
     await route.fulfill({ status: 404 })
   })
+  return received
+}
+
+test('senha temporária → senha própria → MFA, inclusive reload e navegação direta', async ({ page, context }) => {
+  const received = await mockBootstrapApi(page, context)
   await page.goto('/conta/perfil')
   await expect(page).toHaveURL(/trocar-senha-inicial$/)
   await page.reload()
@@ -83,4 +89,31 @@ test('senha temporária → senha própria → MFA, inclusive reload e navegaç�
   await page.getByRole('button', { name: 'Guardei os códigos, continuar' }).click()
   await expect(page).toHaveURL(/conta$/)
   await expect(page.getByText('synthetic-recovery')).toHaveCount(0)
+})
+
+test.describe('jornada do bootstrap em inglês (navegador em en-US)', () => {
+  test.use({ locale: 'en-US' })
+
+  test('initial password → own password → MFA, com axe em cada tela', async ({ page, context }) => {
+    const received = await mockBootstrapApi(page, context)
+    await page.goto('/conta')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+    await expect(page.getByRole('heading', { level: 1, name: 'Change your initial password' })).toBeVisible()
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+    await page.getByLabel('Temporary password').fill('SYNTHETIC-TEMPORARY')
+    await page.getByLabel('New password', { exact: true }).fill(' my own long password ')
+    await page.getByLabel('Confirm new password').fill(' my own long password ')
+    await page.getByRole('button', { name: 'Save new password' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Enable two-factor authentication' })).toBeVisible()
+    expect(received).toEqual([{ currentPassword: 'SYNTHETIC-TEMPORARY', newPassword: ' my own long password ' }])
+    await page.getByRole('button', { name: 'Set up authenticator' }).click()
+    await expect(page.getByText('SYNTHETICKEY')).toBeVisible()
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+    await page.getByLabel('Authenticator code').fill('123456')
+    await page.getByRole('button', { name: 'Enable MFA' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Save your recovery codes' })).toBeVisible()
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+    await page.getByRole('button', { name: 'I saved the codes, continue' }).click()
+    await expect(page).toHaveURL(/conta$/)
+  })
 })
