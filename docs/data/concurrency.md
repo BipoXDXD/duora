@@ -504,10 +504,34 @@ não é limite global para ataques com muitos endereços diferentes. Não promet
 
 A proteção fecha a diferença estrutural de paralelismo entre logins existentes e inexistentes numa
 única instância (ADR-0009), mas não promete tempo constante: banco, auditoria, hashes antigos e
-concorrência com reset/reautenticação ainda podem produzir diferenças. Mais instâncias exigem nova
-avaliação, pois as filas são locais, embora o lock SQL preserve a correção. Medir distribuições de
+concorrência com reset/reautenticação ainda podem produzir diferenças. Medir distribuições de
 latência sob carga representativa é necessário antes de aceitar esses riscos; não registrar e-mail,
 IP ou UUID como rótulo. O teste controlado não substitui benchmark da VPS.
+
+### Com mais de uma instância web
+
+Tudo acima vale para uma instância (ADR-0009). A fila (`AccountCheckGate`) e os limitadores ficam na
+memória do processo, e só o lock SQL é compartilhado. O lock preserva a correção (contador de falhas,
+passo TOTP, uso único dos códigos), mas uma segunda réplica traz de volta três efeitos concretos, e a
+issue #65 é o gatilho registrado para revisá-los no ADR-0009 antes de subir a réplica:
+
+1. **`503` entre instâncias pela espera no `FOR NO KEY UPDATE`.** Cada instância deixa passar uma
+   verificação por conta; com N réplicas, até N verificações da mesma conta disputam a linha no
+   PostgreSQL, cada uma segurando uma conexão. A última espera até N − 1 hashes no lock, e quem passa
+   de `AccountLockTimeout` (5 s, não os 30 s da fila) recebe `503`: com o hash de 1,8 s da #65,
+   quatro réplicas já bastam. A espera que a fila tirava do banco volta para ele, N conexões por
+   conta em vez de uma.
+2. **O oráculo de paralelismo volta para e-mail inexistente.** A vez por e-mail é local. Os logins
+   de uma conta existente continuam serializados entre réplicas pelo lock SQL, mas os de um e-mail
+   inexistente, que não tocam a linha, correm em paralelo, até N ao mesmo tempo. Uma rajada no
+   mesmo endereço volta a terminar mais cedo quando a conta não existe (TM-06), o canal que a
+   #65 fechou.
+3. **O rate limit e a fila valem por instância.** Os limites por conta e por IP (`429`) viram N vezes
+   o configurado, e a fila e os tetos (`AccountQueueTimeout`, `LoginTimeout`) não veem os pedidos das
+   outras réplicas. TM-01 (força bruta) passa a ter N vezes as tentativas por janela.
+
+Mitigar exige estado compartilhado: limitador e vez por e-mail no banco ou num store comum, com o
+custo de mais uma ida ao banco por login. Fica para o ADR que substituir o ADR-0009.
 
 Validação: `LoginConcurrencyTests` injeta atraso de 1,8 s sobre o hasher real para quatro logins
 simultâneos, verifica `204`/cookie e `401 INVALID_CREDENTIALS` sem cookie, serialização e latências
