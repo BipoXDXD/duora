@@ -313,6 +313,10 @@ erDiagram
     o negócio não altera. Se um dia a região
     passar a ser editável pelo negócio (outro país, microrregião), a troca é uma migração expand/contract para
     lookup table.
+  - **Proposta de troca ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), proposta
+    1):** o público principal não é brasileiro, então "outro país" deixou de ser hipótese. Recomendado: país
+    (ISO 3166-1 alfa-2) mais subdivisão opcional (ISO 3166-2), com FK para uma lookup table dos países habilitados,
+    em expand/contract. Até a decisão do dono e o PR dessa mudança, vale o `CHECK` das 27 UFs abaixo descrito.
   - A lista vem de `RegionCode.All` (Core), a mesma que gera o CHECK, o `enum` do OpenAPI e, pelo tipo gerado, o
     `Record` de rótulos do frontend: não há segunda cópia a manter.
   - **Só a forma canônica** (`BR-SP`): `br-sp`, borda com espaço, outro separador, vazio ou NUL são recusados com
