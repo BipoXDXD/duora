@@ -317,3 +317,32 @@ código acima.
 | Comentários de código que descrevem a região como UF e o português do Brasil como padrão | `backend/src/Duora.Contracts/Profiles/ProfileContracts.cs:6`, `:14`; `backend/src/Duora.Core/Profiles/OwnProfile.cs:7`; `backend/src/Duora.Web/Profiles/ProfileEditParser.cs:15`; `backend/src/Duora.Web/Profiles/ProfileEndpoints.cs:44`, `:70`; `backend/src/Duora.Core/Notifications/EmailLanguage.cs:5`, `:26` | Descrevem o comportamento atual e mudam junto com o código nas propostas 1 (#78) e 3 (#80) |
 | Moeda e telefone | Nenhuma ocorrência de `BRL`, `R$` ou `+55` no código e nos docs | Regra registrada na proposta 4 |
 | `meetduora.com` | `infra/caddy/Caddyfile:3`, `infra/compose/compose.prod.yml:8`, `docs/operations/deploy.md:349` | Sem conflito (`.com` não pressupõe país); nada a mudar |
+
+## Adendo: decisão de pareamento linguístico aprovada (2026-10-19)
+
+A lacuna de decisão da proposta 2 (#79) está resolvida pela aprovação explícita do responsável. O uso de `preferred_locale` mencionado na proposta 3 não substitui a declaração dos idiomas de comunicação. O registro abaixo atualiza essas propostas; não declara implementação concluída nem aprova outras propostas pendentes deste ADR.
+
+### Política aprovada de comunicação e pareamento (2026-10-19)
+
+Decisão explícita do responsável, issues #79 e #80:
+
+1. Separar idioma de interface/conteúdo (`preferred_locale`) dos idiomas em que a pessoa aceita conversar.
+2. Exigir ao menos um idioma de comunicação em comum; quando os idiomas de exibição diferirem, exigir também aceitação explícita de ambas as pessoas para esse tipo de par.
+3. Mostrar o idioma de comunicação combinado no convite ou na entrada da sala.
+4. Informar na escolha da preferência que chat e voz ao vivo não têm tradução automática.
+5. Nunca ampliar preferências automaticamente em razão do tempo de espera.
+6. Manter voz inteiramente opcional, sem penalidade de elegibilidade, prioridade ou conclusão para quem não a utiliza.
+
+O idioma de comunicação comum deve permitir interação textual; aceitar o par não autoriza captura de microfone.
+A mesma `ExperienceVersion` fornece estrutura e IDs idênticos, com textos, falas e áudio pré-gerado no idioma de cada participante.
+
+Implicações para a implementação (ainda não implementadas neste registro):
+
+- Profiles mantém preferências privadas de comunicação separadas de localização; Matching avalia a interseção dos idiomas declarados e o opt-in bilateral antes de pontuar candidatos. Nenhuma inferência de proficiência a partir de locale, região, IP ou fallback.
+- API-P07/API-P03 devem transportar as preferências privadas com `ETag`/`If-Match`; revalidar alterações sob as guardas da spec 5.2 antes de reservar. Preservar INV-01/02/03/05/09 e a ordem de locks existente.
+- A projeção autorizada do convite/sala mostra o idioma combinado, sem expor a lista completa de preferências nem motivos individuais de não pareamento. Registrar a versão da política para rastreabilidade. Não mudar automaticamente o acordo de uma sala iniciada.
+- Contas legadas sem declaração não ganham proficiência ou opt-in por migração: coletar a escolha explícita antes de usar a nova política. Definir no PR de implementação os DTOs, códigos de validação, seleção determinística entre vários idiomas comuns e compatibilidade de clientes; atualizar OpenAPI e cliente gerado.
+- Testes de aceite a implementar: matriz de opt-in bilateral com locales diferentes; interseção vazia bloqueia o par; locale igual não substitui idioma declarado; espera não relaxa filtro; preferência concorrente é revalidada; bloqueios continuam prevalecendo; projeções preservam IDs e privacidade; E2E conclui a experiência sem solicitar microfone; alterações de locale não reescrevem idiomas declarados.
+- Métricas agregadas de espera e não pareamento, sem preferências individuais ou grupos pequenos; sem conteúdo de chat/voz em telemetria. Entrega futura por migração aditiva e leitor tolerante; rollback não pode ampliar silenciosamente as preferências aceitas.
+
+Região é um filtro independente: detectar automaticamente a região como preferência inicial, filtrar pela mesma região e permitir escolher outra. Escolha manual prevalece sobre detecção posterior. A granularidade (país, subdivisão ou área), o método de detecção e o tratamento de falha continuam pendentes; esta aprovação linguística não os decide. Não introduzir geolocalização precisa.
