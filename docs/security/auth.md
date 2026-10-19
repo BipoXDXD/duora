@@ -577,12 +577,16 @@ sem artefato do CI (spec 25.19).
 
 ## SPA: senha inicial administrativa e cadastro de MFA
 
-O fluxo do bootstrap (spec 11.1; API-A04, A08, A11, A12 e A16) usa uma branch derivada do
+O fluxo do bootstrap (spec 11.1; API-A04, A08, A11, A12 e A16) é a interface do bootstrap do
 PR #71. A interface não amplia autorização: o servidor continua sendo a fonte da verdade.
 
-- `403 PASSWORD_CHANGE_REQUIRED` em `/me` leva a `/trocar-senha-inicial`, inclusive ao abrir
-  diretamente uma rota protegida. A resposta tem precedência sobre identidade antiga em cache.
-  O mesmo código em consultas ou mutações reconsulta `/me`; não há retry automático da escrita.
+- `403 PASSWORD_CHANGE_REQUIRED` em `/me` (descrito no `openapi.json`) leva a `/trocar-senha-inicial`,
+  inclusive ao abrir diretamente uma rota protegida. A resposta tem precedência sobre identidade antiga
+  em cache. Na fase do MFA, `/me` está na allowlist do cadastro e responde `200` com `mfaEnabled: false`
+  e o papel privilegiado: é isso que leva a `/conta/ativar-mfa`. O `403 MFA_ENROLLMENT_REQUIRED` vem das
+  outras rotas; um `403` com qualquer dos dois códigos em consultas ou mutações reconsulta `/me`, e a SPA
+  também aceita `MFA_ENROLLMENT_REQUIRED` vindo de `/me` (leitor tolerante). Não há retry automático da
+  escrita.
   Enquanto `/me` é reconsultado (por exemplo, depois de um 401 na troca de senha ou no MFA), a tela
   restrita em que a pessoa está continua montada, com o erro e a chave do MFA preservados.
 - A16 recebe somente `currentPassword` e `newPassword`, sem normalização na SPA. O formulário
@@ -594,7 +598,12 @@ PR #71. A interface não amplia autorização: o servidor continua sendo a fonte
 - A11/A12 cadastram o autenticador por chave manual e confirmação de seis dígitos. A chave e os
   códigos de recuperação ficam somente no estado local da tela; não entram em query/mutation
   data, variables, URL, storage ou log. Após salvar os códigos, a transição limpa o cache e renova
-  o CSRF. O login oferece o campo TOTP quando o servidor responde `MFA_REQUIRED`.
+  o CSRF. Quando o servidor responde `MFA_REQUIRED`, o login mostra o campo do código do autenticador,
+  com foco nele, e um botão que troca para o código de recuperação; o corpo leva só um dos dois
+  (`twoFactorCode` ou `recoveryCode`), e nenhum fica no MutationCache.
+- As mutações da SPA (A04, A11, A12 e A16) têm limite no servidor: A04 por IP e por e-mail, A11–A16 por
+  conta (`AuthRateLimitOptions`). O `429` chega à tela com a espera do `Retry-After` e não é repetido
+  sozinho.
 - Uma sessão sem autenticação recente recebe orientação para entrar novamente. O botão "Entrar
   novamente" das duas telas chama o logout (A05) antes de ir à entrada, para a sessão restrita não
   ficar viva no servidor; se o logout falhar por rede, a tela fica e mostra o erro. Na troca da senha
@@ -604,14 +613,19 @@ PR #71. A interface não amplia autorização: o servidor continua sendo a fonte
   cinco minutos e a validade de 24 horas continuam sendo verificadas pelo backend.
 
 Verificação: `ChangePasswordPage.test.tsx` integra componentes, navegação, CSRF e respostas HTTP
-simuladas com MSW; `query-client.test.ts` cobre a reconsulta centralizada;
-`LoginPage.test.tsx` cobre login normal e TOTP (seis dígitos, credenciais fora do MutationCache);
-`MfaEnrollmentPage.test.tsx` cobre o `403 MFA_ENROLLMENT_REQUIRED` em `/me`, a validação do código, os
-erros de A11/A12, o foco ao trocar de estado e a ausência da chave e dos códigos em cache, storage e URL;
+simuladas com MSW, assinando o MutationCache durante a jornada inteira; `query-client.test.ts` cobre a
+reconsulta centralizada; `LoginPage.test.tsx` cobre login normal, TOTP e código de recuperação (formato,
+foco, um fator por corpo, credenciais fora do MutationCache); `MfaEnrollmentPage.test.tsx` simula a fase
+do MFA como o servidor responde (`/me` 200 com `mfaEnabled: false`) e cobre a validação do código com
+foco no campo recusado, os erros de A11/A12, o 429 com `Retry-After`, o foco ao trocar de estado e a
+ausência da chave e dos códigos em cache, storage e URL; `MeContractTests` e
+`EndpointAuthorizationTests` exigem o 403 de sessão restrita no contrato de toda rota com sessão;
 `session-api.test.ts` recusa `/me` sem `roles` ou `mfaEnabled`; `admin-bootstrap.spec.ts` percorre a jornada
 no bundle de produção com API simulada e axe nas três telas (troca de senha, chave e códigos). Os testes não substituem os testes
 HTTP reais de `AdminBootstrapTests` e `AdminMfaTests`. Invariantes pertinentes: INV-05 e INV-12;
-privacidade de sessão: T-14/T-21. Não há mudança de schema, auditoria ou endpoint.
+privacidade de sessão: T-14/T-21. Não há mudança de schema, auditoria nem de comportamento de endpoint;
+o contrato de `/me` e de quatro GETs com sessão passou a declarar o 403 que eles já respondiam
+(mudança compatível).
 
 Rollback da SPA retira as telas e deixa as contas de bootstrap sem interface para concluir o
 cadastro; não remove as restrições do servidor. A guarda de rollback do backend permanece.
