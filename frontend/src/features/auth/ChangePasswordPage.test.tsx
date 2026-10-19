@@ -18,7 +18,7 @@ function restricted() {
   server.use(http.get(`${API}/me`, () => problem(403, 'PASSWORD_CHANGE_REQUIRED')))
 }
 async function fill(user: RenderedApp['user'], confirmation = PASSWORD) {
-  await user.type(await screen.findByLabelText('Senha temporária'), TEMPORARY)
+  await user.type(await screen.findByLabelText('Senha temporária', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS }), TEMPORARY)
   await user.type(screen.getByLabelText('Senha nova'), PASSWORD)
   await user.type(screen.getByLabelText('Confirme a nova senha'), confirmation)
   await user.click(screen.getByRole('button', { name: 'Salvar senha nova' }))
@@ -30,7 +30,10 @@ describe('troca obrigatória da senha inicial', () => {
     async (path) => {
       restricted()
       await renderApp(path)
-      expect(await screen.findByLabelText('Senha temporária')).toHaveAttribute('autocomplete', 'current-password')
+      expect(await screen.findByLabelText('Senha temporária', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toHaveAttribute(
+        'autocomplete',
+        'current-password',
+      )
       expect(screen.getByTestId('location')).toHaveTextContent('/trocar-senha-inicial')
     },
   )
@@ -75,7 +78,13 @@ describe('troca obrigatória da senha inicial', () => {
     await user.type(screen.getByLabelText('Senha'), TEMPORARY)
     await user.click(screen.getByRole('button', { name: 'Entrar' }))
     await fill(user)
-    expect(await screen.findByRole('heading', { name: 'Ative a autenticação em duas etapas' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole(
+        'heading',
+        { name: 'Ative a autenticação em duas etapas' },
+        { timeout: ROUTE_CHUNK_TIMEOUT_MS },
+      ),
+    ).toBeInTheDocument()
     expect(sent).toEqual({ currentPassword: TEMPORARY, newPassword: PASSWORD })
     expect(sentCsrf).toBe('token-3')
     expect(csrf.calls()).toBe(4)
@@ -93,7 +102,9 @@ describe('troca obrigatória da senha inicial', () => {
     for (const secret of [PASSWORD, TEMPORARY, 'SYNTHETICKEY', 'synthetic-recovery', '123456'])
       expect(cached).not.toContain(secret)
     await user.click(screen.getByRole('button', { name: 'Guardei os códigos, continuar' }))
-    expect(await screen.findByRole('heading', { name: 'Sua conta' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    ).toBeInTheDocument()
   })
   it.each([
     [401, 'INVALID_CREDENTIALS', 'Senha atual inválida'],
@@ -143,7 +154,9 @@ describe('troca obrigatória da senha inicial', () => {
       http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
     )
     await renderApp('/trocar-senha-inicial')
-    expect(await screen.findByRole('heading', { name: 'Sua conta' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    ).toBeInTheDocument()
   })
 })
 
@@ -188,7 +201,9 @@ describe('entrar novamente encerra a sessão restrita', () => {
     })
     expect(logouts).toHaveLength(1)
     expect(logouts[0]).toMatch(/^token-\d+$/)
-    expect(await screen.findByRole('status')).toHaveTextContent('Você saiu da sua conta.')
+    expect(await screen.findByRole('status', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toHaveTextContent(
+      'Você saiu da sua conta.',
+    )
   })
 
   it('falha de rede no logout fica na tela e avisa', async () => {
