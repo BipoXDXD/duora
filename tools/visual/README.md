@@ -4,7 +4,7 @@ Pipeline das ilustrações de objetos do Duora: gera a fonte com IA, recorta, re
 frontend e grava os WebP versionados em `frontend/src/shared/ui/illustrations/`, consumidos pelo componente
 `<Illustration>` (`frontend/src/shared/ui/illustration.tsx`).
 
-Regras de conteúdo e de uso: [docs/design/system.md](../../docs/design/system.md#ilustração). Origem e direito
+Regras de conteúdo e de uso: [docs/design/system.md](../../docs/design/system.md#ilustração-cenário-e-personagem). Origem e direito
 de uso de cada asset: [docs/design/assets-licenses.md](../../docs/design/assets-licenses.md).
 
 ## Arquivos
@@ -25,8 +25,11 @@ Só modelos aprovados pelo responsável: **GPT Image 2.5** ou **Nano Banana Pro*
 pago do responsável. As 10 fontes atuais usam GPT Image 2.5 (`chat_image_2.5_sunburst`).
 
 - **Prompt** = `promptPrefix` + `prompt` do objeto, concatenados sem separador extra (o prefixo termina em
-  `Object: `). Não edite o prefixo por objeto: ele carrega as proibições (sem pessoas, rostos, mãos, partes do
-  corpo, texto, letras, números, símbolos ou logos) e o fundo verde chroma de que o recorte depende.
+  `Object: `). Não edite o prefixo por objeto: ele carrega as proibições (sem texto, letras, números, símbolos
+  ou logos) e o fundo verde chroma de que o recorte depende. Pessoas e personagens não são mais proibidos
+  ([ADR-0027](../../docs/architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)); cenários e
+  personagens de experiência partem do [one pager](../../docs/design/one-pager-template.md) e ganham prefixo
+  próprio quando o primeiro entrar no pipeline.
 - **Envio:** `POST https://openapi.tripo3d.ai/v3/generation/text-to-image` com
   `Authorization: Bearer $TRIPO_API_KEY` e corpo
   `{"model": "chat_image_2.5_sunburst", "prompt": "<prefixo + objeto>", "size": "1024x1024"}`
@@ -37,8 +40,8 @@ pago do responsável. As 10 fontes atuais usam GPT Image 2.5 (`chat_image_2.5_su
 
 A chave do Tripo fica só no ambiente de quem gera; nunca no repositório, em log ou em commit.
 
-Antes de processar, olhe a fonte: objeto único, sem pessoa, rosto, mão ou texto, fundo verde liso. Fonte que
-viola isso é descartada e gerada de novo; não se corrige no pós-processamento.
+Antes de processar, olhe a fonte: objeto único, sem texto, fundo verde liso. Fonte que viola isso é descartada
+e gerada de novo; não se corrige no pós-processamento.
 
 ## 2. Processar
 

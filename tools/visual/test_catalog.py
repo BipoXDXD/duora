@@ -21,11 +21,11 @@ class RealCatalogTest(unittest.TestCase):
         self.assertGreaterEqual(len([o for o in catalog.objects if o.source == "generated"]), 8)
         self.assertTrue(all(o.use in catalog.uses for o in catalog.objects))
 
-    def test_prompt_prefix_forbids_people_and_text(self):
+    def test_prompt_prefix_forbids_text_and_marks(self):
+        # Texto vem do catálogo de idiomas; pessoas e personagens são permitidos desde o ADR-0027.
         prefix = load_catalog().prompt_prefix
 
-        forbidden = ("no people", "no faces", "no hands", "no body parts", "no text", "no letters", "no numbers")
-        for term in (*forbidden, "no symbols", "no logos"):
+        for term in ("no text", "no letters", "no numbers", "no symbols", "no logos"):
             self.assertIn(term, prefix)
 
     def test_roles_resolve_against_the_real_stylesheet(self):
