@@ -22,6 +22,12 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
 
     private static readonly TimeSpan ComparableLatencyTolerance = TimeSpan.FromSeconds(2);
 
+    /// <summary>Teste do gate sem banco: falha em vez de travar se uma espera perder o teto.</summary>
+    private const int GateTestTimeoutMs = 10_000;
+
+    /// <summary>Bem acima do teto da fila do teste (1 s) e bem abaixo dos 30 s padrão.</summary>
+    private static readonly TimeSpan QueueCeilingLimit = TimeSpan.FromSeconds(10);
+
     /// <summary>Quanto a vez fica presa: bem mais que o piso, para a espera poder consumi-lo se contasse.</summary>
     private static readonly TimeSpan HeldTurn = TimeSpan.FromSeconds(1);
 
@@ -186,7 +192,7 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         Assert.Equal(valid, options.IsValid());
     }
 
-    [Fact]
+    [Fact(Timeout = GateTestTimeoutMs)]
     public async Task CancelledAndTimedOutWaitersDoNotLeakOrReleaseAnotherTurn()
     {
         var gate = new AccountCheckGate();
@@ -206,6 +212,34 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task AReauthenticationWaitingForTheAccountTurnGivesUpAtTheQueueTimeout()
+    {
+        // Rota sem a vez por e-mail na frente: quem decide é só o teto da fila por UUID (1 s aqui, 30 s padrão).
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            Settings = new Dictionary<string, string?> { ["Identity:AccountQueueTimeout"] = "00:00:01" },
+        };
+        var scenario = new IdentityScenario(postgres, factory);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(account);
+        var gate = factory.Services.GetRequiredService<AccountCheckGate>();
+
+        await using (await gate.EnterAsync(account.UserId, TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken))
+        {
+            var waited = Stopwatch.StartNew();
+            var reauthentication = browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password });
+            var finished = await Task.WhenAny(reauthentication, Task.Delay(QueueCeilingLimit, TestContext.Current.CancellationToken));
+            Assert.True(finished == reauthentication, $"A reautenticação não desistiu em {QueueCeilingLimit}: a fila por UUID está sem teto.");
+            using var response = await reauthentication;
+            waited.Stop();
+
+            await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+            Assert.Equal(1, ProblemAssert.RetryAfterSeconds(response));
+            Assert.True(waited.Elapsed >= TimeSpan.FromSeconds(1), $"Desistiu cedo: {waited.Elapsed}.");
+        }
+    }
+
+    [Fact(Timeout = GateTestTimeoutMs)]
     public async Task AFailingTransactionDisposeStillReleasesTheAccountTurn()
     {
         var gate = new AccountCheckGate();
