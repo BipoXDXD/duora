@@ -279,7 +279,8 @@ public sealed class AccountSecurityService
     public Task<AccountCheck> LockAccountAsync(DuoraUser user, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(user);
-        return OpenCheckAsync(user, _gate.EnterAsync(user.Id, _lock.AccountQueueTimeout, cancellationToken), cancellationToken);
+        var enteringTurn = _gate.EnterAsync(user.Id, _lock.AccountQueueTimeout, cancellationToken);
+        return OpenCheckAsync(user, enteringTurn, cancellationToken);
     }
 
     private async Task<AccountCheck> OpenCheckAsync(
