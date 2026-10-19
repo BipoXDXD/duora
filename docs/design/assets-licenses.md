@@ -11,7 +11,7 @@ task id da geração.
 |---|---|---|---|
 | fonte externa | Imagem (fonte externa, fonte externa) e modelo 3D | Pago, do responsável pelo produto | Conforme informado pelo responsável; termos não verificados (ver abaixo) |
 | fonte externa (fonte externa) | Modelo 3D (fonte offline e GLB em tempo real) | Business, do responsável pelo produto (decisão de 2026-10-19) | Conforme informado pelo responsável; termos não verificados. O responsável registra aqui o link e a data em que leu a cláusula de uso comercial |
-| fonte externa | Voz editorial (TTS) e música | **Creator** (decisão do responsável, 2026-10-19) | Termos em <registro externo de origem>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `EDITORIAL_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth |
+| fonte externa | Voz editorial (TTS) e música | **Creator** (decisão do responsável, 2026-10-19) | Termos em <registro externo de origem>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `EDITORIAL_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth (metadados em <registro externo de origem>; fluxo a confirmar no primeiro uso) |
 | Freesound | Efeitos sonoros | Gratuito; **só CC0** | Licença CC0 por som, conferida na página de cada um (<https://freesound.org/help/faq/>); nada com voz identificável |
 | Sonniss | Efeitos sonoros (pacotes) | Pacotes baixados pelo responsável | Licença do pacote (<https://sonniss.com/gameaudiogdc>) proíbe redistribuir som avulso; como o repositório é público, só o mix final entra no Git (termo exato a confirmar) |
 
