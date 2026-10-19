@@ -204,7 +204,7 @@ personalidade às experiências sem comprometer acolhimento, privacidade e saíd
 - Arquivo de mídia é conferido pelo hash do manifesto no build: um teste de build confere que todo arquivo citado
   por versão não aposentada existe no bundle com o hash certo; arquivo trocado ou ausente falha o build.
 - Voz ao vivo: STRIDE em [threat-model.md](../../security/threat-model.md#512-voz-ao-vivo-na-sala) (TM-68 a
-  TM-76) e ADR-0028.
+  TM-79) e ADR-0028.
 - **Dependências:** CSP num PR de infra separado: `media-src 'self'` para `<audio>`; o `fetch` dos arquivos que
   a Web Audio decodifica cai em `connect-src` (já `'self'`); 3D em tempo real pede `img-src blob:` e, com
   WebAssembly, `worker-src blob:` e `'wasm-unsafe-eval'`; público, idiomas e região no
@@ -225,4 +225,4 @@ personalidade às experiências sem comprometer acolhimento, privacidade e saíd
   sem áudio no chunk inicial nem `<link rel="preload">` de áudio.
 - A11Y-04 do [protocolo](../../design/accessibility-test-protocol.md#a11y-04--minijogos): jogo completo com som
   desligado, transcrição, Controle de som por teclado e leitor de tela, fallback 2D do 3D.
-- Voz ao vivo: testes do ADR-0028 e de TM-68 a TM-76.
+- Voz ao vivo: testes do ADR-0028 e de TM-68 a TM-79.

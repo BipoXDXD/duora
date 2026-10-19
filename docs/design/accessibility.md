@@ -82,7 +82,7 @@ verificação exercita. Os componentes citados estão no [inventário](system.md
   - cenário com `alt` ou decorativo; 3D em tempo real com poster 2D equivalente, operável por teclado quando
     interativo, sem rotação automática com movimento reduzido e sem nenhuma ação que exija girar ou arrastar
     (2.1.1, 2.3.3, 2.5.1, 2.5.7).
-- **Voz ao vivo** (quando implementada): ligar o microfone, silenciar a outra pessoa, desligar o próprio
+- **Voz ao vivo** (quando implementada): entrar na voz, ligar o microfone, silenciar a outra pessoa, desligar o próprio
   microfone e sair da voz por teclado e leitor de tela, com estado anunciado; indicador de microfone aberto e de
   quem fala em texto; push-to-talk opcional por botão, nunca por tecla que precise ficar segurada sem
   alternativa; o jogo termina igual sem voz.
