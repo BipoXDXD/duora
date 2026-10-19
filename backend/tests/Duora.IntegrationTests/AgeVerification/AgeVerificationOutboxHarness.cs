@@ -1,5 +1,6 @@
 extern alias worker;
 
+using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Outbox;
 using Microsoft.Extensions.DependencyInjection;
@@ -44,7 +45,11 @@ internal sealed class AgeVerificationOutboxHarness : IAsyncDisposable
         return new AgeVerificationOutboxHarness(connectionString, time);
     }
 
-    public AgeVerificationDispatcher StartWorker(string mode = "Succeed", params string[] extraArgs)
+    public AgeVerificationDispatcher StartWorker(string mode = "Succeed", params string[] extraArgs) =>
+        StartWorkerWithProvider(null, mode, extraArgs);
+
+    public AgeVerificationDispatcher StartWorkerWithProvider(
+        IAgeEligibilityProvider? provider, string mode = "Succeed", params string[] extraArgs)
     {
         string[] args =
         [
@@ -57,6 +62,11 @@ internal sealed class AgeVerificationOutboxHarness : IAsyncDisposable
         ];
         var builder = WorkerHost.CreateBuilder(args);
         builder.Services.AddSingleton(Time);
+        if (provider is not null)
+        {
+            builder.Services.AddSingleton(provider);
+        }
+
         var host = builder.Build();
         _hosts.Add(host);
         return host.Services.GetRequiredService<AgeVerificationDispatcher>();
