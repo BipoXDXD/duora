@@ -2,7 +2,11 @@
 
 - **Status:** Accepted (2026-10-15)
 - **Origem:** spec 2.3, 9.3, 17.3 e 23.1 (ADR-009)
-- **Revisar quando:** disponibilidade ou capacidade exigirem backplane e múltiplas instâncias
+- **Revisar quando:** disponibilidade ou capacidade exigirem backplane e múltiplas instâncias. Gatilho
+  registrado (issue #65): a autenticação depende de estado local, e uma segunda réplica traz de volta
+  `503` entre instâncias pela espera no `FOR NO KEY UPDATE`, o oráculo de paralelismo para e-mail
+  inexistente e rate limit e fila valendo por instância
+  ([concorrência](../../data/concurrency.md#com-mais-de-uma-instância-web))
 
 ## Contexto
 
