@@ -22,8 +22,9 @@ procedimentos.
   obrigatórios, incluindo erro, sessão expirada, reconexão, telas do fornecedor de verificação etária
   incorporadas ao fluxo e as telas administrativas usadas no piloto.
 - **Escolhas do Duora acima do AA**, registradas como meta de projeto e não como requisito normativo:
-  alvo de 44 × 44 CSS px (o AA de 2.5.8 é 24 px com exceções) e variante sem animação para
-  `prefers-reduced-motion` (2.3.3 é AAA).
+  alvo de 44 × 44 CSS px (o AA de 2.5.8 é 24 px com exceções), variante sem animação para
+  `prefers-reduced-motion` (2.3.3 é AAA) e música e ambiente pelo menos 20 dB abaixo da voz, ou desligáveis
+  (1.4.7 é AAA; ADR-0027).
 - **Status de cada verificação:** falha, atendido, não aplicável com justificativa ou não avaliado. A
   definição e as regras estão no [protocolo](accessibility-test-protocol.md#status). Scanner sem violações não
   transforma "não avaliado" em "atendido" (spec 13.7).
@@ -69,7 +70,24 @@ verificação exercita. Os componentes citados estão no [inventário](system.md
 - A interação alternativa é a interação padrão: não existe "modo acessível" separado com regras ou
   privacidade diferentes.
 - `DescribeAccessibleInteraction` (spec 6.1) fornece a instrução textual de cada tipo de jogo.
-- **WCAG:** 1.1.1, 1.3.1, 1.3.3, 1.4.1, 2.1.1, 2.5.1, 2.5.7, 4.1.2.
+- **Mídia da experiência** (spec 6.5, [ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)):
+  - som mudo por padrão; nada toca antes do gesto no Controle de som; pausar e silenciar sempre a um Tab da
+    barra da sala (1.4.2);
+  - toda fala pré-gerada tem transcrição em texto na tela, no idioma ativo, com quem fala e o aviso de voz
+    sintética (1.2.1); a transcrição não é região viva, para o leitor de tela não falar por cima do áudio;
+  - volumes separados de música, ambiente e voz, lembrados no aparelho; "Reduzir áudio" deixa só voz e
+    interface; ducking sob a voz (meta 1.4.7);
+  - nenhuma instrução depende de som ("quando ouvir o sino") (1.3.3); som de interface sempre junto de texto
+    ou estado visível;
+  - cenário com `alt` ou decorativo; 3D em tempo real com poster 2D equivalente, operável por teclado quando
+    interativo, sem rotação automática com movimento reduzido e sem nenhuma ação que exija girar ou arrastar
+    (2.1.1, 2.3.3, 2.5.1, 2.5.7).
+- **Voz ao vivo** (quando implementada): ligar o microfone, silenciar a outra pessoa, desligar o próprio
+  microfone e sair da voz por teclado e leitor de tela, com estado anunciado; indicador de microfone aberto e de
+  quem fala em texto; push-to-talk opcional por botão, nunca por tecla que precise ficar segurada sem
+  alternativa; o jogo termina igual sem voz.
+- **WCAG:** 1.1.1, 1.2.1, 1.3.1, 1.3.3, 1.4.1, 1.4.2, 2.1.1, 2.3.1, 2.5.1, 2.5.7, 4.1.2. Meta de projeto: 1.4.7
+  (AAA), 2.3.3 (AAA).
 
 ### A11Y-05 · Chat e reconexão
 
@@ -155,9 +173,13 @@ Testar uma combinação não autoriza prometer compatibilidade com as outras (sp
   em cada story (D-DES-04).
 - **Assertions além do scanner:** nome acessível por `getByRole`, foco após navegação e após fechar diálogo,
   ordem de Tab nos diálogos, ausência de foco roubado ao receber mensagem.
+- **Assertions de áudio** (a criar com a primeira experiência com som): nenhum elemento de áudio nem
+  `AudioContext` em reprodução antes do gesto; Controle de som com nome e `aria-pressed`; transcrição presente
+  para cada fala tocada.
 - **O que a automação não cobre** e fica no protocolo manual: qualidade dos anúncios do leitor, compreensão de
   instruções e erros, foco encoberto, reflow real, uso de jogo por teclado de ponta a ponta, adequação das
-  justificativas de 2.2.1 e experiência com movimento reduzido.
+  justificativas de 2.2.1, experiência com movimento reduzido, convivência do áudio com o leitor de tela e
+  inteligibilidade da voz com a trilha.
 
 ## Pendências
 
@@ -165,3 +187,5 @@ Testar uma combinação não autoriza prometer compatibilidade com as outras (sp
 - Decisão sobre incluir NVDA/Windows na matriz do piloto.
 - Testes com pessoas com deficiência: complementam a inspeção técnica quando organizados (spec 13.7).
 - Versões de iOS e Android da matriz de navegadores ainda não publicadas (spec 13.5).
+- Áudio no Safari/iOS (desbloqueio por gesto, modo silencioso do aparelho) e voz ao vivo entram na matriz
+  quando forem implementados (ADR-0027).

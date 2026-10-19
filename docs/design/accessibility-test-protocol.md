@@ -112,6 +112,17 @@ Duas pessoas (A com teclado e VoiceOver; B com qualquer configuração).
    primária.
 7. Compare com a sessão sem tecnologia assistiva. **Esperado:** mesmas regras, mesmas informações visíveis
    e a mesma privacidade.
+8. Quando a versão tiver mídia (spec 6.5): entre na experiência sem tocar no Controle de som. **Esperado:**
+   nenhum som. Ligue o som pelo teclado. **Esperado:** estado anunciado ("Som ligado"); cada fala aparece na
+   transcrição com quem fala e, se for o caso, "voz sintética"; VoiceOver não lê a transcrição por cima do
+   áudio sem pedido.
+9. Ative "Reduzir áudio" e mude o volume de cada canal; recarregue a página. **Esperado:** preferências
+   mantidas, som só depois do primeiro gesto; nenhum som perto dos marcos de prazo nem na decisão privada.
+10. Com movimento reduzido e com WebGL desligado, abra um ambiente com 3D. **Esperado:** poster 2D com o mesmo
+    texto alternativo; nenhuma ação exige girar ou arrastar.
+11. Quando houver voz ao vivo: A liga o microfone, silencia B, desliga o próprio microfone e sai da voz só com
+    teclado. **Esperado:** permissão do navegador pedida só no primeiro passo; cada estado anunciado; A continua
+    na experiência e a termina pelo chat de texto.
 
 ### A11Y-05 · Chat e reconexão
 
