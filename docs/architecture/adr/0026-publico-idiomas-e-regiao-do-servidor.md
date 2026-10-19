@@ -86,8 +86,10 @@ há coleta de dados reais) e o domínio `meetduora.com`, que não pressupõe pa�
 
 ## Mudanças de código propostas
 
-Nada abaixo foi implementado neste PR. Cada item tem uma issue; os que envolvem escolha real ficam com o rótulo
-`decisão` e esperam o dono.
+Nada abaixo foi implementado neste PR, e nada abaixo está aceito: o status **Accepted** deste ADR cobre só a
+seção [Decisão](#decisão) (as decisões do dono). Cada item tem uma issue; os que envolvem escolha real ficam com o
+rótulo `decisão` e esperam o dono. Depois de decidida, cada proposta vira um ADR próprio (se for estrutural: modelo
+de dados da região, conteúdo bilíngue) ou um adendo deste (se for ajuste local), no mesmo PR que a implementa.
 
 ### 1. `region_code` além das UF
 
