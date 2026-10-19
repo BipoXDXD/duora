@@ -82,5 +82,5 @@ cd backend && dotnet test --solution Duora.slnx
 | [Testes de aceite](docs/testing/acceptance.md) | Matriz T-01 a T-28 |
 | [Permissões da automação](docs/automation/permissions.md) | O que agentes e CI podem fazer |
 | [Fluxo de trabalho](docs/automation/workflow.md) | Etapas, Definition of Ready e Done |
-| [Fontes técnicas](docs/references/sources.yml) | Catálogo das 77 fichas de documentação |
+| [Fontes técnicas](docs/references/sources.yml) | Catálogo das 78 fichas de documentação |
 | [Ambiente](docs/development/environment.md) | Setup local e diagnóstico |

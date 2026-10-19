@@ -1850,7 +1850,7 @@ A sobreposição pontual ajuda a confrontar decisões; não deve produzir três 
 
 ### 25.1. Regras do catálogo
 
-O catálogo contém **77 fichas temáticas**, agrupadas por trabalho técnico. Uma ficha reúne páginas complementares do mesmo controle; não representa leitura integral de cada manual. Ferramentas condicionais são identificadas como tal, e fornecedores só entram com documentação do serviço efetivamente escolhido.
+O catálogo contém **78 fichas temáticas**, agrupadas por trabalho técnico. Uma ficha reúne páginas complementares do mesmo controle; não representa leitura integral de cada manual. Ferramentas condicionais são identificadas como tal, e fornecedores só entram com documentação do serviço efetivamente escolhido.
 
 **Versões de referência:** C# 14, .NET/ASP.NET Core/EF Core/Npgsql 10, PostgreSQL 18, Node.js 24, Ubuntu Server 24.04 LTS e macOS 27 Golden Gate. Pacotes frontend, SDKs, scanners, images e CLIs têm versões concretas nos lockfiles/inventário. Links com `latest` e manuais sem seletor são confrontados com a versão instalada; não autorizam atualizar a stack implicitamente.
 
