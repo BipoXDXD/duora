@@ -140,7 +140,7 @@ geração ao vivo (imagem, música ou TTS).
   usuária a limitar por conta e por IP; quem garante isso é um teste de arquitetura
   (`NoRuntimeModuleReferencesMediaGenerationProviders`: Web, Worker, Core e Infrastructure sem cliente nem
   segredo desses fornecedores). O script de geração, quando existir, tem teto de créditos por execução, **teto de
-  tentativas por asset** (hipótese: 3; além disso a execução para com erro, sem laço de retry), concorrência
+  tentativas por asset** (valor inicial: 3, a medir; além disso a execução para com erro, sem laço de retry), concorrência
   limitada e respeito ao `429` do fornecedor pelo `Retry-After`, com backoff e jitter limitados. Testes do script
   contra servidor HTTP falso, nunca contra o fornecedor real: `GenerationStopsBeforeExceedingTheCreditCap`,
   `GenerationStopsAfterMaxAttemptsPerAsset` e `GenerationHonorsProviderRetryAfter`.

@@ -143,8 +143,8 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
 
 Regra do dono (2026-10-19): toda operação disparada pela pessoa, e toda que custa dinheiro, tem rate limit por
 conta e por IP, teto de tentativas e `429` com `Retry-After`. A voz custa nos dois sentidos: a Cloudflare cobra o
-TURN por GB transferido, e cada emissão e revogação é uma chamada à API dela. Os números são **hipóteses** a medir
-e versionar (spec 11.5). O rate limit fica em memória, nas duas partições ao mesmo tempo (conta e IP, como em
+TURN por GB transferido, e cada emissão e revogação é uma chamada à API dela. Os números da tabela são **valores
+iniciais, a medir no piloto** e versionados (spec 11.5). O rate limit fica em memória, nas duas partições ao mesmo tempo (conta e IP, como em
 `PhotoUploadRateLimiting`); os tetos que protegem custo ficam **no banco** (spec 11.5), contados na mesma transação
 do efeito e sob lock, nunca contar e depois inserir sem lock.
 
@@ -155,9 +155,10 @@ do efeito e sob lock, nunca contar e depois inserir sem lock.
 | API-R10 `LeaveVoice` | 30 por 10 min em cada partição, acima do de API-R09 | Nenhum além da idempotência: só a saída que fecha uma participação aberta grava intenção na outbox | `429` com `Retry-After`. A saída nunca depende da resposta: o cliente fecha a `RTCPeerConnection` e para o microfone antes de chamar API-R10, e o fail-closed do hub e o fim da sessão fecham a participação no servidor |
 | `SendVoiceSignal` (hub) | 60 mensagens por 10 s por conexão, por conta e por IP | 300 mensagens por participação | Erro do hub com o código `RATE_LIMITED` e `retryAfterSeconds` (o equivalente do `429` com `Retry-After`, que o hub não tem); acima do teto por participação, o servidor aplica `LeaveVoice` a ela |
 
-Custo agregado, que nenhum limite por pessoa cobre sozinho: orçamento mensal de GB do TURN na conta da Cloudflare
-(valor a definir pelo responsável), com alerta a 80% e a 100%; o alerta de 100% aciona o kill switch (acionamento
-automático pelo consumo lido da API da Cloudflare é a confirmar; até lá, pelo runbook). Se a API da Cloudflare
+Custo agregado, que nenhum limite por pessoa cobre sozinho (decisão do dono de 2026-10-19): orçamento de
+**1000 GB por mês** de TURN, a franquia gratuita da Cloudflare Realtime TURN, com alerta a 80% (800 GB) e kill
+switch a 100% (1000 GB). O kill switch é acionado pelo runbook enquanto a API de consumo da Cloudflare for a
+confirmar; o acionamento automático entra quando ela for confirmada. Se a API da Cloudflare
 permite teto de bytes por credencial é **a confirmar**; sem isso, o que limita o gasto de uma credencial é o TTL de
 ~5 min, a revogação e o teto diário de minutos.
 
