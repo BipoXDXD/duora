@@ -83,11 +83,13 @@ requisição e `stream_close_delay 5m` em recarga de config); `/assets/*` é imu
 dá 404; `index.html` e demais estáticos com `no-cache`; o fallback da SPA só vale para navegação de documento
 (`Sec-Fetch-Mode: navigate` ou `Accept: text/html`); `/health` e `/openapi` respondem 404 na borda.
 
-CSP inicial, conferida contra o build do Vite em Chromium e WebKit sem nenhuma violação:
-`default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self';
+CSP, conferida contra o build do Vite em Chromium e WebKit sem nenhuma violação:
+`default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self';
 connect-src 'self' wss://<host>; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none';
 object-src 'none'`. Mais HSTS (1 ano, sem preload), `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
-no-referrer`, COOP/CORP `same-origin`, `Permissions-Policy` e sem `Server`.
+no-referrer`, COOP/CORP `same-origin`, `Permissions-Policy` (só `microphone=(self)`, para a voz ao vivo; o resto
+`()`) e sem `Server`. O porquê de `media-src` e do microfone (ADR-0027 e ADR-0028) e o teste que fixa a política
+estão em [deploy.md](../docs/operations/deploy.md#cabeçalhos-de-segurança-da-borda).
 
 Logs de acesso em JSON no stdout sem query string, sem cabeçalhos de requisição e resposta (logo sem `Cookie`,
 `Authorization` e `Set-Cookie`) e com IP truncado (/24 e /48) (spec 19.2).

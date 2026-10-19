@@ -58,10 +58,14 @@
 		Referrer-Policy "no-referrer"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
-		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+		# Microfone só para a própria origem: voz ao vivo da sala (ADR-0028), pedido depois do gesto; iframe nenhum herda.
+		Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), browsing-topics=()"
 		# Coerente com o build do Vite: só módulos e CSS próprios, sem inline e sem eval. wss explícito para o hub
-		# (navegadores antigos não estendem 'self' a WebSocket).
-		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self' wss://{hostport}; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+		# (navegadores antigos não estendem 'self' a WebSocket). media-src 'self' para o áudio do catálogo
+		# (ADR-0027), sem blob:: a Web Audio lê por fetch() (connect-src) e a voz ao vivo entra por srcObject, fora
+		# do Fetch. ICE/TURN não passa por connect-src; sem diretiva webrtc, o WebRTC fica permitido (ADR-0028).
+		# Mudou aqui, mude scripts/deploy/test_caddy_security_headers.py.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' wss://{hostport}; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
 		-Server
 	}
 
