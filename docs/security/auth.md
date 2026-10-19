@@ -631,3 +631,7 @@ o contrato de `/me` e de quatro GETs com sessão passou a declarar o 403 que ele
 Rollback da SPA retira as telas e deixa as contas de bootstrap sem interface para concluir o
 cadastro; não remove as restrições do servidor. A guarda de rollback do backend permanece.
 O merge desta alteração de autenticação exige revisão humana e os gates do repositório.
+
+## Confirmação por código — implementação proposta (#93)
+
+Novos cadastros usam código de oito dígitos, 15 minutos e senha do cadastro, com hash salgado em `identity.user_tokens`, vinculado ao stamp. Confirmação remove o hash na mesma transação; recadastro e teto de falhas invalidam a prova. Tokens de link antigos só são aceitos para cadastros sem código. Detalhes de compatibilidade, entrega coordenada, rollback e limite da integração de selfie: [ADR-0029](../architecture/adr/0029-codigo-email-selfie-sem-documentos.md). Não há exigência de documento ou SMS.

@@ -9,6 +9,9 @@ export function CheckEmailPage(): React.JSX.Element {
     <Page title={t('checkEmail.title')} intro={t('checkEmail.body')}>
       <p className="text-text-muted">{t('checkEmail.hint')}</p>
       <p>
+        <TextLink to={paths.register}>{t('checkEmail.requestAgain')}</TextLink>
+      </p>
+      <p>
         <TextLink to={paths.login}>{t('checkEmail.signInLink')}</TextLink>
       </p>
     </Page>

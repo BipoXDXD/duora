@@ -22,6 +22,9 @@ const ChangePasswordPage = routePage(
 )
 const MfaEnrollmentPage = routePage(async () => (await import('@/features/auth/MfaEnrollmentPage')).MfaEnrollmentPage)
 const AccountPage = routePage(async () => (await import('@/features/account/AccountPage')).AccountPage)
+const AgeVerificationPage = routePage(
+  async () => (await import('@/features/account/AgeVerificationPage')).AgeVerificationPage,
+)
 const ProfilePage = routePage(async () => (await import('@/features/profile/ProfilePage')).ProfilePage)
 // O guarda espera os chunks das rotas protegidas: assim, quando GET /me responde, a página entra sem um segundo
 // fallback. Uma rota protegida nova entra aqui também, senão ela mostra o fallback de novo depois do
@@ -33,6 +36,7 @@ const RequireSession = routePage(async () => {
     ChangePasswordPage.preload(),
     MfaEnrollmentPage.preload(),
     ProfilePage.preload(),
+    AgeVerificationPage.preload(),
   ])
   return guard
 })
@@ -55,6 +59,7 @@ export function AppRoutes(): React.JSX.Element {
             <Route path={paths.changePassword} element={<ChangePasswordPage />} />
             <Route path={paths.mfaEnrollment} element={<MfaEnrollmentPage />} />
             <Route path={paths.account} element={<AccountPage />} />
+            <Route path={paths.ageVerification} element={<AgeVerificationPage />} />
             <Route path={paths.profile} element={<ProfilePage />} />
           </Route>
         </Route>

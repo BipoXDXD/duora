@@ -229,3 +229,7 @@ Compliance (a criar com a implementação; outro PR, código já mergeado não m
 (teto + 1 → `429`, banco e outbox inalterados), `ReturningTheOpenRequestDoesNotConsumeTheCap` e
 `ConcurrentRequestsAtTheCapCreateOnlyOne` (duas chamadas paralelas com uma vaga → uma solicitação, prova
 determinística do lock, sem `sleep`).
+
+## Proposta complementar de 2026-10-19 — issue #93
+
+O [ADR-0029](0029-codigo-email-selfie-sem-documentos.md) registra a confirmação por código e a jornada de selfie sem documentos. A decisão de produto foi aprovada; esta implementação está em revisão. Preserva senha do cadastro, proteções de conta e resultado etário autenticado. Não representa integração de fornecedor real.

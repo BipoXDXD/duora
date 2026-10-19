@@ -96,11 +96,34 @@ export const ptBR = {
   'register.haveAccount': 'Já tem conta?',
   'register.signInLink': 'Entrar',
 
+  'checkEmail.requestAgain': 'Cadastrar novamente para receber outro código',
   'checkEmail.title': 'Verifique seu e-mail',
   'checkEmail.body':
-    'Se for possível criar a conta com esse endereço, você vai receber um e-mail com um link de confirmação.',
-  'checkEmail.hint': 'Não chegou? Confira a caixa de spam e as abas de promoções. O link vale por tempo limitado.',
+    'Se for possível criar a conta com esse endereço, você vai receber um e-mail com um código de confirmação e o acesso à página para digitá-lo.',
+  'checkEmail.hint':
+    'Não chegou? Confira a caixa de spam e as abas de promoções. O código vale por 15 minutos após o cadastro. Se expirar, faça o cadastro novamente.',
   'checkEmail.signInLink': 'Ir para a entrada',
+
+  'confirmEmail.code': 'Código de confirmação',
+  'confirmEmail.codeHint': 'Digite os 8 dígitos do e-mail. O código vale por 15 minutos após o cadastro.',
+  'validation.emailCodeInvalid': 'Informe o código de 8 dígitos.',
+  'age.title': 'Verificação por selfie',
+  'age.intro': 'Confirme sua idade com uma selfie. Não exigimos documentos.',
+  'age.guidance':
+    'Posicione o rosto inteiro no centro, mantenha a câmera na altura dos olhos e use boa iluminação, sem contraluz. A imagem deve estar nítida, sem filtros. Se a qualidade não for suficiente, você receberá orientação para tentar novamente.',
+  'age.privacy':
+    'A captura será feita no serviço de verificação. A selfie não será usada como foto pública do perfil. Uma foto nítida não garante aprovação etária.',
+  'age.start': 'Iniciar verificação por selfie',
+  'age.starting': 'Iniciando verificação…',
+  'age.continue': 'Continuar para a selfie',
+  'age.wait': 'Preparando sua verificação. Você pode atualizar o estado abaixo.',
+  'age.review': 'Sua verificação está em análise. Aguarde o resultado; não é necessário enviar documentos.',
+  'age.done': 'Verificação etária concluída.',
+  'age.unavailable': 'Não há verificação disponível para esta conta no momento.',
+  'age.providerUnavailable': 'A verificação por selfie está indisponível no momento. Sua conta permanece pendente.',
+  'age.refresh': 'Atualizar estado',
+  'age.back': 'Voltar à conta',
+  'age.loading': 'Consultando verificação…',
 
   'confirmEmail.title': 'Confirmar e-mail',
   'confirmEmail.intro': 'Para concluir a confirmação do seu endereço, informe sua senha e use o botão abaixo.',

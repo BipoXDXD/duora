@@ -31,7 +31,8 @@ public sealed class EnumerationTimingTests(PostgresFixture postgres)
         var forConfirmed = await RecordAsync(recorder, () => browser.PostJsonAsync(
             "/api/v1/auth/register", IdentityScenario.RegistrationBody(confirmed.Email)));
 
-        Assert.Single(forNew, step => step.StartsWith("hash: ", StringComparison.Ordinal));
+        // Senha e código usam hashes lentos nos três caminhos; nenhum deles revela existência.
+        Assert.Equal(2, forNew.Count(step => step.StartsWith("hash: ", StringComparison.Ordinal)));
         Assert.Equal(forNew, forPending);
         Assert.Equal(forNew, forConfirmed);
     }

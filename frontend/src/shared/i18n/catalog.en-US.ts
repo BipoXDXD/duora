@@ -94,10 +94,34 @@ export const en = {
   'register.haveAccount': 'Already have an account?',
   'register.signInLink': 'Sign in',
 
+  'checkEmail.requestAgain': 'Register again to receive another code',
   'checkEmail.title': 'Check your email',
-  'checkEmail.body': "If an account can be created with that address, you'll get an email with a confirmation link.",
-  'checkEmail.hint': "Didn't get it? Check your spam and promotions folders. The link expires after a while.",
+  'checkEmail.body':
+    "If an account can be created with that address, you'll get an email with a confirmation code and a link to enter it.",
+  'checkEmail.hint':
+    "Didn't get it? Check your spam and promotions folders. The code expires 15 minutes after registration. Register again if it expires.",
   'checkEmail.signInLink': 'Go to sign in',
+
+  'confirmEmail.code': 'Confirmation code',
+  'confirmEmail.codeHint': 'Enter the 8 digits from the email. The code expires 15 minutes after registration.',
+  'validation.emailCodeInvalid': 'Enter the 8-digit code.',
+  'age.title': 'Selfie verification',
+  'age.intro': 'Confirm your age with a selfie. We do not require identity documents.',
+  'age.guidance':
+    'Center your entire face, keep the camera at eye level and use good lighting without backlighting. The image should be sharp and unfiltered. If the quality is insufficient, you will receive guidance to try again.',
+  'age.privacy':
+    'Capture takes place with the verification service. Your selfie will not be used as your public profile photo. A clear photo does not guarantee age approval.',
+  'age.start': 'Start selfie verification',
+  'age.starting': 'Starting verification…',
+  'age.continue': 'Continue to selfie',
+  'age.wait': 'Preparing your verification. You can refresh its status below.',
+  'age.review': 'Your verification is under review. Wait for the result; no identity documents are required.',
+  'age.done': 'Age verification complete.',
+  'age.unavailable': 'Verification is not available for this account right now.',
+  'age.providerUnavailable': 'Selfie verification is unavailable right now. Your account remains pending.',
+  'age.refresh': 'Refresh status',
+  'age.back': 'Back to account',
+  'age.loading': 'Checking verification…',
 
   'confirmEmail.title': 'Confirm email',
   'confirmEmail.intro': 'To finish confirming your address, enter your password and use the button below.',

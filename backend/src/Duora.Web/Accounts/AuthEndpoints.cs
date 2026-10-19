@@ -26,7 +26,8 @@ internal static class AuthEndpoints
             .ProducesMutationProblems();
         auth.MapPost("/confirm-email", ConfirmEmailAsync)
             .RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption)
-            .ProducesMutationProblems();
+            .ProducesMutationProblems()
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         auth.MapPost("/login", LoginAsync)
             .RequireRateLimiting(AuthRateLimitPolicies.Login)
             .ProducesMutationProblems()

@@ -38,8 +38,10 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
             await ProblemAssert.BodyWithoutTraceIdAsync(wrongPassword));
     }
 
-    [Fact]
-    public async Task ParallelWrongPasswordsCannotSlipPastTheAttemptCeiling()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ParallelWrongPasswordsOrCodesCannotSlipPastTheAttemptCeiling(bool wrongCode)
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {
@@ -57,7 +59,14 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
             await attacker.FetchCsrfTokenAsync();
         }
 
-        var attempts = await Task.WhenAll(attackers.Select((attacker, i) => ConfirmAsync(attacker, link, $"palpite errado {i}")));
+        var invalidCode = link.Token == "00000000" ? "00000001" : "00000000";
+        var attempts = await Task.WhenAll(attackers.Select((attacker, i) =>
+            attacker.PostJsonAsync("/api/v1/auth/confirm-email", new
+            {
+                userId = link.UserId,
+                token = wrongCode ? invalidCode : link.Token,
+                password = wrongCode ? OwnerPassword : $"palpite errado {i}",
+            })));
         using var rightPasswordAfterwards = await ConfirmAsync(browser, link, OwnerPassword);
 
         Assert.All(attempts, attempt => Assert.Equal(HttpStatusCode.BadRequest, attempt.StatusCode));
@@ -98,7 +107,7 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
             new { userId = link.UserId, token = link.Token, password });
 
     /// <summary>
-    /// Na hora em que a confirmação vai gravar o e-mail como confirmado, faz o que um recadastro do mesmo e-mail faz
+    /// Antes de a confirmação adquirir a trava e reler a conta, faz o que um recadastro do mesmo e-mail faz
     /// (troca security stamp e concurrency stamp) por outra conexão, já commitado. Reproduz a corrida sem sleep.
     /// </summary>
     private sealed class RegistrationRace(string connectionString) : DbCommandInterceptor
@@ -127,8 +136,8 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
         {
             var text = command.CommandText;
             if (_userId is not { } userId || Fired
-                || !text.Contains("update identity.users", StringComparison.OrdinalIgnoreCase)
-                || !text.Contains("email_confirmed", StringComparison.OrdinalIgnoreCase))
+                || !text.Contains("select 1 from identity.users", StringComparison.OrdinalIgnoreCase)
+                || !text.Contains("for no key update", StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }

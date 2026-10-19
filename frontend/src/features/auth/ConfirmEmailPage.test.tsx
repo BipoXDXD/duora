@@ -150,3 +150,28 @@ describe('tela de confirmação de e-mail', () => {
     expect(received).toEqual([])
   })
 })
+
+describe('confirmação por código', () => {
+  it('pede o código digitável e envia no corpo, sem confirmação automática', async () => {
+    useAntiforgeryEndpoint()
+    const received = useConfirmEndpoint(noContent)
+    const app = await renderApp(`/confirmar-email#userId=${USER_ID}&token=code`)
+    const input = screen.getByLabelText('Código de confirmação')
+    expect(input).toHaveAttribute('autocomplete', 'one-time-code')
+    expect(input).toHaveAttribute('inputmode', 'numeric')
+    expect(received).toEqual([])
+    await app.user.type(input, '0123 4567')
+    await confirmWithPassword(app, PASSWORD)
+    expect(await screen.findByRole('status')).toHaveTextContent('E-mail confirmado.')
+    expect(received[0]?.body).toEqual({ userId: USER_ID, token: '01234567', password: PASSWORD })
+  })
+
+  it('código ausente mantém o foco no campo e não chama a API', async () => {
+    const received = useConfirmEndpoint(noContent)
+    const app = await renderApp(`/confirmar-email#userId=${USER_ID}&token=code`)
+    await confirmWithPassword(app, PASSWORD)
+    expect(screen.getByLabelText('Código de confirmação')).toHaveFocus()
+    expect(screen.getByLabelText('Código de confirmação')).toHaveAttribute('aria-invalid', 'true')
+    expect(received).toEqual([])
+  })
+})

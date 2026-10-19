@@ -101,7 +101,8 @@ internal static class AccountEmailOutbox
     {
         var identity = new EventIdentity(EventType, SchemaVersion, ResourceType, message.UserId);
         var outboxEvent = OutboxEvent.Record(identity, JsonSerializer.Serialize(message, Json), now);
-        outboxEvent.AddDelivery(Consumer, message.UserId.ToString("D"), now + DeliveryWindow(message.Kind));
+        outboxEvent.AddDelivery(Consumer, message.UserId.ToString("D"), now + (message.Kind == AccountEmailKind.EmailConfirmation && message.Token is { Length: 8 } code
+            && code.All(char.IsAsciiDigit) ? TimeSpan.FromMinutes(10) : DeliveryWindow(message.Kind)));
         return outboxEvent;
     }
 

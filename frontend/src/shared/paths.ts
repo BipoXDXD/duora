@@ -14,5 +14,6 @@ export const paths = {
   changePassword: '/trocar-senha-inicial',
   mfaEnrollment: '/conta/ativar-mfa',
   account: '/conta',
+  ageVerification: '/conta/verificacao-etaria',
   profile: '/conta/perfil',
 } as const
