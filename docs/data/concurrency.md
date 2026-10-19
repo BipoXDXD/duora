@@ -456,7 +456,7 @@ C12 (`ConcurrentModerationDecisionsSecondGets409`) e C13 (T-19). Nomes "a criar"
 API-A04 e as operações de credenciais A07, A11–A16 preservam a exclusão por conta e o
 `SELECT ... FOR NO KEY UPDATE`; TM-01 (força bruta) e TM-06 (enumeração) são os riscos afetados.
 INV-12 continua exigindo revisão humana antes do merge. Não há migração. A fila e os prazos não mudam o contrato
-HTTP; os limites por conta e IP que vieram no mesmo PR acrescentam o `429` da revogação de sessão (A10), e os
+HTTP; os limites que vieram no mesmo PR acrescentam o `429` das revogações de sessão que falham (A10), e os
 demais `429` já estavam no contrato ([limites](../security/auth.md)).
 
 | Limite (`Identity`) | Padrão | Recurso durante a espera | Ao exceder |
