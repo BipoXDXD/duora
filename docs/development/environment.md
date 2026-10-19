@@ -138,7 +138,7 @@ rode os dois a partir de `backend/`, como nos comandos deste arquivo.
 | `DataProtection:KeysDirectory` (Web) | `../.local/dataprotection-keys` | Key ring; apagá-lo derruba as sessões abertas |
 | `Email:PickupDirectory` (Worker) | `../.local/mail` | Cada e-mail de conta vira um `.eml` com o link de confirmação ou de redefinição |
 | `Media:Review` (Web e Worker) | `TechnicalOnly` | Liga o upload de fotos com aprovação só técnica (dados sintéticos; o boot a recusa em Production, ADR-0025) |
-| `Media:Storage:Provider` e `Media:Storage:FileSystemRoot` (Web e Worker) | `FileSystem`, `../.local/media` | Quarentena e derivados num diretório local, o mesmo nos dois processos; em Production, `FileSystem` num diretório absoluto já montado nos dois (adendo do ADR-0010) ou `S3` (`Media:Storage:S3:*`, credencial própria de cada processo) |
+| `Media:Storage:Provider` e `Media:Storage:FileSystemRoot` (Web e Worker) | `FileSystem`, `../.local/media` | Quarentena e derivados num diretório local, o mesmo nos dois processos; em Production, `FileSystem` num diretório absoluto já montado nos dois, no disco da VPS (adendo do ADR-0010); o adaptador `S3` existe, mas não é o de produção |
 
 Sem essas chaves os processos não sobem, salvo as de `Media`: sem `Media:Review`, o upload de fotos fica
 desligado (503), e o storage só deixa de ser exigido se `Media:Storage:Provider` também estiver ausente. Com o
