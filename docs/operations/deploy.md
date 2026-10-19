@@ -539,7 +539,7 @@ que também o liga), a resposta da API saía com duas CSPs. A borda também tira
 | Feature | Valor | Por quê |
 |---|---|---|
 | `microphone` | `(self)` | `getUserMedia` da voz ao vivo, só no documento da própria origem ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)). Não concede permissão nem impõe gesto: microfone desligado por padrão e pedido só depois do gesto são regras da SPA, inclusive com permissão já persistida. Frame de outra origem não o recebe, nem com `allow="microphone *"` |
-| `autoplay` | `(self)` | No HTML Living Standard, um elemento de mídia só é *eligible for autoplay* se o documento tiver a feature: o `<audio autoplay>` que recebe a voz da outra pessoa começa a tocar quando ela fala, sem gesto novo. A feature não dispensa a ativação do usuário que o navegador exige para som; mudo por padrão continua regra da SPA (ADR-0027) |
+| `autoplay` | `(self)` | No HTML Living Standard, um elemento de mídia só é *eligible for autoplay* se o documento tiver a feature: o `<audio autoplay>` que recebe a voz da outra pessoa começa a tocar quando ela fala, sem gesto novo. A feature não dispensa a ativação do usuário que o navegador exige para som; mudo por padrão continua regra da SPA ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)) |
 | `speaker-selection` | `(self)` | Escolha da saída de áudio da voz ao vivo (fone ou alto-falante). A Audio Output Devices API (W3C) faz `selectAudioOutput()` e `setSinkId()` rejeitarem e esconde as saídas de `enumerateDevices()` quando a feature não é permitida. Liberado por decisão do responsável; nenhum código a usa ainda |
 | as outras 65 | `()` | Toda feature que o Chromium reconhece numa página comum, conforme `permissions_policy_features.json5` (consultado em 2026-10-19); lista em `DENIED_FEATURES` |
 
@@ -580,7 +580,7 @@ servido por este Caddyfile, nos motores do Playwright 1.64.1 (Chromium 156, WebK
 O pipeline do 3D, então: GLB autocontido, texturas WebP via `EXT_texture_webp` (ou PNG/JPEG), sem
 `KHR_draco_mesh_compression`, `EXT_meshopt_compression` nem `KHR_texture_basisu`, e o alias do meshopt no
 `vite.config.ts`. A medição foi feita fora do repositório, porque o `<model-viewer>` ainda não é dependência; o
-PR da primeira experiência com 3D traz o teste no navegador (ver ADR-0027, seção 7).
+PR da primeira experiência com 3D traz o teste no navegador ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md), seção 7).
 
 ### Testes
 
