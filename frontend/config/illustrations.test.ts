@@ -25,17 +25,8 @@ const manifest = readFileSync(MANIFEST_URL, 'utf8')
 
 const MANIFEST_ENTRY = /^ {2}'?([a-z0-9-]+)'?: \{ cssPx: (\d+),/gm
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/
-const FORBIDDEN_IN_PROMPT = [
-  'no people',
-  'no faces',
-  'no hands',
-  'no body parts',
-  'no text',
-  'no letters',
-  'no numbers',
-  'no symbols',
-  'no logos',
-]
+// Texto vem do catálogo de idiomas, nunca da imagem. Pessoas e personagens são permitidos (ADR-0027).
+const FORBIDDEN_IN_PROMPT = ['no text', 'no letters', 'no numbers', 'no symbols', 'no logos']
 const BUILD_TIMEOUT_MS = 60_000
 
 describe('catálogo de ilustrações', () => {

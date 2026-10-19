@@ -1,9 +1,17 @@
-# Registro de licenças dos assets visuais
+# Registro de licenças dos assets de mídia
 
-Origem e direito de uso de cada imagem versionada no repositório (spec 13.3, "Ilustração e fotografia":
-direitos de uso registrados). Asset sem linha aqui não entra no repositório; o teste
+Origem e direito de uso de cada imagem, modelo 3D e áudio versionado no repositório (spec 13.3, "Ilustração e
+fotografia": direitos de uso registrados; spec 6.4; [ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)). Asset sem linha aqui não entra no repositório; o teste
 `frontend/config/illustrations.test.ts` (roda no job `frontend` do CI) falha se uma ilustração gerada do catálogo não tiver linha com o
 task id da geração.
+
+## Fornecedores aprovados
+
+| Fornecedor | Para quê | Plano | Termos de uso comercial |
+|---|---|---|---|
+| fonte externa | Imagem (fonte externa, fonte externa) e modelo 3D | Pago, do responsável pelo produto | Conforme informado pelo responsável; termos não verificados (ver abaixo) |
+| fonte externa (fonte externa) | Modelo 3D (fonte offline e GLB em tempo real) | Business, do responsável pelo produto (decisão de 2026-10-19) | Conforme informado pelo responsável; termos não verificados. O responsável registra aqui o link e a data em que leu a cláusula de uso comercial |
+| TTS e música | Voz editorial e trilha | **A escolher** (comparação em andamento) | Entra nesta tabela antes do primeiro áudio gerado |
 
 ## Ilustrações de objetos (`frontend/src/shared/ui/illustrations/`)
 
@@ -14,8 +22,13 @@ task id da geração.
 - **Modelo:** fonte externa, identificador `fonte externa` no fonte externa.
 - **Fonte:** PNG 1024 × 1024 sobre verde chroma, fora do Git (`tools/visual/out/source/`). O que se versiona é
   o WebP derivado por `tools/visual/process.py` (recorte, recoloração para os tokens e redução para 1x e 2x).
-- **Prompt:** prefixo comum (`promptPrefix` de `tools/visual/catalog.json`) seguido do prompt do objeto. O
-  prefixo é:
+- **Prompt:** prefixo comum (`promptPrefix` de `tools/visual/catalog.json`) seguido do prompt do objeto.
+- **Prefixo v2** (vigente desde 2026-10-19; ADR-0027 retirou a proibição de pessoas):
+
+  > Studio illustration of a single stylized object, soft matte clay look, rounded simplified shapes, two-tone deep indigo and warm off-white, three-quarter view from slightly above, soft light from the top, on a flat solid chroma-key green background with no shadow on it, no text, no letters, no numbers, no symbols, no logos. Object: 
+
+- **Prefixo v1** — **Superseded by ADR-0027** para gerações novas; é o prefixo com que os 10 assets abaixo, de
+  2026-10-16, foram gerados, e fica aqui como registro da origem deles:
 
   > Studio illustration of a single stylized object, soft matte clay look, rounded simplified shapes, two-tone deep indigo and warm off-white, three-quarter view from slightly above, soft light from the top, on a flat solid chroma-key green background with no shadow on it, no text, no letters, no numbers, no symbols, no logos, no people, no faces, no hands, no body parts. Object: 
 
@@ -32,6 +45,24 @@ task id da geração.
 | `speech-bubbles` | fonte externa(`fonte externa`) | fonte externa | 2026-10-16 | `bcb8be68-1d8f-48b3-89fa-5eb7a4126c43` | two overlapping rounded speech bubble sculptures of different sizes, empty, no dots or marks |
 | `ticket` | fonte externa(`fonte externa`) | fonte externa | 2026-10-16 | `0370e3f7-1bfe-4826-a231-11cca0035871` | a blank admission ticket with notched corners and a perforated stub, slightly curled |
 
+## Cenários, personagens e modelos 3D
+
+Nenhum versionado hoje. Cada linha entra no PR que versiona o arquivo, com o one pager de origem
+([one-pager-template.md](one-pager-template.md)). Modelo 3D usado só como fonte offline registra também os WebP
+derivados.
+
+| Asset | Tipo (`scene`, `character`, `model3d`) | Ferramenta e modelo | Provedor | Data | Task id | SHA-256 | Licença | One pager | Prompt ou fonte |
+|---|---|---|---|---|---|---|---|---|---|
+
+## Áudio
+
+Nenhum versionado hoje. Cada arquivo tem uma linha por idioma (`pt-BR`, `en-US`); a transcrição é o texto da
+fala no conteúdo da versão. Voz feita a partir de uma voz humana de referência só entra com o consentimento e a
+licença dessa pessoa registrados na coluna própria (documento assinado, data e escopo de uso).
+
+| Asset | Canal (`music`, `ambience`, `voice`, `ui`) | Idioma | Ferramenta e modelo | Data | Task id | SHA-256 | Licença | Voz de referência: consentimento e licença | Sintética |
+|---|---|---|---|---|---|---|---|---|---|
+
 ## Assets com processamento determinístico
 
 Nenhum versionado hoje. O `placeholder` do catálogo é desenhado por `draw_placeholder` em
@@ -40,7 +71,8 @@ Nenhum versionado hoje. O `placeholder` do catálogo é desenhado por `draw_plac
 ## Como registrar um asset novo
 
 1. Gere a fonte pelo processo de [tools/visual/README.md](../../tools/visual/README.md) e guarde o task id.
-2. Acrescente a linha na tabela acima no mesmo PR que versiona o WebP: modelo, provedor, data, task id e
-   prompt do objeto.
+2. Acrescente a linha na tabela certa no mesmo PR que versiona o arquivo: modelo, provedor, data, task id e
+   prompt (imagem), mais SHA-256 e licença (cenário, 3D e áudio) e consentimento (voz de referência). O mesmo
+   hash vai para o manifesto de mídia da versão da experiência (ADR-0027).
 3. Asset de terceiro (banco de imagens, fonte, ícone) entra com a licença e o link da página de origem; licença
    que não permite uso comercial ou exige atribuição não registrada aqui não entra.
