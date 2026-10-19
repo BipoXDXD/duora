@@ -90,12 +90,19 @@ MEDIA_VERIFY_OK_FILE = ".media-verify-ok"
 MAX_MEDIA_VERIFY_AGE_HOURS = 30
 
 
+# O Compose sempre configura o storage FileSystem e o web o confere no boot, com o upload ligado ou não (adendo de
+# 2026-10-19 do ADR-0025). Mesmos nomes de FileSystemObjectStore e do role app_dirs.
+MEDIA_AREAS = ("quarantine", "derivatives")
+MEDIA_AREA_MARKER = ".duora-media-area"
+
+
 @dataclass(frozen=True)
 class HostConfig:
     image_prefix: str
     min_free_gib: int
     disk_check_path: Path
     media_uploads_enabled: bool = False
+    media_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -254,8 +261,10 @@ def parse_host_config(text: str) -> HostConfig:
     except ValueError as error:
         raise DeployError("DUORA_MIN_FREE_GIB deve ser inteiro") from error
     disk_check_path = Path(values.get("DUORA_DISK_CHECK_PATH", "/var/lib/docker"))
+    media_dir = values.get("DUORA_MEDIA_DIR", "")
     return HostConfig(prefix, min_free_gib, disk_check_path,
-                      media_uploads_enabled=bool(values.get("DUORA_MEDIA_REVIEW", "")))
+                      media_uploads_enabled=bool(values.get("DUORA_MEDIA_REVIEW", "")),
+                      media_dir=Path(media_dir) if media_dir else None)
 
 
 def docker_architecture(kernel_machine: str) -> str:
@@ -270,6 +279,20 @@ def require_free_space(*, free_bytes: int, minimum_gib: int) -> None:
     if free_bytes < minimum_gib * GIB:
         raise DeployError(
             f"espaço em disco insuficiente: {free_bytes / GIB:.1f} GiB livres, mínimo {minimum_gib} GiB")
+
+
+def require_media_areas(media_dir: Path | None) -> None:
+    """Sem o marcador do Ansible em cada área, o web cai no boot; aqui a recusa vem antes do pull e da migração."""
+    fix = "reaplique o role app_dirs do Ansible (docs/operations/deploy.md, checklist da release)"
+    if media_dir is None:
+        raise DeployError(f"DUORA_MEDIA_DIR ausente na configuração do host: {fix}")
+    if not media_dir.is_absolute():
+        raise DeployError(f"DUORA_MEDIA_DIR deve ser absoluto (recebido {media_dir}): {fix}")
+    for area in MEDIA_AREAS:
+        marker = media_dir / area / MEDIA_AREA_MARKER
+        if not os.path.isfile(marker):
+            raise DeployError(f"área de fotos sem o marcador {marker} (diretório não preparado ou não montado); "
+                              f"o web recusaria o boot depois da migração: {fix}. Nada foi parado.")
 
 
 # --- Deploy ---------------------------------------------------------------------------------------------------------
@@ -628,6 +651,7 @@ def preflight(release: Release, host: HostConfig) -> None:
     if host_arch != release.architecture:
         raise DeployError(f"release para {release.architecture}, host é {host_arch}")
     require_free_space(free_bytes=shutil.disk_usage(host.disk_check_path).free, minimum_gib=host.min_free_gib)
+    require_media_areas(host.media_dir)
     if os.geteuid() != 0:
         _step("AVISO: rodando sem root; o usuário precisa de acesso ao Docker")
 

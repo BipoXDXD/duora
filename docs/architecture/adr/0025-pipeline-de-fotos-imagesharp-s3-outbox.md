@@ -197,3 +197,35 @@ por área (proposta no adendo do ADR-0010). O adaptador S3 e o contrato contra o
 O item "Backup" de Segurança e operação deixa de ser pendência aberta: a cópia externa de `derivatives/` (restic para
 o B2) é pré-requisito para ligar o upload (gate do adendo do ADR-0010), e o gate manual "bucket de mídia com as políticas de
 credencial acima" vira "montagens por área conferidas no host e backup das fotos verificado".
+
+## Adendo (2026-10-19): em produção o storage é exigido no boot, com o upload ligado ou não
+
+Revisão do PR #72 (issue #69). O item 8 diz que, sem `Media:Review`, "o storage não é exigido no boot". Isso continua
+valendo quando `Media:Storage:Provider` também está ausente, mas não descreve a produção: o `compose.prod.yml` passa
+sempre `Media__Storage__Provider: FileSystem` e `Media__Storage__FileSystemRoot` ao `web` e ao `worker`, e a validação
+do adaptador de filesystem em `Production` (raiz absoluta e o marcador `.duora-media-area` em `quarantine/` e
+`derivatives/`) roda sempre que o provedor é `FileSystem`, sem olhar o interruptor. **Em produção, portanto, o web não
+sobe sem as duas áreas montadas e marcadas, mesmo com `DUORA_MEDIA_REVIEW` vazio.**
+
+Alternativas consideradas:
+
+- **Validar o storage só com o upload ligado** (backend condicional a `UploadsEnabled`). Mantém o texto do item 8, mas
+  empurra a descoberta de uma montagem faltando para o dia da ativação, que é justamente o deploy de maior risco; e o
+  web com o upload desligado ainda serviria derivados já gravados, que dependem da montagem.
+- **Segundo interruptor no host para o provedor.** Dois valores para manter coerentes (`DUORA_MEDIA_REVIEW` e o
+  provedor), e uma combinação a mais que o gate do deploy teria de entender.
+- **Exigir o storage sempre, conferido também pelo deploy** (escolhida). Uma só origem de configuração, o Compose
+  estático, e o erro aparece no primeiro deploy depois de reaplicar o `app_dirs`, não na ativação.
+
+Decisão: o storage é exigido no boot de `Production` independentemente de `Media:Review`, e o `duora-deploy` confere
+os mesmos marcadores (`DUORA_MEDIA_DIR` do `duora.env`, absoluto, com `{quarantine,derivatives}/.duora-media-area`)
+no preflight, **antes** do pull, das migrations e de parar qualquer serviço. Sem isso, um host sem os marcadores
+passava pelo deploy, migrava o banco e só então via o web cair. A recusa diz o caminho que falta e manda reaplicar o
+role `app_dirs`.
+
+Consequências: reaplicar o `app_dirs` (diretórios, marcadores e o template do `duora.env` com `DUORA_MEDIA_DIR`) é
+pré-requisito de qualquer release a partir do #72, com o upload ligado ou não. O item 8 passa a ler "o storage não é
+exigido no boot quando nenhum provedor está configurado"; o resto do item não muda.
+
+Compliance: `TheFileSystemStoreRefusesAnAreaWithoutTheMountMarkerInProduction` (boot sem `Media:Review`) e
+`MediaStoragePreflightTests` (preflight do deploy, inclusive a recusa pelo `main` sem rodar comando algum).
