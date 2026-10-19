@@ -6,9 +6,8 @@
   [ADR-0010](0010-object-storage-externo-leitura-via-api.md), [ADR-0013](0013-ia-fora-do-caminho-critico.md),
   [ADR-0020](0020-persistencia-da-sessao-de-jogo.md), [ADR-0022](0022-i18n-intl-messageformat-catalogo-tipado.md);
   [brief](../../product/experience-brief.md) (O4 e restrições); [system.md](../../design/system.md)
-- **Revisar quando:** o responsável escolher a ferramenta de TTS ou de música, a primeira experiência pedir 3D
-  em tempo real, o orçamento de mídia medido estourar a hipótese, ou entrar um
-  terceiro idioma
+- **Revisar quando:** a primeira experiência pedir 3D em tempo real, o orçamento de mídia medido estourar a
+  hipótese, o plano ou os termos de ElevenLabs, Freesound ou Sonniss mudarem, ou entrar um terceiro idioma
 - **Substitui em parte:** a direção "objetos simbólicos, sem pessoa" de [system.md](../../design/system.md#ilustração-cenário-e-personagem)
   (marcada como Superseded lá), o prefixo de prompt v1 de [assets-licenses.md](../../design/assets-licenses.md) e
   a linha "Experiências" da spec 1.1, que tirava 3D e voz do escopo. Nenhum ADR anterior é revogado: os ADRs
@@ -79,7 +78,11 @@ geração ao vivo (imagem, música ou TTS).
 - O elenco de cada experiência varia em tom de pele, corpo, idade adulta e apresentação de gênero; nada de
   casal-padrão, sexualização nem papel estereotipado ([brief](../../product/experience-brief.md#restrições-spec-131)).
 - Nenhum texto dentro da imagem; texto vem do catálogo de idiomas.
-- Cada ambiente e cada personagem nasce de um one pager, que é o insumo comum de arte, som e roteiro.
+- Cada ambiente e cada personagem nasce de um one pager, que é o insumo comum de arte, som e roteiro. O
+  catálogo recusa personagem sem one pager, e cada elenco passa pela checklist de revisão de diversidade de
+  [one-pager-template.md](../../design/one-pager-template.md#checklist-de-revisão-de-elenco).
+- Quando o prefixo de cenário e personagem entrar em `tools/visual`, um teste exige nele "adult", "stylized, not
+  photorealistic", "non-sexualized" e "no text".
 
 ### 3. Áudio pré-gerado
 
@@ -93,7 +96,9 @@ geração ao vivo (imagem, música ou TTS).
   dela (meta de projeto WCAG 1.4.7, AAA), com transição sem degrau audível (GASG pp. 288–289).
 - **Transcrição na tela** de toda fala, no idioma ativo (WCAG 1.2.1), com a identificação de quem fala. A
   transcrição é o mesmo texto do catálogo que gerou o áudio: uma fonte só.
-- **Aviso discreto** de que a voz é sintética, quando for, junto da transcrição.
+- **Aviso de voz sintética** em dois lugares: um aviso claro na introdução da experiência ("As vozes desta
+  experiência são geradas por IA") e o rótulo junto da transcrição de cada fala. Aplicabilidade do art. 50 do
+  EU AI Act a confirmar (lacuna J-10 do PR #83); voz de referência de residente de Illinois entra na lacuna J-04.
 - **Nenhuma reação sonora ao prazo:** sem tique-taque, sem música que acelera, sem alarme nos marcos (O4 do
   brief). O marco é texto, anunciado uma vez (A11Y-08).
 - **Decisão privada em silêncio** ou com som neutro do ambiente, sem nenhum som ao salvar, ao formar conexão ou
@@ -107,9 +112,20 @@ geração ao vivo (imagem, música ou TTS).
 - **Voz de referência humana** só com consentimento e licença documentados em
   [assets-licenses.md](../../design/assets-licenses.md).
 - **Música mínima** quando a etapa pede foco (escolha, ajuste, decisão): ambiente baixo ou silêncio.
-- **Pipeline agnóstico de ferramenta.** A ferramenta de TTS e a de música ainda não foram escolhidas (comparação
-  em andamento). Qualquer uma entra pelo mesmo caminho: texto revisado do catálogo → geração offline → edição
-  e normalização → codificação → hash → registro de licença → nova versão de conteúdo.
+- **Fornecedores (decisão do responsável, 2026-10-19):** **ElevenLabs, plano Creator**, para voz (TTS) e música;
+  **Freesound, só CC0**, e **Sonniss** para efeitos. Caminho único: texto revisado do catálogo → geração
+  offline na saída de maior qualidade que o plano permitir → edição, mix e normalização → **uma única**
+  codificação AAC-LC → hash → registro em [assets-licenses.md](../../design/assets-licenses.md) → nova versão de
+  conteúdo. Lacuna a confirmar: pela API, o Creator pode entregar só MP3; nesse caso o MP3 é a fonte, e o
+  AAC-LC sai dele uma vez, sem nova recodificação.
+- **Segredo:** `ELEVENLABS_API_KEY` só no ambiente de quem gera, nunca no repositório, em CI, log ou commit; o
+  MCP hospedado da ElevenLabs usa OAuth e não precisa de chave no repositório.
+- **Riscos de licença:**
+  - Sonniss proíbe redistribuir som avulso e o repositório é público: versiona-se só o **mix final** em que o
+    efeito entra, nunca o arquivo original (termo exato a confirmar na licença do pacote).
+  - Freesound: só CC0, e nenhuma gravação com voz identificável.
+  - Voice Library da ElevenLabs: registrar o `voice_id` e o prazo de retirada da voz pela autora; voz clonada de
+    pessoa real só com consentimento assinado.
 
 ### 4. Formatos, orçamento e carregamento
 
@@ -117,13 +133,13 @@ Os números são **hipóteses** (convenção da spec: valor a medir), revistos c
 
 | Item | Regra |
 |---|---|
-| Formato de áudio obrigatório | AAC-LC em MP4 (`.m4a`), 48 kHz: toca no Safari/iOS, Chrome, Firefox e Edge. Opus em WebM só como segunda fonte, com medição |
+| Formato de áudio obrigatório | AAC-LC em MP4 (`.m4a`), 48 kHz, para Safari/iOS, Chrome e Edge. O Firefox no Linux depende do decodificador do sistema: o cliente detecta suporte (`canPlayType`/`decodeAudioData`) e usa Opus em WebM como fallback, gerado da mesma fonte |
 | Voz | Mono, ~64 kbit/s (hipótese) |
 | Música e ambiente | Estéreo, ~128 kbit/s (hipótese); loops curtos (≤ 60 s) em vez de faixas longas (GASG p. 301) |
 | Loop sem lacuna | Por Web Audio, com `loopStart`/`loopEnd` do manifesto descontando o atraso do codificador; nunca MP3 em loop (GASG p. 303) |
 | Loudness | Loops longos com loudness integrado de referência (−16 LUFS, hipótese) e pico ≤ −1 dBTP; efeitos curtos por pico, não por LUFS (GASG cap. 4, p. 134) |
 | Orçamento de áudio | ≤ 3 MB por experiência e idioma (hipótese), somando música, ambiente e vozes |
-| Orçamento de imagem de cenário | ≤ 250 KB por cenário a 2x (hipótese), WebP, dimensões fixas |
+| Orçamento de imagem de cenário | ≤ 250 KB por cenário a 2x (hipótese), WebP, dimensões fixas. A imagem de cenário provavelmente é o elemento LCP da rota da experiência: `srcset` com variante móvel, `fetchpriority="high"` só nessa rota e orçamento medido em laboratório (spec 13.5) |
 | Orçamento de 3D em tempo real | ≤ 1,5 MB por modelo GLB (hipótese), mais o custo do visualizador medido no build |
 | Caminho crítico | Nenhum áudio nem modelo 3D no caminho do LCP: áudio só é baixado depois que a pessoa liga o som; 3D em tempo real carrega depois da primeira renderização, por interação ou visibilidade, sempre com o poster WebP primeiro |
 
@@ -141,8 +157,8 @@ ao registro de consentimento. O `content_sha256` da versão cobre o manifesto, e
   versão antiga (INV-09, T-09).
 - Os "modos de acessibilidade" da versão (spec 6.1) passam a incluir **som desligado** e **transcrição**; uma
   versão só publica se for completável com som desligado.
-- Voz e transcrição existem em PT-BR e EN-US. A versão só publica com os dois idiomas completos, com o mesmo
-  conjunto de falas. O código de idioma `en` do ADR-0022 aponta para o conteúdo EN-US.
+- Voz e transcrição existem em `pt-BR` e `en-US`. A versão só publica com os dois idiomas completos, com o mesmo
+  conjunto de falas.
 
 ### 6. Voz ao vivo entre as duas pessoas
 
@@ -163,7 +179,9 @@ nele. A dependência entra no PR da primeira experiência que a usar, com justif
 - nada da regra, da pista ou da escolha mora só no modelo; nenhuma ação exige arrastar ou girar (A11Y-04);
 - sem rotação automática com `prefers-reduced-motion: reduce`; nada pisca;
 - WebGL indisponível, falha de carregamento ou "Reduzir movimento" mostram o poster, sem perda de função;
-- geometria e texturas sem decodificador WebAssembly até a CSP ser revista no PR de infra.
+- geometria e texturas sem decodificador WebAssembly até a CSP ser revista no PR de infra; o `<model-viewer>`
+  carrega texturas por `blob:`, o que pede `img-src blob:` (e, com decodificador, `worker-src blob:` e
+  `'wasm-unsafe-eval'`) nesse mesmo PR.
 
 Porquê técnico: a mídia entra no mesmo contrato de versão imutável que já protege regras e conteúdo, fica fora do
 caminho crítico e herda os controles de acessibilidade existentes. Porquê de negócio: ambientes e vozes dão
@@ -183,17 +201,22 @@ personalidade às experiências sem comprometer acolhimento, privacidade e saíd
 
 - Mídia do catálogo é pública e não pessoal; nenhum dado de participante entra em prompt, roteiro ou referência
   de voz (spec 6.4). Voz de referência humana só com consentimento e licença registrados.
-- Arquivo de mídia é conferido pelo hash do manifesto no build; arquivo trocado falha o teste.
+- Arquivo de mídia é conferido pelo hash do manifesto no build: um teste de build confere que todo arquivo citado
+  por versão não aposentada existe no bundle com o hash certo; arquivo trocado ou ausente falha o build.
 - Voz ao vivo: STRIDE em [threat-model.md](../../security/threat-model.md#512-voz-ao-vivo-na-sala) (TM-68 a
   TM-76) e ADR-0028.
-- **Dependências:** CSP (`media-src 'self'` para o áudio do catálogo e, se houver 3D com WebAssembly,
-  `'wasm-unsafe-eval'`) num PR de infra separado; público, idiomas e região no
+- **Dependências:** CSP num PR de infra separado: `media-src 'self'` para `<audio>`; o `fetch` dos arquivos que
+  a Web Audio decodifica cai em `connect-src` (já `'self'`); 3D em tempo real pede `img-src blob:` e, com
+  WebAssembly, `worker-src blob:` e `'wasm-unsafe-eval'`; público, idiomas e região no
   ADR-0026 (PR #83, em revisão).
 
 ## Compliance
 
 - `tools/visual/test_catalog.py` e `frontend/config/illustrations.test.ts` (jobs `ops` e `frontend` do CI): o prefixo de
-  prompt proíbe texto, letras, números, símbolos e logos; pessoas não são mais proibidas.
+  prompt proíbe texto, letras, números, símbolos e logos; pessoas não são mais proibidas; o prefixo registrado
+  em `assets-licenses.md` é igual ao de `catalog.json`.
+- A criar com o primeiro cenário: teste do prefixo de cenário e personagem ("adult", "stylized, not
+  photorealistic", "non-sexualized", "no text") e teste de build de arquivos de mídia por versão não aposentada.
 - A criar com a primeira experiência com mídia (M2): teste do manifesto (todo asset tem hash que confere com o
   arquivo, licença, origem e os dois idiomas; fala ≤ 120 caracteres; categoria de bark com ≥ 3 variações);
   T-09 estendido à mídia (sessão antiga continua com os arquivos da versão antiga).
