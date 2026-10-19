@@ -93,7 +93,7 @@ public sealed partial class TransactionalEmailDispatcher
         var renewed = await _queue.RenewLeasesAsync([delivery, .. waiting], _options.LeaseDuration, _time, cancellationToken);
         if (!renewed.Contains(delivery.Id))
         {
-            LogLeaseLost(_logger, delivery.Id);
+            LogSkippedWithoutOwnership(_logger, delivery.Id);
             return;
         }
 
@@ -219,6 +219,11 @@ public sealed partial class TransactionalEmailDispatcher
         Level = LogLevel.Error,
         Message = "Entrega {DeliveryId} do consumidor {Consumer} esgotou as tentativas após {Attempts} tentativa(s) sem resultado gravado; vai para revisão")]
     private static partial void LogExhaustedForReview(ILogger logger, Guid deliveryId, string consumer, int attempts);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Entrega {DeliveryId} não foi enviada: o heartbeat não renovou a posse (lease vencido ou outro worker a assumiu)")]
+    private static partial void LogSkippedWithoutOwnership(ILogger logger, Guid deliveryId);
 
     [LoggerMessage(
         Level = LogLevel.Warning,
