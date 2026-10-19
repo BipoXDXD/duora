@@ -131,6 +131,23 @@ public sealed class UnlikelyRoutesRules
             isActive ? [.. AvailableActions(state, viewer).Select(type => type.Value)] : []);
     }
 
+    public AccessibleInteraction DescribeAccessibleInteraction(string locale) => LocalizedCatalog.ForLocale(locale,
+        new AccessibleInteraction(Descriptor,
+            "Unlikely Routes: plan a walk through an imaginary town together. Use text, buttons and keyboard; no dragging, color perception or reaction speed is required. The deadline is an absolute time.",
+            [
+                new StageInstruction("introduction", "Read the objective and example, then select Got it. The stage advances when both people confirm."),
+                new StageInstruction("clues", "Your clues appear in a list marked Only you can see this. Select Got it to continue."),
+                new StageInstruction("choices", "Take turns choosing an option from the list. A text message tells you when it is the other person's turn."),
+                new StageInstruction("adjustment", "Review and confirm the route, or request a revision while revisions remain. The number remaining is shown in text."),
+                new StageInstruction("conclusion", "The final route appears as a list. There are no grades or scores."),
+            ],
+            [
+                new ActionInstruction(UnlikelyRoutesAction.AcknowledgeType, "Tab to Got it, then press Enter or Space.", [InputMethod.Button, InputMethod.Keyboard]),
+                new ActionInstruction(UnlikelyRoutesAction.ChooseOptionType, "Use arrows to move between radio options, Space to select and Enter on Choose.", [InputMethod.Button, InputMethod.Keyboard]),
+                new ActionInstruction(UnlikelyRoutesAction.ConfirmRouteType, "Tab to Confirm route, then press Enter or Space.", [InputMethod.Button, InputMethod.Keyboard]),
+                new ActionInstruction(UnlikelyRoutesAction.RequestRevisionType, "Request revision clears the route and reopens choices. Tab to the button, then press Enter or Space.", [InputMethod.Button, InputMethod.Keyboard]),
+            ]), DescribeAccessibleInteraction());
+
     public AccessibleInteraction DescribeAccessibleInteraction() => new(
         Descriptor,
         "Rotas Improváveis: vocês montam juntos um passeio por uma cidade inventada. Tudo é texto e botões; o prazo "

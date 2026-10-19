@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Frozen;
 
 namespace Duora.Core.Matching;
 
@@ -30,7 +31,7 @@ public static class PairSelector
 
         return round.AlgorithmVersion switch
         {
-            PairingAlgorithmVersion.GreedyByPriorityV1 => SelectGreedyByPriority(round),
+            PairingAlgorithmVersion.GreedyByPriorityV1 or PairingAlgorithmVersion.GreedyByPriorityV2 => SelectGreedyByPriority(round),
             _ => throw new InvalidOperationException($"Versão de algoritmo sem implementação: {round.AlgorithmVersion}."),
         };
     }
@@ -41,11 +42,17 @@ public static class PairSelector
         var options = ViableOptionsByRank(round, ranked);
         var partnerOf = PairGreedily(options);
 
+        var pairs = PairsOf(ranked, partnerOf);
+        var candidates = ranked.ToDictionary(candidate => candidate.UserId);
+        var agreements = round.AlgorithmVersion == PairingAlgorithmVersion.GreedyByPriorityV2
+            ? pairs.ToFrozenDictionary(pair => pair, pair => CommunicationPolicy.Agree(
+                candidates[pair.UserLow].Communication, candidates[pair.UserHigh].Communication)!)
+            : FrozenDictionary<UserPair, CommunicationAgreement>.Empty;
         return new PairSelection(
-            PairsOf(ranked, partnerOf),
+            pairs,
             [.. UnpairedRanks(partnerOf).Select(rank => ranked[rank].UserId)],
             TallyUnpaired(options, partnerOf),
-            PairingAlgorithmVersion.GreedyByPriorityV1);
+            round.AlgorithmVersion, agreements);
     }
 
     private static Candidate[] RankByPriority(RoundSnapshot round)
@@ -83,7 +90,9 @@ public static class PairSelector
         return !round.BlockedPairs.Contains(pair)
             && !round.PriorPairings.Contains(pair)
             && first.Preferences.Accepts(second.Preferences)
-            && second.Preferences.Accepts(first.Preferences);
+            && second.Preferences.Accepts(first.Preferences)
+            && (round.AlgorithmVersion == PairingAlgorithmVersion.GreedyByPriorityV1
+                || CommunicationPolicy.Agree(first.Communication, second.Communication) is not null);
     }
 
     /// <summary>Devolve, por posição no ranking, a posição do par formado, ou <see cref="Unpaired"/>.</summary>
