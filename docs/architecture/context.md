@@ -33,13 +33,13 @@ flowchart TB
             DB[("PostgreSQL 18<br/>volume dedicado + pgBackRest")]
         end
         Keys[["Volume restrito:<br/>key ring de Data Protection"]]
+        Objects[["Diretório do host (FileSystem):<br/>fotos em quarentena e derivados"]]
     end
 
     subgraph Externos["Serviços externos (fornecedores a escolher)"]
-        Objects["Object storage privado<br/>quarentena e derivados"]
         Email["E-mail transacional"]
         Age["Aferição etária<br/>adaptador aprovado"]
-        BackupRepo["Repositório de backup<br/>externo e isolado"]
+        BackupRepo["Repositório de backup<br/>externo e isolado<br/>(Backblaze B2 US East)"]
         Monitor["Monitoramento e alertas"]
     end
 
@@ -62,6 +62,7 @@ flowchart TB
     Age -.->|"callback assinado em /webhooks/{provider}"| Caddy
     Email -.->|"bounces e recibos (webhook)"| Caddy
     DB -.->|"backup físico e WAL"| BackupRepo
+    Objects -.->|"cópia dos derivados (restic)"| BackupRepo
     Web --> Collector
     Worker --> Collector
     Collector -.->|"OTLP filtrado"| Monitor
@@ -96,7 +97,7 @@ Só o processo web publica notificações de tempo real; o worker grava eventos 
 | F3 | Web/Worker → PostgreSQL | Consultas e comandos | Conta de aplicação sem superuser/DDL; migrador separado; rede interna; SQL parametrizado (10.7, 11.4) |
 | F4 | Worker → fornecedores | E-mail, verificação etária, storage | `IHttpClientFactory` com timeout, cancelamento e limite de concorrência; retry só com idempotência; nenhum dado íntimo em assunto de e-mail (16.3, 16.4) |
 | F5 | Fornecedores → `/webhooks/{provider}` | Callbacks e recibos | Assinatura sobre os bytes recebidos, timestamp, janela contra replay, registro idempotente antes de processar, limite de tamanho (16.4) |
-| F6 | Web → object storage | Leitura de derivados aprovados | Autorização revalidada a cada leitura; `no-store`; chave interna nunca exposta; bucket privado (16.2) |
+| F6 | Web → diretório de fotos no disco da VPS | Leitura de derivados aprovados | Autorização revalidada a cada leitura; `no-store`; chave interna nunca exposta; montagem por área, sem leitura da quarentena pelo Web (16.2; adendo do ADR-0010) |
 | F7 | PostgreSQL → repositório de backup | Backup físico e WAL | Criptografia com chave sob custódia independente; aplicação sem permissão de leitura ou exclusão do backup (18.3) |
 | F8 | Collector → monitoramento | Telemetria | Sem corpos, tokens, cookies, preferências ou IDs de pessoa como label; amostragem e teto de volume (19.2) |
 | F9 | CI → registry → VPS | Imagens e manifesto da release | Permissões mínimas por job; actions fixadas por SHA; imagens por digest; host só lê o registry; SSH restrito com host key validada (17.1, 17.2) |

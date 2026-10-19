@@ -1,6 +1,7 @@
 # ADR-0025: Pipeline de fotos com ImageSharp no Worker, object storage S3 e fila na outbox
 
 - **Status:** Accepted (2026-10-15)
+- **Substituído em parte:** o storage de produção das fotos (adaptador S3 com `AWSSDK.S3` num bucket de mídia, item 5), pelo [adendo de 2026-10-16 do ADR-0010](0010-object-storage-externo-leitura-via-api.md#adendo-2026-10-16-fotos-no-disco-da-vps-com-cópia-externa) (fotos no disco da VPS)
 - **Origem:** spec 2.3, 4.2, 4.3, 8.1, 8.4 (API-M01, API-M02), 8.7, 11.5, 12.3, 15.4, 16.1, 16.2 e 23.2;
   [ADR-0003](0003-monolito-modular-web-worker.md), [ADR-0008](0008-postgresql-para-jobs-e-outbox.md),
   [ADR-0010](0010-object-storage-externo-leitura-via-api.md), [ADR-0021](0021-jobs-duraveis-e-leases-no-postgresql.md);
@@ -229,3 +230,14 @@ exigido no boot quando nenhum provedor está configurado"; o resto do item não 
 
 Compliance: `TheFileSystemStoreRefusesAnAreaWithoutTheMountMarkerInProduction` (boot sem `Media:Review`) e
 `MediaStoragePreflightTests` (preflight do deploy, inclusive a recusa pelo `main` sem rodar comando algum).
+
+## Adendo (2026-10-19): FileSystem é o storage padrão; S3 é alternativa futura
+
+O título e o item 5 deste ADR ainda falam em object storage S3; vale o que o adendo de 2026-10-16 acima e o
+[adendo do ADR-0010](0010-object-storage-externo-leitura-via-api.md#adendo-2026-10-16-fotos-no-disco-da-vps-com-cópia-externa)
+decidiram. O storage padrão das fotos, em todos os ambientes, é o `FileSystemObjectStore`, num diretório do disco da
+VPS de produção (Hostinger, Boston, EUA) montado por área no `web` e no `worker`, com cópia externa dos derivados no
+Backblaze B2 US East. O `S3ObjectStore` (`AWSSDK.S3`) e o contrato contra o MinIO continuam no código só como
+**alternativa futura**: não há bucket de mídia nem conta na AWS, e adotar S3 em produção exige novo ADR, com as
+regras de credencial do item 5 revistas para o fornecedor escolhido. O título do arquivo fica como está, para não
+quebrar links.
