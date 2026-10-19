@@ -276,15 +276,27 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 - **Ações:** uma primária por etapa ("Entendi" na introdução, "Escolher" na escolha, "Confirmar roteiro" no
   ajuste, "Ir para a decisão" na conclusão); secundária "Pedir revisão" no ajuste; "Sair" fixo; "Denunciar"
   dentro do diálogo de saída e no menu do chat.
-- **Regras:** nenhuma ação depende de arrastar, cor, áudio ou reflexo; todas as escolhas por botão e teclado
-  (A11Y-04); o resultado não é nota de compatibilidade; a pista da outra pessoa não está no payload antes da
-  revelação (spec 6.2).
+- **Regras:** nenhuma ação depende de arrastar, cor, áudio, voz do par ou reflexo; todas as escolhas por botão
+  e teclado (A11Y-04); o resultado não é nota de compatibilidade; a pista da outra pessoa não está no payload
+  antes da revelação (spec 6.2).
+- **Mídia (proposto, spec 6.5):** faixa de cenário no topo (até ~30% da altura no mobile), com no máximo um
+  personagem; Controle de som na barra, mudo por padrão; transcrição das falas abaixo do cenário; na etapa de
+  escolha, só ambiente baixo ou silêncio; nenhum som reage ao prazo.
+- **Voz ao vivo (proposto, ADR-0028):** botão "Ligar meu microfone" no painel do chat, desligado por
+  padrão; a permissão do navegador só é pedida nesse toque. Ligada, mostra "Microfone aberto", quem está
+  falando, "Silenciar Bia", "Desligar meu microfone", "Sair da voz", "Bloquear" e "Denunciar". O chat de texto
+  continua ao lado: a experiência termina igual sem voz. Aviso na tela de voz: "A outra pessoa pode gravar o
+  que você diz no próprio aparelho."
 
 ```text
 ┌──────────────────────────────────────┐
-│ Rotas Improváveis         [ Sair ]   │
+│ Rotas Improváveis   [Som] [ Sair ]   │
 │ Etapa 3 de 4: escolhas               │
 │ Termina às 20:22 · cerca de 6 min    │
+├──────────────────────────────────────┤
+│ ░░░░░ cenário: cais ao entardecer ░░ │
+│ Guia: "Toda rota começa por um porto"│
+│ (voz sintética)                      │
 ├──────────────────────────────────────┤
 │ Objetivo: montar juntos um passeio   │
 │ por uma cidade inventada.            │
@@ -303,7 +315,7 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 │ Roteiro até agora                    │
 │ 1. (vazio)                           │
 ├──────────────────────────────────────┤
-│ Chat da sala                         │
+│ Chat da sala      [ Ligar microfone ]│
 │ Bia: começo pelo farol?              │
 │ ┌────────────────────────────┐┌────┐ │
 │ │ Mensagem                   ││Env.│ │
@@ -341,7 +353,10 @@ bloqueio pede confirmação própria com a primária destrutiva "Bloquear pessoa
 | Prazo: aviso | Aos 2 min e aos 30 s restantes, faixa de prazo muda de texto e é anunciada uma vez (A11Y-08) |
 | Prazo encerrado | "O tempo da rodada terminou." + resultado do que foi concluído + "Ir para a decisão" |
 | Sala abortada | "Esta sala foi encerrada." Mensagem neutra, sem motivo que exponha a outra pessoa; "Voltar à sala de espera"; "Denunciar ›" |
-| Conclusão | Roteiro compartilhado, sem nota; "Ir para a decisão" |
+| Conclusão | Roteiro compartilhado, sem nota; "Ir para a decisão"; sem fanfarra nem som de recompensa |
+| Som ligado | Música e ambiente do cenário; falas com transcrição; ducking sob a voz; "Reduzir áudio" deixa só voz e interface |
+| Voz ao vivo: permissão negada | "O microfone não foi liberado. O chat continua disponível." + como liberar; nada bloqueia a experiência |
+| Voz ao vivo: ativa | Indicadores de microfone aberto e de quem fala, em texto; silenciar, desligar e sair da voz sem sair da sala |
 | `loading` / `error` / `offline` | Conforme as convenções; "Sair" disponível em todos |
 
 ## Decisão privada
@@ -350,6 +365,8 @@ bloqueio pede confirmação própria com a primária destrutiva "Bloquear pessoa
 - **Conteúdo:** explicação de privacidade, a escolha, o prazo de alteração em horário absoluto, o que acontece
   se for mútuo. Nunca: decisão, horário ou status da outra pessoa (spec 7.1).
 - **Ações:** primária "Salvar decisão"; as duas escolhas com o mesmo peso visual.
+- **Som:** silêncio ou ambiente neutro; nenhum som ao salvar, ao formar conexão nem ao expirar; a voz ao vivo da
+  sala já terminou (spec 6.5).
 
 ```text
 ┌──────────────────────────────────────┐

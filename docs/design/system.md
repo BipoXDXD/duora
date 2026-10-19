@@ -1,6 +1,6 @@
 # Design system
 
-Semântica, tokens, ações, movimento e inventário de componentes do Duora (spec
+Semântica, tokens, ações, movimento, áudio e inventário de componentes do Duora (spec
 [13.3](../product/spec.md#133-design-system-implementável); catálogo
 [21.2](../product/spec.md#212-catálogo-de-documentação-interna)). O repositório é a fonte de verdade dos
 tokens publicados: os valores vivem em `frontend/src/index.css`, e este documento explica a semântica e a
@@ -10,8 +10,9 @@ escala. Nada aqui é identidade visual final (spec 13.3, "ponto de partida de de
 > para revisão, ainda sem código. Todo token proposto entra com o teste de contraste correspondente em
 > `frontend/src/app/design-tokens.test.ts`.
 
-Fontes: Refactoring UI (RUI) caps. 2 a 6 e 8; CSS in Depth (CID) caps. 2, 11, 12 e 15; Designing Interfaces
-(DI) caps. 8, 10 e 11. Notas de regra da casa em `~/.claude/knowledge/ui-design.md` não são citadas como fonte
+Fontes: Refactoring UI (RUI) caps. 2 a 8; CSS in Depth (CID) caps. 2, 11, 12 e 15; Designing Interfaces
+(DI) caps. 8, 10 e 11; The Game Audio Strategy Guide (GASG) caps. 3, 5, 8 e 12; The Definitive Game Narrative
+Guide (NG) caps. 5 e 12. Notas de regra da casa em `~/.claude/knowledge/ui-design.md` não são citadas como fonte
 normativa.
 
 ## Princípios
@@ -150,22 +151,67 @@ por nível.
   seção 15.1). O estado final continua visível; nada depende de ver a animação.
 - Nada pisca mais de três vezes por segundo; o tempo restante não anima a cada segundo.
 
-## Ilustração
+## Áudio (proposto)
 
-Direção escolhida pelo responsável pelo produto: **objetos simbólicos** em WebP estático, com dois tons
-recoloridos para `action` e `text-muted` (spec 13.3, "Ilustração e fotografia"). Componente e assets estão
-**implementados** (`frontend/src/shared/ui/illustration.tsx`); a colocação nas telas entra com cada tela.
+Análogo a Movimento: som só com finalidade (situar o ambiente, confirmar a própria ação, dar voz a um
+personagem), com variante sem som que não perde nada. Regras de produto em [ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md) e spec 6.5;
+nada aqui está implementado.
+
+| Canal | Conteúdo | Volume inicial (hipótese) | Regra |
+|---|---|---|---|
+| `music` | Trilha do ambiente, em loop curto | Baixo | Some ou vira silêncio nas etapas de foco (escolha, ajuste) e na decisão privada (GASG cap. 5, pp. 143–144) |
+| `ambience` | Som do lugar (vento, água, salão) | Baixo | Coerente com a paleta visual do one pager; "menos é mais" (GASG cap. 3, pp. 52–54) |
+| `voice` | Falas pré-geradas do catálogo e, quando houver, a voz ao vivo da outra pessoa (com volume próprio) | Médio | Ducking: música e ambiente ≥ 20 dB abaixo da voz enquanto ela soa (meta WCAG 1.4.7) |
+| `ui` | Confirmação da própria ação | Baixo | Um som, um significado (som "icônico", GASG cap. 12, pp. 384–385); sempre junto de texto ou estado visível |
+
+- **Mudo por padrão.** Nada toca antes de um gesto no Controle de som (WCAG 1.4.2). "Som ligado" lembrado no
+  aparelho só volta a tocar depois do primeiro gesto da página.
+- **Preferências no aparelho:** ligado/desligado, volume de cada canal e **"Reduzir áudio"** (desliga `music` e
+  `ambience`). Guardadas em `localStorage` como preferência, validadas como dado externo; nunca no servidor.
+- **Transcrição:** toda fala aparece em texto na tela, no idioma ativo, com quem fala e o aviso discreto "voz
+  sintética" quando for. A transcrição não é região viva (o leitor de tela não a lê duas vezes por cima do
+  áudio); fica alcançável por título.
+- **Paleta sonora** por ambiente, escolhida antes de gerar, coerente com a paleta visual e o tom do brief
+  (GASG cap. 3, pp. 51–52): cor tonal unificada, sem misturar realismo e lo-fi.
+- **Nunca:** som que reage ao prazo (tique-taque, música acelerando, alarme); som de recompensa ligado a
+  pessoas (conexão formada, interesse); som disparado por estado privado da outra pessoa; som na decisão
+  privada além do silêncio ou do ambiente neutro; TTS ao vivo, nome de participante ou texto do chat em voz.
+- **Falas:** até 120 caracteres por idioma; categoria de bark com pelo menos 3 variações e fala distinta com
+  peso raro (NG cap. 12, pp. 181–183); nenhuma fala comenta a outra pessoa.
+- **Formato e peso:** AAC-LC (`.m4a`), loops por Web Audio, orçamento por experiência e nenhum áudio no
+  caminho crítico do LCP (ADR-0027, seção 4).
+
+## Ilustração, cenário e personagem
+
+Duas famílias de imagem, as duas em WebP estático com direitos registrados (spec 13.3, "Ilustração e
+fotografia"):
+
+- **Objetos simbólicos** nas telas de produto (onboarding, estado vazio, cabeçalho de tela), com dois tons
+  recoloridos para `action` e `text-muted`. Componente e assets **implementados**
+  (`frontend/src/shared/ui/illustration.tsx`); a colocação nas telas entra com cada tela.
+- **Cenários e personagens** nas experiências (proposto, [ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)), cada um a partir de um
+  [one pager](one-pager-template.md). Podem vir de 3D renderizado offline (Rodin ou Tripo) e, por experiência,
+  de 3D em tempo real com fallback 2D.
+
+> **Superseded by ADR-0027 (2026-10-19):** a decisão anterior, "objetos simbólicos, **nenhuma pessoa, rosto,
+> mão, parte do corpo ou silhueta humana**, nem realista nem estilizada", caiu. O texto original fica aqui como
+> registro: "A spec 13.3 proíbe sugerir identidade falsa ou presença fictícia, e o brief pede ilustração sem
+> casal-padrão; objeto não tem gênero, idade nem corpo."
 
 ### Regra de conteúdo
 
-- **Nenhuma pessoa, rosto, mão, parte do corpo ou silhueta humana**, nem realista nem estilizada. A spec 13.3
-  proíbe sugerir identidade falsa ou presença fictícia, e o [brief](../product/experience-brief.md) pede
-  ilustração sem casal-padrão; objeto não tem gênero, idade nem corpo.
+- **Personagens permitidos**, inclusive humanos estilizados, nunca fotorrealistas nem parecidos com pessoa real
+  identificável. Todo personagem é adulto e claramente fictício, e nunca aparece no lugar de avatar, perfil,
+  participante ou "alguém esperando você" (spec 13.3: não sugerir presença fictícia).
+- **Diversidade sem estereótipo:** o elenco de cada experiência varia em tom de pele, corpo, idade adulta e
+  apresentação de gênero; sem casal-padrão, sem sexualização, sem papel preso a um estereótipo
+  ([brief](../product/experience-brief.md#restrições-spec-131)).
 - **Nenhum texto, letra, número, símbolo ou logo** dentro da imagem: texto vem do catálogo de idiomas, ao lado.
-- O prefixo de prompt em `tools/visual/catalog.json` carrega essas proibições, e
-  `frontend/config/illustrations.test.ts` (job `frontend` do CI) confere que elas continuam lá. Fonte que viola a regra é descartada e gerada de novo, nunca retocada.
-- Só modelos aprovados (GPT Image 2.5 ou Nano Banana Pro, via Tripo) e só com linha em
-  [assets-licenses.md](assets-licenses.md). Processo em [tools/visual/README.md](../../tools/visual/README.md).
+- O prefixo de prompt em `tools/visual/catalog.json` carrega essas proibições de texto, e
+  `frontend/config/illustrations.test.ts` (job `frontend` do CI) e `tools/visual/test_catalog.py` (job `ops`)
+  conferem que elas continuam lá. Fonte que viola a regra é descartada e gerada de novo, nunca retocada.
+- Só ferramentas aprovadas (imagem: GPT Image 2.5 ou Nano Banana Pro, via Tripo; 3D: Rodin ou Tripo) e só com
+  linha em [assets-licenses.md](assets-licenses.md). Processo em [tools/visual/README.md](../../tools/visual/README.md).
 
 ### Uso
 
@@ -176,11 +222,24 @@ recoloridos para `action` e `text-muted` (spec 13.3, "Ilustração e fotografia"
 | `emptyState` | 160 px | Estado vazio de lista (spec 13.2) |
 | `screen` | 128 px | Cabeçalho de tela de conteúdo |
 
-- No máximo uma ilustração por tela; ela nunca é o único portador de informação (RUI cap. 5, "Don't rely on
-  color alone", vale também para imagem).
+- Fora das experiências, no máximo uma ilustração por tela. Nas telas de experiência, o cenário conta como
+  fundo de contexto e pode ter **um** personagem em cena; nenhuma outra ilustração na mesma tela.
+- Nenhuma imagem é o único portador de informação (RUI cap. 5, "Don't rely on color alone", vale também para
+  imagem); regra, pista e escolha ficam em texto.
 - `<Illustration name alt>` quando a imagem acrescenta algo ao texto ao lado; `decorative` quando só enfeita
   (`alt=""` e `aria-hidden`). `alt` em branco sem `decorative` falha no render.
 - Largura e altura fixas pelo uso, para não haver layout shift; `max-w-full` reduz no mobile.
+
+### Cenário e personagem nas experiências (proposto)
+
+- O cenário é uma faixa no topo da área da experiência, com altura máxima de ~30% da viewport no mobile
+  (hipótese), para a etapa e a ação primária continuarem visíveis sem rolar.
+- Texto nunca fica sobre a imagem sem superfície sólida por trás (RUI cap. 7, texto sobre imagem); o contraste
+  é medido contra a superfície, não contra a foto.
+- `alt` curto descreve o ambiente quando ele acrescenta algo; senão `decorative`. Pista narrativa do cenário
+  (narrativa ambiental, NG cap. 5, pp. 70–71) é decorativa: nada que a regra exija mora só nela.
+- 3D em tempo real só onde o one pager pedir; o poster WebP aparece primeiro e é o fallback (sem WebGL,
+  "Reduzir movimento" ou falha); nenhuma ação exige girar ou arrastar o modelo.
 
 ## Hierarquia de ações
 
@@ -236,8 +295,12 @@ verificação de acessibilidade do Storybook e, quando houver interação, uma `
 | Indicador de conexão (tempo real) | Conectado (oculto), reconectando, offline, falhou | Faixa de texto com ícone; `role="status"`; não anuncia cada tentativa | 05 |
 | Decisão privada | Sem escolha, escolha salva, alterável, prazo encerrado, conexão formada, salvando, erro | `fieldset` + `legend` com dois rádios ou botões de alternância; texto de privacidade junto | 01, 03 |
 | Chat | Lista vazia, carregando histórico, mensagem `sending`/`sent`/`failed`, nova mensagem, histórico longo, indisponível | Lista com `role="log"`; não move foco ao chegar mensagem; composer com label e contador de 2.000 caracteres | 05 |
+| Controle de som (proposto) | Mudo (padrão), ligado, por canal (música, ambiente, voz), "Reduzir áudio", sem suporte de áudio | Botão de alternância com `aria-pressed` e rótulo textual ("Som desligado"/"Som ligado"); volumes por `<input type="range">` com label; na Barra da sala, sempre alcançável por teclado; preferência lembrada no aparelho | 04, 07 |
+| Transcrição de fala (proposto) | Vazia, fala atual, histórico curto, voz sintética | Texto com quem fala; não é região viva; aviso "voz sintética" junto | 04 |
+| Cenário de experiência (proposto) | Imagem, imagem + personagem, carregando (dimensões reservadas), 3D com poster, 3D indisponível | `alt` ou `decorative`; nada da regra só na imagem; sem layout shift | 04, 06 |
+| Voz ao vivo (proposto) | Desligada (padrão), pedindo permissão, permissão negada, microfone aberto, mudo, push-to-talk, falando (eu/outra pessoa), outra pessoa silenciada, reconectando, indisponível | Indicador de microfone aberto e de quem fala em texto além do ícone; "Silenciar a outra pessoa", "Desligar meu microfone", "Sair da voz", "Bloquear" e "Denunciar" com rótulo; nada depende de ouvir | 03, 04, 05 |
 | Faixa de prazo (proposto) | Normal, aviso (2 min), final (30 s), encerrado | Horário absoluto + restante em minutos; anuncia só nos marcos | 08 |
-| Barra da sala (proposto) | Com etapa, com aviso de prazo, reconectando | Contém "Sair" sempre visível; `header` próprio do modo focado | 03, 07 |
+| Barra da sala (proposto) | Com etapa, com aviso de prazo, reconectando | Contém "Sair" e o Controle de som sempre visíveis; `header` próprio do modo focado | 03, 07 |
 | Estado de página (proposto) | `loading`, `empty`, `error`, `offline` | Quatro componentes distintos (spec 13.2); `empty` com uma chamada para ação (RUI cap. 8, "Don't overlook empty states") | 05, 06 |
 
 Componentes de jogo (cartões de escolha, pistas, roteiro) estão em [screens.md](screens.md#experiência-rotas-improváveis)
@@ -246,7 +309,9 @@ e seguem as mesmas regras; eles entram no Storybook quando a primeira experiênc
 ## Pendências
 
 - Identidade visual final (matiz, fonte, raio): decisão do responsável pelo produto. A direção de ilustração já
-  foi escolhida (seção [Ilustração](#ilustração)).
+  foi escolhida (seção [Ilustração, cenário e personagem](#ilustração-cenário-e-personagem)).
+- Ferramenta de TTS e de música: comparação em andamento; o pipeline de áudio é agnóstico (ADR-0027).
+- Voz ao vivo: arquitetura decidida no ADR-0028; componente ainda não implementado.
 - Tokens propostos (`success`, `warning`, `*-surface`, `surface-raised`, `overlay`, sombras e movimento) entram
   no código junto com o primeiro componente que os usar, com teste de contraste.
 - Storybook ainda não existe no repositório (`frontend/.storybook/` está na estrutura da spec 21.1).

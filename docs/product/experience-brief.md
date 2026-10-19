@@ -40,6 +40,15 @@ só aparece onde uma ação destrutiva é a ação principal da tela (confirmaç
   "Fulana bloqueou você"; "A janela de decisão terminou", nunca "Não houve interesse" (spec 4.3, 7.3).
 - Erros dizem o que aconteceu e o que fazer, sem culpar: "Não conseguimos enviar. Sua mensagem continua aqui."
 - Nenhum texto de pressão: sem "corra", "últimas vagas", "fulano está esperando você".
+- Falas de voz: até 120 caracteres, uma ideia por fala, sentido completo sem contexto (*The Definitive Game
+  Narrative Guide*, cap. 11, p. 171; cap. 12, pp. 181–182). Nenhuma fala comenta a outra pessoa.
+
+### Som
+
+Som de acolhimento adulto: pouco e com propósito. Trilha e ambiente situam o lugar; nas etapas de foco e na
+decisão privada, silêncio ou ambiente neutro. Mudo até a pessoa ligar, sempre com transcrição; nada de
+fanfarra, recompensa ou alerta ligado a pessoas ou ao prazo. A voz ao vivo com a outra pessoa é opcional,
+começa desligada e sai em um toque (spec 6.5).
 
 ## Restrições (spec 13.1)
 
@@ -48,10 +57,10 @@ só aparece onde uma ação destrutiva é a ação principal da tela (confirmaç
 | Nada de dark patterns | Recusar, sair e excluir têm o mesmo peso de descoberta que aceitar; nenhuma confirmação constrangedora ("Tem certeza que quer perder sua chance?") | Revisão de redação; hierarquia de botões em [system.md](../design/system.md#hierarquia-de-ações) |
 | Nada de ranking de aparência | Nenhuma lista ordenada por atratividade, curtidas, popularidade ou "mais vistos"; fotos não têm contadores | Inventário de componentes sem métricas sociais públicas |
 | Nada de escassez artificial | Lotação aparece como fato ("Evento lotado; lista de espera disponível"), sem contagem regressiva de vagas nem "X pessoas vendo agora" | Revisão de cada card de evento e estado "lotado" |
-| Prazo real não é pressão | Prazo mostrado como horário absoluto + tempo restante em texto; sem cor de alerta piscando; anúncio só em marcos | A11Y-05, A11Y-08 |
+| Prazo real não é pressão | Prazo mostrado como horário absoluto + tempo restante em texto; sem cor de alerta piscando; anúncio só em marcos; nenhum som reage ao prazo (sem tique-taque, música acelerando ou alarme) | A11Y-05, A11Y-08 |
 | Sem recompensa para insistir | Nenhuma animação, som ou "streak" ligado a voltar a uma pessoa ou repetir interesse | Inventário de movimento em [system.md](../design/system.md#movimento-proposto) |
 | Recusar não é sabotado | "Não tenho interesse" e "Sair" nunca são texto cinza minúsculo, link escondido ou ícone sem rótulo | Alvo ≥ 44 px, rótulo textual, contraste medido |
-| Sem estereótipos sobre quem usa | Nenhuma suposição de gênero, orientação, idade além do requisito etário ou objetivo do encontro; ilustrações sem casal-padrão | Revisão de conteúdo e imagens (spec 13.3, "Ilustração e fotografia") |
+| Sem estereótipos sobre quem usa | Nenhuma suposição de gênero, orientação, idade além do requisito etário ou objetivo do encontro; personagens e cenários diversos (tom de pele, corpo, idade adulta, apresentação de gênero), sem casal-padrão, sexualização nem papel estereotipado; vozes variadas, sem sotaque como piada | Revisão de conteúdo, imagens e vozes com o [one pager](../design/one-pager-template.md) (spec 13.3, 6.5; [ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)) |
 | Sem coleta disfarçada | O jogo Rotas Improváveis é fictício e nunca pede endereço, rotina ou localização real (spec 6.2) | Revisão do catálogo de conteúdo |
 
 ## Tarefas prioritárias
@@ -90,8 +99,9 @@ explicar o motivo. Nenhuma das situações abaixo exige continuar na sala para p
 
 ## Pendências
 
-- **Identidade visual final** (nome visual, matiz primário, fonte, ilustração): decisão do responsável pelo
-  produto; os tokens atuais são provisórios (spec 13.3).
+- **Identidade visual final** (nome visual, matiz primário, fonte): decisão do responsável pelo produto; os
+  tokens atuais são provisórios (spec 13.3). A direção de ilustração, cenário e personagem está no ADR-0027.
+- **Ferramenta de TTS e de música**: decisão pendente (ADR-0027). A voz ao vivo está decidida no ADR-0028.
 - **Revisão de uso com pessoas adultas** (spec 13.1, última linha da tabela): sessões com tarefas P1 e P2, com
   roteiro de compreensão da spec 13.6. Ainda não realizadas; nenhum item deste brief foi validado com
   participantes.
