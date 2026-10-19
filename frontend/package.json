@@ -23,9 +23,11 @@
     "cert:dev": "mkdir -p \"$HOME/.aspnet/https\" && dotnet dev-certs https --export-path \"$HOME/.aspnet/https/duora-spa.pem\" --format Pem --no-password"
   },
   "dependencies": {
+    "@aws-amplify/ui-react-liveness": "3.7.0",
     "@hookform/resolvers": "^5.9.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.104.2",
+    "aws-amplify": "6.22.2",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "intl-messageformat": "^12.1.3",

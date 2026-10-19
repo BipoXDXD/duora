@@ -207,3 +207,13 @@ Implementação só é concluída quando todos os deltas aproveitáveis tiverem 
 - Assinaturas de ISelfieProvider e GetEligibility são únicas e usadas pelas tarefas dependentes.
 - Sem autorização de contratação, dados reais, merge ou implantação.
 - Próxima etapa: revisão deste plano e escolha de execução direta ou por subagentes.
+
+## Registro de execução — 19/10/2026
+
+Executado diretamente na branch local codex/consolidation-93, base main 92150065. Infraestrutura em ea7a6c6c; identidade/SPA/contratos/documentação no commit subsequente. A main original não foi alterada, nenhum merge ou deploy foi feito.
+
+Validações finais: 2454 testes backend com PostgreSQL em Docker, 670 Vitest, 132 Playwright, 358 testes de operações (os 14 dependentes de ambiente foram cobertos em execuções adicionais: 13 PostgreSQL + sonda Caddy), 10+7 OpenClaw. Restore/install travados, tipos, lint, formato, build Debug, Compose config, Gitleaks e Trivy passaram. Revisão independente identificou e teve corrigidos dois defeitos da SPA; regressões incluídas.
+
+Rulings: limite de e-mail mantido em três emissões/hora (mais restritivo que cinco) e persistido no banco; substituição de cadastro preserva a defesa contra pré-registro. Teto/cooldown selfie de cinco/hora e um minuto; solicitação aberta reutilizada. E-mail numérico tem entrega em até dez minutos, sem reduzir a janela histórica de links legados. Limite de selfie/indisponibilidade responde 503 nesta versão, sem criar tentativa. Testes etários ativos foram substituídos por testes de aposentadoria; harnesses históricos não registram serviços no produto.
+
+Pendente antes de ativação: CSP/Permissions-Policy/assets do SDK, câmera e AWS reais, calibração, acessibilidade assistida/VoiceOver, contrato/opt-out/retencão do fornecedor, Release/ImageSharp e supply-chain completo de imagens/SBOM, comparador externo de contrato e revisão humana. Sem afirmar conclusão desses gates nem execução integral da matriz real de falhas de rede/fornecedor. O ADR-0029 concentra o plano de transição e rollback. Relatório detalhado entregue em outputs/validacao-duora.md da conversa.

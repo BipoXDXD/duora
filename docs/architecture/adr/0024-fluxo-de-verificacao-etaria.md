@@ -1,5 +1,8 @@
 # ADR-0024: Fluxo da verificação etária: worker com outbox, webhook inline e regra pura no Core
 
+> Superado pela decisão de 19/10/2026 da issue #93 e pelo [ADR-0029](0029-confirmacao-email-presenca-sem-idade.md). O conteúdo abaixo é histórico; não autoriza exigir verificação etária.
+
+
 - **Status:** Accepted (2026-10-15)
 - **Substituído em parte:** a noção de "adulto" sem jurisdição, pelo [ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md) (2026-10-19; adendo de maioridade por jurisdição)
 - **Origem:** spec 4.2, 8.2 (API-P05, API-P06), 8.5 (webhooks), 12.2, 16.3 e 16.4; threat model TM-35 a TM-40 e

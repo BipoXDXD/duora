@@ -1,5 +1,8 @@
 # Escopo, invariantes, estados e glossário
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Resumo operacional da [especificação](spec.md) (seções 1, 4.2, 4.3 e 12.2). Em caso de divergência, vale a
 spec; a divergência é corrigida aqui no mesmo PR que a encontrar.
 
@@ -8,7 +11,7 @@ spec; a divergência é corrigida aqui no mesmo PR que a encontrar.
 O Duora organiza encontros entre duas pessoas adultas em eventos com rodadas e experiências cooperativas. O
 sistema seleciona pares mutuamente elegíveis, conduz uma atividade curta, permite comunicação contextual e
 coleta interesse de forma privada. Uma conversa persistente só nasce de interesse mútuo. Bloqueio, denúncia,
-saída, proteção etária e revisão de incidentes fazem parte do fluxo principal, não de um complemento.
+saída, confirmação de presença e revisão de incidentes fazem parte do fluxo principal, não de um complemento.
 
 ## Escopo da primeira entrega (spec 1.1)
 
@@ -55,7 +58,7 @@ Nenhuma delas pode depender só da interface. A matriz de testes está em
 
 | ID | Regra | Mecanismo principal | Teste |
 |---|---|---|---|
-| INV-01 | Só contas elegíveis e com requisito etário satisfeito participam | Política de autorização e verificação de estado no comando | T-01 |
+| INV-01 | Só contas elegíveis e com e-mail confirmado e selfie de presença aprovada participam | Política de autorização e verificação de estado no comando | T-01 |
 | INV-02 | Uma pessoa ocupa no máximo uma sala reservada/ativa | Restrição única de participação não liberada | T-02 |
 | INV-03 | Um bloqueio impede novo pareamento, novo envio e novas leituras protegidas entre o par | Guardas transacionais, autorização e invalidação | T-03 |
 | INV-04 | Duas decisões positivas concorrentes criam no máximo uma conexão | Transação serializada para o par e índice único | T-04 |
@@ -76,7 +79,7 @@ Nenhuma delas pode depender só da interface. A matriz de testes está em
 | Papel | Pode | Não pode por padrão |
 |---|---|---|
 | Visitante | Ler apresentação, regras, acessibilidade e política de privacidade | Enumerar perfis, participantes ou eventos privados |
-| Conta pendente | Confirmar e-mail, completar cadastro e resolver verificação etária | Entrar em sala ou ver dados de outras pessoas |
+| Conta pendente | Confirmar e-mail, completar cadastro e concluir selfie de presença | Entrar em sala ou ver dados de outras pessoas |
 | Participante elegível | Inscrever-se, jogar, decidir, conversar quando autorizado, bloquear e denunciar | Consultar decisões negativas, pontuações internas ou evidências alheias |
 | Moderador | Revisar casos atribuídos e aplicar medidas permitidas pela política | Acessar arbitrariamente todas as conversas ou operar infraestrutura |
 | Administrador de produto | Gerir catálogo, eventos e configuração funcional | Conceder a si mesmo acesso irrestrito a dados sensíveis |
@@ -95,8 +98,8 @@ Todas as transições têm precondições e testes (spec 3.4).
 
 | Recurso | Estados | Regras de transição |
 |---|---|---|
-| Conta | `PendingEmail`, `PendingEligibility`, `Active`, `Restricted`, `Suspended`, `DeletionPending`, `Deleted` | Nenhuma transição automática de suspeita etária para `Active` por decurso de prazo |
-| Verificação etária | `Pending`, `VerifiedAdult`, `Rejected`, `Expired`, `ManualReview` | Indisponibilidade do fornecedor mantém a conta pendente; nunca aceitar `isAdult: true` do navegador (spec 12.2) |
+| Conta | `PendingEmail`, `PendingEligibility`, `Active`, `Restricted`, `Suspended`, `DeletionPending`, `Deleted` | Nenhuma transição automática de restrição para `Active` por decurso de prazo |
+| Selfie de presença | `Pending`, `Capturing`, `Processing`, `Passed`, `RecaptureRequired`, `Inconclusive`, `Expired` | Indisponibilidade mantém pendência; resultado somente do fornecedor autenticado |
 | Evento | `Draft`, `Published`, `CheckInOpen`, `Running`, `Completed`, `Cancelled` | Publicação exige catálogo aprovado; cancelamento é auditado |
 | Inscrição | `Waitlisted`, `Confirmed`, `CheckedIn`, `Withdrawn`, `NoShow`, `Completed` | Vaga ocupada e posição na fila mudam na mesma transação |
 | Rodada | `Scheduled`, `Preparing`, `Inviting`, `Running`, `Closed`, `Cancelled` | Retomada reavalia horário e versão; não cria convites duplicados |
@@ -143,8 +146,8 @@ Um termo, um significado. A coluna "No código" dá o nome usado em tipos, tabel
 |---|---|---|
 | Conta | `User`, `users` | Identidade local de uma pessoa, com credenciais e estado (ver máquina de estados) |
 | Sessão de login | `LoginSession`, `login_sessions` | Sessão autenticada revogável de uma conta num navegador; tem expiração ociosa e absoluta. Não confundir com sessão de jogo |
-| Elegibilidade | `Eligibility` | Condição de uma conta para participar: estado `Active`, requisito etário satisfeito e ausência de sanção impeditiva |
-| Verificação etária | `AgeVerification` | Procedimento que comprova a maioridade, com resultado mínimo, feito uma vez no cadastro e sem validade (ADR-0024). Evitar: "aferição de idade" |
+| Elegibilidade | `Eligibility` | Condição de uma conta para participar: estado `Active`, e-mail confirmado e selfie de presença aprovada e ausência de sanção impeditiva |
+| Selfie de presença | `SelfieVerification` | Captura de qualidade e prova de presença sem idade, documento ou identificação facial (ADR-0029) |
 | Perfil | `Profile` | Dados exibíveis da conta: nome de exibição, faixa etária, região aproximada, descrição e fotos aprovadas |
 | Preferências | `Preferences` | Critérios privados de compatibilidade informados pela pessoa; nunca aparecem no DTO de outra pessoa |
 | Evento | `Event` | Encontro publicado por administração, com horário, capacidade e rodadas |

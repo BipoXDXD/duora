@@ -79,7 +79,7 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         using var me = await browser.GetAsync("/api/v1/me");
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
         Assert.Equal(0, await Scenario.ScalarAsync(
-            "select count(*) from identity.user_tokens where user_id = $1",
+            "select count(*) from identity.user_tokens where user_id = $1 and login_provider <> 'Duora.RegistrationBudget'",
             account.UserId));
     }
 

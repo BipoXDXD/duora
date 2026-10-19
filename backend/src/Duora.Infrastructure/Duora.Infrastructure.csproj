@@ -10,6 +10,8 @@
     <!-- Pacote NuGet, não o framework compartilhado: traz IdentityDbContext, UserManager e PasswordHasher. -->
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="AWSSDK.Rekognition" />
+    <PackageReference Include="AWSSDK.SecurityToken" />
     <PackageReference Include="AWSSDK.S3" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
     <!-- Segredos como arquivos (Compose secrets); o Worker não tem o shared framework do ASP.NET Core. -->

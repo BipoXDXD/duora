@@ -1,5 +1,8 @@
 # Acessibilidade: critérios e matriz de suporte
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 O que o Duora precisa atender, em quais combinações de navegador e tecnologia assistiva, e o que a automação
 cobre (spec [13.4](../product/spec.md#134-acessibilidade-como-requisito-verificável) e
 [13.7](../product/spec.md#a11y-protocolo)). **Como** cada critério é verificado, passo a passo, e como a

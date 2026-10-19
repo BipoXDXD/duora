@@ -52,7 +52,7 @@ O frontend é uma SPA React/TypeScript, com build estático. ASP.NET Core concen
 
 | ID | Regra | Mecanismo principal | Teste |
 |---|---|---|---|
-| INV-01 | Somente contas elegíveis e com requisito etário satisfeito participam | Política de autorização e verificação de estado no comando | T-01 |
+| INV-01 | Somente contas elegíveis e com e-mail confirmado e selfie de presença aprovada participam | Política de autorização e verificação de estado no comando | T-01 |
 | INV-02 | Uma pessoa ocupa no máximo uma sala reservada/ativa | Restrição única de participação não liberada | T-02 |
 | INV-03 | Um bloqueio impede novo pareamento, novo envio e novas leituras protegidas entre o par | Guardas transacionais, autorização e invalidação | T-03 |
 | INV-04 | Duas decisões positivas concorrentes criam no máximo uma conexão | Transação serializada para o par e índice único | T-04 |
@@ -217,7 +217,7 @@ flowchart TB
     Edge -->|WSS| Browser
 ```
 
-**Distribuição de responsabilidades:** somente o processo web publica a outbox de tempo real por `IHubContext`. O worker grava alterações e eventos no banco, mas **não** usa um `IHubContext` local para tentar alcançar sockets hospedados em outro processo. E-mails, verificação etária e processamento de mídia têm consumidores próprios no worker.
+**Distribuição de responsabilidades:** somente o processo web publica a outbox de tempo real por `IHubContext`. O worker grava alterações e eventos no banco, mas **não** usa um `IHubContext` local para tentar alcançar sockets hospedados em outro processo. E-mails, selfie de presença e processamento de mídia têm consumidores próprios no worker.
 
 ### 3.2. Módulos, dados e interfaces
 
@@ -337,7 +337,7 @@ Os prazos de exclusão e evidências não ficam escondidos nesta tabela: são tr
 
 ### 5.1. Elegibilidade bilateral, não um ranking opaco
 
-O conjunto de candidatos considera conta ativa, requisito etário, inscrição, check-in, disponibilidade e preferências explicitamente informadas. Cada aresta candidata `A ↔ B` exige elegibilidade nos dois sentidos. Bloqueios, sanções, incompatibilidade declarada, repetição no evento e ocupação de outra sala eliminam a aresta antes de qualquer pontuação.
+O conjunto de candidatos considera conta ativa, e-mail confirmado, selfie aprovada, inscrição, check-in, disponibilidade e preferências explicitamente informadas. Cada aresta candidata `A ↔ B` exige elegibilidade nos dois sentidos. Bloqueios, sanções, incompatibilidade declarada, repetição no evento e ocupação de outra sala eliminam a aresta antes de qualquer pontuação.
 
 Não inferir gênero, orientação, renda ou “qualidade do perfil” a partir de fotos, texto ou comportamento. Não expor a outra pessoa o motivo detalhado pelo qual um par não foi formado.
 
@@ -353,6 +353,31 @@ Não inferir gênero, orientação, renda ou “qualidade do perfil” a partir 
 | Ausência | Expirar convite e liberar vaga | Sem substituição surpresa dentro de uma sala que já começou |
 
 Se a heurística deixar pessoas elegíveis sem par de forma recorrente, avaliar algoritmo de matching de cardinalidade máxima com restrições. Não relaxar bloqueios ou compatibilidade para melhorar uma métrica.
+
+### Política aprovada de comunicação e pareamento (2026-10-19)
+
+Decisão explícita do responsável, issues #79 e #80:
+
+1. Separar idioma de interface/conteúdo (`preferred_locale`) dos idiomas em que a pessoa aceita conversar.
+2. Exigir ao menos um idioma de comunicação em comum; quando os idiomas de exibição diferirem, exigir também aceitação explícita de ambas as pessoas para esse tipo de par.
+3. Mostrar o idioma de comunicação combinado no convite ou na entrada da sala.
+4. Informar na escolha da preferência que chat e voz ao vivo não têm tradução automática.
+5. Nunca ampliar preferências automaticamente em razão do tempo de espera.
+6. Manter voz inteiramente opcional, sem penalidade de elegibilidade, prioridade ou conclusão para quem não a utiliza.
+
+O idioma de comunicação comum deve permitir interação textual; aceitar o par não autoriza captura de microfone.
+A mesma `ExperienceVersion` fornece estrutura e IDs idênticos, com textos, falas e áudio pré-gerado no idioma de cada participante.
+
+Implicações para a implementação (ainda não implementadas neste registro):
+
+- Profiles mantém preferências privadas de comunicação separadas de localização; Matching avalia a interseção dos idiomas declarados e o opt-in bilateral antes de pontuar candidatos. Nenhuma inferência de proficiência a partir de locale, região, IP ou fallback.
+- API-P07/API-P03 devem transportar as preferências privadas com `ETag`/`If-Match`; revalidar alterações sob as guardas da spec 5.2 antes de reservar. Preservar INV-01/02/03/05/09 e a ordem de locks existente.
+- A projeção autorizada do convite/sala mostra o idioma combinado, sem expor a lista completa de preferências nem motivos individuais de não pareamento. Registrar a versão da política para rastreabilidade. Não mudar automaticamente o acordo de uma sala iniciada.
+- Contas legadas sem declaração não ganham proficiência ou opt-in por migração: coletar a escolha explícita antes de usar a nova política. Definir no PR de implementação os DTOs, códigos de validação, seleção determinística entre vários idiomas comuns e compatibilidade de clientes; atualizar OpenAPI e cliente gerado.
+- Testes de aceite a implementar: matriz de opt-in bilateral com locales diferentes; interseção vazia bloqueia o par; locale igual não substitui idioma declarado; espera não relaxa filtro; preferência concorrente é revalidada; bloqueios continuam prevalecendo; projeções preservam IDs e privacidade; E2E conclui a experiência sem solicitar microfone; alterações de locale não reescrevem idiomas declarados.
+- Métricas agregadas de espera e não pareamento, sem preferências individuais ou grupos pequenos; sem conteúdo de chat/voz em telemetria. Entrega futura por migração aditiva e leitor tolerante; rollback não pode ampliar silenciosamente as preferências aceitas.
+
+Região é um filtro independente: detectar automaticamente a região como preferência inicial, filtrar pela mesma região e permitir escolher outra. Escolha manual prevalece sobre detecção posterior. A granularidade (país, subdivisão ou área), o método de detecção e o tratamento de falha continuam pendentes; esta aprovação linguística não os decide. Não introduzir geolocalização precisa.
 
 ### 5.2. Coordenação e retomada
 
@@ -527,8 +552,8 @@ Todos os caminhos desta tabela são relativos a `/api/v1`. “Público” não s
 | API-P07 | `GET /me/preferences` | Preferências privadas e `ETag` | Apenas titular; recurso versionado independentemente do perfil público |
 | API-P03 | `PUT /me/preferences` | Preferências e `If-Match` | Atualizar guarda de elegibilidade; não alterar sala já iniciada sem necessidade de segurança |
 | API-P04 | `GET /profiles/{userId}` | Projeção autorizada | Apenas contexto legítimo de sala/conexão; sem diretório global |
-| API-P05 | `POST /me/age-verifications` | Solicitação → tarefa ou fluxo do provedor | Sem documento bruto no JSON; política aprovada; rate limit por conta e por IP e teto de solicitações criadas por conta no banco, ambos com `429` e `Retry-After` (12.2; ADR-0024, adendo de 2026-10-19) |
-| API-P06 | `GET /me/age-verifications/current` | Estado mínimo e próximo passo | Titular; não expor inferências do fornecedor |
+| API-P05 | `POST /me/selfie-verifications` | Solicitação → tarefa durável | Titular, CSRF, orçamento persistente; indisponibilidade ou teto responde 503 sem nova captura; rota etária antiga retorna 410 |
+| API-P06 | `GET /me/selfie-verifications/current` | Estado mínimo e próximo passo | Titular; capture emite credenciais temporárias no-store; complete não aceita resultado; rota etária antiga retorna 410 |
 
 Após login, logout ou mudança de identidade, renovar o token antiforgery no cliente conforme o fluxo do framework. Retornar erros de API como `401`/`403`, não como uma página HTML de login. Notificar mudanças de senha/MFA sem incluir segredo. Endpoints padrão de Identity não dispensam revisão de CSRF, enumeração e autorização.
 
@@ -917,19 +942,13 @@ A implementação deve ser revisada à luz da LGPD, das regras aplicáveis do Ma
 | Acesso legalmente registrável | Canal separado, escopo mínimo, prazo e acesso aprovados | Confundir registro legal com retenção arbitrária de todos os logs |
 | Exportações | Somente dados legitimamente exportáveis do titular | Decisões privadas, dados e evidências de terceiros |
 
-### 12.2. Aferição de idade como dependência de lançamento
+### 12.2. Selfie de presença e qualidade, sem idade
 
-Definir adaptador `IAgeEligibilityProvider`, política versionada e estados `Pending`, `VerifiedAdult`, `Rejected`, `Expired`, `ManualReview`. Autodeclaração pode orientar o início do cadastro, mas não é tratada neste plano como garantia suficiente para liberar participação.
+Decisão definitiva da issue #93 (19/10/2026), consolidada no ADR-0029: não exigir verificação etária, estimativa de idade nem documentos. Confirmação por código de e-mail é obrigatória; SMS é somente possibilidade futura.
 
-Selecionar e validar um mecanismo proporcional ao risco, considerando privacidade, taxa de erro, contestação, acessibilidade, recuperação, disponibilidade e transferências. Sem fornecedor/processo aprovado, o piloto com dados reais fica bloqueado; desenvolvimento usa pessoas sintéticas e respostas simuladas.
+Participação requer Active + EmailConfirmed + Selfie Passed, além das demais regras de segurança. Estados da selfie: Pending, Capturing, Processing, Passed, RecaptureRequired, Inconclusive e Expired. Indisponibilidade mantém pendência; navegador nunca decide o resultado. Tentativas são serializadas por conta, com cinco novas solicitações por hora e intervalo mínimo de um minuto; repetir solicitação aberta é idempotente. O limite HTTP existente também se aplica.
 
-A evidência mínima vincula resultado ao usuário, procedimento e validade. Callback recebido é autenticado, deduplicado e associado a uma solicitação criada pelo servidor. Nunca aceitar `isAdult: true` do navegador. Indisponibilidade mantém conta pendente; suspeita de menor restringe acesso e aciona revisão apropriada. Não improvisar “estimativa de idade” com um prompt em um modelo genérico de visão.
-
-> **Requisito ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md), adendo de 2026-10-19):** cada solicitação nova em API-P05 é uma verificação paga no fornecedor. API-P05 tem rate limit por conta e por IP (valor inicial: 10 por hora em cada partição, a medir no piloto) e teto de tentativas por pessoa no banco (decidido: 3 solicitações criadas por conta numa janela móvel de 7 dias, contadas sob o lock da conta, na transação que cria a solicitação); acima de qualquer um, `429` com `Retry-After`, sem linha nova nem evento na outbox. Devolver a solicitação aberta não consome o teto. Testes: N+1 por conta e por IP → `429`; teto + 1 → `429` com banco inalterado; duas chamadas paralelas com uma vaga → uma solicitação.
-
-> **Divergência registrada ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), adendo do ADR-0024 de 2026-10-19):** a maioridade e as regras de verificação etária dependem da jurisdição da pessoa; o critério passado ao fornecedor (idade mínima por país ou subdivisão) e a cobertura do fornecedor nos países do lançamento são lacunas (J-05 no mapa de dados).
-
-> **Divergência registrada ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md), adendo de 2026-10-16):** por decisão do dono (issue #9), a verificação etária acontece uma vez, no cadastro, e uma `VerifiedAdult` **não tem validade**: a evidência vincula o resultado ao usuário, ao procedimento, à versão da política e ao instante da decisão, sem data de expiração, e não há reverificação por acesso ou sessão. `Expired` vale só para solicitação abandonada. Onde esta spec fala em "validade" ou "data de expiração" da verificação etária (10.2, 12.1 e este item), vale o ADR.
+Fornecedor integrado: AWS Rekognition Face Liveness, avaliação de brilho/nitidez/pose com DEFAULT, sem atributos etários. Integração desativada até homologação de privacidade, limiares, captura, CSP e acessibilidade. Consultar ADR-0029 para retenção, credenciais temporárias, migração e rollback. Evidências etárias históricas não concedem nem retiram participação.
 
 ### 12.3. Moderação amplamente automatizada, mas não abandonada
 
@@ -1535,7 +1554,7 @@ WebSocket genérico no k6 não é automaticamente um cliente SignalR completo. U
 
 | ID | Cenário | Resultado obrigatório |
 |---|---|---|
-| T-01 | Conta pendente, suspensa ou sem requisito etário tenta participar | API nega, hub não concede contexto e inscrição não avança |
+| T-01 | Conta pendente, suspensa ou sem confirmação de e-mail ou presença tenta participar | API nega, hub não concede contexto e inscrição não avança |
 | T-02 | Dois coordenadores tentam reservar a mesma pessoa | Uma reserva; conflito tratado sem participante duplicado |
 | T-03 | Bloqueio disputa com mensagem, pareamento e leitura | Operações ordenadas pelo commit; novas autorizações negadas após bloqueio |
 | T-04 | Duas decisões positivas simultâneas e seus retries | Uma conexão e uma conversa; escolhas privadas preservadas |

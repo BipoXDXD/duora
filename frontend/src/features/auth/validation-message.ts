@@ -40,6 +40,7 @@ export function translateValidationMessage(t: Translate, message: string | undef
     case 'validation.passwordMismatch':
     case 'validation.totpCodeInvalid':
     case 'validation.recoveryCodeInvalid':
+    case 'validation.emailCodeInvalid':
     case 'validation.invalidValue':
       return t(message)
   }

@@ -86,7 +86,7 @@ public sealed class KeyRingLossTests : IDisposable
             using var registering = new Browser(before);
             using var registered = await IdentityScenario.RegisterAsync(registering, email);
             Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
-            link = await new IdentityScenario(_postgres, before).ReadLatestLinkAsync(email, "EmailConfirmation");
+            link = await new IdentityScenario(_postgres, before).CreateLegacyConfirmationProofAsync(email);
         }
 
         await using var recreated = _hosts.HostOn(_emptyVolume);

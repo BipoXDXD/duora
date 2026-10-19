@@ -13,8 +13,8 @@
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.8",
-        "contentHash": "90B9Skhl+ORbtWNXrrmGdGhGvAfZiPmZafRYrB/xHelZjePIwPvXioqz9UiiF1vo21eDLzTnXh5EC4RjbNWsFQ=="
+        "resolved": "4.0.102.11",
+        "contentHash": "K9PP9/qHQ7pqSB0lYwStJrpXQ8P1xc7Fbn3CyPg8EX78p4+yz8dhIiwiRc3aVbVrUZxmPAPRvmZm+ey1euIXGg=="
       },
       "Microsoft.ApplicationInsights": {
         "type": "Transitive",
@@ -473,7 +473,9 @@
       "duora.infrastructure": {
         "type": "Project",
         "dependencies": {
+          "AWSSDK.Rekognition": "[4.0.101.5, )",
           "AWSSDK.S3": "[4.0.104, )",
+          "AWSSDK.SecurityToken": "[4.0.101.4, )",
           "Duora.Core": "[1.0.0, )",
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.13, )",
           "Microsoft.Extensions.Configuration.KeyPerFile": "[10.0.13, )",
@@ -509,6 +511,15 @@
           "SixLabors.ImageSharp": "[4.1.3, )"
         }
       },
+      "AWSSDK.Rekognition": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.101.5, )",
+        "resolved": "4.0.101.5",
+        "contentHash": "qF++++Pk6XQL9m1KudqgLAA7K1BLNitONajznNDnQqy/i7zvDs652KQGLQfYqzDSkzu3SPMaCpDZczBILzzDiw==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102.11, 5.0.0)"
+        }
+      },
       "AWSSDK.S3": {
         "type": "CentralTransitive",
         "requested": "[4.0.104, )",
@@ -516,6 +527,15 @@
         "contentHash": "azHSmQV9wPfPIy7WvaiHIlU4/Gw/u4QZGV2xFiys9LX10eYbX/F9oxklMLjh8RKRyeKsookPp15v3g2ab8GvpQ==",
         "dependencies": {
           "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
+        }
+      },
+      "AWSSDK.SecurityToken": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.101.4, )",
+        "resolved": "4.0.101.4",
+        "contentHash": "vjha/QlWaemVuL4A81mwxqGRR52meo+naCp1ELk/UTxrUiSn4fltXMCLlooZKURzwfdHd6dDDQHUL8cjT8xW3w==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.102.11, 5.0.0)"
         }
       },
       "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {

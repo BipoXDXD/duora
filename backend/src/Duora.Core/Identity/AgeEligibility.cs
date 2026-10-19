@@ -1,10 +1,8 @@
 namespace Duora.Core.Identity;
 
 /// <summary>
-/// Regra etária como funções puras (spec 4.2 e 12.2; ADR-0024): o que um resultado do fornecedor faz com a solicitação
-/// e com a conta, e se a conta participa num instante. Quem persiste aplica a decisão com UPDATE condicional; esta
-/// classe não lê relógio nem banco. A verificação adulta acontece uma vez, no cadastro, e não vence (decisão do dono,
-/// 2026-10-16).
+/// Historical protocol kept for migration compatibility tests only (superseded by ADR-0029).
+/// No production host registers its callers. Live authorization uses ParticipationEligibility and selfie evidence.
 /// </summary>
 public static class AgeEligibility
 {

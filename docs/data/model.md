@@ -1199,3 +1199,9 @@ imagem real):
   `backend/tests/Duora.IntegrationTests/Database/AppRoleTableAccess.cs` (`ReadWrite`, `AppendOnly` ou `None`).
   **Toda migration que cria tabela acrescenta a linha dela nessa allowlist no mesmo PR**; sem a linha, o teste
   falha.
+
+## Identidade — presença sem idade (ADR-0029)
+
+Tabela implementada `identity.selfie_verifications`: PK id; FK user_id com Restrict; estados Pending/Capturing/Processing/Passed/RecaptureRequired/Inconclusive/Expired; policy_version, provider_reference transitório único, feedback_code, requested_at, expires_at, completed_at e version de concorrência. Índice único parcial permite uma tentativa aberta por conta, índice user_id/requested_at atende status e orçamento. duora_app tem SELECT/INSERT/UPDATE/DELETE conforme allowlist explícita. Não armazena imagens, idade, documentos ou scores. Registros etários antigos ficam somente para compatibilidade histórica.
+
+Código de e-mail: identity.user_tokens guarda hash ligado ao security stamp e instante de emissão explícito. O registro separado Duora.RegistrationBudget/Hourly guarda início/contador do limite de emissões e não é segredo de autenticação nem fator MFA. Ambos são serializados pelo lock da conta.
