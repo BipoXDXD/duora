@@ -38,8 +38,8 @@ O Duora organiza encontros entre duas pessoas adultas em eventos com rodadas e e
 | Perfil | Nome de exibição, faixa etária pública, região aproximada, descrição curta, fotos aprovadas e preferências privadas | Geolocalização precisa, importação de redes sociais e enriquecimento de dados |
 | Eventos | Publicação administrativa, inscrição, fila de espera, check-in, rodadas e cancelamento | Marketplace de organizadores e eventos de terceiros |
 | Pareamento | Elegibilidade bilateral, bloqueios, não repetição no evento, justiça de espera e rastreabilidade técnica | Ranking de atratividade, inferência de orientação e recomendação por LLM |
-| Experiências | Um jogo completo na primeira fatia; segundo jogo antes da expansão do piloto | 3D, voz, vídeo, scripts arbitrários e geração ao vivo no caminho crítico |
-| Comunicação | Chat textual durante a sala e conversa persistente após interesse mútuo | Anexos, HTML, mensagens anônimas e criptografia ponta a ponta |
+| Experiências | Um jogo completo na primeira fatia; segundo jogo antes da expansão do piloto; cenários e personagens ilustrados, trilha, ambiente e vozes pré-geradas com transcrição, 3D renderizado offline e, por experiência, 3D em tempo real com fallback 2D ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)) | Vídeo, scripts arbitrários, TTS ao vivo e qualquer geração ao vivo no caminho crítico |
+| Comunicação | Chat textual durante a sala e conversa persistente após interesse mútuo; voz ao vivo opcional entre as duas pessoas, dentro da experiência, desligada por padrão ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)) | Anexos, HTML, mensagens anônimas, criptografia ponta a ponta, gravação ou transcrição da voz ao vivo, e voz ou vídeo na conversa persistente |
 | Segurança interpessoal | Sair, bloquear, denunciar, encerrar conexão, revisão e recurso | Banimento permanente exclusivamente por classificador |
 | Operação | Deploy repetível, telemetria, backups externos, restauração e controles administrativos | Alta disponibilidade prometida em uma única VPS |
 | Cobrança | Fronteira de integração documentada, sem dependência no piloto técnico | Implementação de pagamentos antes de validar o fluxo central |
@@ -138,6 +138,8 @@ Não introduzir Redux, Next.js, um BFF Node ou renderização no servidor na ár
 | Mensageria | PostgreSQL, outbox e jobs específicos | Broker apenas quando métricas mostrarem necessidade; sem Kafka no início |
 | Escala SignalR | Uma instância web ativa | Backplane/serviço de fan-out e política de afinidade antes de múltiplas instâncias |
 | Cache | Cache local limitado para conteúdo não sensível | Redis/Valkey somente mediante ADR de consistência, operação e capacidade |
+| 3D | Fonte offline renderizada em WebP pelo pipeline de ilustração | `<model-viewer>` (recomendado) ou three.js por experiência, com orçamento de peso, fallback 2D e revisão da CSP (ADR-0027) |
+| Voz ao vivo | WebRTC P2P com `iceTransportPolicy: "relay"` nos dois lados e Cloudflare Realtime TURN; nenhuma mídia na VPS (ADR-0028) | LiveKit Cloud se o produto exigir mute pelo servidor, sala com mais de 2 pessoas ou o relay for instável no Safari |
 
 **Governança de pacotes:** `Directory.Packages.props`, lockfiles NuGet e pnpm, fontes de pacote explícitas, auditoria de vulnerabilidades, inventário de licenças e SBOM. Não acrescentar MediatR, AutoMapper, FluentAssertions, Hangfire ou bibliotecas de imagem por reflexo: primeiro avaliar necessidade, manutenção, compatibilidade e licença vigente. A base funciona com DI, handlers e mapeamentos explícitos.
 
@@ -369,7 +371,7 @@ Medir taxa de pessoas pareadas, rodadas sem par, convites expirados, tempo de es
 
 ### 6.1. Contrato do motor
 
-Cada experiência publica `experienceId`, `rulesVersion`, `contentVersion`, `schemaVersion`, modos de acessibilidade, limites de duração e conjunto fechado de tipos de ação. O servidor mantém estado público, estado privado por participante e estado interno de controle em estruturas separadas.
+Cada experiência publica `experienceId`, `rulesVersion`, `contentVersion`, `schemaVersion`, modos de acessibilidade (incluindo som desligado e transcrição), limites de duração, conjunto fechado de tipos de ação e o manifesto de mídia da versão (seção 6.5). O servidor mantém estado público, estado privado por participante e estado interno de controle em estruturas separadas.
 
 | Operação | Entrada | Saída | Restrição |
 |---|---|---|---|
@@ -409,13 +411,29 @@ Conteúdo vem de catálogo validado, não de avaliação de código ou scripts e
 | Comentário | Conversa textual opcional sobre o cartão | Não exigir resposta aberta para avançar |
 | Encerramento | Resumo apenas do que foi legitimamente revelado | Sem score psicológico, diagnóstico ou promessa de compatibilidade |
 
-Não retornar o objeto completo com `hidden: true`; se o dado não pode ser visto, ele não deve estar no payload. Revisão administrativa de uma experiência ativa publica uma nova versão, mas não altera sessões já iniciadas. Uma vulnerabilidade grave pode desativar a versão e abortar sessões com mensagem neutra.
+Não retornar o objeto completo com `hidden: true`; se o dado não pode ser visto, ele não deve estar no payload. Revisão administrativa de uma experiência ativa publica uma nova versão, mas não altera sessões já iniciadas; isso vale para a mídia: mudar o texto de uma fala exige gerar o áudio de novo e publicar versão nova, e a sessão em andamento continua com os arquivos da versão antiga. Uma vulnerabilidade grave pode desativar a versão e abortar sessões com mensagem neutra.
 
 ### 6.4. Conteúdo assistido por IA
 
-A IA pode propor cartões, instruções, variações e testes **fora do fluxo ao vivo**. O pipeline valida schema, comprimento, linguagem, conteúdo proibido, direitos de uso e acessibilidade; depois exige aprovação editorial antes da publicação. O catálogo registra origem, modelo quando aplicável, revisão humana, licença e hash do conteúdo.
+A IA pode propor cartões, instruções, variações e testes **fora do fluxo ao vivo**. O pipeline valida schema, comprimento, linguagem, conteúdo proibido, direitos de uso e acessibilidade; depois exige aprovação editorial antes da publicação. O catálogo registra origem, modelo quando aplicável, revisão humana, licença e hash do conteúdo; cada asset de mídia registra também hash, ferramenta, modelo, id da tarefa de geração e, para voz feita a partir de voz humana, o consentimento e a licença da pessoa.
 
 Não enviar conversas, fotos, preferências íntimas ou denúncias reais a um agente de criação de conteúdo. O jogo deve funcionar normalmente com o fornecedor de IA indisponível.
+
+### 6.5. Mídia das experiências e voz ao vivo
+
+Regras completas em [ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md); design em [design/system.md](../design/system.md#áudio-proposto).
+
+| Tema | Requisito | Verificação |
+|---|---|---|
+| Cenário e personagem | Personagens permitidos, inclusive humanos estilizados; adultos, fictícios, diversos, sem casal-padrão nem estereótipo; nunca no lugar de avatar ou participante; sem texto na imagem | Revisão de conteúdo com o one pager; registro em `assets-licenses.md` |
+| Áudio pré-gerado | Mudo por padrão, ativado por gesto (WCAG 1.4.2); transcrição na tela (1.2.1); canais de música, ambiente e voz com volume próprio lembrado no aparelho; "Reduzir áudio"; ducking da trilha sob a voz | A11Y-04; teste de que nada toca antes do gesto |
+| Som e privacidade | Nenhum som reage ao prazo; decisão privada em silêncio ou som neutro; nenhum som de recompensa ligado a pessoas; nenhum som disparado por estado privado da outra pessoa | Revisão do manifesto; T-05 estendido a eventos de som |
+| Falas | Só do catálogo, pré-geradas e revisadas; nunca TTS ao vivo, nome de participante ou texto do chat (ADR-013); até 120 caracteres por fala em cada idioma; barks com variação; aviso discreto de voz sintética; voz de referência humana só com consentimento e licença | Teste do manifesto |
+| Versão | Mídia no manifesto da `ExperienceVersion`, com hash, origem, ferramenta, modelo, id da tarefa e licença; voz e transcrição em PT-BR e EN-US | T-09 estendido à mídia |
+| Peso | Orçamento por experiência (hipóteses no ADR-0027); áudio e 3D fora do caminho crítico do LCP; AAC-LC (`.m4a`) como formato obrigatório, por causa do Safari/iOS | Medição de build e de laboratório (13.5) |
+| 3D | Offline em WebP por padrão; tempo real por experiência, com orçamento e fallback 2D acessível; nenhuma ação exige arrastar ou girar | A11Y-04 |
+| Voz ao vivo | Microfone desligado por padrão e ligado por gesto de cada pessoa; permissão pedida só nessa hora; indicador de microfone aberto e de quem fala; silenciar a outra pessoa, o próprio microfone e sair da voz sem sair da experiência; bloquear e denunciar na tela de voz; experiência completável sem voz; push-to-talk opcional; volume próprio e ducking | A11Y-04; TM-68 a TM-76; ADR-0028 |
+| Voz ao vivo: privacidade | Nenhuma gravação nem transcrição, nada enviado a LLM; denúncia sem áudio salvo ADR futuro; voz tratada como possível dado biométrico; IP de uma pessoa nunca exposto à outra (sem P2P direto sem relay); mídia cifrada (DTLS-SRTP); credencial de voz de vida curta, revogada ao sair, bloquear ou encerrar a sala | TM-68 a TM-76 |
 
 <a id="s07"></a>
 ## 7. Conexões, conversas e segurança interpessoal
@@ -532,6 +550,7 @@ Suspender a participação não deve eliminar o canal de recurso: uma sessão re
 | API-R05 | `GET /rooms/{roomId}/my-decision` | Escolha própria e janela | Não retorna status individual do outro participante |
 | API-R06 | `PUT /rooms/{roomId}/my-decision` | Escolha e versão → própria escolha/vínculo permitido | Interesse mútuo avaliado na mesma transação |
 | API-R07 | `DELETE /rooms/{roomId}/my-decision` | Retirada antes da conexão | Depois de vínculo ativo, usar encerramento de conexão |
+| API-R08 | `POST /rooms/{roomId}/voice/credentials` | Antiforgery → credencial TURN de vida curta (TTL até o fim da sessão, teto ~20 min), `no-store` | Só participante ativo da sala (alheio → `404`); rate limit; revogada pela outbox ao sair, bloquear, denunciar, kick ou fim da sessão (ADR-0028) |
 
 ### 8.4. Comunicação, segurança, mídia e privacidade
 
@@ -1009,10 +1028,11 @@ O repositório é a fonte de verdade dos tokens publicados. O Figma é o ambient
 | Superfícies | Níveis discretos de fundo, borda e elevação | Hierarquia compreensível sem depender só de sombra ou cor |
 | Ações | Primária, secundária, destrutiva e neutra com semântica consistente | Uma ação dominante por tarefa; saída e bloqueio sempre localizáveis |
 | Movimento | Duração curta, finalidade explicativa e variante sem animação | Respeitar `prefers-reduced-motion`; nada piscando ou causando perda de foco |
-| Ilustração e fotografia | Direitos de uso registrados e tratamento consistente | Não sugerir identidade falsa, presença fictícia ou perfil real inexistente |
+| Ilustração e fotografia | Direitos de uso registrados e tratamento consistente; cenários e personagens das experiências a partir de one pager (6.5) | Não sugerir identidade falsa, presença fictícia ou perfil real inexistente; personagem nunca ocupa lugar de participante |
+| Áudio | Mudo por padrão; canais de música, ambiente e voz; paleta sonora coerente com a visual; som de interface com um significado só | Nada toca antes do gesto; transcrição de toda fala; nenhuma informação só por som |
 | Temas | Um tema bem testado no primeiro marco; segundo tema somente com matriz completa | Não anunciar dark mode acessível sem revisar todos os estados |
 
-Os valores são ponto de partida de design, não uma identidade visual final já aprovada. O catálogo Storybook deve mostrar botões, campos, mensagens de erro, modal, toast, navegação, avatar, card de evento, convite, indicador de conexão, decisão privada e chat. Cada componente inclui variações de tamanho, conteúdo longo, foco, desabilitado, pendência e erro.
+Os valores são ponto de partida de design, não uma identidade visual final já aprovada. O catálogo Storybook deve mostrar botões, campos, mensagens de erro, modal, toast, navegação, avatar, card de evento, convite, indicador de conexão, decisão privada, chat e controle de som. Cada componente inclui variações de tamanho, conteúdo longo, foco, desabilitado, pendência e erro.
 
 ### 13.4. Acessibilidade como requisito verificável
 
@@ -1031,7 +1051,7 @@ A meta é **WCAG 2.2 nível AA**, avaliada no produto completo. Um componente ba
 | Tempo e jogos | Avisos antecipados, regras de extensão quando aplicáveis e alternativas de participação | Justificar qualquer exceção de tempo essencial; uma rodada temporizada não é isenção genérica |
 | Chat | Ordem semântica estável, leitura de novas mensagens controlável | Não mover foco para cada mensagem nem quebrar leitura do histórico |
 | Autenticação | Permitir gerenciador de senhas, colar e preencher automaticamente | Não exigir quebra-cabeça cognitivo como único caminho; revisar desafios antifraude |
-| Movimento e mídia | Sem autoplay invasivo; conteúdo compreensível sem animação | Preferência de redução de movimento testada |
+| Movimento e mídia | Sem autoplay: áudio mudo por padrão e ativado por gesto; transcrição de toda fala; conteúdo compreensível sem animação, sem som e sem 3D | Preferência de redução de movimento testada; jogo completo com som desligado (6.5) |
 
 Leitor de tela e teclado são testes manuais obrigatórios antes do piloto, complementando axe/Storybook/Playwright. A avaliação inclui telas de falha, verificação etária do fornecedor e fluxos administrativos relevantes; não apenas a landing page.
 
@@ -1052,7 +1072,7 @@ Organizar `src/app`, `src/features` e `src/shared`. Uma feature contém componen
 
 Metas de experiência para validar: **LCP ≤ 2,5 s, INP ≤ 200 ms e CLS ≤ 0,1 no percentil 75**, quando houver amostra de campo suficiente. Esses limiares vêm da referência Web Vitals; não são resultados já obtidos ([D-DES-05](#d-des-05)). No laboratório, fixar dispositivo/rede de referência e comparar releases sem confundir pontuação sintética com experiência real.
 
-Usar divisão de bundle por rota, carregar administração separadamente, reservar dimensões de imagens, gerar variantes responsivas e evitar bibliotecas pesadas para dois efeitos visuais. Não virtualizar pequenas listas por reflexo; histórico grande de chat deve preservar foco, leitura e posição. O teste inicial cobre larguras de 320, 360, 768 e 1280 CSS px, orientação, teclado virtual e rede instável; a matriz de navegadores é publicada e revisada, incluindo Safari/iOS e Chrome/Android.
+Usar divisão de bundle por rota, carregar administração separadamente, reservar dimensões de imagens, gerar variantes responsivas e evitar bibliotecas pesadas para dois efeitos visuais. Áudio e 3D em tempo real ficam fora do caminho crítico do LCP, dentro do orçamento por experiência (6.5). Não virtualizar pequenas listas por reflexo; histórico grande de chat deve preservar foco, leitura e posição. O teste inicial cobre larguras de 320, 360, 768 e 1280 CSS px, orientação, teclado virtual e rede instável; a matriz de navegadores é publicada e revisada, incluindo Safari/iOS e Chrome/Android.
 
 ### 13.6. Conteúdo e medição
 
@@ -1072,7 +1092,7 @@ A referência normativa é **WCAG 2.2, níveis A e AA**, aplicada às jornadas c
 | A11Y-01 | Cadastro, login e recuperação | Labels persistentes, autocomplete adequado, erros associados e instruções compreensíveis; permitir colar credenciais e usar gerenciadores de senhas | Testes de formulário, teclado e leitura dos erros com VoiceOver |
 | A11Y-02 | Navegação e mudanças de rota | Título de página e landmarks coerentes; link para conteúdo principal; foco tratado em navegação relevante | Percurso completo sem mouse, sem armadilha de teclado |
 | A11Y-03 | Diálogos de sair, bloquear e denunciar | Nome acessível, foco inicial apropriado, operação por teclado e retorno de foco; fechamento e ações claramente separados | Teste do padrão do componente e ensaio manual no contexto da jornada |
-| A11Y-04 | Minijogos | Ação equivalente por teclado; pistas textuais; nenhuma informação só por cor, áudio, gesto ou arrastar | Duas pessoas concluem o jogo com a interação alternativa; regras e privacidade equivalentes |
+| A11Y-04 | Minijogos | Ação equivalente por teclado; pistas textuais; nenhuma informação só por cor, áudio, voz do par, gesto ou arrastar; som mudo por padrão, transcrição e controle de som; 3D com fallback 2D | Duas pessoas concluem o jogo com a interação alternativa; regras e privacidade equivalentes |
 | A11Y-05 | Chat e reconexão | Anunciar mudanças úteis sem ler histórico inteiro nem cada segundo do relógio; não roubar foco ao receber mensagem | Testar região de status/log, histórico, novos itens, erro de envio e reconexão com leitor de tela |
 | A11Y-06 | Layout e zoom | Texto redimensionável, reflow, contraste de texto/controles e foco visível não encoberto | Zoom a 200%; reflow equivalente a 320 CSS px; temas/estados avaliados, inclusive erros e desabilitados |
 | A11Y-07 | Alvos e movimento | Atender tamanho mínimo de alvo aplicável e exceções normativas; oferecer conforto com alvo de projeto de 44 px; respeitar redução de movimento | Medição CSS e teste de `prefers-reduced-motion`; 44 px é meta de usabilidade, não descrição de todo requisito AA |
@@ -1268,6 +1288,8 @@ A base entrega mídia por stream autenticado da API. Isso simplifica revogação
 | Verificação etária | `IAgeEligibilityProvider` | Método adequado, minimização, acessibilidade, callbacks autenticados, revisão e prazo de retenção |
 | Moderação assistida | `IContentReviewProvider`, condicional | Dados estritamente necessários, avaliação de erro, revisão humana e política de uso/treinamento |
 | Monitoramento | OTLP e alertas externos | Filtragem, retenção, controle de acesso e exportação |
+| Geração de mídia (offline) | Nenhuma: ferramenta fora do runtime (Tripo, Rodin; TTS e música a escolher) | Uso comercial confirmado, nenhum dado de participante no prompt ou roteiro, consentimento da voz de referência, registro em `assets-licenses.md` |
+| Voz ao vivo | `ITurnCredentialIssuer` (Cloudflare Realtime TURN; ADR-0028) | Credencial de vida curta e revogável, só relay, DTLS-SRTP de ponta a ponta; Cloudflare como sub-processador de IP e metadados |
 | Pagamento futuro | `IPaymentGateway`, somente quando aprovado | Checkout hospedado, assinatura de webhooks, idempotência e conciliação; sem cartão no Duora |
 
 Não selecionar cinco serviços redundantes. A implementação inicial escolhe um fornecedor por função após uma pequena prova de contrato; o adaptador isola semântica realmente variável, não oculta todas as capacidades atrás de uma interface genérica sem utilidade.
@@ -1728,6 +1750,8 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 | Desempenho | Metas e cenário definidos | Relatório no hardware selecionado | Ampliação de capacidade |
 | Recuperação | Estratégia e metas definidas | Restore cronometrado em host limpo | Lançamento |
 | Design | Sistema, estados e critérios definidos | Identidade visual final e teste de uso/acessibilidade | Aceite de UX |
+| Áudio | Mudo por padrão, canais, transcrição e pipeline agnóstico (ADR-0027) | Ferramenta de TTS e de música; orçamento medido na primeira experiência | Primeiro áudio gerado |
+| Voz ao vivo | WebRTC P2P com relay forçado na Cloudflare Realtime TURN (ADR-0028) | `Permissions-Policy: microphone=(self)`, contrato e mapa de dados da Cloudflare, base legal, teste no Safari/iOS | Voz ao vivo em produção |
 
 Essas pendências não são permissão para deixar a implementação vaga: cada uma tem responsável a designar e evidência exigida. O plano não inventa fornecedor, infraestrutura existente, política jurídica aprovada ou benchmark que não foi fornecido.
 
