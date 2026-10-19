@@ -50,8 +50,10 @@ EXPECTED_PERMISSIONS_POLICY = {
     "browsing-topics": "()",
 }
 
-# Fontes que abririam a política: curinga em qualquer posição, qualquer 'unsafe-*', esquemas genéricos e blob:/data:.
-FORBIDDEN_SOURCE = re.compile(r"\*|'unsafe-|^(https?|wss?|blob|data|filesystem):$|^blob:|^data:", re.IGNORECASE)
+# Fontes que abririam a política: curinga em qualquer posição, qualquer palavra-chave unsafe ('unsafe-*' e
+# 'wasm-unsafe-eval'), esquema genérico, qualquer http: e os esquemas locais blob:, data:, mediastream: e filesystem:.
+FORBIDDEN_SOURCE = re.compile(r"\*|'unsafe-|-unsafe-|^(https|wss?|filesystem):$|^(http|blob|data|mediastream):",
+                              re.IGNORECASE)
 
 
 class PolicyParserTests(unittest.TestCase):
@@ -79,6 +81,18 @@ class PolicyParserTests(unittest.TestCase):
     def test_repeated_permissions_policy_feature_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             parse_permissions_policy("microphone=(self), microphone=*")
+
+    def test_forbidden_source_catches_every_opening_source(self) -> None:
+        for source in ["*", "*.example.com", "https://*.example.com", "'unsafe-inline'", "'unsafe-eval'",
+                       "'unsafe-hashes'", "'wasm-unsafe-eval'", "https:", "wss:", "ws:", "http:",
+                       "http://cdn.example.com", "blob:", "data:", "mediastream:", "filesystem:"]:
+            with self.subTest(source=source):
+                self.assertRegex(source, FORBIDDEN_SOURCE)
+
+    def test_forbidden_source_keeps_the_expected_sources(self) -> None:
+        for source in ["'self'", "'none'", "wss://localhost", "https://meetduora.com"]:
+            with self.subTest(source=source):
+                self.assertNotRegex(source, FORBIDDEN_SOURCE)
 
     def test_permissions_policy_features_keep_their_allowlist(self) -> None:
         self.assertEqual({"camera": "()", "microphone": "(self)"},

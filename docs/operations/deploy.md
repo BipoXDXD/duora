@@ -483,8 +483,10 @@ checagem na edge.
 
 A CSP e a `Permissions-Policy` vivem só no `infra/caddy/Caddyfile`, e `scripts/deploy/test_caddy_security_headers.py`
 compara as duas, diretiva por diretiva, com a política esperada escrita no teste, contra o Caddy real (job `ops`;
-pula sem Docker). O mesmo teste recusa curinga, qualquer `'unsafe-*'`, `blob:` e `data:`. Mudar a política exige
-mudar o teste no mesmo PR, com revisão humana.
+pula sem Docker). O mesmo teste recusa diretiva ou feature repetida, um segundo cabeçalho, curinga, qualquer
+palavra-chave unsafe (`'unsafe-*'` e `'wasm-unsafe-eval'`), esquema genérico (`https:`, `wss:`), qualquer `http:`
+e os esquemas `blob:`, `data:`, `mediastream:` e `filesystem:`. Mudar a política exige mudar o teste no mesmo PR,
+com revisão humana.
 
 | Diretiva | Valor | Por quê |
 |---|---|---|
