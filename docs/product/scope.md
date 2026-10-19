@@ -35,8 +35,9 @@ reinício e recuperação.
 
 Decisões do dono de 2026-10-19 ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)):
 
-- **Público:** o principal **não é brasileiro**; os países do lançamento ainda não foram fixados. Pessoas no Brasil
-  continuam atendidas, e a LGPD vale para elas. As demais jurisdições são lacunas a confirmar com apoio jurídico
+- **Público:** o principal **não é brasileiro**; os países do lançamento ainda não foram fixados. O Brasil é país
+  provável (J-01); a aplicabilidade da LGPD, inclusive a quem está fora do Brasil, é a confirmar (J-02). As demais
+  jurisdições são lacunas a confirmar com apoio jurídico
   ([data-map.md](../privacy/data-map.md#jurisdições-a-confirmar)).
 - **Idiomas:** o produto inteiro funciona em **PT-BR e EN-US**: interface, e-mails, conteúdo das experiências,
   documentos voltados ao usuário e mensagens de erro. Nenhum texto voltado à pessoa existe só num dos dois.
