@@ -210,10 +210,11 @@ qualquer escrita).
 
 - **Rate limit por conta e por IP** em API-P05, nas duas partições ao mesmo tempo (o padrão de
   `PhotoUploadRateLimiting`), com `429`, `Retry-After` e corpo `application/problem+json` sem dado da conta.
-  Valores iniciais a medir e versionar (spec 11.5); hipótese: 10 por hora em cada partição. Pedido repetido que
+  Valor inicial: 10 por hora em cada partição, a medir no piloto e versionado (spec 11.5). Pedido repetido que
   devolve a solicitação aberta também conta, porque é a mesma rota.
 - **Teto de tentativas por pessoa no banco** (spec 11.5: quota de abuso financeiro fica no banco, não no limitador
-  em memória): no máximo 3 solicitações **criadas** por conta numa janela móvel de 7 dias (hipótese), contadas em
+  em memória): no máximo 3 solicitações **criadas** por conta numa janela móvel de 7 dias (decisão do dono de
+  2026-10-19), contadas em
   `identity.age_verifications` sob o lock da linha da conta (`SELECT ... FOR UPDATE` em `identity.users`), na
   mesma transação que cria a solicitação; nunca contar e depois inserir sem lock. Acima do teto, API-P05 responde
   `429` com `Retry-After` até a solicitação mais antiga sair da janela, sem criar linha nem evento na outbox.
