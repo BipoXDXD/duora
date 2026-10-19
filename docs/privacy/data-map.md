@@ -5,8 +5,9 @@ Finalidades, categorias de dados por tabela, base legal, fornecedores e acessos 
 [threat-model.md](../security/threat-model.md); fichas D-PRIV-01 (LGPD, Marco Civil da Internet), D-PRIV-02
 (ECA Digital, ANPD) e D-PRIV-03 (jurisdições fora do Brasil). Prazos de guarda: [retention.md](retention.md).
 
-> **Público e jurisdição ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), 2026-10-19).** O público principal do Duora **não é brasileiro**, e todo o
-> tratamento acontece nos EUA (VPS em Boston e backup no B2 US East). O Brasil é país provável (J-01); a
+> **Público e jurisdição ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), 2026-10-19).** O público principal do Duora **não é brasileiro**, e o
+> armazenamento fica nos EUA (VPS em Boston e backup no B2 US East); acessos de suporte e subprocessadores, a
+> confirmar (J-11). O Brasil é país provável (J-01); a
 > aplicabilidade da LGPD, inclusive a quem está fora do Brasil, é a confirmar (J-02), e as referências à LGPD neste
 > mapa valem só se ela se aplicar. Para as demais jurisdições, as leis prováveis estão em [Jurisdições a confirmar](#jurisdições-a-confirmar),
 > como lacunas para o apoio jurídico, sem conclusão sobre aplicabilidade.
@@ -93,8 +94,8 @@ Local de tratamento e salvaguardas de cada fornecedor entram na avaliação jur�
 
 ### Local do tratamento e transferências a confirmar
 
-O servidor de produção fica em Boston (EUA) e o backup no Backblaze B2 US East ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)): **todos** os dados do
-Duora são tratados nos EUA. Os dados de pessoas no Brasil ficam nos EUA desde o primeiro request (fato); se isso é transferência internacional (LGPD art. 33) ou coleta internacional (Resolução CD/ANPD 19/2024, a confirmar) e qual salvaguarda se aplica é a confirmar (J-02). O que antes aparecia como
+O servidor de produção fica em Boston (EUA) e o backup no Backblaze B2 US East ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)): o armazenamento de
+**todos** os dados do Duora fica nos EUA; acessos de suporte e subprocessadores, a confirmar (J-11). Os dados de pessoas no Brasil ficam nos EUA desde o primeiro request (fato); se isso é transferência internacional (LGPD art. 33) ou coleta internacional (Resolução CD/ANPD 19/2024, a confirmar) e qual salvaguarda se aplica é a confirmar (J-02). O que antes aparecia como
 exceção (só o backup) passa a ser o caso geral. Para pessoas na UE ou no Reino Unido, se houver, o enquadramento
 equivalente é a confirmar em J-10.
 
