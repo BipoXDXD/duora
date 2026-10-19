@@ -48,7 +48,8 @@ Alternativas consideradas:
   peso previsível, mesmo tratamento de acessibilidade das imagens. Contra: sem interação com o objeto.
 - **3D em tempo real com `<model-viewer>`** (Apache-2.0). Web component sobre three.js, com `alt`, controle
   por teclado, `poster` e carregamento sob interação. Contra: dependência grande, WebGL e, com geometria
-  comprimida (Draco, meshopt) ou textura KTX2, decodificador em WebAssembly, que a CSP atual bloqueia.
+  comprimida (Draco, meshopt) ou textura KTX2, decodificador em WebAssembly, que a CSP bloqueia (por isso o
+  pipeline da seção 7 proíbe essas extensões).
 - **3D em tempo real com three.js direto** (MIT). Controle total. Contra: acessibilidade, fallback e teclado
   ficam por nossa conta.
 - **3D em tempo real como padrão.** Descartada: põe JavaScript pesado e GPU no caminho de toda experiência,
@@ -207,9 +208,24 @@ e esse PR só fecha com o modelo renderizando sob a CSP de produção. Regras do
 - nada da regra, da pista ou da escolha mora só no modelo; nenhuma ação exige arrastar ou girar (A11Y-04);
 - sem rotação automática com `prefers-reduced-motion: reduce`; nada pisca;
 - WebGL indisponível, falha de carregamento ou "Reduzir movimento" mostram o poster, sem perda de função;
-- geometria e texturas sem decodificador WebAssembly até a CSP ser revista no PR de infra; o `<model-viewer>`
-  carrega texturas por `blob:` (a confirmar na versão adotada), o que pede `img-src blob:` (e, com decodificador, `worker-src blob:` e
-  `'wasm-unsafe-eval'`) nesse mesmo PR.
+- **pipeline do GLB:** um GLB autocontido por modelo (um hash no manifesto), texturas WebP via `EXT_texture_webp`
+  (PNG ou JPEG quando preciso), sem `KHR_draco_mesh_compression`, `EXT_meshopt_compression` nem
+  `KHR_texture_basisu`. Os três pedem decodificador em WebAssembly e worker, e a CSP não libera
+  `'wasm-unsafe-eval'` nem worker (`worker-src 'none'`). A importação no catálogo recusa GLB que declare qualquer um
+  deles em `extensionsUsed`;
+- **CSP (PR #85; medido em 2026-10-19 no Chromium 156, no WebKit e no Firefox do Playwright 1.64.1, com
+  `<model-viewer>` 4.4.0 e three.js 0.183.2):** a textura embutida chega por `fetch(blob:)` (`ImageBitmapLoader` do
+  three.js), coberta por `connect-src blob:`; `img-src` continua sem `blob:`. O `<style>` do shadow root entra pelo
+  hash `'sha256-PXtZZkJMMyc18o/DN1ZEFOJ2qEGq95IQbVaJFMOXOb0='` em `style-src`, e o Lit pela política Trusted Types
+  `lit-html`. Subir o `<model-viewer>` exige recalcular o hash no mesmo PR;
+- **build:** um `resolve.alias` do Vite troca `three/examples/jsm/libs/meshopt_decoder.module.js` por um stub
+  (`MeshoptDecoder` com `supported: false`), porque o módulo instancia WebAssembly ao ser importado, mesmo sem
+  modelo meshopt, e a CSP bloqueia;
+- **sem AR:** sem o atributo `ar`. `xr-spatial-tracking`, os sensores e `fullscreen` ficam negados na
+  `Permissions-Policy`;
+- o PR da primeira experiência com 3D traz um teste no navegador, sob a CSP da borda, que carrega um GLB do
+  catálogo e falha com qualquer `securitypolicyviolation`. Traz também um teste que recalcula o hash do `<style>` a
+  partir de `node_modules/@google/model-viewer/lib/template.js` e o compara com o Caddyfile.
 
 Porquê técnico: a mídia entra no mesmo contrato de versão imutável que já protege regras e conteúdo, fica fora do
 caminho crítico e herda os controles de acessibilidade existentes. Porquê de negócio: ambientes e vozes dão
@@ -234,8 +250,9 @@ personalidade às experiências sem comprometer acolhimento, privacidade e saíd
 - Voz ao vivo: STRIDE em [threat-model.md](../../security/threat-model.md#512-voz-ao-vivo-na-sala) (TM-68 a
   TM-79) e ADR-0028.
 - **Dependências:** CSP num PR de infra separado: `media-src 'self'` para `<audio>`; o `fetch` dos arquivos que
-  a Web Audio decodifica cai em `connect-src` (já `'self'`); 3D em tempo real pede `img-src blob:` e, com
-  WebAssembly, `worker-src blob:` e `'wasm-unsafe-eval'`; público, idiomas e região no
+  a Web Audio decodifica cai em `connect-src` (já `'self'`); 3D em tempo real pede o hash do `<style>` do
+  `<model-viewer>` em `style-src`, `connect-src blob:` para a textura embutida e a política Trusted Types
+  `lit-html`, sem WebAssembly nem worker (seção 7; PR #85); público, idiomas e região no
   ADR-0026 (PR #83, em revisão).
 
 ## Compliance
@@ -254,8 +271,10 @@ personalidade às experiências sem comprometer acolhimento, privacidade e saíd
 - A11Y-04 do [protocolo](../../design/accessibility-test-protocol.md#a11y-04--minijogos): jogo completo com som
   desligado, transcrição, Controle de som por teclado e leitor de tela, fallback 2D do 3D.
 - Voz ao vivo: testes do ADR-0028 e de TM-68 a TM-79.
+- A criar com a primeira experiência com 3D: teste de navegador sem violação de CSP com GLB do catálogo; teste do
+  hash do `<style>` do `<model-viewer>`; teste do catálogo que recusa GLB com Draco, meshopt ou KTX2.
 - A criar já no próximo PR de backend: `NoRuntimeModuleReferencesMediaGenerationProviders` (teste de arquitetura).
   Com o primeiro script de geração: `GenerationStopsBeforeExceedingTheCreditCap`,
   `GenerationStopsAfterMaxAttemptsPerAsset` e `GenerationHonorsProviderRetryAfter`, contra servidor HTTP falso.
-- A criar com a primeira experiência com 3D em tempo real: E2E (Chromium e WebKit) que carrega o modelo sob a CSP
-  de produção sem violação no console, e o fallback para o poster sem WebGL e com "Reduzir movimento".
+- A criar com a primeira experiência com 3D em tempo real: E2E do fallback para o poster sem WebGL e com "Reduzir
+  movimento" (a carga sem violação de CSP é o teste de navegador do item acima).

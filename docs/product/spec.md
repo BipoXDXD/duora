@@ -1754,7 +1754,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 | Recuperação | Estratégia e metas definidas | Restore cronometrado em host limpo | Lançamento |
 | Design | Sistema, estados e critérios definidos | Identidade visual final e teste de uso/acessibilidade | Aceite de UX |
 | Áudio | Mudo por padrão, canais, transcrição; fonte externa Creator para voz, música e efeitos (SFX v2), Freesound CC0 e Sonniss como complemento; orçamento de créditos como hipótese (ADR-0027) | Data da cláusula comercial do Creator, formato de saída da API (MP3 ou melhor), termo do Sonniss para mix; orçamento medido na primeira experiência | Primeiro áudio gerado |
-| Voz ao vivo | WebRTC P2P com relay forçado na Cloudflare Realtime TURN (ADR-0028) | `Permissions-Policy: microphone=(self)` com `camera=()`, base legal, teste de contrato manual da revogação contra a Cloudflare real, teste no Safari/iOS | Voz ao vivo em produção |
+| Voz ao vivo | WebRTC P2P com relay forçado na Cloudflare Realtime TURN (ADR-0028) | `Permissions-Policy` em allowlist: `microphone`, `autoplay` e `speaker-selection` em `(self)`, todas as outras features em `()`, base legal, teste de contrato manual da revogação contra a Cloudflare real, teste no Safari/iOS | Voz ao vivo em produção |
 
 Essas pendências não são permissão para deixar a implementação vaga: cada uma tem responsável a designar e evidência exigida. O plano não inventa fornecedor, infraestrutura existente, política jurídica aprovada ou benchmark que não foi fornecido.
 
