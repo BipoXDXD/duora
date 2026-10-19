@@ -53,6 +53,7 @@ internal static class PhotoEndpoints
         photos.MapGet("/{photoId:guid}/status", GetStatusAsync)
             .WithDescription("Estado do processamento de uma foto do titular.")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
     }
 
