@@ -551,6 +551,8 @@ Suspender a participação não deve eliminar o canal de recurso: uma sessão re
 | API-R06 | `PUT /rooms/{roomId}/my-decision` | Escolha e versão → própria escolha/vínculo permitido | Interesse mútuo avaliado na mesma transação |
 | API-R07 | `DELETE /rooms/{roomId}/my-decision` | Retirada antes da conexão | Depois de vínculo ativo, usar encerramento de conexão |
 | API-R08 | `POST /rooms/{roomId}/voice/credentials` | Antiforgery → credencial TURN de ~5 min, renovável, nunca além do fim da sessão; `no-store` | Policy `EligibleParticipant` e participante ativo que entrou na voz (alheio → `404`); rate limit; usernames em `experiences.voice_credentials`; revogada pela outbox por: sair da voz ou da sala, bloqueio, denúncia, sala abortada (spec 4.2, 6.3), medida de moderação que restringe a conta (inclusive suspeita de menor), revogação da sessão de login e fim da sessão de jogo (ADR-0028) |
+| API-R09 | `POST /rooms/{roomId}/voice/participation` | Antiforgery → "entrou na voz" (`JoinVoice`) | Policy `EligibleParticipant` e participante ativo; persistido em `experiences.voice_participation` (ADR-0028) |
+| API-R10 | `DELETE /rooms/{roomId}/voice/participation/me` | Sair da voz (`LeaveVoice`) → `204` | Commit que grava `left_at` e a revogação na outbox; sempre permitido |
 
 ### 8.4. Comunicação, segurança, mídia e privacidade
 

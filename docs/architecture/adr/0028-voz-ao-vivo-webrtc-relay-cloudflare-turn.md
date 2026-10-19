@@ -49,6 +49,14 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   pessoas tocaram "Entrar na voz"; até lá ninguém ouve ninguém, e ninguém recebe credencial nem sinalização da
   outra pessoa. **Ligar o microfone** (falar): gesto separado, que pede a permissão do navegador só nessa hora.
 - Sair da voz, a qualquer momento, desfaz o primeiro consentimento; desligar o microfone, o segundo.
+- **Onde mora "entrou na voz":** no banco, em `experiences.voice_participation` (dono: Experiences), uma linha
+  por `(game_session_id, user_id)` com `joined_at` e `left_at`, e não em memória: precisa sobreviver a restart
+  (ADR-0009, instância única) e é a base para emitir credencial. "Entrar na voz" é o comando `JoinVoice`
+  (API-R09) e "Sair da voz" é `LeaveVoice` (API-R10): esse commit, que grava `left_at`, é o evento 1 da lista de
+  revogação. O snapshot da sala (API-R02) diz se a própria pessoa e a outra estão na voz.
+- **Reconciliação depois de restart:** a web não guarda estado de voz em memória. Os navegadores reconectam o
+  hub e releem o snapshot; quem continua com `left_at` nulo pode pedir credencial de novo e renegociar. Se o
+  hub não volta dentro do prazo do fail-closed, o cliente encerra a voz e chama `LeaveVoice` quando reconecta.
 
 ### Autorização
 
@@ -69,7 +77,8 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   revogação. É a lista que a revogação percorre.
 - A emissão é síncrona no web (chama a API da Cloudflare), com timeout e circuit breaker (spec 16.4); falha vira
   "voz indisponível", e a experiência segue pelo texto.
-- **Revogação.** Os eventos que encerram a voz são os mesmos em toda a documentação (spec 6.5, API-R08, TM-72):
+- **Revogação.** Os eventos que encerram a voz são os mesmos em toda a documentação (spec 6.5, API-R08, TM-72),
+  e o commit de cada um é de quem é dono dele:
   1. a pessoa sai da voz ou sai da sala;
   2. bloqueio, em qualquer direção;
   3. denúncia feita a partir da sala ou da tela de voz;
@@ -78,8 +87,16 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   6. revogação da sessão de login;
   7. fim da sessão de jogo.
 
-  O mesmo commit que registra o evento grava na outbox (ADR-0008) a revogação de todos os usernames da sala em
-  `voice_credentials`, e o worker revoga na Cloudflare com retry limitado. Se a revogação derruba a alocação já
+  **Operações públicas do Experiences** ([modules.md](../modules.md)), as únicas que escrevem em
+  `voice_participation` e `voice_credentials`: `JoinVoice`, `LeaveVoice`, `IssueVoiceCredential`,
+  `RevokeVoiceForRoom(roomId)`, `RevokeVoiceForUser(userId)`, `RevokeAllVoice()` e
+  `MarkVoiceCredentialsRevoked`. Os eventos 1, 4 e 7 são commits do próprio Experiences. Bloqueio, denúncia e
+  medida de moderação (2, 3 e 5) são commits do Safety, e a revogação da sessão de login (6) é do Identity:
+  nenhum deles escreve nas tabelas da voz. O coordenador do caso de uso chama `RevokeVoiceForRoom` ou
+  `RevokeVoiceForUser` **na mesma transação** do evento (um `DbContext`, ADR-0004). A operação fecha a
+  participação (`left_at`) e grava na outbox (ADR-0008) a intenção de revogar os usernames ativos. O worker
+  chama a Cloudflare com retry limitado e, só depois da resposta, grava `revoked_at` por
+  `MarkVoiceCredentialsRevoked`, que é código do Experiences rodando no worker. Se a revogação derruba a alocação já
   aberta é comportamento a confirmar num **teste de contrato manual contra a Cloudflare real**, que faz parte do
   gate de lançamento (spec 23.2); o TTL de 5 min limita a janela se não derrubar.
 
@@ -92,7 +109,7 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   16 KiB por mensagem e **rate limit por conexão**.
 - O servidor rejeita candidato que não seja `typ relay`, inclusive as linhas `a=candidate` dentro do SDP, e
   rejeita (ou normaliza para `0.0.0.0`/`0`) `raddr`/`rport` diferentes de `0.0.0.0`, que podem carregar o IP
-  local de quem enviou. **Esse filtro só pega erro de cliente honesto.** Quem protege a vítima é o próprio
+  público (mapeado) de quem enviou. **Esse filtro só pega erro de cliente honesto.** Quem protege a vítima é o próprio
   navegador dela, com as verificações abaixo; um cliente modificado do outro lado não consegue forçar um caminho
   direto se a vítima só aceita relay.
 - O servidor repassa o SDP sem mexer na fingerprint DTLS (`a=fingerprint`).
@@ -117,8 +134,9 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   avisa; volta só com novo "Entrar na voz".
 - **Suspeita de menor:** a denúncia pela tela de voz inclui a categoria "suspeita de menor", que restringe o
   acesso da conta e revoga a voz na hora (spec 12.2). A maioridade por jurisdição é a lacuna J-05 do PR #83.
-- **Kill switch:** uma flag operacional desliga a voz no produto inteiro (o botão some, API-R08 responde
-  indisponível e sessões abertas são encerradas pela mesma revogação).
+- **Kill switch:** gatilho operacional à parte, fora da lista de 7 eventos. Uma flag de Operations desliga a voz
+  no produto inteiro: o botão some, API-R08 e API-R09 respondem indisponível, e `RevokeAllVoice` encerra as
+  participações e revoga as credenciais abertas pela mesma outbox.
 - Push-to-talk opcional; volume da voz da outra pessoa separado dos canais do catálogo; ducking da trilha enquanto
   alguém fala (ADR-0027).
 
@@ -148,8 +166,8 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
 
 A VPS é uma KVM 2 com **2 vCPU**, mas a spec (15.1 e 23.2) ainda supõe 4 vCPU, e os limites `cpus` dos
 serviços permanentes de `infra/compose/compose.prod.yml` somam 6,5 (postgres 2, backup 1, web 2, worker 1,
-edge 0,5). Lacuna registrada na **issue #86**: cada `cpus` deve ser ≤ 2 e a distribuição precisa ser revista; a
-correção da spec fica para depois do PR #83, que reescreve essas seções. A voz não põe mídia na VPS: o custo nela
+edge 0,5). Lacuna registrada na **issue #86**: cada `cpus` deve ser ≤ 2, a distribuição precisa ser revista e a
+spec, corrigida. A voz não põe mídia na VPS: o custo nela
 é emitir credencial e repassar sinalização.
 
 Porquê técnico: é o caminho com menos componentes que atende a regra do IP e mantém a mídia cifrada entre os
@@ -162,7 +180,8 @@ servidor de mídia; o plano B fica pronto para quando o produto pedir controle n
   criptografia vêm prontos.
 - Negativas: silenciar e encerrar dependem do cliente, mais a revogação e o TTL; a sala fica limitada a 2 pessoas;
   a Cloudflare entra no mapa de dados; o Safari tem histórico de problemas com relay
-  ([bug 312332 do WebKit](https://bugs.webkit.org/show_bug.cgi?id=312332)), e por isso há teste manual no iOS.
+  ([bug 312332 do WebKit](https://bugs.webkit.org/show_bug.cgi?id=312332), número vindo da pesquisa, a confirmar),
+  e por isso há teste manual no iOS.
 - Trade-off: menos controle no servidor em troca de privacidade da mídia e operação simples.
 
 ## Segurança e operação
@@ -177,6 +196,10 @@ servidor de mídia; o plano B fica pronto para quando o produto pedir controle n
 
 Testes previstos (a criar com a implementação; nenhum existe hoje):
 
+- **Participação (API-R09, API-R10):** `JoinVoice` e `LeaveVoice` persistem em `voice_participation`;
+  `LeaveVoice` grava a revogação na outbox no mesmo commit; depois de reiniciar a web, a participação continua
+  e a credencial só sai para quem tem `left_at` nulo; nenhum módulo além do Experiences escreve nas tabelas da
+  voz (teste de arquitetura sobre o mapeamento do EF Core).
 - **Endpoint (API-R08):** participante que entrou na voz recebe credencial; terceiro e participante de outra sala
   recebem `404` sem dado da sala; conta sem `EligibleParticipant` recebe a recusa da policy; sem antiforgery ou
   com origem indevida → `403` `CSRF_VALIDATION_FAILED`; acima do rate limit → `429` com `Retry-After`; resposta
@@ -186,8 +209,9 @@ Testes previstos (a criar com a implementação; nenhum existe hoje):
   `typ relay` (inclusive dentro do SDP) é rejeitado; `VoiceSignalWithRelatedAddressIsRejected` (`raddr`
   diferente de `0.0.0.0`); `ServerForwardsSdpFingerprintUnchanged`; o teste que enumera métodos do hub aceita
   esse método e nenhum genérico.
-- **Revogação:** cada um dos 7 eventos grava a revogação de todos os usernames da sala na outbox no mesmo commit;
-  o worker revoga com retry limitado; kill switch encerra sessões abertas e recusa API-R08.
+- **Revogação:** cada um dos 7 eventos chama `RevokeVoiceForRoom` ou `RevokeVoiceForUser` na transação do
+  evento e grava a revogação na outbox no mesmo commit; o worker revoga com retry limitado e só então grava
+  `revoked_at`; o kill switch (`RevokeAllVoice`) encerra participações abertas e recusa API-R08 e API-R09.
 - **Adaptador da Cloudflare** contra servidor HTTP falso: emissão, revogação, timeout e erro. Nunca a
   Cloudflare real no CI; contra ela, só o teste de contrato manual do gate 23.2.
 - **E2E no CI com coturn local via Testcontainers** e dois navegadores (Chromium e WebKit):
