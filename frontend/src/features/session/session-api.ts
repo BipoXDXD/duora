@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import { apiClient, isUnauthorized, sendMutation } from '@/shared/api'
+import type { components } from '@/shared/api/schema'
+
+type MeResponse = components['schemas']['MeResponse']
 
 const KNOWN_ACCOUNT_STATUSES = [
   'PendingEmail',
@@ -24,9 +27,10 @@ const meSchema = z.object({
   email: z.string().min(1),
   status: z.string().transform(toAccountStatus),
   emailConfirmed: z.boolean(),
-  mfaEnabled: z.boolean().optional(),
-  roles: z.array(z.string()).optional(),
-})
+  // Obrigatórios: sem eles a guarda de MFA não decide, e a leitura falha em vez de liberar a área.
+  mfaEnabled: z.boolean(),
+  roles: z.array(z.string()),
+}) satisfies z.ZodType<MeResponse>
 
 export type Me = z.output<typeof meSchema>
 

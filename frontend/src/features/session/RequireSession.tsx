@@ -34,7 +34,7 @@ export function RequireSession(): React.JSX.Element {
     }
   }
   if (me.data !== undefined) {
-    const needsMfa = me.data.mfaEnabled === false && me.data.roles?.some((role) => role !== 'participant')
+    const needsMfa = !me.data.mfaEnabled && me.data.roles.some((role) => role !== 'participant')
     if (needsMfa && pathname !== paths.mfaEnrollment) return <Navigate to={paths.mfaEnrollment} replace />
     if (pathname === paths.changePassword) return <Navigate to={paths.account} replace />
     return (

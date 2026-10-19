@@ -1,17 +1,14 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { z } from 'zod'
 import { useSessionTransitions } from '@/features/session/session-hooks'
-import { classifyRequestFailure, sendMutationForJson } from '@/shared/api'
+import { classifyRequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
-
-const enrollmentSchema = z.object({ sharedKey: z.string().min(1), authenticatorUri: z.string().min(1) })
-const recoverySchema = z.object({ recoveryCodes: z.array(z.string().min(1)).min(1) })
+import { confirmMfa, startMfaEnrollment } from './auth-api'
 
 /** Segredo e códigos só em memória local; nunca no cache de consultas, URL ou armazenamento. */
 export function MfaEnrollmentPage(): React.JSX.Element {
@@ -24,21 +21,17 @@ export function MfaEnrollmentPage(): React.JSX.Element {
   const start = useMutation({
     gcTime: 0,
     mutationFn: async () => {
-      const enrollment = enrollmentSchema.parse(
-        await sendMutationForJson({ method: 'POST', path: '/api/v1/me/mfa/enrollments' }),
-      )
+      const enrollment = await startMfaEnrollment()
       setSharedKey(enrollment.sharedKey)
     },
   })
   const confirm = useMutation({
     gcTime: 0,
     mutationFn: async () => {
-      const recovery = recoverySchema.parse(
-        await sendMutationForJson({ method: 'POST', path: '/api/v1/me/mfa/confirmations', body: { code } }),
-      )
+      const codes = await confirmMfa(code)
       setSharedKey(null)
       setCode('')
-      setRecoveryCodes(recovery.recoveryCodes)
+      setRecoveryCodes(codes)
     },
   })
   if (recoveryCodes !== null)
