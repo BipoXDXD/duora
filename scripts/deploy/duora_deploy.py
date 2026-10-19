@@ -18,6 +18,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -302,7 +303,14 @@ def require_media_areas(media_dir: Path | None) -> None:
         raise DeployError(f"DUORA_MEDIA_DIR deve ser absoluto (recebido {media_dir}): {fix}")
     for area in MEDIA_AREAS:
         marker = media_dir / area / MEDIA_AREA_MARKER
-        if not os.path.isfile(marker):
+        try:
+            is_marker = stat.S_ISREG(marker.stat().st_mode)
+        except PermissionError as error:
+            # Áreas 0700 do UID 1654: sem root não dá para saber se o marcador existe, e "ausente" seria mentira.
+            raise DeployError(f"sem permissão para conferir o marcador {marker}: rode como root (sudo)") from error
+        except (FileNotFoundError, NotADirectoryError):
+            is_marker = False
+        if not is_marker:
             raise DeployError(f"área de fotos sem o marcador {marker} (diretório não preparado ou não montado); "
                               f"o web recusaria o boot depois da migração: {fix}. Nada foi parado.")
 
