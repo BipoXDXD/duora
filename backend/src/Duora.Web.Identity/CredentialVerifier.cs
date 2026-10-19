@@ -47,6 +47,8 @@ internal sealed class LoginTimingOptions
 {
     public const string Section = "Identity";
 
+    private static readonly TimeSpan MaximumLoginTimeout = TimeSpan.FromMinutes(1);
+
     /// <summary>
     /// Duração mínima de um login que falha, mais um sorteio de até <see cref="FailedLoginJitter"/>. Fica acima
     /// do custo de um hash, para encobrir o que os caminhos de falha ainda fazem de diferente (a senha errada numa
@@ -56,7 +58,14 @@ internal sealed class LoginTimingOptions
 
     public TimeSpan FailedLoginJitter { get; set; } = TimeSpan.FromMilliseconds(100);
 
-    public bool IsValid() => FailedLoginMinimumDuration >= TimeSpan.Zero && FailedLoginJitter >= TimeSpan.Zero;
+    /// <summary>
+    /// Prazo do login inteiro (filas, lock, hash e piso), 30 s, hipótese. Estourou, <see cref="AccountBusyException"/>
+    /// (503) com esse valor no <c>Retry-After</c>. Precisa caber o piso inteiro, ou toda falha viraria 503.
+    /// </summary>
+    public TimeSpan LoginTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    public bool IsValid() => FailedLoginMinimumDuration >= TimeSpan.Zero && FailedLoginJitter >= TimeSpan.Zero
+        && LoginTimeout >= FailedLoginMinimumDuration + FailedLoginJitter && LoginTimeout <= MaximumLoginTimeout;
 }
 
 /// <summary>
@@ -100,6 +109,27 @@ public sealed partial class CredentialVerifier
     /// como senha errada e conta no mesmo bloqueio (TM-01); o bloqueio só zera depois do segundo fator certo.
     /// </summary>
     public async Task<LoginOutcome> VerifyAsync(
+        EmailAddress email,
+        string password,
+        SecondFactorProof? secondFactor,
+        CancellationToken cancellationToken)
+    {
+        // Prazo em tempo real, como o piso: cada fase tem seu teto (fila 30 s, lock 5 s), e sem um prazo do pedido
+        // inteiro as fases somavam mais de um minuto. O hash é síncrono e não cancela: o pior caso passa do prazo
+        // por no máximo um hash.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(_timing.LoginTimeout);
+        try
+        {
+            return await VerifyWithinDeadlineAsync(email, password, secondFactor, deadline.Token);
+        }
+        catch (OperationCanceledException expired) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new AccountBusyException(_timing.LoginTimeout, expired);
+        }
+    }
+
+    private async Task<LoginOutcome> VerifyWithinDeadlineAsync(
         EmailAddress email,
         string password,
         SecondFactorProof? secondFactor,
