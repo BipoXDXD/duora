@@ -13,19 +13,27 @@ const ME = {
   mfaEnabled: false,
 }
 const TEMPORARY = 'ABCD-EFGH-IJKL-MNOP-QRST-UVWX'
-/**
- * A jornada inteira (entrada, troca, MFA e códigos) carrega quatro telas sob demanda e passava dos 5 s padrão do
- * Vitest com a CPU disputada; cada espera interna continua limitada por ROUTE_CHUNK_TIMEOUT_MS.
- */
-const JOURNEY_TIMEOUT_MS = 15_000
 const PASSWORD = ' minha senha própria longa '
 function restricted() {
   server.use(http.get(`${API}/me`, () => problem(403, 'PASSWORD_CHANGE_REQUIRED')))
 }
+/**
+ * Cola o valor, como um gerenciador de senhas: um evento de input por campo. Digitar tecla a tecla as senhas longas
+ * daqui (mais de 80 teclas por formulário) re-renderizava a árvore inteira a cada tecla e, com a CPU disputada,
+ * empurrava a jornada completa para além do prazo do Vitest. O que o teste verifica é o valor enviado, não a digitação.
+ */
+async function enter(user: RenderedApp['user'], field: HTMLElement, value: string) {
+  await user.click(field)
+  await user.paste(value)
+}
 async function fill(user: RenderedApp['user'], confirmation = PASSWORD) {
-  await user.type(await screen.findByLabelText('Senha temporária', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS }), TEMPORARY)
-  await user.type(screen.getByLabelText('Senha nova'), PASSWORD)
-  await user.type(screen.getByLabelText('Confirme a nova senha'), confirmation)
+  await enter(
+    user,
+    await screen.findByLabelText('Senha temporária', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    TEMPORARY,
+  )
+  await enter(user, screen.getByLabelText('Senha nova'), PASSWORD)
+  await enter(user, screen.getByLabelText('Confirme a nova senha'), confirmation)
   await user.click(screen.getByRole('button', { name: 'Salvar senha nova' }))
 }
 
@@ -48,73 +56,69 @@ describe('troca obrigatória da senha inicial', () => {
     await fill(user, 'outra senha longa')
     expect(await screen.findByText('As senhas não coincidem.')).toBeInTheDocument()
   })
-  it(
-    'integra login, troca, CSRF novo, MFA e códigos sem segredos no cache',
-    async () => {
-      const csrf = useAntiforgeryEndpoint()
-      let phase = 'password'
-      let sent: unknown
-      let sentCsrf: string | null = null
-      server.use(
-        http.post(`${API}/auth/login`, () => new HttpResponse(null, { status: 204 })),
-        http.get(`${API}/me`, () =>
-          phase === 'password'
-            ? problem(403, 'PASSWORD_CHANGE_REQUIRED')
-            : HttpResponse.json({ ...ME, mfaEnabled: phase === 'done' }),
-        ),
-        http.post(`${API}/me/password-changes`, async ({ request }) => {
-          sent = await request.json()
-          sentCsrf = request.headers.get('X-XSRF-TOKEN')
-          phase = 'mfa'
-          return new HttpResponse(null, { status: 204 })
-        }),
-        http.post(`${API}/me/mfa/enrollments`, ({ request }) => {
-          expect(request.headers.get('X-XSRF-TOKEN')).toBe(csrf.latestToken())
-          return HttpResponse.json({ sharedKey: 'SYNTHETICKEY', authenticatorUri: 'otpauth://totp/test' })
-        }),
-        http.post(`${API}/me/mfa/confirmations`, async ({ request }) => {
-          expect(await request.json()).toEqual({ code: '123456' })
-          expect(request.headers.get('X-XSRF-TOKEN')).toBe(csrf.latestToken())
-          phase = 'done'
-          return HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] })
-        }),
-        http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
-      )
-      const { user, queryClient } = await renderApp('/entrar')
-      await user.type(screen.getByLabelText('E-mail'), ME.email)
-      await user.type(screen.getByLabelText('Senha'), TEMPORARY)
-      await user.click(screen.getByRole('button', { name: 'Entrar' }))
-      await fill(user)
-      expect(
-        await screen.findByRole(
-          'heading',
-          { name: 'Ative a autenticação em duas etapas' },
-          { timeout: ROUTE_CHUNK_TIMEOUT_MS },
-        ),
-      ).toBeInTheDocument()
-      expect(sent).toEqual({ currentPassword: TEMPORARY, newPassword: PASSWORD })
-      expect(sentCsrf).toBe('token-3')
-      expect(csrf.calls()).toBe(4)
-      await user.click(screen.getByRole('button', { name: 'Configurar autenticador' }))
-      expect(await screen.findByText('SYNTHETICKEY')).toBeInTheDocument()
-      await user.type(screen.getByLabelText('Código do autenticador'), '123456')
-      await user.click(screen.getByRole('button', { name: 'Ativar MFA' }))
-      expect(await screen.findByText('synthetic-recovery')).toBeInTheDocument()
-      const cached = JSON.stringify(
-        queryClient
-          .getMutationCache()
-          .getAll()
-          .map((mutation) => mutation.state),
-      )
-      for (const secret of [PASSWORD, TEMPORARY, 'SYNTHETICKEY', 'synthetic-recovery', '123456'])
-        expect(cached).not.toContain(secret)
-      await user.click(screen.getByRole('button', { name: 'Guardei os códigos, continuar' }))
-      expect(
-        await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
-      ).toBeInTheDocument()
-    },
-    JOURNEY_TIMEOUT_MS,
-  )
+  it('integra login, troca, CSRF novo, MFA e códigos sem segredos no cache', async () => {
+    const csrf = useAntiforgeryEndpoint()
+    let phase = 'password'
+    let sent: unknown
+    let sentCsrf: string | null = null
+    server.use(
+      http.post(`${API}/auth/login`, () => new HttpResponse(null, { status: 204 })),
+      http.get(`${API}/me`, () =>
+        phase === 'password'
+          ? problem(403, 'PASSWORD_CHANGE_REQUIRED')
+          : HttpResponse.json({ ...ME, mfaEnabled: phase === 'done' }),
+      ),
+      http.post(`${API}/me/password-changes`, async ({ request }) => {
+        sent = await request.json()
+        sentCsrf = request.headers.get('X-XSRF-TOKEN')
+        phase = 'mfa'
+        return new HttpResponse(null, { status: 204 })
+      }),
+      http.post(`${API}/me/mfa/enrollments`, ({ request }) => {
+        expect(request.headers.get('X-XSRF-TOKEN')).toBe(csrf.latestToken())
+        return HttpResponse.json({ sharedKey: 'SYNTHETICKEY', authenticatorUri: 'otpauth://totp/test' })
+      }),
+      http.post(`${API}/me/mfa/confirmations`, async ({ request }) => {
+        expect(await request.json()).toEqual({ code: '123456' })
+        expect(request.headers.get('X-XSRF-TOKEN')).toBe(csrf.latestToken())
+        phase = 'done'
+        return HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] })
+      }),
+      http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
+    )
+    const { user, queryClient } = await renderApp('/entrar')
+    await enter(user, screen.getByLabelText('E-mail'), ME.email)
+    await enter(user, screen.getByLabelText('Senha'), TEMPORARY)
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+    await fill(user)
+    expect(
+      await screen.findByRole(
+        'heading',
+        { name: 'Ative a autenticação em duas etapas' },
+        { timeout: ROUTE_CHUNK_TIMEOUT_MS },
+      ),
+    ).toBeInTheDocument()
+    expect(sent).toEqual({ currentPassword: TEMPORARY, newPassword: PASSWORD })
+    expect(sentCsrf).toBe('token-3')
+    expect(csrf.calls()).toBe(4)
+    await user.click(screen.getByRole('button', { name: 'Configurar autenticador' }))
+    expect(await screen.findByText('SYNTHETICKEY')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Código do autenticador'), '123456')
+    await user.click(screen.getByRole('button', { name: 'Ativar MFA' }))
+    expect(await screen.findByText('synthetic-recovery')).toBeInTheDocument()
+    const cached = JSON.stringify(
+      queryClient
+        .getMutationCache()
+        .getAll()
+        .map((mutation) => mutation.state),
+    )
+    for (const secret of [PASSWORD, TEMPORARY, 'SYNTHETICKEY', 'synthetic-recovery', '123456'])
+      expect(cached).not.toContain(secret)
+    await user.click(screen.getByRole('button', { name: 'Guardei os códigos, continuar' }))
+    expect(
+      await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    ).toBeInTheDocument()
+  })
   it.each([
     [401, 'INVALID_CREDENTIALS', 'Senha atual inválida'],
     [401, 'REAUTHENTICATION_REQUIRED', 'Entre novamente para confirmar'],
