@@ -3,7 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { meQueryKey } from '@/features/session/query-keys'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
-import { createTestQueryClient, renderApp, type RenderedApp } from '@/test/render'
+import { createTestQueryClient, renderApp, ROUTE_CHUNK_TIMEOUT_MS, type RenderedApp } from '@/test/render'
 
 const ME = {
   id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
@@ -60,7 +60,9 @@ describe('tela de entrada', () => {
 
     await fillAndSubmit(user, ' ana@exemplo.com ', 'frase longa de senha')
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Sua conta' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    ).toBeInTheDocument()
     expect(received).toEqual([
       { body: { email: 'ana@exemplo.com', password: 'frase longa de senha' }, token: 'token-1' },
     ])
@@ -78,7 +80,7 @@ describe('tela de entrada', () => {
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
 
-    await screen.findByRole('heading', { level: 1, name: 'Sua conta' })
+    await screen.findByRole('heading', { level: 1, name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS })
     expect(queryClient.getQueryData(['account', 'identidade-anterior', 'sessions'])).toBeUndefined()
   })
 
@@ -200,7 +202,7 @@ describe('tela de entrada', () => {
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
 
-    expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
+    expect(await screen.findByText('ana@exemplo.com', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toBeInTheDocument()
     expect(screen.queryByText('outra@exemplo.com')).not.toBeInTheDocument()
   })
 })
@@ -216,7 +218,9 @@ it('envia o TOTP solicitado e entra com MFA ativo', async () => {
   await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
   await user.type(await screen.findByLabelText('Código do autenticador'), '123456')
   await user.click(screen.getByRole('button', { name: 'Entrar' }))
-  expect(await screen.findByRole('heading', { name: 'Sua conta' })).toBeInTheDocument()
+  expect(
+    await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+  ).toBeInTheDocument()
   expect(received[1]?.body).toEqual({
     email: 'admin@exemplo.com',
     password: 'frase longa de senha',
@@ -274,7 +278,7 @@ describe('segundo fator na entrada', () => {
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
     await user.type(await screen.findByLabelText('Código do autenticador'), '123456')
     await user.click(screen.getByRole('button', { name: 'Entrar' }))
-    await screen.findByRole('heading', { name: 'Sua conta' })
+    await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS })
 
     expect(states.length).toBeGreaterThan(0)
     for (const secret of ['frase longa de senha', '123456']) expect(states.join('\n')).not.toContain(secret)
