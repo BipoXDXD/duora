@@ -142,3 +142,33 @@ describe('fase do cadastro de MFA', () => {
     expect(enrollment.calls()).toBe(1)
   })
 })
+
+describe('foco ao trocar de estado', () => {
+  it('a chave recebe o foco quando o botão de início some', async () => {
+    mfaPhase()
+    useAntiforgeryEndpoint()
+    useEnrollmentEndpoint()
+    const { user } = await renderApp('/conta/ativar-mfa')
+
+    await startEnrollment(user)
+
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement).toContainElement(screen.getByText(SHARED_KEY))
+  })
+
+  it('os códigos de recuperação chegam com foco e anúncio', async () => {
+    mfaPhase()
+    useAntiforgeryEndpoint()
+    useEnrollmentEndpoint()
+    useConfirmationEndpoint(() => HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] }))
+    const { user } = await renderApp('/conta/ativar-mfa')
+    await startEnrollment(user)
+
+    await submitCode(user, '123456')
+
+    const announcement = await screen.findByRole('status')
+    expect(announcement).toHaveTextContent('Autenticação em duas etapas ativada.')
+    expect(announcement).toHaveFocus()
+    expect(screen.getByText('synthetic-recovery')).toBeInTheDocument()
+  })
+})
