@@ -17,6 +17,12 @@ internal sealed record ClaimedDelivery(
     string Payload,
     DateTimeOffset OccurredAt);
 
+/// <summary>Entrega que o claim encerrou por ter esgotado as tentativas, sem payload: não há o que enviar.</summary>
+internal sealed record ExhaustedDelivery(Guid Id, int Attempts);
+
+/// <summary>Resultado do claim com teto: o trabalho tomado e as entregas encerradas no mesmo comando.</summary>
+internal sealed record ClaimResult(IReadOnlyList<ClaimedDelivery> Claimed, IReadOnlyList<ExhaustedDelivery> Exhausted);
+
 /// <summary>
 /// Fila de entregas sobre o PostgreSQL (spec 10.6). Cada operação é uma transação curta: a posse sai com
 /// <c>FOR UPDATE SKIP LOCKED</c> e lease, a transação termina antes do envio, e toda conclusão confere o token
@@ -60,13 +66,12 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
             where d.id = c.id and d.attempts < @max_attempts
             returning d.id, d.fencing_token, d.attempts, d.deadline_at, d.outbox_event_id
         )
-        select d.id, d.fencing_token, d.attempts, d.deadline_at, e.type, e.payload::text, e.occurred_at,
-               d.outbox_event_id, d.is_claimed
-        from (
-            select *, true as is_claimed from claimed
-            union all
-            select *, false as is_claimed from exhausted
-        ) d join ops.outbox_events e on e.id = d.outbox_event_id
+        select c.id, c.fencing_token, c.attempts, c.deadline_at, e.type, e.payload::text, e.occurred_at,
+               c.outbox_event_id, true as is_claimed
+        from claimed c join ops.outbox_events e on e.id = c.outbox_event_id
+        union all
+        select x.id, x.fencing_token, x.attempts, x.deadline_at, null, null, null, x.outbox_event_id, false
+        from exhausted x
         """;
 
     private const string SettleSql =
@@ -84,17 +89,22 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         where id = @id and fencing_token = @fencing_token and status = @in_flight and lease_expires_at > @now
         """;
 
-    // O teto é opt-in por consumidor: o e-mail o fornece; os consumidores existentes mantêm seu contrato.
-    // Esgotadas consomem espaço no lote de manutenção, mas nunca voltam como trabalho a enviar.
-    public Task<IReadOnlyList<ClaimedDelivery>> ClaimAsync(
+    // O teto é opt-in por consumidor: o e-mail o fornece; os consumidores sem teto (verificação etária, mídia)
+    // mantêm seu contrato e compensam no domínio. Sem teto, nenhuma entrega é encerrada no claim.
+    public async Task<IReadOnlyList<ClaimedDelivery>> ClaimAsync(
         string consumer,
         int batchSize,
         DateTimeOffset now,
         DateTimeOffset leaseUntil,
         CancellationToken cancellationToken) =>
-        ClaimAsync(consumer, batchSize, now, leaseUntil, int.MaxValue, cancellationToken);
+        (await ClaimWithAttemptLimitAsync(consumer, batchSize, now, leaseUntil, int.MaxValue, cancellationToken)).Claimed;
 
-    public async Task<IReadOnlyList<ClaimedDelivery>> ClaimAsync(
+    /// <summary>
+    /// Toma o lote e, no mesmo comando, encerra como <c>Failed</c> os candidatos que já esgotaram
+    /// <paramref name="maxAttempts"/>. Esgotadas ocupam espaço no lote, mas nunca voltam como trabalho a enviar;
+    /// voltam em <see cref="ClaimResult.Exhausted"/> para o consumidor registrá-las.
+    /// </summary>
+    public async Task<ClaimResult> ClaimWithAttemptLimitAsync(
         string consumer,
         int batchSize,
         DateTimeOffset now,
@@ -115,6 +125,7 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         command.Parameters.AddWithValue("in_flight", InFlight);
 
         var claimed = new List<ClaimedDelivery>();
+        var exhausted = new List<ExhaustedDelivery>();
         var exhaustedEvents = new HashSet<Guid>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
         {
@@ -122,6 +133,7 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
             {
                 if (!reader.GetBoolean(8))
                 {
+                    exhausted.Add(new ExhaustedDelivery(reader.GetGuid(0), reader.GetInt32(2)));
                     exhaustedEvents.Add(reader.GetGuid(7));
                     continue;
                 }
@@ -139,7 +151,7 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
 
         await ScrubCompletedEventsAsync(connection, transaction, exhaustedEvents.ToArray(), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return claimed;
+        return new ClaimResult(claimed, exhausted);
     }
 
     /// <summary>Confere a posse e o orçamento restante antes de iniciar um efeito externo.</summary>
