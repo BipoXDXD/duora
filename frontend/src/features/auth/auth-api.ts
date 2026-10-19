@@ -37,9 +37,11 @@ export function confirmEmail(link: EmailLink, password: string): Promise<void> {
 }
 
 export interface Credentials {
-  readonly twoFactorCode?: string | undefined
   readonly email: string
   readonly password: string
+  /** No máximo um dos dois segundos fatores; o servidor recusa os dois juntos. */
+  readonly twoFactorCode?: string | undefined
+  readonly recoveryCode?: string | undefined
 }
 
 export function login(credentials: Credentials): Promise<void> {
@@ -50,6 +52,7 @@ export function login(credentials: Credentials): Promise<void> {
       email: credentials.email,
       password: credentials.password,
       ...(credentials.twoFactorCode ? { twoFactorCode: credentials.twoFactorCode } : {}),
+      ...(credentials.recoveryCode ? { recoveryCode: credentials.recoveryCode } : {}),
     } satisfies LoginRequest,
   })
 }
