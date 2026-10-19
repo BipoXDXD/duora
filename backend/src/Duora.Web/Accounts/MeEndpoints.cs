@@ -1,5 +1,6 @@
 using Duora.Contracts.Identity;
 using Duora.Infrastructure.Identity;
+using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Security;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -19,7 +20,6 @@ internal static class MeEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized);
         sessions.MapGet("", ListSessionsAsync).ProducesProblem(StatusCodes.Status401Unauthorized);
         sessions.MapDelete("/{sessionId:guid}", RevokeSessionAsync)
-            .RequireAccountRateLimit(AccountIdOperation.SessionRevocation)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -70,10 +70,11 @@ internal static class MeEndpoints
     }
 
     /// <summary>Sessão de outra pessoa e sessão inexistente dão o mesmo 404 (spec 8.1).</summary>
-    private static async Task<Results<NoContent, NotFound, UnauthorizedHttpResult>> RevokeSessionAsync(
+    private static async Task<Results<NoContent, NotFound, UnauthorizedHttpResult, ProblemHttpResult>> RevokeSessionAsync(
         Guid sessionId,
         HttpContext context,
         AccountSecurityService security,
+        AccountSecurityAttemptLimiter limiter,
         CancellationToken cancellationToken)
     {
         if (DuoraClaims.ReadUserId(context.User) is not { } userId)
@@ -81,8 +82,14 @@ internal static class MeEndpoints
             return TypedResults.Unauthorized();
         }
 
-        return await security.RevokeOwnSessionAsync(userId, sessionId, cancellationToken)
-            ? TypedResults.NoContent()
+        if (await security.RevokeOwnSessionAsync(userId, sessionId, cancellationToken))
+        {
+            // Remediação: revogar uma sessão própria e ativa nunca conta na cota, nem a da sessão que se revoga.
+            return TypedResults.NoContent();
+        }
+
+        return limiter.TryConsume(AccountIdOperation.SessionRevocationFailure, userId) is { } retryAfter
+            ? ApiProblems.TooManyRequests(context, retryAfter)
             : TypedResults.NotFound();
     }
 }

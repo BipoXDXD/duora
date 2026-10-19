@@ -18,6 +18,7 @@ internal static class ReauthenticationEndpoints
         api.MapPost("/auth/reauthenticate", ReauthenticateAsync)
             .WithTags("Auth")
             .AllowDuringMfaEnrollment()
+            .RequireAccountSecurityAddressLimit()
             .RequireAccountRateLimit()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
