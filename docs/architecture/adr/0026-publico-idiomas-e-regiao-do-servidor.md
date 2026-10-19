@@ -21,7 +21,7 @@ O dono decidiu, em 2026-10-19:
 
 1. O produto inteiro funciona em **PT-BR e EN-US**: interface, e-mails, conteúdo das experiências, documentos
    voltados ao usuário (termos, política de privacidade, ajuda) e mensagens de erro.
-2. O servidor fica em **Boston, EUA** (VPS da Hostinger). O backup B2 fica em **US East**.
+2. O servidor fica em **Boston, EUA** (VPS Hostinger KVM 2: 2 vCPU, 8 GB). O backup B2 fica em **US East**.
 3. O público-alvo principal **não é brasileiro**.
 
 Os pressupostos contrários encontrados em `origin/main` (71381f2) estão no
@@ -280,6 +280,8 @@ código acima.
 | Transferência internacional só do backup, como exceção | `docs/privacy/data-map.md:83-93`; `docs/architecture/adr/0023-…md:119-120`; `docs/operations/backup-restore.md:573-574` | Corrigido aqui |
 | Fotos "no disco da VPS (Hostinger)" sem país | `docs/privacy/data-map.md:77`; `docs/architecture/adr/0010-…md:51` | Corrigido aqui (Boston, EUA) |
 | Região da VPS "próxima da maioria das pessoas do piloto"; provedor e região pendentes | `docs/product/spec.md:1156`, `:1710` | Corrigido aqui (divergência registrada) |
+| Arquivos em object storage fora da VPS | `docs/product/spec.md:133` (2.3) | Corrigido aqui (disco da VPS, decisão do ADR-0010 de 2026-10-16 que a spec 2.3 não acompanhou) |
+| DNS sem provedor | `docs/product/spec.md:130`, `:1712` | Corrigido aqui (DNS na Cloudflare; proxied a confirmar) |
 | Interface "inicialmente em PT-BR" | `docs/product/spec.md:1051` | Corrigido aqui |
 | PT-BR padrão e `en` sem região | `docs/architecture/adr/0022-…md:1`, `:40`; `frontend/src/shared/i18n/locale.ts:2`, `:6`; `frontend/index.html:2`; `backend/src/Duora.Core/Notifications/EmailLanguage.cs:19`, `:21`; `docs/security/auth.md:196-200` | Adendo no ADR-0022 e nota em auth.md; código na proposta 3 |
 | Conteúdo de experiência só em PT-BR | `backend/src/Duora.Core/Experiences/Constellation/ConstellationRules.cs:125-144`; `backend/src/Duora.Core/Experiences/UnlikelyRoutes/UnlikelyRoutesRules.cs:134`; `backend/src/Duora.Core/Experiences/CatalogText.cs` | Proposta 2 |
