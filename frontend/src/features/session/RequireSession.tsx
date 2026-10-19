@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router'
 import { ApiProblemError, classifyRequestFailure, isUnauthorized } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
@@ -19,20 +20,23 @@ export function RequireSession(): React.JSX.Element {
   const { pathname } = useLocation()
   const { t } = useI18n()
 
+  // Um 401 numa escrita da fase restrita reconsulta /me (query-client.ts). Sem dado em cache, a reconsulta volta a
+  // query para pending; sem lembrar a restrição, a tela viraria "carregando" e remontaria, perdendo o erro que
+  // explicava o 401 e o estado local (a chave do MFA). Estado ajustado durante o render, como o React recomenda
+  // para valor derivado da mudança de outro.
+  const restriction = me.isError ? restrictionDestination(me.error) : null
+  const [lastRestriction, setLastRestriction] = useState<string | null>(null)
+  if (me.isError && restriction !== lastRestriction) setLastRestriction(restriction)
+  if (me.data !== undefined && lastRestriction !== null) setLastRestriction(null)
+
   if (me.isError && isUnauthorized(me.error)) {
     return <RedirectToLogin sessionExpired={me.data !== undefined} />
   }
-  if (me.isError && me.error instanceof ApiProblemError && me.error.status === 403) {
-    const destination =
-      me.error.problem.code === 'PASSWORD_CHANGE_REQUIRED'
-        ? paths.changePassword
-        : me.error.problem.code === 'MFA_ENROLLMENT_REQUIRED'
-          ? paths.mfaEnrollment
-          : null
-    if (destination !== null) {
-      return pathname === destination ? <Outlet /> : <Navigate to={destination} replace />
-    }
+  if (restriction !== null) {
+    return pathname === restriction ? <Outlet /> : <Navigate to={restriction} replace />
   }
+  // Só mantém a tela em que já estava; a restrição lembrada nunca decide uma navegação nova.
+  if (me.isPending && lastRestriction === pathname) return <Outlet />
   if (me.data !== undefined) {
     const needsMfa = !me.data.mfaEnabled && me.data.roles.some((role) => role !== 'participant')
     if (needsMfa && pathname !== paths.mfaEnrollment) return <Navigate to={paths.mfaEnrollment} replace />
@@ -82,4 +86,15 @@ function RedirectToLogin({ sessionExpired }: { readonly sessionExpired: boolean 
     from: `${location.pathname}${location.search}`,
   }
   return <Navigate to={paths.login} replace state={state} />
+}
+
+const RESTRICTION_ROUTES: ReadonlyMap<string, string> = new Map([
+  ['PASSWORD_CHANGE_REQUIRED', paths.changePassword],
+  ['MFA_ENROLLMENT_REQUIRED', paths.mfaEnrollment],
+])
+
+/** Rota da fase restrita que o 403 de /me exige, ou null para qualquer outra falha. */
+function restrictionDestination(error: Error): string | null {
+  if (!(error instanceof ApiProblemError) || error.status !== 403 || error.problem.code === undefined) return null
+  return RESTRICTION_ROUTES.get(error.problem.code) ?? null
 }
