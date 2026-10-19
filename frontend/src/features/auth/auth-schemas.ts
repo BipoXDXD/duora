@@ -35,8 +35,14 @@ export const newPasswordSchema = z
 /** Senha atual na entrada: só exige preenchimento, para não travar contas de políticas antigas. */
 export const currentPasswordSchema = z.string().min(1, 'validation.passwordRequired' satisfies ValidationKey)
 
-/** Código TOTP de seis dígitos (RFC 6238, como o Identity gera); o servidor confere o valor. */
-export const totpCodeSchema = z.string().regex(/^\d{6}$/, 'validation.totpCodeInvalid' satisfies ValidationKey)
+/**
+ * Código TOTP de seis dígitos (RFC 6238, como o Identity gera); o servidor confere o valor. Espaços são ignorados,
+ * como no servidor (auth.md, login com MFA): "123 456", como alguns autenticadores mostram, vira "123456".
+ */
+export const totpCodeSchema = z
+  .string()
+  .transform((code) => code.replace(/\s/g, ''))
+  .pipe(z.string().regex(/^\d{6}$/, 'validation.totpCodeInvalid' satisfies ValidationKey))
 
 /**
  * Parâmetros dos links de e-mail, no fragmento (`#userId=…&token=…`): o fragmento não vai ao

@@ -284,3 +284,21 @@ describe('segundo fator na entrada', () => {
     for (const secret of ['frase longa de senha', '123456']) expect(states.join('\n')).not.toContain(secret)
   })
 })
+
+it('aceita o TOTP com espaços e envia só os dígitos', async () => {
+  useAntiforgeryEndpoint()
+  let attempt = 0
+  const received = useLoginEndpoint(() =>
+    ++attempt === 1 ? problem(401, 'MFA_REQUIRED') : new HttpResponse(null, { status: 204 }),
+  )
+  useAccountEndpoints()
+  const { user } = await renderApp('/entrar')
+  await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+  await user.type(await screen.findByLabelText('Código do autenticador'), ' 123 456 ')
+  await user.click(screen.getByRole('button', { name: 'Entrar' }))
+
+  expect(
+    await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+  ).toBeInTheDocument()
+  expect(received[1]?.body).toMatchObject({ twoFactorCode: '123456' })
+})

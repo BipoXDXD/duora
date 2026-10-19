@@ -30,7 +30,7 @@ export function MfaEnrollmentPage(): React.JSX.Element {
   const confirm = useMutation({
     gcTime: 0,
     mutationFn: async () => {
-      const codes = await confirmMfa(code)
+      const codes = await confirmMfa(totpCodeSchema.parse(code))
       setSharedKey(null)
       setCode('')
       setRecoveryCodes(codes)
