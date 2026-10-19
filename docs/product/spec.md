@@ -428,7 +428,7 @@ Regras completas em [ADR-0027](../architecture/adr/0027-midia-das-experiencias-c
 | Cenário e personagem | Personagens permitidos, inclusive humanos estilizados; adultos, fictícios, diversos, sem casal-padrão nem estereótipo; nunca no lugar de avatar ou participante; sem texto na imagem | Revisão de conteúdo com o one pager; registro em `assets-licenses.md` |
 | Áudio pré-gerado | Mudo por padrão, ativado por gesto (WCAG 1.4.2); transcrição na tela (1.2.1); canais de música, ambiente e voz com volume próprio lembrado no aparelho; "Reduzir áudio"; ducking da trilha sob a voz | A11Y-04; teste de que nada toca antes do gesto |
 | Som e privacidade | Nenhum som reage ao prazo; decisão privada em silêncio ou som neutro; nenhum som de recompensa ligado a pessoas; nenhum som disparado por estado privado da outra pessoa | Revisão do manifesto; T-05 estendido a eventos de som |
-| Falas | Só do catálogo, pré-geradas e revisadas; nunca TTS ao vivo, nome de participante ou texto do chat (ADR-013); até 120 caracteres por fala em cada idioma; barks com variação; aviso discreto de voz editorial; voz de referência humana só com consentimento e licença | Teste do manifesto |
+| Falas | Só do catálogo, pré-geradas e revisadas; nunca TTS ao vivo, nome de participante ou texto do chat (ADR-013); até 120 caracteres por fala em cada idioma; barks com variação; aviso claro de voz editorial na introdução da experiência e rótulo por fala; voz de referência humana só com consentimento e licença | Teste do manifesto |
 | Versão | Mídia no manifesto da `ExperienceVersion`, com hash, origem, ferramenta, modelo, id da tarefa e licença; voz e transcrição em PT-BR e EN-US | T-09 estendido à mídia |
 | Peso | Orçamento por experiência (hipóteses no ADR-0027); áudio e 3D fora do caminho crítico do LCP; AAC-LC (`.m4a`) como formato obrigatório, por causa do Safari/iOS | Medição de build e de laboratório (13.5) |
 | 3D | Offline em WebP por padrão; tempo real por experiência, com orçamento e fallback 2D acessível; nenhuma ação exige arrastar ou girar | A11Y-04 |
@@ -1288,7 +1288,7 @@ A base entrega mídia por stream autenticado da API. Isso simplifica revogação
 | Verificação etária | `IAgeEligibilityProvider` | Método adequado, minimização, acessibilidade, callbacks autenticados, revisão e prazo de retenção |
 | Moderação assistida | `IContentReviewProvider`, condicional | Dados estritamente necessários, avaliação de erro, revisão humana e política de uso/treinamento |
 | Monitoramento | OTLP e alertas externos | Filtragem, retenção, controle de acesso e exportação |
-| Geração de mídia (offline) | Nenhuma: ferramenta fora do runtime (fonte externa, fonte externa; TTS e música a escolher) | Uso comercial confirmado, nenhum dado de participante no prompt ou roteiro, consentimento da voz de referência, registro em `assets-licenses.md` |
+| Geração de mídia (offline) | Nenhuma: ferramenta fora do runtime (imagem e 3D: fonte externa, fonte externa; voz e música: fonte externa Creator; efeitos: Freesound CC0 e Sonniss) | Uso comercial confirmado, nenhum dado de participante no prompt ou roteiro, consentimento da voz de referência, registro em `assets-licenses.md` |
 | Voz ao vivo | `ITurnCredentialIssuer` (Cloudflare Realtime TURN; ADR-0028) | Credencial de vida curta e revogável, só relay, DTLS-SRTP de ponta a ponta; Cloudflare como sub-processador de IP e metadados |
 | Pagamento futuro | `IPaymentGateway`, somente quando aprovado | Checkout hospedado, assinatura de webhooks, idempotência e conciliação; sem cartão no Duora |
 
@@ -1750,7 +1750,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 | Desempenho | Metas e cenário definidos | Relatório no hardware selecionado | Ampliação de capacidade |
 | Recuperação | Estratégia e metas definidas | Restore cronometrado em host limpo | Lançamento |
 | Design | Sistema, estados e critérios definidos | Identidade visual final e teste de uso/acessibilidade | Aceite de UX |
-| Áudio | Mudo por padrão, canais, transcrição e pipeline agnóstico (ADR-0027) | Ferramenta de TTS e de música; orçamento medido na primeira experiência | Primeiro áudio gerado |
+| Áudio | Mudo por padrão, canais, transcrição; fonte externa Creator para voz e música, Freesound CC0 e Sonniss para efeitos (ADR-0027) | Data da cláusula comercial do Creator, formato de saída da API (MP3 ou melhor), termo do Sonniss para mix; orçamento medido na primeira experiência | Primeiro áudio gerado |
 | Voz ao vivo | WebRTC P2P com relay forçado na Cloudflare Realtime TURN (ADR-0028) | `Permissions-Policy: microphone=(self)`, contrato e mapa de dados da Cloudflare, base legal, teste no Safari/iOS | Voz ao vivo em produção |
 
 Essas pendências não são permissão para deixar a implementação vaga: cada uma tem responsável a designar e evidência exigida. O plano não inventa fornecedor, infraestrutura existente, política jurídica aprovada ou benchmark que não foi fornecido.

@@ -34,6 +34,10 @@ describe('catálogo de ilustrações', () => {
     expect(catalog.promptPrefix).toContain(term)
   })
 
+  it('o registro de licenças cita o prefixo de prompt vigente do catálogo, sem divergir', () => {
+    expect(licenses).toContain(`  > ${catalog.promptPrefix}\n`)
+  })
+
   it('o manifesto gerado tem só os objetos gerados do catálogo, com o cssPx do uso', () => {
     const expected = Object.fromEntries(
       generated.map((item): [string, number | undefined] => [item.name, catalog.uses[item.use]?.cssPx]),
