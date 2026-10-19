@@ -215,6 +215,47 @@ internal static class TestImages
         return jpeg;
     }
 
+    /// <summary>
+    /// JPEG progressivo decodificável com <paramref name="scans"/> scans: o primeiro scan AC (sem refinamento) é repetido,
+    /// e cada repetição só regrava os mesmos coeficientes. É a forma barata, em bytes, de prender o decoder (cada scan
+    /// percorre os blocos da imagem inteira).
+    /// </summary>
+    public static byte[] ProgressiveJpegWithScans(int scans)
+    {
+        var jpeg = Encode(SplitImage(64, 32), new JpegEncoder { Quality = 90, Progressive = true });
+        var found = TopLevelScans(jpeg);
+        var repeated = found.First(scan => IsFirstAcScan(jpeg, scan));
+        var end = found[^1].End;
+        var extra = Enumerable.Repeat(jpeg[repeated.Start..repeated.End], scans - found.Count).SelectMany(scan => scan);
+        return [.. jpeg[..end], .. extra, .. jpeg[end..]];
+    }
+
+    /// <summary>
+    /// PNG válido com <paramref name="chunks"/> chunks <c>zTXt</c> de CRC correto, cada um inflando para
+    /// <paramref name="inflatedBytes"/> bytes: a bomba de metadado que o alocador do decoder não vê.
+    /// </summary>
+    public static byte[] PngWithCompressedText(int chunks, int inflatedBytes)
+    {
+        var png = Png(64, 32);
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            zlib.Write(new byte[inflatedBytes].Select(_ => (byte)'A').ToArray());
+        }
+
+        byte[] payload = [.. "Comment"u8, 0, 0, .. compressed.ToArray()];
+        using var stream = new MemoryStream();
+        const int AfterHeader = 8 + 12 + 13;
+        stream.Write(png.AsSpan(0, AfterHeader));
+        for (var i = 0; i < chunks; i++)
+        {
+            WritePngChunk(stream, "zTXt", payload);
+        }
+
+        stream.Write(png.AsSpan(AfterHeader));
+        return stream.ToArray();
+    }
+
     /// <summary>JPEG válido seguido de HTML com script: o sniff aceita, o reencode descarta o resto.</summary>
     public static byte[] JpegHtmlPolyglot() =>
         [.. Jpeg(), .. Encoding.ASCII.GetBytes("<html><script>alert('duora-canary')</script></html>")];
@@ -222,6 +263,39 @@ internal static class TestImages
     public static byte[] Truncated(byte[] image) => image[..(image.Length / 2)];
 
     public static byte[] Text(string content) => Encoding.UTF8.GetBytes(content);
+
+    /// <summary>Scans do arquivo principal (do marcador SOS até o próximo marcador), sem entrar em APPn.</summary>
+    private static List<(int Start, int End)> TopLevelScans(byte[] jpeg)
+    {
+        var scans = new List<(int Start, int End)>();
+        var position = 2;
+        while (jpeg[position + 1] != 0xD9)
+        {
+            var length = BinaryPrimitives.ReadUInt16BigEndian(jpeg.AsSpan(position + 2));
+            var next = position + 2 + length;
+            if (jpeg[position + 1] == 0xDA)
+            {
+                while (jpeg[next] != 0xFF || jpeg[next + 1] is 0x00 or (>= 0xD0 and <= 0xD7))
+                {
+                    next++;
+                }
+
+                scans.Add((position, next));
+            }
+
+            position = next;
+        }
+
+        return scans;
+    }
+
+    /// <summary>Scan AC de primeira passada: início espectral acima de zero e sem aproximação anterior (Ah = 0).</summary>
+    private static bool IsFirstAcScan(byte[] jpeg, (int Start, int End) scan)
+    {
+        var components = jpeg[scan.Start + 4];
+        var parameters = scan.Start + 5 + (2 * components);
+        return jpeg[parameters] > 0 && (jpeg[parameters + 2] >> 4) == 0;
+    }
 
     private static Image<Rgba32> TwoFrames()
     {

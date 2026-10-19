@@ -17,8 +17,9 @@ internal sealed class PhotoSanitizerOptions
     public int MemoryLimitMegabytes { get; set; } = 256;
 
     /// <summary>
-    /// Prazo cooperativo: o token é conferido entre as etapas (identificação, decode, cada reencode), e um decode já
-    /// iniciado não é interrompido. O tempo de um decode é limitado pelo teto de 20 MP e pelo paralelismo 1.
+    /// Prazo cooperativo pelo token. Medido no ImageSharp 4.1.3 (2026-10-19, 20 MP): os decoders de JPEG e PNG o
+    /// conferem durante o decode e param em milissegundos; o de WebP só entre etapas (um decode de WebP de 20 MP leva
+    /// ~1 s). O que um arquivo pode pedir além dos pixels é barrado antes, em <see cref="PhotoDecodeCost"/>.
     /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -28,8 +29,9 @@ internal sealed class PhotoSanitizerOptions
 }
 
 /// <summary>
-/// Sanitizador de fotos com ImageSharp (ADR-0025), na ordem do pipeline: assinatura, animação pela estrutura, header
-/// (dimensões e frames antes de alocar pixels), decode limitado, orientação, sRGB, descarte de metadados e reencode em
+/// Sanitizador de fotos com ImageSharp (ADR-0025), na ordem do pipeline: assinatura, animação pela estrutura,
+/// completude, custo estrutural (scans do JPEG, chunks inflados do PNG), header (dimensões e frames antes de alocar
+/// pixels), decode limitado, orientação, sRGB, descarte de metadados e reencode em
 /// WebP. A <see cref="Configuration"/> só conhece JPEG, PNG e WebP: nenhum outro decoder do pacote é alcançável.
 /// </summary>
 internal sealed class ImageSharpPhotoSanitizer : IPhotoSanitizer
@@ -84,6 +86,11 @@ internal sealed class ImageSharpPhotoSanitizer : IPhotoSanitizer
         if (!PhotoCompleteness.IsComplete(format, original.Span))
         {
             return new SanitizeOutcome.Rejected(PhotoRejection.CorruptImage);
+        }
+
+        if (!PhotoDecodeCost.IsWithinLimits(format, original.Span))
+        {
+            return new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit);
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
