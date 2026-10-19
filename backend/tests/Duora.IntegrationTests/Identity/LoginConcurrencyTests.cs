@@ -16,6 +16,11 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     /// <summary>Piso de falha do login sem o sorteio (LoginTimingOptions.FailedLoginMinimumDuration).</summary>
     private static readonly TimeSpan FailureFloor = TimeSpan.FromMilliseconds(350);
 
+    /// <summary>Hash lento simulado: CPU carregada, sem saturar o runner.</summary>
+    private static readonly TimeSpan SlowHash = TimeSpan.FromMilliseconds(1800);
+
+    private static readonly TimeSpan ComparableLatencyTolerance = TimeSpan.FromSeconds(2);
+
     /// <summary>Quanto a vez fica presa: bem mais que o piso, para a espera poder consumi-lo se contasse.</summary>
     private static readonly TimeSpan HeldTurn = TimeSpan.FromSeconds(1);
 
@@ -71,7 +76,7 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         var hasher = new SlowHasher();
         await using var factory = CreateFactory(hasher);
         var account = await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync();
-        hasher.Delay = TimeSpan.FromMilliseconds(1800);
+        hasher.Delay = SlowHash;
 
         var durations = await BurstAsync(factory, account.Email, account.Password, HttpStatusCode.NoContent);
 
@@ -86,7 +91,7 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         var hasher = new SlowHasher();
         await using var factory = CreateFactory(hasher);
         var account = await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync();
-        hasher.Delay = TimeSpan.FromMilliseconds(1800);
+        hasher.Delay = SlowHash;
         var existing = await BurstAsync(factory, account.Email, "senha incorreta longa", HttpStatusCode.Unauthorized);
         var missing = await BurstAsync(factory, IdentityScenario.NewEmail(), "senha incorreta longa", HttpStatusCode.Unauthorized);
 
@@ -97,7 +102,10 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         Assert.True(missing.Max() >= TimeSpan.FromSeconds(7));
         for (var i = 0; i < existing.Length; i++)
         {
-            Assert.True((existing[i] - missing[i]).Duration() < TimeSpan.FromSeconds(2),
+            // Não dá para apertar abaixo de um hash: o caminho existente custa mais (transação, lock, auditoria) e a
+            // diferença acumula por posição; medido em 2026-10-19, com a máquina carregada, chegou a 1,15 s na
+            // quarta. Quem distingue a fila estrutural é o Max() >= 7 s acima, não esta tolerância.
+            Assert.True((existing[i] - missing[i]).Duration() < ComparableLatencyTolerance,
                 $"Posição {i}: existente={existing[i]}, inexistente={missing[i]}");
         }
     }

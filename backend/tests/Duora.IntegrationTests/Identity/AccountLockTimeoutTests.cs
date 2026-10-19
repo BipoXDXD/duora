@@ -38,10 +38,15 @@ public sealed class AccountLockTimeoutTests : IAsyncDisposable
         await browser.FetchCsrfTokenAsync();
         await using var holder = await HoldAccountAsync(account.UserId);
 
+        var waited = System.Diagnostics.Stopwatch.StartNew();
         using var response = await IdentityScenario.LoginAsync(browser, account.Email, account.Password);
+        waited.Stop();
 
         await AssertTemporarilyUnavailableAsync(response);
         Assert.Null(browser.Cookie("__Host-duora"));
+        // Desistiu no lock_timeout (300 ms), não na fila em memória nem no timeout do comando (30 s cada).
+        Assert.True(waited.Elapsed >= TimeSpan.FromMilliseconds(300), $"Esperou só {waited.Elapsed}.");
+        AssertGaveUpAtTheLockCeiling(waited.Elapsed);
     }
 
     [Fact]
