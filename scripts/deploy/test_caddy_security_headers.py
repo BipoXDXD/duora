@@ -21,7 +21,7 @@ import unittest
 import uuid
 from pathlib import Path
 
-from test_caddy_access_log import CADDYFILE, IMAGE, READY_TIMEOUT_SECONDS
+from caddy_test_support import CADDYFILE, IMAGE, READY_TIMEOUT_SECONDS, docker_available
 
 # Diretiva -> fontes. 'self' não cobre blob: (CSP3 6.7.2.8), e nenhuma diretiva libera blob: hoje: a Web Audio lê o
 # arquivo por fetch() (connect-src) e a voz ao vivo chega por srcObject, que não passa pelo Fetch.
@@ -53,12 +53,6 @@ EXPECTED_PERMISSIONS_POLICY = {
 FORBIDDEN_SOURCE = re.compile(r"\*|'unsafe-|^(https?|wss?|blob|data|filesystem):$|^blob:|^data:", re.IGNORECASE)
 
 
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    return subprocess.run(["docker", "info"], capture_output=True, check=False).returncode == 0
-
-
 def parse_csp(header: str) -> dict[str, list[str]]:
     policy: dict[str, list[str]] = {}
     for directive in header.split(";"):
@@ -76,7 +70,7 @@ def parse_permissions_policy(header: str) -> dict[str, str]:
     return policy
 
 
-@unittest.skipUnless(_docker_available(), "precisa de Docker")
+@unittest.skipUnless(docker_available(), "precisa de Docker")
 class CaddySecurityHeadersTests(unittest.TestCase):
     container = ""
     site = ""
