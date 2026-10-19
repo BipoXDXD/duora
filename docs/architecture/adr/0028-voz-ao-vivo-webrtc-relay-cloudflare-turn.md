@@ -49,14 +49,24 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   pessoas tocaram "Entrar na voz"; até lá ninguém ouve ninguém, e ninguém recebe credencial nem sinalização da
   outra pessoa. **Ligar o microfone** (falar): gesto separado, que pede a permissão do navegador só nessa hora.
 - Sair da voz, a qualquer momento, desfaz o primeiro consentimento; desligar o microfone, o segundo.
-- **Onde mora "entrou na voz":** no banco, em `experiences.voice_participation` (dono: Experiences), uma linha
-  por `(game_session_id, user_id)` com `joined_at` e `left_at`, e não em memória: precisa sobreviver a restart
+- **Onde mora "entrou na voz":** no banco, em `experiences.voice_participation` (dono: Experiences), **uma linha
+  por entrada** (`game_session_id`, `user_id`, `joined_at`, `left_at`), com índice único parcial em
+  `(game_session_id, user_id) WHERE left_at IS NULL`: no máximo uma participação aberta por pessoa e sala, e o
+  histórico de entradas e saídas fica para a denúncia (TM-73). Não fica em memória: precisa sobreviver a restart
   (ADR-0009, instância única) e é a base para emitir credencial. "Entrar na voz" é o comando `JoinVoice`
   (API-R09) e "Sair da voz" é `LeaveVoice` (API-R10): esse commit, que grava `left_at`, é o evento 1 da lista de
   revogação. O snapshot da sala (API-R02) diz se a própria pessoa e a outra estão na voz.
-- **Reconciliação depois de restart:** a web não guarda estado de voz em memória. Os navegadores reconectam o
-  hub e releem o snapshot; quem continua com `left_at` nulo pode pedir credencial de novo e renegociar. Se o
-  hub não volta dentro do prazo do fail-closed, o cliente encerra a voz e chama `LeaveVoice` quando reconecta.
+- **Reconciliação depois de restart: o servidor fecha a voz.** No start do processo web, `LeaveVoice` é aplicado
+  a toda participação aberta, com a revogação pela outbox. Quando a conexão de hub de uma pessoa cai e não volta
+  dentro do prazo do fail-closed, o servidor faz o mesmo com a participação dela. A voz só volta com novo
+  "Entrar na voz"; nenhuma participação antiga é retomada.
+- **API-R09 (`JoinVoice`):** policy `EligibleParticipant`; sala alheia ou inexistente → `404`; sem corpo
+  (corpo ou campo extra → `400`); exige a sala `Active` e consulta `CheckInteraction` do Safety (par bloqueado →
+  a mesma recusa do bloqueio); idempotente: com participação aberta, devolve o mesmo resultado sem linha nova;
+  responde `204`.
+- **API-R10 (`LeaveVoice`):** policy `EligibleParticipant` (o "sempre permitido" não dispensa a policy); sem
+  corpo; responde `204` em qualquer caso, inclusive sala alheia ou pessoa já fora da voz, para não virar
+  oráculo; um segundo DELETE não gera nova intenção na outbox.
 
 ### Autorização
 
@@ -196,9 +206,11 @@ servidor de mídia; o plano B fica pronto para quando o produto pedir controle n
 
 Testes previstos (a criar com a implementação; nenhum existe hoje):
 
-- **Participação (API-R09, API-R10):** `JoinVoice` e `LeaveVoice` persistem em `voice_participation`;
-  `LeaveVoice` grava a revogação na outbox no mesmo commit; depois de reiniciar a web, a participação continua
-  e a credencial só sai para quem tem `left_at` nulo; nenhum módulo além do Experiences escreve nas tabelas da
+- **Participação (API-R09, API-R10):** `JoinVoice` e `LeaveVoice` persistem em `voice_participation`, uma
+  linha por entrada; R09 com sala alheia → `404`, com corpo → `400`, sala não `Active` ou par bloqueado →
+  recusa, repetido → mesmo `204` sem linha nova; R10 → `204` em todos os casos, e o segundo DELETE não grava
+  outra intenção na outbox; `LeaveVoice` grava a revogação na outbox no mesmo commit;
+  `OpenVoiceParticipationsAreClosedOnWebStartup`; hub perdido além do prazo fecha a participação no servidor; nenhum módulo além do Experiences escreve nas tabelas da
   voz (teste de arquitetura sobre o mapeamento do EF Core).
 - **Endpoint (API-R08):** participante que entrou na voz recebe credencial; terceiro e participante de outra sala
   recebem `404` sem dado da sala; conta sem `EligibleParticipant` recebe a recusa da policy; sem antiforgery ou
