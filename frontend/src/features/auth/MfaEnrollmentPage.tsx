@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useSessionTransitions } from '@/features/session/session-hooks'
 import { classifyRequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
-import { RequestFailureAlert } from '@/shared/ui/alert'
+import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
@@ -37,6 +37,10 @@ export function MfaEnrollmentPage(): React.JSX.Element {
   if (recoveryCodes !== null)
     return (
       <Page title={t('mfa.recoveryTitle')}>
+        {/* O formulário some ao confirmar: o anúncio recebe o foco para ele não cair no body. */}
+        <Alert variant="success" focusOnMount>
+          {t('mfa.enabled')}
+        </Alert>
         <p>{t('mfa.recoveryInstructions')}</p>
         <ul>
           {recoveryCodes.map((value) => (
@@ -81,7 +85,7 @@ export function MfaEnrollmentPage(): React.JSX.Element {
           {t('mfa.start')}
         </Button>
       ) : (
-        <>
+        <FocusOnMount>
           <p>
             {t('mfa.key')} <code className="break-all select-all">{sharedKey}</code>
           </p>
@@ -110,9 +114,22 @@ export function MfaEnrollmentPage(): React.JSX.Element {
             />
             <SubmitButton pending={confirm.isPending} label={t('mfa.confirm')} pendingLabel={t('mfa.confirming')} />
           </form>
-        </>
+        </FocusOnMount>
       )}
       <TextLink to={paths.login}>{t('changePassword.signInAgain')}</TextLink>
     </Page>
+  )
+}
+
+/** Bloco que substitui o controle focado (o botão de início some): recebe o foco ao aparecer. */
+function FocusOnMount({ children }: { readonly children: ReactNode }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    ref.current?.focus()
+  }, [])
+  return (
+    <div ref={ref} tabIndex={-1} className="flex flex-col gap-6">
+      {children}
+    </div>
   )
 }
