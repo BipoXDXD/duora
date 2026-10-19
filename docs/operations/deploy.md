@@ -17,6 +17,7 @@ para antes da migração e web/edge são recriados. Escala horizontal exige o AD
 | `duora-deploy` | `/usr/local/sbin/` (root, 0755) | Único comando que o executor de deploy pode rodar |
 | `duora-secrets` | `/usr/local/sbin/` | Gera os segredos do banco (`init`) e os do backup (`init-backup`: certificados do pgBackRest e senha do `duora_backup`) na primeira configuração; troca e retira o certificado do key ring (`rotate-certificate`, `retire-previous-certificates`) |
 | `duora-backup` | `/usr/local/sbin/` (root, 0755) | Wrapper restrito do pgBackRest: timers de backup e `verify` chamado pelo deploy ([backup-restore.md](backup-restore.md)) |
+| Fotos | `/var/lib/duora-media/` (`duora_media_dir`, Ansible) | `quarantine/` e `derivatives/` (dono 1654, 0700), cada uma com o marcador `.duora-media-area`; montadas no web (derivados só leitura) e no worker. O web não sobe sem os marcadores, e o `duora-deploy` recusa antes do pull ([backup das fotos](backup-restore.md#backup-das-fotos-restic)) |
 | Estado do deploy | `/var/lib/duora/` (root, 0700) | `current.json`, `previous.json`, `.deploy.lock`, `releases/<id>.{env,json}` (só releases implantadas com sucesso) e `staging/` (rascunho do deploy em curso) |
 
 ## Checklist da release
@@ -33,6 +34,13 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   administrativo) não vai a deploy numa release que não tenha o leitor (`feat/admin-bootstrap-reader`) já
   implantado. Antes de voltar para uma release anterior a esse leitor, a consulta do
   [rollback](#rollback-de-aplicação) desse tipo precisa devolver zero.
+- [ ] **Reaplicar `app_dirs`:** antes da primeira release com o Compose do #72, e sempre que `duora_media_dir` ou o
+  template do `duora.env` mudarem, rode o playbook (`site.yml`, com `--check --diff` antes; [infra/README.md](../../infra/README.md)).
+  Ele cria as áreas de fotos com os marcadores e grava `DUORA_MEDIA_DIR` no `duora.env`; sem isso o `duora-deploy`
+  recusa no preflight. Confira com `sudo ls /var/lib/duora-media/{quarantine,derivatives}/.duora-media-area` e
+  `sudo grep DUORA_MEDIA_DIR /etc/duora/duora.env`.
+- [ ] **Rollback para antes do adendo do ADR-0010:** releases cujo web é anterior ao adendo de 2026-10-16 (fotos no
+  disco da VPS) não sobem com o Compose atual; ver [rollback](#rollback-de-aplicação).
 - [ ] **Contato de suporte:** `Duora:SupportContact` traz um placeholder (`suporte@meetduora.com`) nas configurações
   base; a spec ainda não define o canal. Antes de abrir a participantes reais, troque pelo canal definido e confira
   que a caixa recebe.
@@ -202,6 +210,13 @@ Nesse caso o migrador não roda e o schema fica como está, o que só é seguro 
 expand/contract (spec 17.4). Qualquer outro caso é recusado antes de parar o worker, e nenhuma flag relaxa isso. O migrador não desfaz migrations e nunca roda `Down`;
 restaurar backup para desfazer deploy é decisão humana.
 
+**Releases anteriores ao adendo do ADR-0010** (fotos no disco da VPS, 2026-10-16). O `compose.prod.yml` é um só,
+instalado pelo Ansible, e passa sempre `Media__Storage__Provider: FileSystem` ao web e ao worker. O web das releases
+entre o upload de fotos (API-M01) e esse adendo recusa o filesystem em Production e não sobe: o deploy só falharia na
+subida da aplicação, com o web corrente já substituído. Não faça rollback para uma delas com o Compose atual; se for
+inevitável, é decisão humana com o Compose daquela época. Releases anteriores ao módulo de mídia ignoram as chaves
+`Media__*` e só precisam que as áreas montadas existam.
+
 O schema não é a única coisa que o rollback precisa ler: payloads da outbox gravados pela release nova também.
 Campo novo em payload segue expand/contract ([model.md](../data/model.md#convenções)), com o leitor tolerante num
 deploy e a gravação do campo no seguinte. **Restrição conhecida:** o campo `language` do pedido de e-mail de conta
@@ -297,9 +312,10 @@ para a anterior não tem restrição por esse campo.
 
 | Onde falhou | Estado | O que fazer |
 |---|---|---|
-| Validação, disco, pull, arquitetura | Nada mudou | Corrigir a causa e repetir |
+| Validação, disco, áreas de fotos, pull, arquitetura | Nada mudou | Corrigir a causa e repetir; área de fotos sem marcador: reaplicar `app_dirs` |
 | Migrador | Web anterior no ar, **worker parado** | A saída do migrador está na própria sessão do `duora-deploy` (o `run --rm` apaga o container e os logs junto); corrigir e repetir, ou religar o worker anterior com o env da release corrente |
 | Readiness ou serviço fora de `running` | Release nova no ar, `current.json` ainda aponta a anterior | Logs do web/edge; rollback se o schema permitir |
+| Web recusa o boot sem marcador (`Media:Storage:FileSystemRoot em Production ...` no log) | Migrations aplicadas, web em restart, worker também cai se a mesma área sumiu | O preflight conferiu os marcadores, então a área sumiu ou foi desmontada depois dele, ou o Compose instalado monta outro caminho que o `DUORA_MEDIA_DIR` do `duora.env`. Reaplicar `app_dirs`, conferir `docker compose ... config` e repetir o deploy; rollback não resolve, porque o Compose é o mesmo |
 
 ### Primeira configuração do host
 
