@@ -159,9 +159,12 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 
 - **Propósito:** encontrar eventos autorizados e ver a própria participação.
 - **Conteúdo:** cards com título, data e horário com fuso, mostrando os dois fusos quando o do evento e o da pessoa
-  diferem (ADR-0026). Exemplo de um evento às 20:00 em São Paulo visto de Boston: "sex., 16 out., 20:00 BRT
-  (19:00 no seu fuso, EDT)" em PT-BR; "Fri, Oct 16, 8:00 PM BRT (7:00 PM your time, EDT)" em EN-US. Quando os
-  fusos coincidem, só um aparece ("sex., 16 out., 20:00 BRT"). Regras resumidas, situação própria. Sem lista de participantes nem contadores de popularidade.
+  diferem (ADR-0026). Exemplo de um evento às 20:00 em São Paulo (`America/Sao_Paulo`) visto de Boston
+  (`America/New_York`), com `Intl.DateTimeFormat` e `timeZoneName: 'short'` (saída conferida no Node 24): em PT-BR,
+  "sex., 16 de out., 20:00 BRT (19:00 GMT-4 no seu fuso)"; em EN-US, "Fri, Oct 16, 8:00 PM GMT-3 (7:00 PM EDT
+  your time)". A abreviação só sai por nome no fuso "da casa" do idioma; nos outros, o `Intl` mostra o deslocamento
+  (`GMT-4`, `GMT-3`). Quando os fusos coincidem, só um aparece ("sex., 16 de out., 20:00 BRT"). Formato mais legível
+  (`shortGeneric`) em proposta na issue #81. Regras resumidas, situação própria. Sem lista de participantes nem contadores de popularidade.
 - **Ações:** cada card é um link para o detalhe.
 - **Estados:** `loading` (skeleton de 3 cards); `empty` ("Nenhum evento aberto agora. Avisaremos por e-mail
   quando houver." + "Ajustar avisos ›"); `error`; `offline`.
@@ -178,9 +181,9 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 ┌──────────────────────────────────────┐
 │ ‹ Eventos                            │
 ├──────────────────────────────────────┤
-│ Noite de quinta: Rotas Improváveis   │
+│ Noite de sexta: Rotas Improváveis    │
 │                                      │
-│ qui., 16 out. · 20:00–21:00 (BRT)    │
+│ sex., 16 de out. · 20:00 – 21:00 BRT │
 │ 3 rodadas de até 12 minutos          │
 │                                      │
 │ ┌──────────────────────────────────┐ │
