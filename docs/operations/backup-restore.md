@@ -576,8 +576,8 @@ alvo do restore), `MediaBackupUnitsTests` (timers, alerta, padrões do inventár
 - **Provedor S3**: escolhido (Backblaze B2, US East, 2026-10-16). Falta o responsável criar bucket e chaves
   ([backblaze-setup.md](backblaze-setup.md)), gravar `pgbackrest_repo.conf` e preencher `duora_backup_s3_cidrs`.
   A região fica nos EUA, como o servidor (Boston, [ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)):
-  a transferência dos dados de pessoas no Brasil para os EUA já está no mapa de dados, com a salvaguarda a definir
-  (spec 12; [data-map.md](../privacy/data-map.md#transferências-internacionais-registradas)).
+  os dados de pessoas no Brasil ficam nos EUA (fato); se isso é transferência internacional (LGPD art. 33) ou coleta internacional (Resolução CD/ANPD 19/2024, a confirmar) e qual salvaguarda se aplica é a confirmar (J-02)
+  (spec 12; [data-map.md](../privacy/data-map.md#local-do-tratamento-e-transferências-a-confirmar)).
 - **Proteção contra exclusão** (spec 18.3, ADR-0023): **pré-requisito de produção**, decidido (versionamento +
   Object Lock `COMPLIANCE` ≥ 21 dias, lifecycle de versões não correntes, credencial sem `DeleteObjectVersion`).
   Os comandos estão em [backblaze-setup.md](backblaze-setup.md); falta aplicá-los na conta. O verify já recusa um
