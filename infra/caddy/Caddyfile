@@ -28,6 +28,27 @@
 	}
 }
 
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		# Microfone só para a própria origem; gesto e consentimento são responsabilidade da SPA (ADR-0028).
+		# A política não exige gesto nem concede permissão. Nenhum iframe de outra origem o recebe; e a CSP não carrega iframe algum (default-src 'none', sem frame-src).
+		Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), browsing-topics=()"
+		# Coerente com o build do Vite: só módulos e CSS próprios, sem inline e sem eval. wss explícito para o hub
+		# (navegadores antigos não estendem 'self' a WebSocket). media-src 'self' para o áudio do catálogo
+		# (ADR-0027), sem blob:: a Web Audio lê por fetch() (connect-src) e a voz ao vivo entra por srcObject, fora
+		# do Fetch. ICE/TURN não passa por connect-src; sem diretiva webrtc, o WebRTC fica permitido (ADR-0028).
+		# Mudou aqui, mude scripts/deploy/test_caddy_security_headers.py.
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' wss://{hostport}; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+		-Server
+	}
+}
+
 {$DUORA_DOMAIN} {
 	tls {$DUORA_TLS}
 	encode zstd gzip
@@ -51,23 +72,13 @@
 		}
 	}
 
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		Referrer-Policy "no-referrer"
-		Cross-Origin-Opener-Policy "same-origin"
-		Cross-Origin-Resource-Policy "same-origin"
-		# Microfone só para a própria origem: voz ao vivo da sala (ADR-0028), pedido depois do gesto. Nenhum iframe de
-		# outra origem o recebe; e a CSP não carrega iframe algum (default-src 'none', sem frame-src).
-		Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), browsing-topics=()"
-		# Coerente com o build do Vite: só módulos e CSS próprios, sem inline e sem eval. wss explícito para o hub
-		# (navegadores antigos não estendem 'self' a WebSocket). media-src 'self' para o áudio do catálogo
-		# (ADR-0027), sem blob:: a Web Audio lê por fetch() (connect-src) e a voz ao vivo entra por srcObject, fora
-		# do Fetch. ICE/TURN não passa por connect-src; sem diretiva webrtc, o WebRTC fica permitido (ADR-0028).
-		# Mudou aqui, mude scripts/deploy/test_caddy_security_headers.py.
-		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' wss://{hostport}; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
-		-Server
+	import security_headers
+
+	# Erros de handlers (file_server/proxy) usam uma cadeia separada no Caddy.
+	handle_errors {
+		import security_headers
+		header Cache-Control "no-store"
+		respond "" {err.status_code}
 	}
 
 	# Saúde e documentação técnica ficam na rede interna (web:8080), nunca na borda pública.
