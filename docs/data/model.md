@@ -330,9 +330,10 @@ erDiagram
 - **Colunas:** `user_id uuid`; colunas relacionais por dimensão de preferência; `updated_at`; `version bigint`
   (`ETag` de API-P07/P03, independente do perfil).
 - **Constraints:** PK e FK `user_id` `RESTRICT`.
-- **Lacuna:** a spec não define as dimensões. Se incluírem gênero buscado ou orientação, são dado pessoal
-  sensível (vida sexual, LGPD art. 5.º, II) e mudam a análise de base legal
-  ([data-map.md](../privacy/data-map.md#lacunas)). Dimensões multivaloradas vão em tabela dependente
+- **Lacuna:** a spec não define as dimensões. Se incluírem gênero buscado ou orientação, podem ser dado pessoal
+  sensível (no Brasil, vida sexual pela LGPD art. 5.º, II, se ela se aplicar; nas outras jurisdições, as categorias
+  equivalentes, como a categoria especial do GDPR e os "dados sensíveis" das leis estaduais dos EUA, a confirmar em
+  J-03 e J-10) e mudam a análise de base legal ([data-map.md](../privacy/data-map.md#lacunas)). Dimensões multivaloradas vão em tabela dependente
   (`preference_values (user_id, dimension, value)`), nunca em lista dentro de string ou JSONB
   (*SQL Antipatterns*, cap. 2).
 - **Classe:** P3.
