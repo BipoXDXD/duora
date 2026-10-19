@@ -88,6 +88,11 @@ class Release:
 MEDIA_VERIFY_TIMER = "duora-backup-media-verify.timer"
 MEDIA_VERIFY_OK_FILE = ".media-verify-ok"
 MAX_MEDIA_VERIFY_AGE_HOURS = 30
+# Políticas de Media:Review que o boot do web aceita em Production (MediaReview.IsPermitted, ADR-0025 item 8). Vazia:
+# TechnicalOnly é a única política implementada e é recusada em Production, então qualquer valor derrubaria o web
+# depois da migração. Política nova entra aqui junto com o Worker registrando o pipeline de mídia (AddMediaUploads),
+# que hoje ele não registra (docs/operations/backup-restore.md, integração do upload com o Compose).
+PRODUCTION_MEDIA_REVIEW_POLICIES: frozenset[str] = frozenset()
 
 
 # O Compose sempre configura o storage FileSystem e o web o confere no boot, com o upload ligado ou não (adendo de
@@ -253,6 +258,13 @@ def parse_host_config(text: str) -> HostConfig:
                     raise DeployError("DUORA_MEDIA_REVIEW deve ser único, vazio ou um nome sem aspas/expansão")
             values[key] = value
 
+    review = values.get("DUORA_MEDIA_REVIEW", "")
+    if review and review not in PRODUCTION_MEDIA_REVIEW_POLICIES:
+        accepted = ", ".join(sorted(PRODUCTION_MEDIA_REVIEW_POLICIES)) or "nenhuma ainda"
+        raise DeployError(f"DUORA_MEDIA_REVIEW={review} não é política aceita em Production (aceitas: {accepted}); "
+                          "o web recusaria o boot depois da migração. Deixe duora_media_review vazio no inventário "
+                          "e reaplique o app_dirs (ADR-0025 item 8)")
+
     prefix = values.get("DUORA_IMAGE_PREFIX", "")
     if not prefix:
         raise DeployError("DUORA_IMAGE_PREFIX ausente na configuração do host")
@@ -263,7 +275,7 @@ def parse_host_config(text: str) -> HostConfig:
     disk_check_path = Path(values.get("DUORA_DISK_CHECK_PATH", "/var/lib/docker"))
     media_dir = values.get("DUORA_MEDIA_DIR", "")
     return HostConfig(prefix, min_free_gib, disk_check_path,
-                      media_uploads_enabled=bool(values.get("DUORA_MEDIA_REVIEW", "")),
+                      media_uploads_enabled=bool(review),
                       media_dir=Path(media_dir) if media_dir else None)
 
 
