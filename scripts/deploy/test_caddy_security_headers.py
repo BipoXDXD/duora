@@ -22,7 +22,7 @@ import uuid
 from pathlib import Path
 
 from caddy_test_support import (CADDYFILE, IMAGE, READY_TIMEOUT_SECONDS, docker_available, parse_csp,
-                                parse_permissions_policy)
+                                parse_permissions_policy, remove_container)
 
 # Diretiva -> fontes. 'self' não cobre blob: (CSP3 6.7.2.8), e nenhuma diretiva libera blob: hoje: a Web Audio lê o
 # arquivo por fetch() (connect-src) e a voz ao vivo chega por srcObject, que não passa pelo Fetch.
@@ -93,21 +93,18 @@ class CaddySecurityHeadersTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        # Limpeza registrada antes de cada recurso existir: tearDownClass não roda se o setUpClass falhar no meio.
         cls.site = tempfile.mkdtemp(prefix="duora-caddy-headers-")
+        cls.addClassCleanup(shutil.rmtree, cls.site, ignore_errors=True)
         Path(cls.site, "index.html").write_text('<!doctype html><div id="root"></div>', encoding="utf-8")
         cls.container = f"duora-caddy-headers-{uuid.uuid4().hex[:8]}"
+        # Antes do run: um container criado que não sobe também precisa sair.
+        cls.addClassCleanup(remove_container, cls.container)
         _run(["docker", "run", "--detach", "--name", cls.container,
               "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal",
               "--volume", f"{CADDYFILE}:/etc/caddy/Caddyfile:ro", "--volume", f"{cls.site}:/srv:ro", IMAGE])
         cls._wait_ready()
         cls.headers = cls._document_headers()
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if cls.container:
-            subprocess.run(["docker", "rm", "--force", cls.container], capture_output=True, check=False)
-        if cls.site:
-            shutil.rmtree(cls.site, ignore_errors=True)
 
     @classmethod
     def _wait_ready(cls) -> None:
