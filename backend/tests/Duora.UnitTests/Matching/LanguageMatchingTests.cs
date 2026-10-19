@@ -47,6 +47,23 @@ public sealed class LanguageMatchingTests
     }
 
     [Fact]
+    public void RegionalCriterionRemainsIndependentFromLanguageAndDisplayLocale()
+    {
+        // Opaque synthetic values preserve the pending geographic taxonomy.
+        var restricted = new Preferences(new Dictionary<string, string> { ["region"] = "area-a" },
+            new Dictionary<string, IReadOnlySet<string>> { ["region"] = new HashSet<string> { "area-a" } });
+        var outside = new Preferences(new Dictionary<string, string> { ["region"] = "area-b" },
+            new Dictionary<string, IReadOnlySet<string>>());
+        var a = new Candidate(RoundBuilder.User(1), DateTimeOffset.MinValue, 10000, restricted, new("en-US", ["en"], true));
+        var b = new Candidate(RoundBuilder.User(2), DateTimeOffset.MinValue, 10000, outside, new("pt-BR", ["en"], true));
+        Assert.Empty(PairSelector.Select(new([a, b], [], [], new(42), PairingAlgorithmVersion.GreedyByPriorityV2)).Pairs);
+        b = new Candidate(b.UserId, b.WaitingSince, b.RoundsWithoutPair, restricted, b.Communication);
+        Assert.Single(PairSelector.Select(new([a, b], [], [], new(42), PairingAlgorithmVersion.GreedyByPriorityV2)).Pairs);
+        b = new Candidate(b.UserId, b.WaitingSince, b.RoundsWithoutPair, restricted, new("pt-BR", ["pt"], true));
+        Assert.Empty(PairSelector.Select(new([a, b], [], [], new(42), PairingAlgorithmVersion.GreedyByPriorityV2)).Pairs);
+    }
+
+    [Fact]
     public void DeclarationCopiesAndRejectsInvalidLanguages()
     {
         string[] languages = ["en"];
