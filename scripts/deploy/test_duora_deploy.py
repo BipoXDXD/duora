@@ -270,6 +270,15 @@ class MediaStoragePreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(deploy.DeployError, "sem o marcador"):
             deploy.require_media_areas(media_dir)
 
+    def test_warning_about_running_without_root_comes_before_the_media_refusal(self) -> None:
+        stdout = io.StringIO()
+
+        with patch.object(deploy.os, "geteuid", return_value=1000), contextlib.redirect_stdout(stdout):
+            with self.assertRaises(deploy.DeployError):
+                deploy.preflight(self.release, self.host(None))
+
+        self.assertIn("rodando sem root", stdout.getvalue())
+
     def test_missing_area_directory_is_refused(self) -> None:
         with self.assertRaisesRegex(deploy.DeployError, "quarantine"):
             deploy.preflight(self.release, self.host(self.root / "nao-existe"))

@@ -667,13 +667,14 @@ def read_manifest(source: str) -> str:
 
 
 def preflight(release: Release, host: HostConfig) -> None:
+    # Antes das checagens: sem root, uma recusa abaixo (marcador das fotos ilegível) já vem explicada.
+    if os.geteuid() != 0:
+        _step("AVISO: rodando sem root; o usuário precisa de acesso ao Docker")
     host_arch = docker_architecture(platform.machine())
     if host_arch != release.architecture:
         raise DeployError(f"release para {release.architecture}, host é {host_arch}")
     require_free_space(free_bytes=shutil.disk_usage(host.disk_check_path).free, minimum_gib=host.min_free_gib)
     require_media_areas(host.media_dir)
-    if os.geteuid() != 0:
-        _step("AVISO: rodando sem root; o usuário precisa de acesso ao Docker")
 
 
 if __name__ == "__main__":
