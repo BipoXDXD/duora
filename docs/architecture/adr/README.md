@@ -41,6 +41,9 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 - Um arquivo por decisão: `NNNN-titulo-em-kebab-case.md`, numeração sequencial.
 - Status: `Proposed`, `Accepted` ou `Superseded by ADR-NNNN`. Um ADR aceito nunca é apagado nem reescrito:
   uma decisão nova o substitui, e os dois se referenciam.
+- Substituição parcial: quando uma decisão nova substitui só parte de um ADR aceito, o antigo continua `Accepted` e
+  ganha a linha `Substituído em parte` (o que foi substituído e por qual ADR), mais um adendo datado que aponta o
+  novo; o novo lista as partes substituídas.
 - Escreva ADR quando a decisão for cara de reverter ou quando alguém, daqui a um ano, puder perguntar "por que
   isso é assim?". Decisão local e barata não precisa de ADR.
 - Mudança que contradiz um ADR aceito exige novo ADR no mesmo PR (spec 14.1: mudança arquitetural exige ADR).
@@ -54,6 +57,7 @@ segurança/operação, gatilho de revisão) mais Compliance.
 # ADR-NNNN: Título curto da decisão
 
 - **Status:** Proposed | Accepted (AAAA-MM-DD) | Superseded by ADR-NNNN
+- **Substituído em parte:** (opcional) o que foi substituído, pelo ADR-NNNN (AAAA-MM-DD)
 - **Origem:** seções da spec, issue ou incidente que motivou a decisão
 - **Revisar quando:** gatilho objetivo de revisão
 
