@@ -172,3 +172,54 @@ describe('foco ao trocar de estado', () => {
     expect(screen.getByText('synthetic-recovery')).toBeInTheDocument()
   })
 })
+
+describe('segredo do TOTP e códigos de recuperação', () => {
+  function storageContents(storage: Storage): string {
+    return JSON.stringify(
+      Array.from({ length: storage.length }, (_, index) => {
+        const key = storage.key(index) ?? ''
+        return [key, storage.getItem(key)]
+      }),
+    )
+  }
+
+  /** Tudo o que sobrevive à tela ou vai a outro lugar: caches, armazenamento do navegador e URL. */
+  function persistedTraces(queryClient: RenderedApp['queryClient']): string {
+    return [
+      JSON.stringify(
+        queryClient
+          .getQueryCache()
+          .getAll()
+          .map((query) => ({ key: query.queryKey, state: query.state })),
+      ),
+      JSON.stringify(
+        queryClient
+          .getMutationCache()
+          .getAll()
+          .map((mutation) => mutation.state),
+      ),
+      storageContents(localStorage),
+      storageContents(sessionStorage),
+      screen.getByTestId('location').textContent,
+      window.location.href,
+    ].join('\n')
+  }
+
+  it('não aparecem em QueryCache, MutationCache, localStorage, sessionStorage nem na URL', async () => {
+    mfaPhase()
+    useAntiforgeryEndpoint()
+    useEnrollmentEndpoint()
+    useConfirmationEndpoint(() => HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] }))
+    const { user, queryClient } = await renderApp('/conta/ativar-mfa')
+
+    await startEnrollment(user)
+    expect(persistedTraces(queryClient)).not.toContain(SHARED_KEY)
+    expect(persistedTraces(queryClient)).not.toContain('otpauth://')
+
+    await submitCode(user, '123456')
+    expect(await screen.findByText('synthetic-recovery')).toBeInTheDocument()
+    const traces = persistedTraces(queryClient)
+    for (const secret of [SHARED_KEY, 'otpauth://', 'synthetic-recovery', '123456'])
+      expect(traces).not.toContain(secret)
+  })
+})
