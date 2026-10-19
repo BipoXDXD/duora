@@ -223,16 +223,33 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public void OnlyTheLoginFlowCanTakeTheTurnByEmail()
+    public async Task TakingTheTurnByEmailWhileHoldingTheAccountTurnFailsLoudly()
     {
-        // A ordem e-mail → UUID → PostgreSQL só se mantém se ninguém fora do login pegar a vez por e-mail; quem
-        // a pegasse com a conta já travada inverteria a ordem e as duas filas esperariam uma à outra até o teto.
-        var method = typeof(AccountSecurityService).GetMethod(
-            nameof(AccountSecurityService.EnterLoginAsync),
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        // A ordem é e-mail → UUID → PostgreSQL. Quem pegasse a vez por e-mail com a conta já na vez inverteria a
+        // ordem, e duas requisições esperariam uma à outra até o teto (503 em vez de erro de programação).
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString);
+        var account = await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync();
+        Assert.True(EmailAddress.TryParse(account.Email, out var address));
+        using var scope = factory.Services.CreateScope();
+        var security = scope.ServiceProvider.GetRequiredService<AccountSecurityService>();
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<DuoraUser>>().FindByIdAsync($"{account.UserId:D}");
+        Assert.NotNull(user);
+        var ct = TestContext.Current.CancellationToken;
 
-        Assert.NotNull(method);
-        Assert.True(method.IsAssembly, "EnterLoginAsync deveria ser internal (só o CredentialVerifier o usa).");
+        await using (await security.LockAccountAsync(user, ct))
+        {
+            var inverted = await Assert.ThrowsAsync<InvalidOperationException>(() => security.EnterLoginAsync(address, ct));
+            Assert.Contains("ordem", inverted.Message, StringComparison.Ordinal);
+        }
+
+        await using (await factory.Services.GetRequiredService<AccountCheckGate>().EnterAsync(account.UserId, TimeSpan.FromSeconds(1), ct))
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => security.EnterLoginAsync(address, ct));
+        }
+
+        // Vez da conta devolvida: a ordem certa volta a valer, e e-mail → UUID continua permitido.
+        await using var byEmail = await security.EnterLoginAsync(address, ct);
+        await using var check = await security.LockAccountAsync(user, ct);
     }
 
     [Theory]
