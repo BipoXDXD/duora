@@ -601,8 +601,11 @@ PR #71. A interface não amplia autorização: o servidor continua sendo a fonte
 
 Verificação: `ChangePasswordPage.test.tsx` integra componentes, navegação, CSRF e respostas HTTP
 simuladas com MSW; `query-client.test.ts` cobre a reconsulta centralizada;
-`LoginPage.test.tsx` cobre login normal e TOTP; `admin-bootstrap.spec.ts` percorre a jornada no
-bundle de produção com API simulada e axe nas duas telas. Os testes não substituem os testes
+`LoginPage.test.tsx` cobre login normal e TOTP (seis dígitos, credenciais fora do MutationCache);
+`MfaEnrollmentPage.test.tsx` cobre o `403 MFA_ENROLLMENT_REQUIRED` em `/me`, a validação do código, os
+erros de A11/A12, o foco ao trocar de estado e a ausência da chave e dos códigos em cache, storage e URL;
+`session-api.test.ts` recusa `/me` sem `roles` ou `mfaEnabled`; `admin-bootstrap.spec.ts` percorre a jornada
+no bundle de produção com API simulada e axe nas três telas (troca de senha, chave e códigos). Os testes não substituem os testes
 HTTP reais de `AdminBootstrapTests` e `AdminMfaTests`. Invariantes pertinentes: INV-05 e INV-12;
 privacidade de sessão: T-14/T-21. Não há mudança de schema, auditoria ou endpoint.
 
