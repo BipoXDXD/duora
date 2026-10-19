@@ -217,14 +217,15 @@ Testes: `LookalikeEmailTests`, `EmailAddressTests`.
 
 ### Idioma dos e-mails de conta
 
-Os e-mails de conta saem em pt-BR (padrão) ou en, os idiomas da interface ([ADR-0022](../architecture/adr/0022-i18n-intl-messageformat-catalogo-tipado.md)).
-O [ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md) fixa os dois idiomas como `pt-BR` e
-`en-US` e propõe `en-US` como fallback para idioma fora da lista (proposta 3); até esse PR, vale o comportamento
-descrito aqui.
+Os e-mails de conta saem em `pt-BR` ou `en-US`, os idiomas da interface
+([ADR-0022](../architecture/adr/0022-i18n-intl-messageformat-catalogo-tipado.md),
+[ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)).
 A SPA manda o idioma ativo no `Accept-Language` de toda requisição; o cadastro (API-A02) e o pedido de reset
-(API-A06) escolhem o idioma por esse header, só pelo idioma primário e só entre `pt` e `en`, e gravam a tag no
-pedido da outbox (`language`). Header ausente, malformado, só com `q=0` ou com outro idioma dá pt-BR, sem erro
-para quem chamou; pedido gravado sem o campo, ou com tag fora da lista, também sai em pt-BR. O idioma é o de quem
+(API-A06) escolhem o idioma por esse header, só pelo idioma primário e só entre `pt` e `en` (qualquer `pt-*` vira
+`pt-BR`; qualquer `en-*`, `en-US`), e gravam a tag no pedido da outbox (`language`). Header ausente, malformado, só
+com `q=0` ou com outro idioma dá `en-US` (o público principal não é brasileiro), sem erro para quem chamou; tag
+gravada fora da lista também sai em `en-US`. Dois casos de dado antigo: o `en` gravado antes do ADR-0026 continua
+inglês, e o pedido sem o campo, de quando só havia pt-BR, continua em pt-BR. O idioma é o de quem
 fez a requisição, não uma preferência guardada da conta: o aviso de "alguém tentou se cadastrar" sai no idioma
 de quem tentou. Nenhum texto da requisição entra no e-mail; os links são os mesmos nos dois idiomas, com o token
 no fragmento.

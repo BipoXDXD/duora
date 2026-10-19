@@ -78,5 +78,5 @@ Decisão do dono, registrada no [ADR-0026](0026-publico-idiomas-e-regiao-do-serv
 o produto inteiro (interface, e-mails, conteúdo das experiências, documentos voltados ao usuário e mensagens de erro),
 não só para a SPA, e o inglês é o **EN-US** (`en-US`), não `en`. O público principal não é brasileiro, então o
 "pt-BR (padrão)" desta decisão deixa de ser pressuposto: o idioma de fallback para quem não tem `pt` nem `en` no
-navegador está em proposta (`en-US`, ADR-0026, proposta 3). A biblioteca, o catálogo tipado e os testes desta
-decisão não mudam.
+navegador passou a ser `en-US` (adendo da proposta 3 do ADR-0026, issue #80), e o catálogo inglês agora é
+`catalog.en-US.ts`. A biblioteca, o catálogo tipado e os testes desta decisão não mudam.
