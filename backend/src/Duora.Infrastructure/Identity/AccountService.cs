@@ -96,13 +96,7 @@ public sealed class AccountService
         var passwordHash = _users.PasswordHasher.HashPassword(null!, password);
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var registration = await UpsertRegistrationAsync(email, passwordHash, now, cancellationToken);
-        if (!registration.EmailConfirmed)
-        {
-            var locale = EmailLanguageTag.Format(language);
-            await _db.Database.ExecuteSqlInterpolatedAsync(
-                $"update identity.users set preferred_locale = {locale} where id = {registration.UserId}", cancellationToken);
-        }
+        var registration = await UpsertRegistrationAsync(email, passwordHash, EmailLanguageTag.Format(language), now, cancellationToken);
         await ReplaceConsentsUnlessConfirmedAsync(registration, termsVersion, privacyVersion, now, cancellationToken);
         await GrantParticipantRoleUnlessAnyAsync(registration.UserId, cancellationToken);
         var user = await _users.FindByIdAsync(registration.UserId.ToString("D"))
@@ -374,6 +368,7 @@ public sealed class AccountService
     private async Task<RegistrationRow> UpsertRegistrationAsync(
         EmailAddress email,
         string passwordHash,
+        string locale,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -390,11 +385,11 @@ public sealed class AccountService
             insert into identity.users as u
                 (id, user_name, normalized_user_name, email, normalized_email, email_confirmed, password_hash,
                  security_stamp, concurrency_stamp, phone_number_confirmed, two_factor_enabled, lockout_enabled,
-                 access_failed_count, status, created_at)
+                 access_failed_count, status, created_at, preferred_locale)
             values
                 ({newUserId}, {email.Value}, {normalizedEmail}, {email.Value}, {normalizedEmail}, false, {passwordHash},
                  {securityStamp}, {concurrencyStamp}, false, false, true,
-                 0, {pendingEmail}, {now})
+                 0, {pendingEmail}, {now}, {locale})
             on conflict (normalized_email) do update set
                 user_name = case when u.email_confirmed then u.user_name else excluded.user_name end,
                 email = case when u.email_confirmed then u.email else excluded.email end,
@@ -404,7 +399,8 @@ public sealed class AccountService
                 two_factor_enabled = case when u.email_confirmed then u.two_factor_enabled else false end,
                 access_failed_count = case when u.email_confirmed then u.access_failed_count else 0 end,
                 lockout_end = case when u.email_confirmed then u.lockout_end else null end,
-                created_at = case when u.email_confirmed then u.created_at else excluded.created_at end
+                created_at = case when u.email_confirmed then u.created_at else excluded.created_at end,
+                preferred_locale = case when u.email_confirmed then u.preferred_locale else excluded.preferred_locale end
             returning u.id as "UserId", u.email_confirmed as "EmailConfirmed"
             """).ToListAsync(cancellationToken);
         return rows.Single();

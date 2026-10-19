@@ -15,11 +15,13 @@ internal static class PreferenceEndpoints
 {
     public static void MapPreferenceEndpoints(this IEndpointRouteBuilder api)
     {
-        api.MapGet("/me/preferences", GetPreferencesAsync).WithTags("Preferences").Produces<OwnPreferencesResponse>().AddOpenApiOperationTransformer(DocumentConcurrency);
+        api.MapGet("/me/preferences", GetPreferencesAsync).WithTags("Preferences").Produces<OwnPreferencesResponse>()
+            .ProducesProblem(401).ProducesProblem(403).AddOpenApiOperationTransformer(DocumentConcurrency);
         api.MapPut("/me/preferences", PutPreferencesAsync).WithTags("Preferences").Produces<OwnPreferencesResponse>()
             .ProducesValidationProblem().ProducesProblem(401).ProducesProblem(403).ProducesProblem(412).ProducesProblem(428)
             .AddOpenApiOperationTransformer(DocumentConcurrency);
-        api.MapGet("/me/locale", GetLocaleAsync).WithTags("Preferences").Produces<OwnLocaleResponse>().AddOpenApiOperationTransformer(DocumentConcurrency);
+        api.MapGet("/me/locale", GetLocaleAsync).WithTags("Preferences").Produces<OwnLocaleResponse>()
+            .ProducesProblem(401).ProducesProblem(403).AddOpenApiOperationTransformer(DocumentConcurrency);
         api.MapPut("/me/locale", PutLocaleAsync).WithTags("Preferences").Produces<OwnLocaleResponse>()
             .ProducesValidationProblem().ProducesProblem(401).ProducesProblem(403).ProducesProblem(412).ProducesProblem(428)
             .AddOpenApiOperationTransformer(DocumentConcurrency);

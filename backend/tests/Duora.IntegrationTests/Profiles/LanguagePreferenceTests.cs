@@ -145,6 +145,24 @@ public sealed class LanguagePreferenceTests(PostgresFixture postgres) : IAsyncDi
         Assert.Equal(HttpStatusCode.Forbidden, locale.StatusCode);
     }
 
+    [Fact]
+    public async Task RegistrationAttemptCannotOverwriteConfirmedAccountsLocale()
+    {
+        var scenario = new IdentityScenario(postgres, _factory);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(account);
+        using var saved = await PutAsync(browser, "locale", """{"locale":"pt-BR"}""", "0");
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        using var stranger = new Browser(_factory);
+        using var attempted = await IdentityScenario.RegisterAsync(stranger, account.Email);
+        Assert.Equal(HttpStatusCode.Accepted, attempted.StatusCode);
+        using var read = await browser.GetAsync("/api/v1/me/locale");
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        var body = JsonNode.Parse(await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+        Assert.Equal("pt-BR", (string?)body["locale"]);
+        Assert.Equal("1", (string?)body["version"]);
+    }
+
     private async Task<Browser> BrowserAsync()
     {
         var scenario = new IdentityScenario(postgres, _factory);
