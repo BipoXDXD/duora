@@ -198,8 +198,7 @@ permite teto de bytes por credencial é **a confirmar**; sem isso, o que limita 
 
 ### Mudanças de infraestrutura (PR separado)
 
-- `Permissions-Policy` passa de `microphone=()` para `microphone=(self)` no Caddy, mantendo `camera=()` e as
-  demais restrições, com teste que confere o cabeçalho.
+- `Permissions-Policy` em allowlist: `microphone`, `autoplay` e `speaker-selection` em `(self)`, todas as outras features em `()`, no Caddy, com teste que confere o cabeçalho.
 - `media-src 'self'` na CSP para os áudios do catálogo (ADR-0027). TURN não é governado por `connect-src`; a
   credencial vem da mesma origem.
 
@@ -268,6 +267,6 @@ Testes previstos (a criar com a implementação; nenhum existe hoje):
   desligar o microfone para a captura; bloquear derruba a voz dos dois lados; sem hub além de N segundos, a voz
   encerra.
 - **Arquitetura:** nenhum módulo referencia STT, gravação ou LLM para a voz.
-- **Infra (PR separado):** `Permissions-Policy` com `microphone=(self)` e `camera=()`.
+- **Infra (PR separado):** `Permissions-Policy` em allowlist: `microphone`, `autoplay` e `speaker-selection` em `(self)`, todas as outras features em `()`.
 - **Manual, no protocolo A11Y-04:** Safari no iOS com relay (bug 312332 do WebKit, número a confirmar), VoiceOver e teclado em todos
   os controles da voz.
