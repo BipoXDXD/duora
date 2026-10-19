@@ -102,7 +102,7 @@ public sealed class TransactionalEmailDispatchTests(PostgresFixture postgres)
         StalledSender? staleSender = null;
         StalledSender? freshSender = null;
         var staleLogs = new CapturingLoggerProvider();
-        var stale = harness.StartWorker(["--Outbox:BatchSize=1", "--Outbox:LeaseDuration=00:02:00"], decorateSender: real => staleSender = new StalledSender(real), logs: staleLogs);
+        var stale = harness.StartWorker(decorateSender: real => staleSender = new StalledSender(real), logs: staleLogs);
         var fresh = harness.StartWorker(decorateSender: real => freshSender = new StalledSender(real));
 
         var staleRun = stale.DispatchBatchAsync(Ct);
@@ -129,7 +129,7 @@ public sealed class TransactionalEmailDispatchTests(PostgresFixture postgres)
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
         var deliveryId = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "tok-1", Ct);
         StalledSender? staleSender = null;
-        var stale = harness.StartWorker(["--Outbox:BatchSize=1", "--Outbox:LeaseDuration=00:02:00"], decorateSender: real => staleSender = new StalledSender(real));
+        var stale = harness.StartWorker(decorateSender: real => staleSender = new StalledSender(real));
 
         var staleRun = stale.DispatchBatchAsync(Ct);
         await staleSender!.Entered.WaitAsync(TimeSpan.FromSeconds(10), Ct);

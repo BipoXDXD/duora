@@ -121,7 +121,7 @@ internal sealed class EmailOutboxHarness : IAsyncDisposable
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand(
             """
-            select d.status, d.attempts, d.fencing_token, d.available_at, d.last_error, e.payload::text
+            select d.status, d.attempts, d.fencing_token, d.available_at, d.last_error, e.payload::text, d.lease_expires_at
             from ops.outbox_deliveries d
             join ops.outbox_events e on e.id = d.outbox_event_id
             where d.id = $1
@@ -136,7 +136,8 @@ internal sealed class EmailOutboxHarness : IAsyncDisposable
             reader.GetInt64(2),
             reader.GetFieldValue<DateTimeOffset>(3),
             reader.IsDBNull(4) ? null : reader.GetString(4),
-            reader.GetString(5));
+            reader.GetString(5),
+            reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6));
     }
 
     public string[] MailFiles() => Directory.GetFiles(MailDirectory.FullName, "*.eml");
@@ -159,4 +160,5 @@ internal sealed record DeliveryRow(
     long FencingToken,
     DateTimeOffset AvailableAt,
     string? LastError,
-    string Payload);
+    string Payload,
+    DateTimeOffset? LeaseExpiresAt = null);

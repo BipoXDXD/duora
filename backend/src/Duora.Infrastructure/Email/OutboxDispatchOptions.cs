@@ -14,6 +14,12 @@ internal sealed class OutboxDispatchOptions
 
     public int MaxAttempts { get; set; } = 8;
 
+    /// <summary>
+    /// Lease do consumidor de e-mail. O lease é explícito por consumidor: a verificação etária usa o seu, em
+    /// <c>AgeVerification:Dispatch:LeaseDuration</c>. Dois minutos mantêm curta a recuperação de link de
+    /// confirmação e de reset quando um worker cai; envios longos não pedem lease maior porque o dispatcher o
+    /// renova (heartbeat) antes de cada envio.
+    /// </summary>
     public TimeSpan LeaseDuration { get; set; } = TimeSpan.FromMinutes(2);
 
     public TimeSpan SendTimeout { get; set; } = TimeSpan.FromSeconds(30);
@@ -27,13 +33,13 @@ internal sealed class OutboxDispatchOptions
     public ExponentialBackoff Backoff => new(InitialRetryDelay, MaxRetryDelay);
 
     /// <summary>
-    /// Reserva metade do lease para os envios sequenciais e metade para composição e persistência.
-    /// A divisão evita overflow mesmo com durações configuradas extremas.
+    /// Entre dois heartbeats cabe um envio (até <see cref="SendTimeout"/>), a conclusão e o heartbeat seguinte;
+    /// a outra metade do lease é a margem para conclusão, pool e banco. O tamanho do lote não entra: o heartbeat
+    /// renova também as entregas do lote que ainda esperam. A divisão evita overflow com durações extremas.
     /// </summary>
-    public bool HasBatchLeaseBudget() =>
-        BatchSize is >= 1 and <= 100
-        && SendTimeout > TimeSpan.Zero
-        && SendTimeout.Ticks <= LeaseDuration.Ticks / 2 / BatchSize;
+    public bool HasSendLeaseBudget() =>
+        SendTimeout > TimeSpan.Zero
+        && SendTimeout.Ticks <= LeaseDuration.Ticks / 2;
 
     public bool IsConsistent() =>
         BatchSize is >= 1 and <= 100

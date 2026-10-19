@@ -59,15 +59,19 @@ public sealed partial class TransactionalEmailDispatcher
             LogExhausted(exhausted);
         }
 
-        foreach (var delivery in result.Claimed)
+        var waiting = new Queue<ClaimedDelivery>(result.Claimed);
+        while (waiting.TryDequeue(out var delivery))
         {
-            await DeliverAsync(delivery, cancellationToken);
+            await DeliverAsync(delivery, waiting, cancellationToken);
         }
 
         return result.Claimed.Count;
     }
 
-    private async Task DeliverAsync(ClaimedDelivery delivery, CancellationToken cancellationToken)
+    private async Task DeliverAsync(
+        ClaimedDelivery delivery,
+        IReadOnlyCollection<ClaimedDelivery> waiting,
+        CancellationToken cancellationToken)
     {
         if (_time.GetUtcNow() >= delivery.DeadlineAt)
         {
@@ -83,9 +87,11 @@ public sealed partial class TransactionalEmailDispatcher
             return;
         }
 
-        // Uma pausa ou SDK não cooperativo pode consumir a margem do lote. Não iniciar outro envio
-        // sem posse atual e tempo para o timeout; o próximo claim recupera o trabalho abandonado.
-        if (!await _queue.CanSendAsync(delivery, _options.SendTimeout, _time, cancellationToken))
+        // Heartbeat: renova o lease desta entrega e das que ainda esperam no lote, para um lote lento não perder
+        // as últimas para outro worker. Se esta já não foi renovada (pausa longa, outro worker a assumiu), não
+        // envia; o próximo claim a recupera.
+        var renewed = await _queue.RenewLeasesAsync([delivery, .. waiting], _options.LeaseDuration, _time, cancellationToken);
+        if (!renewed.Contains(delivery.Id))
         {
             LogLeaseLost(_logger, delivery.Id);
             return;
