@@ -78,8 +78,8 @@ pessoa real só entra com consentimento assinado (documento, data e escopo de us
 
 ### Fontes ElevenLabs SFX (efeitos e ambiências)
 
-| Asset final | Conta (1 ou 2) | Modelo | Id da geração | Prompt | Duração (s) | Loop | Créditos | Data |
-|---|---|---|---|---|---|---|---|---|
+| Asset final | Conta (1 ou 2) | Plano ativo na data | Modelo | Id da geração | Prompt | Duração (s) | Loop | Créditos | Data |
+|---|---|---|---|---|---|---|---|---|---|
 
 ### Fontes Freesound (só CC0, complemento)
 
