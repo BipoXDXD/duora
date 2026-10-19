@@ -150,7 +150,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         Assert.True(await queue.RescheduleAsync(claimed, now, "IOException", now, Ct));
         var exhaustion = await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct);
         Assert.Empty(exhaustion.Claimed);
-        Assert.Equal([new ExhaustedDelivery(id, 1)], exhaustion.Exhausted);
+        Assert.Equal([new ExhaustedDelivery(id, 1, OutboxDeliveryStatus.Failed)], exhaustion.Exhausted);
         Assert.False(await queue.SettleAsync(claimed, OutboxDeliveryStatus.Delivered, null, now, Ct));
         Assert.False(await queue.RescheduleAsync(claimed, now, "IOException", now, Ct));
         Assert.False(await queue.CanSendAsync(claimed, TimeSpan.FromSeconds(30), harness.Time, Ct));
@@ -178,6 +178,24 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         Assert.Contains($"consumidor {AccountEmailOutbox.Consumer}", entry.Text, StringComparison.Ordinal);
         Assert.Contains("após 1 tentativa(s)", entry.Text, StringComparison.Ordinal);
         Assert.Equal("Failed", (await harness.ReadDeliveryAsync(id, Ct)).Status);
+    }
+
+    [Fact]
+    public async Task ExhaustedDeliveryPastItsDeadlineExpiresInsteadOfFailing()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var id = await harness.EnqueueAsync(AccountEmailKind.PasswordReset, "token", Ct);
+        await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
+        var queue = new OutboxDeliveryQueue(source);
+        var now = harness.Time.GetUtcNow();
+        Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), Ct));
+        now += AccountEmailOutbox.DeliveryWindow(AccountEmailKind.PasswordReset);
+
+        var result = await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), 1, Ct);
+
+        Assert.Equal([new ExhaustedDelivery(id, 1, OutboxDeliveryStatus.Expired)], result.Exhausted);
+        var row = await harness.ReadDeliveryAsync(id, Ct);
+        Assert.Equal(("Expired", 1, 2L, null, "{}"), (row.Status, row.Attempts, row.FencingToken, row.LastError, row.Payload));
     }
 
     [Fact]

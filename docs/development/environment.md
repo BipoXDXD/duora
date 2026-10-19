@@ -156,7 +156,8 @@ ou reduzir o lote para 2. A verificação etária mantém suas opções nomeadas
 Antes de cada envio, a fila confere token, estado e tempo restante para o timeout. Uma pausa prolongada
 pode deixar entregas para o próximo worker; não autoriza iniciar o restante do lote sem posse.
 No claim do e-mail, entregas elegíveis com tentativas esgotadas tornam-se `Failed`, com
-`last_error=MaxAttemptsExceeded`, sem incrementar tentativas nem enviar. O payload é removido quando
+`last_error=MaxAttemptsExceeded` e log `Error`, sem incrementar tentativas nem enviar; se o deadline já
+venceu, tornam-se `Expired`. O payload é removido quando
 não restam entregas abertas do evento. Inspecione status/erro sanitizado, nunca payloads ou tokens.
 
 Não há migração. Rollback de código preserva estados terminais e dados, mas reintroduz as falhas

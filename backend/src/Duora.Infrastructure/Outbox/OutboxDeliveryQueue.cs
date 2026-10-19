@@ -18,7 +18,7 @@ internal sealed record ClaimedDelivery(
     DateTimeOffset OccurredAt);
 
 /// <summary>Entrega que o claim encerrou por ter esgotado as tentativas, sem payload: não há o que enviar.</summary>
-internal sealed record ExhaustedDelivery(Guid Id, int Attempts);
+internal sealed record ExhaustedDelivery(Guid Id, int Attempts, OutboxDeliveryStatus Status);
 
 /// <summary>Resultado do claim com teto: o trabalho tomado e as entregas encerradas no mesmo comando.</summary>
 internal sealed record ClaimResult(IReadOnlyList<ClaimedDelivery> Claimed, IReadOnlyList<ExhaustedDelivery> Exhausted);
@@ -33,6 +33,7 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
 {
     private const string Pending = nameof(OutboxDeliveryStatus.Pending);
     private const string InFlight = nameof(OutboxDeliveryStatus.InFlight);
+    private const string MaxAttemptsExceeded = "MaxAttemptsExceeded";
 
     // Uma entrega em voo cujo lease venceu volta a ser elegível: o worker que a tinha pode ter caído. Retomar
     // conta como nova tentativa e troca o token, o que invalida qualquer conclusão do dono anterior.
@@ -50,11 +51,12 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         ),
         exhausted as (
             update ops.outbox_deliveries d
-            set status = 'Failed', completed_at = @now, lease_expires_at = null,
-                last_error = 'MaxAttemptsExceeded', fencing_token = d.fencing_token + 1
+            set status = case when d.deadline_at <= @now then @expired else @failed end,
+                last_error = case when d.deadline_at <= @now then null else @max_attempts_exceeded end,
+                completed_at = @now, lease_expires_at = null, fencing_token = d.fencing_token + 1
             from candidates c
             where d.id = c.id and d.attempts >= @max_attempts
-            returning d.id, d.fencing_token, d.attempts, d.deadline_at, d.outbox_event_id
+            returning d.id, d.fencing_token, d.attempts, d.deadline_at, d.outbox_event_id, d.status
         ),
         claimed as (
             update ops.outbox_deliveries d
@@ -67,10 +69,10 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
             returning d.id, d.fencing_token, d.attempts, d.deadline_at, d.outbox_event_id
         )
         select c.id, c.fencing_token, c.attempts, c.deadline_at, e.type, e.payload::text, e.occurred_at,
-               c.outbox_event_id, true as is_claimed
+               c.outbox_event_id, true as is_claimed, null as final_status
         from claimed c join ops.outbox_events e on e.id = c.outbox_event_id
         union all
-        select x.id, x.fencing_token, x.attempts, x.deadline_at, null, null, null, x.outbox_event_id, false
+        select x.id, x.fencing_token, x.attempts, x.deadline_at, null, null, null, x.outbox_event_id, false, x.status
         from exhausted x
         """;
 
@@ -100,8 +102,8 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         (await ClaimWithAttemptLimitAsync(consumer, batchSize, now, leaseUntil, int.MaxValue, cancellationToken)).Claimed;
 
     /// <summary>
-    /// Toma o lote e, no mesmo comando, encerra como <c>Failed</c> os candidatos que já esgotaram
-    /// <paramref name="maxAttempts"/>. Esgotadas ocupam espaço no lote, mas nunca voltam como trabalho a enviar;
+    /// Toma o lote e, no mesmo comando, encerra os candidatos que já esgotaram <paramref name="maxAttempts"/>:
+    /// <c>Expired</c> se o deadline já passou (nada mais a fazer), senão <c>Failed</c> para revisão. Esgotadas ocupam espaço no lote, mas nunca voltam como trabalho a enviar;
     /// voltam em <see cref="ClaimResult.Exhausted"/> para o consumidor registrá-las.
     /// </summary>
     public async Task<ClaimResult> ClaimWithAttemptLimitAsync(
@@ -117,6 +119,9 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
         await using var command = new NpgsqlCommand(ClaimSql, connection, transaction);
         command.Parameters.AddWithValue("max_attempts", maxAttempts);
+        command.Parameters.AddWithValue("expired", nameof(OutboxDeliveryStatus.Expired));
+        command.Parameters.AddWithValue("failed", nameof(OutboxDeliveryStatus.Failed));
+        command.Parameters.AddWithValue("max_attempts_exceeded", MaxAttemptsExceeded);
         command.Parameters.AddWithValue("consumer", consumer);
         command.Parameters.AddWithValue("batch_size", batchSize);
         command.Parameters.AddWithValue("now", now);
@@ -133,7 +138,8 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
             {
                 if (!reader.GetBoolean(8))
                 {
-                    exhausted.Add(new ExhaustedDelivery(reader.GetGuid(0), reader.GetInt32(2)));
+                    exhausted.Add(new ExhaustedDelivery(
+                        reader.GetGuid(0), reader.GetInt32(2), Enum.Parse<OutboxDeliveryStatus>(reader.GetString(9))));
                     exhaustedEvents.Add(reader.GetGuid(7));
                     continue;
                 }

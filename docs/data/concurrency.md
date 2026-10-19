@@ -318,8 +318,9 @@ duas vezes; por isso o fornecedor recebe chave de idempotência e o destinatári
 
 Nomes da implementação do M1 (`OutboxDeliveryQueue`): o claim filtra por `consumer`, e a expiração por deadline é
 decidida pelo consumidor depois do claim, encerrando a entrega como `Expired`.
-O e-mail fornece `MaxAttempts`: no mesmo comando, candidatos esgotados passam a `Failed`, recebem
-`completed_at`, `MaxAttemptsExceeded`, lease nulo e token incrementado, sem nova tentativa. O comando
+O e-mail fornece `MaxAttempts`: no mesmo comando, candidatos esgotados passam a `Failed` com
+`MaxAttemptsExceeded` (ou a `Expired`, sem erro, se o `deadline_at` já venceu), recebem `completed_at`,
+lease nulo e token incrementado, sem nova tentativa. O comando
 só retorna como trabalho os candidatos abaixo do teto; as esgotadas voltam à parte (`ClaimResult.Exhausted`,
 id e tentativas, sem ler o payload) e o dispatcher registra cada uma em `Error`, com id, consumidor e
 tentativas. Candidatos são limitados pelo lote e trancados com `SKIP LOCKED`;
