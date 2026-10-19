@@ -63,6 +63,7 @@ export const ptBR = {
   'validation.termsRequired': 'Para criar a conta, aceite os Termos de uso.',
   'validation.privacyRequired': 'Para criar a conta, confirme que leu a Política de privacidade.',
   'validation.totpCodeInvalid': 'Informe o código de 6 dígitos do autenticador.',
+  'validation.recoveryCodeInvalid': 'Informe um dos seus códigos de recuperação.',
   'validation.invalidValue': 'Confira o valor deste campo.',
 
   'navigation.pageLoaded': 'Página carregada: {title}',
@@ -121,7 +122,10 @@ export const ptBR = {
   'login.submitting': 'Entrando…',
   'login.invalidCredentials': 'E-mail ou senha incorretos.',
   'login.mfaRequired':
-    'Esta conta exige segundo fator de autenticação. Informe o código do autenticador e entre novamente.',
+    'Esta conta exige segundo fator de autenticação. Informe o código do autenticador ou um código de recuperação e entre novamente.',
+  'login.recoveryCode': 'Código de recuperação',
+  'login.useRecoveryCode': 'Usar um código de recuperação',
+  'login.useAuthenticatorCode': 'Usar o código do autenticador',
   'login.sessionExpired': 'Sua sessão expirou. Entre de novo para continuar.',
   'login.signInRequired': 'Entre para continuar.',
   'login.signedOut': 'Você saiu da sua conta.',

@@ -44,6 +44,19 @@ export const totpCodeSchema = z
   .transform((code) => code.replace(/\s/g, ''))
   .pipe(z.string().regex(/^\d{6}$/, 'validation.totpCodeInvalid' satisfies ValidationKey))
 
+/** Teto do servidor para o código de recuperação (RequestValidation.RecoveryCode). */
+export const RECOVERY_CODE_MAX_LENGTH = 32
+
+/**
+ * Código de recuperação, alternativa ao TOTP no login (API-A04). O servidor confere o valor; aqui só se exige
+ * preenchimento e o teto, sem os espaços das pontas que uma cópia costuma trazer.
+ */
+export const recoveryCodeSchema = z
+  .string()
+  .trim()
+  .min(1, 'validation.recoveryCodeInvalid' satisfies ValidationKey)
+  .max(RECOVERY_CODE_MAX_LENGTH, 'validation.recoveryCodeInvalid' satisfies ValidationKey)
+
 /**
  * Parâmetros dos links de e-mail, no fragmento (`#userId=…&token=…`): o fragmento não vai ao
  * servidor, aos logs de acesso nem ao Referer (TM-19). É dado externo: só vale com userId UUID e
