@@ -85,6 +85,8 @@ Nada abaixo foi implementado neste PR. Cada item tem uma issue; os que envolvem 
 
 ### 1. `region_code` além das UF
 
+Issue: #78 (espera decisão).
+
 Hoje: `profiles.profiles.region_code text null` com `ck_profiles_region_code` aceitando só as 27 UFs
 (`20261016062338_ProfileRegion.cs`, `ProfileRecord.cs:48`), `RegionCode.All` no Core, `enum` no OpenAPI e
 `REGION_CODES` com 27 rótulos no frontend (`profile-region.ts`). Uma pessoa em Boston não consegue informar região.
@@ -108,6 +110,8 @@ Custo principal: uma tabela de referência e seed por país habilitado, e a defi
 
 ### 2. Conteúdo das experiências em PT-BR e EN-US
 
+Issue: #79 (a lacuna de pareamento por idioma espera decisão).
+
 Hoje: os descritores acessíveis das duas experiências são strings PT-BR no Core
 (`ConstellationRules.cs:125-144`, `UnlikelyRoutesRules.cs:134` em diante; 16 literais com acento em cada arquivo), e o conteúdo de catálogo
 (`CatalogText`) é um texto por campo, sem idioma.
@@ -121,6 +125,8 @@ Lacuna de produto (pareamento por idioma): um par com idiomas diferentes joga o 
 traduzido. Decidir se o idioma entra na elegibilidade do pareamento (spec 5.1) ou se o par bilíngue é aceito.
 
 ### 3. Textos da interface, dos e-mails e dos erros
+
+Issue: #80.
 
 Estado atual (levantado em 71381f2):
 
@@ -152,6 +158,8 @@ atuais, porque rota localizada duplica links de e-mail e testes).
 
 ### 4. Datas, fusos, números e moeda
 
+Issue: #81.
+
 Hoje: datas da SPA por `Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' })` sem o fuso no texto
 (`translator.ts:38`); o fuso exibido em eventos ainda não existe na SPA; o exemplo de design usa `BRT`
 ([screens.md](../../design/screens.md)); os avisos de segurança por e-mail mostram o instante em UTC
@@ -166,6 +174,8 @@ implícito; telefone, se um dia entrar, em E.164. Teste de aceite: a mesma data 
 `America/New_York` e `America/Sao_Paulo`, no fuso do evento e no da pessoa.
 
 ### 5. Contato de suporte
+
+Issue: #82 (espera decisão).
 
 Ver o último item da proposta 3; fica numa issue própria porque depende da definição do canal de atendimento (spec
 12.5), não só de código.
@@ -193,7 +203,7 @@ latência do Brasil até Boston precisa entrar no ensaio de capacidade (spec 15.
 - Revisão manual: todo PR que acrescenta texto voltado à pessoa usuária traz as duas versões (já garantido na SPA
   por `catalog.test.ts` e no e-mail por `AccountEmailLanguageTests`; conteúdo de experiência e erros da API ganham
   teste equivalente nas propostas 2 e 3).
-- Issues das propostas 1 a 5, abertas junto com este ADR, e o PR de cada uma com testes.
+- Issues das propostas 1 a 5 (#78 a #82), abertas junto com este ADR, e o PR de cada uma com testes.
 - Lacunas jurídicas J-01 a J-12 em [data-map.md](../../privacy/data-map.md#jurisdições-a-confirmar): cada uma
   bloqueia dados reais da jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 
