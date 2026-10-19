@@ -11,9 +11,9 @@ task id da geração.
 |---|---|---|---|
 | Tripo | Imagem (GPT Image 2.5, Nano Banana Pro) e modelo 3D | Pago, do responsável pelo produto | Conforme informado pelo responsável; termos não verificados (ver abaixo) |
 | Rodin (Hyper3D) | Modelo 3D (fonte offline e GLB em tempo real) | Business, do responsável pelo produto (decisão de 2026-10-19) | Conforme informado pelo responsável; termos não verificados. O responsável registra aqui o link e a data em que leu a cláusula de uso comercial |
-| ElevenLabs | Voz sintética (TTS) e música | **Creator** (decisão do responsável, 2026-10-19) | Termos em <https://elevenlabs.io/terms-of-use>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `ELEVENLABS_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth (metadados em <https://api.us.elevenlabs.io/.well-known/oauth-protected-resource>; fluxo a confirmar no primeiro uso) |
-| Freesound | Efeitos sonoros | Gratuito; **só CC0** | Licença CC0 por som, conferida na página de cada um (<https://freesound.org/help/faq/>); nada com voz identificável |
-| Sonniss | Efeitos sonoros (pacotes) | Pacotes baixados pelo responsável | Licença do pacote (<https://sonniss.com/gameaudiogdc>) proíbe redistribuir som avulso; como o repositório é público, só o mix final entra no Git (termo exato a confirmar) |
+| ElevenLabs | Voz sintética (TTS), música e, como fonte principal, efeitos e ambiências (SFX v2, `eleven_text_to_sound_v2`) | **Creator**, duas contas do responsável (decisões de 2026-10-19) | Termos em <https://elevenlabs.io/terms-of-use>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `ELEVENLABS_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth (metadados em <https://api.us.elevenlabs.io/.well-known/oauth-protected-resource>; fluxo a confirmar no primeiro uso) |
+| Freesound | Efeitos sonoros (complemento) | Gratuito; **só CC0** | Licença CC0 por som, conferida na página de cada um (<https://freesound.org/help/faq/>); nada com voz identificável |
+| Sonniss | Efeitos sonoros em pacotes (complemento) | Pacotes baixados pelo responsável | Licença do pacote (<https://sonniss.com/gameaudiogdc>) proíbe redistribuir som avulso; como o repositório é público, só o mix final entra no Git (termo exato a confirmar) |
 
 ## Ilustrações de objetos (`frontend/src/shared/ui/illustrations/`)
 
@@ -73,15 +73,20 @@ seguintes, ligadas pelo nome do arquivo final. A transcrição é o texto da fal
 Voz da Voice Library: registrar o `voice_id` e o prazo de retirada que a autora da voz pode exercer. Voz clonada de
 pessoa real só entra com consentimento assinado (documento, data e escopo de uso) na última coluna.
 
-| Asset final | Plano ativo na data | `voice_id` | Modelo | Id da geração | Formato de saída | Data | Voice Library: prazo de retirada | Voz clonada: consentimento |
+| Asset final | Conta (1 ou 2) | Plano ativo na data | `voice_id` | Modelo | Id da geração | Formato de saída | Créditos | Data | Voice Library: prazo de retirada | Voz clonada: consentimento |
+|---|---|---|---|---|---|---|---|---|---|---|
+
+### Fontes ElevenLabs SFX (efeitos e ambiências)
+
+| Asset final | Conta (1 ou 2) | Modelo | Id da geração | Prompt | Duração (s) | Loop | Créditos | Data |
 |---|---|---|---|---|---|---|---|---|
 
-### Fontes Freesound (só CC0)
+### Fontes Freesound (só CC0, complemento)
 
 | Asset final | URL | ID | Autor | Licença | Data do download |
 |---|---|---|---|---|---|
 
-### Fontes Sonniss
+### Fontes Sonniss (complemento)
 
 O arquivo original do pacote nunca entra no repositório.
 
