@@ -186,3 +186,13 @@ validade e o desdobramento "elegível é `VerifiedAdult` cujo `expires_at` é po
 - TM-64: `EndpointAuthorizationTests` com `/webhooks/{provider}` na allowlist; T-01 parcial pela policy
   `EligibleParticipant` (A4).
 - Revisão humana obrigatória (autorização e integração externa, [permissions.md](../../automation/permissions.md)).
+
+## Adendo (2026-10-19): maioridade por jurisdição
+
+Com o público principal fora do Brasil ([ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md)), "adulto" deixa de
+ter um só significado: a maioridade e as regras de verificação etária dependem da jurisdição da pessoa (lacuna J-05
+em [data-map.md](../../privacy/data-map.md#jurisdições-a-confirmar)). O fluxo desta decisão não muda: o Duora não
+calcula idade, só recebe do fornecedor um resultado `VerifiedAdult`, `NotAdult` ou `Inconclusive` (`AgeCheckOutcome`; o código não tem idade
+mínima nem data de nascimento). O que fica em aberto é o critério que a política versionada passa ao fornecedor (idade
+mínima por país ou subdivisão) e se um fornecedor cobre todos os países do lançamento. A decisão do dono de não fazer
+análise jurídica do ECA Digital (adendo de 2026-10-16) continua valendo para o Brasil.
