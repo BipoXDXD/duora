@@ -73,7 +73,7 @@ padrão) e mantém a spec rastreável.
 | Onde | Antes | Agora |
 |---|---|---|
 | spec 13.6 | "Interface inicialmente em PT-BR" | Produto inteiro em PT-BR e EN-US |
-| spec 12.1 | Título "requisitos brasileiros"; LGPD, Marco Civil e ECA Digital como o conjunto aplicável | Brasil como país provável (J-01); aplicabilidade da LGPD a confirmar (J-02); demais jurisdições como lacunas (data-map) |
+| spec 12.1 | LGPD, Marco Civil e ECA Digital como o conjunto aplicável (seção "Minimização e requisitos brasileiros") | Brasil como país provável (J-01); aplicabilidade da LGPD, inclusive a quem está fora do Brasil, a confirmar (J-02); demais jurisdições como lacunas (data-map, J-03 a J-13). O título da seção fica, com a divergência registrada logo abaixo dele, para não quebrar referências |
 | spec 15.1 | Região "próxima da maioria das pessoas do piloto" | Boston, EUA (decidido); latência a medir para o Brasil e para os países do lançamento |
 | ADR-0022 | Interface em PT-BR (padrão) e `en` | Produto inteiro em `pt-BR` e `en-US`; idioma padrão do fallback em proposta (proposta 3) |
 | ADR-0023, adendo B2, item "Jurisdição" | Transferência internacional (LGPD) só do backup | Todos os dados ficam nos EUA (fato), e o backup é uma das cópias; se há transferência (art. 33) ou coleta internacional (Res. CD/ANPD 19/2024) e qual salvaguarda é a confirmar (J-02) |
