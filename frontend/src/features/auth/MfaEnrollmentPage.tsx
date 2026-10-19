@@ -7,8 +7,9 @@ import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { TextField } from '@/shared/ui/form-fields'
-import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
+import { Page, SubmitButton } from '@/shared/ui/page'
 import { confirmMfa, startMfaEnrollment } from './auth-api'
+import { SignInAgainButton } from './SignInAgainButton'
 
 /** Segredo e códigos só em memória local; nunca no cache de consultas, URL ou armazenamento. */
 export function MfaEnrollmentPage(): React.JSX.Element {
@@ -116,7 +117,7 @@ export function MfaEnrollmentPage(): React.JSX.Element {
           </form>
         </FocusOnMount>
       )}
-      <TextLink to={paths.login}>{t('changePassword.signInAgain')}</TextLink>
+      <SignInAgainButton />
     </Page>
   )
 }

@@ -593,7 +593,9 @@ PR #71. A interface não amplia autorização: o servidor continua sendo a fonte
   códigos de recuperação ficam somente no estado local da tela; não entram em query/mutation
   data, variables, URL, storage ou log. Após salvar os códigos, a transição limpa o cache e renova
   o CSRF. O login oferece o campo TOTP quando o servidor responde `MFA_REQUIRED`.
-- Uma sessão sem autenticação recente recebe orientação para entrar novamente. O fluxo não tenta
+- Uma sessão sem autenticação recente recebe orientação para entrar novamente. O botão "Entrar
+  novamente" das duas telas chama o logout (A05) antes de ir à entrada, para a sessão restrita não
+  ficar viva no servidor; se o logout falhar por rede, a tela fica e mostra o erro. O fluxo não tenta
   reautenticar usando a senha temporária: A13 não está disponível nessa fase. A autorização de
   cinco minutos e a validade de 24 horas continuam sendo verificadas pelo backend.
 
