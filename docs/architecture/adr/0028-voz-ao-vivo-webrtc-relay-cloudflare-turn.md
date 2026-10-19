@@ -63,10 +63,12 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
 - **API-R09 (`JoinVoice`):** policy `EligibleParticipant`; sala alheia ou inexistente → `404`; sem corpo
   (corpo ou campo extra → `400`); exige a sala `Active` e consulta `CheckInteraction` do Safety (par bloqueado →
   a mesma recusa do bloqueio); idempotente: com participação aberta, devolve o mesmo resultado sem linha nova;
-  responde `204`.
+  responde `204`. Rate limit por conta e por IP e teto de entradas no banco
+  ([Limites de uso e custo](#limites-de-uso-e-custo)).
 - **API-R10 (`LeaveVoice`):** policy `EligibleParticipant` (o "sempre permitido" não dispensa a policy); sem
   corpo; responde `204` em qualquer caso, inclusive sala alheia ou pessoa já fora da voz, para não virar
-  oráculo; um segundo DELETE não gera nova intenção na outbox.
+  oráculo; um segundo DELETE não gera nova intenção na outbox. Rate limit por conta e por IP acima do de API-R09
+  ([Limites de uso e custo](#limites-de-uso-e-custo)).
 
 ### Autorização
 
@@ -78,7 +80,8 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
 
 - Emitidas por **`POST /api/v1/rooms/{roomId}/voice/credentials`** (API-R08), só para quem entrou na voz;
   terceiro e participante de outra sala recebem `404`, igual a sala inexistente (ADR-0016).
-- Antiforgery e `Origin` validados, rate limit por conta e por sala, resposta com `Cache-Control: no-store`.
+- Antiforgery e `Origin` validados, rate limit por conta e por IP e teto de emissões por participação
+  ([Limites de uso e custo](#limites-de-uso-e-custo)), resposta com `Cache-Control: no-store`.
   Credencial nunca em URL, log ou telemetria.
 - **TTL de cerca de 5 min**, nunca além do fim da sessão de jogo, com renovação pelo mesmo endpoint, que
   revalida a participação a cada vez.
@@ -120,7 +123,8 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   participante. É uma exceção delimitada ao ADR-0007 (adendo de 2026-10-19): o hub carrega oferta, resposta e
   candidatos, dados de transporte efêmeros que não são persistidos.
 - DTO estrito (tipo, `sdp` ou `candidate`, id da sessão de voz), campo desconhecido rejeitado, teto de cerca de
-  16 KiB por mensagem e **rate limit por conexão**.
+  16 KiB por mensagem, **rate limit por conexão, por conta e por IP** e teto de mensagens por participação
+  ([Limites de uso e custo](#limites-de-uso-e-custo)).
 - O servidor rejeita candidato que não seja `typ relay`, inclusive as linhas `a=candidate` dentro do SDP, e
   rejeita (ou normaliza para `0.0.0.0`/`0`) `raddr`/`rport` diferentes de `0.0.0.0`, que podem carregar o IP
   público (mapeado) de quem enviou. **Esse filtro só pega erro de cliente honesto.** Quem protege a vítima é o próprio
@@ -134,6 +138,28 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
    conecta.
 2. Descarta todo candidato remoto que não seja `typ relay`.
 3. Depois de conectar, lê `getStats()`: se o par de candidatos selecionado não for relay/relay, fecha a conexão.
+
+### Limites de uso e custo
+
+Regra do dono (2026-10-19): toda operação disparada pela pessoa, e toda que custa dinheiro, tem rate limit por
+conta e por IP, teto de tentativas e `429` com `Retry-After`. A voz custa nos dois sentidos: a Cloudflare cobra o
+TURN por GB transferido, e cada emissão e revogação é uma chamada à API dela. Os números são **hipóteses** a medir
+e versionar (spec 11.5). O rate limit fica em memória, nas duas partições ao mesmo tempo (conta e IP, como em
+`PhotoUploadRateLimiting`); os tetos que protegem custo ficam **no banco** (spec 11.5), contados na mesma transação
+do efeito e sob lock, nunca contar e depois inserir sem lock.
+
+| Operação | Rate limit (conta **e** IP) | Teto no banco | Acima do limite |
+|---|---|---|---|
+| API-R09 `JoinVoice` | 10 por 10 min em cada partição | 5 entradas por pessoa e sessão de jogo, contadas em `voice_participation` sob o lock do coordenador da sessão; 120 min de voz por conta por dia UTC, somando `joined_at`–`left_at` | `429` com `Retry-After`: fim da janela do rate limit; fim da sessão de jogo (teto por sessão); início do próximo dia UTC (teto diário) |
+| API-R08 credencial | 20 por 10 min em cada partição | 10 emissões por participação (com renovação a cada ~5 min, cerca de 50 min de voz; revisar com a duração real da sessão de jogo), contadas em `voice_credentials` sob o lock da participação; no máximo 2 credenciais não vencidas por participação; o teto diário de minutos de API-R09 também vale aqui | `429` com `Retry-After`: fim da janela; fim da sessão de jogo (teto por participação); início do próximo dia UTC (teto diário) |
+| API-R10 `LeaveVoice` | 30 por 10 min em cada partição, acima do de API-R09 | Nenhum além da idempotência: só a saída que fecha uma participação aberta grava intenção na outbox | `429` com `Retry-After`. A saída nunca depende da resposta: o cliente fecha a `RTCPeerConnection` e para o microfone antes de chamar API-R10, e o fail-closed do hub e o fim da sessão fecham a participação no servidor |
+| `SendVoiceSignal` (hub) | 60 mensagens por 10 s por conexão, por conta e por IP | 300 mensagens por participação | Erro do hub com o código `RATE_LIMITED` e `retryAfterSeconds` (o equivalente do `429` com `Retry-After`, que o hub não tem); acima do teto por participação, o servidor aplica `LeaveVoice` a ela |
+
+Custo agregado, que nenhum limite por pessoa cobre sozinho: orçamento mensal de GB do TURN na conta da Cloudflare
+(valor a definir pelo responsável), com alerta a 80% e a 100%; o alerta de 100% aciona o kill switch (acionamento
+automático pelo consumo lido da API da Cloudflare é a confirmar; até lá, pelo runbook). Se a API da Cloudflare
+permite teto de bytes por credencial é **a confirmar**; sem isso, o que limita o gasto de uma credencial é o TTL de
+~5 min, a revogação e o teto diário de minutos.
 
 ### Controles
 
@@ -218,8 +244,16 @@ Testes previstos (a criar com a implementação; nenhum existe hoje):
   voz (teste de arquitetura sobre o mapeamento do EF Core).
 - **Endpoint (API-R08):** participante que entrou na voz recebe credencial; terceiro e participante de outra sala
   recebem `404` sem dado da sala; conta sem `EligibleParticipant` recebe a recusa da policy; sem antiforgery ou
-  com origem indevida → `403` `CSRF_VALIDATION_FAILED`; acima do rate limit → `429` com `Retry-After`; resposta
-  com `no-store`; TTL nunca passa de ~5 min nem do fim da sessão; todo username fica em `voice_credentials`.
+  com origem indevida → `403` `CSRF_VALIDATION_FAILED`; resposta com `no-store`; TTL nunca passa de ~5 min nem do
+  fim da sessão; todo username fica em `voice_credentials`.
+- **Limites de uso e custo** (um teste por linha da tabela, cada um falhando sem a mitigação):
+  `VoiceCredentialIsRateLimitedPerAccount`, `VoiceCredentialIsRateLimitedPerIp` (a contagem por IP vale trocando de
+  conta), `JoinVoiceIsRateLimitedPerAccountAndIp`, `LeaveVoiceIsRateLimitedPerAccountAndIp` (N+1 → `429` com
+  `Retry-After`); `VoiceCredentialsAboveThePerParticipationCapAreRefused`, `JoinVoiceAboveThePerSessionCapIsRefused`,
+  `JoinVoiceAboveTheDailyMinutesCapIsRefused` (teto + 1 → `429`, banco e outbox inalterados);
+  `ConcurrentJoinVoiceAtTheCapOpensOnlyOne` e `ConcurrentCredentialIssuanceAtTheCapIssuesOnlyOne` (prova
+  determinística do lock, sem `sleep`); `VoiceSignalsAreRateLimitedPerConnectionAccountAndIp` (erro
+  `RATE_LIMITED` com `retryAfterSeconds`) e `VoiceSignalsAboveThePerParticipationCapEndTheVoice`.
 - **Hub:** `SendVoiceSignal` com autorização própria (`EligibleParticipant` e participação) e só entre os dois
   participantes; DTO com campo extra, acima de 16 KiB, acima do rate limit por conexão ou com candidato não
   `typ relay` (inclusive dentro do SDP) é rejeitado; `VoiceSignalWithRelatedAddressIsRejected` (`raddr`
