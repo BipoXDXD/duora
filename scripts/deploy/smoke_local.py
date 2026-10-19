@@ -231,13 +231,7 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     index = get(context, "/", {"Accept": "text/html", "Sec-Fetch-Mode": "navigate"})
     checks.expect(index.status == 200 and b'<div id="root">' in index.body, "GET / serve o index.html da SPA")
     checks.expect(index.headers.get("cache-control") == "no-cache", "index.html com Cache-Control no-cache")
-    csp = index.header_values("content-security-policy")
-    checks.expect(is_exact_policy(csp, parse_csp, EXPECTED_CSP), f"CSP exatamente a esperada (recebido: {csp!r})")
-    permissions = index.header_values("permissions-policy")
-    checks.expect(is_exact_policy(permissions, parse_permissions_policy, EXPECTED_PERMISSIONS_POLICY),
-                  f"Permissions-Policy exatamente a esperada (recebido: {permissions!r})")
-    checks.expect("server" not in index.headers, "sem cabeçalho Server")
-    checks.expect("max-age=31536000" in index.headers.get("strict-transport-security", ""), "HSTS presente")
+    check_security_headers(checks, index, "/")
 
     asset_path = re.search(rb'src="(/assets/[^"]+\.js)"', index.body)
     checks.expect(asset_path is not None, "index.html referencia um asset com hash")
@@ -245,6 +239,7 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
         asset = get(context, asset_path.group(1).decode())
         checks.expect(asset.status == 200 and "javascript" in asset.headers.get("content-type", ""),
                       "asset com hash servido como JavaScript")
+        check_security_headers(checks, asset, "asset")
         checks.expect("immutable" in asset.headers.get("cache-control", ""), "asset com hash imutável")
     missing_asset = get(context, "/assets/nao-existe-123.js", {"Accept": "*/*"})
     checks.expect(missing_asset.status == 404 and b"<html" not in missing_asset.body.lower(),
@@ -279,9 +274,17 @@ def verify(compose: list[str], workdir: Path) -> list[str]:
     checks.expect(health.status == 404, f"/health fechado na borda (status {health.status})")
 
     # Sem sessão, o backend nega por padrão (política de fallback): 401 também prova que o upgrade chegou ao web.
-    hub_status = websocket_upgrade(context, "/hubs/updates")
+    hub_response = websocket_upgrade(context, "/hubs/updates")
+    hub_status = hub_response.status
+    check_security_headers(checks, hub_response, "hub WebSocket handshake")
     checks.expect(hub_status in (101, 401, 404),
                   f"/hubs/updates com upgrade WebSocket chega ao web: 101, 401 ou 404 do backend (status {hub_status})")
+
+    hub = get(context, "/hubs/updates", {"Accept": "application/json"})
+    for label, response in (("missing asset", missing_asset), ("SPA route", spa_route),
+                            ("missing fetch", fetch_missing), ("API", api), ("webhook", webhook),
+                            ("oversized webhook", oversized), ("health", health), ("hub HTTP", hub)):
+        check_security_headers(checks, response, label)
 
     edge_logs = run(compose + ["logs", "--no-color", "edge"])
     checks.expect(canary not in edge_logs, "log do Caddy sem query string, cookie nem Authorization")
@@ -400,6 +403,17 @@ class Checks:
             self.failures.append(description)
 
 
+def check_security_headers(checks: Checks, response: Response, label: str) -> None:
+    csp = response.header_values("content-security-policy")
+    permissions = response.header_values("permissions-policy")
+    checks.expect(is_exact_policy(csp, parse_csp, EXPECTED_CSP), f"{label}: CSP exata e única: {csp!r}")
+    checks.expect(is_exact_policy(permissions, parse_permissions_policy, EXPECTED_PERMISSIONS_POLICY),
+                  f"{label}: Permissions-Policy exata e única: {permissions!r}")
+    checks.expect("server" not in response.headers, f"{label}: sem Server")
+    checks.expect("max-age=31536000" in response.headers.get("strict-transport-security", ""),
+                  f"{label}: HSTS presente")
+
+
 def get(context: ssl.SSLContext, path: str, headers: dict[str, str] | None = None) -> Response:
     return request(context, "GET", path, None, headers)
 
@@ -417,7 +431,7 @@ def request(context: ssl.SSLContext, method: str, path: str, body: bytes | None 
         connection.close()
 
 
-def websocket_upgrade(context: ssl.SSLContext, path: str) -> int:
+def websocket_upgrade(context: ssl.SSLContext, path: str) -> Response:
     connection = http.client.HTTPSConnection(DOMAIN, 443, context=context, timeout=10)
     try:
         connection.request("GET", path, headers={
@@ -428,7 +442,11 @@ def websocket_upgrade(context: ssl.SSLContext, path: str) -> int:
             "Sec-WebSocket-Key": base64.b64encode(os.urandom(16)).decode("ascii"),
             "Origin": f"https://{DOMAIN}",
         })
-        return connection.getresponse().status
+        response = connection.getresponse()
+        raw_headers = response.getheaders()
+        # Não ler o corpo após 101: a conexão já virou um stream WebSocket.
+        return Response(response.status, {k.lower(): v for k, v in raw_headers}, b"",
+                        response.headers.get_all("Set-Cookie") or [], raw_headers)
     finally:
         connection.close()
 
