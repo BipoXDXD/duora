@@ -334,12 +334,29 @@ um ao outro ainda aberto e ambos deixar o payload com tokens retido. Depois do l
 não adquire locks de entregas. Cancelamento antes do commit desfaz também as transições e o fencing;
 o envio externo continua fora da transação.
 
-Para o e-mail, o boot exige `BatchSize × SendTimeout ≤ LeaseDuration / 2` (padrão: 10 × 30 s ≤ 10 min / 2).
-Antes de chamar o fornecedor, o dispatcher consulta novamente estado, token e lease com tempo restante
-superior ao timeout do envio, comparando a expiração retornada com o relógio **após** aguardar a consulta.
-A espera pelo pool/banco também consome esse orçamento. A guarda evita começar os próximos itens depois de uma pausa prolongada;
-não elimina a janela entre a consulta e a chamada externa. Interrupção após o envio e antes do ACK
-continua dependendo da chave idempotente estável no fornecedor (ADR-0008).
+**Heartbeat** (transação curta, antes de cada envio): o lease é explícito por consumidor (e-mail: 2 min, em
+`Outbox:LeaseDuration`; verificação etária: `AgeVerification:Dispatch:LeaseDuration`). Antes de chamar o
+fornecedor, o dispatcher de e-mail renova o lease da entrega atual **e das que ainda esperam no lote**:
+
+```sql
+UPDATE ops.outbox_deliveries AS d
+SET lease_expires_at = $now + $lease
+FROM unnest($ids, $tokens) AS owned(id, fencing_token)
+WHERE d.id = owned.id AND d.fencing_token = owned.fencing_token
+  AND d.status = 'InFlight' AND d.lease_expires_at > $now
+RETURNING d.id;
+```
+
+A entrega atual ausente do retorno perdeu a posse (lease vencido numa pausa, ou outro worker a assumiu) e não é
+enviada; o próximo claim a recupera. O heartbeat nunca ressuscita lease vencido nem token antigo. Renovar só a
+entrega atual não basta: as que esperam no lote continuariam com o lease do claim e venceriam num lote lento.
+`$now` é lido **depois** de obter a conexão, porque a espera pelo pool também consome o lease.
+
+Com o heartbeat, entre duas renovações cabe um envio, a conclusão e o heartbeat seguinte, seja qual for o lote.
+O boot do worker exige `SendTimeout ≤ LeaseDuration / 2` (padrão: 30 s ≤ 1 min); a outra metade é a margem
+para conclusão, pool e banco. O heartbeat não elimina a janela entre a renovação e a chamada externa, nem a
+interrupção depois do envio e antes do ACK: essas continuam dependendo da chave idempotente estável no fornecedor
+(ADR-0008).
 
 Jobs (`ops.jobs`) usam o mesmo claim, lease e fencing, com as diferenças do
 [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md): estado final `Done` e `Cancelled`

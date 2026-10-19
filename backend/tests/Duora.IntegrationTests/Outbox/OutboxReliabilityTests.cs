@@ -12,12 +12,11 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Theory]
-    [InlineData(10, 30, 120, false)]
-    [InlineData(10, 30, 599, false)]
-    [InlineData(10, 30, 600, true)]
-    [InlineData(2, 30, 120, true)]
-    [InlineData(0, 30, 120, false)]
-    public void BatchBudgetIncludesEverySendAndSafetyMargin(int batch, int timeout, int lease, bool valid)
+    [InlineData(10, 60, 120, true)]
+    [InlineData(10, 61, 120, false)]
+    [InlineData(100, 30, 120, true)]
+    [InlineData(1, 0, 120, false)]
+    public void SendBudgetIsHalfTheLeaseWhateverTheBatchSize(int batch, int timeout, int lease, bool valid)
     {
         var options = new OutboxDispatchOptions
         {
@@ -25,21 +24,31 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
             SendTimeout = TimeSpan.FromSeconds(timeout),
             LeaseDuration = TimeSpan.FromSeconds(lease),
         };
-        Assert.Equal(valid, options.HasBatchLeaseBudget());
+        Assert.Equal(valid, options.HasSendLeaseBudget());
     }
 
     [Fact]
-    public void BatchBudgetDoesNotOverflowForExtremeTimeout()
+    public void SendBudgetDoesNotOverflowForExtremeTimeout()
     {
         var options = new OutboxDispatchOptions { SendTimeout = TimeSpan.MaxValue };
-        Assert.False(options.HasBatchLeaseBudget());
+        Assert.False(options.HasSendLeaseBudget());
+    }
+
+    [Theory]
+    [InlineData("--Outbox:SendTimeout=00:01:01")]
+    [InlineData("--Outbox:LeaseDuration=00:00:59")]
+    public async Task UnsafeEmailConfigurationIsRejected(string unsafeSetting)
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        Assert.Throws<OptionsValidationException>(() => harness.StartWorker([unsafeSetting]));
     }
 
     [Fact]
-    public async Task UnsafeEmailConfigurationIsRejected()
+    public async Task FullBatchWithTwoMinuteLeaseIsAcceptedBecauseTheLeaseIsRenewedPerSend()
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
-        Assert.Throws<OptionsValidationException>(() => harness.StartWorker(["--Outbox:LeaseDuration=00:02:00"]));
+        var worker = harness.StartWorker(["--Outbox:BatchSize=100", "--Outbox:LeaseDuration=00:02:00", "--Outbox:SendTimeout=00:01:00"]);
+        Assert.Equal(0, await worker.DispatchBatchAsync(Ct));
     }
 
     [Fact]
@@ -86,7 +95,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         var stale = harness.StartWorker(decorateSender: inner => new CallbackSender(async (email, key, _) =>
         {
             calls++;
-            harness.Time.Advance(TimeSpan.FromMinutes(11));
+            harness.Time.Advance(TimeSpan.FromMinutes(3));
             await inner.SendAsync(email, key, Ct);
         }));
         Assert.Equal(3, await stale.DispatchBatchAsync(Ct));
@@ -153,7 +162,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         Assert.Equal([new ExhaustedDelivery(id, 1, OutboxDeliveryStatus.Failed)], exhaustion.Exhausted);
         Assert.False(await queue.SettleAsync(claimed, OutboxDeliveryStatus.Delivered, null, now, Ct));
         Assert.False(await queue.RescheduleAsync(claimed, now, "IOException", now, Ct));
-        Assert.False(await queue.CanSendAsync(claimed, TimeSpan.FromSeconds(30), harness.Time, Ct));
+        Assert.Empty(await queue.RenewLeasesAsync([claimed], TimeSpan.FromMinutes(2), harness.Time, Ct));
         var row = await harness.ReadDeliveryAsync(id, Ct);
         Assert.Equal(("Failed", 1, "{}"), (row.Status, row.Attempts, row.Payload));
     }
@@ -248,11 +257,62 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         Assert.Empty(harness.MailFiles());
     }
 
+    [Fact]
+    public async Task HeartbeatExtendsTheLeaseFromTheCurrentInstant()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var id = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "token", Ct);
+        await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
+        var queue = new OutboxDeliveryQueue(source);
+        var now = harness.Time.GetUtcNow();
+        var delivery = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), Ct));
+        harness.Time.Advance(TimeSpan.FromSeconds(90));
+
+        Assert.Equal([id], await queue.RenewLeasesAsync([delivery], TimeSpan.FromMinutes(2), harness.Time, Ct));
+
+        var row = await harness.ReadDeliveryAsync(id, Ct);
+        Assert.Equal(("InFlight", 1, 1L), (row.Status, row.Attempts, row.FencingToken));
+        Assert.Equal(now.AddSeconds(90).AddMinutes(2), row.LeaseExpiresAt!.Value, TimeSpan.FromMilliseconds(1));
+    }
+
+    [Fact]
+    public async Task HeartbeatAfterTheLeaseExpiredDoesNotRenewIt()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var id = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "token", Ct);
+        await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
+        var queue = new OutboxDeliveryQueue(source);
+        var now = harness.Time.GetUtcNow();
+        var delivery = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), Ct));
+        harness.Time.Advance(TimeSpan.FromMinutes(2));
+
+        Assert.Empty(await queue.RenewLeasesAsync([delivery], TimeSpan.FromMinutes(2), harness.Time, Ct));
+
+        var row = await harness.ReadDeliveryAsync(id, Ct);
+        Assert.Equal(now.AddMinutes(2), row.LeaseExpiresAt!.Value, TimeSpan.FromMilliseconds(1));
+    }
+
+    [Fact]
+    public async Task HeartbeatRenewsOnlyTheDeliveriesStillOwned()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var kept = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "token-1", Ct);
+        var lost = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "token-2", Ct);
+        await using var source = NpgsqlDataSource.Create(harness.ConnectionString);
+        var queue = new OutboxDeliveryQueue(source);
+        var now = harness.Time.GetUtcNow();
+        var batch = await queue.ClaimAsync(AccountEmailOutbox.Consumer, 2, now, now.AddMinutes(2), Ct);
+        var stolen = batch.Single(d => d.Id == lost);
+        Assert.True(await queue.RescheduleAsync(stolen, now, "IOException", now, Ct));
+        Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), Ct));
+
+        Assert.Equal([kept], await queue.RenewLeasesAsync(batch, TimeSpan.FromMinutes(2), harness.Time, Ct));
+    }
+
     [Theory]
-    [InlineData(89, true)]
-    [InlineData(90, false)]
-    [InlineData(121, false)]
-    public async Task SendBudgetIncludesTimeWaitingForTheConnectionPool(int elapsedSeconds, bool allowed)
+    [InlineData(119, true)]
+    [InlineData(120, false)]
+    public async Task HeartbeatReadsTheClockAfterWaitingForTheConnectionPool(int elapsedSeconds, bool renewed)
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
         await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "token", Ct);
@@ -262,15 +322,15 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         var now = harness.Time.GetUtcNow();
         var delivery = Assert.Single(await queue.ClaimAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), Ct));
 
-        Task<bool> permission;
+        Task<IReadOnlySet<Guid>> heartbeat;
         await using (var occupied = await source.OpenConnectionAsync(Ct))
         {
-            permission = queue.CanSendAsync(delivery, TimeSpan.FromSeconds(30), harness.Time, Ct);
-            Assert.False(permission.IsCompleted);
+            heartbeat = queue.RenewLeasesAsync([delivery], TimeSpan.FromMinutes(2), harness.Time, Ct);
+            Assert.False(heartbeat.IsCompleted);
             harness.Time.Advance(TimeSpan.FromSeconds(elapsedSeconds));
         }
 
-        Assert.Equal(allowed, await permission);
+        Assert.Equal(renewed, (await heartbeat).Contains(delivery.Id));
     }
 
     [Theory]

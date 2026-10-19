@@ -91,6 +91,17 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         where id = @id and fencing_token = @fencing_token and status = @in_flight and lease_expires_at > @now
         """;
 
+    // Mesma condição de posse da conclusão: o heartbeat nunca ressuscita um lease vencido nem um token antigo.
+    private const string RenewLeaseSql =
+        """
+        update ops.outbox_deliveries d
+        set lease_expires_at = @lease_until
+        from unnest(@ids, @fencing_tokens) as owned(id, fencing_token)
+        where d.id = owned.id and d.fencing_token = owned.fencing_token
+          and d.status = @in_flight and d.lease_expires_at > @now
+        returning d.id
+        """;
+
     // O teto é opt-in por consumidor: o e-mail o fornece; os consumidores sem teto (verificação etária, mídia)
     // mantêm seu contrato e compensam no domínio. Sem teto, nenhuma entrega é encerrada no claim.
     public async Task<IReadOnlyList<ClaimedDelivery>> ClaimAsync(
@@ -160,25 +171,36 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         return new ClaimResult(claimed, exhausted);
     }
 
-    /// <summary>Confere a posse e o orçamento restante antes de iniciar um efeito externo.</summary>
-    public async Task<bool> CanSendAsync(
-        ClaimedDelivery delivery,
-        TimeSpan sendTimeout,
+    /// <summary>
+    /// Heartbeat antes de um efeito externo: estende o lease das entregas que este worker ainda detém (token,
+    /// estado e lease válidos) para <c>agora + leaseDuration</c> e devolve os ids renovados. Entrega ausente do
+    /// retorno perdeu a posse e não deve ser enviada.
+    /// </summary>
+    public async Task<IReadOnlySet<Guid>> RenewLeasesAsync(
+        IReadOnlyCollection<ClaimedDelivery> deliveries,
+        TimeSpan leaseDuration,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(
-            """
-            select lease_expires_at from ops.outbox_deliveries
-            where id = @id and fencing_token = @fencing_token and status = @in_flight
-            """);
-        command.Parameters.AddWithValue("id", delivery.Id);
-        command.Parameters.AddWithValue("fencing_token", delivery.FencingToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        // A espera pelo pool também consome o lease: o instante é lido só depois de obter a conexão, nunca
+        // capturado antes de um await potencialmente longo.
+        var now = time.GetUtcNow();
+        await using var command = new NpgsqlCommand(RenewLeaseSql, connection);
+        command.Parameters.AddWithValue("ids", deliveries.Select(d => d.Id).ToArray());
+        command.Parameters.AddWithValue("fencing_tokens", deliveries.Select(d => d.FencingToken).ToArray());
+        command.Parameters.AddWithValue("now", now);
+        command.Parameters.AddWithValue("lease_until", now + leaseDuration);
         command.Parameters.AddWithValue("in_flight", InFlight);
-        // A espera pelo pool/banco também consome o lease. Ler o relógio só depois da consulta,
-        // não comparar com um instante capturado antes de um await potencialmente longo.
-        var lease = await command.ExecuteScalarAsync(cancellationToken);
-        return lease is DateTime expiresAt && expiresAt - time.GetUtcNow().UtcDateTime > sendTimeout;
+
+        var renewed = new HashSet<Guid>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            renewed.Add(reader.GetGuid(0));
+        }
+
+        return renewed;
     }
 
     /// <summary>Encerra a entrega; falso quando o lease venceu ou outro worker a assumiu.</summary>
