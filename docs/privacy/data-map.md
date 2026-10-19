@@ -2,8 +2,13 @@
 
 Finalidades, categorias de dados por tabela, base legal, fornecedores e acessos por papel. Fontes: spec 1.3,
 6.4, 8, 10.2, 12, 16.3, 19.2 e 25.15; [model.md](../data/model.md) (tabelas e classes de sensibilidade);
-[threat-model.md](../security/threat-model.md); fichas D-PRIV-01 (LGPD, Marco Civil da Internet) e D-PRIV-02
-(ECA Digital, ANPD). Prazos de guarda: [retention.md](retention.md).
+[threat-model.md](../security/threat-model.md); fichas D-PRIV-01 (LGPD, Marco Civil da Internet), D-PRIV-02
+(ECA Digital, ANPD) e D-PRIV-03 (jurisdições fora do Brasil). Prazos de guarda: [retention.md](retention.md).
+
+> **Público e jurisdição ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), 2026-10-19).** O público principal do Duora **não é brasileiro**, e todo o
+> tratamento acontece nos EUA (VPS em Boston e backup no B2 US East). As referências à LGPD neste mapa valem para
+> pessoas no Brasil; para as demais, as leis prováveis estão em [Jurisdições a confirmar](#jurisdições-a-confirmar),
+> como lacunas para o apoio jurídico, sem conclusão sobre aplicabilidade.
 
 > **Este documento não declara conformidade jurídica.** É um inventário técnico para apoiar a análise de
 > pessoa qualificada (spec 12.1). Bases legais estão **a definir com apoio jurídico**; fornecedores estão
@@ -29,17 +34,20 @@ Finalidades, categorias de dados por tabela, base legal, fornecedores e acessos 
 ## Categorias de dados por tabela
 
 Classes: P0 público, P1 interno, P2 pessoal, P3 pessoal sensível ou íntimo, S segredo
-([model.md](../data/model.md#classificação-de-sensibilidade)). "Sensível LGPD?" indica se o dado **pode**
-ser dado pessoal sensível (LGPD art. 5.º, II) ou de risco elevado; a resposta final é jurídica.
+([model.md](../data/model.md#classificação-de-sensibilidade)). "Sensível?" indica se o dado **pode** ser dado
+pessoal sensível ou de risco elevado (LGPD art. 5.º, II, para pessoas no Brasil; as categorias equivalentes de outras
+jurisdições, como a categoria especial do GDPR e os "dados sensíveis" das leis estaduais dos EUA, entram com J-03 e
+J-10); a resposta final é jurídica. "Base legal" é a da LGPD; nas outras jurisdições o conceito pode não existir ou ter
+outro nome (por exemplo, consentimento *opt-in* para dado sensível), a confirmar.
 
-| Tabela | Categorias de dado | Titular | Classe | Finalidade | Sensível LGPD? | Base legal |
+| Tabela | Categorias de dado | Titular | Classe | Finalidade | Sensível? | Base legal |
 |---|---|---|---|---|---|---|
 | `identity.users` | E-mail, hash de senha, estado da conta, data de nascimento, tentativas de login | Pessoa usuária | S / P3 | F-01, F-02 | Não, mas a data de nascimento serve à proteção etária | A definir com apoio jurídico |
 | `identity.login_sessions` | Instantes de uso, resumo do dispositivo, prefixo de rede | Pessoa usuária | P2 | F-01, F-07 | Não | A definir com apoio jurídico |
 | `identity.auth_tickets`, `identity.user_tokens` | Ticket de sessão, chave TOTP, códigos de recuperação | Pessoa usuária | S | F-01 | Não | A definir com apoio jurídico |
 | `identity.age_verifications` | Resultado mínimo, instante da decisão, instante da suspeita de menor (`NotAdult`), referência do fornecedor, versão da política | Pessoa usuária | P3 | F-02 | Possível (biometria no fornecedor, se o método usar) | A definir com apoio jurídico |
 | `identity.consent_records` | Versões de termos aceitas e instantes | Pessoa usuária | P2 | F-01, F-08 | Não | A definir com apoio jurídico |
-| `profiles.profiles` | Nome de exibição, faixa etária, região aproximada (UF em ISO 3166-2:BR, opcional; nunca cidade, CEP nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
+| `profiles.profiles` | Nome de exibição, faixa etária, região aproximada (hoje UF em ISO 3166-2:BR, opcional; país mais subdivisão proposto no ADR-0026; nunca cidade, CEP, código postal nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
 | `profiles.preferences` | Critérios privados de compatibilidade | Pessoa usuária | P3 | F-03 | **Provável** se incluírem gênero buscado ou orientação (vida sexual) | A definir com apoio jurídico |
 | `profiles.profile_photos`, `media.*` | Fotos (originais em quarentena e derivados), hash, dimensões | Pessoa usuária e terceiros fotografados | P3 | F-03, F-05 | Imagem é dado pessoal; biometria só se houver tratamento biométrico (não previsto) | A definir com apoio jurídico |
 | `events.registrations` | Inscrição, check-in, presença | Pessoa usuária | P2 | F-03 | Participar de evento de encontros pode revelar vida afetiva | A definir com apoio jurídico |
@@ -62,7 +70,7 @@ ser dado pessoal sensível (LGPD art. 5.º, II) ou de risco elevado; a resposta 
 | Registros de acesso (se aplicáveis) | Data, hora e IP de acesso | Pessoa usuária | P2 | F-10 | Não | A definir com apoio jurídico (Marco Civil, art. 15, a avaliar) |
 
 O que **não** é coletado por desenho: documento de identidade ou biometria brutos (spec 12.2), localização
-precisa (spec 1.1; a região do perfil para na UF, e o `CHECK` do banco não aceita nada mais fino), importação de redes sociais, telemetria comportamental com preferências identificáveis,
+precisa (spec 1.1; a região do perfil para na UF hoje, e na subdivisão de primeiro nível na proposta do ADR-0026; o `CHECK` do banco não aceita nada mais fino), importação de redes sociais, telemetria comportamental com preferências identificáveis,
 session replay ou gravação de digitação em telas privadas (spec 13.6), conteúdo de chat em analytics.
 
 ## Fornecedores
@@ -74,23 +82,28 @@ contrato de cada adaptador afirma esse conjunto (TM-60).
 |---|---|---|---|---|
 | Verificação etária | `IAgeEligibilityProvider` | ID de solicitação (nonce), URL de retorno fixa; o que o método exigir é coletado **pelo fornecedor**, não pelo Duora | Resultado mínimo, referência | Método proporcional, taxa de erro, contestação, acessibilidade, retenção e local de tratamento, callbacks assinados (spec 12.2, 16.3) |
 | E-mail transacional | `ITransactionalEmailSender` | Endereço, modelo e variáveis neutras (sem nome de outra pessoa, trecho de mensagem ou motivo de moderação) | Recibos, bounces, reclamações | Domínio autenticado (SPF, DKIM, DMARC), retenção de logs do fornecedor, suppression (spec 16.4) |
-| Armazenamento de fotos | `IObjectStore` (adaptador de filesystem) | Bytes de fotos (quarentena e derivados) e arquivo de exportação, no disco da VPS (Hostinger); nenhum terceiro além do provedor da VPS | — | Diretório do host com dono e modo restritos, montagem por área, cópia externa obrigatória (adendo do ADR-0010) |
+| Armazenamento de fotos | `IObjectStore` (adaptador de filesystem) | Bytes de fotos (quarentena e derivados) e arquivo de exportação, no disco da VPS (Hostinger, Boston, EUA); nenhum terceiro além do provedor da VPS | — | Diretório do host com dono e modo restritos, montagem por área, cópia externa obrigatória (adendo do ADR-0010) |
 | Backup | pgBackRest (banco e WAL) e restic (derivados das fotos), no **Backblaze B2, região US East (EUA)** | Cópia física do banco e WAL e cópia dos derivados das fotos, **cifradas no cliente** antes de sair da VPS (a Backblaze só recebe blocos cifrados; as chaves de cifra ficam na VPS e no cofre do responsável) | — | Criptografia com chave sob custódia separada, retenção, proteção contra exclusão (spec 18.3); escolhido em 2026-10-16 |
 | Monitoramento | OTLP | Telemetria filtrada, sem dado privado | — | Filtragem, retenção, controle de acesso (spec 19.2) |
 | Moderação assistida (condicional) | `IContentReviewProvider` | Só conteúdo denunciado ou upload em revisão, estritamente necessário | Rótulo e prioridade | Política de dados, retenção, proibição de treino, revisão humana (spec 12.3; ADR-0013) |
 | Agentes de desenvolvimento | — | **Nenhum dado pessoal real**; só dados sintéticos | — | INV-12; spec 6.4, 14.3 |
 
-Transferência internacional é provável em vários desses serviços; local de tratamento e salvaguardas entram
-na avaliação jurídica de cada contrato.
+Local de tratamento e salvaguardas de cada fornecedor entram na avaliação jurídica de cada contrato (J-11).
 
 ### Transferências internacionais registradas
 
-| Destino | País | Dados | Proteção técnica | Retenção no destino | Salvaguarda (LGPD, art. 33) |
-|---|---|---|---|---|---|
-| Backblaze B2, região US East (bucket próprio do Duora) | Estados Unidos | Tudo o que o banco guarda (via pgBackRest) e os derivados das fotos aprovadas (via restic); nunca a quarentena | Cifra no cliente (pgBackRest `aes-256-cbc`; restic AES-256), TLS, chave presa ao bucket e ao prefixo, File Lock `compliance` de 21 dias | Banco: janela de 14 dias + 21 de lock + 30 de lifecycle; fotos: 14 dias de snapshots + 21 + 30 ([retention.md](retention.md)) | **A definir** (registrado em 2026-10-16; sem análise jurídica nesta fase, por decisão do responsável). Antes de dados reais: escolher o mecanismo (por exemplo, cláusulas-padrão contratuais da ANPD) e registrar aqui |
+O servidor de produção fica em Boston (EUA) e o backup no Backblaze B2 US East ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)): **todos** os dados do
+Duora são tratados nos EUA. Para pessoas no Brasil, a coleta pela aplicação já põe os dados nos EUA, desde o primeiro
+request; o que antes aparecia como exceção (só o backup) passa a ser o caso geral. Para pessoas nos EUA não há
+transferência para fora do país nos destinos abaixo; para pessoas na UE ou no Reino Unido, se houver, vale J-10.
 
-A Backblaze guarda só blocos cifrados e não tem as chaves; ainda assim, o backup é cópia de dado pessoal fora do
-Brasil e conta como transferência internacional.
+| Destino | País | Dados | Proteção técnica | Retenção no destino | Salvaguarda |
+|---|---|---|---|---|---|
+| VPS de produção (Hostinger), Boston | Estados Unidos | Tudo: banco (PostgreSQL), fotos (quarentena e derivados), exportações, logs e Data Protection | TLS na borda, banco e serviços sem porta pública (spec 15.2), segredos fora do repositório, acesso administrativo por chave SSH; cifra do disco em repouso **a confirmar** com o provedor | A de cada classe em [retention.md](retention.md) | **A definir.** Pessoas no Brasil: mecanismo da LGPD art. 33 (por exemplo, cláusulas-padrão contratuais da ANPD), J-02. Pessoas na UE/Reino Unido, se houver: capítulo V do GDPR, J-10. Conferir também onde ficam o suporte e os subprocessadores da Hostinger com acesso ao host (J-11) |
+| Backblaze B2, região US East (bucket próprio do Duora) | Estados Unidos | Tudo o que o banco guarda (via pgBackRest) e os derivados das fotos aprovadas (via restic); nunca a quarentena | Cifra no cliente (pgBackRest `aes-256-cbc`; restic AES-256), TLS, chave presa ao bucket e ao prefixo, File Lock `compliance` de 21 dias | Banco: janela de 14 dias + 21 de lock + 30 de lifecycle; fotos: 14 dias de snapshots + 21 + 30 ([retention.md](retention.md)) | **A definir**, com o mesmo mecanismo da VPS (registrado em 2026-10-16 e revisto em 2026-10-19; sem análise jurídica nesta fase, por decisão do responsável) |
+
+A Backblaze guarda só blocos cifrados e não tem as chaves. O backup deixou de ser a única cópia fora do Brasil: é
+uma segunda cópia nos EUA, num provedor diferente do servidor.
 
 Limite da proteção contra exclusão das fotos: o restic deduplica, e os pacotes antigos (mais de 21 dias) que os
 snapshots recentes ainda usam ficam fora do File Lock, protegidos só pelas capacidades das chaves. A mitigação
@@ -125,7 +138,7 @@ moderação ou administração não existe (spec 8.5).
 
 ## Direitos do titular
 
-| Direito (LGPD art. 18, a confirmar no escopo jurídico) | Mecanismo técnico |
+| Direito (LGPD art. 18 para pessoas no Brasil; equivalentes de outras jurisdições em J-03 e J-10, a confirmar no escopo jurídico) | Mecanismo técnico |
 |---|---|
 | Acesso e portabilidade | API-D01, D02, D04: exportação dos dados do titular, sem decisões, evidências ou dados de terceiros (spec 12.1) |
 | Correção | API-P02, P03, N02 |
@@ -135,7 +148,9 @@ moderação ou administração não existe (spec 8.5).
 
 ## Lacunas
 
-Pendências que este mapa não resolve; cada uma bloqueia dados reais até ter dono e decisão (spec 23.2).
+Pendências que este mapa não resolve; cada uma bloqueia dados reais até ter dono e decisão (spec 23.2). Os itens 1, 4, 5
+e 6 citam a legislação brasileira e valem para pessoas no Brasil; os demais valem para todos. As outras jurisdições
+estão em [Jurisdições a confirmar](#jurisdições-a-confirmar).
 
 1. **Bases legais** de cada finalidade, inclusive para dados possivelmente sensíveis (preferências, mensagens,
    denúncias), que seguem o art. 11 da LGPD e não o art. 7.º.
@@ -153,3 +168,26 @@ Pendências que este mapa não resolve; cada uma bloqueia dados reais até ter d
    e procedimento (spec 12.5).
 7. **Fotos de terceiros** nas imagens de perfil e **terceiros mencionados** em mensagens e denúncias: tratamento
    na exportação e na exclusão.
+
+## Jurisdições a confirmar
+
+Decisão do dono de 2026-10-19 ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)): o público principal não é brasileiro. A lista abaixo mapeia as leis
+**prováveis**, para o apoio jurídico confirmar ou descartar. Nenhum item é conclusão: não diz que a lei se aplica,
+nem que não se aplica, nem o que ela exige do Duora. Os nomes vêm de conhecimento geral e precisam de fonte
+verificada (ficha D-PRIV-03 da spec) antes de virar requisito. Cada item bloqueia dados reais de pessoas na
+jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
+
+| ID | Jurisdição | Leis prováveis (a confirmar) | Pergunta para o apoio jurídico | Onde toca o Duora |
+|---|---|---|---|---|
+| J-01 | Todas | — | **Decisão de produto, antes das outras:** em que países o Duora abre o cadastro? Sem essa lista, nenhuma das linhas abaixo pode ser fechada | Elegibilidade do cadastro, `region_code` (ADR-0026, proposta 1) |
+| J-02 | Brasil | LGPD; Marco Civil; ECA Digital (decisão do dono de 2026-10-16 mantida) | Com servidor e backup nos EUA, qual o mecanismo de transferência (art. 33) e quem é o encarregado (art. 41)? | Tabela de transferências acima; lacunas 1, 4, 5 e 6 |
+| J-03 | EUA, estados | Leis estaduais abrangentes de privacidade do consumidor (Califórnia CCPA/CPRA; Virgínia, Colorado, Connecticut, Texas, entre outras) | Os limiares de aplicabilidade (receita, número de residentes, venda de dados) alcançam o Duora? Preferências, vida afetiva e orientação são "dados sensíveis" com *opt-in*? Há avaliação de impacto obrigatória? Que direitos e prazos de resposta? | `profiles.preferences`, `social.decisions`, mensagens; direitos do titular; aviso de privacidade |
+| J-04 | EUA, estados | Washington My Health My Data Act e leis parecidas; leis de biometria (Illinois BIPA, Texas CUBI) | Algum dado do Duora cai em "dado de saúde do consumidor"? O método de verificação etária do fornecedor usa biometria ou estimativa facial e, se usar, que consentimento e retenção exige? | F-02 e fornecedor de verificação etária; fotos (não há tratamento biométrico previsto) |
+| J-05 | Todas (idade) | Maioridade civil por estado (18 na maioria dos estados dos EUA; 19 e 21 em alguns, a confirmar); COPPA (menores de 13, federal); leis estaduais de verificação etária e de proteção de menores online, em mudança e em litígio; ECA Digital no Brasil | Qual a idade mínima por jurisdição? Que método de verificação é aceitável em cada uma? Quais obrigações surgem ao descobrir uma conta de menor (COPPA, se menor de 13)? | `AgeCheckOutcome` e política versionada (ADR-0024, adendo de 2026-10-19); suspeita de menor (spec 12.2) |
+| J-06 | EUA, estados | Leis estaduais de serviços de encontro online (por exemplo, Nova Jersey e Texas) | Quais estados exigem avisos de segurança, divulgação sobre checagem de antecedentes ou outro requisito para serviços de encontro? O formato de evento do Duora é "serviço de encontro" nessas leis? | Telas de cadastro e de evento; e-mails; documentos voltados ao usuário |
+| J-07 | EUA, federal | TAKE IT DOWN Act (2025), sobre imagens íntimas publicadas sem consentimento | O Duora é plataforma coberta? Qual o prazo de remoção após pedido válido e que canal de pedido é exigido? | Fotos, denúncias e moderação (spec 12.3, 16.1) |
+| J-08 | EUA, estados | Leis estaduais de notificação de incidente; normas de segurança da informação como a de Massachusetts (201 CMR 17.00) | A obrigação segue a residência da pessoa ou o local do servidor? Que prazos e destinatários de notificação? É exigido programa escrito de segurança? | Incidentes (spec 12.5); [threat-model.md](../security/threat-model.md) |
+| J-09 | EUA, federal | CAN-SPAM, para mensagens comerciais por e-mail | Os avisos opcionais (F-06) são comerciais? Que identificação e descadastro exigem? Os transacionais ficam fora? | `ops.notification_preferences`, e-mails de conta |
+| J-10 | UE e Reino Unido | GDPR e UK GDPR, se o serviço for oferecido a pessoas lá; Digital Services Act para plataformas online | O Duora oferece o serviço a pessoas na UE/Reino Unido? Se sim: base legal e categoria especial (vida e orientação sexual), representante na UE, transferência para os EUA (cap. V: certificação dos fornecedores no Data Privacy Framework ou cláusulas-padrão) e obrigações de notificação e ação do DSA | Todo o mapa |
+| J-11 | Fornecedores | Contratos de tratamento (DPA) e lista de subprocessadores | Onde a Hostinger (empresa com sede fora dos EUA, a confirmar no contrato), a Backblaze e os futuros fornecedores de e-mail e de verificação etária tratam ou acessam dados? Há DPA e cláusulas de transferência? | Tabela de fornecedores e de transferências |
+| J-12 | Todas | Lei de defesa do consumidor e de práticas enganosas (por exemplo, FTC Act seção 5 nos EUA) aplicada aos documentos voltados ao usuário | Termos e política de privacidade saem em PT-BR e EN-US (ADR-0026): qual versão prevalece, que lei e foro os termos escolhem, e que promessas da política viram obrigação verificável? | Documentos voltados ao usuário; `identity.consent_records` |
