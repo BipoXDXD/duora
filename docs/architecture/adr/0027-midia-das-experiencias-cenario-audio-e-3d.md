@@ -120,11 +120,15 @@ geração ao vivo (imagem, música ou TTS).
   conteúdo. Lacuna a confirmar: pela API, o Creator pode entregar só MP3; nesse caso o MP3 é a fonte, e o
   AAC-LC sai dele uma vez, sem nova recodificação.
 - **Orçamento de créditos (hipótese a medir):** o responsável tem duas contas Creator, com ~131 mil créditos cada
-  (~262 mil no total). A estimativa para 10 experiências é ~200 mil:
+  (~262 mil no total). Os ~131 mil são a cota **mensal** do Creator (121 mil) mais um bônus de inscrição de 10 mil,
+  que vale uma vez só; a partir do mês seguinte, cada conta tem 121 mil. Os termos de uso
+  (<registro externo de origem>, consultados em 2026-10-19) não proíbem ter várias contas, só
+  compartilhar credenciais (§3); créditos pré-pagos expiram em 12 meses e se perdem quando a conta é fechada
+  (§3, §6(b)(vi)). A estimativa para 10 experiências é ~200 mil:
 
   | Item | Estimativa | Premissa |
   |---|---|---|
-  | Voz | ~110 mil | Rascunho em Flash v2.5; final em v4 só das falas aprovadas |
+  | Voz | ~110 mil | Rascunho em editorial source (50% do preço por caractere na API); final em editorial source só das falas aprovadas (modelos; id exato de cada modelo a confirmar na API) |
   | Música | ~30 mil | 1 loop por ambiente, 2 tentativas |
   | Efeitos fonte externa | ~60 mil | ~300 gerações |
   | **Total** | **~200 mil** | Folga de ~62 mil |
