@@ -117,7 +117,7 @@ sessão continua fixando a versão, ADR-0020); a publicação recusa versão sem
 participante sai no idioma dele. Alternativa descartada: uma versão de conteúdo por idioma, porque o par de uma
 sessão pode ter idiomas diferentes e as duas pessoas precisam jogar exatamente o mesmo conteúdo.
 
-Lacuna de produto (J-08): um par com idiomas diferentes joga o mesmo cartão em idiomas diferentes, mas o chat não é
+Lacuna de produto (pareamento por idioma): um par com idiomas diferentes joga o mesmo cartão em idiomas diferentes, mas o chat não é
 traduzido. Decidir se o idioma entra na elegibilidade do pareamento (spec 5.1) ou se o par bilíngue é aceito.
 
 ### 3. Textos da interface, dos e-mails e dos erros
@@ -176,7 +176,7 @@ Ver o último item da proposta 3; fica numa issue própria porque depende da def
   internacional fica descrita como ela é (o servidor inteiro está nos EUA); o mapa de leis prováveis deixa claro o
   que bloqueia dados reais fora do Brasil.
 - Negativas: o gate "Privacidade" fica maior, porque agora há várias jurisdições prováveis, e nenhuma está
-  analisada; todo texto novo custa duas versões revisadas; o pareamento ganha uma pergunta de produto (J-08).
+  analisada; todo texto novo custa duas versões revisadas; o pareamento ganha uma pergunta de produto (pareamento por idioma).
 - Trade-off: decidir país e idioma antes do código evita migração dupla (`region_code` multinacional) mas deixa o
   modelo atual (UF) em produção até a proposta 1 sair; até lá, quem não está no Brasil deixa a região em branco.
 
