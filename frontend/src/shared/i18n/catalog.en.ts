@@ -19,8 +19,9 @@ export const en = {
   'changePassword.signInAgain': 'Sign in again',
   'mfa.title': 'Enable two-factor authentication',
   'mfa.instructions':
-    'Your account requires an authenticator. Add a TOTP account in your authenticator app using the key below, then confirm with its 6-digit code.',
+    'Add a TOTP account in your authenticator app using the key below, then confirm with its 6-digit code.',
   'mfa.start': 'Set up authenticator',
+  'mfa.starting': 'Preparing…',
   'mfa.key': 'Setup key:',
   'mfa.code': 'Authenticator code',
   'mfa.confirm': 'Enable MFA',

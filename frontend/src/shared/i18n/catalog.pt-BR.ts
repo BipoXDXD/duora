@@ -18,8 +18,9 @@ export const ptBR = {
   'changePassword.signInAgain': 'Entrar novamente',
   'mfa.title': 'Ative a autenticação em duas etapas',
   'mfa.instructions':
-    'Sua conta exige um autenticador. Adicione uma conta TOTP no aplicativo autenticador usando a chave abaixo e confirme com o código de 6 dígitos.',
+    'Adicione uma conta TOTP no aplicativo autenticador usando a chave abaixo e confirme com o código de 6 dígitos.',
   'mfa.start': 'Configurar autenticador',
+  'mfa.starting': 'Preparando…',
   'mfa.key': 'Chave de configuração:',
   'mfa.code': 'Código do autenticador',
   'mfa.confirm': 'Ativar MFA',
