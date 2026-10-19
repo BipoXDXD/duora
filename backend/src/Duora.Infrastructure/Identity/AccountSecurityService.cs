@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Duora.Core.Identity;
 using Duora.Core.Notifications;
 using Duora.Infrastructure.Audit;
@@ -263,8 +261,7 @@ public sealed class AccountSecurityService
     {
         var normalized = _users.NormalizeEmail(email.Value)
             ?? throw new InvalidOperationException("Normalizador de e-mail retornou null.");
-        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
-        return _gate.EnterAsync($"login:{key}", _lock.AccountQueueTimeout, cancellationToken);
+        return _gate.EnterAsync($"login:{normalized}", _lock.AccountQueueTimeout, cancellationToken);
     }
 
     /// <summary>
