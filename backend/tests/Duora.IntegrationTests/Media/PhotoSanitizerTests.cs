@@ -234,7 +234,7 @@ public sealed class PhotoSanitizerTests
     [Fact]
     public async Task AProgressiveJpegWithTheMaximumNumberOfScansIsSanitized()
     {
-        var jpeg = TestImages.ProgressiveJpegWithScans(PhotoDecodeCost.MaxJpegScans);
+        var jpeg = TestImages.ProgressiveJpegWithScans(100);
 
         Assert.IsType<SanitizeOutcome.Sanitized>(await SanitizeAsync(PhotoFormat.Jpeg, jpeg));
     }
@@ -243,7 +243,7 @@ public sealed class PhotoSanitizerTests
     public async Task AProgressiveJpegWithTooManyScansIsAProcessingLimitBeforeTheDecode()
     {
         // O arquivo é decodificável: sem o teto, o decoder o aceitaria, gastando tempo proporcional aos scans.
-        var jpeg = TestImages.ProgressiveJpegWithScans(PhotoDecodeCost.MaxJpegScans + 1);
+        var jpeg = TestImages.ProgressiveJpegWithScans(101);
 
         Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit), await SanitizeAsync(PhotoFormat.Jpeg, jpeg));
     }
@@ -251,7 +251,7 @@ public sealed class PhotoSanitizerTests
     [Fact]
     public async Task APngWithTheMaximumNumberOfCompressedTextChunksIsSanitized()
     {
-        var png = TestImages.PngWithCompressedText(PhotoDecodeCost.MaxPngInflatedChunks, inflatedBytes: 1024);
+        var png = TestImages.PngWithCompressedText(4, inflatedBytes: 1024);
 
         Assert.IsType<SanitizeOutcome.Sanitized>(await SanitizeAsync(PhotoFormat.Png, png));
     }
@@ -260,9 +260,29 @@ public sealed class PhotoSanitizerTests
     public async Task APngWithTooManyCompressedTextChunksIsAProcessingLimitBeforeTheDecode()
     {
         // Cada zTXt infla para 1 MiB fora do alocador limitado; sem o teto, o decoder os aceitaria todos.
-        var png = TestImages.PngWithCompressedText(PhotoDecodeCost.MaxPngInflatedChunks + 1, inflatedBytes: 1024 * 1024);
+        var png = TestImages.PngWithCompressedText(5, inflatedBytes: 1024 * 1024);
 
         Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit), await SanitizeAsync(PhotoFormat.Png, png));
+    }
+
+    [Fact]
+    public async Task TheMeasuredCompressedTextAttackIsAProcessingLimit()
+    {
+        // O ataque medido em 2026-10-19: 640 zTXt num PNG (lá, de 8 MB cada, 3,3 GB no processo). Aqui cada um infla
+        // para 64 KiB, para o teste não pôr a máquina em risco se a defesa sumir; a contagem é a mesma.
+        var png = TestImages.PngWithCompressedText(640, inflatedBytes: 64 * 1024);
+
+        Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit), await SanitizeAsync(PhotoFormat.Png, png));
+    }
+
+    [Fact]
+    public async Task AJpegWithThousandsOfScansIsAProcessingLimit()
+    {
+        // Variante pequena do ataque medido (135 mil scans num JPEG de 20 MP, 84 s): 5 mil scans num 64×32, que o
+        // decoder aceitaria em instantes se a defesa sumisse.
+        var jpeg = TestImages.ProgressiveJpegWithScans(5000);
+
+        Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit), await SanitizeAsync(PhotoFormat.Jpeg, jpeg));
     }
 
     [Fact]
