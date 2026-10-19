@@ -282,9 +282,11 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 - **Mídia (proposto, spec 6.5):** faixa de cenário no topo (até ~30% da altura no mobile), com no máximo um
   personagem; Controle de som na barra, mudo por padrão; transcrição das falas abaixo do cenário; na etapa de
   escolha, só ambiente baixo ou silêncio; nenhum som reage ao prazo.
-- **Voz ao vivo (proposto, ADR-0028):** botão "Ligar meu microfone" no painel do chat, desligado por
-  padrão; a permissão do navegador só é pedida nesse toque. Ligada, mostra "Microfone aberto", quem está
-  falando, "Silenciar Bia", "Desligar meu microfone", "Sair da voz", "Bloquear" e "Denunciar". O chat de texto
+- **Voz ao vivo (proposto, ADR-0028):** botão "Entrar na voz" no painel do chat. Ninguém ouve ninguém até as
+  duas pessoas tocarem nele; até lá a tela diz "Aguardando a outra pessoa entrar na voz" (sem prazo nem
+  insistência). Dentro da voz, "Ligar meu microfone" é um gesto separado, e a permissão do navegador só é pedida
+  nesse toque. Ligada, mostra "Microfone aberto", quem está falando, "Silenciar Bia" (Bia não é avisada),
+  "Desligar meu microfone", "Sair da voz", "Bloquear" e "Denunciar" (com a categoria "suspeita de menor"). O chat de texto
   continua ao lado: a experiência termina igual sem voz. Aviso na tela de voz: "A outra pessoa pode gravar o
   que você diz no próprio aparelho."
 

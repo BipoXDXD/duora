@@ -432,8 +432,8 @@ Regras completas em [ADR-0027](../architecture/adr/0027-midia-das-experiencias-c
 | Versão | Mídia no manifesto da `ExperienceVersion`, com hash, origem, ferramenta, modelo, id da tarefa e licença; voz e transcrição em PT-BR e EN-US | T-09 estendido à mídia |
 | Peso | Orçamento por experiência (hipóteses no ADR-0027); áudio e 3D fora do caminho crítico do LCP; AAC-LC (`.m4a`) como formato obrigatório, por causa do Safari/iOS | Medição de build e de laboratório (13.5) |
 | 3D | Offline em WebP por padrão; tempo real por experiência, com orçamento e fallback 2D acessível; nenhuma ação exige arrastar ou girar | A11Y-04 |
-| Voz ao vivo | Microfone desligado por padrão e ligado por gesto de cada pessoa; permissão pedida só nessa hora; indicador de microfone aberto e de quem fala; silenciar a outra pessoa, o próprio microfone e sair da voz sem sair da experiência; bloquear e denunciar na tela de voz; experiência completável sem voz; push-to-talk opcional; volume próprio e ducking | A11Y-04; TM-68 a TM-76; ADR-0028 |
-| Voz ao vivo: privacidade | Nenhuma gravação nem transcrição, nada enviado a LLM; denúncia sem áudio salvo ADR futuro; voz tratada como possível dado biométrico; IP de uma pessoa nunca exposto à outra (sem P2P direto sem relay); mídia cifrada (DTLS-SRTP); credencial de voz de vida curta, revogada ao sair, bloquear ou encerrar a sala | TM-68 a TM-76 |
+| Voz ao vivo | A conexão só nasce quando as duas pessoas tocam "Entrar na voz"; microfone desligado por padrão e ligado por gesto separado de cada pessoa; permissão pedida só nessa hora; indicador de microfone aberto e de quem fala; silenciar a outra pessoa, o próprio microfone e sair da voz sem sair da experiência; bloquear e denunciar na tela de voz; experiência completável sem voz; push-to-talk opcional; volume próprio e ducking | A11Y-04; TM-68 a TM-79; ADR-0028 |
+| Voz ao vivo: privacidade | Nenhuma gravação nem transcrição, nada enviado a LLM; denúncia sem áudio salvo ADR futuro; voz tratada como possível dado biométrico; IP de uma pessoa nunca exposto à outra (relay forçado e verificado no navegador de cada pessoa); mídia cifrada (DTLS-SRTP) entre os navegadores, contra VPS honesta; credencial TURN de ~5 min, revogada por: sair da voz ou da sala, bloqueio, denúncia, sala abortada (spec 4.2, 6.3), medida de moderação que restringe a conta (inclusive suspeita de menor), revogação da sessão de login e fim da sessão de jogo | TM-68 a TM-79 |
 
 <a id="s07"></a>
 ## 7. Conexões, conversas e segurança interpessoal
@@ -550,7 +550,7 @@ Suspender a participação não deve eliminar o canal de recurso: uma sessão re
 | API-R05 | `GET /rooms/{roomId}/my-decision` | Escolha própria e janela | Não retorna status individual do outro participante |
 | API-R06 | `PUT /rooms/{roomId}/my-decision` | Escolha e versão → própria escolha/vínculo permitido | Interesse mútuo avaliado na mesma transação |
 | API-R07 | `DELETE /rooms/{roomId}/my-decision` | Retirada antes da conexão | Depois de vínculo ativo, usar encerramento de conexão |
-| API-R08 | `POST /rooms/{roomId}/voice/credentials` | Antiforgery → credencial TURN de vida curta (TTL até o fim da sessão, teto ~20 min), `no-store` | Só participante ativo da sala (alheio → `404`); rate limit; revogada pela outbox ao sair, bloquear, denunciar, kick ou fim da sessão (ADR-0028) |
+| API-R08 | `POST /rooms/{roomId}/voice/credentials` | Antiforgery → credencial TURN de ~5 min, renovável, nunca além do fim da sessão; `no-store` | Policy `EligibleParticipant` e participante ativo que entrou na voz (alheio → `404`); rate limit; usernames em `experiences.voice_credentials`; revogada pela outbox por: sair da voz ou da sala, bloqueio, denúncia, sala abortada (spec 4.2, 6.3), medida de moderação que restringe a conta (inclusive suspeita de menor), revogação da sessão de login e fim da sessão de jogo (ADR-0028) |
 
 ### 8.4. Comunicação, segurança, mídia e privacidade
 
@@ -1289,7 +1289,7 @@ A base entrega mídia por stream autenticado da API. Isso simplifica revogação
 | Moderação assistida | `IContentReviewProvider`, condicional | Dados estritamente necessários, avaliação de erro, revisão humana e política de uso/treinamento |
 | Monitoramento | OTLP e alertas externos | Filtragem, retenção, controle de acesso e exportação |
 | Geração de mídia (offline) | Nenhuma: ferramenta fora do runtime (imagem e 3D: Tripo, Rodin; voz e música: ElevenLabs Creator; efeitos: Freesound CC0 e Sonniss) | Uso comercial confirmado, nenhum dado de participante no prompt ou roteiro, consentimento da voz de referência, registro em `assets-licenses.md` |
-| Voz ao vivo | `ITurnCredentialIssuer` (Cloudflare Realtime TURN; ADR-0028) | Credencial de vida curta e revogável, só relay, DTLS-SRTP de ponta a ponta; Cloudflare como sub-processador de IP e metadados |
+| Voz ao vivo | `ITurnCredentialIssuer` (Cloudflare Realtime TURN; ADR-0028) | Credencial de ~5 min e revogável, só relay, DTLS-SRTP entre os navegadores (protege contra VPS honesta, não contra VPS comprometida, TM-78); Cloudflare como sub-processador de IP e metadados; alerta de gasto e kill switch |
 | Pagamento futuro | `IPaymentGateway`, somente quando aprovado | Checkout hospedado, assinatura de webhooks, idempotência e conciliação; sem cartão no Duora |
 
 Não selecionar cinco serviços redundantes. A implementação inicial escolhe um fornecedor por função após uma pequena prova de contrato; o adaptador isola semântica realmente variável, não oculta todas as capacidades atrás de uma interface genérica sem utilidade.
@@ -1751,7 +1751,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 | Recuperação | Estratégia e metas definidas | Restore cronometrado em host limpo | Lançamento |
 | Design | Sistema, estados e critérios definidos | Identidade visual final e teste de uso/acessibilidade | Aceite de UX |
 | Áudio | Mudo por padrão, canais, transcrição; ElevenLabs Creator para voz e música, Freesound CC0 e Sonniss para efeitos (ADR-0027) | Data da cláusula comercial do Creator, formato de saída da API (MP3 ou melhor), termo do Sonniss para mix; orçamento medido na primeira experiência | Primeiro áudio gerado |
-| Voz ao vivo | WebRTC P2P com relay forçado na Cloudflare Realtime TURN (ADR-0028) | `Permissions-Policy: microphone=(self)`, contrato e mapa de dados da Cloudflare, base legal, teste no Safari/iOS | Voz ao vivo em produção |
+| Voz ao vivo | WebRTC P2P com relay forçado na Cloudflare Realtime TURN (ADR-0028) | `Permissions-Policy: microphone=(self)` com `camera=()`, base legal, teste de contrato manual da revogação contra a Cloudflare real, teste no Safari/iOS | Voz ao vivo em produção |
 
 Essas pendências não são permissão para deixar a implementação vaga: cada uma tem responsável a designar e evidência exigida. O plano não inventa fornecedor, infraestrutura existente, política jurídica aprovada ou benchmark que não foi fornecido.
 
