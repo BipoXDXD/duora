@@ -217,7 +217,8 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    # edge: recebe o proxy do Caddy (e sai para o object storage); data: fala com o banco.
+    # edge: recebe o proxy do Caddy; data: fala com o banco. As fotos ficam no disco do host (bind mounts acima),
+    # não num object storage externo (adendo do ADR-0010).
     networks: [edge, data]
     depends_on:
       postgres:
@@ -265,7 +266,8 @@ services:
         read_only: false
         bind:
           create_host_path: false
-    # data: banco; egress: saída para storage, e-mail e verificação etária. Sem porta e sem endpoint público.
+    # data: banco; egress: saída para e-mail e verificação etária (as fotos ficam no disco do host). Sem porta e sem
+    # endpoint público.
     networks: [data, egress]
     depends_on:
       postgres:
