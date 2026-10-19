@@ -92,14 +92,20 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         }
 
         var calls = 0;
+        var logs = new CapturingLoggerProvider();
         var stale = harness.StartWorker(decorateSender: inner => new CallbackSender(async (email, key, _) =>
         {
             calls++;
             harness.Time.Advance(TimeSpan.FromMinutes(3));
             await inner.SendAsync(email, key, Ct);
-        }));
+        }), logs: logs);
         Assert.Equal(3, await stale.DispatchBatchAsync(Ct));
         Assert.Equal(1, calls);
+        // Pulada antes do envio e conclusão recusada depois do envio são casos distintos, com logs distintos.
+        Assert.Equal(2, logs.Entries.Count(e => e.Level == LogLevel.Warning
+            && e.Text.Contains("não foi enviada: o heartbeat não renovou a posse", StringComparison.Ordinal)));
+        Assert.Single(logs.Entries, e => e.Level == LogLevel.Warning
+            && e.Text.Contains("não foi encerrada por este worker", StringComparison.Ordinal));
         Assert.Equal(3, await harness.StartWorker().DispatchBatchAsync(Ct));
         Assert.Equal(3, harness.MailFiles().Length);
     }
