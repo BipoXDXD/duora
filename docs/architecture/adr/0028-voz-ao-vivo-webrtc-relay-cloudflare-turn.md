@@ -221,5 +221,5 @@ Testes previstos (a criar com a implementação; nenhum existe hoje):
   encerra.
 - **Arquitetura:** nenhum módulo referencia STT, gravação ou LLM para a voz.
 - **Infra (PR separado):** `Permissions-Policy` com `microphone=(self)` e `camera=()`.
-- **Manual, no protocolo A11Y-04:** Safari no iOS com relay (bug 312332 do WebKit), VoiceOver e teclado em todos
+- **Manual, no protocolo A11Y-04:** Safari no iOS com relay (bug 312332 do WebKit, número a confirmar), VoiceOver e teclado em todos
   os controles da voz.

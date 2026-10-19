@@ -119,7 +119,8 @@ geração ao vivo (imagem, música ou TTS).
   conteúdo. Lacuna a confirmar: pela API, o Creator pode entregar só MP3; nesse caso o MP3 é a fonte, e o
   AAC-LC sai dele uma vez, sem nova recodificação.
 - **Segredo:** `ELEVENLABS_API_KEY` só no ambiente de quem gera, nunca no repositório, em CI, log ou commit; o
-  MCP hospedado da ElevenLabs usa OAuth e não precisa de chave no repositório.
+  MCP hospedado da ElevenLabs usa OAuth (metadados em <https://api.us.elevenlabs.io/.well-known/oauth-protected-resource>; fluxo a confirmar no primeiro uso) e não precisa de
+  chave no repositório.
 - **Riscos de licença:**
   - Sonniss proíbe redistribuir som avulso e o repositório é público: versiona-se só o **mix final** em que o
     efeito entra, nunca o arquivo original (termo exato a confirmar na licença do pacote).
@@ -180,7 +181,7 @@ nele. A dependência entra no PR da primeira experiência que a usar, com justif
 - sem rotação automática com `prefers-reduced-motion: reduce`; nada pisca;
 - WebGL indisponível, falha de carregamento ou "Reduzir movimento" mostram o poster, sem perda de função;
 - geometria e texturas sem decodificador WebAssembly até a CSP ser revista no PR de infra; o `<model-viewer>`
-  carrega texturas por `blob:`, o que pede `img-src blob:` (e, com decodificador, `worker-src blob:` e
+  carrega texturas por `blob:` (a confirmar na versão adotada), o que pede `img-src blob:` (e, com decodificador, `worker-src blob:` e
   `'wasm-unsafe-eval'`) nesse mesmo PR.
 
 Porquê técnico: a mídia entra no mesmo contrato de versão imutável que já protege regras e conteúdo, fica fora do
