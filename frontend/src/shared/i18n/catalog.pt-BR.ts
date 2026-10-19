@@ -25,6 +25,7 @@ export const ptBR = {
   'mfa.confirm': 'Ativar MFA',
   'mfa.confirming': 'Ativando…',
   'mfa.invalidCode': 'Informe um código válido de 6 dígitos do autenticador.',
+  'mfa.enabled': 'Autenticação em duas etapas ativada.',
   'mfa.recoveryTitle': 'Guarde seus códigos de recuperação',
   'mfa.recoveryInstructions':
     'Salve estes códigos em um lugar seguro. Eles aparecem somente agora e cada um pode ser usado uma vez.',
