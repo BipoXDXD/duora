@@ -3,6 +3,7 @@ using System.Net;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -151,6 +152,23 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task AFailingTransactionDisposeStillReleasesTheAccountTurn()
+    {
+        var gate = new AccountCheckGate();
+        var userId = Guid.NewGuid();
+        var timeout = TimeSpan.FromMilliseconds(100);
+        var check = new AccountCheck(
+            new FailingDisposeTransaction(),
+            await gate.EnterAsync(userId, timeout, TestContext.Current.CancellationToken));
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => check.DisposeAsync().AsTask());
+
+        Assert.Equal(FailingDisposeTransaction.Message, failure.Message);
+        // Sem o finally a vez ficaria presa e a próxima verificação da conta esperaria até o teto (503).
+        await using var next = await gate.EnterAsync(userId, timeout, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public void OnlyTheLoginFlowCanTakeTheTurnByEmail()
     {
         // A ordem e-mail → UUID → PostgreSQL só se mantém se ninguém fora do login pegar a vez por e-mail; quem
@@ -286,5 +304,25 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         }
 
         public string? NormalizeName(string? name) => _inner.NormalizeName(name);
+    }
+
+    /// <summary>Transação cujo encerramento falha, como uma conexão que caiu durante o rollback.</summary>
+    private sealed class FailingDisposeTransaction : IDbContextTransaction
+    {
+        public const string Message = "conexão perdida no rollback";
+
+        public Guid TransactionId { get; } = Guid.NewGuid();
+
+        public void Commit() => throw new NotSupportedException();
+
+        public Task CommitAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public void Rollback() => throw new NotSupportedException();
+
+        public Task RollbackAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public void Dispose() => throw new InvalidOperationException(Message);
+
+        public ValueTask DisposeAsync() => ValueTask.FromException(new InvalidOperationException(Message));
     }
 }
