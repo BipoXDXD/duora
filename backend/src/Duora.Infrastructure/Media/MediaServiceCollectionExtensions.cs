@@ -34,10 +34,12 @@ public static class MediaServiceCollectionExtensions
 
     /// <summary>
     /// Registra o upload de fotos (ADR-0025): opções da seção <c>Media</c>, o <see cref="IObjectStore"/> de
-    /// <c>Media:Storage:Provider</c> e o serviço de recepção. Sem <c>Media:Review</c>, o upload fica desligado e o
-    /// storage não é exigido. O host não sobe com <c>TechnicalOnly</c> em <c>Production</c>, nem com o filesystem em
-    /// <c>Production</c> fora de um diretório absoluto que já exista (o volume do host montado; spec 15.4 e adendo do
-    /// ADR-0010), nem com o upload ligado e o storage ausente, incompleto ou fora de https.
+    /// <c>Media:Storage:Provider</c> e o serviço de recepção. Sem <c>Media:Review</c>, o upload fica desligado; o
+    /// storage só deixa de ser exigido sem <c>Media:Storage:Provider</c> (adendo de 2026-10-19 do ADR-0025): com o
+    /// filesystem em <c>Production</c>, as áreas montadas e marcadas são exigidas mesmo com o upload desligado. O host
+    /// não sobe com <c>TechnicalOnly</c> em <c>Production</c>, nem com o filesystem em <c>Production</c> fora de um
+    /// diretório absoluto que já exista (o volume do host montado; spec 15.4 e adendo do ADR-0010), nem com o upload
+    /// ligado e o storage ausente, incompleto ou fora de https.
     /// </summary>
     public static IServiceCollection AddMediaUploads(
         this IServiceCollection services,
