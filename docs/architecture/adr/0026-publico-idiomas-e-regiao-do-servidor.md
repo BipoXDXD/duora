@@ -209,6 +209,11 @@ Proposta complementar: `preferred_locale` guardado na conta (`pt-BR` ou `en-US`,
 cadastro a partir do idioma da requisição e alterável no perfil). Serve aos e-mails que não nascem de requisição e ao
 pareamento por idioma da proposta 2 (#79); o `Accept-Language` continua valendo para quem ainda não tem conta.
 
+Proposta complementar: `identity.consent_records` guarda `document` e `document_version`, mas não o idioma do texto
+aceito. Com termos e política em dois idiomas, o registro precisa dizer qual versão a pessoa leu (`document_locale`,
+`pt-BR` ou `en-US`), porque a prova do consentimento é sobre um texto concreto (J-12 do data-map: qual versão
+prevalece).
+
 ### 4. Datas, fusos, números e moeda
 
 Issue: #81.
@@ -282,5 +287,8 @@ código acima.
 | Rotas em PT-BR | `docs/design/information-architecture.md:41` | Proposta 3 |
 | Contato de suporte em português e placeholder | `backend/src/Duora.Web/appsettings.json:11`; `backend/src/Duora.Worker/appsettings.json:10`; `docs/operations/deploy.md:36` | Nota em deploy.md; proposta 5 |
 | "Adulto" sem jurisdição | `docs/product/spec.md:881`, `:896`; `docs/architecture/adr/0024-…md` | Divergência registrada; lacuna J-05 |
+| Faixa etária começando em `18-24` com maioridade variável | `docs/data/model.md:291` (`age_band`) | Lacuna J-05; nota na issue #78 |
+| Consentimento sem o idioma do documento aceito | `docs/data/model.md:254-256` (`identity.consent_records`) | Proposta 3 (#80) |
+| Comentários de código que descrevem a região como UF e o português do Brasil como padrão | `backend/src/Duora.Contracts/Profiles/ProfileContracts.cs:6`, `:14`; `backend/src/Duora.Core/Profiles/OwnProfile.cs:7`; `backend/src/Duora.Web/Profiles/ProfileEditParser.cs:15`; `backend/src/Duora.Web/Profiles/ProfileEndpoints.cs:44`, `:70`; `backend/src/Duora.Core/Notifications/EmailLanguage.cs:5`, `:26` | Descrevem o comportamento atual e mudam junto com o código nas propostas 1 (#78) e 3 (#80) |
 | Moeda e telefone | Nenhuma ocorrência de `BRL`, `R$` ou `+55` no código e nos docs | Regra registrada na proposta 4 |
 | `meetduora.com` | `infra/caddy/Caddyfile:3`, `infra/compose/compose.prod.yml:8`, `docs/operations/deploy.md:349` | Sem conflito (`.com` não pressupõe país); nada a mudar |
