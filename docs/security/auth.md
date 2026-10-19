@@ -583,6 +583,8 @@ PR #71. A interface não amplia autorização: o servidor continua sendo a fonte
 - `403 PASSWORD_CHANGE_REQUIRED` em `/me` leva a `/trocar-senha-inicial`, inclusive ao abrir
   diretamente uma rota protegida. A resposta tem precedência sobre identidade antiga em cache.
   O mesmo código em consultas ou mutações reconsulta `/me`; não há retry automático da escrita.
+  Enquanto `/me` é reconsultado (por exemplo, depois de um 401 na troca de senha ou no MFA), a tela
+  restrita em que a pessoa está continua montada, com o erro e a chave do MFA preservados.
 - A16 recebe somente `currentPassword` e `newPassword`, sem normalização na SPA. O formulário
   valida comprimento e confirmação, traduz `SAME_AS_TEMPORARY_PASSWORD`, senha incorreta,
   CSRF, rate limit e autenticação recente vencida. A temporária vencida exige reemissão pelo operador.
@@ -595,8 +597,10 @@ PR #71. A interface não amplia autorização: o servidor continua sendo a fonte
   o CSRF. O login oferece o campo TOTP quando o servidor responde `MFA_REQUIRED`.
 - Uma sessão sem autenticação recente recebe orientação para entrar novamente. O botão "Entrar
   novamente" das duas telas chama o logout (A05) antes de ir à entrada, para a sessão restrita não
-  ficar viva no servidor; se o logout falhar por rede, a tela fica e mostra o erro. O fluxo não tenta
-  reautenticar usando a senha temporária: A13 não está disponível nessa fase. A autorização de
+  ficar viva no servidor; se o logout falhar por rede, a tela fica e mostra o erro. Na troca da senha
+  temporária a SPA não tenta reautenticar: o A13 não está disponível nessa fase. Na fase do MFA o A13 é
+  permitido (sessão restrita ao cadastro: A08, A11, A12 e A13), mas a SPA ainda não oferece a
+  reautenticação nessa tela e orienta a entrar novamente. A autorização de
   cinco minutos e a validade de 24 horas continuam sendo verificadas pelo backend.
 
 Verificação: `ChangePasswordPage.test.tsx` integra componentes, navegação, CSRF e respostas HTTP
