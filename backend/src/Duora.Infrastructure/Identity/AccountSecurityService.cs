@@ -10,7 +10,7 @@ using Npgsql;
 
 namespace Duora.Infrastructure.Identity;
 
-/// <summary>Teto da espera pelo lock da conta (seção <c>Identity</c>).</summary>
+/// <summary>Tetos da espera pela conta (seção <c>Identity</c>): a fila em memória e o lock no PostgreSQL.</summary>
 internal sealed class AccountLockOptions
 {
     public const string Section = "Identity";
@@ -31,8 +31,11 @@ internal sealed class AccountLockOptions
 }
 
 /// <summary>
-/// A conta está travada por outra verificação há mais que <see cref="AccountLockOptions.AccountLockTimeout"/>
-/// (<c>lock_timeout</c>, 55P03). Nada foi gravado; o cliente pode tentar de novo depois de <see cref="RetryAfter"/>.
+/// A conta está ocupada por outra verificação além de um teto: a fila em memória
+/// (<see cref="AccountLockOptions.AccountQueueTimeout"/>), o lock no PostgreSQL
+/// (<see cref="AccountLockOptions.AccountLockTimeout"/>, <c>lock_timeout</c>, 55P03) ou o prazo total do login
+/// (<c>Identity:LoginTimeout</c>). A verificação que não entrou não gravou nada; o cliente pode tentar de novo depois
+/// de <see cref="RetryAfter"/>, que é o teto que estourou.
 /// </summary>
 public sealed class AccountBusyException : Exception
 {

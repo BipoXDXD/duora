@@ -1,8 +1,9 @@
 namespace Duora.Infrastructure.Identity;
 
 /// <summary>
-/// Fila em memória, por conta, na frente do lock da conta no banco. Quem espera outra verificação da mesma conta
-/// espera aqui, sem conexão; só quem passa abre a transação. Sem a fila, cada espera segurava uma conexão do pool e
+/// Fila em memória na frente do lock da conta no banco, com duas formas de chave: por conta (UUID, toda verificação)
+/// e por e-mail normalizado (só o login, antes de procurar a conta, para e-mail inexistente também esperar a vez;
+/// issue #65). Quem espera outra verificação da mesma chave espera aqui, sem conexão; só quem passa abre a transação. Sem a fila, cada espera segurava uma conexão do pool e
 /// 25 logins paralelos de uma conta bastavam para esgotar o <c>max_connections</c> do servidor (53300 → 500).
 /// </summary>
 /// <remarks>
@@ -15,11 +16,12 @@ internal sealed class AccountCheckGate
     private readonly Dictionary<string, Entry> _entries = [];
     private readonly Lock _sync = new();
 
-    /// <summary>Entra na vez da conta; ocupada por mais que <paramref name="timeout"/>, desiste.</summary>
+    /// <summary>Entra na vez da conta (UUID); ocupada por mais que <paramref name="timeout"/>, desiste.</summary>
     /// <exception cref="AccountBusyException">A espera passou do teto.</exception>
     public async Task<IAsyncDisposable> EnterAsync(Guid userId, TimeSpan timeout, CancellationToken cancellationToken)
         => await EnterAsync($"account:{userId:D}", timeout, cancellationToken);
 
+    /// <summary>Entra na vez de uma chave com namespace (<c>account:</c> ou <c>login:</c>); mesmo teto.</summary>
     internal async Task<IAsyncDisposable> EnterAsync(string key, TimeSpan timeout, CancellationToken cancellationToken)
     {
         Entry entry;

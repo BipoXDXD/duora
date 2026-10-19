@@ -154,9 +154,10 @@ public sealed class MfaLoginTests : IAsyncDisposable
     [Fact]
     public async Task TheSameRecoveryCodeUsedConcurrentlyOpensOnlyOneSession()
     {
-        // Os quatro logins esperam um ao outro na vez da conta, cada um com um hash de senha. O teto de produção
-        // (5 s) estoura com a máquina carregada e a espera vira 503, o que AccountLockTimeoutTests já cobre; aqui
-        // interessa só quem consome o código, então a espera não pode ser o que decide.
+        // Os quatro logins esperam um ao outro na vez por e-mail e na da conta, cada um com um hash de senha. Com a
+        // máquina carregada, uma fila curta estouraria e a espera viraria 503, o que AccountLockTimeoutTests e
+        // LoginConcurrencyTests já cobrem; aqui interessa só quem consome o código, então a fila fica no teto de
+        // produção (30 s, explícito para não depender do padrão) e a espera não pode ser o que decide.
         var settings = LoginLimits();
         settings["Identity:AccountQueueTimeout"] = "00:00:30";
         await using var factory = new DuoraWebFactory(_postgres.ConnectionString) { Time = _time, Settings = settings };
