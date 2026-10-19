@@ -182,12 +182,25 @@ class HostChecksTests(unittest.TestCase):
         deploy.require_free_space(free_bytes=5 * deploy.GIB, minimum_gib=5)
 
 
+def make_media_dir(root: Path, *, without_marker_in: str | None = None) -> Path:
+    """Diretório de fotos como o role app_dirs o deixa: as duas áreas, cada uma com o marcador da montagem."""
+    media_dir = root / "media"
+    for area in ("quarantine", "derivatives"):
+        (media_dir / area).mkdir(parents=True)
+        if area != without_marker_in:
+            (media_dir / area / ".duora-media-area").write_text("app_dirs\n", encoding="utf-8")
+    return media_dir
+
+
 class PreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         manifest = valid_manifest()
         manifest["architecture"] = deploy.docker_architecture(platform.machine())
         self.release = parse(manifest)
-        self.host = deploy.HostConfig(image_prefix=PREFIX, min_free_gib=0, disk_check_path=Path("."))
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.host = deploy.HostConfig(image_prefix=PREFIX, min_free_gib=0, disk_check_path=Path("."),
+                                      media_dir=make_media_dir(Path(self._tmp.name)))
 
     def test_matching_architecture_and_enough_disk_pass(self) -> None:
         deploy.preflight(self.release, self.host)
@@ -198,6 +211,83 @@ class PreflightTests(unittest.TestCase):
 
         with self.assertRaisesRegex(deploy.DeployError, "host"):
             deploy.preflight(parse(manifest), self.host)
+
+
+class MediaStoragePreflightTests(unittest.TestCase):
+    """O Compose sempre configura o storage FileSystem, e o web o exige no boot mesmo com o upload desligado
+    (adendo de 2026-10-19 do ADR-0025): sem as áreas montadas, o deploy recusa antes de baixar ou parar algo."""
+
+    def setUp(self) -> None:
+        manifest = valid_manifest()
+        manifest["architecture"] = deploy.docker_architecture(platform.machine())
+        self.release = parse(manifest)
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def host(self, media_dir: Path | None) -> deploy.HostConfig:
+        return deploy.HostConfig(image_prefix=PREFIX, min_free_gib=0, disk_check_path=Path("."), media_dir=media_dir)
+
+    def test_host_config_reads_the_media_directory(self) -> None:
+        config = deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_DIR=/var/lib/duora-media\n")
+
+        self.assertEqual(Path("/var/lib/duora-media"), config.media_dir)
+
+    def test_both_areas_with_their_marker_pass(self) -> None:
+        deploy.preflight(self.release, self.host(make_media_dir(self.root)))
+
+    def test_missing_media_directory_setting_is_refused(self) -> None:
+        with self.assertRaisesRegex(deploy.DeployError, "DUORA_MEDIA_DIR ausente"):
+            deploy.preflight(self.release, self.host(None))
+
+    def test_relative_media_directory_is_refused(self) -> None:
+        with self.assertRaisesRegex(deploy.DeployError, "DUORA_MEDIA_DIR deve ser absoluto"):
+            deploy.preflight(self.release, self.host(Path("media")))
+
+    def test_area_without_marker_is_refused_naming_the_marker_and_the_fix(self) -> None:
+        for area in ("quarantine", "derivatives"):
+            with self.subTest(area=area), TemporaryDirectory() as tmp:
+                media_dir = make_media_dir(Path(tmp), without_marker_in=area)
+                with self.assertRaises(deploy.DeployError) as raised:
+                    deploy.preflight(self.release, self.host(media_dir))
+                message = str(raised.exception)
+                self.assertIn(str(media_dir / area / ".duora-media-area"), message)
+                self.assertIn("app_dirs", message)
+
+    def test_missing_area_directory_is_refused(self) -> None:
+        with self.assertRaisesRegex(deploy.DeployError, "quarantine"):
+            deploy.preflight(self.release, self.host(self.root / "nao-existe"))
+
+    def test_marker_and_areas_match_the_store_the_web_boots_with(self) -> None:
+        store = (Path(__file__).resolve().parents[2] / "backend" / "src" / "Duora.Infrastructure" / "Media"
+                 / "FileSystemObjectStore.cs").read_text(encoding="utf-8")
+
+        self.assertIn(f'AreaMarkerFileName = "{deploy.MEDIA_AREA_MARKER}"', store)
+        self.assertIn("[" + ", ".join(f'"{area}"' for area in deploy.MEDIA_AREAS) + "]", store)
+
+    def test_main_refuses_without_marker_before_running_any_command(self) -> None:
+        manifest = self.root / "manifest.json"
+        manifest.write_text(json.dumps(self.release.raw), encoding="utf-8")
+        media_dir = make_media_dir(self.root, without_marker_in="derivatives")
+        host_env = self.root / "duora.env"
+        host_env.write_text(f"DUORA_IMAGE_PREFIX={PREFIX}\nDUORA_MIN_FREE_GIB=0\n"
+                            f"DUORA_DISK_CHECK_PATH={self.root}\nDUORA_MEDIA_DIR={media_dir}\n", encoding="utf-8")
+        runner = FakeRunner(architecture=self.release.architecture)
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+            original = deploy.run_command
+            deploy.run_command = runner
+            try:
+                code = deploy.main(["--manifest", str(manifest), "--host-env", str(host_env),
+                                    "--state-dir", str(self.root / "state"),
+                                    "--compose-file", str(self.root / "compose.prod.yml")])
+            finally:
+                deploy.run_command = original
+
+        self.assertEqual(1, code)
+        self.assertIn(".duora-media-area", stderr.getvalue())
+        self.assertEqual([], runner.commands)
 
 
 class HostConfigTests(unittest.TestCase):
@@ -432,8 +522,10 @@ class DeployTests(unittest.TestCase):
         release = valid_manifest()
         release["architecture"] = deploy.docker_architecture(platform.machine())
         manifest.write_text(json.dumps(release), encoding="utf-8")
+        media_dir = make_media_dir(self.paths.state_dir.parent)
         self.paths.host_env.write_text(f"DUORA_IMAGE_PREFIX={PREFIX}\nDUORA_MIN_FREE_GIB=0\n"
-                                       f"DUORA_DISK_CHECK_PATH={self.paths.state_dir.parent}\n", encoding="utf-8")
+                                       f"DUORA_DISK_CHECK_PATH={self.paths.state_dir.parent}\n"
+                                       f"DUORA_MEDIA_DIR={media_dir}\n", encoding="utf-8")
 
         def failing_command(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
             raise FileNotFoundError(command[0])

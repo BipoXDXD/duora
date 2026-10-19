@@ -83,8 +83,10 @@ Ordem da spec 17.3; qualquer falha interrompe com código 1 e mensagem acionáve
 pega `flock` em `/var/lib/duora/.deploy.lock` antes de tudo e recusa na hora se outro estiver rodando (o kernel
 solta o lock se o processo morrer).
 
-1. Valida o manifesto e a configuração do host; confere a arquitetura do host e o espaço livre
-   (`DUORA_MIN_FREE_GIB`, padrão 10 GiB, em `DUORA_DISK_CHECK_PATH`).
+1. Valida o manifesto e a configuração do host; confere a arquitetura do host, o espaço livre
+   (`DUORA_MIN_FREE_GIB`, padrão 10 GiB, em `DUORA_DISK_CHECK_PATH`) e as áreas de fotos: `DUORA_MEDIA_DIR` absoluto,
+   com `quarantine/.duora-media-area` e `derivatives/.duora-media-area` gravados pelo role `app_dirs`. O web os exige
+   no boot mesmo com o upload desligado (adendo de 2026-10-19 do ADR-0025), então a recusa vem aqui, antes do pull.
 2. Backup/WAL: verificado no passo 5, com o postgres e o backup da release já de pé e **antes de parar qualquer
    serviço**. `--accept-missing-backup-check` pula a verificação só no primeiro deploy (antes da stanza existir),
    em homologação ou no smoke; o comando liberado no sudoers não inclui essa flag.

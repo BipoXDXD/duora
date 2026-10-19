@@ -102,14 +102,15 @@ def main() -> int:
         for area in ("quarantine", "derivatives"):
             directory = media_dir / area
             directory.mkdir(parents=True)
-            # Marcador sintético; mesmos UID e modos do role app_dirs no runner Linux.
+            # Marcador sintético, com o mesmo UID do role app_dirs (o modo das áreas fica abaixo).
             marker = directory / ".duora-media-area"
             marker.write_text("synthetic smoke mount\n", encoding="utf-8")
 
         media_helper_image = images["postgres"]
+        # 0711 e não o 0700 do role: aqui o duora-deploy roda sem root e precisa achar o marcador no preflight.
         run(["docker", "run", "--rm", "--network", "none", "--user", "0:0",
              "--volume", f"{media_dir}:/media", "--entrypoint", "sh", media_helper_image, "-c",
-             "chown -R 1654:1654 /media && chmod 0700 /media/quarantine /media/derivatives "
+             "chown -R 1654:1654 /media && chmod 0711 /media/quarantine /media/derivatives "
              "&& chmod 0400 /media/quarantine/.duora-media-area /media/derivatives/.duora-media-area"])
         host_env.write_text("\n".join([
             f"DUORA_IMAGE_PREFIX={IMAGE_PREFIX}",
