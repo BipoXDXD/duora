@@ -97,3 +97,10 @@ acrescentado: `TheFileSystemStoreServesProductionFromAMountedDirectory`,
 `TheFileSystemStoreRefusesAnAreaWithoutTheMountMarkerInProduction`, `FileSystemObjectStoreTests`,
 `MediaUploadGateTests`, `MediaBackupTests`,
 `MediaBackupUnitsTests` e `WriteMediaBackupRepositoryTests`. A spec 15.4 foi atualizada para esta decisão.
+
+## Adendo (2026-10-19): localização da VPS
+
+A VPS Hostinger onde as fotos ficam é a de produção, em **Boston, EUA** (decisão do dono, registrada no
+[ADR-0026](0026-publico-idiomas-e-regiao-do-servidor.md)). As fotos de pessoas no Brasil são, portanto, tratadas
+nos EUA desde o upload; a salvaguarda dessa transferência está no
+[data-map.md](../../privacy/data-map.md#transferências-internacionais-registradas). Nada muda no desenho acima.
