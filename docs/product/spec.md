@@ -1157,8 +1157,8 @@ O sistema da VPS é **Ubuntu Server 24.04 LTS**. O inventário registra release,
 
 | Item | Hipótese inicial | Validação |
 |---|---|---|
-| CPU | 4 vCPU | Modelo/compartilhamento e desempenho real importam; medir contenção |
-| Memória | 8 GiB | Medir picos de .NET, PostgreSQL, imagem e backup simultâneos |
+| CPU | Hostinger KVM 2: 2 vCPU | Modelo/compartilhamento e desempenho real importam; medir contenção |
+| Memória | 8 GB anunciados; confirmar `MemTotal` no host | Medir picos de .NET, PostgreSQL, imagem e backup simultâneos |
 | Disco | Pelo menos 80 GiB SSD, com folga operacional | Validar IOPS, crescimento, WAL, imagens de release e spool |
 | Carga de referência | Até 100 participantes/50 salas no ensaio | Não é capacidade contratada nem resultado medido |
 | Região | Próxima da maioria das pessoas do piloto | Medir latência e revisar residência/transferência dos fornecedores |
@@ -1167,7 +1167,18 @@ O sistema da VPS é **Ubuntu Server 24.04 LTS**. O inventário registra release,
 
 > **Decisão registrada ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)):** a VPS de produção fica em **Boston, EUA** (Hostinger), e o backup no Backblaze B2 US East. A linha "Região" acima passa a ser a validação: medir a latência a partir do Brasil e dos países do lançamento no ensaio de capacidade (20.4).
 
-Um orçamento inicial de memória é: PostgreSQL até 2,5 GiB; web até 1,5 GiB; worker até 1 GiB; Caddy até 128 MiB; Collector até 256 MiB; reservar aproximadamente 2 GiB para sistema, cache e folga. São limites experimentais, não tuning pronto. PostgreSQL precisa ajustar `shared_buffers`, `work_mem`, conexões e paralelismo ao conjunto; `work_mem` não é um orçamento global único. Swap pode amortecer um pico, mas não transforma falta de RAM em capacidade sustentável.
+O orçamento experimental da KVM 2 está em [capacity.md](../operations/capacity.md) e no Compose: PostgreSQL
+2 GiB, web 1,5 GiB, worker 1 GiB, backup 512 MiB e Caddy 128 MiB, total permanente de 5.248 MiB.
+O migrador acrescenta 512 MiB; reservar no planejamento pelo menos 1.536 MiB para sistema, Docker e folga.
+Esses valores cabem em 8 GB decimais, mas exigem confirmar a memória utilizável do host. Collector não está
+implantado nem incluído: adicioná-lo exige recalcular o orçamento. `tmpfs`, buffers e caches cobrados no cgroup
+já consomem o limite do container; não são memória gratuita. Swap não conta como capacidade sustentável.
+
+Os tetos de CPU são PostgreSQL 2, web 2, worker 1, backup 0,5 e Caddy 0,5 vCPU. A soma de 6 vCPU é
+intencional: limites individuais não são reservas. Pesos `cpu_shares` favorecem PostgreSQL/web, preservam
+proxy e worker e dão menor prioridade ao backup sob contenção; não garantem throughput, latência ou RPO.
+PostgreSQL mantém `shared_buffers=512MB` e `max_connections=100`; medir `work_mem` por operação, paralelismo,
+pools e autovacuum antes de ajustar. O teto de 2 GiB não garante que cem consultas simultâneas caibam.
 
 Processamento de imagens começa com concorrência 1. Jobs de retenção e backup evitam o pico de eventos quando possível. O deploy falha preventivamente quando não há espaço seguro para a imagem nova e a anterior.
 
@@ -1547,6 +1558,9 @@ Uma falha intermitente tem dono, causa e prazo; rerun limitado não substitui co
 
 ### 20.4. Relatório de carga
 
+Executar o [protocolo de capacidade KVM 2](../operations/capacity.md#ensaio-pendente) com dados sintéticos.
+O teste estático do orçamento não comprova capacidade da VPS; os cenários e medições reais continuam pendentes.
+
 Publicar hardware, limites, versões, número de contas/salas, distribuição de ações, duração, dataset, rede, percentis, erro, reconexões, pool, locks, memória e filas. O ensaio inicial inclui rampa, pico de entrada, período estável e reinício controlado. A aprovação exige também T-01 a T-28 relevantes; uma aplicação rápida que viola bloqueios não passa.
 
 <a id="s21"></a>
@@ -1717,7 +1731,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 
 | Tema | Decisão já tomada | Informação ainda necessária | Bloqueia |
 |---|---|---|---|
-| VPS | Ubuntu Server 24.04 LTS/Compose; hipótese 4 vCPU/8 GiB | Provedor, região, IOPS, suporte, arquitetura e teste | Provisionamento final/capacidade |
+| VPS | Hostinger KVM 2, Ubuntu Server 24.04 LTS/Compose; 2 vCPU/8 GB | Memória utilizável, IOPS, suporte, arquitetura e ensaio de contenção | Capacidade medida pendente |
 | Storage e backup | Externos, privados e separados | Recursos, credenciais, retenção, exportação e teste | Dados reais |
 | Domínio/e-mail | Mesma origem e e-mail transacional | Domínio, DNS, provedor e autenticação de envio | Cadastro real |
 | Verificação etária | Controle adequado antes de participação | Método/provedor, revisão e critérios legais/técnicos | Participação real |
