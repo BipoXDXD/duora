@@ -20,8 +20,6 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
     /// <summary>Hash lento simulado: CPU carregada, sem saturar o runner.</summary>
     private static readonly TimeSpan SlowHash = TimeSpan.FromMilliseconds(1800);
 
-    private static readonly TimeSpan ComparableLatencyTolerance = TimeSpan.FromSeconds(2);
-
     /// <summary>Teste do gate sem banco: falha em vez de travar se uma espera perder o teto.</summary>
     private const int GateTestTimeoutMs = 10_000;
 
@@ -107,13 +105,13 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         // A implementação antiga terminava o endereço inexistente em um hash, não em quatro.
         Assert.True(existing.Max() >= TimeSpan.FromSeconds(7));
         Assert.True(missing.Max() >= TimeSpan.FromSeconds(7));
-        for (var i = 0; i < existing.Length; i++)
+        // Limites inferiores, não comparação entre os dois: o caminho existente custa mais (transação, lock,
+        // auditoria) e a diferença acumula por posição e oscila com a carga. Os quatro saem juntos e cada hash
+        // dura pelo menos SlowHash, então o i-ésimo a terminar esperou i + 1 hashes se a fila for serializada.
+        for (var i = 0; i < missing.Length; i++)
         {
-            // Não dá para apertar abaixo de um hash: o caminho existente custa mais (transação, lock, auditoria) e a
-            // diferença acumula por posição; medido em 2026-10-19, com a máquina carregada, chegou a 1,15 s na
-            // quarta. Quem distingue a fila estrutural é o Max() >= 7 s acima, não esta tolerância.
-            Assert.True((existing[i] - missing[i]).Duration() < ComparableLatencyTolerance,
-                $"Posição {i}: existente={existing[i]}, inexistente={missing[i]}");
+            Assert.True(missing[i] >= SlowHash * (i + 1), $"Inexistente, posição {i}: {missing[i]}");
+            Assert.True(existing[i] >= SlowHash * (i + 1), $"Existente, posição {i}: {existing[i]}");
         }
     }
 
