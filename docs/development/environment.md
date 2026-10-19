@@ -141,7 +141,10 @@ rode os dois a partir de `backend/`, como nos comandos deste arquivo.
 | `Media:Storage:Provider` e `Media:Storage:FileSystemRoot` (Web) | `FileSystem`, `../.local/media` | Quarentena e derivados num diretório local; em Production, `FileSystem` num diretório absoluto já montado (adendo do ADR-0010) ou `S3` (`Media:Storage:S3:*`) |
 
 Sem essas chaves os processos não sobem, salvo as de `Media`: sem `Media:Review`, o upload de fotos fica
-desligado (503) e o storage não é exigido. Fora de Development, defina-as por variável de ambiente. Atrás do Caddy,
+desligado (503), e o storage só deixa de ser exigido se `Media:Storage:Provider` também estiver ausente. Com o
+provedor `FileSystem` em Production, como o `compose.prod.yml` sempre configura, o boot exige as duas áreas com o
+marcador `.duora-media-area` mesmo com o upload desligado, e o `duora-deploy` confere o mesmo antes de migrar
+(adendo de 2026-10-19 do ADR-0025). Fora de Development, defina-as por variável de ambiente. Atrás do Caddy,
 defina também `ReverseProxy__KnownNetworks__0=172.30.10.0/24` (rede `edge`); sem ela, `X-Forwarded-For` é
 ignorado e o rate limit por IP vê só o IP do proxy. Os e-mails só
 saem com o Worker rodando: o Web grava na outbox e o Worker entrega.

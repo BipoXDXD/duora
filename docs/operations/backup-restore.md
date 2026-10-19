@@ -597,8 +597,9 @@ arquivo conferido pelo gate. O formato do interruptor é vazio ou nome sem aspas
 `DUORA_MEDIA_DIR` vem do mesmo `duora_media_dir` que o Ansible prepara (padrão `/var/lib/duora-media`). Os containers
 usam a raiz fixa `/var/lib/duora-media`, com bind mounts separados, `create_host_path: false`, UID/GID `1654:1654` e
 áreas `0700`. Web recebe quarentena RW e derivados RO; worker recebe ambas RW. Nenhum outro serviço monta fotos.
-Os marcadores `.duora-media-area` continuam obrigatórios no boot do adaptador em Production. Instalar o Compose
-novo exige reaplicar `app_dirs`, inclusive o template do arquivo do host, antes da próxima release.
+Os marcadores `.duora-media-area` continuam obrigatórios no boot do adaptador em Production, com o upload ligado ou
+não, e o `duora-deploy` os confere no preflight, antes do pull e das migrations (adendo de 2026-10-19 do ADR-0025).
+Instalar o Compose novo exige reaplicar `app_dirs`, inclusive o template do arquivo do host, antes da próxima release.
 
 **Checklist antes de qualquer ativação em produção:**
 
