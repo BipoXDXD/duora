@@ -41,7 +41,10 @@ internal static class CatalogEndpoints
     private static TBuilder HandleCatalogContention<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder => builder.AddEndpointFilter(async (context, next) =>
         {
-            try { return await next(context); }
+            try
+            {
+                return await next(context);
+            }
             catch (PostgresException error) when (error.SqlState is PostgresErrorCodes.LockNotAvailable
                 or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure)
             {
