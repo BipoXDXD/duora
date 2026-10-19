@@ -15,6 +15,14 @@ internal sealed class MediaOptions
     /// <summary>Teto de uploads sem veredito por conta (spec 11.5); hipótese inicial a medir.</summary>
     public int MaxPendingUploadsPerAccount { get; set; } = PendingUploadQuota.DefaultCap;
 
+    /// <summary>
+    /// Teto de uploads sem veredito somando todas as contas (shed load, spec 11.5 e TM-43): o teto por conta não para
+    /// quem tem várias, e o Worker processa uma foto por vez. Hipótese inicial a medir na VPS: 100 fotos são até
+    /// 500 MiB de quarentena e poucos minutos de fila (uma foto de 20 MP levou de 1,1 a 2 s num núcleo em 2026-10-19,
+    /// fora da VPS).
+    /// </summary>
+    public int MaxQueuedUploads { get; set; } = 100;
+
     /// <summary>Tempo máximo para receber o corpo de um upload (spec 16.1: limitar tamanho e tempo).</summary>
     public TimeSpan UploadTimeout { get; set; } = TimeSpan.FromSeconds(60);
 

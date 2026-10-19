@@ -26,6 +26,7 @@ internal static class PhotoEndpoints
 
     private static readonly TimeSpan InProgressRetryAfter = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan PendingLimitRetryAfter = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan QueueFullRetryAfter = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan StorageRetryAfter = TimeSpan.FromSeconds(30);
 
     public static void MapPhotoEndpoints(this IEndpointRouteBuilder api)
@@ -199,6 +200,12 @@ internal static class PhotoEndpoints
             StatusCodes.Status429TooManyRequests,
             ApiProblems.UploadPendingLimit,
             "Há fotos demais em processamento. Aguarde o resultado delas."),
+        PhotoUploadResult.QueueFull => RetryLater(
+            context,
+            QueueFullRetryAfter,
+            StatusCodes.Status503ServiceUnavailable,
+            ApiProblems.MediaQueueFull,
+            "Muitas fotos em processamento agora. Tente de novo em instantes."),
         PhotoUploadResult.OwnerMissing => TypedResults.Unauthorized(),
         PhotoUploadResult.AccountRestricted => ApiProblems.Problem(
             StatusCodes.Status403Forbidden,

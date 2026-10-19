@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Duora.Core.Media;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Persistence;
@@ -23,6 +24,9 @@ public abstract record PhotoUploadResult
 
     public sealed record PendingLimitReached : PhotoUploadResult;
 
+    /// <summary>A fila de processamento, somando todas as contas, está no teto: recusa sem gravar nada.</summary>
+    public sealed record QueueFull : PhotoUploadResult;
+
     /// <summary>A conta da sessão não existe mais.</summary>
     public sealed record OwnerMissing : PhotoUploadResult;
 
@@ -47,6 +51,9 @@ public sealed record PhotoStatus(Guid PhotoId, UploadState State, string? Reject
 public sealed partial class PhotoUploads
 {
     private static readonly TimeSpan CompensationTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>Chave do advisory lock da fila global de mídia; nenhum outro lugar do banco usa advisory lock.</summary>
+    private const long QueueLockKey = 0x4D_6564_6961_5175;
 
     private readonly DuoraDbContext _db;
     private readonly AccountService _accounts;
@@ -144,15 +151,16 @@ public sealed partial class PhotoUploads
             await _db.SaveChangesAsync(cancellationToken);
         }
 
-        var pending = await uploads.CountAsync(
-            upload => upload.OwnerId == command.OwnerId
-                && (upload.State == UploadState.Quarantined
-                    || upload.State == UploadState.Processing
-                    || (upload.State == UploadState.Pending && upload.CreatedAt >= abandonedBefore)),
-            cancellationToken);
+        var awaitingVerdict = AwaitingVerdict(abandonedBefore);
+        var pending = await uploads.Where(upload => upload.OwnerId == command.OwnerId).CountAsync(awaitingVerdict, cancellationToken);
         if (!Options.Quota.Admits(pending))
         {
             return new Reservation.Refused(new PhotoUploadResult.PendingLimitReached());
+        }
+
+        if (!await QueueAdmitsAsync(awaitingVerdict, cancellationToken))
+        {
+            return new Reservation.Refused(new PhotoUploadResult.QueueFull());
         }
 
         var reserved = Upload.Reserve(command.OwnerId, command.Key, command.Format, command.SizeBytes, now);
@@ -166,6 +174,27 @@ public sealed partial class PhotoUploads
         }
 
         return new Reservation.Reserved(reserved);
+    }
+
+    /// <summary>
+    /// Upload que ainda espera veredito e ocupa vaga: em quarentena, em processamento, ou reservado e ainda dentro do
+    /// prazo do streaming.
+    /// </summary>
+    private static Expression<Func<Upload, bool>> AwaitingVerdict(DateTimeOffset abandonedBefore) =>
+        upload => upload.State == UploadState.Quarantined
+            || upload.State == UploadState.Processing
+            || (upload.State == UploadState.Pending && upload.CreatedAt >= abandonedBefore);
+
+    /// <summary>
+    /// Teto da fila somando todas as contas. Contas diferentes não se esperam na guarda do dono, então a contagem tem
+    /// a própria serialização: advisory lock da transação, tomado sempre depois da guarda (mesma ordem em todo
+    /// envio, sem deadlock) e solto no commit. Sem ele, envios simultâneos de contas diferentes passariam do teto.
+    /// </summary>
+    private async Task<bool> QueueAdmitsAsync(Expression<Func<Upload, bool>> awaitingVerdict, CancellationToken cancellationToken)
+    {
+        await _db.Database.ExecuteSqlAsync($"select pg_advisory_xact_lock({QueueLockKey})", cancellationToken);
+        var queued = await _db.Set<Upload>().CountAsync(awaitingVerdict, cancellationToken);
+        return queued < Options.MaxQueuedUploads;
     }
 
     /// <summary>
