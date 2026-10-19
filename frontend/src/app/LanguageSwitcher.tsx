@@ -34,7 +34,7 @@ export function LanguageSwitcher(): React.JSX.Element {
       const current = await fetchLocale()
       if (queries?.getQueryData<Me>(meQueryKey)?.id !== account.id) return
       const saved = await saveLocale(current.version, next)
-      if (queries?.getQueryData<Me>(meQueryKey)?.id !== account.id) return
+      if (queries.getQueryData<Me>(meQueryKey)?.id !== account.id) return
       queries.setQueryData<Me>(meQueryKey, (value) =>
         value === undefined ? value : { ...value, preferredLocale: saved.locale },
       )
