@@ -94,7 +94,8 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   3. denúncia feita a partir da sala ou da tela de voz;
   4. sala abortada (`Aborted`, spec 4.2), por desativação da versão ou pela administração (spec 6.3);
   5. medida de moderação que restringe a conta (spec 12.3), inclusive por suspeita de menor (spec 12.2);
-  6. revogação da sessão de login;
+  6. revogação da sessão de login (por `RevokeVoiceForUser`, que derruba de propósito a voz da conta em todos os
+     aparelhos);
   7. fim da sessão de jogo.
 
   **Operações públicas do Experiences** ([modules.md](../modules.md)), as únicas que escrevem em
@@ -106,7 +107,10 @@ Vamos implementar a voz ao vivo como WebRTC ponto a ponto entre os dois navegado
   `RevokeVoiceForUser` **na mesma transação** do evento (um `DbContext`, ADR-0004). A operação fecha a
   participação (`left_at`) e grava na outbox (ADR-0008) a intenção de revogar os usernames ativos. O worker
   chama a Cloudflare com retry limitado e, só depois da resposta, grava `revoked_at` por
-  `MarkVoiceCredentialsRevoked`, que é código do Experiences rodando no worker. Se a revogação derruba a alocação já
+  `MarkVoiceCredentialsRevoked`, que é código do Experiences rodando no worker. Credencial inexistente ou já
+  vencida na Cloudflare conta como sucesso: o estado final desejado é o mesmo. Locks na ordem global de
+  [modules.md](../modules.md#ordem-global-de-locks-spec-104): guardas e coordenador da sessão primeiro, depois
+  `voice_participation` e `voice_credentials`. Se a revogação derruba a alocação já
   aberta é comportamento a confirmar num **teste de contrato manual contra a Cloudflare real**, que faz parte do
   gate de lançamento (spec 23.2); o TTL de 5 min limita a janela se não derrubar.
 

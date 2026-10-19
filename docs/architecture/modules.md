@@ -89,6 +89,8 @@ Todo caso de uso coordenado adquire locks nesta ordem; quem descobre recurso for
 3. Coordenador de evento/rodada, quando houver.
 4. Guarda de relação (`relationship_guards`).
 5. Sala/conversa, em ordem estável.
+6. Voz da sala: `experiences.voice_participation` e depois `experiences.voice_credentials`, em ordem estável
+   ([ADR-0028](adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)).
 
 Nenhuma chamada a e-mail, storage, processamento externo ou webhook de terceiro acontece enquanto os locks de negócio estão
 mantidos. O protocolo de cada cenário está em [concurrency.md](../data/concurrency.md).
