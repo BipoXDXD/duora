@@ -6,8 +6,8 @@
   [ADR-0010](0010-object-storage-externo-leitura-via-api.md), [ADR-0013](0013-ia-fora-do-caminho-critico.md),
   [ADR-0020](0020-persistencia-da-sessao-de-jogo.md), [ADR-0022](0022-i18n-intl-messageformat-catalogo-tipado.md);
   [brief](../../product/experience-brief.md) (O4 e restrições); [system.md](../../design/system.md)
-- **Revisar quando:** a primeira experiência pedir 3D em tempo real, o orçamento de mídia ou de créditos medido estourar a
-  hipótese, o plano ou os termos de ElevenLabs, Freesound ou Sonniss mudarem, ou entrar um terceiro idioma
+- **Revisar quando:** o 3D em tempo real medido numa experiência estourar o orçamento de peso ou de desempenho, o
+  orçamento de mídia ou de créditos medido estourar a hipótese, o plano ou os termos de ElevenLabs, Freesound ou Sonniss mudarem, ou entrar um terceiro idioma
 - **Substitui em parte:** a direção "objetos simbólicos, sem pessoa" de [system.md](../../design/system.md#ilustração-cenário-e-personagem)
   (marcada como Superseded lá), o prefixo de prompt v1 de [assets-licenses.md](../../design/assets-licenses.md) e
   a linha "Experiências" da spec 1.1, que tirava 3D e voz do escopo. Nenhum ADR anterior é revogado: os ADRs
@@ -135,6 +135,15 @@ geração ao vivo (imagem, música ou TTS).
 
   O pipeline tem **teto de créditos por execução** (para antes de passar dele) e **log do consumo por geração**.
   A proveniência registra qual das duas contas gerou cada arquivo.
+- **Limites da geração paga (ElevenLabs, Tripo e Rodin):** a geração é offline, feita pelo responsável fora do
+  runtime. Nenhuma rota, job ou consumidor do produto chama esses fornecedores, então não existe operação de pessoa
+  usuária a limitar por conta e por IP; quem garante isso é um teste de arquitetura
+  (`NoRuntimeModuleReferencesMediaGenerationProviders`: Web, Worker, Core e Infrastructure sem cliente nem
+  segredo desses fornecedores). O script de geração, quando existir, tem teto de créditos por execução, **teto de
+  tentativas por asset** (hipótese: 3; além disso a execução para com erro, sem laço de retry), concorrência
+  limitada e respeito ao `429` do fornecedor pelo `Retry-After`, com backoff e jitter limitados. Testes do script
+  contra servidor HTTP falso, nunca contra o fornecedor real: `GenerationStopsBeforeExceedingTheCreditCap`,
+  `GenerationStopsAfterMaxAttemptsPerAsset` e `GenerationHonorsProviderRetryAfter`.
 - **Segredo:** `ELEVENLABS_API_KEY` só no ambiente de quem gera, nunca no repositório, em CI, log ou commit; o
   MCP hospedado da ElevenLabs usa OAuth (metadados em <https://api.us.elevenlabs.io/.well-known/oauth-protected-resource>; fluxo a confirmar no primeiro uso) e não precisa de
   chave no repositório.
@@ -186,13 +195,14 @@ volume próprio para a outra pessoa, e dispara o mesmo ducking da trilha.
 
 ### 7. 3D
 
-Vamos usar 3D como **fonte offline** por padrão: modelos do Rodin (Hyper3D, plano Business) ou do Tripo, compostos
-e renderizados fora do produto e entregues em WebP pelo pipeline. **3D em tempo real** (GLB) é permitido por
-experiência, decidido no one pager do ambiente, com orçamento de peso e **fallback 2D acessível** (o poster WebP do
-mesmo modelo, com o mesmo texto alternativo). Recomendação para o tempo real: `<model-viewer>`, pela acessibilidade
-embutida (`alt`, teclado, `poster`, `reveal="interaction"`); three.js direto só se a interação pedida não couber
-nele. A dependência entra no PR da primeira experiência que a usar, com justificativa, licença e medição de bundle
-(AGENTS.md, spec 2.3). Regras do tempo real:
+O 3D está no escopo nas duas formas. A **fonte offline** é o padrão: modelos do Rodin (Hyper3D, plano Business) ou
+do Tripo, compostos e renderizados fora do produto e entregues em WebP pelo pipeline. O **3D em tempo real** (GLB)
+é permitido por experiência, decidido no one pager do ambiente, e precisa funcionar em produção nos navegadores da
+matriz (spec 13.5), com orçamento de peso e **fallback 2D acessível** (o poster WebP do mesmo modelo, com o mesmo
+texto alternativo). O visualizador é o `<model-viewer>`, pela acessibilidade embutida (`alt`, teclado, `poster`,
+`reveal="interaction"`); three.js direto só se a interação pedida não couber nele. A dependência entra no PR da
+primeira experiência com 3D em tempo real, com justificativa, licença e medição de bundle (AGENTS.md, spec 2.3),
+e esse PR só fecha com o modelo renderizando sob a CSP de produção. Regras do tempo real:
 
 - nada da regra, da pista ou da escolha mora só no modelo; nenhuma ação exige arrastar ou girar (A11Y-04);
 - sem rotação automática com `prefers-reduced-motion: reduce`; nada pisca;
@@ -244,3 +254,8 @@ personalidade às experiências sem comprometer acolhimento, privacidade e saíd
 - A11Y-04 do [protocolo](../../design/accessibility-test-protocol.md#a11y-04--minijogos): jogo completo com som
   desligado, transcrição, Controle de som por teclado e leitor de tela, fallback 2D do 3D.
 - Voz ao vivo: testes do ADR-0028 e de TM-68 a TM-79.
+- A criar já no próximo PR de backend: `NoRuntimeModuleReferencesMediaGenerationProviders` (teste de arquitetura).
+  Com o primeiro script de geração: `GenerationStopsBeforeExceedingTheCreditCap`,
+  `GenerationStopsAfterMaxAttemptsPerAsset` e `GenerationHonorsProviderRetryAfter`, contra servidor HTTP falso.
+- A criar com a primeira experiência com 3D em tempo real: E2E (Chromium e WebKit) que carrega o modelo sob a CSP
+  de produção sem violação no console, e o fallback para o poster sem WebGL e com "Reduzir movimento".
