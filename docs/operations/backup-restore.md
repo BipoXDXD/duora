@@ -592,7 +592,17 @@ alvo do restore), `MediaBackupUnitsTests` (timers, alerta, padrões do inventár
 Não defina `Media:Review` em appsettings padrão/Production, secrets, argumentos, env files de serviço ou outra
 variável. O executor remove `DUORA_*` e `COMPOSE_*` herdados do shell antes de chamar Compose, para que prevaleça o
 arquivo conferido pelo gate. O formato do interruptor é vazio ou nome sem aspas, expansão, comentário ou duplicata.
-`Editorial` nos testes do executor é apenas um valor sintético não vazio: **não é uma política implementada**.
+Além do formato, o `duora-deploy` só aceita um nome da allowlist `PRODUCTION_MEDIA_REVIEW_POLICIES`, as políticas que
+o boot do web aceita em Production. Hoje ela é **vazia**: `TechnicalOnly` é a única política implementada e o boot a
+recusa em Production, então qualquer valor não vazio é recusado na leitura do `duora.env`, antes do pull e da
+migração, em vez de derrubar o web depois dela. `Editorial` nos testes do executor é apenas um valor sintético
+posto na allowlist pelo próprio teste: **não é uma política implementada**.
+
+**Quando houver uma política nova aceita em Production**, o mesmo PR precisa: acrescentá-la a
+`PRODUCTION_MEDIA_REVIEW_POLICIES` (o teste confere que só entram nomes de `MediaReviewPolicy` e nunca
+`TechnicalOnly`) e fazer o Worker registrar o pipeline de mídia. Hoje só o Web chama `AddMediaUploads`; o Worker não
+registra nem o storage nem o consumidor `media-processing`, então uploads ficariam em `Quarantined` para sempre. O
+pipeline no Worker é escopo do PR #40, não desta integração.
 
 `DUORA_MEDIA_DIR` vem do mesmo `duora_media_dir` que o Ansible prepara (padrão `/var/lib/duora-media`). Os containers
 usam a raiz fixa `/var/lib/duora-media`, com bind mounts separados, `create_host_path: false`, UID/GID `1654:1654` e
@@ -605,7 +615,8 @@ Instalar o Compose novo exige reaplicar `app_dirs`, inclusive o template do arqu
 
 1. Manter `duora_media_review: ""` até haver política de revisão permitida em Production e pipeline de processamento
    integrado na release. Na main examinada para esta correção, só `TechnicalOnly` existe (recusado em Production), e
-   o Worker ainda não registra o pipeline de mídia. Não trocar o ambiente para Development para contornar isso.
+   o Worker ainda não registra o pipeline de mídia; o `duora-deploy` recusa qualquer valor fora da allowlist (hoje
+   vazia). Não trocar o ambiente para Development nem a allowlist para contornar isso.
 2. Executar e anexar evidência sanitizada do [passo 6 do setup B2](backblaze-setup.md#6-validar),
    em homologação e com dados sintéticos: provas negativas de chave/prefixo/File Lock, dois fulls, `expire`,
    `media-backup`/prune e comparação das versões antes/depois. Zero versões correntes apagadas, novos hide markers e
