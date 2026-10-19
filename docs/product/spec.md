@@ -1182,7 +1182,7 @@ O sistema da VPS é **Ubuntu Server 24.04 LTS**. O inventário registra release,
 
 | Item | Hipótese inicial | Validação |
 |---|---|---|
-| CPU | 4 vCPU | Modelo/compartilhamento e desempenho real importam; medir contenção |
+| CPU | 2 vCPU (Hostinger KVM 2) | Tetos e pesos por container no PR #87 (issue #86); medir contenção |
 | Memória | 8 GiB | Medir picos de .NET, PostgreSQL, imagem e backup simultâneos |
 | Disco | Pelo menos 80 GiB SSD, com folga operacional | Validar IOPS, crescimento, WAL, imagens de release e spool |
 | Carga de referência | Até 100 participantes/50 salas no ensaio | Não é capacidade contratada nem resultado medido |
@@ -1744,7 +1744,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 
 | Tema | Decisão já tomada | Informação ainda necessária | Bloqueia |
 |---|---|---|---|
-| VPS | Ubuntu Server 24.04 LTS/Compose; hipótese 4 vCPU/8 GiB | Provedor, região, IOPS, suporte, arquitetura e teste | Provisionamento final/capacidade |
+| VPS | Ubuntu Server 24.04 LTS/Compose; Hostinger KVM 2 (2 vCPU/8 GB), Boston | Provedor, região, IOPS, suporte, arquitetura e teste | Provisionamento final/capacidade |
 | Storage e backup | Externos, privados e separados | Recursos, credenciais, retenção, exportação e teste | Dados reais |
 | Domínio/e-mail | Mesma origem (`meetduora.com`), DNS na Cloudflare e e-mail transacional | Registro só DNS ou proxied, provedor de e-mail e autenticação de envio | Cadastro real |
 | Verificação etária | Controle adequado antes de participação | Método/provedor, revisão e critérios legais/técnicos | Participação real |
