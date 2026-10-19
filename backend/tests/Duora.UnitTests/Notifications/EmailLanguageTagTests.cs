@@ -34,18 +34,26 @@ public sealed class EmailLanguageTagTests
 
     [Theory]
     [InlineData(EmailLanguage.BrazilianPortuguese, "pt-BR")]
-    [InlineData(EmailLanguage.English, "en")]
+    [InlineData(EmailLanguage.English, "en-US")]
     public void FormatWritesTheCanonicalTag(EmailLanguage language, string expected)
     {
         Assert.Equal(expected, EmailLanguageTag.Format(language));
     }
 
+    /// <summary>
+    /// Fallback em inglês (ADR-0026: o público principal não é brasileiro). <c>en</c>, gravado na outbox antes do
+    /// ADR-0026, continua lido como inglês. Sem tag é payload anterior ao campo, de quando só havia pt-BR.
+    /// </summary>
     [Theory]
     [InlineData("en", EmailLanguage.English)]
+    [InlineData("en-US", EmailLanguage.English)]
     [InlineData("pt-BR", EmailLanguage.BrazilianPortuguese)]
+    [InlineData("pt-PT", EmailLanguage.BrazilianPortuguese)]
     [InlineData(null, EmailLanguage.BrazilianPortuguese)]
-    [InlineData("xx", EmailLanguage.BrazilianPortuguese)]
-    public void ParseOrDefaultFallsBackToBrazilianPortuguese(string? tag, EmailLanguage expected)
+    [InlineData("", EmailLanguage.English)]
+    [InlineData("xx", EmailLanguage.English)]
+    [InlineData("fr", EmailLanguage.English)]
+    public void ParseOrDefaultFallsBackToEnglish(string? tag, EmailLanguage expected)
     {
         Assert.Equal(expected, EmailLanguageTag.ParseOrDefault(tag));
     }

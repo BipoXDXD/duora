@@ -1,8 +1,8 @@
 namespace Duora.Core.Notifications;
 
 /// <summary>
-/// Idiomas dos e-mails de serviço, os mesmos da interface (ADR-0022). O valor zero é o padrão: qualquer idioma
-/// fora da lista sai em português do Brasil.
+/// Idiomas dos e-mails de serviço, os mesmos da interface (ADR-0022, tags do ADR-0026). O padrão para idioma fora
+/// da lista é <see cref="EmailLanguageTag.Default"/>, não o valor zero.
 /// </summary>
 public enum EmailLanguage
 {
@@ -16,14 +16,16 @@ public enum EmailLanguage
 /// </summary>
 public static class EmailLanguageTag
 {
-    public const EmailLanguage Default = EmailLanguage.BrazilianPortuguese;
+    /// <summary>Fallback para idioma fora da lista: o público principal não é brasileiro (ADR-0026).</summary>
+    public const EmailLanguage Default = EmailLanguage.English;
 
     private const string BrazilianPortugueseTag = "pt-BR";
-    private const string EnglishTag = "en";
+    private const string EnglishTag = "en-US";
 
     /// <summary>
-    /// Idioma suportado para a tag, pelo idioma primário (<c>en-US</c> vira inglês; <c>pt-PT</c>, português do
-    /// Brasil, como na SPA), ou <c>null</c> quando nenhum serve.
+    /// Idioma suportado para a tag, pelo idioma primário (<c>en-GB</c> vira inglês; <c>pt-PT</c>, português do
+    /// Brasil, como na SPA), ou <c>null</c> quando nenhum serve. Por isso o <c>en</c> que a outbox gravava antes do
+    /// ADR-0026 continua lido como inglês, sem migração dos pedidos pendentes.
     /// </summary>
     public static EmailLanguage? Match(string? tag)
     {
@@ -42,12 +44,17 @@ public static class EmailLanguageTag
         return primary.Equals("en", StringComparison.OrdinalIgnoreCase) ? EmailLanguage.English : null;
     }
 
-    /// <summary>Idioma da tag, ou o padrão quando ela falta (payload anterior ao campo) ou não é suportada.</summary>
-    public static EmailLanguage ParseOrDefault(string? tag) => Match(tag) ?? Default;
+    /// <summary>
+    /// Idioma do pedido da outbox. Sem tag é payload anterior ao campo, gravado quando só havia pt-BR, e continua
+    /// pt-BR (<see cref="Format"/> sempre grava uma tag); tag não suportada cai no <see cref="Default"/>.
+    /// </summary>
+    public static EmailLanguage ParseOrDefault(string? tag) =>
+        tag is null ? EmailLanguage.BrazilianPortuguese : Match(tag) ?? Default;
 
     public static string Format(EmailLanguage language) => language switch
     {
         EmailLanguage.English => EnglishTag,
-        _ => BrazilianPortugueseTag,
+        EmailLanguage.BrazilianPortuguese => BrazilianPortugueseTag,
+        _ => throw new ArgumentOutOfRangeException(nameof(language), language, "Idioma sem tag."),
     };
 }

@@ -41,7 +41,8 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
         var notice = Assert.Single(await NoticesAsync(account.UserId));
         Assert.Equal("MfaEnabledNotice", notice.Kind);
         Assert.Equal(account.Email, notice.To);
-        Assert.Equal("pt-BR", notice.Language);
+        // Sem Accept-Language, o fallback é en-US (ADR-0026).
+        Assert.Equal("en-US", notice.Language);
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         var notice = Assert.Single(await NoticesAsync(account.UserId));
         Assert.Equal("PasswordChangedNotice", notice.Kind);
-        Assert.Equal("en", notice.Language);
+        Assert.Equal("en-US", notice.Language);
         Assert.Equal(0, await CountOutboxPayloadsContainingAsync(canary));
         Assert.Equal(0, await CountOutboxPayloadsContainingAsync(account.Password));
     }
@@ -144,7 +145,7 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         var notice = Assert.Single(await NoticesAsync(account.UserId));
         Assert.Equal("PasswordResetNotice", notice.Kind);
-        Assert.Equal("en", notice.Language);
+        Assert.Equal("en-US", notice.Language);
         Assert.DoesNotContain(link.Token, notice.Payload, StringComparison.Ordinal);
         Assert.Equal(0, await CountOutboxPayloadsContainingAsync(canary));
     }
@@ -238,7 +239,7 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
     }
 
     private static MutationHeaders InEnglish() =>
-        new(Extra: new Dictionary<string, string> { ["Accept-Language"] = "en" });
+        new(Extra: new Dictionary<string, string> { ["Accept-Language"] = "en-US" });
 
     private async Task<AccountLink> RequestResetLinkAsync(Browser browser, string email)
     {

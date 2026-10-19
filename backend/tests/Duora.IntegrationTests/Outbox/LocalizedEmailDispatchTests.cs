@@ -4,20 +4,26 @@ namespace Duora.IntegrationTests.Outbox;
 
 /// <summary>
 /// O worker escreve o e-mail no idioma gravado no pedido da outbox; tag ausente (evento anterior ao campo),
-/// nula ou fora da allowlist sai em pt-BR. Confere o assunto e o corpo do arquivo entregue.
+/// fora da allowlist sai em en-US (ADR-0026), e <c>en</c>, gravado antes do ADR-0026, continua inglês. Tag ausente
+/// ou nula só existe em pedido anterior ao campo, de quando só havia pt-BR, e sai em pt-BR.
+/// Confere o assunto e o corpo do arquivo entregue.
 /// </summary>
 public sealed class LocalizedEmailDispatchTests(PostgresFixture postgres)
 {
     private const string PortugueseSubject = "Subject: Confirme seu e-mail no Duora";
     private const string PortugueseBody = "Para confirmar este endereço de e-mail no Duora, abra o link abaixo.";
+    private const string EnglishSubject = "Subject: Confirm your email on Duora";
+    private const string EnglishBody = "To confirm this email address on Duora, open the link below.";
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Theory]
-    [InlineData("en", "Subject: Confirm your email on Duora", "To confirm this email address on Duora, open the link below.")]
+    [InlineData("en-US", EnglishSubject, EnglishBody)]
+    [InlineData("en", EnglishSubject, EnglishBody)]
     [InlineData("pt-BR", PortugueseSubject, PortugueseBody)]
-    [InlineData("fr-FR", PortugueseSubject, PortugueseBody)]
-    [InlineData("<script>", PortugueseSubject, PortugueseBody)]
+    [InlineData("pt-PT", PortugueseSubject, PortugueseBody)]
+    [InlineData("fr-FR", EnglishSubject, EnglishBody)]
+    [InlineData("<script>", EnglishSubject, EnglishBody)]
     [InlineData(null, PortugueseSubject, PortugueseBody)]
     public async Task EmailIsDeliveredInTheLanguageOfTheRequest(string? language, string subjectLine, string bodyExcerpt)
     {
@@ -37,7 +43,7 @@ public sealed class LocalizedEmailDispatchTests(PostgresFixture postgres)
     public async Task PasswordResetInEnglishKeepsTheTokenInTheFragment()
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
-        await harness.EnqueueAsync(AccountEmailKind.PasswordReset, "tok-1", "en", Ct);
+        await harness.EnqueueAsync(AccountEmailKind.PasswordReset, "tok-1", "en-US", Ct);
         var dispatcher = harness.StartWorker();
 
         await dispatcher.DispatchBatchAsync(Ct);
@@ -53,7 +59,7 @@ public sealed class LocalizedEmailDispatchTests(PostgresFixture postgres)
     public async Task EventRecordedBeforeTheLanguageFieldIsDeliveredInPortuguese()
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
-        var deliveryId = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "tok-1", "en", Ct);
+        var deliveryId = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "tok-1", "en-US", Ct);
         await harness.RemovePayloadFieldAsync(deliveryId, "language", Ct);
         var dispatcher = harness.StartWorker();
 
