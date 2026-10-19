@@ -14,7 +14,7 @@ import time
 import unittest
 import uuid
 
-from caddy_test_support import CADDYFILE, IMAGE, READY_TIMEOUT_SECONDS, docker_available
+from caddy_test_support import CADDYFILE, IMAGE, READY_TIMEOUT_SECONDS, docker_available, remove_container
 
 
 @unittest.skipUnless(docker_available(), "precisa de Docker")
@@ -24,6 +24,9 @@ class CaddyAccessLogTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.container = f"duora-caddy-log-{uuid.uuid4().hex[:8]}"
+        # Registrada antes do run: tearDownClass não roda se o setUpClass falhar, e um container criado que não sobe
+        # também precisa sair.
+        cls.addClassCleanup(remove_container, cls.container)
         _run(["docker", "run", "--detach", "--name", cls.container,
               "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal", "--add-host", "web:127.0.0.1",
               "--volume", f"{CADDYFILE}:/etc/caddy/Caddyfile:ro", IMAGE])
@@ -31,11 +34,6 @@ class CaddyAccessLogTests(unittest.TestCase):
         # Um "web" mínimo no próprio container, só para o proxy ter a quem mandar o corpo: o teto de 64 KiB é aplicado
         # enquanto o corpo é lido, e sem upstream o proxy responderia 502 antes de ler.
         _run(["docker", "exec", "--detach", cls.container, "caddy", "respond", "--listen", ":8080", "ok"])
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if cls.container:
-            subprocess.run(["docker", "rm", "--force", cls.container], capture_output=True, check=False)
 
     @classmethod
     def _wait_ready(cls) -> None:

@@ -45,3 +45,8 @@ def _unique_pairs[T](pairs: Iterable[tuple[str, T]]) -> dict[str, T]:
     if repeated:
         raise ValueError(f"nome repetido na política: {', '.join(repeated)}")
     return dict(pair_list)
+
+
+def remove_container(name: str) -> None:
+    """Remove o container pelo nome exato; sem efeito se ele não chegou a existir."""
+    subprocess.run(["docker", "rm", "--force", name], capture_output=True, check=False)
