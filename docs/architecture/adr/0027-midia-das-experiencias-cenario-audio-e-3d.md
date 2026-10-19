@@ -6,7 +6,7 @@
   [ADR-0010](0010-object-storage-externo-leitura-via-api.md), [ADR-0013](0013-producao-editorial-fora-do-runtime.md),
   [ADR-0020](0020-persistencia-da-sessao-de-jogo.md), [ADR-0022](0022-i18n-intl-messageformat-catalogo-tipado.md);
   [brief](../../product/experience-brief.md) (O4 e restrições); [system.md](../../design/system.md)
-- **Revisar quando:** a primeira experiência pedir 3D em tempo real, o orçamento de mídia medido estourar a
+- **Revisar quando:** a primeira experiência pedir 3D em tempo real, o orçamento de mídia ou de créditos medido estourar a
   hipótese, o plano ou os termos de fonte externa, Freesound ou Sonniss mudarem, ou entrar um terceiro idioma
 - **Substitui em parte:** a direção "objetos simbólicos, sem pessoa" de [system.md](../../design/system.md#ilustração-cenário-e-personagem)
   (marcada como Superseded lá), o prefixo de prompt v1 de [assets-licenses.md](../../design/assets-licenses.md) e
@@ -112,12 +112,25 @@ geração ao vivo (imagem, música ou TTS).
 - **Voz de referência humana** só com consentimento e licença documentados em
   [assets-licenses.md](../../design/assets-licenses.md).
 - **Música mínima** quando a etapa pede foco (escolha, ajuste, decisão): ambiente baixo ou silêncio.
-- **Fornecedores (decisão do responsável, 2026-10-19):** **fonte externa, plano Creator**, para voz (TTS) e música;
-  **Freesound, só CC0**, e **Sonniss** para efeitos. Caminho único: texto revisado do catálogo → geração
+- **Fornecedores (decisões do responsável, 2026-10-19):** **fonte externa, plano Creator**, para voz (TTS), música e,
+  como fonte principal, efeitos e ambiências (SFX v2, `fonte externa`); **Freesound, só CC0**, e
+  **Sonniss** como complemento de efeitos. Caminho único: texto revisado do catálogo → geração
   offline na saída de maior qualidade que o plano permitir → edição, mix e normalização → **uma única**
   codificação AAC-LC → hash → registro em [assets-licenses.md](../../design/assets-licenses.md) → nova versão de
   conteúdo. Lacuna a confirmar: pela API, o Creator pode entregar só MP3; nesse caso o MP3 é a fonte, e o
   AAC-LC sai dele uma vez, sem nova recodificação.
+- **Orçamento de créditos (hipótese a medir):** o responsável tem duas contas Creator, com ~131 mil créditos cada
+  (~262 mil no total). A estimativa para 10 experiências é ~200 mil:
+
+  | Item | Estimativa | Premissa |
+  |---|---|---|
+  | Voz | ~110 mil | Rascunho em Flash v2.5; final em v4 só das falas aprovadas |
+  | Música | ~30 mil | 1 loop por ambiente, 2 tentativas |
+  | Efeitos fonte externa | ~60 mil | ~300 gerações |
+  | **Total** | **~200 mil** | Folga de ~62 mil |
+
+  O pipeline tem **teto de créditos por execução** (para antes de passar dele) e **log do consumo por geração**.
+  A proveniência registra qual das duas contas gerou cada arquivo.
 - **Segredo:** `EDITORIAL_API_KEY` só no ambiente de quem gera, nunca no repositório, em CI, log ou commit; o
   MCP hospedado da fonte externa usa OAuth (metadados em <registro externo de origem>; fluxo a confirmar no primeiro uso) e não precisa de
   chave no repositório.
