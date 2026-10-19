@@ -149,8 +149,8 @@ Estado atual (levantado em 71381f2):
   `EmailLanguage.Default = BrazilianPortuguese` (`EmailLanguage.cs:19`) para idioma fora da lista, mesmo ponto da
   SPA. O idioma é o da requisição, não da conta: e-mails que não nascem de uma requisição (lembretes, avisos de
   evento, avisos do worker) não têm de onde tirá-lo.
-- **Erros da API:** `title` do Problem Details só em PT-BR (`ApiProblems.cs:52` e `:59`, e os `Problem(...)` dos
-  endpoints). A SPA decide pelo `code` e mostra texto do catálogo, mas o `title` aparece para quem integra a API e em
+- **Erros da API:** `title` e `detail` do Problem Details só em PT-BR (`ApiProblems.cs:52` e `:59`; os
+  `Problem(...)` dos endpoints, como `ProfileEndpoints.cs:153`, `:162` e `:177`; `DatabaseUnavailability.cs:60`). A SPA decide pelo `code` e mostra texto do catálogo, mas o `title` aparece para quem integra a API e em
   logs do navegador.
 - **Contato de suporte:** `Duora:SupportContact = suporte@meetduora.com` (`appsettings.json` do Web e do Worker),
   placeholder já marcado para troca em [deploy.md](../../operations/deploy.md); o endereço em português é estranho para
@@ -160,7 +160,9 @@ Estado atual (levantado em 71381f2):
 Proposta: trocar as tags para `pt-BR`/`en-US`; fallback `en-US` para idioma não suportado (`pt-*` continua em
 `pt-BR`); `title` do Problem Details pelo `Accept-Language`, como os e-mails, ou neutro em inglês com o `code` como
 contrato (recomendado: neutro em inglês, porque o `title` não é texto de interface e assim não há segundo catálogo
-no backend); rotas neutras ou localizadas (recomendado: manter um conjunto só de rotas, em inglês, com redirect das
+no backend), valendo o mesmo para o `detail`. Verificação: cada `title`/`detail` vem de uma constante única por
+`code` (ou de uma allowlist de textos em inglês), com teste que enumera os `code` e recusa texto fora dela, e um teste
+da SPA garantindo que ela nunca exibe `title` nem `detail` recebidos, só o texto do catálogo escolhido pelo `code`; rotas neutras ou localizadas (recomendado: manter um conjunto só de rotas, em inglês, com redirect das
 atuais, porque rota localizada duplica links de e-mail e testes).
 
 Proposta complementar: `preferred_locale` guardado na conta (`pt-BR` ou `en-US`, `CHECK` com a lista; gravado no
