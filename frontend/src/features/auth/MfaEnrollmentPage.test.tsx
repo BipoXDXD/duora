@@ -47,7 +47,7 @@ async function startEnrollment(user: RenderedApp['user']) {
   await user.click(
     await screen.findByRole('button', { name: 'Configurar autenticador' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
   )
-  expect(await screen.findByText(SHARED_KEY)).toBeInTheDocument()
+  expect(await screen.findByText(SHARED_KEY, {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toBeInTheDocument()
 }
 
 async function submitCode(user: RenderedApp['user'], code: string) {
@@ -120,7 +120,7 @@ describe('fase do cadastro de MFA', () => {
 
     await submitCode(user, '123456')
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(await screen.findByRole('alert', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toHaveTextContent(message)
     expect(confirmation.calls()).toBe(1)
   })
 
@@ -137,7 +137,7 @@ describe('fase do cadastro de MFA', () => {
       await screen.findByRole('button', { name: 'Configurar autenticador' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
     )
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(await screen.findByRole('alert', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toHaveTextContent(message)
     expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
     expect(enrollment.calls()).toBe(1)
   })
@@ -166,7 +166,7 @@ describe('foco ao trocar de estado', () => {
 
     await submitCode(user, '123456')
 
-    const announcement = await screen.findByRole('status')
+    const announcement = await screen.findByRole('status', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })
     expect(announcement).toHaveTextContent('Autenticação em duas etapas ativada.')
     expect(announcement).toHaveFocus()
     expect(screen.getByText('synthetic-recovery')).toBeInTheDocument()
@@ -217,7 +217,7 @@ describe('segredo do TOTP e códigos de recuperação', () => {
     expect(persistedTraces(queryClient)).not.toContain('otpauth://')
 
     await submitCode(user, '123456')
-    expect(await screen.findByText('synthetic-recovery')).toBeInTheDocument()
+    expect(await screen.findByText('synthetic-recovery', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toBeInTheDocument()
     const traces = persistedTraces(queryClient)
     for (const secret of [SHARED_KEY, 'otpauth://', 'synthetic-recovery', '123456'])
       expect(traces).not.toContain(secret)
@@ -256,8 +256,10 @@ describe('textos da tela', () => {
       await screen.findByRole('button', { name: 'Configurar autenticador' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
     )
 
-    expect(await screen.findByRole('button', { name: 'Preparando…' })).toHaveAttribute('aria-disabled', 'true')
+    expect(
+      await screen.findByRole('button', { name: 'Preparando…' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    ).toHaveAttribute('aria-disabled', 'true')
     release()
-    expect(await screen.findByText(SHARED_KEY)).toBeInTheDocument()
+    expect(await screen.findByText(SHARED_KEY, {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toBeInTheDocument()
   })
 })
