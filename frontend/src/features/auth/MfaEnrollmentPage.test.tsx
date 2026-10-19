@@ -223,3 +223,41 @@ describe('segredo do TOTP e códigos de recuperação', () => {
       expect(traces).not.toContain(secret)
   })
 })
+
+describe('textos da tela', () => {
+  it('participante lê instruções neutras, sem "sua conta exige"', async () => {
+    server.use(http.get(`${API}/me`, () => HttpResponse.json({ ...ADMIN_WITHOUT_MFA, roles: ['participant'] })))
+    await renderApp('/conta/ativar-mfa')
+
+    await screen.findByRole(
+      'heading',
+      { name: 'Ative a autenticação em duas etapas' },
+      { timeout: ROUTE_CHUNK_TIMEOUT_MS },
+    )
+    expect(screen.getByText(/aplicativo autenticador/)).not.toHaveTextContent(/exige/i)
+  })
+
+  it('o botão de início mostra que está carregando', async () => {
+    mfaPhase()
+    useAntiforgeryEndpoint()
+    let release = (): void => undefined
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.post(`${API}/me/mfa/enrollments`, async () => {
+        await pending
+        return HttpResponse.json({ sharedKey: SHARED_KEY, authenticatorUri: 'otpauth://totp/test' })
+      }),
+    )
+    const { user } = await renderApp('/conta/ativar-mfa')
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Configurar autenticador' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    )
+
+    expect(await screen.findByRole('button', { name: 'Preparando…' })).toHaveAttribute('aria-disabled', 'true')
+    release()
+    expect(await screen.findByText(SHARED_KEY)).toBeInTheDocument()
+  })
+})
