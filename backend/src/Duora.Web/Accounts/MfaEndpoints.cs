@@ -21,12 +21,14 @@ internal static class MfaEndpoints
         mfa.MapPost("/enrollments", StartEnrollmentAsync)
             .AllowDuringMfaEnrollment()
             .RequireRecentAuthentication()
+            .RequireAccountSecurityAddressLimit()
             .RequireAccountRateLimit()
             .ProducesAccountSecurityProblems()
             .ProducesProblem(StatusCodes.Status409Conflict);
         mfa.MapPost("/confirmations", ConfirmEnrollmentAsync)
             .AllowDuringMfaEnrollment()
             .RequireRecentAuthentication()
+            .RequireAccountSecurityAddressLimit()
             .RequireAccountRateLimit()
             .ProducesAccountSecurityProblems()
             .ProducesValidationProblem()
@@ -34,6 +36,7 @@ internal static class MfaEndpoints
         mfa.MapPost("/recovery-codes", RegenerateRecoveryCodesAsync)
             .RequireAccountSession()
             .RequireRecentMfa()
+            .RequireAccountSecurityAddressLimit()
             .RequireAccountRateLimit()
             .ProducesAccountSecurityProblems()
             .ProducesProblem(StatusCodes.Status409Conflict);

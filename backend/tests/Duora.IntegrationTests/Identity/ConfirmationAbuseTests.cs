@@ -43,8 +43,8 @@ public sealed class ConfirmationAbuseTests(PostgresFixture postgres)
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString)
         {
-            // Isola o teto do banco: a cota por conta em memória (10 / hora) responderia 429 antes dele.
-            Settings = new Dictionary<string, string?> { ["RateLimiting:TokenRedemptionPerAccount:PermitLimit"] = "1000" },
+            // Isola o teto do banco: a cota de falhas por conta em memória (10 / hora) responderia 429 antes dele.
+            Settings = new Dictionary<string, string?> { ["RateLimiting:EmailConfirmationFailuresPerAccount:PermitLimit"] = "1000" },
         };
         var scenario = new IdentityScenario(postgres, factory);
         var email = IdentityScenario.NewEmail();

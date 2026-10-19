@@ -43,10 +43,14 @@ internal sealed class AuthRateLimitOptions
     public WindowLimit TokenRedemptionPerIp { get; set; } = new() { PermitLimit = 20, Window = TimeSpan.FromMinutes(10) };
 
     /// <summary>
-    /// Os mesmos resgates por token, pelo id de conta do corpo, exista a conta ou não: trocar de IP não renova a cota
-    /// de uma conta.
+    /// Falhas da confirmação de e-mail (A03) pelo id de conta do corpo, exista a conta ou não: trocar de IP não renova
+    /// a cota. Só a falha conta, depois de conferir o token: o id é público, e contar antes deixaria qualquer um
+    /// esgotar a cota e travar o link válido do titular.
     /// </summary>
-    public WindowLimit TokenRedemptionPerAccount { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
+    public WindowLimit EmailConfirmationFailuresPerAccount { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
+
+    /// <summary>Falhas da conclusão do reset (A07), com a mesma regra e contador próprio.</summary>
+    public WindowLimit PasswordResetFailuresPerAccount { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
 
     /// <summary>
     /// Reautenticação, cadastro, ativação, novos códigos e desativação do MFA, e troca de senha (A11 a A16), por
@@ -54,21 +58,27 @@ internal sealed class AuthRateLimitOptions
     /// </summary>
     public WindowLimit AccountSecurityPerAccount { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
 
-    /// <summary>Revogar sessão (A10), por conta, com contador próprio: limpar sessões não gasta a cota do MFA.</summary>
-    public WindowLimit SessionRevocationPerAccount { get; set; } = new() { PermitLimit = 30, Window = TimeSpan.FromHours(1) };
+    /// <summary>
+    /// Revogações que falham (A10: sessão inexistente, alheia ou já revogada), por conta. Revogar uma sessão própria
+    /// e ativa não conta: quem roubou uma sessão não pode esgotar a cota e impedir o titular de derrubá-la.
+    /// </summary>
+    public WindowLimit SessionRevocationFailuresPerAccount { get; set; } = new() { PermitLimit = 30, Window = TimeSpan.FromHours(1) };
 
     /// <summary>
-    /// As rotas autenticadas de segurança da conta (A10 a A16), por IP, somadas: várias contas atrás de um IP dividem
-    /// esta cota, então abrir contas novas não multiplica as tentativas.
+    /// Reautenticação, cadastro do MFA e novos códigos (A11, A12, A13 e A14), por IP, somados: várias contas atrás
+    /// de um IP dividem esta cota, então abrir contas novas não multiplica as tentativas. Alta de propósito, para
+    /// pegar só abuso em massa e não travar vizinhos de NAT/CGNAT; a força bruta numa conta é contida pela cota por
+    /// conta e pelo bloqueio no banco. A remediação (revogar sessão, trocar senha, desativar MFA) fica fora.
     /// </summary>
-    public WindowLimit AccountSecurityPerIp { get; set; } = new() { PermitLimit = 30, Window = TimeSpan.FromHours(1) };
+    public WindowLimit AccountSecurityPerIp { get; set; } = new() { PermitLimit = 300, Window = TimeSpan.FromHours(1) };
 
     public bool IsValid() =>
         new[]
         {
             LoginPerIp, LoginPerAccount, RegisterPerIp, RegisterPerAccount,
-            PasswordResetRequestPerIp, PasswordResetRequestPerAccount, TokenRedemptionPerIp, TokenRedemptionPerAccount,
-            AccountSecurityPerAccount, SessionRevocationPerAccount, AccountSecurityPerIp,
+            PasswordResetRequestPerIp, PasswordResetRequestPerAccount, TokenRedemptionPerIp,
+            EmailConfirmationFailuresPerAccount, PasswordResetFailuresPerAccount,
+            AccountSecurityPerAccount, SessionRevocationFailuresPerAccount, AccountSecurityPerIp,
         }.All(limit => limit.IsValid());
 }
 
@@ -85,11 +95,14 @@ internal enum AccountIdOperation
     /// <summary>Reautenticação, MFA e troca de senha (A11 a A16).</summary>
     AccountSecurity,
 
-    /// <summary>Revogar uma sessão (A10).</summary>
-    SessionRevocation,
+    /// <summary>Revogação de sessão que falhou (A10).</summary>
+    SessionRevocationFailure,
 
-    /// <summary>Confirmação de e-mail e conclusão do reset (A03 e A07), pelo id do corpo.</summary>
-    TokenRedemption,
+    /// <summary>Confirmação de e-mail que falhou (A03), pelo id do corpo.</summary>
+    EmailConfirmationFailure,
+
+    /// <summary>Conclusão do reset que falhou (A07), pelo id do corpo.</summary>
+    PasswordResetFailure,
 }
 
 /// <summary>
@@ -140,7 +153,7 @@ internal sealed class AccountAttemptLimiter : IDisposable
 /// <summary>
 /// Limite pelo id da conta (spec 11.5), um contador por <see cref="AccountIdOperation"/>. Nas rotas com sessão é um
 /// filtro de endpoint, porque o middleware de rate limit roda antes da autenticação e não conhece a conta; nos
-/// resgates por token, o handler consome depois de ler o id do corpo.
+/// resgates por token e na revogação de sessão, o handler consome só quando a operação falha.
 /// </summary>
 internal sealed class AccountSecurityAttemptLimiter : IDisposable
 {
@@ -152,8 +165,9 @@ internal sealed class AccountSecurityAttemptLimiter : IDisposable
         _limiters = new()
         {
             [AccountIdOperation.AccountSecurity] = Create(limits.AccountSecurityPerAccount),
-            [AccountIdOperation.SessionRevocation] = Create(limits.SessionRevocationPerAccount),
-            [AccountIdOperation.TokenRedemption] = Create(limits.TokenRedemptionPerAccount),
+            [AccountIdOperation.SessionRevocationFailure] = Create(limits.SessionRevocationFailuresPerAccount),
+            [AccountIdOperation.EmailConfirmationFailure] = Create(limits.EmailConfirmationFailuresPerAccount),
+            [AccountIdOperation.PasswordResetFailure] = Create(limits.PasswordResetFailuresPerAccount),
         };
     }
 
@@ -185,26 +199,29 @@ internal sealed class AccountSecurityAttemptLimiter : IDisposable
 internal static class AccountSecurityRateLimiting
 {
     /// <summary>
-    /// 429 com <c>Retry-After</c> quando a conta ou o IP passou do limite das operações de segurança da conta. O IP
-    /// é a cota somada das rotas autenticadas (<see cref="AuthRateLimitPolicies.AccountSecurity"/>); a conta tem o
-    /// contador de <paramref name="operation"/>.
+    /// 429 com <c>Retry-After</c> quando a conta passou do limite das operações de segurança da conta
+    /// (<see cref="AuthRateLimitOptions.AccountSecurityPerAccount"/>), de qualquer sessão ou IP.
     /// </summary>
-    public static TBuilder RequireAccountRateLimit<TBuilder>(
-        this TBuilder builder,
-        AccountIdOperation operation = AccountIdOperation.AccountSecurity)
+    public static TBuilder RequireAccountRateLimit<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder =>
-        builder
-            .RequireRateLimiting(AuthRateLimitPolicies.AccountSecurity)
-            .AddEndpointFilter((context, next) =>
-            {
-                var http = context.HttpContext;
-                var userId = Duora.Web.Identity.DuoraClaims.ReadUserId(http.User)
-                    ?? throw new InvalidOperationException("Limite por conta numa rota sem sessão.");
-                var limiter = http.RequestServices.GetRequiredService<AccountSecurityAttemptLimiter>();
-                return limiter.TryConsume(operation, userId) is { } retryAfter
-                    ? ValueTask.FromResult<object?>(ApiProblems.TooManyRequests(http, retryAfter))
-                    : next(context);
-            });
+        builder.AddEndpointFilter((context, next) =>
+        {
+            var http = context.HttpContext;
+            var userId = Duora.Web.Identity.DuoraClaims.ReadUserId(http.User)
+                ?? throw new InvalidOperationException("Limite por conta numa rota sem sessão.");
+            var limiter = http.RequestServices.GetRequiredService<AccountSecurityAttemptLimiter>();
+            return limiter.TryConsume(AccountIdOperation.AccountSecurity, userId) is { } retryAfter
+                ? ValueTask.FromResult<object?>(ApiProblems.TooManyRequests(http, retryAfter))
+                : next(context);
+        });
+
+    /// <summary>
+    /// Soma a rota à cota por IP das operações de segurança que não são remediação
+    /// (<see cref="AuthRateLimitOptions.AccountSecurityPerIp"/>), aplicada antes da autenticação.
+    /// </summary>
+    public static TBuilder RequireAccountSecurityAddressLimit<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder =>
+        builder.RequireRateLimiting(AuthRateLimitPolicies.AccountSecurity);
 }
 
 internal static class AuthRateLimitPolicies

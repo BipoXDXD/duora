@@ -102,16 +102,11 @@ internal static class AuthEndpoints
             return ApiProblems.Validation(validation.Errors);
         }
 
-        if (limiter.TryConsume(AccountIdOperation.TokenRedemption, userId) is { } retryAfter)
-        {
-            return ApiProblems.TooManyRequests(context, retryAfter);
-        }
-
         // Sem login automático: confirmar só muda o estado da conta. Abrir sessão aqui seria um segundo caminho de
         // SignIn para proteger contra fixation; a SPA leva ao login, que já faz isso.
         return await accounts.ConfirmEmailAsync(userId, token, password, cancellationToken)
             ? TypedResults.NoContent()
-            : InvalidToken();
+            : CountFailure(context, limiter, AccountIdOperation.EmailConfirmationFailure, userId);
     }
 
     private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> LoginAsync(
@@ -249,11 +244,6 @@ internal static class AuthEndpoints
             return ApiProblems.Validation(validation.Errors);
         }
 
-        if (limiter.TryConsume(AccountIdOperation.TokenRedemption, userId) is { } retryAfter)
-        {
-            return ApiProblems.TooManyRequests(context, retryAfter);
-        }
-
         return await accounts.ResetPasswordAsync(
                 userId,
                 token,
@@ -261,8 +251,21 @@ internal static class AuthEndpoints
                 EmailLanguageNegotiation.FromRequest(context.Request),
                 cancellationToken)
             ? TypedResults.NoContent()
-            : InvalidToken();
+            : CountFailure(context, limiter, AccountIdOperation.PasswordResetFailure, userId);
     }
+
+    /// <summary>
+    /// Conta a falha de um resgate por token só depois de conferi-lo: o link válido do titular passa mesmo com a cota
+    /// esgotada por terceiros, que só veem o 429 no lugar do 400.
+    /// </summary>
+    private static ProblemHttpResult CountFailure(
+        HttpContext context,
+        AccountSecurityAttemptLimiter limiter,
+        AccountIdOperation operation,
+        Guid userId) =>
+        limiter.TryConsume(operation, userId) is { } retryAfter
+            ? ApiProblems.TooManyRequests(context, retryAfter)
+            : InvalidToken();
 
     /// <summary>
     /// Encerra a sessão que veio na requisição antes de abrir a nova (session fixation): a chave anterior é revogada
