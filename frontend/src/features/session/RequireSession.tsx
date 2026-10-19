@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router'
 import { ApiProblemError, classifyRequestFailure, isUnauthorized } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
@@ -18,7 +18,12 @@ import { useMe } from './session-hooks'
 export function RequireSession(): React.JSX.Element {
   const me = useMe()
   const { pathname } = useLocation()
-  const { t } = useI18n()
+  const { t, locale, changeLocale } = useI18n()
+  const preferredLocale = me.data?.preferredLocale
+  useEffect(() => {
+    if (preferredLocale !== undefined && preferredLocale !== null && preferredLocale !== locale)
+      changeLocale(preferredLocale)
+  }, [preferredLocale, locale, changeLocale])
 
   // Um 401 numa escrita da fase restrita reconsulta /me (query-client.ts). Sem dado em cache, a reconsulta volta a
   // query para pending; sem lembrar a restrição, a tela viraria "carregando" e remontaria, perdendo o erro que
