@@ -91,20 +91,20 @@ contrato de cada adaptador afirma esse conjunto (TM-60).
 
 Local de tratamento e salvaguardas de cada fornecedor entram na avaliação jurídica de cada contrato (J-11).
 
-### Transferências internacionais registradas
+### Local do tratamento e transferências a confirmar
 
 O servidor de produção fica em Boston (EUA) e o backup no Backblaze B2 US East ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md)): **todos** os dados do
-Duora são tratados nos EUA. Para pessoas no Brasil, a coleta pela aplicação já põe os dados nos EUA, desde o primeiro
-request; o que antes aparecia como exceção (só o backup) passa a ser o caso geral. Para pessoas nos EUA não há
-transferência para fora do país nos destinos abaixo; para pessoas na UE ou no Reino Unido, se houver, vale J-10.
+Duora são tratados nos EUA. Os dados de pessoas no Brasil ficam nos EUA desde o primeiro request (fato); se isso é transferência internacional (LGPD art. 33) ou coleta internacional (Resolução CD/ANPD 19/2024, a confirmar) e qual salvaguarda se aplica é a confirmar (J-02). O que antes aparecia como
+exceção (só o backup) passa a ser o caso geral. Para pessoas na UE ou no Reino Unido, se houver, o enquadramento
+equivalente é a confirmar em J-10.
 
 | Destino | País | Dados | Proteção técnica | Retenção no destino | Salvaguarda |
 |---|---|---|---|---|---|
-| VPS de produção (Hostinger), Boston | Estados Unidos | Tudo: banco (PostgreSQL), fotos (quarentena e derivados), exportações, logs e Data Protection | TLS na borda, banco e serviços sem porta pública (spec 15.2), segredos fora do repositório, acesso administrativo por chave SSH; cifra do disco em repouso **a confirmar** com o provedor | A de cada classe em [retention.md](retention.md) | **A definir.** Pessoas no Brasil: mecanismo da LGPD art. 33 (por exemplo, cláusulas-padrão contratuais da ANPD), J-02. Pessoas na UE/Reino Unido, se houver: capítulo V do GDPR, J-10. Conferir também onde ficam o suporte e os subprocessadores da Hostinger com acesso ao host (J-11) |
-| Backblaze B2, região US East (bucket próprio do Duora) | Estados Unidos | Tudo o que o banco guarda (via pgBackRest) e os derivados das fotos aprovadas (via restic); nunca a quarentena | Cifra no cliente (pgBackRest `aes-256-cbc`; restic AES-256), TLS, chave presa ao bucket e ao prefixo, File Lock `compliance` de 21 dias | Banco: janela de 14 dias + 21 de lock + 30 de lifecycle; fotos: 14 dias de snapshots + 21 + 30 ([retention.md](retention.md)) | **A definir**, com o mesmo mecanismo da VPS (registrado em 2026-10-16 e revisto em 2026-10-19; sem análise jurídica nesta fase, por decisão do responsável) |
+| VPS de produção (Hostinger), Boston | Estados Unidos | Tudo: banco (PostgreSQL), fotos (quarentena e derivados), exportações, logs e Data Protection | TLS na borda, banco e serviços sem porta pública (spec 15.2), segredos fora do repositório, acesso administrativo por chave SSH; cifra do disco em repouso **a confirmar** com o provedor | A de cada classe em [retention.md](retention.md) | **A confirmar.** Pessoas no Brasil: se há transferência (LGPD art. 33) ou coleta internacional (Res. CD/ANPD 19/2024) e qual salvaguarda (por exemplo, cláusulas-padrão contratuais da ANPD), J-02. Pessoas na UE/Reino Unido, se houver: capítulo V do GDPR, J-10. Conferir também onde ficam o suporte e os subprocessadores da Hostinger com acesso ao host (J-11) |
+| Backblaze B2, região US East (bucket próprio do Duora) | Estados Unidos | Tudo o que o banco guarda (via pgBackRest) e os derivados das fotos aprovadas (via restic); nunca a quarentena | Cifra no cliente (pgBackRest `aes-256-cbc`; restic AES-256), TLS, chave presa ao bucket e ao prefixo, File Lock `compliance` de 21 dias | Banco: janela de 14 dias + 21 de lock + 30 de lifecycle; fotos: 14 dias de snapshots + 21 + 30 ([retention.md](retention.md)) | **A confirmar**, com o mesmo enquadramento da VPS (registrado em 2026-10-16 e revisto em 2026-10-19; sem análise jurídica nesta fase, por decisão do responsável) |
 
-A Backblaze guarda só blocos cifrados e não tem as chaves. O backup deixou de ser a única cópia fora do Brasil: é
-uma segunda cópia nos EUA, num provedor diferente do servidor.
+A Backblaze guarda só blocos cifrados e não tem as chaves. O backup deixou de ser o único dado nos EUA: é uma
+segunda cópia lá, num provedor diferente do servidor.
 
 Limite da proteção contra exclusão das fotos: o restic deduplica, e os pacotes antigos (mais de 21 dias) que os
 snapshots recentes ainda usam ficam fora do File Lock, protegidos só pelas capacidades das chaves. A mitigação
@@ -182,7 +182,7 @@ jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 | ID | Jurisdição | Leis prováveis (a confirmar) | Pergunta para o apoio jurídico | Onde toca o Duora |
 |---|---|---|---|---|
 | J-01 | Todas | — | **Decisão de produto, antes das outras:** em que países o Duora abre o cadastro? Sem essa lista, nenhuma das linhas abaixo pode ser fechada | Elegibilidade do cadastro, `region_code` (ADR-0026, proposta 1) |
-| J-02 | Brasil | LGPD; Marco Civil; ECA Digital (decisão do dono de 2026-10-16 mantida) | Escopo territorial (art. 3.º): a LGPD se aplica ao Duora pelo local do tratamento, pela oferta a pessoas no Brasil ou pela coleta no Brasil, e alcança também quem está fora do Brasil? Se se aplicar: com servidor e backup nos EUA, qual o enquadramento e a salvaguarda (art. 33) e quem é o encarregado (art. 41)? | Tabela de transferências acima; lacunas 1, 4, 5 e 6 |
+| J-02 | Brasil | LGPD; Marco Civil; ECA Digital (decisão do dono de 2026-10-16 mantida) | Escopo territorial (art. 3.º): a LGPD se aplica ao Duora pelo local do tratamento, pela oferta a pessoas no Brasil ou pela coleta no Brasil, e alcança também quem está fora do Brasil? Se se aplicar: com servidor e backup nos EUA, qual o enquadramento (transferência internacional, art. 33, ou coleta internacional, Res. CD/ANPD 19/2024) e a salvaguarda e quem é o encarregado (art. 41)? | Tabela de transferências acima; lacunas 1, 4, 5 e 6 |
 | J-03 | EUA, estados | Leis estaduais abrangentes de privacidade do consumidor (Califórnia CCPA/CPRA; Virgínia, Colorado, Connecticut, Texas, entre outras) | Os limiares de aplicabilidade (receita, número de residentes, venda de dados) alcançam o Duora? Preferências, vida afetiva e orientação são "dados sensíveis" com *opt-in*? Há avaliação de impacto obrigatória? Que direitos e prazos de resposta? | `profiles.preferences`, `social.decisions`, mensagens; direitos do titular; aviso de privacidade |
 | J-04 | EUA, estados | Washington My Health My Data Act e leis parecidas; leis de biometria (Illinois BIPA, Texas CUBI) | Algum dado do Duora cai em "dado de saúde do consumidor"? O método de verificação etária do fornecedor usa biometria ou estimativa facial e, se usar, que consentimento e retenção exige? | F-02 e fornecedor de verificação etária; fotos (não há tratamento biométrico previsto) |
 | J-05 | Todas (idade) | Maioridade civil por estado (18 na maioria dos estados dos EUA; 19 e 21 em alguns, a confirmar); COPPA (menores de 13, federal); leis estaduais de verificação etária e de proteção de menores online, em mudança e em litígio; ECA Digital no Brasil | Qual a idade mínima por jurisdição? Que método de verificação é aceitável em cada uma? Quais obrigações surgem ao descobrir uma conta de menor (COPPA, se menor de 13)? | `AgeCheckOutcome` e política versionada (ADR-0024, adendo de 2026-10-19); suspeita de menor (spec 12.2) |
