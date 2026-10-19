@@ -18,8 +18,8 @@ saída, proteção etária e revisão de incidentes fazem parte do fluxo princip
 | Perfil | Nome de exibição, faixa etária pública, região aproximada, descrição curta, fotos aprovadas e preferências privadas | Geolocalização precisa, importação de redes sociais e enriquecimento de dados |
 | Eventos | Publicação administrativa, inscrição, lista de espera, check-in, rodadas e cancelamento | Marketplace de organizadores e eventos de terceiros |
 | Pareamento | Elegibilidade bilateral, bloqueios, não repetição no evento, justiça de espera e rastreabilidade técnica | Ranking de atratividade, inferência de orientação e recomendação por processamento externo |
-| Experiências | Uma experiência completa na primeira fatia; a segunda antes da expansão do piloto | 3D, voz, vídeo, scripts arbitrários e geração ao vivo no caminho crítico |
-| Comunicação | Chat textual durante a sala e conversa persistente após interesse mútuo | Anexos, HTML, mensagens anônimas e criptografia ponta a ponta |
+| Experiências | Uma experiência completa na primeira fatia; a segunda antes da expansão do piloto; cenários e personagens, trilha, ambiente e vozes pré-geradas com transcrição, 3D offline e, por experiência, 3D em tempo real com fallback 2D ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)) | Vídeo, scripts arbitrários, TTS ao vivo e qualquer geração ao vivo no caminho crítico |
+| Comunicação | Chat textual durante a sala e conversa persistente após interesse mútuo; voz ao vivo opcional entre as duas pessoas dentro da experiência, desligada por padrão (ADR-0028) | Anexos, HTML, mensagens anônimas, criptografia ponta a ponta, gravação ou transcrição da voz ao vivo, e voz ou vídeo na conversa persistente |
 | Segurança interpessoal | Sair, bloquear, denunciar, encerrar conexão, revisão e recurso | Banimento permanente decidido só por classificador |
 | Operação | Deploy repetível, telemetria, backups externos, restauração e controles administrativos | Alta disponibilidade prometida numa única VPS |
 | Cobrança | Fronteira de integração documentada, sem dependência no piloto técnico | Pagamentos antes de validar o fluxo central |
@@ -159,7 +159,12 @@ Um termo, um significado. A coluna "No código" dá o nome usado em tipos, tabel
 | Convite | `Invitation` | Chamada para uma sala, com prazo absoluto; exige duas aceitações |
 | Sala | `/rooms/{roomId}`, com `roomId` = `gameSessionId` | Encontro de um par numa rodada, com chat de sala e experiência. É a sessão de jogo vista pela API, não uma entidade própria ([ADR-0016](../architecture/adr/0016-sala-e-sessao-de-jogo.md)) |
 | Experiência | `Experience`, `experience_definitions` | Atividade cooperativa do catálogo (ex.: Rotas Improváveis). Evitar: "minijogo" em código |
-| Versão de experiência | `ExperienceVersion` | Regras e conteúdo publicados e imutáveis de uma experiência |
+| Versão de experiência | `ExperienceVersion` | Regras e conteúdo publicados e imutáveis de uma experiência, incluindo o manifesto de mídia |
+| Ambiente | — | Cenário de uma experiência ou etapa, com paleta visual e sonora descritas num one pager |
+| Personagem | — | Figura fictícia e adulta de um ambiente (guia, narrador); nunca representa um participante |
+| Fala | — | Linha de voz pré-gerada do catálogo, com texto por idioma (a transcrição) e até 120 caracteres |
+| Manifesto de mídia | — | Lista dos arquivos de imagem, áudio e 3D de uma versão, com hash, origem, ferramenta, modelo, id da tarefa e licença |
+| Voz ao vivo | — | Áudio em tempo real entre as duas pessoas de uma sala, opcional, nunca gravado nem transcrito |
 | Sessão de jogo | `GameSession`, `game_sessions` | Instância de uma versão de experiência para um par numa rodada; nasce do convite e é a sala. Tem a máquina de estados da sala, estado de jogo e deadline. Não confundir com sessão de login |
 | Comando de jogo | `GameCommand` | Envelope de uma ação de um participante, com `actionId` e versão esperada; deduplicado por `actionId` |
 | Ação | `IGameAction` | Payload tipado de um comando de jogo, de um conjunto fechado por experiência (ex.: escolher uma opção) |
