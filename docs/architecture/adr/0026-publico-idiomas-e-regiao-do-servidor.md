@@ -46,6 +46,12 @@ Brasil e cuja infraestrutura está nos EUA:
   voltado à pessoa usuária existe só num deles. As tags BCP 47 são `pt-BR` e `en-US`; o `en` do ADR-0022 passa a
   ser `en-US` (a mudança de código está na [proposta 3](#3-textos-da-interface-dos-e-mails-e-dos-erros)). Conteúdo
   de experiência, e-mail, erro exibido e documento legal só é publicado com os dois idiomas revisados.
+- **Alcance de "projeto inteiro" (pendente de confirmação do dono).** O dono disse "o projeto inteiro"; este ADR
+  aplica a decisão a tudo que a pessoa usuária vê (interface, e-mails, conteúdo, documentos voltados ao usuário e
+  mensagens de erro). Se ela vale também para documentação interna, ADRs, mensagens de commit, nomes de teste e
+  descrições do OpenAPI (hoje em português, por exemplo `ProfileEndpoints.cs:26-32`, `:70`, `:93`, `:113`) **não foi
+  decidido**: até a resposta do dono, esses artefatos seguem em PT-BR, e o item correspondente da issue #80 fica
+  dependente dela.
 - **Público e jurisdições.** O público principal está fora do Brasil; os países do lançamento ainda não foram
   fixados (lacuna J-01). O Brasil é país provável (J-01); a aplicabilidade da LGPD, inclusive a quem está fora do Brasil, é a confirmar (J-02). As leis prováveis para o público fora do
   Brasil ficam mapeadas como **lacunas a confirmar com apoio jurídico** em
