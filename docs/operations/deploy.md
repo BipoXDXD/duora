@@ -11,7 +11,7 @@ para antes da migração e web/edge são recriados. Escala horizontal exige o AD
 
 | Peça | Onde | Papel |
 |---|---|---|
-| `compose.prod.yml` | `/opt/duora/` (Ansible) | Serviços, redes, volumes, secrets e limites |
+| `compose.prod.yml` | `/opt/duora/` (Ansible) | Serviços, redes, volumes, secrets e limites ([orçamento de CPU e memória](#orçamento-de-cpu-e-memória-spec-151)) |
 | `duora.env` | `/etc/duora/` (Ansible, 0640) | Configuração **não sensível** do host |
 | Segredos | `/etc/duora/secrets/` (0700; arquivos 0400) | Senhas, connection strings e o certificado do key ring do Data Protection, gerados uma vez |
 | `duora-deploy` | `/usr/local/sbin/` (root, 0755) | Único comando que o executor de deploy pode rodar |
@@ -143,6 +143,48 @@ espera conexão espera no máximo `Database:PoolTimeout` (**5 s**, de 1 a 30 s):
 servidor sem conexões (53300) respondem `503 TEMPORARILY_UNAVAILABLE` com `Retry-After`, nunca `500`
 (`ServerErrorTests`). Transação esquecida aberta cai em 60 s (`idle_in_transaction_session_timeout`). Mudar uma
 fatia exige refazer a soma aqui e o teste de boot correspondente (`StartupConfigurationTests`, `WorkerHostTests`).
+
+## Orçamento de CPU e memória (spec 15.1)
+
+A VPS de produção é uma Hostinger **KVM 2: 2 vCPU e 8 GB** (issue #86). `limits.cpus` é teto, não reserva: a soma
+dos tetos passa de 2 de propósito, para um serviço usar o vCPU que os outros deixam ocioso. Quem decide a disputa
+quando os 2 vCPU estão ocupados é o peso (`cpu_shares`, que o Docker converte em `cpu.weight` do cgroup v2).
+Valores iniciais (**hipótese**, a medir sob carga, como a spec 15.1 pede):
+
+| Serviço | `cpus` (teto) | `cpu_shares` | `cpu.weight` | Memória | Papel |
+|---|---|---|---|---|---|
+| `postgres` | 1,5 | 2048 | 174 | 2560 MiB | Caminho da requisição |
+| `web` | 1,5 | 2048 | 174 | 1536 MiB | Caminho da requisição |
+| `edge` (Caddy) | 0,5 | 2048 | 174 | 128 MiB | Caminho da requisição |
+| `worker` | 1 | 512 | 59 | 1024 MiB | Segundo plano |
+| `backup` (pgBackRest) | 1 | 256 | 35 | 512 MiB | Último sob contenção |
+| `migrator` (profile `migrate`) | 1 | 1024 | 100 | 512 MiB | Roda com o worker parado |
+| `restore` (profile `restore`) | 2 | 1024 | 100 | 1024 MiB | Manutenção, com a aplicação parada |
+
+- **Teto de 1,5 nos serviços permanentes:** nenhum deles, nem em laço, ocupa a máquina inteira; sobra pelo menos
+  meio vCPU para o sistema, o `sshd` e o Docker. Só o `restore` chega a 2, porque roda com tudo parado e o
+  `process-max=2` do pgBackRest usa os dois.
+- **Pesos:** postgres, web e edge com o mesmo peso, porque uma requisição precisa dos três. Exemplo de contenção
+  (cálculo pelos pesos, não medição): web e postgres saturados com o worker processando foto ficam com cerca de
+  0,85 vCPU cada, e o worker com 0,29. O backup completo pode demorar mais num horário de pico; o WAL é leve.
+- **`cpu.weight`** da tabela foi medido no Docker 29.8.2 com runc 1.5.1 (1024 vira 100, o padrão de qualquer outro
+  cgroup). Um runc antigo converte de forma linear (1024 vira 39), o que muda as proporções mas não a ordem. Confira
+  no host com `docker exec <container> cat /sys/fs/cgroup/cpu.weight`.
+- **Memória:** os permanentes somam 5760 MiB. Com o OpenTelemetry Collector (256 MiB, ainda fora deste Compose) e
+  os ~2 GiB que a spec reserva para sistema, cache de página e folga, dá 8064 MiB, abaixo dos 8192 MiB. No deploy o
+  worker para antes do migrador (5248 MiB); no restore só o job roda (1024 MiB). O `MemTotal` real do host fica um
+  pouco abaixo de 8192 MiB (o kernel reserva parte): **a confirmar** com `free -m` na VPS; se faltar, a folga do
+  sistema é a primeira a encolher.
+
+Alternativas descartadas: **tetos que somam 2** (por exemplo 0,75 para web e postgres) deixariam vCPU ocioso e
+o web nunca usaria mais que a fatia, mesmo com o resto parado; **`deploy.resources.reservations.cpus`** é ignorada
+pelo Compose fora do Swarm (medido: nem `CpuShares` nem `cpu.weight` mudam); **só tetos, sem peso**, deixariam
+worker e backup disputando em pé de igualdade com web e postgres.
+
+`test_compose_resources.py` falha se algum `cpus` passar de 2 (ou de 1,5 num serviço permanente), se um serviço não
+declarar teto, memória e peso, se worker ou backup pesarem tanto quanto o caminho da requisição, ou se a memória do
+que roda junto passar de 5888 MiB (8192 − 2048 − 256). Serviço novo no Compose precisa entrar nessa conta, e mudar
+um valor exige refazer esta tabela.
 
 ## Proxy confiável (Forwarded Headers)
 
