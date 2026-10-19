@@ -84,6 +84,8 @@ o banco, os segredos ou o registry de produção (INV-12, [permissions.md](../au
 | Duora.Worker | Outbox (e-mail, mídia, verificação etária), expiração de rodadas e salas, retenção | Nenhuma; só egress para fornecedores necessários | Temporários limitados |
 | PostgreSQL 18 | Fonte da verdade, filas, outbox, idempotência, tickets de sessão | Só na rede interna de dados; sem `ports` no Compose | Volume dedicado; backup físico e WAL externos |
 | OpenTelemetry Collector | Filtrar e exportar traces, métricas e logs | Privado | Nenhum persistente |
+| Cloudflare Realtime TURN (externo) | Relay da voz ao vivo entre os dois navegadores (ADR-0028) | Serviço da Cloudflare; o navegador fala com ele direto, sem passar pela VPS | Metadados de conexão do lado da Cloudflare; mídia cifrada, nunca em claro |
+| Cloudflare DNS (externo) | DNS do domínio; só DNS ou proxied **a confirmar** | — | Registros DNS |
 
 Só o processo web publica notificações de tempo real; o worker grava eventos no banco e não usa `IHubContext`
 (spec 3.1). Uma única instância web fica ativa ([ADR-0009](adr/0009-uma-instancia-web-no-piloto.md)).
@@ -102,3 +104,5 @@ Só o processo web publica notificações de tempo real; o worker grava eventos 
 | F8 | Collector → monitoramento | Telemetria | Sem corpos, tokens, cookies, preferências ou IDs de pessoa como label; amostragem e teto de volume (19.2) |
 | F9 | CI → registry → VPS | Imagens e manifesto da release | Permissões mínimas por job; actions fixadas por SHA; imagens por digest; host só lê o registry; SSH restrito com host key validada (17.1, 17.2) |
 | F10 | Operador → VPS | Administração | SSH por chave, sem root/senha, origem restrita; socket do Docker nunca montado em web/worker (15.2) |
+| F11 | Navegador ↔ Cloudflare TURN ↔ navegador | Mídia da voz ao vivo (DTLS-SRTP) e ICE | Só `iceTransportPolicy: "relay"`, verificado no cliente; credencial de ~5 min por API-R08; nenhuma mídia na VPS (ADR-0028) |
+| F12 | Web/Worker → API da Cloudflare | Emissão e revogação de credencial TURN | Timeout, circuit breaker, retry limitado na revogação pela outbox; segredo só no ambiente (ADR-0028) |

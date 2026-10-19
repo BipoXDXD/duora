@@ -89,6 +89,9 @@ contrato de cada adaptador afirma esse conjunto (TM-60).
 | Monitoramento | OTLP | Telemetria filtrada, sem dado privado | — | Filtragem, retenção, controle de acesso (spec 19.2) |
 | Moderação assistida (condicional) | `IContentReviewProvider` | Só conteúdo denunciado ou upload em revisão, estritamente necessário | Rótulo e prioridade | Política de dados, retenção, proibição de treino, revisão humana (spec 12.3; ADR-0013) |
 | Agentes de desenvolvimento | — | **Nenhum dado pessoal real**; só dados sintéticos | — | INV-12; spec 6.4, 14.3 |
+| Relay da voz ao vivo (Cloudflare Realtime TURN; ADR-0028) | `ITurnCredentialIssuer` | Pedido de credencial sem dado pessoal (TTL e escopo); o navegador de cada participante envia ao relay o **IP**, metadados de conexão (horário, duração, volume) e a mídia **cifrada** (DTLS-SRTP), que a Cloudflare não decifra | Username e senha TURN de ~5 min | Sub-processador de IP e metadados; contrato, retenção e local de tratamento a confirmar; alerta de gasto (ADR-0028) |
+| DNS (Cloudflare) | — | Consultas DNS de quem acessa o domínio; se o registro é só DNS ou proxied (a Cloudflare veria o tráfego HTTP) é **a confirmar com o responsável** | — | Se proxied, a Cloudflare vira sub-processador de todo o tráfego HTTP e exige revisão de TLS, cache e WebSocket (spec 2.3) |
+| Geração de voz e música (fonte externa Creator; ADR-0027) | — (ferramenta offline, fora do runtime) | **Nenhum dado de participante**: só texto do catálogo revisado e prompts de música; voz clonada só de pessoa que assinou consentimento | Áudio gerado | Uso comercial do plano registrado em `docs/design/assets-licenses.md`; `EDITORIAL_API_KEY` só no ambiente de quem gera |
 
 Local de tratamento e salvaguardas de cada fornecedor entram na avaliação jurídica de cada contrato (J-11).
 
