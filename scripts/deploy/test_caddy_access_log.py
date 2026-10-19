@@ -9,27 +9,15 @@ de dentro do container e lê o log. Sem Docker o teste é pulado:
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import time
 import unittest
 import uuid
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-CADDYFILE = REPO / "infra" / "caddy" / "Caddyfile"
-# Mesma imagem do estágio "edge" do infra/images/edge/Dockerfile (a edge só troca o binário por um build do xcaddy).
-IMAGE = "caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f"
-READY_TIMEOUT_SECONDS = 30
+from caddy_test_support import CADDYFILE, IMAGE, READY_TIMEOUT_SECONDS, docker_available
 
 
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    return subprocess.run(["docker", "info"], capture_output=True, check=False).returncode == 0
-
-
-@unittest.skipUnless(_docker_available(), "precisa de Docker")
+@unittest.skipUnless(docker_available(), "precisa de Docker")
 class CaddyAccessLogTests(unittest.TestCase):
     container = ""
 
