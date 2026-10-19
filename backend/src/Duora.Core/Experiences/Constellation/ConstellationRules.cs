@@ -120,6 +120,18 @@ public sealed class ConstellationRules
                 : []);
     }
 
+    public AccessibleInteraction DescribeAccessibleInteraction(string locale) => LocalizedCatalog.ForLocale(locale,
+        new AccessibleInteraction(Descriptor,
+            "Constellation of Choices: answer lighthearted cards together. Use text, buttons and keyboard; no dragging, color perception or reaction speed is required. Skipping is always allowed. The deadline is an absolute time.",
+            [
+                new StageInstruction("cards", "Choose an option and confirm, or skip. Your answer stays private until both people choose; then both choices appear together in text. If someone skips, neither answer is shown. Discussing a card in the room chat is optional."),
+                new StageInstruction("summary", "The summary lists revealed cards and cards passed without revealing answers. There are no scores or diagnoses."),
+            ],
+            [
+                new ActionInstruction(ConstellationAction.ChooseOptionType, "Use arrow keys to move between radio options, Space to select and Enter on Confirm.", [InputMethod.Button, InputMethod.Keyboard]),
+                new ActionInstruction(ConstellationAction.SkipCardType, "Tab to Skip, then press Enter or Space. No answer is revealed and the summary does not identify who skipped.", [InputMethod.Button, InputMethod.Keyboard]),
+            ]), DescribeAccessibleInteraction());
+
     public AccessibleInteraction DescribeAccessibleInteraction() => new(
         Descriptor,
         "Constelação de Escolhas: vocês respondem aos mesmos cartões leves e descobrem o que têm em comum. Tudo é "

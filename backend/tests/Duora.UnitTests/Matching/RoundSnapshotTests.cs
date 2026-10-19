@@ -18,7 +18,7 @@ public sealed class RoundSnapshotTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(2)]
+    [InlineData(3)]
     public void RejectsUnknownAlgorithmVersion(int version)
     {
         Assert.Throws<ArgumentOutOfRangeException>(

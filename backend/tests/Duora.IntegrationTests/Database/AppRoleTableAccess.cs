@@ -27,6 +27,18 @@ internal static class AppRoleTableAccess
     public static readonly IReadOnlyDictionary<string, AppTableAccess> Expected =
         new Dictionary<string, AppTableAccess>(StringComparer.Ordinal)
         {
+            ["events.events"] = AppTableAccess.ReadWrite,
+            ["events.registrations"] = AppTableAccess.ReadWrite,
+            ["events.rounds"] = AppTableAccess.ReadWrite,
+            ["events.pairings"] = AppTableAccess.ReadWrite,
+            ["events.pairing_participants"] = AppTableAccess.ReadWrite,
+            ["experiences.audio_assets"] = AppTableAccess.ReadWrite,
+            ["experiences.experience_versions"] = AppTableAccess.ReadWrite,
+            ["experiences.game_sessions"] = AppTableAccess.ReadWrite,
+            ["experiences.game_participants"] = AppTableAccess.ReadWrite,
+            ["experiences.game_actions"] = AppTableAccess.ReadWrite,
+            ["ops.jobs"] = AppTableAccess.ReadWrite,
+
             // identity (dono: Identity)
             ["identity.age_verifications"] = AppTableAccess.ReadWrite,
             ["identity.consent_records"] = AppTableAccess.ReadWrite,
@@ -54,6 +66,8 @@ internal static class AppRoleTableAccess
             ["ops.webhook_receipts"] = AppTableAccess.ReadWrite,
 
             // profiles (dono: Profiles)
+            ["profiles.communication_languages"] = AppTableAccess.ReadWrite,
+            ["profiles.preferences"] = AppTableAccess.ReadWrite,
             ["profiles.profiles"] = AppTableAccess.ReadWrite,
 
             // safety (dono: Safety)

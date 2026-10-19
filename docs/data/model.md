@@ -1199,3 +1199,32 @@ imagem real):
   `backend/tests/Duora.IntegrationTests/Database/AppRoleTableAccess.cs` (`ReadWrite`, `AppendOnly` ou `None`).
   **Toda migration que cria tabela acrescenta a linha dela nessa allowlist no mesmo PR**; sem a linha, o teste
   falha.
+
+## Estado implementado da fatia linguística (2026-10-19)
+
+A migration aditiva `Participation` cria tabelas SQL de Events/Matching (`events`, `registrations`, `rounds`,
+`pairings`, `pairing_participants`), Experiences (`experience_versions`, `audio_assets`, `game_sessions`,
+`game_participants`, `game_actions`) e `ops.jobs`. `ParticipationSchema` é o DDL explícito; esses snapshots não
+são entidades EF do domínio. A lista de privilégios de integração inclui cada tabela e continua verificando
+DML exato do papel da aplicação.
+
+As descrições acima continuam o modelo alvo completo. Esta fatia operacional suporta Constelação, catálogo
+bilíngue aprovado por administrador autenticado com MFA recente, eventos de três rodadas, inscrição com fila,
+check-in, reserva, aceite bilateral, ação, saída e prazos. Limites atuais são fixos (100 pessoas, rodadas de
+12 minutos, convite de 60 segundos, jogo de até 8 minutos e teto de 9 minutos desde a rodada); o módulo geral
+de `parameter_sets`, retirada/promoção de inscrições, conexões/interesse, chat e voz permanecem separados.
+Rotas Improváveis mantém regras e localização no Core, sem adaptador de persistência HTTP nesta fatia.
+
+`pairings` fixa `communication_language` e `communication_policy_version=1`; cada participante fixa
+`display_locale`. Conteúdo EN/PT e manifesto de áudio compartilhado são guardados na mesma versão; triggers
+impedem regressão editorial e alteração/exclusão de versões publicadas e de seus assets. Sessões conservam a
+FK mesmo após retirada editorial. Áudio declarado exige as duas variantes e hash verificado; a rota de bytes
+reautoriza a sala e só entrega o asset do locale fixado do participante. Dados sintéticos e WAVs de teste estão
+somente nos projetos de teste, nunca em endpoints ou catálogo inicial de produção.
+
+O snapshot do jogo separa estado público, privado por usuário e controle. Recibos de ações persistem hash e
+versões, sem corpo de escolha. A API entrega DTO de projeção, nunca snapshot, private_state ou controle. Ações
+trancam sala e gravam com versão esperada; zero linhas no UPDATE provoca rollback. Reserva ativa é única por
+usuário e par não se repete no evento. Aborto, recusa, expiração e conclusão liberam as duas reservas; bloqueio
+executa aborto/liberação na própria transação. Não se implementou entrega push de invalidações: HTTP e polling
+são os caminhos de recuperação desta fatia.
