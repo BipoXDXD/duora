@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+
 namespace Duora.Core.Experiences.Constellation;
 
 /// <summary>
@@ -34,7 +36,7 @@ public sealed record ConstellationContent : IExperienceContent
     /// <summary>Cartões na ordem em que aparecem; os dois participantes respondem ao mesmo cartão ao mesmo tempo.</summary>
     public IReadOnlyList<ConstellationCard> Cards { get; }
 
-    private static ConstellationCard[] RequireCards(IReadOnlyList<ConstellationCard> cards)
+    private static ReadOnlyCollection<ConstellationCard> RequireCards(IReadOnlyList<ConstellationCard> cards)
     {
         if (cards.Count is 0 or > MaxCards)
         {
@@ -46,7 +48,7 @@ public sealed record ConstellationContent : IExperienceContent
             throw new ArgumentException("Cada cartão precisa de um cardId único.", nameof(cards));
         }
 
-        return [.. cards];
+        return Array.AsReadOnly(cards.ToArray());
     }
 }
 
@@ -71,7 +73,7 @@ public sealed record ConstellationCard
 
         CardId = Slug.Require(cardId, nameof(cardId));
         Prompt = CatalogText.Require(prompt, ConstellationContent.MaxTextLength, nameof(prompt));
-        Options = [.. options];
+        Options = Array.AsReadOnly(options.ToArray());
     }
 
     public string CardId { get; }

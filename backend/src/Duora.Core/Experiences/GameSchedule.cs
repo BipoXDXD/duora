@@ -29,5 +29,11 @@ public sealed record GameSchedule
         return new GameSchedule(gameStartedAt, playCap < roundCap ? playCap : roundCap);
     }
 
+    internal static GameSchedule Restore(DateTimeOffset startedAt, DateTimeOffset deadline)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(deadline, startedAt);
+        return new GameSchedule(startedAt, deadline);
+    }
+
     public bool IsDue(DateTimeOffset now) => now >= Deadline;
 }

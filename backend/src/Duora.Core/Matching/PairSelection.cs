@@ -7,12 +7,14 @@ public sealed record PairSelection
         IReadOnlyList<UserPair> pairs,
         IReadOnlyList<Guid> unpaired,
         UnpairedTally unpairedTally,
-        PairingAlgorithmVersion algorithmVersion)
+        PairingAlgorithmVersion algorithmVersion,
+        IReadOnlyDictionary<UserPair, CommunicationAgreement> communicationAgreements)
     {
         Pairs = pairs;
         Unpaired = unpaired;
         UnpairedTally = unpairedTally;
         AlgorithmVersion = algorithmVersion;
+        CommunicationAgreements = communicationAgreements;
     }
 
     /// <summary>Pares na ordem em que foram formados (prioridade decrescente de quem iniciou o par).</summary>
@@ -24,6 +26,8 @@ public sealed record PairSelection
     public UnpairedTally UnpairedTally { get; }
 
     public PairingAlgorithmVersion AlgorithmVersion { get; }
+
+    public IReadOnlyDictionary<UserPair, CommunicationAgreement> CommunicationAgreements { get; }
 }
 
 /// <summary>

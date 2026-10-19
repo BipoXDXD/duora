@@ -8,4 +8,7 @@ public enum PairingAlgorithmVersion
 {
     /// <summary>Gulosa por prioridade de espera, com desempate pela semente da rodada. Não garante o máximo de pares.</summary>
     GreedyByPriorityV1 = 1,
+
+    /// <summary>Explicit shared communication language and bilateral cross-locale consent.</summary>
+    GreedyByPriorityV2 = 2,
 }
