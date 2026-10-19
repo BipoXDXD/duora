@@ -468,10 +468,11 @@ separadas. A configuração antiga de `AccountLockTimeout` passa a controlar ape
 instalações que ajustaram a fila devem definir também `Identity__AccountQueueTimeout`.
 
 O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
-Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o SHA-256
-do endereço normalizado, com namespace distinto da fila por UUID; nunca vai a log, métrica ou banco.
-Esse hash não anonimiza o endereço: a proteção é não persistir nem expor a chave. Entradas são removidas
-quando o último titular/esperador sai, inclusive por timeout ou cancelamento.
+Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o endereço
+normalizado, com namespace distinto da fila por UUID; nunca vai a log, métrica ou banco. Não há hash:
+ele não anonimizaria o endereço (o espaço de e-mails é enumerável), e a proteção é não persistir nem
+expor a chave, que vive só no dicionário do processo. Entradas são removidas quando o último
+titular/esperador sai, inclusive por timeout ou cancelamento.
 
 Depois da admissão, uma conta existente entra na fila por UUID e adquire o lock SQL; endereços
 inexistentes verificam o hash de isca. Toda falha continua custando um hash. O piso de 350 ms mais jitter
