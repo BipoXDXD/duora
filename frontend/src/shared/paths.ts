@@ -15,4 +15,6 @@ export const paths = {
   mfaEnrollment: '/conta/ativar-mfa',
   account: '/conta',
   profile: '/conta/perfil',
+  preferences: '/conta/preferencias',
+  events: '/events',
 } as const

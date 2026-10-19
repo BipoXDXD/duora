@@ -55,6 +55,8 @@ export function AccountPage(): React.JSX.Element {
       <p>
         <TextLink to={paths.profile}>{t('account.editProfile')}</TextLink>
       </p>
+      <TextLink to={paths.preferences}>{t('preferences.title')}</TextLink>
+      <TextLink to={paths.events}>{t('participation.events')}</TextLink>
       <SessionList userId={account.id} />
     </Page>
   )

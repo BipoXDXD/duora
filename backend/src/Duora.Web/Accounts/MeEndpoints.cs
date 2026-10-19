@@ -52,6 +52,7 @@ internal static class MeEndpoints
     private static async Task<Results<Ok<MeResponse>, UnauthorizedHttpResult>> GetMeAsync(
         HttpContext context,
         AccountService accounts,
+        LocaleStore locales,
         CancellationToken cancellationToken)
     {
         if (DuoraClaims.ReadUserId(context.User) is not { } userId
@@ -66,7 +67,8 @@ internal static class MeEndpoints
             account.Status.ToString(),
             account.EmailConfirmed,
             account.MfaEnabled,
-            account.Roles));
+            account.Roles,
+            (await locales.GetOwnAsync(userId, cancellationToken))?.Locale));
     }
 
     private static async Task<Results<Ok<SessionListResponse>, UnauthorizedHttpResult>> ListSessionsAsync(
