@@ -205,6 +205,26 @@ no backend), valendo o mesmo para o `detail`. Verificação: cada `title`/`detai
 da SPA garantindo que ela nunca exibe `title` nem `detail` recebidos, só o texto do catálogo escolhido pelo `code`; rotas neutras ou localizadas (recomendado: manter um conjunto só de rotas, em inglês, com redirect das
 atuais, porque rota localizada duplica links de e-mail e testes).
 
+**Adendo (2026-10-19): tags e fallback decididos e implementados.** Decisão do dono registrada na issue #80
+(itens 1 e 2), implementada no PR `feat/locale-en-us`:
+
+- As tags são `pt-BR` e `en-US` na SPA (`locale.ts`, `catalog.en-US.ts`) e nos e-mails (`EmailLanguage.cs`).
+- O fallback para idioma fora da lista é `en-US` na SPA (`DEFAULT_LOCALE`), no `Accept-Language` dos e-mails
+  (`EmailLanguageTag.Default`) e no `<html lang>` estático do `index.html`. Qualquer `pt-*` vira `pt-BR`, e
+  qualquer `en-*`, `en-US`.
+- Leitores tolerantes, sem migração destrutiva:
+  - o `en` guardado no `localStorage` antes desta mudança é lido como `en-US` e regravado;
+  - o `en` gravado no campo `language` dos pedidos da outbox continua lido como inglês (casa pelo idioma
+    primário), então os pedidos pendentes saem sem reescrita do payload;
+  - o pedido sem o campo, anterior a ele e de quando só havia pt-BR, continua em `pt-BR`.
+
+  Não há outra coluna de idioma no banco.
+- O aviso de senha redefinida do bootstrap administrativo, que não tem requisição de onde tirar o idioma e sai
+  nos dois idiomas no mesmo e-mail, grava o padrão (`en-US`).
+
+Continuam em proposta, nesta mesma issue: o `title`/`detail` do Problem Details, as rotas, as mensagens de `Error`
+internas, o contato de suporte, `preferred_locale` e `document_locale`.
+
 Proposta complementar: `preferred_locale` guardado na conta (`pt-BR` ou `en-US`, `CHECK` com a lista; gravado no
 cadastro a partir do idioma da requisição e alterável no perfil). Serve aos e-mails que não nascem de requisição e ao
 pareamento por idioma da proposta 2 (#79); o `Accept-Language` continua valendo para quem ainda não tem conta.
