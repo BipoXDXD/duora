@@ -165,7 +165,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
         Assert.True(await queue.RescheduleAsync(claimed, now, "IOException", now, Ct));
         var exhaustion = await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 10, now, now.AddMinutes(2), 1, Ct);
         Assert.Empty(exhaustion.Claimed);
-        Assert.Equal([new ExhaustedDelivery(id, 1, OutboxDeliveryStatus.Failed)], exhaustion.Exhausted);
+        Assert.Equal([(id, 1, OutboxDeliveryStatus.Failed)], exhaustion.Exhausted.Select(e => (e.Id, e.Attempts, e.Status)));
         Assert.False(await queue.SettleAsync(claimed, OutboxDeliveryStatus.Delivered, null, now, Ct));
         Assert.False(await queue.RescheduleAsync(claimed, now, "IOException", now, Ct));
         Assert.Empty(await queue.RenewLeasesAsync([claimed], TimeSpan.FromMinutes(2), harness.Time, Ct));
@@ -208,7 +208,7 @@ public sealed class OutboxReliabilityTests(PostgresFixture postgres)
 
         var result = await queue.ClaimWithAttemptLimitAsync(AccountEmailOutbox.Consumer, 1, now, now.AddMinutes(2), 1, Ct);
 
-        Assert.Equal([new ExhaustedDelivery(id, 1, OutboxDeliveryStatus.Expired)], result.Exhausted);
+        Assert.Equal([(id, 1, OutboxDeliveryStatus.Expired)], result.Exhausted.Select(e => (e.Id, e.Attempts, e.Status)));
         var row = await harness.ReadDeliveryAsync(id, Ct);
         Assert.Equal(("Expired", 1, 2L, null, "{}"), (row.Status, row.Attempts, row.FencingToken, row.LastError, row.Payload));
     }

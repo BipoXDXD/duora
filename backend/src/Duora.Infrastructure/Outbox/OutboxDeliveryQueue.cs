@@ -17,8 +17,12 @@ internal sealed record ClaimedDelivery(
     string Payload,
     DateTimeOffset OccurredAt);
 
-/// <summary>Entrega que o claim encerrou por ter esgotado as tentativas, sem payload: não há o que enviar.</summary>
-internal sealed record ExhaustedDelivery(Guid Id, int Attempts, OutboxDeliveryStatus Status);
+/// <summary>
+/// Entrega que o claim encerrou por ter esgotado as tentativas, sem payload: não há o que enviar.
+/// <paramref name="RecipientKey"/> é a chave que o produtor deu à entrega (um id, nunca dado pessoal), para o
+/// consumidor reconciliar o próprio estado.
+/// </summary>
+internal sealed record ExhaustedDelivery(Guid Id, int Attempts, OutboxDeliveryStatus Status, string RecipientKey);
 
 /// <summary>Resultado do claim com teto: o trabalho tomado e as entregas encerradas no mesmo comando.</summary>
 internal sealed record ClaimResult(IReadOnlyList<ClaimedDelivery> Claimed, IReadOnlyList<ExhaustedDelivery> Exhausted);
@@ -62,7 +66,7 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
                 completed_at = @now, lease_expires_at = null, fencing_token = d.fencing_token + 1
             from candidates c
             where d.id = c.id and d.attempts >= @max_attempts
-            returning d.id, d.fencing_token, d.attempts, d.deadline_at, d.outbox_event_id, d.status
+            returning d.id, d.fencing_token, d.attempts, d.deadline_at, d.outbox_event_id, d.status, d.recipient_key
         ),
         claimed as (
             update ops.outbox_deliveries d
@@ -75,10 +79,11 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
             returning d.id, d.fencing_token, d.attempts, d.deadline_at, d.outbox_event_id
         )
         select c.id, c.fencing_token, c.attempts, c.deadline_at, e.type, e.payload::text, e.occurred_at,
-               c.outbox_event_id, true as is_claimed, null as final_status
+               c.outbox_event_id, true as is_claimed, null as final_status, null as recipient_key
         from claimed c join ops.outbox_events e on e.id = c.outbox_event_id
         union all
-        select x.id, x.fencing_token, x.attempts, x.deadline_at, null, null, null, x.outbox_event_id, false, x.status
+        select x.id, x.fencing_token, x.attempts, x.deadline_at, null, null, null, x.outbox_event_id, false, x.status,
+               x.recipient_key
         from exhausted x
         """;
 
@@ -108,8 +113,8 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         returning d.id
         """;
 
-    // O teto é opt-in por consumidor: o e-mail o fornece; os consumidores sem teto (verificação etária, mídia)
-    // mantêm seu contrato e compensam no domínio. Sem teto, nenhuma entrega é encerrada no claim.
+    // O teto é opt-in por consumidor: e-mail e mídia o fornecem; a verificação etária ainda não, e compensa no
+    // domínio. Sem teto, nenhuma entrega é encerrada no claim.
     public async Task<IReadOnlyList<ClaimedDelivery>> ClaimAsync(
         string consumer,
         int batchSize,
@@ -156,7 +161,10 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
                 if (!reader.GetBoolean(8))
                 {
                     exhausted.Add(new ExhaustedDelivery(
-                        reader.GetGuid(0), reader.GetInt32(2), Enum.Parse<OutboxDeliveryStatus>(reader.GetString(9))));
+                        reader.GetGuid(0),
+                        reader.GetInt32(2),
+                        Enum.Parse<OutboxDeliveryStatus>(reader.GetString(9)),
+                        reader.GetString(10)));
                     exhaustedEvents.Add(reader.GetGuid(7));
                     continue;
                 }

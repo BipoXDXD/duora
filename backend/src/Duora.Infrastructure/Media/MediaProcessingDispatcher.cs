@@ -47,6 +47,12 @@ public sealed partial class MediaProcessingDispatcher
     private const string OriginalMismatchError = "OriginalMismatch";
     private const string AttemptsExhaustedError = "AttemptsExhausted";
 
+    /// <summary>
+    /// Tentativas além de <see cref="MediaProcessingOptions.MaxAttempts"/> que só encerram o upload, sem decodificar
+    /// (o processo caiu nas anteriores). Se nem elas terminarem, o teto do claim encerra a entrega (poison message).
+    /// </summary>
+    internal const int GiveUpAttempts = 2;
+
     private readonly OutboxDeliveryQueue _queue;
     private readonly DuoraDbContext _db;
     private readonly IObjectStore _store;
@@ -88,22 +94,51 @@ public sealed partial class MediaProcessingDispatcher
 
     public TimeSpan PollInterval => _options.PollInterval;
 
-    /// <summary>Processa no máximo um upload e devolve quantas entregas tomou (0 ou 1).</summary>
+    /// <summary>
+    /// Processa no máximo um upload e devolve quantas entregas tomou ou encerrou no claim (0 ou 1). Sem heartbeat: o
+    /// lote é de um, o lease passa de duas vezes o prazo da sanitização (conferido no boot) e o efeito no storage é
+    /// protegido pela versão do upload, não pelo lease.
+    /// </summary>
     public async Task<int> DispatchOnceAsync(CancellationToken cancellationToken)
     {
         var now = _time.GetUtcNow();
-        var claimed = await _queue.ClaimAsync(
+        var result = await _queue.ClaimWithAttemptLimitAsync(
             MediaProcessingOutbox.Consumer,
             batchSize: 1,
             now,
             now + _options.LeaseDuration,
+            _options.MaxAttempts + GiveUpAttempts,
             cancellationToken);
-        foreach (var delivery in claimed)
+        foreach (var exhausted in result.Exhausted)
+        {
+            await AbandonExhaustedAsync(exhausted, cancellationToken);
+        }
+
+        foreach (var delivery in result.Claimed)
         {
             await DeliverAsync(delivery, cancellationToken);
         }
 
-        return claimed.Count;
+        return result.Claimed.Count + result.Exhausted.Count;
+    }
+
+    /// <summary>
+    /// A entrega já está encerrada pelo claim; falta o upload, que ficaria em <c>Processing</c> ou <c>Quarantined</c>
+    /// ocupando vaga com o original na quarentena. Falha aqui fica no log: a entrega não volta.
+    /// </summary>
+    private async Task AbandonExhaustedAsync(ExhaustedDelivery exhausted, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParseExact(exhausted.RecipientKey, "D", out var uploadId))
+        {
+            LogInvalidPayload(_logger, exhausted.Id);
+            return;
+        }
+
+        LogExhaustedAtClaim(_logger, exhausted.Id, exhausted.Attempts, uploadId);
+        if (!await AbandonAfterLastAttemptAsync(uploadId, cancellationToken))
+        {
+            LogLeaseLost(_logger, exhausted.Id);
+        }
     }
 
     private async Task DeliverAsync(ClaimedDelivery delivery, CancellationToken cancellationToken)
@@ -487,6 +522,11 @@ public sealed partial class MediaProcessingDispatcher
         Level = LogLevel.Error,
         Message = "Processamento da entrega {DeliveryId} falhou na última tentativa {Attempt} ({Cause}); upload rejeitado")]
     private static partial void LogGaveUp(ILogger logger, Guid deliveryId, int attempt, string cause);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Entrega {DeliveryId} de mídia esgotou {Attempts} tentativas e foi encerrada no claim; upload {UploadId} rejeitado")]
+    private static partial void LogExhaustedAtClaim(ILogger logger, Guid deliveryId, int attempts, Guid uploadId);
 
     [LoggerMessage(
         Level = LogLevel.Error,
