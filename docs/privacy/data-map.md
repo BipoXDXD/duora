@@ -6,8 +6,9 @@ Finalidades, categorias de dados por tabela, base legal, fornecedores e acessos 
 (ECA Digital, ANPD) e D-PRIV-03 (jurisdições fora do Brasil). Prazos de guarda: [retention.md](retention.md).
 
 > **Público e jurisdição ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), 2026-10-19).** O público principal do Duora **não é brasileiro**, e todo o
-> tratamento acontece nos EUA (VPS em Boston e backup no B2 US East). As referências à LGPD neste mapa valem para
-> pessoas no Brasil; para as demais, as leis prováveis estão em [Jurisdições a confirmar](#jurisdições-a-confirmar),
+> tratamento acontece nos EUA (VPS em Boston e backup no B2 US East). O Brasil é país provável (J-01); a
+> aplicabilidade da LGPD, inclusive a quem está fora do Brasil, é a confirmar (J-02), e as referências à LGPD neste
+> mapa valem só se ela se aplicar. Para as demais jurisdições, as leis prováveis estão em [Jurisdições a confirmar](#jurisdições-a-confirmar),
 > como lacunas para o apoio jurídico, sem conclusão sobre aplicabilidade.
 
 > **Este documento não declara conformidade jurídica.** É um inventário técnico para apoiar a análise de
@@ -35,7 +36,7 @@ Finalidades, categorias de dados por tabela, base legal, fornecedores e acessos 
 
 Classes: P0 público, P1 interno, P2 pessoal, P3 pessoal sensível ou íntimo, S segredo
 ([model.md](../data/model.md#classificação-de-sensibilidade)). "Sensível?" indica se o dado **pode** ser dado
-pessoal sensível ou de risco elevado (LGPD art. 5.º, II, para pessoas no Brasil; as categorias equivalentes de outras
+pessoal sensível ou de risco elevado (LGPD art. 5.º, II, se a LGPD se aplicar, J-02; as categorias equivalentes de outras
 jurisdições, como a categoria especial do GDPR e os "dados sensíveis" das leis estaduais dos EUA, entram com J-03 e
 J-10); a resposta final é jurídica. "Base legal" é a da LGPD; nas outras jurisdições o conceito pode não existir ou ter
 outro nome (por exemplo, consentimento *opt-in* para dado sensível), a confirmar.
@@ -138,7 +139,7 @@ moderação ou administração não existe (spec 8.5).
 
 ## Direitos do titular
 
-| Direito (LGPD art. 18 para pessoas no Brasil; equivalentes de outras jurisdições em J-03 e J-10, a confirmar no escopo jurídico) | Mecanismo técnico |
+| Direito (LGPD art. 18, se a LGPD se aplicar, J-02; equivalentes de outras jurisdições em J-03 e J-10, a confirmar no escopo jurídico) | Mecanismo técnico |
 |---|---|
 | Acesso e portabilidade | API-D01, D02, D04: exportação dos dados do titular, sem decisões, evidências ou dados de terceiros (spec 12.1) |
 | Correção | API-P02, P03, N02 |
@@ -149,7 +150,8 @@ moderação ou administração não existe (spec 8.5).
 ## Lacunas
 
 Pendências que este mapa não resolve; cada uma bloqueia dados reais até ter dono e decisão (spec 23.2). Os itens 1, 4, 5
-e 6 citam a legislação brasileira e valem para pessoas no Brasil; os demais valem para todos. As outras jurisdições
+e 6 citam a legislação brasileira e dependem de a LGPD e o Marco Civil se aplicarem (J-02); os demais valem para
+todos. As outras jurisdições
 estão em [Jurisdições a confirmar](#jurisdições-a-confirmar).
 
 1. **Bases legais** de cada finalidade, inclusive para dados possivelmente sensíveis (preferências, mensagens,
@@ -180,7 +182,7 @@ jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 | ID | Jurisdição | Leis prováveis (a confirmar) | Pergunta para o apoio jurídico | Onde toca o Duora |
 |---|---|---|---|---|
 | J-01 | Todas | — | **Decisão de produto, antes das outras:** em que países o Duora abre o cadastro? Sem essa lista, nenhuma das linhas abaixo pode ser fechada | Elegibilidade do cadastro, `region_code` (ADR-0026, proposta 1) |
-| J-02 | Brasil | LGPD; Marco Civil; ECA Digital (decisão do dono de 2026-10-16 mantida) | Com servidor e backup nos EUA, qual o mecanismo de transferência (art. 33) e quem é o encarregado (art. 41)? | Tabela de transferências acima; lacunas 1, 4, 5 e 6 |
+| J-02 | Brasil | LGPD; Marco Civil; ECA Digital (decisão do dono de 2026-10-16 mantida) | Escopo territorial (art. 3.º): a LGPD se aplica ao Duora pelo local do tratamento, pela oferta a pessoas no Brasil ou pela coleta no Brasil, e alcança também quem está fora do Brasil? Se se aplicar: com servidor e backup nos EUA, qual o enquadramento e a salvaguarda (art. 33) e quem é o encarregado (art. 41)? | Tabela de transferências acima; lacunas 1, 4, 5 e 6 |
 | J-03 | EUA, estados | Leis estaduais abrangentes de privacidade do consumidor (Califórnia CCPA/CPRA; Virgínia, Colorado, Connecticut, Texas, entre outras) | Os limiares de aplicabilidade (receita, número de residentes, venda de dados) alcançam o Duora? Preferências, vida afetiva e orientação são "dados sensíveis" com *opt-in*? Há avaliação de impacto obrigatória? Que direitos e prazos de resposta? | `profiles.preferences`, `social.decisions`, mensagens; direitos do titular; aviso de privacidade |
 | J-04 | EUA, estados | Washington My Health My Data Act e leis parecidas; leis de biometria (Illinois BIPA, Texas CUBI) | Algum dado do Duora cai em "dado de saúde do consumidor"? O método de verificação etária do fornecedor usa biometria ou estimativa facial e, se usar, que consentimento e retenção exige? | F-02 e fornecedor de verificação etária; fotos (não há tratamento biométrico previsto) |
 | J-05 | Todas (idade) | Maioridade civil por estado (18 na maioria dos estados dos EUA; 19 e 21 em alguns, a confirmar); COPPA (menores de 13, federal); leis estaduais de verificação etária e de proteção de menores online, em mudança e em litígio; ECA Digital no Brasil | Qual a idade mínima por jurisdição? Que método de verificação é aceitável em cada uma? Quais obrigações surgem ao descobrir uma conta de menor (COPPA, se menor de 13)? | `AgeCheckOutcome` e política versionada (ADR-0024, adendo de 2026-10-19); suspeita de menor (spec 12.2) |
@@ -191,3 +193,4 @@ jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 | J-10 | UE e Reino Unido | GDPR e UK GDPR, se o serviço for oferecido a pessoas lá; Digital Services Act para plataformas online | O Duora oferece o serviço a pessoas na UE/Reino Unido? Se sim: base legal e categoria especial (vida e orientação sexual), representante na UE, transferência para os EUA (cap. V: certificação dos fornecedores no Data Privacy Framework ou cláusulas-padrão) e obrigações de notificação e ação do DSA | Todo o mapa |
 | J-11 | Fornecedores | Contratos de tratamento (DPA) e lista de subprocessadores | Onde a Hostinger (empresa com sede fora dos EUA, a confirmar no contrato), a Backblaze e os futuros fornecedores de e-mail e de verificação etária tratam ou acessam dados? Há DPA e cláusulas de transferência? | Tabela de fornecedores e de transferências |
 | J-12 | Todas | Lei de defesa do consumidor e de práticas enganosas (por exemplo, FTC Act seção 5 nos EUA) aplicada aos documentos voltados ao usuário | Termos e política de privacidade saem em PT-BR e EN-US (ADR-0026): qual versão prevalece, que lei e foro os termos escolhem, e que promessas da política viram obrigação verificável? | Documentos voltados ao usuário; `identity.consent_records` |
+| J-13 | Todas | LGPD art. 3.º; GDPR art. 3(2) e art. 27; regras equivalentes das outras jurisdições | Onde fica o controlador e qual o seu estabelecimento? Sem estabelecimento no Brasil nem na UE, que critério de alcance territorial vale (oferta de serviço, monitoramento, coleta) e é preciso representante (GDPR art. 27) ou contato local? | Documentos voltados ao usuário (identificação do controlador); J-02, J-10 |
