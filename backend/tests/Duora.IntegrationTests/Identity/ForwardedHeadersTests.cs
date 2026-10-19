@@ -1,7 +1,4 @@
 using System.Net;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -100,7 +97,7 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
         return new DuoraWebFactory(postgres.ConnectionString)
         {
             Settings = settings,
-            TestServices = services => services.AddTransient<IStartupFilter, RemoteAddressFromTestHeader>(),
+            TestServices = RemoteAddressFromTestHeader.Register,
         };
     }
 
@@ -113,26 +110,4 @@ public sealed class ForwardedHeadersTests(PostgresFixture postgres)
                 [RemoteAddressFromTestHeader.Header] = from,
                 ["X-Forwarded-For"] = forwardedFor,
             }));
-
-    /// <summary>
-    /// O TestServer não tem conexão de rede; este filtro, só de teste, põe o IP do remetente antes de todo o pipeline.
-    /// </summary>
-    private sealed class RemoteAddressFromTestHeader : IStartupFilter
-    {
-        public const string Header = "X-Test-Remote-Address";
-
-        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
-        {
-            app.Use((context, nextMiddleware) =>
-            {
-                if (IPAddress.TryParse(context.Request.Headers[Header].ToString(), out var address))
-                {
-                    context.Connection.RemoteIpAddress = address;
-                }
-
-                return nextMiddleware(context);
-            });
-            next(app);
-        };
-    }
 }
