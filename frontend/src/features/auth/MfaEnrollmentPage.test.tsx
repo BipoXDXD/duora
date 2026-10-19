@@ -15,9 +15,16 @@ const ADMIN_WITHOUT_MFA = {
 const SHARED_KEY = 'SYNTHETICKEY'
 const RECHECK_LATENCY_MS = 50
 
-/** Fase do MFA como o servidor a expõe: toda rota fora do cadastro responde 403 MFA_ENROLLMENT_REQUIRED. */
+/**
+ * Fase do MFA como o servidor a expõe: /me está na allowlist do cadastro (AllowDuringMfaEnrollment) e responde 200
+ * com mfaEnabled false e o papel privilegiado; as rotas fora do cadastro respondem 403 MFA_ENROLLMENT_REQUIRED.
+ */
 function mfaPhase() {
-  server.use(http.get(`${API}/me`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')))
+  server.use(
+    http.get(`${API}/me`, () => HttpResponse.json(ADMIN_WITHOUT_MFA)),
+    http.get(`${API}/me/profile`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')),
+    http.get(`${API}/me/sessions`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')),
+  )
 }
 
 function useEnrollmentEndpoint(
@@ -58,7 +65,7 @@ async function submitCode(user: RenderedApp['user'], code: string) {
 
 describe('fase do cadastro de MFA', () => {
   it.each(['/conta', '/conta/perfil', '/trocar-senha-inicial', '/conta/ativar-mfa'])(
-    '403 MFA_ENROLLMENT_REQUIRED em /me leva ao cadastro: %s',
+    'conta privilegiada sem MFA vai ao cadastro: %s',
     async (path) => {
       mfaPhase()
       await renderApp(path)
@@ -73,11 +80,8 @@ describe('fase do cadastro de MFA', () => {
     },
   )
 
-  it('conta privilegiada sem MFA que abre /conta/perfil vai ao cadastro', async () => {
-    server.use(
-      http.get(`${API}/me`, () => HttpResponse.json(ADMIN_WITHOUT_MFA)),
-      http.get(`${API}/me/profile`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')),
-    )
+  it('403 MFA_ENROLLMENT_REQUIRED em /me, que o servidor não emite hoje, também leva ao cadastro', async () => {
+    server.use(http.get(`${API}/me`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')))
     await renderApp('/conta/perfil')
     expect(
       await screen.findByRole(
@@ -163,6 +167,41 @@ describe('fase do cadastro de MFA', () => {
     expect(await screen.findByRole('alert', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toHaveTextContent(message)
     expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
     expect(enrollment.calls()).toBe(1)
+  })
+})
+
+describe('limite de tentativas', () => {
+  it('início do cadastro com 429 mostra a espera do Retry-After, sem retry', async () => {
+    mfaPhase()
+    useAntiforgeryEndpoint()
+    const enrollment = useEnrollmentEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '30' }))
+    const { user } = await renderApp('/conta/ativar-mfa')
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Configurar autenticador' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    )
+
+    expect(await screen.findByRole('alert', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toHaveTextContent(
+      'espere 30 segundos',
+    )
+    expect(enrollment.calls()).toBe(1)
+  })
+
+  it('confirmação com 429 mostra a espera do Retry-After e mantém a chave, sem retry', async () => {
+    mfaPhase()
+    useAntiforgeryEndpoint()
+    useEnrollmentEndpoint()
+    const confirmation = useConfirmationEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '120' }))
+    const { user } = await renderApp('/conta/ativar-mfa')
+    await startEnrollment(user)
+
+    await submitCode(user, '123456')
+
+    expect(await screen.findByRole('alert', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toHaveTextContent(
+      'espere 2 minutos',
+    )
+    expect(screen.getByText(SHARED_KEY)).toBeInTheDocument()
+    expect(confirmation.calls()).toBe(1)
   })
 })
 
@@ -292,20 +331,20 @@ describe('erro 401 nas fases restritas', () => {
    * /me da fase, contando as leituras: o 401 de uma escrita reconsulta a identidade (query-client.ts). A reconsulta
    * demora um pouco, como numa rede real, para a tela atravessar o estado de busca.
    */
-  function countedRestriction(code: string) {
+  function countedMe(respond: () => Response) {
     let calls = 0
     server.use(
       http.get(`${API}/me`, async () => {
         calls++
         if (calls > 1) await delay(RECHECK_LATENCY_MS)
-        return problem(403, code)
+        return respond()
       }),
     )
     return { calls: () => calls }
   }
 
   it('o erro e a chave continuam depois da reconsulta de /me', async () => {
-    const me = countedRestriction('MFA_ENROLLMENT_REQUIRED')
+    const me = countedMe(() => HttpResponse.json(ADMIN_WITHOUT_MFA))
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
     useConfirmationEndpoint(() => problem(401, 'REAUTHENTICATION_REQUIRED'))
@@ -323,7 +362,7 @@ describe('erro 401 nas fases restritas', () => {
   })
 
   it('a troca de senha mantém o erro depois da reconsulta de /me', async () => {
-    const me = countedRestriction('PASSWORD_CHANGE_REQUIRED')
+    const me = countedMe(() => problem(403, 'PASSWORD_CHANGE_REQUIRED'))
     useAntiforgeryEndpoint()
     server.use(http.post(`${API}/me/password-changes`, () => problem(401, 'INVALID_CREDENTIALS')))
     const { user, queryClient } = await renderApp('/trocar-senha-inicial')
