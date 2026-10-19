@@ -3,6 +3,7 @@ using Duora.Infrastructure;
 using Duora.Infrastructure.Email;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Media;
+using Duora.Infrastructure.Participation;
 using Duora.Worker.Media;
 using Microsoft.Extensions.Options;
 
@@ -29,6 +30,8 @@ internal static class WorkerHost
         builder.Services.AddAgeVerificationDispatch();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
         builder.Services.AddMediaProcessing();
+        builder.Services.AddParticipation();
+        builder.Services.AddHostedService<ParticipationJobService>();
         AddPhotoSanitizer(builder.Services);
         builder.Services.AddHostedService<HeartbeatService>();
         builder.Services.AddHostedService<TransactionalEmailService>();
