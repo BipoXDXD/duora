@@ -1538,13 +1538,21 @@ class MediaBackupUnitsTests(unittest.TestCase):
                 self.assertEqual(2, tasks.count(timer))
 
     def test_media_actions_alert_on_failure_and_do_not_depend_on_docker(self) -> None:
-        unit = (self.role / "files" / "duora-media-backup@.service").read_text(encoding="utf-8")
-        tasks = (self.role / "tasks" / "main.yml").read_text(encoding="utf-8")
+        unit = (self.role / "templates" / "duora-media-backup@.service.j2").read_text(encoding="utf-8")
 
         self.assertIn("OnFailure=duora-backup-failed@%n.service", unit)
-        self.assertIn("ExecStart=/usr/local/sbin/duora-backup %i\n", unit)
         self.assertNotIn("docker", unit.lower())
-        self.assertIn("- duora-media-backup@.service", tasks)
+
+    def test_media_actions_use_the_inventory_media_directory(self) -> None:
+        # Um duora_media_dir trocado no inventário vale para o Compose (DUORA_MEDIA_DIR) e para o backup das fotos;
+        # o MEDIA_ROOT fixo do wrapper é só o padrão de quem o chama à mão.
+        unit = (self.role / "templates" / "duora-media-backup@.service.j2").read_text(encoding="utf-8")
+        tasks = (self.role / "tasks" / "main.yml").read_text(encoding="utf-8")
+
+        self.assertIn("ExecStart=/usr/local/sbin/duora-backup %i --media-root {{ duora_media_dir }}\n", unit)
+        self.assertIn("    src: duora-media-backup@.service.j2\n"
+                      "    dest: /etc/systemd/system/duora-media-backup@.service\n", tasks)
+        self.assertFalse((self.role / "files" / "duora-media-backup@.service").exists())
 
     def test_ansible_writes_the_mount_marker_the_boot_requires_in_each_area(self) -> None:
         tasks = (self.role.parents[0] / "app_dirs" / "tasks" / "main.yml").read_text(encoding="utf-8")

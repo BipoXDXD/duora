@@ -53,7 +53,6 @@
     mode: "0644"
   loop:
     - duora-backup@.service
-    - duora-media-backup@.service
     - duora-backup-failed@.service
     - duora-backup-full.timer
     - duora-backup-diff.timer
@@ -67,6 +66,15 @@
   notify:
     - Recarregar systemd
     - Reaplicar filtro de saída do backup
+
+- name: Instalar a unit das ações do backup das fotos com o diretório do inventário
+  ansible.builtin.template:
+    src: duora-media-backup@.service.j2
+    dest: /etc/systemd/system/duora-media-backup@.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recarregar systemd
 
 - name: Aplicar as units novas antes de ligar os timers
   ansible.builtin.meta: flush_handlers
