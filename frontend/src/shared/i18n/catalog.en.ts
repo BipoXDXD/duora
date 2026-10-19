@@ -61,6 +61,7 @@ export const en = {
   'validation.termsRequired': 'To create an account, please accept the Terms of Use.',
   'validation.privacyRequired': 'To create an account, please confirm you have read the Privacy Policy.',
   'validation.totpCodeInvalid': 'Enter the 6-digit authenticator code.',
+  'validation.recoveryCodeInvalid': 'Enter one of your recovery codes.',
   'validation.invalidValue': 'Check the value in this field.',
 
   'navigation.pageLoaded': 'Page loaded: {title}',
@@ -117,7 +118,10 @@ export const en = {
   'login.submitting': 'Signing in…',
   'login.invalidCredentials': 'Incorrect email or password.',
   'login.mfaRequired':
-    'This account requires a second authentication factor. Enter your authenticator code and sign in again.',
+    'This account requires a second authentication factor. Enter your authenticator code or a recovery code and sign in again.',
+  'login.recoveryCode': 'Recovery code',
+  'login.useRecoveryCode': 'Use a recovery code',
+  'login.useAuthenticatorCode': 'Use your authenticator code',
   'login.sessionExpired': 'Your session has expired. Sign in again to continue.',
   'login.signInRequired': 'Sign in to continue.',
   'login.signedOut': "You've signed out.",

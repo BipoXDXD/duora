@@ -257,6 +257,80 @@ describe('segundo fator na entrada', () => {
     expect(screen.getByLabelText('Código do autenticador')).toHaveValue('654321')
   })
 
+  it('o campo do código recebe o foco quando aparece', async () => {
+    useAntiforgeryEndpoint()
+    useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
+    const { user } = await renderApp('/entrar')
+
+    await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+
+    expect(await screen.findByLabelText('Código do autenticador')).toHaveFocus()
+  })
+
+  it('entra com um código de recuperação, sem mandar o TOTP e sem guardá-lo no MutationCache', async () => {
+    useAntiforgeryEndpoint()
+    let attempt = 0
+    const received = useLoginEndpoint(() =>
+      ++attempt === 1 ? problem(401, 'MFA_REQUIRED') : new HttpResponse(null, { status: 204 }),
+    )
+    useAccountEndpoints()
+    const queryClient = createTestQueryClient()
+    const { user } = await renderApp('/entrar', queryClient)
+    await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+    await user.type(await screen.findByLabelText('Código do autenticador'), '12')
+
+    await user.click(screen.getByRole('button', { name: 'Usar um código de recuperação' }))
+    const field = screen.getByLabelText('Código de recuperação')
+    expect(field).toHaveFocus()
+    expect(screen.queryByLabelText('Código do autenticador')).not.toBeInTheDocument()
+    await user.type(field, 'synthetic-recovery-1')
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    ).toBeInTheDocument()
+    expect(received[1]?.body).toEqual({
+      email: 'admin@exemplo.com',
+      password: 'frase longa de senha',
+      recoveryCode: 'synthetic-recovery-1',
+    })
+    const cached = JSON.stringify(
+      queryClient
+        .getMutationCache()
+        .getAll()
+        .map((mutation) => mutation.state),
+    )
+    expect(cached).not.toContain('synthetic-recovery-1')
+  })
+
+  it('volta ao código do autenticador', async () => {
+    useAntiforgeryEndpoint()
+    useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
+    const { user } = await renderApp('/entrar')
+    await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+    await user.click(await screen.findByRole('button', { name: 'Usar um código de recuperação' }))
+
+    await user.click(screen.getByRole('button', { name: 'Usar o código do autenticador' }))
+
+    expect(screen.getByLabelText('Código do autenticador')).toHaveFocus()
+    expect(screen.queryByLabelText('Código de recuperação')).not.toBeInTheDocument()
+  })
+
+  it('código de recuperação vazio é recusado sem chamar a API de novo', async () => {
+    useAntiforgeryEndpoint()
+    const received = useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
+    const { user } = await renderApp('/entrar')
+    await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
+    await user.click(await screen.findByRole('button', { name: 'Usar um código de recuperação' }))
+
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+
+    expect(screen.getByLabelText('Código de recuperação')).toHaveAccessibleDescription(
+      'Informe um dos seus códigos de recuperação.',
+    )
+    expect(received).toHaveLength(1)
+  })
+
   it('senha e código não ficam nas variables do MutationCache', async () => {
     useAntiforgeryEndpoint()
     let attempt = 0
