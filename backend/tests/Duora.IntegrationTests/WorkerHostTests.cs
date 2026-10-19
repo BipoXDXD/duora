@@ -78,6 +78,22 @@ public sealed class WorkerHostTests
     }
 
     [Fact]
+    public async Task SelfieQueueDatabaseFailureDoesNotStopTheWorker()
+    {
+        var logs = new CapturingLoggerProvider();
+        var connection = new CanaryConnectionString();
+        using var host = BuildHost(connection.Value, logs);
+        await host.StartAsync(TestContext.Current.CancellationToken);
+
+        var warning = await logs.FirstWarningFrom(typeof(SelfieVerificationProviderService).FullName ?? throw new InvalidOperationException())
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Null(warning.Exception);
+        Assert.False(host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
+        await host.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task HeartbeatFailureLogsNeverContainThePassword()
     {
         var logs = new CapturingLoggerProvider();

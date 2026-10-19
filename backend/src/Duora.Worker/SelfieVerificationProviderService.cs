@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Duora.Infrastructure.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace Duora.Worker;
 
@@ -14,7 +15,9 @@ internal sealed partial class SelfieVerificationProviderService(IServiceScopeFac
                 using var scope = scopes.CreateScope();
                 await scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>().DispatchBatchAsync(stoppingToken);
             }
-            catch (DbException)
+            catch (Exception exception) when (exception is DbException
+                or InvalidOperationException { InnerException: DbException }
+                or DbUpdateException { InnerException: DbException })
             {
                 DatabaseUnavailable(logger);
             }
