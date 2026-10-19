@@ -98,6 +98,10 @@ acrescentado: `TheFileSystemStoreServesProductionFromAMountedDirectory`,
 `MediaUploadGateTests`, `MediaBackupTests`,
 `MediaBackupUnitsTests` e `WriteMediaBackupRepositoryTests`. A spec 15.4 foi atualizada para esta decisão.
 
+Partes substituídas em outro ADR (registro de 2026-10-19): no [ADR-0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md),
+o adaptador S3 com `AWSSDK.S3` num bucket de mídia como storage de produção (item 5) e o teste de boot que recusava o
+filesystem em `Production`; lá ele está marcado como "Substituído em parte".
+
 ## Adendo (2026-10-19): localização da VPS
 
 A VPS Hostinger onde as fotos ficam é a de produção, em **Boston, EUA** (decisão do dono, registrada no

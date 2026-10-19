@@ -31,7 +31,7 @@ transacionais), [data-map.md](../privacy/data-map.md) e [retention.md](../privac
 | AT-03 | Key ring de Data Protection e certificado que o protege | Volume restrito, backup sob custódia separada | Forjar cookie, antiforgery e tokens de e-mail | S |
 | AT-04 | Resultado e referência da verificação etária | `identity.age_verifications`, fornecedor | INV-01: menor participando; falsificação de maioridade | P3 |
 | AT-05 | Preferências privadas | `profiles.preferences` | Podem revelar orientação sexual (dado sensível); nunca no DTO de outra pessoa | P3 |
-| AT-06 | Fotos: originais em quarentena e derivados | Object storage, `media.*` | Dado pessoal; localização em EXIF; exposição após bloqueio | P3 |
+| AT-06 | Fotos: originais em quarentena e derivados | Disco da VPS (`IObjectStore` de filesystem), cópia dos derivados no B2, `media.*` | Dado pessoal; localização em EXIF; exposição após bloqueio | P3 |
 | AT-07 | Decisões privadas e pistas de jogo | `social.decisions`, `experiences.game_participants` | INV-05: rejeição revelada, vantagem no jogo | P3 |
 | AT-08 | Mensagens de chat | `social.messages` | Conteúdo íntimo; leitura após bloqueio (INV-03) | P3 |
 | AT-09 | Denúncias, evidências e medidas de moderação | `safety.reports`, `safety.report_evidence`, `safety.moderation_actions`, `safety.appeals` | Exposição da pessoa denunciante; retaliação; INV-10 | P3 |
@@ -57,7 +57,7 @@ transacionais), [data-map.md](../privacy/data-map.md) e [retention.md](../privac
 | AC-07 | Administrador de produto | Catálogo, eventos e configuração funcional | Autopromoção, acesso a dados sensíveis, publicar conteúdo sem revisão |
 | AC-08 | Operador técnico | Infraestrutura, releases, recuperação | Usar banco como ferramenta de atendimento; restore que reativa contas |
 | AC-09 | Agente de desenvolvimento | Branch e workspace isolados, dados sintéticos (INV-12) | Ser induzido por conteúdo não confiável (issue, README, log) a ler segredos, enfraquecer gates ou fazer deploy (spec 14.3, D-SEC-02) |
-| AC-10 | Fornecedor (verificação etária, e-mail, object storage, monitoramento, backup) | Dados mínimos da sua função; callbacks em `/webhooks/{provider}` | Fornecedor comprometido ou curioso: callback forjado, retenção excessiva, uso secundário, vazamento |
+| AC-10 | Fornecedor (verificação etária, e-mail, provedor da VPS, monitoramento, backup) | Dados mínimos da sua função; callbacks em `/webhooks/{provider}` | Fornecedor comprometido ou curioso: callback forjado, retenção excessiva, uso secundário, vazamento |
 | AC-11 | Atacante de rede ou de cadeia de suprimentos | Nenhum | MITM sem TLS, pacote malicioso, action não fixada, imagem trocada no registry |
 | AC-12 | Navegador compartilhado | Mesmo dispositivo, outra identidade (T-21) | Ver cache, fotos ou socket da identidade anterior |
 
@@ -76,7 +76,7 @@ fluxo crítico cruza cada uma.
 | F3 | Web/Worker → PostgreSQL | Todos; protocolos de [concurrency.md](../data/concurrency.md) |
 | F4 | Worker → fornecedores | E-mail (cadastro, recuperação, notificações), solicitação de verificação etária, quarentena e derivados |
 | F5 | Fornecedores → `/webhooks/{provider}` | Callback de verificação etária; bounces e recibos de e-mail |
-| F6 | Web → object storage | Stream de mídia aprovada (API-M04) e upload para quarentena (API-M01) |
+| F6 | Web → disco da VPS (fotos) | Stream de mídia aprovada (API-M04) e upload para quarentena (API-M01) |
 | F7 | PostgreSQL → backup | Backup físico, WAL, tombstones e key ring |
 | F8 | Collector → monitoramento | Telemetria de todos os fluxos (risco de vazamento de dado privado em log) |
 | F9 | CI → registry → VPS | Release; risco de agente e de cadeia de suprimentos |

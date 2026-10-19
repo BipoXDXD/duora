@@ -203,7 +203,7 @@ flowchart TB
     Edge -->|HTTP privado: API e hub| Web["Duora.Web: ASP.NET Core + SignalR"]
     Web --> DB[("PostgreSQL 18")]
     Worker["Duora.Worker: jobs e integrações"] --> DB
-    Web -->|stream autorizado de mídia| Objects["Object storage privado externo"]
+    Web -->|stream autorizado de mídia| Objects["Fotos no disco da VPS (FileSystem)"]
     Worker -->|quarentena e derivados| Objects
     Worker --> Email["Provedor de e-mail transacional"]
     Worker --> Age["Verificação etária: adaptador aprovado"]
@@ -1263,7 +1263,7 @@ A base entrega mídia por stream autenticado da API. Isso simplifica revogação
 
 | Integração | Interface lógica | Requisitos para seleção |
 |---|---|---|
-| Object storage | `IObjectStore` | TLS, buckets privados, API compatível comprovada, versionamento/retention necessários, exportação e custos de tráfego claros |
+| Armazenamento de fotos | `IObjectStore`: em produção, `FileSystemObjectStore` no disco da VPS (ADR-0010 e ADR-0025, adendos de 2026-10-16); S3 só como alternativa futura, por novo ADR | Diretório do host com dono e modo restritos, montagem por área e cópia externa dos derivados; se um dia for S3: TLS, buckets privados, API compatível comprovada, versionamento/retention, exportação e custos de tráfego claros |
 | E-mail transacional | `ITransactionalEmailSender` | Domínio autenticado, recibos, política de retries, suppression/bounces e contrato de dados |
 | Verificação etária | `IAgeEligibilityProvider` | Método adequado, minimização, acessibilidade, callbacks autenticados, revisão e prazo de retenção |
 | Moderação assistida | `IContentReviewProvider`, condicional | Dados estritamente necessários, avaliação de erro, revisão humana e política de uso/treinamento |
@@ -1708,7 +1708,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 | ADR-007 | SignalR transporta invalidação, não verdade do jogo | Recuperação, privacidade e controle no servidor | Perfil de tráfego exigir protocolo diferente |
 | ADR-008 | PostgreSQL para jobs/outbox antes de broker | Menos componentes e transação única | Métricas demonstrarem gargalo ou necessidade de fan-out |
 | ADR-009 | Uma web ativa no piloto | Evitar escala parcial e custo operacional extra | Disponibilidade/capacidade exigir backplane e múltiplas instâncias |
-| ADR-010 | Object storage externo e leitura privada via API | Persistência fora do host e revogação central | Egress/latência exigirem distribuição revisada |
+| ADR-010 | Leitura privada via API; fotos no disco da VPS com cópia externa (adendo de 2026-10-16), não em object storage | Revogação central e cópia fora do host | Volume ou egress pedirem object storage, por novo ADR |
 | ADR-011 | pgBackRest/WAL externo e restore obrigatório | Reduzir perda de dados e provar recuperação | Volume/metas exigirem outra topologia |
 | ADR-012 | Pareamento determinístico sem LLM | Previsibilidade, privacidade e auditabilidade | Evidência de benefício com avaliação formal de risco |
 | ADR-013 | IA fora do caminho crítico de partidas | Disponibilidade e regras estáveis | Caso concreto aprovado com fallback equivalente |
@@ -2016,7 +2016,7 @@ O catálogo contém **78 fichas temáticas**, agrupadas por trabalho técnico. U
 | Serviço | Fonte exigida antes de integração real | Evidência de aceite |
 |---|---|---|
 | VPS | Imagem Ubuntu 24.04, arquitetura, rede/firewall, console de emergência, API, limites, IOPS e exclusão | Provisionar e recuperar host; conferir portas externamente e não depender da configuração manual |
-| Object storage | Endpoint, assinatura, SDK, checksums, versionamento, lifecycle, exclusão, exportação e limites | Upload/leitura autorizada, remoção, recuperação e tratamento de falhas; compatibilidade S3 demonstrada |
+| Object storage (só se adotado por novo ADR; hoje as fotos ficam no disco da VPS) | Endpoint, assinatura, SDK, checksums, versionamento, lifecycle, exclusão, exportação e limites | Upload/leitura autorizada, remoção, recuperação e tratamento de falhas; compatibilidade S3 demonstrada |
 | Destino externo de backup | Operações suportadas, acesso, retenção, proteção contra exclusão, custos e recuperação de credenciais | Restore sem a VPS original; expiração compatível com cadeias de backup/WAL |
 | E-mail transacional | API, SPF/DKIM/DMARC, webhooks, idempotência, bounces, suppression e retenção | Entrega/falha/replay testados; mensagem neutra e domínio autenticado |
 | Aferição etária | Método, precisão/limites, acessibilidade, callbacks, contestação, operadores e retenção | Contrato técnico e avaliação de risco/privacidade aprovados antes da participação real |
