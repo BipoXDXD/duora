@@ -504,7 +504,12 @@ não é limite global para ataques com muitos endereços diferentes. Não promet
 
 A proteção fecha a diferença estrutural de paralelismo entre logins existentes e inexistentes numa
 única instância (ADR-0009), mas não promete tempo constante: banco, auditoria, hashes antigos e
-concorrência com reset/reautenticação ainda podem produzir diferenças. Medir distribuições de
+concorrência com reset/reautenticação ainda podem produzir diferenças. A fila também amplifica a
+diferença por pedido quando a verificação passa do piso: o piso só iguala o que fica abaixo dele, e
+o que a conta existente custa a mais (transação, lock, auditoria) se soma a cada posição da fila.
+Numa rajada de quatro com hash de 1,8 s, a diferença entre existente e inexistente chegou a 1,15 s
+na quarta posição com a máquina carregada (medido em 2026-10-19). Por isso `LoginConcurrencyTests`
+afirma limites inferiores (o i-ésimo a terminar esperou i + 1 hashes), não proximidade. Medir distribuições de
 latência sob carga representativa é necessário antes de aceitar esses riscos; não registrar e-mail,
 IP ou UUID como rótulo. O teste controlado não substitui benchmark da VPS.
 
