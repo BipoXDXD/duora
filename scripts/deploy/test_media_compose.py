@@ -88,6 +88,14 @@ class ProductionMediaComposeTests(unittest.TestCase):
             with self.subTest(setting=setting), self.assertRaises(deploy.DeployError):
                 deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\n" + setting + "\n")
 
+    def test_host_parser_names_the_format_problem_even_for_an_accepted_policy(self) -> None:
+        # Com a allowlist vazia, todo valor não vazio já cai nela; aqui uma política aceita (sintética) isola a regra
+        # do formato, que diz ao operador por que o valor com aspas, expansão ou comentário não vale.
+        with patch.object(deploy, "PRODUCTION_MEDIA_REVIEW_POLICIES", frozenset({"Editorial"})):
+            for value in ('"Editorial"', "'Editorial'", "${Editorial}", "Editorial # ligado", "Edit orial"):
+                with self.subTest(value=value), self.assertRaisesRegex(deploy.DeployError, "sem aspas/expansão"):
+                    deploy.parse_host_config(f"DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW={value}\n")
+
     def test_compose_cannot_inherit_a_switch_or_override_file_from_the_shell(self) -> None:
         environment = {"PATH": "/usr/bin", "DUORA_MEDIA_REVIEW": "TechnicalOnly",
                        "DUORA_MEDIA_DIR": "/wrong", "COMPOSE_FILE": "override.yml",
