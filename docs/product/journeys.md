@@ -1,5 +1,8 @@
 # Jornadas
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Jornadas verificáveis da spec 4.1, com as rotas da API (spec 8) e os testes de aceite
 ([acceptance.md](../testing/acceptance.md)) que as cobrem. Cada jornada tem caminho de sucesso, falhas e
 saídas obrigatórias; nenhuma é aceita só pelo caminho feliz (spec 22, M2). Estados e termos seguem

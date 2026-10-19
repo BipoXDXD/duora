@@ -4,6 +4,7 @@
  * com os parâmetros no fragmento): mudar aqui exige mudar lá.
  */
 export const paths = {
+  selfie: '/conta/selfie',
   home: '/',
   register: '/criar-conta',
   checkEmail: '/verifique-seu-email',

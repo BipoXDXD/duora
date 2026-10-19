@@ -1,5 +1,8 @@
 # Autenticação, sessão e proteção do navegador — especificação do M1
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Especificação do que o M1 implementa em identidade: cookie e ticket no servidor, expiração, MFA, CSRF,
 recuperação, revogação, anti-enumeração, Data Protection e rate limit, mais o contrato das rotas API-A01 a
 API-A16. Fontes: spec 4.3, 8.1, 8.2, 9.2, 9.3, 11.1–11.5 e 13.4 (A11Y-01); ADRs
@@ -472,7 +475,7 @@ outras contas; contrato publicado pelo OpenAPI gerado (ADR-0018).
 
 | Teste | Cobre |
 |---|---|
-| T-01 | Conta pendente, suspensa ou sem requisito etário negada nas rotas de participação |
+| T-01 | Conta pendente, suspensa ou sem confirmação de e-mail ou presença negada nas rotas de participação |
 | T-13 | Login, logout e escrita sem antiforgery ou com origem indevida → `403`, sem efeito |
 | T-14 | Sessão revogada ou expirada com hub ativo: novas ações negadas, conexão fechada |
 | T-15 | Container recriado e rotação de chave: sessões conforme a política |
@@ -631,3 +634,9 @@ o contrato de `/me` e de quatro GETs com sessão passou a declarar o 403 que ele
 Rollback da SPA retira as telas e deixa as contas de bootstrap sem interface para concluir o
 cadastro; não remove as restrições do servidor. A guarda de rollback do backend permanece.
 O merge desta alteração de autenticação exige revisão humana e os gates do repositório.
+
+## Confirmação e presença — ADR-0029
+
+Cadastro novo envia código de oito dígitos, válido por 15 minutos desde emissão explícita. Banco guarda hash e security stamp, exige senha, consome sob lock e invalida após cinco erros. O orçamento de três emissões por conta/hora permanece no banco após reinício e substituição de prova; excesso responde de forma neutra sem trocar senha/prova. Os limites HTTP continuam complementares. Links legados só valem se nunca houve código. Não registrar código, credenciais de captura nem frame em observabilidade.
+
+EligibleParticipant lê estado/email e Passed em selfie_verifications a cada requisição. Nenhuma evidência etária é consultada. Rotas selfie são do titular, com CSRF nas mutações e rejeição de campos desconhecidos. Complete não recebe resultado. Captura usa no-store e credenciais temporárias limitadas a StartFaceLivenessSession; não conceder Create/Get/Detect ao navegador. AWS não oferece aqui restrição de recurso por sessionId: a sessão é um identificador secreto e a emissão pertence ao titular; homologar IAM e risco residual antes do piloto.

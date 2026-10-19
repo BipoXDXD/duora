@@ -1,5 +1,8 @@
 # Módulos, propriedade de dados e dependências
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Fonte: spec 3.2 (módulos), 3.3 (organização e dependências), 10.1–10.3 (schemas, tabelas e constraints) e
 10.4 (ordem de locks). Decisões relacionadas: [ADR-0003](adr/0003-monolito-modular-web-worker.md) e
 [ADR-0004](adr/0004-dbcontext-unico-schemas-logicos.md).
@@ -39,7 +42,7 @@ Schemas lógicos (spec 10.1): `identity`, `profiles`, `events`, `experiences`, `
 
 | Módulo | Responsabilidade | Schema e tabelas próprias | Operações públicas (spec 3.2) | Não deve |
 |---|---|---|---|---|
-| Identity | Conta, credenciais, sessões, recuperação, estado etário e consentimentos | `identity`: `users`, tabelas do ASP.NET Core Identity, `login_sessions` (absorve `auth_tickets`, ADR-0019), `age_verifications`, `consent_records` | `GetEligibility`, `RevokeSessions`, `DisableAccount` | Decidir pareamento ou abrir conversas |
+| Identity | Conta, credenciais, sessões, recuperação, presença e consentimentos | `identity`: `users`, tabelas do ASP.NET Core Identity, `login_sessions` (absorve `auth_tickets`, ADR-0019), `selfie_verifications`, `age_verifications` (histórico), `consent_records` | `GetEligibility`, `RevokeSessions`, `DisableAccount` | Decidir pareamento ou abrir conversas |
 | Profiles | Perfil, fotos do perfil, preferências e visibilidade | `profiles`: `profiles`, `preferences`, `profile_photos` | `GetAuthorizedProfile`, `UpdatePreferences` | Expor preferências privadas no DTO de outra pessoa |
 | Events | Evento, inscrição, lista de espera, check-in e rodada | `events`: `events`, `registrations`, `rounds` | `Register`, `CheckIn`, `StartRound`, `CancelEvent` | Formar pares ignorando Safety |
 | Matching | Seleção, histórico de pares e reserva do par | `events` (nota 1): `pairings`, `pairing_participants` | `BuildRoundPairings`, `ReleaseReservation` | Inferir atributos sensíveis por processamento externo |
@@ -76,7 +79,7 @@ com proposta em [model.md](../data/model.md#decisões-de-modelagem-propostas), D
 - Invariantes que precisam valer imediatamente ficam na **mesma transação** (bloqueio, decisão mútua, reserva).
   Efeitos posteriores (notificação, e-mail, processamento de mídia) saem por **evento interno via outbox**.
 - Safety é consultado por Events, Matching, Experiences, Connections e Messaging antes de qualquer interação
-  (`CheckInteraction`); Identity responde elegibilidade (`GetEligibility`) para todos. No HTTP, a policy `EligibleParticipant` (`ParticipationPolicies`) consulta `GetEligibility` a cada requisição, e toda rota de `/api/v1` fora das de conta, sessão e verificação etária precisa dela (`EligibleParticipantPolicyTests`).
+  (`CheckInteraction`); Identity responde elegibilidade (`GetEligibility`) para todos. No HTTP, a policy `EligibleParticipant` (`ParticipationPolicies`) consulta `GetEligibility` a cada requisição, e toda rota de `/api/v1` fora das de conta, sessão e selfie precisa dela (`EligibleParticipantPolicyTests`).
 - Dados de outro módulo entram como projeção mínima, nunca como entidade compartilhada.
 
 ## Ordem global de locks (spec 10.4)

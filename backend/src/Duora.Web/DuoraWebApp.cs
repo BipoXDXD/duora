@@ -60,7 +60,7 @@ internal static class DuoraWebApp
         builder.Services.AddDuoraProfiles();
         builder.Services.AddDuoraSafety();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
-        builder.Services.AddAgeVerification();
+        builder.Services.AddSelfieVerification();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
         // Negar por padrão: toda rota exige sessão (e MFA, se a conta é privilegiada); as públicas declaram
@@ -106,6 +106,7 @@ internal static class DuoraWebApp
         api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
         api.MapPhotoEndpoints();
         api.MapAgeVerificationEndpoints();
+        api.MapSelfieVerificationEndpoints();
         api.MapParticipationTestSentinel(app.Environment);
 
         return app;

@@ -67,6 +67,9 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             // O corpo de verdade é a imagem crua; sem token, a recusa vem antes de olhar o corpo.
             ["POST /api/v1/me/photos"] = null,
             ["POST /api/v1/me/age-verifications"] = new { },
+            ["POST /api/v1/me/selfie-verifications"] = new { },
+            ["POST /api/v1/me/selfie-verifications/{id:guid}/capture"] = new { },
+            ["POST /api/v1/me/selfie-verifications/{id:guid}/complete"] = new { },
         };
         string[] emails = [account.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
@@ -77,6 +80,7 @@ public sealed class CsrfEveryRouteTests(PostgresFixture postgres) : IAsyncDispos
             var name = $"{method} {pattern}";
             Assert.True(bodies.TryGetValue(name, out var body), $"Sem corpo de exemplo para {name}: acrescente-o aqui.");
             var path = pattern
+                .Replace("{id:guid}", account.UserId.ToString(), StringComparison.Ordinal)
                 .Replace("{sessionId:guid}", sessionId.ToString(), StringComparison.Ordinal)
                 .Replace("{targetUserId:guid}", pendingLink.UserId.ToString(), StringComparison.Ordinal);
             var headers = new MutationHeaders(SendCsrfToken: false);

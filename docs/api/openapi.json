@@ -117,6 +117,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -1326,37 +1336,7 @@
         "tags": [
           "Me"
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StartAgeVerificationRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
-          "202": {
-            "description": "Accepted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgeVerificationResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
           "401": {
             "description": "Unauthorized",
             "content": {
@@ -1369,26 +1349,6 @@
           },
           "403": {
             "description": "Forbidden",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1406,16 +1366,6 @@
           "Me"
         ],
         "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgeVerificationResponse"
-                }
-              }
-            }
-          },
           "401": {
             "description": "Unauthorized",
             "content": {
@@ -1438,56 +1388,234 @@
           }
         }
       }
+    },
+    "/api/v1/me/selfie-verifications": {
+      "post": {
+        "tags": [
+          "Me"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSelfieVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfieVerificationResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/selfie-verifications/current": {
+      "get": {
+        "tags": [
+          "Me"
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfieVerificationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/selfie-verifications/{id}/capture": {
+      "post": {
+        "tags": [
+          "Me"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelfieCaptureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfieCaptureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/me/selfie-verifications/{id}/complete": {
+      "post": {
+        "tags": [
+          "Me"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteSelfieVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelfieVerificationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
-      "AgeVerificationNextStepCode": {
-        "enum": [
-          "None",
-          "StartVerification",
-          "WaitForProvider",
-          "ContinueWithProvider",
-          "WaitForReview",
-          "NotAvailable"
-        ],
-        "description": "Próximo passo da pessoa na verificação etária (API-P06)."
-      },
-      "AgeVerificationResponse": {
-        "required": [
-          "state",
-          "nextStep",
-          "continueUrl"
-        ],
-        "type": "object",
-        "properties": {
-          "state": {
-            "$ref": "#/components/schemas/AgeVerificationStateCode"
-          },
-          "nextStep": {
-            "$ref": "#/components/schemas/AgeVerificationNextStepCode"
-          },
-          "continueUrl": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "description": "Estado mínimo da verificação etária (API-P06). `ContinueUrl` só vem com ContinueWithProvider: o fluxo do\nfornecedor, de uma origem na allowlist. Nenhuma inferência do fornecedor (TM-38)."
-      },
-      "AgeVerificationStateCode": {
-        "enum": [
-          "NotStarted",
-          "Pending",
-          "VerifiedAdult",
-          "Rejected",
-          "Expired",
-          "ManualReview"
-        ],
-        "description": "Estado da verificação etária como a API o expõe (API-P06)."
-      },
       "ChangePasswordRequest": {
         "required": [
           "currentPassword",
@@ -1508,6 +1636,10 @@
             ]
           }
         },
+        "additionalProperties": false
+      },
+      "CompleteSelfieVerificationRequest": {
+        "type": "object",
         "additionalProperties": false
       },
       "ConfirmEmailRequest": {
@@ -1959,6 +2091,94 @@
         },
         "additionalProperties": false
       },
+      "SelfieCaptureCredentialsResponse": {
+        "required": [
+          "accessKeyId",
+          "secretAccessKey",
+          "sessionToken",
+          "expiration"
+        ],
+        "type": "object",
+        "properties": {
+          "accessKeyId": {
+            "type": "string"
+          },
+          "secretAccessKey": {
+            "type": "string"
+          },
+          "sessionToken": {
+            "type": "string"
+          },
+          "expiration": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SelfieCaptureRequest": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "SelfieCaptureResponse": {
+        "required": [
+          "sessionId",
+          "region",
+          "credentials"
+        ],
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "credentials": {
+            "$ref": "#/components/schemas/SelfieCaptureCredentialsResponse"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SelfieVerificationResponse": {
+        "required": [
+          "id",
+          "state",
+          "nextStep",
+          "feedbackCode",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string"
+          },
+          "nextStep": {
+            "type": "string"
+          },
+          "feedbackCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
       "SessionListResponse": {
         "required": [
           "items"
@@ -2005,10 +2225,9 @@
         },
         "additionalProperties": false
       },
-      "StartAgeVerificationRequest": {
+      "StartSelfieVerificationRequest": {
         "type": "object",
-        "additionalProperties": false,
-        "description": "Corpo de API-P05: vazio de propósito. O resultado etário nunca vem do navegador (spec 12.2, TM-35); qualquer\ncampo, inclusive `isAdult`, é recusado com 400."
+        "additionalProperties": false
       },
       "Stream": {
         "type": "string",

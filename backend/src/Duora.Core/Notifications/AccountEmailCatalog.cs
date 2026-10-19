@@ -13,6 +13,8 @@ internal interface IAccountEmailCatalog
 {
     EmailText EmailConfirmation(Uri confirmationLink);
 
+    EmailText EmailConfirmationCode(Uri confirmationLink, string code);
+
     EmailText PasswordReset(Uri resetLink);
 
     EmailText RegistrationAttemptOnExistingAccount(Uri recoveryLink);
@@ -50,6 +52,17 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
             {confirmationLink}
 
             Se você não pediu este cadastro, ignore esta mensagem: sem a senha, ninguém confirma a conta.
+            """);
+
+    public EmailText EmailConfirmationCode(Uri confirmationLink, string code) =>
+        new("Seu código de confirmação do Duora", $"""
+            Seu código de confirmação é: {code}
+
+            Ele vale por 15 minutos após o cadastro. Abra a página abaixo e informe o código e a senha do cadastro:
+            {confirmationLink}
+
+            Não compartilhe o código. Se ele expirou, faça o cadastro novamente para receber outro.
+            Se você não pediu este cadastro, ignore esta mensagem.
             """);
 
     public EmailText PasswordReset(Uri resetLink) =>
@@ -184,6 +197,17 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
             {confirmationLink}
 
             If you did not sign up, ignore this message: without the password, nobody can confirm the account.
+            """);
+
+    public EmailText EmailConfirmationCode(Uri confirmationLink, string code) =>
+        new("Your Duora confirmation code", $"""
+            Your confirmation code is: {code}
+
+            It expires 15 minutes after registration. Open the page below and enter the code and your registration password:
+            {confirmationLink}
+
+            Do not share this code. If it expired, register again to receive another one.
+            If you did not request this registration, ignore this message.
             """);
 
     public EmailText PasswordReset(Uri resetLink) =>

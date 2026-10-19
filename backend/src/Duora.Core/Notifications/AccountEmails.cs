@@ -30,7 +30,9 @@ public sealed class AccountEmails
     }
 
     public TransactionalEmail EmailConfirmation(EmailAddress to, Guid userId, string token, EmailLanguage language) =>
-        Compose(to, CatalogFor(language).EmailConfirmation(ActionLink("/confirmar-email", userId, token)));
+        Compose(to, token.Length == 8 && token.All(char.IsAsciiDigit)
+            ? CatalogFor(language).EmailConfirmationCode(ActionLink("/confirmar-email", userId, "code"), token)
+            : CatalogFor(language).EmailConfirmation(ActionLink("/confirmar-email", userId, token)));
 
     public TransactionalEmail PasswordReset(EmailAddress to, Guid userId, string token, EmailLanguage language) =>
         Compose(to, CatalogFor(language).PasswordReset(ActionLink("/redefinir-senha", userId, token)));

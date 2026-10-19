@@ -1,5 +1,4 @@
 using System.Data.Common;
-using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Duora.Web.Identity;
 using Microsoft.AspNetCore.Authorization;
@@ -45,14 +44,14 @@ internal static class ParticipationPolicies
         builder.RequireAuthorization(EligibleParticipant);
 }
 
-/// <summary>Conta ativa com verificação etária adulta (que não vence), avaliada a cada requisição no banco.</summary>
+/// <summary>Conta ativa com e-mail confirmado e prova de presença, avaliada a cada requisição no banco.</summary>
 internal sealed class EligibleParticipantRequirement : IAuthorizationRequirement;
 
 /// <summary>
 /// Pergunta ao Identity (<c>GetEligibility</c>) a cada requisição, sem cache: restrição e suspensão valem na
 /// requisição seguinte.
 /// </summary>
-internal sealed class EligibleParticipantHandler(AgeVerificationService verifications)
+internal sealed class EligibleParticipantHandler(SelfieVerificationService verifications)
     : AuthorizationHandler<EligibleParticipantRequirement>
 {
     protected override async Task HandleRequirementAsync(
@@ -66,7 +65,7 @@ internal sealed class EligibleParticipantHandler(AgeVerificationService verifica
         }
 
         var cancellationToken = (context.Resource as HttpContext)?.RequestAborted ?? CancellationToken.None;
-        AgeEligibilityResult eligibility;
+        bool eligibility;
         try
         {
             eligibility = await verifications.GetEligibilityAsync(userId, cancellationToken);
@@ -78,7 +77,7 @@ internal sealed class EligibleParticipantHandler(AgeVerificationService verifica
             return;
         }
 
-        if (eligibility.IsEligible)
+        if (eligibility)
         {
             context.Succeed(requirement);
         }
