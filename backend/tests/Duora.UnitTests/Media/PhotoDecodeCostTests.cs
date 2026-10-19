@@ -8,7 +8,7 @@ public sealed class PhotoDecodeCostTests
     [Fact]
     public void AJpegWithTheMaximumNumberOfScansIsWithinTheLimits()
     {
-        Assert.True(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Jpeg, JpegWithScans(PhotoDecodeCost.MaxJpegScans)));
+        Assert.True(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Jpeg, JpegWithScans(100)));
     }
 
     [Fact]
@@ -16,13 +16,13 @@ public sealed class PhotoDecodeCostTests
     {
         // Cada scan progressivo percorre os blocos da imagem inteira: milhares de scans quase vazios num arquivo de
         // 5 MiB prendem o decoder por minutos (medido: 135 mil scans num JPEG de 20 MP, 84 s).
-        Assert.False(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Jpeg, JpegWithScans(PhotoDecodeCost.MaxJpegScans + 1)));
+        Assert.False(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Jpeg, JpegWithScans(101)));
     }
 
     [Fact]
     public void ScansOfAThumbnailInsideAMetadataSegmentDoNotCount()
     {
-        var thumbnails = Enumerable.Repeat(Segment(App1, Thumbnail()), PhotoDecodeCost.MaxJpegScans + 1).ToArray();
+        var thumbnails = Enumerable.Repeat(Segment(App1, Thumbnail()), 101).ToArray();
         var jpeg = JpegFile([.. thumbnails, Header(), Scan(), EndOfImage]);
 
         Assert.True(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Jpeg, jpeg));
@@ -34,7 +34,7 @@ public sealed class PhotoDecodeCostTests
     [InlineData("iCCP")]
     public void APngWithTheMaximumNumberOfInflatedChunksIsWithinTheLimits(string type)
     {
-        Assert.True(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Png, PngWithChunks(type, PhotoDecodeCost.MaxPngInflatedChunks)));
+        Assert.True(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Png, PngWithChunks(type, 4)));
     }
 
     [Theory]
@@ -45,18 +45,19 @@ public sealed class PhotoDecodeCostTests
     {
         // Cada chunk comprimido vira até 8 MB fora do alocador limitado do decoder: medido, 640 zTXt num PNG de 5 MB
         // levam o processo a 3,3 GB.
-        Assert.False(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Png, PngWithChunks(type, PhotoDecodeCost.MaxPngInflatedChunks + 1)));
+        Assert.False(PhotoDecodeCost.IsWithinLimits(PhotoFormat.Png, PngWithChunks(type, 5)));
     }
 
     [Fact]
     public void DifferentInflatedChunksAddUp()
     {
+        // 1 iCCP + 2 zTXt + 2 iTXt = 5, um acima do teto de 4.
         var png = Png(
         [
             Ihdr(),
             Chunk("iCCP", 4),
-            .. Enumerable.Repeat(Chunk("zTXt", 4), PhotoDecodeCost.MaxPngInflatedChunks / 2),
-            .. Enumerable.Repeat(Chunk("iTXt", 4), PhotoDecodeCost.MaxPngInflatedChunks / 2),
+            .. Enumerable.Repeat(Chunk("zTXt", 4), 2),
+            .. Enumerable.Repeat(Chunk("iTXt", 4), 2),
             Chunk("IEND"),
         ]);
 
