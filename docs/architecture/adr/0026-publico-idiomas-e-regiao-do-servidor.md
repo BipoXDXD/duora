@@ -164,8 +164,11 @@ sessão continua fixando a versão, ADR-0020); a publicação recusa versão sem
 participante sai no idioma dele. Alternativa descartada: uma versão de conteúdo por idioma, porque o par de uma
 sessão pode ter idiomas diferentes e as duas pessoas precisam jogar exatamente o mesmo conteúdo.
 
+O mesmo vale para mídia por idioma: falas e áudio pré-gerados (direção de mídia no ADR-0027, em PR paralelo) existem
+em `pt-BR` e `en-US` dentro da mesma versão de conteúdo, e a publicação recusa versão sem os dois.
+
 Lacuna de produto (pareamento por idioma): um par com idiomas diferentes joga o mesmo cartão em idiomas diferentes, mas o chat não é
-traduzido. Decidir se o idioma entra na elegibilidade do pareamento (spec 5.1) ou se o par bilíngue é aceito.
+traduzido. A voz ao vivo (ADR-0028, em PR paralelo) agrava a lacuna: fala não tem tradução de catálogo. Decidir se o idioma entra na elegibilidade do pareamento (spec 5.1) ou se o par bilíngue é aceito.
 
 ### 3. Textos da interface, dos e-mails e dos erros
 
