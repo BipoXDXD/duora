@@ -461,7 +461,7 @@ INV-12 continua exigindo revisão humana antes do merge. Não há migração nem
 |---|---:|---|---|
 | `AccountQueueTimeout` | 30 s | Sem conexão; cada admissão na fila tem seu teto | `503 TEMPORARILY_UNAVAILABLE`, `Retry-After: 30` |
 | `AccountLockTimeout` | 5 s | Uma conexão por conta e processo na disputa do lock SQL | Mesmo contrato, `Retry-After: 5`; rollback e liberação da conexão |
-| `LoginTimeout` | 30 s | Prazo do login (A04) inteiro: filas, lock, hash e piso | Mesmo contrato, `Retry-After: 30`; o que estava em andamento é cancelado e a transação desfeita |
+| `LoginTimeout` | 30 s | Prazo das esperas do login (A04): filas, lock e piso | Mesmo contrato, `Retry-After: 30`; a espera em andamento é cancelada, e nada da verificação foi gravado |
 
 O `Retry-After` é sempre o teto que estourou, arredondado para cima em segundos (a mesma regra que o
 lock já seguia antes da #65). Um `Retry-After` fixo e curto foi considerado e descartado: quem
@@ -476,11 +476,15 @@ removido após adquirir o lock, como antes. Os dois são tetos de fase; o prazo 
 `LoginTimeout`, um `CancellationTokenSource` ligado ao `RequestAborted`, em tempo real como o piso
 (`LoginConcurrencyTests.ALoginPastItsTotalDeadlineAnswers503BeforeTheQueueTimeout`). Ele aceita do
 piso com o sorteio (450 ms no padrão) até 1 min, porque um prazo menor que o piso transformaria toda
-falha em `503`. O hash é síncrono e não cancela, então o pior caso de um login é o prazo mais um hash.
-O estouro durante o piso, depois de a falha já ter sido gravada, também responde `503`: a falha conta
-para o bloqueio, e a resposta não diz se a senha conferia. As outras rotas que travam a conta (A07,
-A11–A16) seguem só com os tetos de fase. A configuração antiga de `AccountLockTimeout` passa a controlar apenas PostgreSQL;
-instalações que ajustaram a fila devem definir também `Identity__AccountQueueTimeout`.
+falha em `503`. O prazo vale só para as esperas: depois do hash, gravar a falha ou o sucesso e
+confirmar a transação usam o token do pedido. Cancelá-los desfaria a falha, e a tentativa sairia de
+graça do bloqueio (TM-01; `AFailureVerifiedAfterTheDeadlineStillCountsTowardsLockout` e
+`ASuccessVerifiedAfterTheDeadlineStillOpensTheSession`). O hash é síncrono e não cancela, então o pior
+caso de um login é o prazo mais um hash e as gravações. O estouro durante o piso, depois de a falha
+já ter sido gravada, também responde `503`: a falha conta para o bloqueio, e a resposta não diz se a
+senha conferia. As outras rotas que travam a conta (A07, A11–A16) seguem só com os tetos de fase. A
+configuração antiga de `AccountLockTimeout` passa a controlar apenas PostgreSQL; instalações que
+ajustaram a fila devem definir também `Identity__AccountQueueTimeout`.
 
 O login adquire primeiro uma vez por e-mail normalizado pelo Identity, antes de buscar a conta.
 Endereços existentes e inexistentes disputam essa mesma forma de fila. A chave em memória é o endereço
