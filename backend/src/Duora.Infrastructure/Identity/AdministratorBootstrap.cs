@@ -217,7 +217,7 @@ public sealed class AdministratorBootstrap
             SecurityChange.PasswordReset,
             account.Email,
             account.UserId,
-            EmailLanguage.BrazilianPortuguese,
+            EmailLanguageTag.Default,
             now));
         await _db.SaveChangesAsync(cancellationToken);
     }

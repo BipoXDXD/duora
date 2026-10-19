@@ -5,8 +5,9 @@ namespace Duora.Web.Accounts;
 
 /// <summary>
 /// Idioma dos e-mails pedidos numa requisição, lido do <c>Accept-Language</c>. A SPA envia o idioma ativo da
-/// interface nesse header; sem ele, vale a preferência do navegador. Só pt-BR e en passam, e qualquer outra coisa
-/// (header ausente, malformado, idioma não suportado ou só com <c>q=0</c>) cai em pt-BR.
+/// interface nesse header; sem ele, vale a preferência do navegador. Só pt-BR e en-US passam (qualquer <c>pt-*</c>
+/// vira pt-BR e qualquer <c>en-*</c>, en-US), e qualquer outra coisa (header ausente, malformado, idioma não
+/// suportado ou só com <c>q=0</c>) cai em en-US (ADR-0026).
 /// </summary>
 internal static class EmailLanguageNegotiation
 {

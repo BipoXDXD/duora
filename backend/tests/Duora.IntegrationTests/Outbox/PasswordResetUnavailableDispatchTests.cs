@@ -12,6 +12,7 @@ public sealed class PasswordResetUnavailableDispatchTests(PostgresFixture postgr
 
     [Theory]
     [InlineData("pt-BR", "Subject: Redefinição de senha do Duora\n", "não pode ser redefinida por e-mail")]
+    [InlineData("en-US", "Subject: Duora password reset\n", "cannot be reset by email")]
     [InlineData("en", "Subject: Duora password reset\n", "cannot be reset by email")]
     public async Task TheNoticeIsDeliveredInTheRequestLanguageWithoutAnyLink(string language, string subject, string excerpt)
     {
