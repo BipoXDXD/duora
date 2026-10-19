@@ -84,7 +84,7 @@ export function MfaEnrollmentPage(): React.JSX.Element {
             if (!start.isPending) start.mutate()
           }}
         >
-          {t('mfa.start')}
+          {start.isPending ? t('mfa.starting') : t('mfa.start')}
         </Button>
       ) : (
         <FocusOnMount>
