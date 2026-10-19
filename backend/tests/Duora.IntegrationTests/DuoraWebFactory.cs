@@ -19,6 +19,10 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
     /// <summary>Mesma origem do cliente de teste (https://localhost), como a SPA servida pelo próprio domínio.</summary>
     public const string PublicOrigin = "https://localhost";
 
+    public string Origin { get; init; } = PublicOrigin;
+
+    public string? ContentRoot { get; init; }
+
     private DirectoryInfo? _ownKeyRing;
 
     /// <summary>
@@ -49,9 +53,13 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        if (ContentRoot is not null)
+        {
+            builder.UseContentRoot(ContentRoot);
+        }
         builder.UseEnvironment(EnvironmentName);
         builder.UseSetting("ConnectionStrings:Duora", connectionString);
-        builder.UseSetting("Duora:PublicOrigin", PublicOrigin);
+        builder.UseSetting("Duora:PublicOrigin", Origin);
         builder.UseSetting("DataProtection:KeysDirectory", KeyRing.FullName);
         builder.UseSetting("DataProtection:RequireMountedVolume", "false");
         // Sem certificado por padrão (como em Development); o teste que exige o certificado o passa em Settings.
@@ -82,7 +90,7 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
             new Dictionary<string, string?>(settings)
             {
                 ["ConnectionStrings:Duora"] = connectionString,
-                ["Duora:PublicOrigin"] = PublicOrigin,
+                ["Duora:PublicOrigin"] = Origin,
                 ["DataProtection:KeysDirectory"] = KeyRing.FullName,
                 ["DataProtection:RequireMountedVolume"] = "false",
             }));

@@ -139,6 +139,19 @@ e incrementa `security_version`. O pareamento tranca as guardas dos candidatos e
 que vai usar; uma preferência alterada depois do commit vale para o próximo pareamento, nunca para sala já
 iniciada sem necessidade de segurança (spec 8.2).
 
+Implementação da fatia linguística (2026-10-19): `ParticipationService` pré-lê somente os IDs, adquire
+`user_guards` em ordem de UUID, as linhas correspondentes de `identity.users` com FOR SHARE e depois evento/rodada; o lock de conta serializa também os escritores etários legados; sob as guardas reconsulta check-in, conta/verificação
+etária, bloqueios bilaterais, reservas, histórico, declaração e locale. O seletor V2 nunca interpreta ausência de
+declaração como liberdade de idioma. O índice parcial `ux_pairing_participants_active_user` continua sendo a
+última barreira contra duas reservas. Idioma, versão da política e locale individual são fixados ao reservar.
+A atualização de locale usa a mesma guarda que a preferência. `ParticipationGuardTests` usa barreiras reais
+contra PostgreSQL nas duas ordens de commit, para ambos os recursos; mudança posterior afeta somente novas
+reservas. `lock_timeout` de 2 s encerra a transação inteira e a fronteira HTTP responde 503 neutro com Retry-After.
+
+A integração de bloqueio já aborta `game_sessions` e libera ambas as `pairing_participants` no mesmo commit,
+com guardas → evento → rodada → sala. Leituras e replay reautorizam participação, elegibilidade e bloqueio.
+Não há hub nem outbox de invalidação de salas nesta fatia: recuperação é HTTP autoritativo, com polling da SPA.
+
 ### C4. Duas ações de jogo
 
 API-R03 (M2), protocolo do [ADR-0020](../architecture/adr/0020-persistencia-da-sessao-de-jogo.md) (item 7).
@@ -567,3 +580,20 @@ Rollback: reverter o PR e remover `Identity__AccountQueueTimeout` e `Identity__L
 configurados. Não há dados a
 reverter; isso reintroduz a fila de 5 s e o canal de paralelismo da issue #65. Merge exige revisão
 humana e todos os gates; este texto não aceita automaticamente o risco residual.
+
+## Fila da fatia de participação (implementada em 2026-10-19)
+
+`ops.jobs` executa `build-round`, `close-round`, `expire-invite` e `game-deadline`. O worker registra
+`ParticipationJobService`; o web não dispara timers em memória. Agendamento nasce na transação do evento,
+convite ou início do jogo. O claim usa SKIP LOCKED, lease de 60 s, tentativa persistida e fencing crescente.
+Cada item tem teto de 3 s e marca Done sob token/lease antes dos locks de negócio, no mesmo commit do efeito.
+Job antigo, convite já respondido ou deadline substituído não repetem efeito. O relógio do motor e os instantes
+comparados são truncados a microssegundos, a precisão persistida do PostgreSQL. Queda recupera pelo lease;
+erro volta a Pending após 15 s, até oito tentativas, depois Failed. A fila implementada ainda não oferece
+painel administrativo, limpeza periódica nem os tipos gerais de retenção previstos no ADR-0021.
+
+`Participation:MatchingEnabled=false` pausa novos claims de build-round e sua execução; reiniciar o worker
+com essa opção antes do rollback de aplicação. Os jobs de expiração e fechamento continuam ativos e os dados
+aditivos permanecem. Não voltar a um coordenador que ignore declarações linguísticas. A migration não oferece
+Down destrutivo. Métricas `Duora.Matching` são contadores agregados sem UUID, texto, locale ou idioma como label;
+contabilizam seleções tentadas, pares selecionados e candidatos sem par, não eventos financeiros exatos.

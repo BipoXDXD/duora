@@ -6,7 +6,8 @@ namespace Duora.Core.Matching;
 /// </summary>
 public sealed record Candidate
 {
-    public Candidate(Guid userId, DateTimeOffset waitingSince, int roundsWithoutPair, Preferences preferences)
+    public Candidate(Guid userId, DateTimeOffset waitingSince, int roundsWithoutPair, Preferences preferences,
+        CommunicationDeclaration? communication = null)
     {
         if (userId == Guid.Empty)
         {
@@ -20,6 +21,7 @@ public sealed record Candidate
         WaitingSince = waitingSince;
         RoundsWithoutPair = roundsWithoutPair;
         Preferences = preferences;
+        Communication = communication;
     }
 
     public Guid UserId { get; }
@@ -31,4 +33,6 @@ public sealed record Candidate
     public int RoundsWithoutPair { get; }
 
     public Preferences Preferences { get; }
+
+    public CommunicationDeclaration? Communication { get; }
 }

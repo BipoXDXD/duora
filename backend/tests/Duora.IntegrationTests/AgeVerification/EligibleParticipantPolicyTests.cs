@@ -21,7 +21,7 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
 {
     /// <summary>
     /// Rotas do titular que ficam na política padrão de participante sem exigir elegibilidade: o próprio perfil e as
-    /// fotos dele, o bloqueio (segurança) e a verificação etária, que a pessoa precisa justamente enquanto não é elegível (spec 8.2).
+    /// fotos dele, suas preferências de comunicação e locale, o bloqueio (segurança) e a verificação etária, que a pessoa precisa justamente enquanto não é elegível (spec 8.2).
     /// As rotas públicas (<c>AllowAnonymous</c>) e as que declaram política de conta, de cadastro de MFA ou
     /// administrativa (<see cref="SessionAuthorization"/>) também não são de participação. Toda outra rota de
     /// <c>/api/v1</c> exige <see cref="ParticipationPolicies.EligibleParticipant"/>.
@@ -35,6 +35,10 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
         "POST /api/v1/me/selfie-verifications/{id:guid}/complete",
         "GET /api/v1/me/photos/{photoId:guid}/status",
         "GET /api/v1/me/profile",
+        "GET /api/v1/me/preferences",
+        "PUT /api/v1/me/preferences",
+        "GET /api/v1/me/locale",
+        "PUT /api/v1/me/locale",
         "PATCH /api/v1/me/profile",
         "POST /api/v1/me/age-verifications",
         "POST /api/v1/me/photos",

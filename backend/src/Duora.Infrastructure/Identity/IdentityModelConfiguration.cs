@@ -66,6 +66,8 @@ internal static class IdentityModelConfiguration
         var statuses = string.Join(", ", Enum.GetNames<AccountStatus>().Select(name => $"'{name}'"));
         user.ToTable(table =>
         {
+            table.HasCheckConstraint("ck_users_preferred_locale", "preferred_locale IN ('en-US', 'pt-BR')");
+            table.HasCheckConstraint("ck_users_locale_version", "locale_version >= 0");
             table.HasCheckConstraint("ck_users_status", $"status IN ({statuses})");
             // O nome de usuário é o e-mail. Com isso, o índice único do e-mail garante também o do nome, e o
             // upsert do cadastro arbitra um índice só (com dois índices únicos, cadastros simultâneos do mesmo
@@ -81,6 +83,8 @@ internal static class IdentityModelConfiguration
         });
         user.Property(u => u.Status).HasConversion<string>().HasMaxLength(24);
         user.Property(u => u.CreatedAt);
+        user.Property(u => u.PreferredLocale);
+        user.Property(u => u.LocaleVersion).HasDefaultValue(0L);
         user.Property(u => u.LastTotpStep);
         user.Property(u => u.TemporaryPasswordExpiresAt);
         user.Property(u => u.Email).HasMaxLength(EmailAddress.MaxLength);

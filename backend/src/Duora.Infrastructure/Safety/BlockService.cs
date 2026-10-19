@@ -184,6 +184,43 @@ public sealed class BlockService
             $"select 1 from safety.user_guards where user_id = any({pair}) order by user_id for update",
             cancellationToken);
 
+        // M2: after ordered user guards, lock affected event/round/session rows in global order.
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            select 1 from events.events where id in
+              (select event_id from events.pairings where user_low={pair[0]} and user_high={pair[1]} and released_at is null)
+            order by id for update
+            """, cancellationToken);
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            select 1 from events.rounds where id in
+              (select round_id from events.pairings where user_low={pair[0]} and user_high={pair[1]} and released_at is null)
+            order by id for update
+            """, cancellationToken);
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            select 1 from experiences.game_sessions where pairing_id in
+              (select id from events.pairings where user_low={pair[0]} and user_high={pair[1]} and released_at is null)
+            order by id for update
+            """, cancellationToken);
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            update experiences.game_sessions set state='Aborted',version=version+1
+            where state in ('Invited','Active') and pairing_id in
+              (select id from events.pairings where user_low={pair[0]} and user_high={pair[1]})
+            """, cancellationToken);
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            update events.pairing_participants set released_at={now}
+            where released_at is null and pairing_id in
+              (select id from events.pairings where user_low={pair[0]} and user_high={pair[1]})
+            """, cancellationToken);
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            update events.pairings set released_at={now},release_reason='Unavailable'
+            where released_at is null and user_low={pair[0]} and user_high={pair[1]}
+            """, cancellationToken);
+
         var inserted = await _db.Database.ExecuteSqlAsync(
             $"""
             insert into safety.blocks (id, blocker_id, blocked_id, created_at)
