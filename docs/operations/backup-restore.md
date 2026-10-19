@@ -537,13 +537,15 @@ com uma chave só de leitura de `media/`, para notar a falta de um pacote antes 
 `media-restore` só grava num diretório de staging absoluto, vazio e fora de `duora_media_dir`:
 
 ```sh
-sudo duora-backup media-restore --target /var/tmp/duora-media-restore
+# Diretório das fotos deste host: o DUORA_MEDIA_DIR que o app_dirs gravou (duora_media_dir do inventário).
+M=$(sudo sed -n 's/^DUORA_MEDIA_DIR=//p' /etc/duora/duora.env)
+sudo duora-backup media-restore --media-root "$M" --target /var/tmp/duora-media-restore
 ```
 
-Os timers passam `--media-root {{ duora_media_dir }}` pela unit `duora-media-backup@.service`; à mão, o padrão é
-`/var/lib/duora-media`. Com outro `duora_media_dir` no inventário, acrescente `--media-root` com ele.
+Os timers passam `--media-root {{ duora_media_dir }}` pela unit `duora-media-backup@.service`; à mão, sem
+`--media-root`, o padrão é `/var/lib/duora-media`, por isso os comandos desta seção usam `$M`.
 
-O restic recria o caminho original dentro do staging (`/var/tmp/duora-media-restore/var/lib/duora-media/derivatives`).
+O restic recria o caminho original dentro do staging (`/var/tmp/duora-media-restore$M/derivatives`).
 **Antes de copiar** para o diretório em uso, aplique as exclusões do banco já restaurado (INV-11; o banco vem
 primeiro, com os tombstones): só voltam os derivados de assets `Approved`.
 
@@ -553,9 +555,9 @@ $C exec --no-TTY postgres psql --username postgres --dbname duora --tuples-only 
   "select v.object_key from media.media_variants v join media.media_assets a on a.id = v.media_asset_id
    where a.state = 'Approved'" \
   | grep -E '^derivatives/[0-9a-f]{32}-(thumb|card|full)$' > /var/tmp/duora-media-keep.txt   # só chaves nossas
-cd /var/tmp/duora-media-restore/var/lib/duora-media
-sudo rsync -a --files-from=/var/tmp/duora-media-keep.txt ./ /var/lib/duora-media/
-sudo chown -R 1654:1654 /var/lib/duora-media/derivatives
+cd "/var/tmp/duora-media-restore$M"
+sudo rsync -a --files-from=/var/tmp/duora-media-keep.txt ./ "$M/"
+sudo chown -R 1654:1654 "$M/derivatives"
 sudo rm -rf /var/tmp/duora-media-restore /var/tmp/duora-media-keep.txt
 ```
 
