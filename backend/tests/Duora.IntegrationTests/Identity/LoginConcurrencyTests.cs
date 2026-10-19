@@ -4,6 +4,7 @@ using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -11,6 +12,58 @@ namespace Duora.IntegrationTests.Identity;
 [Trait("Threat", "TM-06")]
 public sealed class LoginConcurrencyTests(PostgresFixture postgres)
 {
+    /// <summary>Piso de falha do login sem o sorteio (LoginTimingOptions.FailedLoginMinimumDuration).</summary>
+    private static readonly TimeSpan FailureFloor = TimeSpan.FromMilliseconds(350);
+
+    /// <summary>Quanto a vez fica presa: bem mais que o piso, para a espera poder consumi-lo se contasse.</summary>
+    private static readonly TimeSpan HeldTurn = TimeSpan.FromSeconds(1);
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TheFailureFloorStartsWhenTheTurnIsReleasedNotWhenTheLoginArrives(bool exists)
+    {
+        // Hash rápido: com o hash lento dos outros testes o próprio hash cobria o piso e escondia de onde ele conta.
+        var normalizer = new SignallingNormalizer();
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            TestServices = services =>
+            {
+                services.AddSingleton<IPasswordHasher<DuoraUser>>(new PasswordHasher<DuoraUser>(
+                    Options.Create(new PasswordHasherOptions { IterationCount = 1 })));
+                services.AddSingleton<ILookupNormalizer>(normalizer);
+            },
+        };
+        var email = exists
+            ? (await new IdentityScenario(postgres, factory).CreateConfirmedAccountAsync()).Email
+            : IdentityScenario.NewEmail();
+        Assert.True(EmailAddress.TryParse(email, out var address));
+        using var browser = new Browser(factory);
+        // Aquece o caminho (EF, pool, JIT): sem isso o primeiro login sozinho chega perto do piso e a sabotagem
+        // de contar o piso na chegada poderia passar por acaso.
+        using (var warmUp = await IdentityScenario.LoginAsync(browser, email, "senha incorreta longa"))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, warmUp.StatusCode);
+        }
+
+        using var scope = factory.Services.CreateScope();
+        var security = scope.ServiceProvider.GetRequiredService<AccountSecurityService>();
+        var turn = await security.EnterLoginAsync(address, TestContext.Current.CancellationToken);
+
+        // O login normaliza o e-mail logo antes de entrar na fila: o sinal diz que ele já está esperando a vez.
+        var waiting = normalizer.NextEmailNormalizationAsync();
+        var login = IdentityScenario.LoginAsync(browser, email, "senha incorreta longa");
+        await waiting.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        await Task.Delay(HeldTurn, TestContext.Current.CancellationToken);
+        var releasedAt = Stopwatch.GetTimestamp();
+        await turn.DisposeAsync();
+        using var response = await login;
+        var afterRelease = Stopwatch.GetElapsedTime(releasedAt);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
+        Assert.True(afterRelease >= FailureFloor, $"Respondeu {afterRelease} depois de liberar a vez.");
+    }
+
     [Fact]
     public async Task FourSuccessfulLoginsCanQueueLongerThanTheDatabaseLockTimeout()
     {
@@ -198,5 +251,27 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
                 Interlocked.Decrement(ref _active);
             }
         }
+    }
+
+    /// <summary>Normalizador do Identity que avisa a próxima normalização de e-mail.</summary>
+    private sealed class SignallingNormalizer : ILookupNormalizer
+    {
+        private readonly UpperInvariantLookupNormalizer _inner = new();
+        private TaskCompletionSource? _next;
+
+        public Task NextEmailNormalizationAsync()
+        {
+            var next = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref _next, next);
+            return next.Task;
+        }
+
+        public string? NormalizeEmail(string? email)
+        {
+            Interlocked.Exchange(ref _next, null)?.TrySetResult();
+            return _inner.NormalizeEmail(email);
+        }
+
+        public string? NormalizeName(string? name) => _inner.NormalizeName(name);
     }
 }
