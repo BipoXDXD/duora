@@ -33,5 +33,5 @@ export type ArgumentMismatch<Translation extends Catalog> = {
 
 export const CATALOGS: Readonly<Record<Locale, Catalog>> = {
   'pt-BR': ptBR,
-  en,
+  'en-US': en,
 }

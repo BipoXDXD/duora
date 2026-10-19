@@ -29,7 +29,7 @@ internal enum AccountEmailKind
 /// <summary>
 /// Pedido de e-mail de conta, gravado na outbox na transação do cadastro ou da recuperação. O token já vem no
 /// formato do link (base64url); o payload é esvaziado quando a entrega termina. <c>Language</c> é a tag do idioma
-/// (<c>pt-BR</c> ou <c>en</c>) escolhida na requisição que pediu o e-mail. É um campo aditivo: payload gravado antes
+/// (<c>pt-BR</c> ou <c>en-US</c>; <c>en</c> legado continua legível) escolhida na requisição que pediu o e-mail. É um campo aditivo: payload gravado antes
 /// dele não o tem, e sem ele (ou com tag fora da allowlist) o e-mail sai no idioma padrão.
 /// </summary>
 internal sealed record AccountEmailRequested(AccountEmailKind Kind, string To, Guid UserId, string? Token, string? Language);

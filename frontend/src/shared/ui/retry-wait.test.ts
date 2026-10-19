@@ -27,7 +27,7 @@ describe('aviso de limite de tentativas', () => {
     [60, '1 minute'],
     [61, '2 minutes'],
   ])('en: Retry-After %s → "%s"', (seconds, wait) => {
-    expect(createTranslator('en')('common.rateLimited', retryWait(seconds))).toBe(
+    expect(createTranslator('en-US')('common.rateLimited', retryWait(seconds))).toBe(
       `Too many attempts in a row. For your security, wait ${wait} before trying again.`,
     )
   })

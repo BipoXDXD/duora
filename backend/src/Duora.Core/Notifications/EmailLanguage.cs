@@ -19,7 +19,7 @@ public static class EmailLanguageTag
     public const EmailLanguage Default = EmailLanguage.BrazilianPortuguese;
 
     private const string BrazilianPortugueseTag = "pt-BR";
-    private const string EnglishTag = "en";
+    private const string EnglishTag = "en-US";
 
     /// <summary>
     /// Idioma suportado para a tag, pelo idioma primário (<c>en-US</c> vira inglês; <c>pt-PT</c>, português do

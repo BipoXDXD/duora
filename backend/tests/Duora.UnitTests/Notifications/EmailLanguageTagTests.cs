@@ -34,7 +34,7 @@ public sealed class EmailLanguageTagTests
 
     [Theory]
     [InlineData(EmailLanguage.BrazilianPortuguese, "pt-BR")]
-    [InlineData(EmailLanguage.English, "en")]
+    [InlineData(EmailLanguage.English, "en-US")]
     public void FormatWritesTheCanonicalTag(EmailLanguage language, string expected)
     {
         Assert.Equal(expected, EmailLanguageTag.Format(language));
@@ -45,6 +45,9 @@ public sealed class EmailLanguageTagTests
     [InlineData("pt-BR", EmailLanguage.BrazilianPortuguese)]
     [InlineData(null, EmailLanguage.BrazilianPortuguese)]
     [InlineData("xx", EmailLanguage.BrazilianPortuguese)]
+    [InlineData("fr", EmailLanguage.BrazilianPortuguese)]
+    [InlineData("pt-PT", EmailLanguage.BrazilianPortuguese)]
+    [InlineData("en-US", EmailLanguage.English)]
     public void ParseOrDefaultFallsBackToBrazilianPortuguese(string? tag, EmailLanguage expected)
     {
         Assert.Equal(expected, EmailLanguageTag.ParseOrDefault(tag));
