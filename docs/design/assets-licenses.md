@@ -11,7 +11,9 @@ task id da geração.
 |---|---|---|---|
 | Tripo | Imagem (GPT Image 2.5, Nano Banana Pro) e modelo 3D | Pago, do responsável pelo produto | Conforme informado pelo responsável; termos não verificados (ver abaixo) |
 | Rodin (Hyper3D) | Modelo 3D (fonte offline e GLB em tempo real) | Business, do responsável pelo produto (decisão de 2026-10-19) | Conforme informado pelo responsável; termos não verificados. O responsável registra aqui o link e a data em que leu a cláusula de uso comercial |
-| TTS e música | Voz sintética e trilha | **A escolher** (comparação em andamento) | Entra nesta tabela antes do primeiro áudio gerado |
+| ElevenLabs | Voz sintética (TTS) e música | **Creator** (decisão do responsável, 2026-10-19) | Termos em <https://elevenlabs.io/terms-of-use>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `ELEVENLABS_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth |
+| Freesound | Efeitos sonoros | Gratuito; **só CC0** | Licença CC0 por som, conferida na página de cada um (<https://freesound.org/help/faq/>); nada com voz identificável |
+| Sonniss | Efeitos sonoros (pacotes) | Pacotes baixados pelo responsável | Licença do pacote (<https://sonniss.com/gameaudiogdc>) proíbe redistribuir som avulso; como o repositório é público, só o mix final entra no Git (termo exato a confirmar) |
 
 ## Ilustrações de objetos (`frontend/src/shared/ui/illustrations/`)
 
@@ -23,7 +25,8 @@ task id da geração.
 - **Fonte:** PNG 1024 × 1024 sobre verde chroma, fora do Git (`tools/visual/out/source/`). O que se versiona é
   o WebP derivado por `tools/visual/process.py` (recorte, recoloração para os tokens e redução para 1x e 2x).
 - **Prompt:** prefixo comum (`promptPrefix` de `tools/visual/catalog.json`) seguido do prompt do objeto.
-- **Prefixo v2** (vigente desde 2026-10-19; ADR-0027 retirou a proibição de pessoas):
+- **Prefixo v2** (vigente desde 2026-10-19; ADR-0027 retirou a proibição de pessoas). A cópia abaixo é conferida
+  contra `promptPrefix` de `tools/visual/catalog.json` por `frontend/config/illustrations.test.ts`:
 
   > Studio illustration of a single stylized object, soft matte clay look, rounded simplified shapes, two-tone deep indigo and warm off-white, three-quarter view from slightly above, soft light from the top, on a flat solid chroma-key green background with no shadow on it, no text, no letters, no numbers, no symbols, no logos. Object: 
 
@@ -56,12 +59,34 @@ derivados.
 
 ## Áudio
 
-Nenhum versionado hoje. Cada arquivo tem uma linha por idioma (`pt-BR`, `en-US`); a transcrição é o texto da
-fala no conteúdo da versão. Voz feita a partir de uma voz humana de referência só entra com o consentimento e a
-licença dessa pessoa registrados na coluna própria (documento assinado, data e escopo de uso).
+Nenhum versionado hoje. O que entra no Git é o **arquivo final** (mix codificado em AAC-LC, ADR-0027), com uma
+linha por idioma (`pt-BR`, `en-US`) na tabela de arquivos finais; as fontes de cada fornecedor ficam nas tabelas
+seguintes, ligadas pelo nome do arquivo final. A transcrição é o texto da fala no conteúdo da versão.
 
-| Asset | Canal (`music`, `ambience`, `voice`, `ui`) | Idioma | Ferramenta e modelo | Data | Task id | SHA-256 | Licença | Voz de referência: consentimento e licença | Sintética |
-|---|---|---|---|---|---|---|---|---|---|
+### Arquivos finais
+
+| Asset | Canal (`music`, `ambience`, `voice`, `ui`) | Idioma | Data | SHA-256 | Fontes (linhas abaixo) | Sintética |
+|---|---|---|---|---|---|---|
+
+### Fontes ElevenLabs (voz e música)
+
+Voz da Voice Library: registrar o `voice_id` e o prazo de retirada que a autora da voz pode exercer. Voz clonada de
+pessoa real só entra com consentimento assinado (documento, data e escopo de uso) na última coluna.
+
+| Asset final | Plano ativo na data | `voice_id` | Modelo | Id da geração | Formato de saída | Data | Voice Library: prazo de retirada | Voz clonada: consentimento |
+|---|---|---|---|---|---|---|---|---|
+
+### Fontes Freesound (só CC0)
+
+| Asset final | URL | ID | Autor | Licença | Data do download |
+|---|---|---|---|---|---|
+
+### Fontes Sonniss
+
+O arquivo original do pacote nunca entra no repositório.
+
+| Asset final | Pacote | Ano | Arquivo de origem | Licença | Data do download |
+|---|---|---|---|---|---|
 
 ## Assets sem IA
 

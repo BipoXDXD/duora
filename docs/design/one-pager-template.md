@@ -68,3 +68,17 @@ Regras para preencher:
 - **Nunca diz:** <nome de participante, comentário sobre a escolha, a aparência ou a compatibilidade da outra
   pessoa, pressão de prazo, convite para insistir>
 ```
+
+## Checklist de revisão de elenco
+
+Feita na revisão do PR que adiciona ou muda personagens de uma experiência. Todo personagem do catálogo tem one
+pager; personagem sem one pager não entra (ADR-0027).
+
+- [ ] Todo personagem é adulto, estilizado (não fotorrealista), não sexualizado e sem texto na imagem.
+- [ ] O elenco da experiência varia em tom de pele, tipo de corpo, idade adulta e apresentação de gênero.
+- [ ] Nenhum casal-padrão; nenhum par de personagens apresentado como casal romântico.
+- [ ] Nenhum papel preso a estereótipo (gênero, etnia, idade, deficiência, sotaque como piada).
+- [ ] Nenhum personagem parece uma pessoa real identificável nem ocupa o lugar de participante, avatar ou perfil.
+- [ ] Vozes variadas entre personagens; voz da Voice Library com `voice_id` e prazo de retirada registrados; voz
+  clonada só com consentimento assinado.
+- [ ] Falas de amostra em `pt-BR` e `en-US`, até 120 caracteres, sem comentar a outra pessoa.

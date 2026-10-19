@@ -168,8 +168,8 @@ nada aqui está implementado.
   aparelho só volta a tocar depois do primeiro gesto da página.
 - **Preferências no aparelho:** ligado/desligado, volume de cada canal e **"Reduzir áudio"** (desliga `music` e
   `ambience`). Guardadas em `localStorage` como preferência, validadas como dado externo; nunca no servidor.
-- **Transcrição:** toda fala aparece em texto na tela, no idioma ativo, com quem fala e o aviso discreto "voz
-  sintética" quando for. A transcrição não é região viva (o leitor de tela não a lê duas vezes por cima do
+- **Transcrição:** toda fala aparece em texto na tela, no idioma ativo, com quem fala e o rótulo "voz
+  sintética" quando for; a introdução da experiência avisa com clareza que as vozes são geradas por IA. A transcrição não é região viva (o leitor de tela não a lê duas vezes por cima do
   áudio); fica alcançável por título.
 - **Paleta sonora** por ambiente, escolhida antes de gerar, coerente com a paleta visual e o tom do brief
   (GASG cap. 3, pp. 51–52): cor tonal unificada, sem misturar realismo e lo-fi.
@@ -310,7 +310,7 @@ e seguem as mesmas regras; eles entram no Storybook quando a primeira experiênc
 
 - Identidade visual final (matiz, fonte, raio): decisão do responsável pelo produto. A direção de ilustração já
   foi escolhida (seção [Ilustração, cenário e personagem](#ilustração-cenário-e-personagem)).
-- Ferramenta de TTS e de música: comparação em andamento; o pipeline de áudio é agnóstico (ADR-0027).
+- Áudio: ElevenLabs Creator (voz e música), Freesound CC0 e Sonniss (efeitos), conforme ADR-0027; nada gerado ainda.
 - Voz ao vivo: arquitetura decidida no ADR-0028; componente ainda não implementado.
 - Tokens propostos (`success`, `warning`, `*-surface`, `surface-raised`, `overlay`, sombras e movimento) entram
   no código junto com o primeiro componente que os usar, com teste de contraste.
