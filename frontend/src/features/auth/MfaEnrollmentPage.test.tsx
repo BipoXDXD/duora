@@ -105,6 +105,26 @@ describe('fase do cadastro de MFA', () => {
     expect(confirmation.calls()).toBe(0)
   })
 
+  it('aceita o código com espaços, como o servidor, e envia só os dígitos', async () => {
+    mfaPhase()
+    useAntiforgeryEndpoint()
+    useEnrollmentEndpoint()
+    const bodies: unknown[] = []
+    server.use(
+      http.post(`${API}/me/mfa/confirmations`, async ({ request }) => {
+        bodies.push(await request.json())
+        return HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] })
+      }),
+    )
+    const { user } = await renderApp('/conta/ativar-mfa')
+    await startEnrollment(user)
+
+    await submitCode(user, '123 456')
+
+    expect(await screen.findByText('synthetic-recovery', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toBeInTheDocument()
+    expect(bodies).toEqual([{ code: '123456' }])
+  })
+
   it.each([
     [400, 'MFA_CODE_INVALID', 'Informe um código válido de 6 dígitos'],
     [401, 'REAUTHENTICATION_REQUIRED', 'Entre novamente para confirmar sua identidade'],
