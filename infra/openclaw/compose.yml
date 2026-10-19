@@ -1,0 +1,59 @@
+name: duora-agent
+services:
+  gateway:
+    image: ${OPENCLAW_IMAGE:?Use an approved image containing Slack, pinned by sha256}
+    user: '22001:22001'
+    init: true
+    restart: 'no' # systemd owns restarts, after the firewall; Docker must not race it at boot.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 1.0
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    pids_limit: 128
+    environment:
+      HOME: /home/node
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /config/openclaw.json
+      NODE_OPTIONS: --max-old-space-size=1024
+    entrypoint: [node, /opt/duora-agent/entrypoint.mjs]
+    command: [gateway, --bind, loopback, --port, '18789']
+    volumes:
+      - /etc/duora-agent/openclaw.json:/config/openclaw.json:ro
+      - /var/lib/duoraagent:/home/node/.openclaw
+      - /opt/duora-agent/workspace:/workspace:ro
+      - /opt/duora-agent/ops-mcp.mjs:/opt/duora-agent/ops-mcp.mjs:ro
+      - /opt/duora-agent/entrypoint.mjs:/opt/duora-agent/entrypoint.mjs:ro
+      - /var/lib/duora-monitor/public:/telemetry:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=22001,gid=22001,mode=0700
+    secrets: [SLACK_APP_TOKEN, SLACK_BOT_TOKEN, OPENCLAW_GATEWAY_TOKEN, ANTHROPIC_API_KEY]
+    networks: [agent]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: '1'
+    healthcheck:
+      test: [CMD, node, /opt/duora-agent/entrypoint.mjs, health, --json]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: '3'}
+networks:
+  agent:
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-duora-agent
+    ipam:
+      config: [{subnet: 172.30.40.0/24}]
+secrets:
+  SLACK_APP_TOKEN:
+    file: /etc/duora-agent/secrets/SLACK_APP_TOKEN
+  SLACK_BOT_TOKEN:
+    file: /etc/duora-agent/secrets/SLACK_BOT_TOKEN
+  OPENCLAW_GATEWAY_TOKEN:
+    file: /etc/duora-agent/secrets/OPENCLAW_GATEWAY_TOKEN
+  ANTHROPIC_API_KEY:
+    file: /etc/duora-agent/secrets/ANTHROPIC_API_KEY
