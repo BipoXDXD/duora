@@ -797,7 +797,7 @@ erDiagram
 
 ## Schema `media`
 
-Dono: Media. Objetos ficam no object storage (ADR-0010); o banco guarda chaves internas, nunca expostas.
+Dono: Media. Os arquivos ficam no disco da VPS, pelo `IObjectStore` de filesystem (adendo de 2026-10-16 do ADR-0010); o banco guarda chaves internas, nunca expostas.
 
 ```mermaid
 erDiagram
