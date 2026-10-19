@@ -59,7 +59,7 @@ internal sealed class LoginTimingOptions
     public TimeSpan FailedLoginJitter { get; set; } = TimeSpan.FromMilliseconds(100);
 
     /// <summary>
-    /// Prazo do login inteiro (filas, lock, hash e piso), 30 s, hipótese. Estourou, <see cref="AccountBusyException"/>
+    /// Prazo das esperas do login (filas, lock e piso), 30 s, hipótese; as gravações depois do hash não cancelam. Estourou, <see cref="AccountBusyException"/>
     /// (503) com esse valor no <c>Retry-After</c>. Precisa caber o piso inteiro, ou toda falha viraria 503.
     /// </summary>
     public TimeSpan LoginTimeout { get; set; } = TimeSpan.FromSeconds(30);
@@ -115,13 +115,15 @@ public sealed partial class CredentialVerifier
         CancellationToken cancellationToken)
     {
         // Prazo em tempo real, como o piso: cada fase tem seu teto (fila 30 s, lock 5 s), e sem um prazo do pedido
-        // inteiro as fases somavam mais de um minuto. O hash é síncrono e não cancela: o pior caso passa do prazo
-        // por no máximo um hash.
+        // inteiro as fases somavam mais de um minuto. Ele vale só para as esperas (filas, lock e piso). Gravar o
+        // resultado e confirmar a transação usam o token do pedido: cancelá-los depois do hash desfaria a falha, e a
+        // tentativa sairia de graça do bloqueio (TM-01). O hash é síncrono e não cancela: o pior caso passa do prazo
+        // por um hash mais as gravações.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(_timing.LoginTimeout);
         try
         {
-            return await VerifyWithinDeadlineAsync(email, password, secondFactor, deadline.Token);
+            return await VerifyWithinDeadlineAsync(email, password, secondFactor, deadline.Token, cancellationToken);
         }
         catch (OperationCanceledException expired) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
@@ -129,20 +131,22 @@ public sealed partial class CredentialVerifier
         }
     }
 
+    // waiting: esperas (filas, lock, piso), com o prazo do login; writing: gravações depois do hash, só o do pedido.
     private async Task<LoginOutcome> VerifyWithinDeadlineAsync(
         EmailAddress email,
         string password,
         SecondFactorProof? secondFactor,
-        CancellationToken cancellationToken)
+        CancellationToken waiting,
+        CancellationToken writing)
     {
-        await using var turn = await _security.EnterLoginAsync(email, cancellationToken);
+        await using var turn = await _security.EnterLoginAsync(email, waiting);
         // Piso por vez, não por chegada: a espera anterior não pode consumir a proteção do próximo login.
         // CheckAsync encerra a transação antes deste piso, portanto o atraso não prende conexão.
         var startedAt = Stopwatch.GetTimestamp();
-        var outcome = await CheckAsync(email, password, secondFactor, cancellationToken);
+        var outcome = await CheckAsync(email, password, secondFactor, waiting, writing);
         if (outcome is LoginOutcome.InvalidCredentials)
         {
-            await WaitForFailureFloorAsync(startedAt, cancellationToken);
+            await WaitForFailureFloorAsync(startedAt, waiting);
         }
 
         return outcome;
@@ -207,7 +211,8 @@ public sealed partial class CredentialVerifier
         EmailAddress email,
         string password,
         SecondFactorProof? secondFactor,
-        CancellationToken cancellationToken)
+        CancellationToken waiting,
+        CancellationToken writing)
     {
         var user = await _users.FindByEmailAsync(email.Value);
         if (user is null)
@@ -219,9 +224,9 @@ public sealed partial class CredentialVerifier
 
         // Conta travada durante toda a verificação: o bloqueio (ler, somar, gravar) e o passo TOTP não perdem
         // atualização sob logins paralelos (B1 e B2 da revisão do #38). A falha também é confirmada, para contar.
-        await using var check = await _security.LockAccountAsync(user, cancellationToken);
-        var outcome = await CheckLockedAsync(user, password, secondFactor, cancellationToken);
-        await check.CommitAsync(cancellationToken);
+        await using var check = await _security.LockAccountAsync(user, waiting);
+        var outcome = await CheckLockedAsync(user, password, secondFactor, writing);
+        await check.CommitAsync(writing);
         return outcome;
     }
 
