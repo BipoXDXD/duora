@@ -225,7 +225,10 @@ Hoje: datas da SPA por `Intl.DateTimeFormat(locale, { dateStyle: 'short', timeSt
 do piloto, spec 1.1) nem telefone.
 
 Proposta: horário de evento sempre com o fuso do evento (`events.time_zone`) e o fuso da pessoa quando diferem
-(`timeZoneName: 'short'`); preferência opcional de fuso IANA na conta, usada pelos e-mails, com UTC rotulado como
+(`timeZoneName: 'short'`; no Node 24, o evento das 20:00 em `America/Sao_Paulo` visto de `America/New_York` sai
+"sex., 16 de out., 20:00 BRT (19:00 GMT-4 no seu fuso)" em `pt-BR` e "Fri, Oct 16, 8:00 PM GMT-3 (7:00 PM EDT your
+time)" em `en-US`: fora do fuso "da casa" do idioma, o `Intl` mostra o deslocamento, não a sigla; `shortGeneric`,
+que dá "Horário Nova York" e "São Paulo Time", está em avaliação na #81); preferência opcional de fuso IANA na conta, usada pelos e-mails, com UTC rotulado como
 fallback; data civil (`birth_date`, se existir) nunca convertida por fuso; números por `Intl.NumberFormat`; quando
 houver cobrança, dinheiro em unidade mínima (`bigint`) com moeda ISO 4217 explícita na mesma linha, nunca `BRL`
 implícito; telefone, se um dia entrar, em E.164. Teste de aceite: a mesma data renderizada em `pt-BR` e `en-US` com
