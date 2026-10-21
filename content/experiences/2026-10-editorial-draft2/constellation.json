@@ -1,0 +1,191 @@
+{
+  "contentVersion": 2,
+  "enUS": {
+    "title": "Constellation of Choices",
+    "objective": "Explore everyday choices. You can skip any card. The voices in this experience are Produção editorial.",
+    "cards": [
+      {
+        "cardId": "small-pause",
+        "prompt": "Imagine a free afternoon. Which small break would you pick?",
+        "options": [
+          {
+            "optionId": "read",
+            "label": "Read a few pages"
+          },
+          {
+            "optionId": "make",
+            "label": "Make something by hand"
+          },
+          {
+            "optionId": "listen",
+            "label": "Listen to music"
+          },
+          {
+            "optionId": "notice",
+            "label": "Look out the window"
+          }
+        ]
+      },
+      {
+        "cardId": "shared-table",
+        "prompt": "Imagine a gathering at a cultural center. What would you put on the table?",
+        "options": [
+          {
+            "optionId": "draw",
+            "label": "Paper and colored pencils"
+          },
+          {
+            "optionId": "play",
+            "label": "A simple board game"
+          },
+          {
+            "optionId": "stories",
+            "label": "Short stories to share"
+          },
+          {
+            "optionId": "puzzle",
+            "label": "A puzzle to work on together"
+          }
+        ]
+      },
+      {
+        "cardId": "curiosity",
+        "prompt": "A fictional community center offers a short workshop. Which would you explore?",
+        "options": [
+          {
+            "optionId": "sound",
+            "label": "Explore everyday sounds"
+          },
+          {
+            "optionId": "plants",
+            "label": "Growing herbs in pots"
+          },
+          {
+            "optionId": "print",
+            "label": "Make a simple print"
+          },
+          {
+            "optionId": "sky",
+            "label": "Reading a map of the sky"
+          }
+        ]
+      },
+      {
+        "cardId": "closing-note",
+        "prompt": "An imaginary day is ending. Which detail would you keep as a reminder?",
+        "options": [
+          {
+            "optionId": "color",
+            "label": "A color palette"
+          },
+          {
+            "optionId": "line",
+            "label": "A line from a story"
+          },
+          {
+            "optionId": "rhythm",
+            "label": "A short rhythm"
+          },
+          {
+            "optionId": "shape",
+            "label": "A shape sketched on paper"
+          }
+        ]
+      }
+    ]
+  },
+  "ptBR": {
+    "title": "Constelação de Escolhas",
+    "objective": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. As vozes desta experiência são de produção editorial.",
+    "cards": [
+      {
+        "cardId": "small-pause",
+        "prompt": "Imagine uma tarde livre. Qual pequena pausa você escolheria?",
+        "options": [
+          {
+            "optionId": "read",
+            "label": "Ler algumas páginas"
+          },
+          {
+            "optionId": "make",
+            "label": "Criar algo à mão"
+          },
+          {
+            "optionId": "listen",
+            "label": "Ouvir música"
+          },
+          {
+            "optionId": "notice",
+            "label": "Olhar pela janela"
+          }
+        ]
+      },
+      {
+        "cardId": "shared-table",
+        "prompt": "Imagine um encontro em um centro cultural. O que você colocaria na mesa?",
+        "options": [
+          {
+            "optionId": "draw",
+            "label": "Papel e lápis de cor"
+          },
+          {
+            "optionId": "play",
+            "label": "Um jogo de tabuleiro simples"
+          },
+          {
+            "optionId": "stories",
+            "label": "Histórias curtas para compartilhar"
+          },
+          {
+            "optionId": "puzzle",
+            "label": "Um quebra-cabeça para montar em conjunto"
+          }
+        ]
+      },
+      {
+        "cardId": "curiosity",
+        "prompt": "Um centro comunitário fictício oferece uma oficina curta. Qual você exploraria?",
+        "options": [
+          {
+            "optionId": "sound",
+            "label": "Explorar sons do cotidiano"
+          },
+          {
+            "optionId": "plants",
+            "label": "Cultivar ervas em vasos"
+          },
+          {
+            "optionId": "print",
+            "label": "Criar uma gravura simples"
+          },
+          {
+            "optionId": "sky",
+            "label": "Ler um mapa do céu"
+          }
+        ]
+      },
+      {
+        "cardId": "closing-note",
+        "prompt": "Um dia imaginário está terminando. Qual detalhe você guardaria como lembrança?",
+        "options": [
+          {
+            "optionId": "color",
+            "label": "Uma paleta de cores"
+          },
+          {
+            "optionId": "line",
+            "label": "Uma frase de uma história"
+          },
+          {
+            "optionId": "rhythm",
+            "label": "Um ritmo curto"
+          },
+          {
+            "optionId": "shape",
+            "label": "Uma forma desenhada no papel"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "contentVersion": 2,
+  "enUS": {
+    "title": "Unlikely Routes",
+    "objective": "Plan a walk through a town on an imaginary island. The voices in this experience are Produção editorial.",
+    "example": "Each person gets different clues. Share what you want in your agreed language. Take turns making three choices. Then both confirm the route. Requesting a revision, if available, clears the whole route. There is no correct route or need to share a real location.",
+    "stops": [
+      {
+        "stepId": "meeting-place",
+        "prompt": "Where should the imaginary route begin?",
+        "options": [
+          {
+            "optionId": "garden",
+            "label": "The lantern garden"
+          },
+          {
+            "optionId": "workshop",
+            "label": "The paper workshop"
+          },
+          {
+            "optionId": "observatory",
+            "label": "The cloud observatory"
+          }
+        ]
+      },
+      {
+        "stepId": "crossing",
+        "prompt": "How should the route cross the island?",
+        "options": [
+          {
+            "optionId": "bridge",
+            "label": "Across the wooden bridge"
+          },
+          {
+            "optionId": "ferry",
+            "label": "On the little ferry"
+          },
+          {
+            "optionId": "path",
+            "label": "Along the shaded path"
+          }
+        ]
+      },
+      {
+        "stepId": "last-stop",
+        "prompt": "Where should the imaginary route end?",
+        "options": [
+          {
+            "optionId": "lookout",
+            "label": "At the sunset lookout"
+          },
+          {
+            "optionId": "library",
+            "label": "At the open-air library"
+          },
+          {
+            "optionId": "courtyard",
+            "label": "In the mosaic courtyard"
+          }
+        ]
+      }
+    ],
+    "clueSets": [
+      [
+        {
+          "text": "The lantern garden has benches under trees. The paper workshop has a large shared table."
+        },
+        {
+          "text": "The bridge offers an open view. The shaded path has several places to pause."
+        },
+        {
+          "text": "The lookout has benches facing the evening sky. The courtyard has a wall of colorful tiles."
+        }
+      ],
+      [
+        {
+          "text": "The cloud observatory has a covered terrace. The paper workshop displays handmade maps."
+        },
+        {
+          "text": "The little ferry passes a waterfall. The bridge connects two quiet squares."
+        },
+        {
+          "text": "The open-air library has illustrated books. The courtyard has space to draw a new map."
+        }
+      ]
+    ]
+  },
+  "ptBR": {
+    "title": "Rotas Improváveis",
+    "objective": "Planejem um passeio por uma cidade em uma ilha imaginária. As vozes desta experiência são de produção editorial.",
+    "example": "Cada pessoa recebe pistas diferentes. Compartilhe o que quiser no idioma combinado. Alternem as três escolhas. Depois, ambos confirmam a rota. Pedir revisão, se disponível, apaga toda a rota. Não há rota certa nem necessidade de informar localização real.",
+    "stops": [
+      {
+        "stepId": "meeting-place",
+        "prompt": "Onde a rota imaginária deve começar?",
+        "options": [
+          {
+            "optionId": "garden",
+            "label": "No jardim das lanternas"
+          },
+          {
+            "optionId": "workshop",
+            "label": "Na oficina de papel"
+          },
+          {
+            "optionId": "observatory",
+            "label": "No observatório das nuvens"
+          }
+        ]
+      },
+      {
+        "stepId": "crossing",
+        "prompt": "Como a rota deve atravessar a ilha?",
+        "options": [
+          {
+            "optionId": "bridge",
+            "label": "Pela ponte de madeira"
+          },
+          {
+            "optionId": "ferry",
+            "label": "Na pequena balsa"
+          },
+          {
+            "optionId": "path",
+            "label": "Pela trilha sombreada"
+          }
+        ]
+      },
+      {
+        "stepId": "last-stop",
+        "prompt": "Onde a rota imaginária deve terminar?",
+        "options": [
+          {
+            "optionId": "lookout",
+            "label": "No mirante do pôr do sol"
+          },
+          {
+            "optionId": "library",
+            "label": "Na biblioteca ao ar livre"
+          },
+          {
+            "optionId": "courtyard",
+            "label": "No pátio dos mosaicos"
+          }
+        ]
+      }
+    ],
+    "clueSets": [
+      [
+        {
+          "text": "O jardim das lanternas tem bancos sob as árvores. A oficina de papel tem uma grande mesa compartilhada."
+        },
+        {
+          "text": "A ponte oferece uma vista aberta. A trilha sombreada tem vários lugares para fazer uma pausa."
+        },
+        {
+          "text": "O mirante tem bancos voltados para o céu do entardecer. O pátio tem uma parede de azulejos coloridos."
+        }
+      ],
+      [
+        {
+          "text": "O observatório das nuvens tem um terraço coberto. A oficina de papel expõe mapas feitos à mão."
+        },
+        {
+          "text": "A pequena balsa passa por uma cachoeira. A ponte liga duas praças tranquilas."
+        },
+        {
+          "text": "A biblioteca ao ar livre tem livros ilustrados. O pátio tem espaço para desenhar um novo mapa."
+        }
+      ]
+    ]
+  }
+}
