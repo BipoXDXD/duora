@@ -344,6 +344,21 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
             "select count(*) from ops.country_database_notifications where code='MissingBase'"));
     }
 
+    [Fact]
+    public async Task PersistedClockMarkRejectsRenewalAndPromotionFromDelayedUpdater()
+    {
+        await using var h = await Prepared();
+        var previous = (await h.Store.ReadActiveAsync(Ct))!;
+        h.Time.Advance(TimeSpan.FromDays(1));
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        var wrongTime = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(h.Time.GetUtcNow().AddMinutes(1));
+        h.Time.Advance(TimeSpan.FromDays(1));
+        await new CountryDatabaseHealthService(new(h.Source, h.Time), h.Validator, h.Root, new Notices(), enabled: true).RunOnceAsync(Ct);
+        var delayed = new CountryDatabaseUpdateStore(h.Source, wrongTime, TimeSpan.FromMinutes(2));
+        Assert.False(await delayed.RenewAsync(lease, Ct));
+        Assert.Equal(CountryDatabasePromotion.LostLease, await delayed.PromoteAsync(lease, previous, null, Ct));
+    }
+
     private async Task<CountryDatabasePipelineTests.Harness> Prepared()
     {
         var h = await CountryDatabasePipelineTests.Harness.Create(postgres);
