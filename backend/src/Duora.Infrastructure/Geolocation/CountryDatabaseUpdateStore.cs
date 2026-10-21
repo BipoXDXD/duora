@@ -115,7 +115,7 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
         {
             if (!await StillOwned(c, lease, ct))
             { return false; }
-            await EndCycle(c, lease.Id, now, code, !transient, ct);
+            await EndCycle(c, lease.Id, now, code, !transient, ct, retryAfter);
         }
         await tx.CommitAsync(ct);
         return true;
@@ -224,13 +224,15 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
         return await q.ExecuteScalarAsync(ct) is not null;
     }
 
-    private static async Task EndCycle(NpgsqlConnection c, Guid id, DateTimeOffset now, string? code, bool blocked, CancellationToken ct)
+    private static async Task EndCycle(NpgsqlConnection c, Guid id, DateTimeOffset now, string? code, bool blocked, CancellationToken ct,
+        DateTimeOffset? retryAfter = null)
     {
         var due = CountryDatabaseSchedule.NextDue(now);
+        var available = retryAfter is { } notBefore && notBefore > due ? notBefore : due;
         await Execute(c, """
-            update ops.jobs set status='Pending',attempts=0,due_at=$2,available_at=$2,lease_expires_at=null,
+            update ops.jobs set status='Pending',attempts=0,due_at=$2,available_at=$4,lease_expires_at=null,
               completed_at=null,last_error_code=$3 where id=$1
-            """, ct, id, due, (object?)code ?? DBNull.Value);
+            """, ct, id, due, (object?)code ?? DBNull.Value, available);
         await Execute(c, "update ops.country_database_state set first_failure_at=null,last_error_code=$1,blocked=$2 where singleton",
             ct, (object?)code ?? DBNull.Value, blocked);
     }

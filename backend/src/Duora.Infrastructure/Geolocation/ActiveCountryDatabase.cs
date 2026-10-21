@@ -13,6 +13,7 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
     private CountryDatabaseManifest? _manifest;
     private bool _disposed;
     private long _generation;
+    private DateTimeOffset _latestUtc = DateTimeOffset.MinValue;
 
     public async Task<bool> RefreshAsync(CountryDatabaseUpdateStore store, CancellationToken ct)
     {
@@ -29,14 +30,22 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
         Reader? candidate = null;
         try
         {
-            if (!manifest.IsAdmissible(time.GetUtcNow()))
-            { return false; }
+            lock (_gate)
+            {
+                if (_disposed || !ObserveClock(out var now) || !manifest.IsAdmissible(now))
+                {
+                    return false;
+                }
+            }
             var path = Path.Combine(root, manifest.Sha256 + ".mmdb");
             candidate = validator.OpenVerified(path, manifest, ct);
             lock (_gate)
             {
-                if (_disposed || generation < _generation || (generation == _generation && _manifest is not null && _manifest.Sha256 != manifest.Sha256))
-                { return false; }
+                if (_disposed || !ObserveClock(out var now) || !manifest.IsAdmissible(now)
+                    || generation < _generation || (generation == _generation && _manifest is not null && _manifest.Sha256 != manifest.Sha256))
+                {
+                    return false;
+                }
                 var previous = _reader;
                 _reader = candidate;
                 candidate = null;
@@ -58,7 +67,8 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
     {
         lock (_gate)
         {
-            if (_disposed || _reader is null || _manifest is null || !DatabaseAgePolicy.Evaluate(_manifest.BuiltAt, time.GetUtcNow()).CanSuggest)
+            if (!ObserveClock(out var now) || _disposed || _reader is null || _manifest is null
+                || !DatabaseAgePolicy.Evaluate(_manifest.BuiltAt, now).CanSuggest)
             {
                 return new(CountryLookupStatus.Unavailable);
             }
@@ -78,6 +88,18 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
             catch (InvalidDatabaseException) { return new(CountryLookupStatus.Unavailable); }
             catch (DeserializationException) { return new(CountryLookupStatus.Unavailable); }
         }
+    }
+
+    // Called under _gate. A backward clock cannot make a previously expired version young again.
+    private bool ObserveClock(out DateTimeOffset now)
+    {
+        now = time.GetUtcNow();
+        if (now < _latestUtc)
+        {
+            return false;
+        }
+        _latestUtc = now;
+        return true;
     }
 
     public void Dispose()

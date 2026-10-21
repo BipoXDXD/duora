@@ -73,7 +73,7 @@ public sealed class CountryDatabaseDownloader : IDisposable
                 {
                     throw new CountryDatabaseUpdateException("Unauthorized", false);
                 }
-                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                if (response.StatusCode == HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500)
                 {
                     var retry = response.Headers.RetryAfter;
                     DateTimeOffset? at = retry?.Date;
@@ -83,10 +83,8 @@ public sealed class CountryDatabaseDownloader : IDisposable
                         { at = _time.GetUtcNow() + delta; }
                         catch (ArgumentOutOfRangeException) { throw new CountryDatabaseUpdateException("Validation", false); }
                     }
-                    throw new CountryDatabaseUpdateException("RateLimited", true, at);
+                    throw new CountryDatabaseUpdateException(response.StatusCode == HttpStatusCode.TooManyRequests ? "RateLimited" : "ServerError", true, at);
                 }
-                if ((int)response.StatusCode >= 500)
-                { throw new CountryDatabaseUpdateException("ServerError", true); }
                 if (response.StatusCode == HttpStatusCode.RequestTimeout)
                 { throw new CountryDatabaseUpdateException("Timeout", true); }
                 if (response.StatusCode != HttpStatusCode.OK)
