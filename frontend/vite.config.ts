@@ -5,6 +5,8 @@ import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type ProxyOptions, type ServerOptions } from 'vite'
+import { browserBuild } from './config/browser-build.ts'
+import { livenessStyles } from './config/liveness-styles.ts'
 import { platformEnums } from './config/platform-enums.ts'
 import { readDevServerSettings, type TlsFiles } from './config/dev-server.ts'
 
@@ -15,7 +17,8 @@ export default defineConfig(({ command, mode, isPreview }) => {
   const isDevServer = command === 'serve' && isPreview !== true && process.env.VITEST === undefined
 
   return {
-    plugins: [platformEnums(), react(), tailwindcss()],
+    plugins: [platformEnums(), livenessStyles(), react(), tailwindcss()],
+    build: browserBuild,
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, './src'),
