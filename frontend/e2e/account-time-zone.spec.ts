@@ -47,6 +47,9 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
         }
         await route.fulfill({ json: { ...stored, version: String(stored.version) } })
       })
+      await page.route('**/api/v1/me/regional-preferences', (route) =>
+        route.fulfill({ json: { mode: 'pending', countryCodes: [], version: '0' } }),
+      )
       await page.goto('/account/preferences')
       const field = page.getByRole('combobox', {
         name: locale === 'pt-BR' ? 'Fuso horário da conta (opcional)' : 'Account time zone (optional)',
