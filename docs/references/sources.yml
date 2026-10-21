@@ -15,7 +15,7 @@
 # usam as seções da spec que as citam. Atualize esta entrada no mesmo PR que muda o comportamento,
 # a versão ou o fornecedor sustentado pela ficha (spec 25.19).
 #
-# Cópia local da documentação (fora do repositório): ~/.fonte externa/knowledge-docs/<id em minúsculas>/
+# Cópias locais da documentação ficam sob custódia do responsável, fora do repositório.
 
 fontes:
   - id: D-ENV-01
@@ -818,12 +818,11 @@ fontes:
     responsavel: "a designar"
 
   - id: D-SEC-02
-    topico: "Prompt injection em agentes"
-    urls:
-      - "external-record"
-    versao: "OWASP Cheat Sheet Series (página atual)"
+    topico: "Isolamento de instruções externas"
+    urls: []
+    versao: "Referência preservada no registro externo duora-editorial-20261021"
     consultado: 2026-10-15
-    download: "ok"
+    download: "registro externo"
     requisitos: ["14", "14.3", "INV-12"]
     testes: [T-12]
     responsavel: "a designar"

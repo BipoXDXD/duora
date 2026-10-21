@@ -43,7 +43,7 @@ Game Audio Strategy Guide* (Zdanowicz e Bambrick, Routledge; "GASG"). Páginas s
 
 Alternativas consideradas:
 
-- **3D: fonte offline renderizada em WebP** (escolhida como padrão). Modelos gerados no fonte externa ou no fonte externa,
+- **3D: fonte offline renderizada em WebP** (escolhida como padrão). Modelos gerados nas fontes aprovadas,
   compostos e renderizados fora do produto; o pipeline de `tools/visual` entrega WebP. Zero JavaScript novo,
   peso previsível, mesmo tratamento de acessibilidade das imagens. Contra: sem interação com o objeto.
 - **3D em tempo real com `<model-viewer>`** (Apache-2.0). Web component sobre three.js, com `alt`, controle
@@ -129,14 +129,14 @@ geração ao vivo (imagem, música ou TTS).
 
   | Item | Estimativa | Premissa |
   |---|---|---|
-  | Voz | ~110 mil | Rascunho em editorial source (50% do preço por caractere na API); final em editorial source só das falas aprovadas (modelos; id exato de cada modelo a confirmar na API) |
+  | Voz | ~110 mil | Rascunho em Rascunho de menor custo e final somente das falas aprovadas; parâmetros no registro externo |
   | Música | ~30 mil | 1 loop por ambiente, 2 tentativas |
   | Efeitos fonte externa | ~60 mil | ~300 gerações |
   | **Total** | **~200 mil** | Folga de ~62 mil |
 
   O pipeline tem **teto de créditos por execução** (para antes de passar dele) e **log do consumo por geração**.
   A proveniência registra qual das duas contas gerou cada arquivo.
-- **Limites da geração paga (fonte externa, fonte externa e fonte externa):** a geração é offline, feita pelo responsável fora do
+- **Limites da geração paga (fontes editoriais aprovadas):** a geração é offline, feita pelo responsável fora do
   runtime. Nenhuma rota, job ou consumidor do produto chama esses fornecedores, então não existe operação de pessoa
   usuária a limitar por conta e por IP; quem garante isso é um teste de arquitetura
   (`NoRuntimeModuleReferencesMediaGenerationProviders`: Web, Worker, Core e Infrastructure sem cliente nem
@@ -196,8 +196,7 @@ volume próprio para a outra pessoa, e dispara o mesmo ducking da trilha.
 
 ### 7. 3D
 
-O 3D está no escopo nas duas formas. A **fonte offline** é o padrão: modelos do fonte externa (fonte externa, plano Business) ou
-do fonte externa, compostos e renderizados fora do produto e entregues em WebP pelo pipeline. O **3D em tempo real** (GLB)
+O 3D está no escopo nas duas formas. A **fonte offline** é o padrão: modelos das fontes aprovadas no registro externo, compostos e renderizados fora do produto e entregues em WebP pelo pipeline. O **3D em tempo real** (GLB)
 é permitido por experiência, decidido no one pager do ambiente, e precisa funcionar em produção nos navegadores da
 matriz (spec 13.5), com orçamento de peso e **fallback 2D acessível** (o poster WebP do mesmo modelo, com o mesmo
 texto alternativo). O visualizador é o `<model-viewer>`, pela acessibilidade embutida (`alt`, teclado, `poster`,

@@ -1,8 +1,0 @@
-cenario_sintetico,perfil,MemTotal_MiB,MemAvailable_MiB,resultado_gate,observacao
-KVM2_8GB_decimal_source,source,7629.395,2048,DENIED,capacity denied: need at least 8512 MiB MemTotal; keep gateway disabled; resize or review a separate-host topology
-Candidato16GB_source,source,15258.789,2048,PASS_ORCAMENTO_SINTETICO,Nao comprova capacidade sustentada
-Candidato4GB_operacoes,remote-gateway,3814.697,2048,PASS_ORCAMENTO_SINTETICO,Nao comprova capacidade sustentada
-Source_limite_exato,source,8512.0,1536,PASS_ORCAMENTO_SINTETICO,Nao comprova capacidade sustentada
-Source_um_KiB_abaixo,source,8511.999,1536,DENIED,capacity denied: need at least 8512 MiB MemTotal; keep gateway disabled; resize or review a separate-host topology
-Operacoes_limite_exato,remote-gateway,3456.0,1536,PASS_ORCAMENTO_SINTETICO,Nao comprova capacidade sustentada
-Operacoes_MemAvailable_baixa,remote-gateway,3814.697,1535,DENIED,capacity denied: less than 1536 MiB MemAvailable
