@@ -10,7 +10,7 @@ namespace Duora.UnitTests.Notifications;
 /// </summary>
 public sealed class SecurityNoticeEmailsTests
 {
-    private const string SessionsLink = "https://duora.example/conta";
+    private const string SessionsLink = "https://duora.example/account";
 
     private static readonly PublicOrigin Origin =
         PublicOrigin.TryParse("https://duora.example", out var origin) ? origin : throw new InvalidOperationException();
@@ -135,7 +135,7 @@ public sealed class SecurityNoticeEmailsTests
             Se foi você, nenhuma ação é necessária. Se não foi, entre no Duora, encerre as sessões que você não
             reconhece e troque a senha:
 
-            https://duora.example/conta
+            https://duora.example/account
 
             Se não conseguir entrar, use "Esqueci minha senha" na tela de entrada para recuperar o acesso.
 
@@ -148,7 +148,7 @@ public sealed class SecurityNoticeEmailsTests
             If it was you, no action is needed. If it was not, sign in to Duora, end the sessions you do not
             recognize and change your password:
 
-            https://duora.example/conta
+            https://duora.example/account
 
             If you cannot sign in, use "Forgot your password?" on the sign-in screen to recover access.
             """,
@@ -169,7 +169,7 @@ public sealed class SecurityNoticeEmailsTests
             Se foi você, nenhuma ação é necessária. Se não foi, entre no Duora, encerre as sessões que você não
             reconhece e troque a senha:
 
-            https://duora.example/conta
+            https://duora.example/account
 
             Se não conseguir entrar, a recuperação de senha não basta: ela não remove a verificação em duas etapas.
             Responda a este e-mail ou fale com o suporte em suporte@duora.example.
@@ -183,7 +183,7 @@ public sealed class SecurityNoticeEmailsTests
             If it was you, no action is needed. If it was not, sign in to Duora, end the sessions you do not
             recognize and change your password:
 
-            https://duora.example/conta
+            https://duora.example/account
 
             If you cannot sign in, a password reset is not enough: it does not remove two-step verification.
             Reply to this email or contact support at suporte@duora.example.

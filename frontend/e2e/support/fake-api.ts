@@ -58,8 +58,8 @@ type EmailKind = 'confirmation' | 'password-reset'
 
 /** Rotas da SPA para onde os links de e-mail apontam, com userId e token no fragmento. */
 const EMAIL_ROUTES: Readonly<Record<EmailKind, string>> = {
-  confirmation: '/confirmar-email',
-  'password-reset': '/redefinir-senha',
+  confirmation: '/confirm-email',
+  'password-reset': '/reset-password',
 }
 
 export interface EmailLink {
@@ -132,6 +132,20 @@ export class FakeDuoraApi {
     const profile = this.#profileOf(user.id)
     Object.assign(profile, change)
     profile.version += 1
+  }
+
+  /** Explicit fixtures for current eight-digit codes and still-valid legacy tokens. */
+  seedPendingUser(email: string, password: string, token: string): void {
+    const user: FakeUser = {
+      id: randomUUID(),
+      email,
+      password,
+      emailConfirmed: false,
+      confirmationToken: token,
+      passwordResetToken: null,
+    }
+    this.#users.set(email, user)
+    this.#sendEmail('confirmation', user.id, token)
   }
 
   /** Link do último e-mail do tipo pedido, como chegaria na caixa de entrada. */
@@ -239,7 +253,8 @@ export class FakeDuoraApi {
   }
 
   #sendEmail(kind: EmailKind, userId: string, token: string): void {
-    const path = `${EMAIL_ROUTES[kind]}#userId=${userId}&token=${encodeURIComponent(token)}`
+    const linkToken = kind === 'confirmation' && /^[0-9]{8}$/.test(token) ? 'code' : token
+    const path = `${EMAIL_ROUTES[kind]}#userId=${userId}&token=${encodeURIComponent(linkToken)}`
     this.#emails.push({ kind, link: { path, userId, token } })
   }
 

@@ -195,7 +195,7 @@ Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logo
 | Pedido (API-A06) | Recebe e-mail; responde sempre `202` com corpo vazio e grava **sempre um** e-mail na outbox (mesmo trabalho nos três casos, TM-06): conta confirmada recebe o link; cadastro pendente recebe um lembrete para cadastrar de novo, sem link; endereço sem conta recebe um aviso de que não há conta. O volume é contido pelo rate limit por endereço (3 por hora) |
 | Conta pendente | Reset **não** se aplica e **não** confirma o e-mail: o cadastro pendente pode ter sido feito por outra pessoa, com os aceites dela. Quem tem o e-mail conclui pelo cadastro, que substitui o pendente (ver [Cadastro pendente](#cadastro-pendente-e-pré-sequestro-de-conta)). API-A07 recusa conta não confirmada com `INVALID_TOKEN` |
 | Token | `GeneratePasswordResetTokenAsync` do Identity (Data Protection, ligado ao security stamp). Provedor próprio para reset com vida de **30 min (hipótese)**, separado do token de confirmação de e-mail (**24 h, hipótese**). A entrega do e-mail expira antes (15 min e 12 h) para o link não chegar morto |
-| Link | Rota da SPA com as credenciais no **fragmento**: `/redefinir-senha#userId=…&token=…` e `/confirmar-email#userId=…&token=…`. O fragmento não vai a servidor, log de proxy nem `Referer`. O token é o base64url dos bytes do token do Identity. **Pendente (frontend):** `Referrer-Policy: no-referrer` nas páginas de conta |
+| Link | Rota da SPA com as credenciais no **fragmento**: `/reset-password#userId=…&token=…` e `/confirm-email#userId=…&token=…`. O fragmento não vai a servidor, log de proxy nem `Referer`. O token é o base64url dos bytes do token do Identity. `no-referrer` no meta referrer da SPA. Compatibilidade dos caminhos antigos: [spa-routes.md](../architecture/spa-routes.md) |
 | Conclusão (API-A07) | `POST` com `userId`, `token` e `newPassword`. Sucesso: troca a senha, atualiza o security stamp (o token deixa de valer), zera o bloqueio por tentativas, revoga **todas** as sessões e não emite sessão nova, tudo num commit com o aviso ao titular. Falha: `400` `INVALID_TOKEN`, igual para conta inexistente, sem aviso |
 | Conta privilegiada | Reset troca a senha, mas não remove nem contorna o MFA (TM-22). Antes da primeira ativação do MFA, não há reset (I5): o pedido recebe um aviso sem link e a conclusão responde `INVALID_TOKEN` ([bootstrap](#bootstrap-administrativo-d4)) |
 | Conta com MFA | Reset **não** zera o lockout (I4): o e-mail não prova o segundo fator, e destravar reabriria a força bruta do TOTP. Conta sem MFA continua destravada pelo reset |
@@ -437,7 +437,7 @@ não avisa. O aviso vai para o endereço gravado e sai bilíngue (pt-BR e en): q
 mudança, então o `Accept-Language` da requisição vai no payload (`language`), como nos outros e-mails de conta, mas
 não decide o texto. O texto é fixo, sem token, código,
 senha, e-mail, IP ou aparelho: diz o que mudou, quando (o `occurred_at` do evento, em UTC, com minuto) e leva à
-página da conta (`/conta`), onde ficam as sessões. Com preferência IANA explícita, acrescenta o horário no fuso salvo, identificado por IANA e deslocamento UTC; a referência UTC permanece. Sem preferência, só UTC. O fuso é capturado na mesma transação da credencial (`preferredTimeZone` opcional na outbox), nunca inferido do idioma, IP ou aparelho nem consultado novamente na entrega. O worker leitor deve preceder o web gravador; manter esse leitor até drenar payloads com preferência em rollback ([detalhes](../testing/event-time-zones.md)). Janela de entrega de 72 h (**hipótese**). Leitor e gravação
+página da conta (`/account`), onde ficam as sessões. Com preferência IANA explícita, acrescenta o horário no fuso salvo, identificado por IANA e deslocamento UTC; a referência UTC permanece. Sem preferência, só UTC. O fuso é capturado na mesma transação da credencial (`preferredTimeZone` opcional na outbox), nunca inferido do idioma, IP ou aparelho nem consultado novamente na entrega. O worker leitor deve preceder o web gravador; manter esse leitor até drenar payloads com preferência em rollback ([detalhes](../testing/event-time-zones.md)). Janela de entrega de 72 h (**hipótese**). Leitor e gravação
 entraram em deploys separados ([deploy.md](../operations/deploy.md#rollback-de-aplicação)).
 
 ## Contrato de rotas API-A01 a A16
@@ -584,10 +584,10 @@ sem artefato do CI (spec 25.19).
 O fluxo do bootstrap (spec 11.1; API-A04, A08, A11, A12 e A16) é a interface do bootstrap do
 PR #71. A interface não amplia autorização: o servidor continua sendo a fonte da verdade.
 
-- `403 PASSWORD_CHANGE_REQUIRED` em `/me` (descrito no `openapi.json`) leva a `/trocar-senha-inicial`,
+- `403 PASSWORD_CHANGE_REQUIRED` em `/me` (descrito no `openapi.json`) leva a `/change-initial-password`,
   inclusive ao abrir diretamente uma rota protegida. A resposta tem precedência sobre identidade antiga
   em cache. Na fase do MFA, `/me` está na allowlist do cadastro e responde `200` com `mfaEnabled: false`
-  e o papel privilegiado: é isso que leva a `/conta/ativar-mfa`. O `403 MFA_ENROLLMENT_REQUIRED` vem das
+  e o papel privilegiado: é isso que leva a `/account/enable-mfa`. O `403 MFA_ENROLLMENT_REQUIRED` vem das
   outras rotas; um `403` com qualquer dos dois códigos em consultas ou mutações reconsulta `/me`, e a SPA
   também aceita `MFA_ENROLLMENT_REQUIRED` vindo de `/me` (leitor tolerante). Não há retry automático da
   escrita.
@@ -598,7 +598,7 @@ PR #71. A interface não amplia autorização: o servidor continua sendo a fonte
   CSRF, rate limit e autenticação recente vencida. A temporária vencida exige reemissão pelo operador.
 - Toda mutação renova o CSRF antes do envio. Depois do sucesso de A16, o cookie renovado pelo
   backend é usado com CSRF novo, cache descartado e aviso entre abas. Uma nova leitura de `/me`
-  decide o destino; papéis privilegiados sem MFA seguem para `/conta/ativar-mfa`.
+  decide o destino; papéis privilegiados sem MFA seguem para `/account/enable-mfa`.
 - A11/A12 cadastram o autenticador por chave manual e confirmação de seis dígitos. A chave e os
   códigos de recuperação ficam somente no estado local da tela; não entram em query/mutation
   data, variables, URL, storage ou log. Após salvar os códigos, a transição limpa o cache e renova

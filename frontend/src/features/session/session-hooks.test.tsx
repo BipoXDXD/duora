@@ -41,10 +41,10 @@ function seededQueryClient() {
 function renderSessionHook<T>(hook: () => T, queryClient = seededQueryClient()) {
   const view = renderHook(hook, {
     wrapper: ({ children }) => (
-      <TestProviders queryClient={queryClient} initialPath="/conta">
+      <TestProviders queryClient={queryClient} initialPath="/account">
         <Routes>
-          <Route path="/conta" element={children} />
-          <Route path="/entrar" element={<LoginPage />} />
+          <Route path="/account" element={children} />
+          <Route path="/login" element={<LoginPage />} />
         </Routes>
       </TestProviders>
     ),
@@ -66,7 +66,7 @@ describe('useLogout', () => {
     await waitFor(() => {
       expect(antiforgery.calls()).toBe(2)
     })
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/entrar$/)
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/login$/)
   })
 
   it('avisa as outras abas de que a identidade mudou (T-21)', async () => {
@@ -91,7 +91,7 @@ describe('useLogout', () => {
       expect(result.current.isError).toBe(true)
     })
     expect(queryClient.getQueryData(meQueryKey)).toEqual(ME)
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/conta$/)
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/account$/)
   })
 })
 
@@ -150,7 +150,7 @@ describe('dados privados fora da área autenticada (T-14, T-21)', () => {
     const queryClient = createTestQueryClient()
     const view = renderHook(hook, {
       wrapper: ({ children }) => (
-        <TestProviders queryClient={queryClient} initialPath="/conta">
+        <TestProviders queryClient={queryClient} initialPath="/account">
           {children}
         </TestProviders>
       ),

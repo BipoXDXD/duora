@@ -1,21 +1,40 @@
 /**
  * Caminhos das rotas da SPA. Os de confirmação e redefinição são contrato com os links enviados
- * por e-mail pelo backend (`/confirmar-email#userId=…&token=…` e `/redefinir-senha#userId=…&token=…`,
+ * por e-mail pelo backend (`/confirm-email#userId=…&token=…` e `/reset-password#userId=…&token=…`,
  * com os parâmetros no fragmento): mudar aqui exige mudar lá.
  */
 export const paths = {
-  selfie: '/conta/selfie',
+  selfie: '/account/selfie',
   home: '/',
-  register: '/criar-conta',
-  checkEmail: '/verifique-seu-email',
-  confirmEmail: '/confirmar-email',
-  login: '/entrar',
-  forgotPassword: '/esqueci-a-senha',
-  resetPassword: '/redefinir-senha',
-  changePassword: '/trocar-senha-inicial',
-  mfaEnrollment: '/conta/ativar-mfa',
-  account: '/conta',
-  profile: '/conta/perfil',
-  preferences: '/conta/preferencias',
+  register: '/register',
+  checkEmail: '/check-email',
+  confirmEmail: '/confirm-email',
+  login: '/login',
+  forgotPassword: '/forgot-password',
+  resetPassword: '/reset-password',
+  changePassword: '/change-initial-password',
+  mfaEnrollment: '/account/enable-mfa',
+  account: '/account',
+  profile: '/account/profile',
+  preferences: '/account/preferences',
   events: '/events',
 } as const
+
+/** Links já emitidos: aliases exatos, sem uma segunda árvore de páginas por idioma. */
+export const legacyPaths: Readonly<Record<string, string>> = {
+  '/conta/verificacao-etaria': paths.selfie,
+  '/conta/preferencias': paths.preferences,
+  '/conta/ativar-mfa': paths.mfaEnrollment,
+  '/conta/perfil': paths.profile,
+  '/conta/selfie': paths.selfie,
+  '/trocar-senha-inicial': paths.changePassword,
+  '/verifique-seu-email': paths.checkEmail,
+  '/confirmar-email': paths.confirmEmail,
+  '/redefinir-senha': paths.resetPassword,
+  '/esqueci-a-senha': paths.forgotPassword,
+  '/criar-conta': paths.register,
+  '/recuperar-senha': paths.forgotPassword,
+  '/cadastro': paths.register,
+  '/entrar': paths.login,
+  '/conta': paths.account,
+}
