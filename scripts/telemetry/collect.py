@@ -62,7 +62,7 @@ def collect(runner=run, state=Path('/var/lib/duora'), now=None, include_gateway=
                 and item.get('Health', {}).get('Status', 'healthy') == 'healthy')
             if service == 'edge':
                 runner(['/usr/bin/docker', 'exec', ids[0], 'wget', '--quiet', '--spider',
-                        '--timeout=5', 'http://web:8080/health/ready'])
+                        '--timeout=5', 'http://duora-web:8080/health/ready'])
                 checks['web:ready'] = True
         except (OSError, ValueError, subprocess.SubprocessError):
             checks[f'service:{service}'] = False
