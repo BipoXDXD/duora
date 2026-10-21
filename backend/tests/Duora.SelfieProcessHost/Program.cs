@@ -18,6 +18,16 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        if (args is ["--synthetic-selfie-provider"])
+        {
+            try
+            { return await SyntheticProviderHost.RunAsync(); }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine(exception.GetType().Name);
+                return 1;
+            }
+        }
         if (args is not ["--synthetic-selfie-worker"])
         {
             return 64;
