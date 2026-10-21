@@ -1,0 +1,13 @@
+{
+  "scope": "Text files only; not media hashes or approval.",
+  "sha256": {
+    "CATALOGO.md": "4fdb32b7400e9604193928fdd2b09f7fd916b1d348e40f0a86b35628c9971c46",
+    "README.md": "60fc582fca2b12092c7a91d368435b0f67a04465f49bff8ffe54b033c9fd74cc",
+    "VALIDACAO.md": "7163416cfd2d8131bab58ab08fc6da499391069bcdae57cba486a3b189a5f83b",
+    "audio-producao.json": "7de9fc8ca587931bee0c669a8d60aeabd8971590521e9fd975ef2d93707d8507",
+    "constellation.json": "39e04054461d012837ce6cb0df8cc8cad848dff630400225fc2f3a7c41da16e7",
+    "instrucoes-editoriais.json": "0cabd0c3ebfd52d48c29df8396b21845415f643b0f3c58260a41dbeb9c0f07f9",
+    "mapa-de-visibilidade.json": "9af453c399876824955b80b5fb96a4d4dd47b8ac2093b60e39e70a0ee50bc355",
+    "unlikely-routes.json": "6993b2f33cd9d2256bf812688d88ec075b79242353d5b21b2fe901314274bada"
+  }
+}
