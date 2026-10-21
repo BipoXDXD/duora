@@ -6,6 +6,9 @@ internal enum AppTableAccess
     /// <summary><c>SELECT</c>, <c>INSERT</c>, <c>UPDATE</c> e <c>DELETE</c>: o padrão dos default privileges.</summary>
     ReadWrite,
 
+    /// <summary>Catálogo mantido pelo migrador; a aplicação apenas lê.</summary>
+    ReadOnly,
+
     /// <summary>Só <c>SELECT</c> e <c>INSERT</c>: a migration que cria a tabela revoga <c>UPDATE</c>, <c>DELETE</c> e
     /// <c>TRUNCATE</c> (convenção de tabela append-only, ex.: <c>ops.audit_events</c>).</summary>
     AppendOnly,
@@ -68,8 +71,10 @@ internal static class AppRoleTableAccess
 
             // profiles (dono: Profiles)
             ["profiles.communication_languages"] = AppTableAccess.ReadWrite,
+            ["profiles.countries"] = AppTableAccess.ReadOnly,
             ["profiles.preferences"] = AppTableAccess.ReadWrite,
             ["profiles.profiles"] = AppTableAccess.ReadWrite,
+            ["profiles.subdivisions"] = AppTableAccess.ReadOnly,
 
             // safety (dono: Safety)
             ["safety.blocks"] = AppTableAccess.ReadWrite,
@@ -82,6 +87,7 @@ internal static class AppRoleTableAccess
 
     public static IReadOnlyList<string> PrivilegesOf(AppTableAccess access) => access switch
     {
+        AppTableAccess.ReadOnly => ["SELECT"],
         AppTableAccess.ReadWrite => ["SELECT", "INSERT", "UPDATE", "DELETE"],
         AppTableAccess.AppendOnly => ["SELECT", "INSERT"],
         AppTableAccess.None => [],

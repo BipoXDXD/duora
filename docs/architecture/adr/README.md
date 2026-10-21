@@ -39,7 +39,8 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0028](0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md) | Voz ao vivo por WebRTC P2P com relay forçado na Cloudflare Realtime TURN; LiveKit Cloud como plano B | Accepted | Mute pelo servidor, sala com mais de 2 pessoas ou relay instável no Safari |
 | [0029](0029-confirmacao-email-presenca-sem-idade.md) | E-mail obrigatório e selfie de presença/qualidade, sem idade | Accepted; ativação pendente | Homologação do fornecedor |
 
-| [0030](0030-telemetry-remoto-telemetria-mtls.md) | Gateway gateway separado e snapshot público por mTLS | Proposed | Mudança de contrato, PKI ou autoridade do agente |
+| [0030](0030-profile-country-subdivision.md) | País e subdivisão opcionais, expansão compatível com UF | Proposed | Países e manutenção do catálogo definidos; etapa contract |
+| [0031](0031-telemetry-remoto-telemetria-mtls.md) | Gateway gateway separado e snapshot público por mTLS | Proposed | Mudança de contrato, PKI ou autoridade do agente |
 
 ## Regras
 

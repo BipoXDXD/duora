@@ -305,6 +305,15 @@ erDiagram
   versão 0) e `updated_at`, com `CHECK` de tamanho por `char_length` e FK `RESTRICT`. O texto é gravado em NFC,
   sem Cc, Cf, Zl, Zp nem surrogate solto (`ProfileText`). `age_band` **ainda não existe**: a origem da faixa (issue
   #9 item 7, D12) está por decidir.
+- **Expansão para revisão (issue #78, [ADR-0030](../architecture/adr/0030-profile-country-subdivision.md)):**
+  `country_code text null` referencia `profiles.countries(code)`; `subdivision_code text null` participa da FK
+  composta para `profiles.subdivisions(country_code, code)` (MATCH SIMPLE). CHECK exige país quando há subdivisão;
+  índice `ix_profiles_location(country_code, subdivision_code)` atende as FKs e consulta por país.
+  O seed conserva BR e as 27 UFs; backfill preserva versão, timestamp e ausência de localização.
+  `region_code` e seu CHECK permanecem como contrato legado, com dual-write da API e ponte temporária para
+  escritores antigos. A fonte definitiva do catálogo e os países de lançamento não são decididos por esta expansão.
+  Ver ADR-0030 para PATCH atômico da localização, ordem de atualização dos componentes e rollback sem apagar dados.
+
 - **Implementado (migração `ProfileRegion`, aditiva):** `region_code text null` com
   `ck_profiles_region_code` (`region_code IN ('BR-AC', ..., 'BR-TO')`, as 27 UFs). `null` é "não informada".
   - **CHECK, não lookup table** (regra de Estados acima, *SQL Antipatterns* cap. 11): as 27 UFs são um conjunto

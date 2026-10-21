@@ -124,11 +124,11 @@ public sealed class AdminRouteTests : IAsyncDisposable
 
         foreach (var route in AdminRoutesOf(_factory))
         {
-            using var response = route.Path is AdminPrefix + "/events" or AdminPrefix + "/experience-versions"
+            using var response = route.Path is AdminPrefix + "/events" or AdminPrefix + "/experience-versions" or AdminPrefix + "/route-experience-versions"
                 ? await browser.PostJsonAsync(route.Path, new { })
                 : await SendAsync(browser, route);
             // Product commands receive an intentionally empty body: reaching validation is expected here.
-            var expected = route.Path is AdminPrefix + "/events" or AdminPrefix + "/experience-versions"
+            var expected = route.Path is AdminPrefix + "/events" or AdminPrefix + "/experience-versions" or AdminPrefix + "/route-experience-versions"
                 ? HttpStatusCode.BadRequest : HttpStatusCode.NoContent;
             Assert.True(response.StatusCode == expected, $"{route.Name} respondeu {(int)response.StatusCode}.");
         }
@@ -141,7 +141,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
         await Scenario.ScalarAsync("update identity.users set status='Active' where id=$1 returning 1", account.UserId);
         using var browser = await Scenario.SignedInBrowserAsync(account);
         await MfaScenario.EnableAsync(browser, _time);
-        foreach (var path in new[] { "/api/v1/admin/events", "/api/v1/admin/experience-versions" })
+        foreach (var path in new[] { "/api/v1/admin/events", "/api/v1/admin/experience-versions", "/api/v1/admin/route-experience-versions" })
         {
             using var response = await browser.PostJsonAsync(path, new { title = "Test", startsAt = _time.GetUtcNow().AddHours(1), capacity = 2, experienceVersionId = Guid.NewGuid() });
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "FORBIDDEN");
