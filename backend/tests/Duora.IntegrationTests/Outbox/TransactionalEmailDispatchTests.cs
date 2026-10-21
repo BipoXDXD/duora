@@ -68,6 +68,27 @@ public sealed class TransactionalEmailDispatchTests(PostgresFixture postgres)
         Assert.Single(harness.MailFiles());
     }
 
+    [Theory]
+    [InlineData("pt-BR")]
+    [InlineData("en-US")]
+    public async Task SecurityNoticeRetryPreservesTheCapturedLocale(string locale)
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var id = await harness.EnqueueAsync(AccountEmailKind.PasswordResetNotice, token: null, locale, Ct);
+        var original = (await harness.ReadDeliveryAsync(id, Ct)).Payload;
+        var dispatcher = harness.StartWorker(decorateSender: real => new FailingSender(real, failures: 1));
+        await dispatcher.DispatchBatchAsync(Ct);
+        var pending = await harness.ReadDeliveryAsync(id, Ct);
+        Assert.Equal("Pending", pending.Status);
+        Assert.Equal(original, pending.Payload);
+        using var document = System.Text.Json.JsonDocument.Parse(pending.Payload);
+        Assert.Equal(locale, document.RootElement.GetProperty("language").GetString());
+        harness.Time.Advance(TimeSpan.FromMinutes(1));
+        await dispatcher.DispatchBatchAsync(Ct);
+        Assert.Equal("Delivered", (await harness.ReadDeliveryAsync(id, Ct)).Status);
+        Assert.Single(harness.MailFiles());
+    }
+
     [Fact]
     public async Task TwoConcurrentWorkersDeliverEachEmailExactlyOnce()
     {
