@@ -19,38 +19,47 @@ namespace Duora.IntegrationTests.Media;
 /// HTTPS com certificado autoassinado gerado no teste, porque os cookies e o antiforgery exigem conexão segura.
 /// </summary>
 [Trait("Acceptance", "T-16")]
-public sealed class KestrelPhotoUploadTests : IAsyncLifetime
+public sealed partial class KestrelPhotoUploadTests : IAsyncLifetime
 {
     private readonly PostgresFixture _postgres;
-    private readonly DuoraWebFactory _accounts;
-    private readonly DuoraWebFactory _kestrel;
+    private DuoraWebFactory _accounts = null!;
+    private DuoraWebFactory _kestrel = null!;
+    private string _connectionString = "";
     private HttpClient? _http;
+    private Uri? _proxyBackend;
 
-    public KestrelPhotoUploadTests(PostgresFixture postgres)
+    public KestrelPhotoUploadTests(PostgresFixture postgres) => _postgres = postgres;
+
+    private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
+
+    public async ValueTask InitializeAsync()
     {
-        _postgres = postgres;
-        _accounts = new DuoraWebFactory(postgres.ConnectionString);
-        _kestrel = new DuoraWebFactory(postgres.ConnectionString)
+        // Each case owns its database so direct outbox counts also catch orphaned events and deliveries.
+        _connectionString = await _postgres.CreateMigratedDatabaseAsync(Cancellation);
+        _accounts = new DuoraWebFactory(_connectionString);
+        _kestrel = new DuoraWebFactory(_connectionString)
         {
             Settings = new Dictionary<string, string?>
             {
                 ["Media:MinUploadBytesPerSecond"] = "2000",
                 ["Media:MinUploadRateGracePeriod"] = "00:00:02",
+                // The test proxy reaches Kestrel through the loopback SSH bridge only.
+                ["ReverseProxy:KnownNetworks:0"] = "127.0.0.1/32",
             },
         };
-    }
-
-    private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
-
-    public ValueTask InitializeAsync()
-    {
         using var certificate = SelfSignedCertificate();
         var exported = X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), password: null);
-        _kestrel.UseKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(exported)));
+        _kestrel.UseKestrel(kestrel =>
+        {
+            kestrel.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(exported));
+            // The edge talks HTTP to web in production; the synthetic bridge is restricted to loopback.
+            kestrel.Listen(IPAddress.Loopback, 0);
+        });
         _kestrel.StartServer();
         var addresses = _kestrel.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()
             ?? throw new InvalidOperationException("Kestrel sem endereço.");
-        var address = addresses.Addresses.Single();
+        var address = addresses.Addresses.Single(a => a.StartsWith("https://", StringComparison.Ordinal));
+        _proxyBackend = new Uri(addresses.Addresses.Single(a => a.StartsWith("http://", StringComparison.Ordinal)));
         var thumbprint = exported.Thumbprint;
         _http = new HttpClient(new SocketsHttpHandler
         {
@@ -68,7 +77,6 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
             BaseAddress = new Uri(address),
             Timeout = TimeSpan.FromSeconds(60),
         };
-        return ValueTask.CompletedTask;
     }
 
     public async ValueTask DisposeAsync()
@@ -90,8 +98,10 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
     }
 
-    [Fact]
-    public async Task AnotherRouteStillRefusesMoreThan32KiB()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnotherRouteStillRefusesMoreThan32KiB(bool codes)
     {
         var session = await SignInAsync();
         var json = "{\"email\":\"" + new string('a', (32 * 1024) + 1) + "\",\"password\":\"x\"}";
@@ -100,23 +110,33 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
         };
 
+        if (codes)
+        {
+            request.Headers.Add(PhotoValidationAssertions.Header, "codes-v1");
+        }
         using var response = await session.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        PhotoValidationAssertions.NoProtocolHeaders(response);
     }
 
-    [Fact]
-    public async Task ASlowBodyIsCutAndLeavesNoReservation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ASlowBodyIsCutAndLeavesNoReservation(bool codes)
     {
         // O cliente manda ~800 B/s por até 30 s: acima do padrão do Kestrel (240 B/s), abaixo dos 2000 B/s que a rota
         // fixa depois de 2 s. A reserva tem de sumir bem antes de o cliente parar: é a taxa da rota que corta.
         var session = await SignInAsync();
-        var media = new MediaScenario(_postgres, _kestrel);
+        var media = new MediaScenario(_connectionString, _kestrel);
         using var clientGivesUp = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
         clientGivesUp.CancelAfter(TimeSpan.FromSeconds(30));
-        var sending = session.SendIgnoringFailureAsync(
-            Upload(new SlowContent(totalBytes: 64 * 1024, chunk: 16, pause: TimeSpan.FromMilliseconds(20), clientGivesUp.Token)),
-            clientGivesUp.Token);
+        using var request = Upload(new SlowContent(totalBytes: 64 * 1024, chunk: 16, pause: TimeSpan.FromMilliseconds(20), clientGivesUp.Token));
+        if (codes)
+        {
+            request.Headers.Add(PhotoValidationAssertions.Header, "codes-v1");
+        }
+        var sending = session.SendIgnoringFailureAsync(request, clientGivesUp.Token);
 
         var reserved = await WaitUntilAsync(async () => (await media.UploadsOfAsync(session.UserId)).Count == 1, TimeSpan.FromSeconds(10));
         var released = reserved
@@ -216,7 +236,7 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
             Assert.Contains("Duora-Validation-Format", response.Headers.Vary);
         }
         Assert.False(response.Headers.Contains("Retry-After"));
-        var media = new MediaScenario(_postgres, _kestrel);
+        var media = new MediaScenario(_connectionString, _kestrel);
         Assert.Empty(await media.UploadsOfAsync(session.UserId));
         Assert.Equal(0, media.StoredObjectCount());
         await ProblemSchemaAssertions.MatchesUploadRefusalAsync(_kestrel, response, body);
@@ -247,7 +267,7 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
             excessive ? HttpStatusCode.RequestEntityTooLarge : HttpStatusCode.LengthRequired,
             excessive ? "PAYLOAD_TOO_LARGE" : "LENGTH_REQUIRED");
         Assert.False(response.Headers.Contains("Duora-Validation-Format"));
-        var media = new MediaScenario(_postgres, _kestrel);
+        var media = new MediaScenario(_connectionString, _kestrel);
         Assert.Empty(await media.UploadsOfAsync(session.UserId));
         Assert.Equal(0, media.StoredObjectCount());
     }
@@ -282,10 +302,10 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
         return request;
     }
 
-    private async Task<KestrelSession> SignInAsync()
+    private async Task<KestrelSession> SignInAsync(HttpClient? http = null)
     {
-        var account = await new IdentityScenario(_postgres, _accounts).CreateConfirmedAccountAsync();
-        var session = new KestrelSession(_http ?? throw new InvalidOperationException("Servidor não iniciado."), account.UserId);
+        var account = await new IdentityScenario(_connectionString, _accounts).CreateConfirmedAccountAsync();
+        var session = new KestrelSession(http ?? _http ?? throw new InvalidOperationException("Servidor não iniciado."), account.UserId);
         using (var csrf = await session.SendAsync(new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/csrf")))
         {
             Assert.Equal(HttpStatusCode.NoContent, csrf.StatusCode);

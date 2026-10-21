@@ -42,8 +42,9 @@ transportar a confirmação; nenhum adaptador, catálogo específico ou tela foi
 com respostas simuladas comprovam o fallback atual, não adoção ou mensagens por campo. Um futuro
 consumidor terá entrega própria e exigirá confirmação exata/allowlist antes de interpretar os códigos.
 
-Kestrel/PostgreSQL, Caddy com upstream sintético e cliente com respostas simuladas são camadas distintas;
-não descrevê-las como uma jornada única Caddy → backend → PostgreSQL ou homologação de produção.
+A matriz inicial separou Kestrel/PostgreSQL, Caddy com upstream sintético e cliente com respostas
+simuladas. A consolidação abaixo acrescenta uma prova integrada Caddy → Kestrel → PostgreSQL em ambiente
+sintético. Nenhuma das camadas comprova homologação de produção ou adesão real da SPA.
 
 ## Comandos, resultados e falhas investigadas
 
@@ -60,6 +61,42 @@ incorreta; não é apresentada como aprovação. A suíte completa deve ser exec
 integração da base. Nenhum teste/scanner foi reduzido, ignorado ou posto em quarentena. Revisão independente
 não encontrou P1/P2 no protocolo e pediu repetir 411/413 em Kestrel; esses quatro casos foram acrescentados
 com a evidência acima. Os nove checks obrigatórios continuam condição de integração no SHA revisado.
+
+## Consolidação dos PRs #163 e #166
+
+O responsável autorizou explicitamente consolidar a #154 e integrar após os nove checks, sem Docker,
+builds ou testes pesados no Mac de 16 GB. O #163 conserva o único helper de produção
+`UploadValidationFormat.cs`. Não incorporar `PhotoValidationProblems.cs` nem reaplicar os dois patches.
+A referência do #166 comparada é `5e6349e7721802183b98db1001b1a62a8f4ba00d`; as seguintes provas e
+explicações foram absorvidas, sem alegar identidade byte a byte de todas as alternativas:
+
+| Contribuição do #166 | Destino e garantia preservada |
+| --- | --- |
+| Helper e dois pontos de recusa | Já cobertos pelo helper canônico e pelos testes iniciais do #163; comportamento ordinal/OWS/cardinalidade, fallback e Vary equivalentes por revisão |
+| OpenAPI e tipos opcionais | Contrato canônico preservado; teste adicional em `ProblemOpenApiTests` verifica documento gerado/publicado, seletor opcional e confirmação somente em 400; explicação pública em `docs/api/README.md` |
+| Caddy real → backend real | `KestrelPhotoProxyTests`: mesma imagem/digest e Caddyfile, apenas endereço/certificados sintéticos; autenticação e recusas reais, confirmação/Vary/cache/headers e PostgreSQL |
+| Seletores e idiomas no HTTP real | `KestrelPhotoValidationTests`: ambos os campos e idiomas, OWS, listas/duplicatas e seletores inválidos, precedência/limites, tamanhos aceitos |
+| Corpo lento e outras rotas | Matriz Kestrel existente ampliada com/sem opt-in, sem relaxar limites, prazos ou asserções |
+| Envelopes, chaves e replay entre formatos | `PhotoValidationCompatibilityTests`: mantém literais, campos, cardinalidade e ausência de efeitos; compara envelopes e comprova idempotência entre representações |
+| Cliente antigo/novo, rollback e POST aceito | `photo-validation-compatibility.test.tsx` e fixture histórica dentro de frontend/; parser/erro/classificador/alerta reais com transporte explicitamente simulado; sem retry ou troca de chave |
+| Aceite do ADR e documentação | ADR-0034 e índice já aceitos no #163; README de API, documentação de Problem Details e este relatório conservam protocolo, limites e reversão, sem segundo plano/relatório conflitante |
+
+O helper de ausência de efeitos importado foi fortalecido: cada caso usa banco PostgreSQL exclusivo e
+conta uploads, guards, eventos e entregas diretamente. Não usa INNER JOIN com uploads para provar
+inexistência de eventos, pois isso esconderia eventos/entregas órfãos após a recusa. Os testes Kestrel
+passaram a usar banco exclusivo por caso pelo mesmo motivo. A prova anterior do #163 com contagem direta
+permanece, assim como a precedência 503 disabled contra corpo vazio, contas Suspended/DeletionPending,
+autenticação/CSRF concorrendo com as novas recusas e compilação contra headers de `paths` gerados.
+
+Antes desta consolidação, os nove checks do #163 passaram em `25b537a` ([CI 39667242692](https://github.com/BipoXDXD/duora/actions/runs/39667242692)):
+2.885 backend, 812 frontend e 549 E2E na repetição sem flaky reportado. A primeira rodada E2E teve um teste
+preexistente de perfil móvel aprovado no retry; esse histórico não foi ocultado nem relaxado.
+
+**A revisão consolidada exige novo CI no novo SHA.** Nenhum teste/build/Docker novo foi executado no Mac
+para esta consolidação; somente leitura, edição e verificação de diff. Os resultados do #166 não são
+apresentados como execução desta nova combinação. Revisão independente e nove gates remotos devem ser
+registrados no PR final antes de integração. Não fechar #154 nem declarar #166 absorvido na main antes da
+verificação final e do merge único. Não houve mudança adicional de produto, dependência ou política.
 
 ## Arquivos, operação e reversão
 

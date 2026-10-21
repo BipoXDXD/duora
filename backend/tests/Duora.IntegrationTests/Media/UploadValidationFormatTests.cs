@@ -181,6 +181,7 @@ public sealed class UploadValidationFormatTests(PostgresFixture postgres) : IAsy
         var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
         Assert.Equal("The request contains invalid fields.", (string?)body["title"]);
         Assert.Equal("urn:duora:problem:validation-failed", (string?)body["type"]);
+        Assert.False(body.ContainsKey("detail"));
         var errors = body["errors"]!.AsObject();
         Assert.Equal([field], errors.Select(pair => pair.Key));
         Assert.Equal(value, Assert.Single(errors[field]!.AsArray())!.GetValue<string>());
