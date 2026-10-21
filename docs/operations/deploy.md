@@ -695,3 +695,17 @@ Os testes locais usam o adaptador pickup: `Delivered` significa que o arquivo fo
 um provedor SMTP ou pela caixa do titular. Eles demonstram composição, atomicidade, retry e deduplicação desse
 adaptador. Não demonstram entrega SMTP, tratamento de bounces ou deduplicação do provedor após envio com perda
 de confirmação. A homologação externa permanece pendente na #68.
+
+### Destino privado do web em redes compartilhadas
+
+O serviço web anuncia `duora-web` apenas na rede `edge` do Compose. Caddy, readiness, smoke e coleta
+operacional usam esse nome. O alias genérico `web` pode existir também na rede compartilhada do Coolify, inclusive
+com IPv6, e encaminhar a sonda ou o proxy para outro projeto. A regressão `test_caddy_upstream_isolation.py` exercita
+as duas redes com um serviço estrangeiro chamado `web`, sem usar dados ou serviços de produção.
+
+A publicação deve manter sincronizados a imagem edge, os scripts operacionais e o Compose sob revisão humana.
+Anuncie o alias privado no Compose antes de ativar edge ou sondas que dependam dele; preserve esse alias no
+rollback enquanto houver consumidores dele. Reconcilie qualquer estado de release pendente antes de uma nova
+tentativa, sem apagar o estado para forçar a execução. A regressão não realiza essas operações, não homologa
+SMTP real nem o rollout/rollback entre versões da outbox. Consumidor compatível deve anteceder o produtor;
+confirme o processamento das entregas pendentes antes de reverter o worker.
