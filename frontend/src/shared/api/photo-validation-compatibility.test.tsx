@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import observations from '../../../../docs/testing/evidence/adr-0034/observations.json'
+import observations from '@/test/fixtures/photo-validation-legacy.json'
 import { renderWithI18n } from '@/test/render'
 import { RequestFailureAlert } from '@/shared/ui/alert'
 import { createApiClient, type ApiClientDependencies } from './api-client'

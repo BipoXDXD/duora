@@ -50,6 +50,7 @@ conforme o ADR, preservando o formato legado, limites, segurança e ativação. 
 - Create: `backend/tests/Duora.IntegrationTests/Media/KestrelPhotoValidationTests.cs` — transporte real e limites.
 - Create: `backend/tests/Duora.IntegrationTests/Media/KestrelPhotoProxyTests.cs` — configuração Caddy e transporte same-origin.
 - Create: `frontend/src/shared/api/photo-validation-compatibility.test.tsx` — cliente/parser/alerta reais com transporte simulado.
+- Create: `frontend/src/test/fixtures/photo-validation-legacy.json` — capturas históricas identificadas, locais ao contexto frontend.
 - Modify: `backend/tests/Duora.IntegrationTests/Http/ProblemOpenApiTests.cs` — parâmetro opcional e headers só no POST/400.
 - Generate: `docs/api/openapi.json`, `frontend/src/shared/api/schema.d.ts`.
 - Document: ADR-0034/índice (decisão agora autorizada), docs/api/README.md, docs/testing/problem-details.md,
