@@ -1,8 +1,8 @@
 import type { components } from '@/shared/api/schema'
 import type { PlainMessageKey } from '@/shared/i18n/catalog'
 
-/** UF em ISO 3166-2:BR, na forma canônica (`BR-SP`): o enum do contrato, gerado da spec. */
-export type RegionCode = NonNullable<components['schemas']['OwnProfileResponse']['regionCode']>
+/** Subdivisão de primeiro nível; o catálogo inicial preserva somente as 27 UFs. */
+export type RegionCode = NonNullable<components['schemas']['OwnProfileResponse']['subdivisionCode']>
 
 /**
  * Nome de cada UF no catálogo. O `Record` sobre a união gerada obriga uma entrada por código: se o contrato ganhar ou

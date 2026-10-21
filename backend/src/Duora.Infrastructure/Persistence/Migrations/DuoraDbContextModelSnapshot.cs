@@ -511,16 +511,20 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("version");
 
-                    b.HasKey("Id").HasName("pk_selfie_verifications");
+                    b.HasKey("Id")
+                        .HasName("pk_selfie_verifications");
 
-                    b.HasIndex("ProviderReference").HasDatabaseName("ux_selfie_provider_reference")
-                        .IsUnique();
-
-                    b.HasIndex("UserId").HasDatabaseName("ux_selfie_open_user")
+                    b.HasIndex("ProviderReference")
                         .IsUnique()
+                        .HasDatabaseName("ux_selfie_provider_reference");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_selfie_open_user")
                         .HasFilter("state IN ('Pending','Capturing','Processing')");
 
-                    b.HasIndex("UserId", "RequestedAt").HasDatabaseName("ix_selfie_user_requested_at");
+                    b.HasIndex("UserId", "RequestedAt")
+                        .HasDatabaseName("ix_selfie_user_requested_at");
 
                     b.ToTable("selfie_verifications", "identity", t =>
                         {
@@ -991,6 +995,24 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.CountryRecord", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasColumnType("text")
+                        .HasColumnName("code");
+
+                    b.HasKey("Code")
+                        .HasName("pk_countries");
+
+                    b.ToTable("countries", "profiles");
+
+                    b.HasData(
+                        new
+                        {
+                            Code = "BR"
+                        });
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Profiles.PreferenceRecord", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -1028,6 +1050,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("bio");
 
+                    b.Property<string>("CountryCode")
+                        .HasColumnType("text")
+                        .HasColumnName("country_code");
+
                     b.Property<string>("DisplayName")
                         .HasColumnType("text")
                         .HasColumnName("display_name");
@@ -1035,6 +1061,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.Property<string>("RegionCode")
                         .HasColumnType("text")
                         .HasColumnName("region_code");
+
+                    b.Property<string>("SubdivisionCode")
+                        .HasColumnType("text")
+                        .HasColumnName("subdivision_code");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1047,15 +1077,177 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.HasKey("UserId")
                         .HasName("pk_profiles");
 
+                    b.HasIndex("CountryCode", "SubdivisionCode")
+                        .HasDatabaseName("ix_profiles_location");
+
                     b.ToTable("profiles", "profiles", t =>
                         {
                             t.HasCheckConstraint("ck_profiles_bio", "char_length(bio) BETWEEN 1 AND 500");
 
                             t.HasCheckConstraint("ck_profiles_display_name", "char_length(display_name) BETWEEN 1 AND 40");
 
+                            t.HasCheckConstraint("ck_profiles_location_country", "subdivision_code IS NULL OR country_code IS NOT NULL");
+
                             t.HasCheckConstraint("ck_profiles_region_code", "region_code IN ('BR-AC', 'BR-AL', 'BR-AM', 'BR-AP', 'BR-BA', 'BR-CE', 'BR-DF', 'BR-ES', 'BR-GO', 'BR-MA', 'BR-MG', 'BR-MS', 'BR-MT', 'BR-PA', 'BR-PB', 'BR-PE', 'BR-PI', 'BR-PR', 'BR-RJ', 'BR-RN', 'BR-RO', 'BR-RR', 'BR-RS', 'BR-SC', 'BR-SE', 'BR-SP', 'BR-TO')");
 
                             t.HasCheckConstraint("ck_profiles_version", "version >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.SubdivisionRecord", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasColumnType("text")
+                        .HasColumnName("code");
+
+                    b.Property<string>("CountryCode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("country_code");
+
+                    b.HasKey("Code")
+                        .HasName("pk_subdivisions");
+
+                    b.HasAlternateKey("CountryCode", "Code")
+                        .HasName("ak_subdivisions_country_code");
+
+                    b.ToTable("subdivisions", "profiles");
+
+                    b.HasData(
+                        new
+                        {
+                            Code = "BR-AC",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-AL",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-AM",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-AP",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-BA",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-CE",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-DF",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-ES",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-GO",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-MA",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-MG",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-MS",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-MT",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-PA",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-PB",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-PE",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-PI",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-PR",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-RJ",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-RN",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-RO",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-RR",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-RS",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-SC",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-SE",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-SP",
+                            CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "BR-TO",
+                            CountryCode = "BR"
                         });
                 });
 
@@ -1342,7 +1534,8 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired().HasConstraintName("fk_selfie_verifications_users");
+                        .IsRequired()
+                        .HasConstraintName("fk_selfie_verifications_users");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Media.MediaAsset", b =>
@@ -1424,12 +1617,35 @@ namespace Duora.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Duora.Infrastructure.Profiles.ProfileRecord", b =>
                 {
+                    b.HasOne("Duora.Infrastructure.Profiles.CountryRecord", null)
+                        .WithMany()
+                        .HasForeignKey("CountryCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_profiles_countries");
+
                     b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
                         .WithOne()
                         .HasForeignKey("Duora.Infrastructure.Profiles.ProfileRecord", "UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_profiles_users");
+
+                    b.HasOne("Duora.Infrastructure.Profiles.SubdivisionRecord", null)
+                        .WithMany()
+                        .HasForeignKey("CountryCode", "SubdivisionCode")
+                        .HasPrincipalKey("CountryCode", "Code")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_profiles_subdivisions");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.SubdivisionRecord", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Profiles.CountryRecord", null)
+                        .WithMany()
+                        .HasForeignKey("CountryCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_subdivisions_countries");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Safety.StoredBlock", b =>

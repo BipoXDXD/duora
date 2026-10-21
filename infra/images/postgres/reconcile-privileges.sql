@@ -33,3 +33,15 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Reference catalog: maintained by reviewed migrations, never by the runtime role.
+DO $$
+BEGIN
+  IF to_regclass('profiles.countries') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON profiles.countries FROM duora_app;
+  END IF;
+  IF to_regclass('profiles.subdivisions') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON profiles.subdivisions FROM duora_app;
+  END IF;
+END
+$$;

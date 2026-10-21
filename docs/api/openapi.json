@@ -3298,10 +3298,58 @@
           },
           "version": {
             "type": "string"
+          },
+          "countryCode": {
+            "enum": [
+              "BR",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode."
+          },
+          "subdivisionCode": {
+            "enum": [
+              "BR-AC",
+              "BR-AL",
+              "BR-AM",
+              "BR-AP",
+              "BR-BA",
+              "BR-CE",
+              "BR-DF",
+              "BR-ES",
+              "BR-GO",
+              "BR-MA",
+              "BR-MG",
+              "BR-MS",
+              "BR-MT",
+              "BR-PA",
+              "BR-PB",
+              "BR-PE",
+              "BR-PI",
+              "BR-PR",
+              "BR-RJ",
+              "BR-RN",
+              "BR-RO",
+              "BR-RR",
+              "BR-RS",
+              "BR-SC",
+              "BR-SE",
+              "BR-SP",
+              "BR-TO",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request."
           }
         },
         "additionalProperties": false,
-        "description": "Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec\n8.1); `\"0\"` quando o perfil ainda não foi salvo. Nome, descrição e região vêm `null` enquanto não\npreenchidos. `RegionCode` é a UF em ISO 3166-2:BR (`BR-SP`)."
+        "description": "Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec\n8.1); `\"0\"` quando o perfil ainda não foi salvo. Nome, descrição e região vêm `null` enquanto não\npreenchidos. CountryCode e SubdivisionCode são opcionais. RegionCode preserva a projeção legada de UF,\nou null para localização não informada ou somente país."
       },
       "ParticipationResponse": {
         "required": [
@@ -4282,6 +4330,54 @@
               "string"
             ],
             "description": "UF em ISO 3166-2:BR, na forma canônica; null quando não informada."
+          },
+          "countryCode": {
+            "enum": [
+              "BR",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode."
+          },
+          "subdivisionCode": {
+            "enum": [
+              "BR-AC",
+              "BR-AL",
+              "BR-AM",
+              "BR-AP",
+              "BR-BA",
+              "BR-CE",
+              "BR-DF",
+              "BR-ES",
+              "BR-GO",
+              "BR-MA",
+              "BR-MG",
+              "BR-MS",
+              "BR-MT",
+              "BR-PA",
+              "BR-PB",
+              "BR-PE",
+              "BR-PI",
+              "BR-PR",
+              "BR-RJ",
+              "BR-RN",
+              "BR-RO",
+              "BR-RR",
+              "BR-RS",
+              "BR-SC",
+              "BR-SE",
+              "BR-SP",
+              "BR-TO",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request."
           }
         },
         "additionalProperties": false,
