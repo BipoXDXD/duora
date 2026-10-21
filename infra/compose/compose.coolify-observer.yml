@@ -11,5 +11,19 @@ services:
     restart: unless-stopped
     mem_limit: 16m
     pids_limit: 16
+    # Saúde real do backend e do Caddy, sem portas, volumes ou credenciais.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -q -T 5 -O /dev/null http://duora-web:8080/health/ready && wget -q -T 5 --header='Host: meetduora.com' -O /dev/null http://duora-edge-1/"
+      interval: 15s
+      timeout: 12s
+      start_period: 30s
+      retries: 3
+    networks: [duora_edge]
     labels:
       traefik.enable: 'false'
+networks:
+  duora_edge:
+    external: true
+    name: duora_edge
