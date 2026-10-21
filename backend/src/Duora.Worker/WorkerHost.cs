@@ -31,6 +31,7 @@ internal static class WorkerHost
         builder.Services.AddMediaProcessing();
         builder.Services.AddParticipation();
         builder.Services.AddHostedService<ParticipationJobService>();
+        builder.Services.AddHostedService<RetentionJobService>();
         AddPhotoSanitizer(builder.Services);
         builder.Services.AddHostedService<HeartbeatService>();
         builder.Services.AddHostedService<TransactionalEmailService>();
