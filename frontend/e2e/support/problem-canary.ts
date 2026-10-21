@@ -12,9 +12,14 @@ export interface Failure {
   readonly code: string
 }
 
-// Each test uses a fresh page and submits one failure before checking the alert.
-// The receipt prevents an unrelated generic error (for example a wrong URL) satisfying the test.
-const deliveredProblems = new WeakMap<Page, number>()
+export interface ProblemReceipt extends Failure {
+  readonly method: string
+  readonly path: string
+}
+
+// Fresh pages isolate response histories. The single-stage assertion below still requires one failure;
+// exact histories also prevent unrelated generic errors satisfying a multi-stage scenario.
+const deliveredProblems = new WeakMap<Page, ProblemReceipt[]>()
 
 export async function fulfillProblem(route: Route, failure: Failure): Promise<void> {
   await route.fulfill({
@@ -31,15 +36,29 @@ export async function fulfillProblem(route: Route, failure: Failure): Promise<vo
       traceId: 'synthetic-canary',
     }),
   })
-  const page = route.request().frame().page()
-  deliveredProblems.set(page, (deliveredProblems.get(page) ?? 0) + 1)
+  const request = route.request()
+  const page = request.frame().page()
+  deliveredProblems.set(page, [
+    ...(deliveredProblems.get(page) ?? []),
+    { ...failure, method: request.method(), path: new URL(request.url()).pathname },
+  ])
+}
+
+/** Exact ordered history for multi-stage failures; missing, extra or wrong responses must fail. */
+export async function expectDeliveredProblems(page: Page, expected: readonly ProblemReceipt[]): Promise<void> {
+  await expect.poll(() => deliveredProblems.get(page) ?? []).toEqual(expected)
 }
 
 export async function expectSafeError(page: Page, locale: Locale, message: string = GENERIC[locale]): Promise<void> {
   await expect(page.getByRole('alert')).toContainText(message)
   await expect
-    .poll(() => deliveredProblems.get(page) ?? 0, { message: 'Expected one delivered canary response' })
+    .poll(() => deliveredProblems.get(page)?.length ?? 0, { message: 'Expected one delivered canary response' })
     .toBe(1)
+  await expectSafeDocument(page, locale)
+}
+
+/** Shared DOM and axe checks, also used when conflict and reread failure produce two alerts. */
+export async function expectSafeDocument(page: Page, locale: Locale): Promise<void> {
   await expect(page.locator('html')).toHaveAttribute('lang', locale)
   await expect(page.locator('body')).not.toContainText('CANARY')
   expect(await page.content()).not.toContain('CANARY')
@@ -75,11 +94,13 @@ export async function editableResource<T extends object>(
   page: Page,
   path: string,
   value: T,
-): Promise<{ value: T; failure: Failure | null }> {
-  const resource = { value, failure: null as Failure | null }
+): Promise<{ value: T; failure: Failure | null; readFailure: Failure | null }> {
+  const resource = { value, failure: null as Failure | null, readFailure: null as Failure | null }
   await page.route(`**/api/v1${path}`, async (route) => {
     if (route.request().method() === 'PUT' && resource.failure !== null) {
       await fulfillProblem(route, resource.failure)
+    } else if (route.request().method() === 'GET' && resource.readFailure !== null) {
+      await fulfillProblem(route, resource.readFailure)
     } else {
       await route.fulfill({ json: resource.value })
     }

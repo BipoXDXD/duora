@@ -52,6 +52,11 @@ apagasse o rascunho que hoje deve ser preservado.
 Arquivos: `frontend/e2e/problem-settings.spec.ts`, `frontend/e2e/problem-mutations.spec.ts` e utilitário
 `frontend/e2e/support/problem-canary.ts`.
 
+O acompanhamento [#150](https://github.com/BipoXDXD/duora/issues/150) acrescenta
+[seis testes de componente dos callbacks da selfie](selfie-callbacks.md), com SDK/HTTP simulados.
+Eles cobrem conclusão com erro, cancelamento e erro do SDK; não alteram o total de 174 execuções E2E da
+#142 nem substituem homologação real.
+
 ## Limites e caminhos não aplicáveis
 
 - A matriz contém respostas **sintéticas**. Não prova persistência PostgreSQL, aplicação real de cota,
@@ -89,3 +94,11 @@ foram restauradas; o reforço acrescenta somente asserções nos testes.
 Os nove gates do repositório continuam exigidos. O relatório do PR registra comandos/resultados executados,
 commit e CI. Nenhum workflow ou scanner é reduzido. A reversão consiste em reverter os arquivos de teste e
 este inventário; não há migração, flag ou implantação.
+
+## Acompanhamento de falhas na revisão — #151
+
+A [matriz de releituras após conflito](preference-rereads.md) registra 24 novas execuções E2E para
+preferências, idioma, fuso e região: PUT 412/PRECONDITION_FAILED, revisão GET
+503/TEMPORARILY_UNAVAILABLE, recuperação explícita e novo envio com If-Match atualizado. Preserva as
+diferenças de bloqueio/rascunho de cada formulário e reforça o teste regional 412 em seu estado de erro.
+Os 174 E2E da #142 e o canário regional 429 permanecem, sem duplicação ou mudança funcional.
