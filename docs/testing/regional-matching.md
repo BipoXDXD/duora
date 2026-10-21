@@ -53,3 +53,33 @@ na preferência. O simulador oferece capacidade false por padrão, como o servid
 exclusivas dos testes. As coberturas anteriores de 412/duas abas e pareamento V3 continuam obrigatórias.
 
 Sem ensaio real IPinfo/MMDB: leitor/atualizador e operação ainda não foram implementados/autorizados nesta entrega.
+
+
+## Leitor e atualização inativos — etapas 7 e 8
+
+A biblioteca aprovada lê MMDB construído pelos próprios testes com redes reservadas de documentação. Não há banco
+real IPinfo nem requisição ao fornecedor. PostgreSQL continua real e descartável; transporte usa HttpMessageHandler sintético.
+
+| Contrato | Testes |
+|---|---|
+| 72h/168h em segundos, data ausente/futura, agenda 06h e retries relativos | DatabaseAgePolicyTests, CountryDatabaseScheduleTests |
+| IPv4/IPv6, unknown, corrupção, produto/schema, epoch, refresh atrasado e leituras concorrentes | CountryDatabaseReaderTests |
+| Dois claims, lease vencido, renovação, Retry-After, reinício e metadados originais | CountryDatabaseUpdateTests |
+| TLS/allowlist, segredo não repassado, redirects limitados, 401/403/429/5xx, bytes, timeout, disco | CountryDatabaseDownloadTests |
+| Artefato completo antes de ponteiro, homologação do primeiro hash, truncamento e worker atrasado | CountryDatabasePipelineTests |
+| Renovação durante I/O sem locks SQL, perda de posse e executor desligado | CountryDatabaseWorkerTests |
+
+Os testes de migração/privilégios, arquitetura e contratos HTTP existentes continuam obrigatórios, assim como todas
+as suítes do CI. A role app só insere/lê manifestos; os novos estados pertencem a Operations. Os executores antigos
+não podem capturar o novo kind. O relatório do PR diferencia resultados locais anteriores do resultado do head no CI.
+
+Não executar a suíte Docker em paralelo num Mac de 16GB. Para esta entrega, após o travamento relatado pelo responsável,
+validação final ocorre no CI remoto; comandos anteriores e resultados são registrados sem atribuí-los ao head posterior.
+
+```sh
+dotnet test --project backend/tests/Duora.UnitTests -- --filter-class '*Geolocation.*'
+dotnet test --project backend/tests/Duora.IntegrationTests -- --filter-class '*Geolocation.*'
+```
+
+Homologação do arquivo real, relógios entre hosts/restarts, download/autenticação reais, armazenamento/ACLs, alertas,
+retenção e recuperação operacional continuam pendentes. Testes sintéticos não demonstram precisão nem capacidade operacional.

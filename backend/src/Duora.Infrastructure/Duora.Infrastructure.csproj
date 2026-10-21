@@ -10,6 +10,9 @@
     <!-- Pacote NuGet, não o framework compartilhado: traz IdentityDbContext, UserManager e PasswordHasher. -->
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <!-- JIT reflection reader: omit only the vendor's optional AOT generator, which emits an unmarked
+         foreign-namespace registration. Keep .NET analyzers and the architecture gate unchanged. -->
+    <PackageReference Include="MaxMind.Db" ExcludeAssets="analyzers" />
     <PackageReference Include="AWSSDK.Rekognition" />
     <PackageReference Include="AWSSDK.SecurityToken" />
     <PackageReference Include="AWSSDK.S3" />
@@ -25,4 +28,15 @@
     <!-- Os testes de integração aplicam as migrations com o DbContext interno, como fará o job migrador. -->
     <InternalsVisibleTo Include="Duora.IntegrationTests" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Geolocation/Licenses/MaxMind.Db/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          TargetPath="licenses/MaxMind.Db/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <!-- ResolvePackageAssets can still supply this transitive generator despite ExcludeAssets.
+       Remove only this optional vendor source generator from the compiler input, never .NET analyzers. -->
+  <Target Name="UseMaxMindJitReader" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Analyzer Remove="@(Analyzer)" Condition="'%(Analyzer.Filename)' == 'MaxMind.Db.SourceGenerator'" />
+    </ItemGroup>
+  </Target>
 </Project>

@@ -761,6 +761,9 @@ fontes:
       - "https://docs.github.com/en/code-security/dependabot"
       - "https://trivy.dev/latest/docs/"
       - "https://github.com/gitleaks/gitleaks"
+      - "https://www.nuget.org/packages/MaxMind.Db/5.2.0"
+      - "https://github.com/maxmind/MaxMind-DB-Reader-dotnet/blob/v5.2.0/LICENSE"
+      - "https://maxmind.github.io/MaxMind-DB/"
     versao: "GitHub Docs, Trivy (latest) e Gitleaks (README)"
     consultado: 2026-10-15
     download: "parcial"
@@ -987,3 +990,9 @@ consultas:
         uso: "Transação explícita no cadastro (conta, aceites e outbox no mesmo commit) e conclusões condicionais na fila"
       - id: D-SEC-03
         uso: "Renovar o id de sessão no login (fixation), expiração ociosa e absoluta, cookie com prefixo __Host-"
+
+  - data: 2026-10-21
+    entrega: "Issue 108, etapas 7–8: leitor MMDB e atualização inativos"
+    fichas:
+      - id: D-CI-02
+        uso: "MaxMind.Db 5.2.0 Apache-2.0 aprovado pelo responsável; formato MMDB e licença de software separados dos dados CC BY-SA 4.0"

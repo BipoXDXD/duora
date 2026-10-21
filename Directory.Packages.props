@@ -17,6 +17,7 @@
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.13" />
+    <PackageVersion Include="MaxMind.Db" Version="5.2.0" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- Decoder de fotos, só no Duora.Worker (ADR-0025). Six Labors Split License: exceção presa à versão em
          scripts/supply-chain/license-policy.json; atualizar exige reler o LICENSE da versão nova. -->

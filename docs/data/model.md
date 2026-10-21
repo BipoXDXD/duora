@@ -982,6 +982,19 @@ Protocolo e regras em [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases
   `autovacuum_vacuum_threshold = 200`, **hipótese** a medir no ensaio de carga).
 - **Classe:** P1.
 
+### ops.country_database_versions e ops.country_database_state
+
+Dono: Operations; classe P1, sem IPs consultados ou dados de participantes (ADR-0033, etapas 7–8).
+`country_database_versions`: SHA-256 hexadecimal PK e manifesto JSONB de até 8192 bytes, com hash correspondente.
+Manifesto registra produto/schema/licença/origem, tamanho, epoch de construção, primeiro download e validação.
+A role `duora_app` tem somente SELECT/INSERT: versões são imutáveis. Retenção da etapa 9 exigirá privilégio específico revisado.
+
+`country_database_state`: singleton boolean PK CHECK true, active_sha256 FK para versões, active_fencing_token >= 0,
+first_failure_at, last_attempt_at, last_error_code limitado a 64 caracteres e blocked. Ponteiro e geração são confirmados
+pela posse vigente do job. Ausência de ponteiro é válida e não ativa detector.
+`ops.jobs` admite `country-database-update` com índice parcial único por kind; agenda recorrente singleton,
+claims exclusivos e até quatro tentativas por ciclo. Nenhuma linha é semeada pela migração. Jobs anteriores mantêm seus consumidores.
+
 <a id="t-ops-idempotency-records"></a>
 
 ### ops.idempotency_records
