@@ -80,6 +80,13 @@ public sealed record UnlikelyRoutesSnapshot(
         }).ToImmutableList();
         var privateStates = PrivateStates.ToImmutableDictionary(item => new ParticipantId(item.Participant),
             item => new RoutesPrivateState([.. pinnedContent.ClueSets[item.ClueSetIndex]]));
+        // Four acknowledgements; each route attempt permits its choices and at most two adjustment actions.
+        var maxActions = 4 + ((pinnedContent.Stops.Count + 2) * (Control.MaxRevisions + 1));
+        if (Actions.Count > maxActions || Actions.Select(item => item.ResultingVersion).Distinct().Count() != Actions.Count)
+        {
+            throw new ArgumentException("Invalid action log size or duplicate resulting version.");
+        }
+
         var actions = Actions.ToImmutableDictionary(item => new ActionId(item.ActionId), item =>
         {
             if (!participants.Contains(new(item.Actor)) || item.ExpectedVersion < 1
