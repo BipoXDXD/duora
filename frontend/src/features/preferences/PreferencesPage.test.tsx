@@ -19,6 +19,9 @@ function useBackend() {
     http.get(`${API}/me/time-zone`, () => HttpResponse.json({ timeZone: null, version: '0' })),
     http.get(`${API}/me/time-zone/options`, () => HttpResponse.json({ timeZones: ['UTC'] })),
     http.get(`${API}/me`, () => HttpResponse.json(me)),
+    http.get(`${API}/me/regional-preferences`, () =>
+      HttpResponse.json({ mode: 'pending', countryCodes: [], version: '0' }),
+    ),
     http.get(`${API}/me/preferences`, () =>
       HttpResponse.json({
         communicationLanguages: stored.languages,

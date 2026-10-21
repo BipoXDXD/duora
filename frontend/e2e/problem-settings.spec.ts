@@ -14,6 +14,9 @@ async function settings(page: Page, locale: Locale) {
   await page.route('**/api/v1/me/time-zone/options', (route) =>
     route.fulfill({ json: { timeZones: ['UTC', 'America/New_York', 'America/Sao_Paulo'] } }),
   )
+  await page.route('**/api/v1/me/regional-preferences', (route) =>
+    route.fulfill({ json: { mode: 'pending', countryCodes: [], version: '0' } }),
+  )
   await page.goto('/account/preferences')
   return { preferences, display, zone }
 }
