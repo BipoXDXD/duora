@@ -30,9 +30,9 @@ public static class BrowserScenarioSeed
                 """, ct, user, now, email, password, Guid.NewGuid().ToString(), Guid.NewGuid().ToString());
             await Execute(connection, "insert into identity.user_roles(user_id,role_id) select $1,id from identity.roles where normalized_name='PARTICIPANT'", ct, user);
             await Execute(connection, """
-                insert into identity.age_verifications(id,user_id,state,policy_version,provider,request_nonce,requested_at,decided_at,version)
-                values($1,$2,'VerifiedAdult','test','Fake',$3,$4,$4,1)
-                """, ct, Guid.NewGuid(), user, Guid.NewGuid().ToString("N"), now);
+                insert into identity.selfie_verifications(id,user_id,state,policy_version,requested_at,expires_at,completed_at,version)
+                values($1,$2,'Passed','test',$3,$3,$3,1)
+                """, ct, Guid.NewGuid(), user, now);
             if (declarePreferences)
             {
                 await Execute(connection, "insert into profiles.preferences(user_id,allow_different_display_locales,version,updated_at) values($1,true,1,$2)", ct, user, now);

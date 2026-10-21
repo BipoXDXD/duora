@@ -196,14 +196,14 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
     }
 
     private Task<long> CountTokensAsync(Guid userId) =>
-        Scenario.ScalarAsync("select count(*) from identity.user_tokens where user_id = $1", userId);
+        Scenario.ScalarAsync("select count(*) from identity.user_tokens where user_id = $1 and login_provider <> 'Duora.RegistrationBudget'", userId);
 
     private async Task<List<string>> TokenValuesAsync(Guid userId)
     {
         await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
-            "select coalesce(value, '') from identity.user_tokens where user_id = $1",
+            "select coalesce(value, '') from identity.user_tokens where user_id = $1 and login_provider <> 'Duora.RegistrationBudget'",
             connection);
         command.Parameters.AddWithValue(userId);
         var values = new List<string>();

@@ -25,8 +25,8 @@ internal static class ParticipationSql
     {
         await using var command = Command(connection, """
             select exists(select 1 from identity.users u where u.id=$1 and u.status='Active'
-              and (select v.state from identity.age_verifications v where v.user_id=u.id order by v.seq desc limit 1)='VerifiedAdult'
-              and not exists(select 1 from identity.age_verifications v where v.user_id=u.id and v.minor_suspected_at is not null))
+              and u.email_confirmed
+              and exists(select 1 from identity.selfie_verifications v where v.user_id=u.id and v.state='Passed'))
             """, userId);
         return (bool)(await command.ExecuteScalarAsync(ct))!;
     }
@@ -39,7 +39,7 @@ internal static class ParticipationSql
             insert into safety.user_guards(user_id) select id from unnest($1::uuid[]) id order by id on conflict do nothing
             """, ct, ids);
         await Execute(connection, "select 1 from safety.user_guards where user_id=any($1) order by user_id for update", ct, ids);
-        // Existing age/account writers serialize on users, not user_guards. Hold their rows through
+        // Presence/account writers serialize on users, not user_guards. Hold their rows through
         // eligibility revalidation and reservation too; an account transition cannot slip past that read.
         await Execute(connection, "select 1 from identity.users where id=any($1) order by id for share", ct, ids);
     }

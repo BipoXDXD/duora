@@ -21,6 +21,18 @@ internal sealed class IdentityScenario(string connectionString, DuoraWebFactory 
     {
     }
 
+    public async Task<AccountLink> CreateLegacyConfirmationProofAsync(string email)
+    {
+        var proof = await ReadLatestLinkAsync(email, "EmailConfirmation");
+        await ScalarAsync("delete from identity.user_tokens where user_id = $1 and login_provider = 'Duora.EmailConfirmation' returning 1", proof.UserId);
+        using var scope = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(factory.Services);
+        var users = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<Duora.Infrastructure.Identity.DuoraUser>>(scope.ServiceProvider);
+        var user = await users.FindByIdAsync(proof.UserId.ToString("D"));
+        Assert.NotNull(user);
+        var token = await users.GenerateEmailConfirmationTokenAsync(user);
+        return new AccountLink(proof.UserId, System.Buffers.Text.Base64Url.EncodeToString(System.Text.Encoding.UTF8.GetBytes(token)));
+    }
+
     public const string ValidPassword = "frase longa o bastante";
 
     public const string TermsVersion = "2026-10-01";

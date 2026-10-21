@@ -1,0 +1,36 @@
+[Unit]
+Description=Independent GitHub and host monitor with Slack alerts
+After=network-online.target duora-observer.service
+Wants=network-online.target duora-observer.timer
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=duora-monitor
+Group=duora-monitor
+ExecStart=/usr/bin/python3 /opt/duora-agent/monitor.py
+LoadCredential=github-token:/etc/duora-observer/secrets/github-token
+LoadCredential=slack-webhook:/etc/duora-observer/secrets/slack-webhook
+StateDirectory=duora-monitor
+StateDirectoryMode=0755
+UMask=0022
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+InaccessiblePaths=/etc/duora /var/lib/duora /var/run/docker.sock /etc/duora-agent
+MemoryMax=128M
+CPUQuota=20%
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target

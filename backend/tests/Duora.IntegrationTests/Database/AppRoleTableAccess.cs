@@ -45,6 +45,7 @@ internal static class AppRoleTableAccess
             ["identity.login_sessions"] = AppTableAccess.ReadWrite,
             ["identity.role_claims"] = AppTableAccess.ReadWrite,
             ["identity.roles"] = AppTableAccess.ReadWrite,
+            ["identity.selfie_verifications"] = AppTableAccess.ReadWrite,
             ["identity.user_claims"] = AppTableAccess.ReadWrite,
             ["identity.user_logins"] = AppTableAccess.ReadWrite,
             ["identity.user_roles"] = AppTableAccess.ReadWrite,

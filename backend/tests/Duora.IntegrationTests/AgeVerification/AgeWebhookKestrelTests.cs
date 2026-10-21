@@ -6,10 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Duora.IntegrationTests.AgeVerification;
 
-/// <summary>
-/// Teto de 64 KiB sob o Kestrel real (I1 da revisão do #39): o TestServer não aplica o limite de corpo do servidor, e
-/// o Kestrel recusa o corpo grande com <c>BadHttpRequestException</c>, que não pode virar 500.
-/// </summary>
+/// <summary>Retired callbacks return 410 without parsing provider input, including chunked bodies.</summary>
 public sealed class AgeWebhookKestrelTests : IAsyncDisposable
 {
     private readonly DuoraWebFactory _factory;
@@ -26,7 +23,7 @@ public sealed class AgeWebhookKestrelTests : IAsyncDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task BodyAbove64KiBIsRefusedWith413UnderKestrel(bool chunked)
+    public async Task RetiredWebhookDoesNotParseLargeBodiesUnderKestrel(bool chunked)
     {
         var body = new byte[(64 * 1024) + 1];
         var address = _factory.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()?
@@ -43,6 +40,6 @@ public sealed class AgeWebhookKestrelTests : IAsyncDisposable
 
         using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
 
-        await Identity.ProblemAssert.IsProblemAsync(response, HttpStatusCode.RequestEntityTooLarge, "PAYLOAD_TOO_LARGE");
+        await Identity.ProblemAssert.IsProblemAsync(response, HttpStatusCode.Gone, "AGE_VERIFICATION_RETIRED");
     }
 }

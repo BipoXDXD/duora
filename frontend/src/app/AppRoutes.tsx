@@ -21,6 +21,9 @@ const ChangePasswordPage = routePage(
   async () => (await import('@/features/auth/ChangePasswordPage')).ChangePasswordPage,
 )
 const MfaEnrollmentPage = routePage(async () => (await import('@/features/auth/MfaEnrollmentPage')).MfaEnrollmentPage)
+const SelfieVerificationPage = routePage(
+  async () => (await import('@/features/account/SelfieVerificationPage')).SelfieVerificationPage,
+)
 const AccountPage = routePage(async () => (await import('@/features/account/AccountPage')).AccountPage)
 const ProfilePage = routePage(async () => (await import('@/features/profile/ProfilePage')).ProfilePage)
 const PreferencesPage = routePage(async () => (await import('@/features/preferences/PreferencesPage')).PreferencesPage)
@@ -60,6 +63,7 @@ export function AppRoutes(): React.JSX.Element {
           <Route element={<RequireSession />}>
             <Route path={paths.changePassword} element={<ChangePasswordPage />} />
             <Route path={paths.mfaEnrollment} element={<MfaEnrollmentPage />} />
+            <Route path={paths.selfie} element={<SelfieVerificationPage />} />
             <Route path={paths.account} element={<AccountPage />} />
             <Route path={paths.profile} element={<ProfilePage />} />
             <Route path={paths.preferences} element={<PreferencesPage />} />

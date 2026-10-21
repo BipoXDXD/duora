@@ -13,6 +13,19 @@ public sealed class AccountEmailsTests
     private static readonly Guid UserId = Guid.Parse("0199d700-7f20-7000-8000-000000000001");
     private static readonly EmailAddress Recipient = ParseEmail("ana@example.com");
 
+    [Theory]
+    [InlineData(EmailLanguage.BrazilianPortuguese)]
+    [InlineData(EmailLanguage.English)]
+    public void ConfirmationCodeIsShownInBodyButNeverEmbeddedInLink(EmailLanguage language)
+    {
+        var email = new AccountEmails(Origin, Support).EmailConfirmation(Recipient, UserId, "01234567", language);
+        Assert.Contains("01234567", email.TextBody, StringComparison.Ordinal);
+        var link = email.TextBody.Split((char[])['\n', ' '])
+            .Single(word => word.StartsWith("https://", StringComparison.Ordinal));
+        Assert.DoesNotContain("01234567", link, StringComparison.Ordinal);
+        Assert.Contains("token=code", link, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void EmailConfirmationLinksToTheSpaConfirmationRoute()
     {

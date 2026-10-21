@@ -1,5 +1,8 @@
 # Telas, estados e wireframes
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Especificação de cada tela do mapa da [spec 13.2](../product/spec.md#132-mapa-de-telas-e-estados): propósito,
 conteúdo, ações e estados obrigatórios, com wireframes mobile-first das telas centrais. Navegação e
 recuperação estão em [information-architecture.md](information-architecture.md); tokens, ações e componentes,
@@ -132,7 +135,7 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 
 ## Elegibilidade
 
-- **Propósito:** mostrar a situação da verificação etária e o próximo passo, sem expor o motivo técnico do
+- **Propósito:** mostrar a situação da selfie de presença e o próximo passo, sem expor o motivo técnico do
   fornecedor.
 - **Conteúdo:** etapa atual da entrada (e-mail ✓, elegibilidade, termos, perfil), estado, motivo comunicável.
 - **Ações:** primária conforme o estado ("Iniciar verificação", "Tentar novamente"); neutra "Excluir conta ›"

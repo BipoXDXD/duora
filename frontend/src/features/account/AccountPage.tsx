@@ -24,7 +24,7 @@ const STATUS_LABELS: Readonly<Record<AccountStatus, PlainMessageKey>> = {
 export function AccountPage(): React.JSX.Element {
   const account = useAccount()
   const logout = useLogout()
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   return (
     <Page
@@ -54,6 +54,9 @@ export function AccountPage(): React.JSX.Element {
       </dl>
       <p>
         <TextLink to={paths.profile}>{t('account.editProfile')}</TextLink>
+      </p>
+      <p>
+        <TextLink to={paths.selfie}>{locale === 'pt-BR' ? 'Confirmar presença' : 'Confirm presence'}</TextLink>
       </p>
       <TextLink to={paths.preferences}>{t('preferences.title')}</TextLink>
       <TextLink to={paths.events}>{t('participation.events')}</TextLink>
