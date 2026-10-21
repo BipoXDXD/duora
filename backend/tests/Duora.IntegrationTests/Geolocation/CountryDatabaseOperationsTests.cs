@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Geolocation;
 using Npgsql;
@@ -479,6 +480,28 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         File.Delete(path);
         await File.WriteAllBytesAsync(path, [0, 1], Ct);
         Assert.Equal(CountryDatabaseRecoveryOutcome.ReviewRequired, await recovery.RecoverAsync(Ct));
+    }
+
+    [Theory]
+    [InlineData("Source", "https://invalid.example/country.mmdb")]
+    [InlineData("DatabaseType", "../invalid")]
+    [InlineData("FirstDownloadedAt", "2026-10-21T10:00:00+00:00")]
+    public async Task InvalidManifestNeverLooksHealthy(string field, string value)
+    {
+        await using var h = await Prepared();
+        await using (var q = h.MaintenanceSource.CreateCommand(
+            "update ops.country_database_versions set manifest=jsonb_set(manifest,array[$1],$2::jsonb)"))
+        {
+            q.Parameters.AddWithValue(field);
+            q.Parameters.AddWithValue(JsonSerializer.Serialize(value));
+            await q.ExecuteNonQueryAsync(Ct);
+        }
+        var notices = new Notices();
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
+        await new CountryDatabaseHealthService(store, h.Validator, h.Root, notices, enabled: true).RunOnceAsync(Ct);
+        Assert.Contains(notices.Items, n => n.Code == "Integrity" && n.Severity == 2);
+        Assert.Equal(CountryDatabaseRecoveryOutcome.ReviewRequired,
+            await new CountryDatabaseRecoveryService(store, h.Validator, h.Root, enabled: true).RecoverAsync(Ct));
     }
 
     private async Task<CountryDatabasePipelineTests.Harness> Prepared()
