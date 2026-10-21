@@ -36,6 +36,22 @@ public sealed class RekognitionSelfieProviderTests
         }
     }
 
+    [Fact]
+    public async Task StartRetriesKeepTheAttemptTokenAndNewAttemptsUseAnotherToken()
+    {
+        using var client = new Client(99, 80);
+        var provider = new RekognitionSelfieProvider(client, new SelfieProviderOptions(), TimeProvider.System);
+        var attempt = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        var ct = TestContext.Current.CancellationToken;
+        await provider.StartAsync(attempt, ct);
+        Assert.Equal(attempt.ToString("N"), client.StartRequest!.ClientRequestToken);
+        await provider.StartAsync(attempt, ct);
+        Assert.Equal(attempt.ToString("N"), client.StartRequest!.ClientRequestToken);
+        await provider.StartAsync(other, ct);
+        Assert.Equal(other.ToString("N"), client.StartRequest!.ClientRequestToken);
+    }
+
     private sealed class Client(float liveness, float brightness)
         : AmazonRekognitionClient(new BasicAWSCredentials("synthetic", "synthetic"), RegionEndpoint.USEast1)
     {
