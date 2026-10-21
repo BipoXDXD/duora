@@ -1,0 +1,834 @@
+{
+  "schemaVersion": 1,
+  "reviewStatus": "pending_human_review",
+  "provider": "fonte externa connected workspace",
+  "accountAlias": "fonte externa account connected through OAuth; account numbering not used",
+  "planAtGeneration": "Creator active, explicitly confirmed by the owner in this task on 2026-10-21",
+  "voiceId": "EXAVITQu4vr4xnSDxMaL",
+  "voiceName": "Sarah - Mature, Reassuring, Confident",
+  "voiceCategory": "premade",
+  "isLibraryVoice": false,
+  "modelId": "fonte externa",
+  "reportedCredits": 2431.7568,
+  "generationCalls": 8,
+  "allTakes": [
+    {
+      "key": "constellation-en-US",
+      "take": 1,
+      "generationId": "CBcWnbL6MkmW5v1Tgj1R",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "8gDbKOhchf9V9MDu7EJM",
+      "nodeId": "jnOmLyop5hXDjqyPgHWx",
+      "createdAtUnixMs": 1792562432330,
+      "durationSeconds": 4.08,
+      "price": {
+        "credits": 47.9952,
+        "price_cents": 0.87264,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore everyday choices. You can skip any card.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "constellation-en-US",
+      "take": 2,
+      "generationId": "AWHPqc11nCcn42iZzZZo",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "8gDbKOhchf9V9MDu7EJM",
+      "nodeId": "jnOmLyop5hXDjqyPgHWx",
+      "createdAtUnixMs": 1792562432372,
+      "durationSeconds": 4.08,
+      "price": {
+        "credits": 47.9952,
+        "price_cents": 0.87264,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore everyday choices. You can skip any card.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "constellation-en-US",
+      "take": 3,
+      "generationId": "9GlK060rh6yjNpuJhIDj",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "8gDbKOhchf9V9MDu7EJM",
+      "nodeId": "jnOmLyop5hXDjqyPgHWx",
+      "createdAtUnixMs": 1792562432406,
+      "durationSeconds": 4.16,
+      "price": {
+        "credits": 47.9952,
+        "price_cents": 0.87264,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore everyday choices. You can skip any card.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "constellation-en-US",
+      "take": 4,
+      "generationId": "nG9qr0cFedI2JNif5nGN",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "8gDbKOhchf9V9MDu7EJM",
+      "nodeId": "jnOmLyop5hXDjqyPgHWx",
+      "createdAtUnixMs": 1792562432438,
+      "durationSeconds": 4.16,
+      "price": {
+        "credits": 47.9952,
+        "price_cents": 0.87264,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore everyday choices. You can skip any card.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "constellation-pt-BR",
+      "take": 1,
+      "generationId": "Q8M7IHElWIFVklZyaRpt",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "oANWQrVadt2Qb5hY1R1l",
+      "nodeId": "pINDjcnwd1lPPuC8MkvP",
+      "createdAtUnixMs": 1792562432844,
+      "durationSeconds": 4.48,
+      "price": {
+        "credits": 62.993700000000004,
+        "price_cents": 1.14534,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "constellation-pt-BR",
+      "take": 2,
+      "generationId": "EIsQlkWXJTdpbt5jlsLK",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "oANWQrVadt2Qb5hY1R1l",
+      "nodeId": "pINDjcnwd1lPPuC8MkvP",
+      "createdAtUnixMs": 1792562432880,
+      "durationSeconds": 4.64,
+      "price": {
+        "credits": 62.993700000000004,
+        "price_cents": 1.14534,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "constellation-pt-BR",
+      "take": 3,
+      "generationId": "3W4JmvKKETkrNrYlrXvL",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "oANWQrVadt2Qb5hY1R1l",
+      "nodeId": "pINDjcnwd1lPPuC8MkvP",
+      "createdAtUnixMs": 1792562432913,
+      "durationSeconds": 4.56,
+      "price": {
+        "credits": 62.993700000000004,
+        "price_cents": 1.14534,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "constellation-pt-BR",
+      "take": 4,
+      "generationId": "l9RIqO5DLcXoqV53Ksqo",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "oANWQrVadt2Qb5hY1R1l",
+      "nodeId": "pINDjcnwd1lPPuC8MkvP",
+      "createdAtUnixMs": 1792562432945,
+      "durationSeconds": 4.56,
+      "price": {
+        "credits": 62.993700000000004,
+        "price_cents": 1.14534,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "unlikely-routes-en-US",
+      "take": 1,
+      "generationId": "4acrAIFFsgr5TXo2OCqw",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "EvX7HV4gkZy2hTTP1XME",
+      "nodeId": "A88pjhhq2wpZJtQ6deqh",
+      "createdAtUnixMs": 1792562433325,
+      "durationSeconds": 3.04,
+      "price": {
+        "credits": 49.995000000000005,
+        "price_cents": 0.909,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Plan a route through an imaginary island together.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "unlikely-routes-en-US",
+      "take": 2,
+      "generationId": "yEakh3KPhTcmCzbslO5m",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "EvX7HV4gkZy2hTTP1XME",
+      "nodeId": "A88pjhhq2wpZJtQ6deqh",
+      "createdAtUnixMs": 1792562433361,
+      "durationSeconds": 3.04,
+      "price": {
+        "credits": 49.995000000000005,
+        "price_cents": 0.909,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Plan a route through an imaginary island together.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "unlikely-routes-en-US",
+      "take": 3,
+      "generationId": "ZFGVb0s3OvSgfIVRFBO3",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "EvX7HV4gkZy2hTTP1XME",
+      "nodeId": "A88pjhhq2wpZJtQ6deqh",
+      "createdAtUnixMs": 1792562433392,
+      "durationSeconds": 3.04,
+      "price": {
+        "credits": 49.995000000000005,
+        "price_cents": 0.909,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Plan a route through an imaginary island together.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "unlikely-routes-en-US",
+      "take": 4,
+      "generationId": "ztzZbBDoHH6jaAvHZzMu",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "EvX7HV4gkZy2hTTP1XME",
+      "nodeId": "A88pjhhq2wpZJtQ6deqh",
+      "createdAtUnixMs": 1792562433425,
+      "durationSeconds": 3.04,
+      "price": {
+        "credits": 49.995000000000005,
+        "price_cents": 0.909,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Plan a route through an imaginary island together.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "unlikely-routes-pt-BR",
+      "take": 1,
+      "generationId": "VHs95yv6cXgSiMCpxwpP",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "1bdvTEzh6fMnv5OIXW03",
+      "nodeId": "PA0caZGIMGuPNl6A4Q4O",
+      "createdAtUnixMs": 1792562433802,
+      "durationSeconds": 3.84,
+      "price": {
+        "credits": 53.9946,
+        "price_cents": 0.9817199999999999,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Planejem uma rota por uma ilha imaginária em conjunto.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "unlikely-routes-pt-BR",
+      "take": 2,
+      "generationId": "JXXBN2ZtmMJ5T64ojbGP",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "1bdvTEzh6fMnv5OIXW03",
+      "nodeId": "PA0caZGIMGuPNl6A4Q4O",
+      "createdAtUnixMs": 1792562433838,
+      "durationSeconds": 3.84,
+      "price": {
+        "credits": 53.9946,
+        "price_cents": 0.9817199999999999,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Planejem uma rota por uma ilha imaginária em conjunto.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "unlikely-routes-pt-BR",
+      "take": 3,
+      "generationId": "O1b5DmU51QWVT9moTvRX",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "1bdvTEzh6fMnv5OIXW03",
+      "nodeId": "PA0caZGIMGuPNl6A4Q4O",
+      "createdAtUnixMs": 1792562433872,
+      "durationSeconds": 3.76,
+      "price": {
+        "credits": 53.9946,
+        "price_cents": 0.9817199999999999,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Planejem uma rota por uma ilha imaginária em conjunto.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "unlikely-routes-pt-BR",
+      "take": 4,
+      "generationId": "Y3seLFV3SEByQg6GyMDe",
+      "modelId": "fonte externa",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "voiceName": "Sarah - Mature, Reassuring, Confident",
+      "voiceCategory": "premade",
+      "isLibraryVoice": false,
+      "flowId": "1bdvTEzh6fMnv5OIXW03",
+      "nodeId": "PA0caZGIMGuPNl6A4Q4O",
+      "createdAtUnixMs": 1792562433932,
+      "durationSeconds": 3.84,
+      "price": {
+        "credits": 53.9946,
+        "price_cents": 0.9817199999999999,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Planejem uma rota por uma ilha imaginária em conjunto.",
+      "revision": "spoken-disclosure-removed-by-owner-request"
+    }
+  ],
+  "assets": [
+    {
+      "key": "constellation-en-US",
+      "locale": "en-US",
+      "cueId": "intro",
+      "selectedTake": 1,
+      "generationId": "CBcWnbL6MkmW5v1Tgj1R",
+      "sourceFormat": "mp3",
+      "sourceSha256": "935a8cc5eb1934438749131c105ca90c8db559d4d39bd027bb66e0c4abdbf787",
+      "transcript": "Explore everyday choices. You can skip any card.",
+      "wav": {
+        "path": "audio/e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841.wav",
+        "sha256": "e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841",
+        "bytes": 391724,
+        "sampleRate": 48000,
+        "channels": 1,
+        "format": "PCM signed16 little-endian canonical WAV",
+        "durationSeconds": 4.08,
+        "integratedLufs": -16.41,
+        "truePeakDbtp": -1.5
+      },
+      "aac": {
+        "path": "audio/c1eb9c93189b7921b711c5f74747a4d5cc7e9079e8f03293cdc1b93f7438d3c8.m4a",
+        "sha256": "c1eb9c93189b7921b711c5f74747a4d5cc7e9079e8f03293cdc1b93f7438d3c8",
+        "bytes": 34959,
+        "format": "AAC-LC MP4",
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitrate": 64000,
+        "integratedLufs": -16.42,
+        "truePeakDbtp": -1.76
+      },
+      "processing": "FFmpeg two-pass loudnorm -16 LUFS target / -1.5 dBTP; mono48000 PCM; WAV header written by Python wave; AAC-LC encoded once from same normalized PCM source."
+    },
+    {
+      "key": "constellation-pt-BR",
+      "locale": "pt-BR",
+      "cueId": "intro",
+      "selectedTake": 1,
+      "generationId": "Q8M7IHElWIFVklZyaRpt",
+      "sourceFormat": "mp3",
+      "sourceSha256": "7b5ade48bfab1ffd019f0ce75e32a49f93dfbedc75eff57b0a0358c972993af9",
+      "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "wav": {
+        "path": "audio/43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc.wav",
+        "sha256": "43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc",
+        "bytes": 430124,
+        "sampleRate": 48000,
+        "channels": 1,
+        "format": "PCM signed16 little-endian canonical WAV",
+        "durationSeconds": 4.48,
+        "integratedLufs": -16.62,
+        "truePeakDbtp": -1.5
+      },
+      "aac": {
+        "path": "audio/f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f.m4a",
+        "sha256": "f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f",
+        "bytes": 38060,
+        "format": "AAC-LC MP4",
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitrate": 64000,
+        "integratedLufs": -16.64,
+        "truePeakDbtp": -1.39
+      },
+      "processing": "FFmpeg two-pass loudnorm -16 LUFS target / -1.5 dBTP; mono48000 PCM; WAV header written by Python wave; AAC-LC encoded once from same normalized PCM source."
+    },
+    {
+      "key": "unlikely-routes-en-US",
+      "locale": "en-US",
+      "cueId": "intro",
+      "selectedTake": 1,
+      "generationId": "4acrAIFFsgr5TXo2OCqw",
+      "sourceFormat": "mp3",
+      "sourceSha256": "22016c6528a8736ab22d11f275f4508b5f9b817aee91e072d425fdda9343d288",
+      "transcript": "Plan a route through an imaginary island together.",
+      "wav": {
+        "path": "audio/db07a523d6743bd5d350ac4ef885fb40fc08720951e12c40dcee48810ca38c97.wav",
+        "sha256": "db07a523d6743bd5d350ac4ef885fb40fc08720951e12c40dcee48810ca38c97",
+        "bytes": 291884,
+        "sampleRate": 48000,
+        "channels": 1,
+        "format": "PCM signed16 little-endian canonical WAV",
+        "durationSeconds": 3.04,
+        "integratedLufs": -15.99,
+        "truePeakDbtp": -2.04
+      },
+      "aac": {
+        "path": "audio/1b5eea94dfa373525059569a9b503b531063511d03658ce0f8af2f7fa46eba3e.m4a",
+        "sha256": "1b5eea94dfa373525059569a9b503b531063511d03658ce0f8af2f7fa46eba3e",
+        "bytes": 26201,
+        "format": "AAC-LC MP4",
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitrate": 64000,
+        "integratedLufs": -16.0,
+        "truePeakDbtp": -2.41
+      },
+      "processing": "FFmpeg two-pass loudnorm -16 LUFS target / -1.5 dBTP; mono48000 PCM; WAV header written by Python wave; AAC-LC encoded once from same normalized PCM source."
+    },
+    {
+      "key": "unlikely-routes-pt-BR",
+      "locale": "pt-BR",
+      "cueId": "intro",
+      "selectedTake": 1,
+      "generationId": "VHs95yv6cXgSiMCpxwpP",
+      "sourceFormat": "mp3",
+      "sourceSha256": "9b02aa0624c36d95f310eea4c7329fa4c719eb004d346756befac36abb5e9a4f",
+      "transcript": "Planejem uma rota por uma ilha imaginária em conjunto.",
+      "wav": {
+        "path": "audio/04f4d49145097e1dc9246859edc87de76e57eb90f0de7e4e8a3c9658eea92853.wav",
+        "sha256": "04f4d49145097e1dc9246859edc87de76e57eb90f0de7e4e8a3c9658eea92853",
+        "bytes": 368684,
+        "sampleRate": 48000,
+        "channels": 1,
+        "format": "PCM signed16 little-endian canonical WAV",
+        "durationSeconds": 3.84,
+        "integratedLufs": -15.99,
+        "truePeakDbtp": -1.64
+      },
+      "aac": {
+        "path": "audio/1a8b423d68c3ecdc9a16babbf501c2cd4caedc24be6f51275a9ed65ea563d272.m4a",
+        "sha256": "1a8b423d68c3ecdc9a16babbf501c2cd4caedc24be6f51275a9ed65ea563d272",
+        "bytes": 32573,
+        "format": "AAC-LC MP4",
+        "sampleRate": 48000,
+        "channels": 1,
+        "bitrate": 64000,
+        "integratedLufs": -16.02,
+        "truePeakDbtp": -1.37
+      },
+      "processing": "FFmpeg two-pass loudnorm -16 LUFS target / -1.5 dBTP; mono48000 PCM; WAV header written by Python wave; AAC-LC encoded once from same normalized PCM source."
+    }
+  ],
+  "licenseReview": {
+    "status": "paid_plan_confirmed_by_owner; final editorial release review pending",
+    "terms": "registro externo de origem",
+    "commercialLicenseReference": "registro externo de origem",
+    "voiceAvailabilityReference": "registro externo de origem",
+    "notice": "Provider documents default voice expiry 2026-12-31; preserve offline files. No custom human voice reference or cloning supplied.",
+    "confirmation": "Owner confirmed Creator active during generation; no account1/account2 assertion"
+  },
+  "generationHistory": {
+    "initialRevision": {
+      "status": "superseded_by_owner_request",
+      "reason": "Remove spoken processamento externo disclosure from introductions",
+      "reportedCredits": 1571.8428,
+      "calls": 4,
+      "takes": [
+        {
+          "key": "constellation-en-US",
+          "take": 1,
+          "generationId": "ApIGlvcY9tpj6AssopcH",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "8gDbKOhchf9V9MDu7EJM",
+          "nodeId": "bJTPqavdw35cHmhl6hlt",
+          "createdAtUnixMs": 1792561858428,
+          "durationSeconds": 7.6,
+          "price": {
+            "credits": 93.9906,
+            "price_cents": 1.70892,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Explore everyday choices. You can skip any card. This introduction uses an Produção editorial voice."
+        },
+        {
+          "key": "constellation-en-US",
+          "take": 2,
+          "generationId": "KCg5eCk75MulriNcn6qe",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "8gDbKOhchf9V9MDu7EJM",
+          "nodeId": "bJTPqavdw35cHmhl6hlt",
+          "createdAtUnixMs": 1792561858463,
+          "durationSeconds": 7.68,
+          "price": {
+            "credits": 93.9906,
+            "price_cents": 1.70892,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Explore everyday choices. You can skip any card. This introduction uses an Produção editorial voice."
+        },
+        {
+          "key": "constellation-en-US",
+          "take": 3,
+          "generationId": "lUlhemf28adeHCl2XXyx",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "8gDbKOhchf9V9MDu7EJM",
+          "nodeId": "bJTPqavdw35cHmhl6hlt",
+          "createdAtUnixMs": 1792561858494,
+          "durationSeconds": 7.68,
+          "price": {
+            "credits": 93.9906,
+            "price_cents": 1.70892,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Explore everyday choices. You can skip any card. This introduction uses an Produção editorial voice."
+        },
+        {
+          "key": "constellation-en-US",
+          "take": 4,
+          "generationId": "QXlKRIkJx42zcNNjGLd9",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "8gDbKOhchf9V9MDu7EJM",
+          "nodeId": "bJTPqavdw35cHmhl6hlt",
+          "createdAtUnixMs": 1792561858525,
+          "durationSeconds": 7.76,
+          "price": {
+            "credits": 93.9906,
+            "price_cents": 1.70892,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Explore everyday choices. You can skip any card. This introduction uses an Produção editorial voice."
+        },
+        {
+          "key": "constellation-pt-BR",
+          "take": 1,
+          "generationId": "CTxRIIYOhLe3MhZKQ8a6",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "oANWQrVadt2Qb5hY1R1l",
+          "nodeId": "Mfh83vDIBgfFotQa97Pn",
+          "createdAtUnixMs": 1792561859295,
+          "durationSeconds": 7.84,
+          "price": {
+            "credits": 105.98939999999999,
+            "price_cents": 1.92708,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. Esta introdução usa uma voz de produção editorial."
+        },
+        {
+          "key": "constellation-pt-BR",
+          "take": 2,
+          "generationId": "4bDyrKtbkJTPTuv28b8Q",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "oANWQrVadt2Qb5hY1R1l",
+          "nodeId": "Mfh83vDIBgfFotQa97Pn",
+          "createdAtUnixMs": 1792561859334,
+          "durationSeconds": 7.76,
+          "price": {
+            "credits": 105.98939999999999,
+            "price_cents": 1.92708,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. Esta introdução usa uma voz de produção editorial."
+        },
+        {
+          "key": "constellation-pt-BR",
+          "take": 3,
+          "generationId": "O13XYHvPwKgByyDCBYVF",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "oANWQrVadt2Qb5hY1R1l",
+          "nodeId": "Mfh83vDIBgfFotQa97Pn",
+          "createdAtUnixMs": 1792561859368,
+          "durationSeconds": 7.84,
+          "price": {
+            "credits": 105.98939999999999,
+            "price_cents": 1.92708,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. Esta introdução usa uma voz de produção editorial."
+        },
+        {
+          "key": "constellation-pt-BR",
+          "take": 4,
+          "generationId": "4fAMxVgMQ0QUCpbJmjc0",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "oANWQrVadt2Qb5hY1R1l",
+          "nodeId": "Mfh83vDIBgfFotQa97Pn",
+          "createdAtUnixMs": 1792561859401,
+          "durationSeconds": 7.92,
+          "price": {
+            "credits": 105.98939999999999,
+            "price_cents": 1.92708,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. Esta introdução usa uma voz de produção editorial."
+        },
+        {
+          "key": "unlikely-routes-en-US",
+          "take": 1,
+          "generationId": "HzzclGU56EZvFZgI25hI",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "EvX7HV4gkZy2hTTP1XME",
+          "nodeId": "VFFw5JDbF56kL7Ato9Pq",
+          "createdAtUnixMs": 1792561859783,
+          "durationSeconds": 6.48,
+          "price": {
+            "credits": 95.9904,
+            "price_cents": 1.74528,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Plan a route through an imaginary island together. This introduction uses an Produção editorial voice."
+        },
+        {
+          "key": "unlikely-routes-en-US",
+          "take": 2,
+          "generationId": "Nz2p9GiO3GHiVMgZgp7g",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "EvX7HV4gkZy2hTTP1XME",
+          "nodeId": "VFFw5JDbF56kL7Ato9Pq",
+          "createdAtUnixMs": 1792561859815,
+          "durationSeconds": 6.72,
+          "price": {
+            "credits": 95.9904,
+            "price_cents": 1.74528,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Plan a route through an imaginary island together. This introduction uses an Produção editorial voice."
+        },
+        {
+          "key": "unlikely-routes-en-US",
+          "take": 3,
+          "generationId": "FELeNPlpHZg8rc8AOz9Z",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "EvX7HV4gkZy2hTTP1XME",
+          "nodeId": "VFFw5JDbF56kL7Ato9Pq",
+          "createdAtUnixMs": 1792561859842,
+          "durationSeconds": 6.64,
+          "price": {
+            "credits": 95.9904,
+            "price_cents": 1.74528,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Plan a route through an imaginary island together. This introduction uses an Produção editorial voice."
+        },
+        {
+          "key": "unlikely-routes-en-US",
+          "take": 4,
+          "generationId": "3G0FJk96U4fhBQTdY8iM",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "EvX7HV4gkZy2hTTP1XME",
+          "nodeId": "VFFw5JDbF56kL7Ato9Pq",
+          "createdAtUnixMs": 1792561859871,
+          "durationSeconds": 6.8,
+          "price": {
+            "credits": 95.9904,
+            "price_cents": 1.74528,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Plan a route through an imaginary island together. This introduction uses an Produção editorial voice."
+        },
+        {
+          "key": "unlikely-routes-pt-BR",
+          "take": 1,
+          "generationId": "JadFQXMcLhgxOvsjco5R",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "1bdvTEzh6fMnv5OIXW03",
+          "nodeId": "4jWDSftUz1UTFB76Uf1R",
+          "createdAtUnixMs": 1792561860220,
+          "durationSeconds": 6.96,
+          "price": {
+            "credits": 96.9903,
+            "price_cents": 1.76346,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Planejem uma rota por uma ilha imaginária em conjunto. Esta introdução usa uma voz de produção editorial."
+        },
+        {
+          "key": "unlikely-routes-pt-BR",
+          "take": 2,
+          "generationId": "77CSdZw1PuhjMMDxJGUM",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "1bdvTEzh6fMnv5OIXW03",
+          "nodeId": "4jWDSftUz1UTFB76Uf1R",
+          "createdAtUnixMs": 1792561860248,
+          "durationSeconds": 6.88,
+          "price": {
+            "credits": 96.9903,
+            "price_cents": 1.76346,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Planejem uma rota por uma ilha imaginária em conjunto. Esta introdução usa uma voz de produção editorial."
+        },
+        {
+          "key": "unlikely-routes-pt-BR",
+          "take": 3,
+          "generationId": "lEgLyQkYOHq85mWaIM9R",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "1bdvTEzh6fMnv5OIXW03",
+          "nodeId": "4jWDSftUz1UTFB76Uf1R",
+          "createdAtUnixMs": 1792561860273,
+          "durationSeconds": 7.12,
+          "price": {
+            "credits": 96.9903,
+            "price_cents": 1.76346,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Planejem uma rota por uma ilha imaginária em conjunto. Esta introdução usa uma voz de produção editorial."
+        },
+        {
+          "key": "unlikely-routes-pt-BR",
+          "take": 4,
+          "generationId": "KGrCGCBo218WvhRC04Mb",
+          "modelId": "fonte externa",
+          "voiceId": "EXAVITQu4vr4xnSDxMaL",
+          "voiceName": "Sarah - Mature, Reassuring, Confident",
+          "voiceCategory": "premade",
+          "isLibraryVoice": false,
+          "flowId": "1bdvTEzh6fMnv5OIXW03",
+          "nodeId": "4jWDSftUz1UTFB76Uf1R",
+          "createdAtUnixMs": 1792561860299,
+          "durationSeconds": 6.96,
+          "price": {
+            "credits": 96.9903,
+            "price_cents": 1.76346,
+            "cost_fiat_currency": "usd"
+          },
+          "prompt": "Planejem uma rota por uma ilha imaginária em conjunto. Esta introdução usa uma voz de produção editorial."
+        }
+      ]
+    },
+    "currentRevision": {
+      "reason": "Introductions without spoken processamento externo disclosure, per owner instruction",
+      "reportedCredits": 859.914,
+      "calls": 4
+    }
+  },
+  "initialRunCreditCap": 2000,
+  "revisionCreditCap": 1000,
+  "totalCreditCap": 3000,
+  "attemptsPerTextPerRevision": 1,
+  "spokenDisclosure": "Removed by explicit owner instruction; synthetic origin retained in technical provenance."
+}
