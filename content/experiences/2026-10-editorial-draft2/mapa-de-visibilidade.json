@@ -1,0 +1,46 @@
+{
+  "status": "review_metadata_only",
+  "rules": {
+    "constellation": "Private choices until bilateral reveal; a skip reveals neither choice.",
+    "unlikely-routes": "Assign one clue set per participant; hidden during introduction; project only own set in own locale. Never ship both sets to a player.",
+    "reviewPackage": "Contains both clue sets for authorized editorial review; not a player payload."
+  },
+  "clueIndex": [
+    {
+      "editorialRef": "set-0-clue-0",
+      "runtimePath": "clueSets[0][0].text",
+      "visibility": "assigned_set_0_only",
+      "relatedStepId": "meeting-place"
+    },
+    {
+      "editorialRef": "set-0-clue-1",
+      "runtimePath": "clueSets[0][1].text",
+      "visibility": "assigned_set_0_only",
+      "relatedStepId": "crossing"
+    },
+    {
+      "editorialRef": "set-0-clue-2",
+      "runtimePath": "clueSets[0][2].text",
+      "visibility": "assigned_set_0_only",
+      "relatedStepId": "last-stop"
+    },
+    {
+      "editorialRef": "set-1-clue-0",
+      "runtimePath": "clueSets[1][0].text",
+      "visibility": "assigned_set_1_only",
+      "relatedStepId": "meeting-place"
+    },
+    {
+      "editorialRef": "set-1-clue-1",
+      "runtimePath": "clueSets[1][1].text",
+      "visibility": "assigned_set_1_only",
+      "relatedStepId": "crossing"
+    },
+    {
+      "editorialRef": "set-1-clue-2",
+      "runtimePath": "clueSets[1][2].text",
+      "visibility": "assigned_set_1_only",
+      "relatedStepId": "last-stop"
+    }
+  ]
+}
