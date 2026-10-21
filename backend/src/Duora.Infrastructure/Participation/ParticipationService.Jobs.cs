@@ -17,7 +17,7 @@ public sealed partial class ParticipationService
     {
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var command = Command(connection, """
-            with picked as (select id from ops.jobs where (kind<>'build-round' or $2) and ((status='Pending' and available_at<=$1)
+            with picked as (select id from ops.jobs where kind in ('build-round','close-round','expire-invite','game-deadline') and (kind<>'build-round' or $2) and ((status='Pending' and available_at<=$1)
               or (status='InFlight' and lease_expires_at<=$1)) order by available_at,id for update skip locked limit 1)
             update ops.jobs j set fencing_token=fencing_token+1,attempts=attempts+1,
               status=case when attempts>=8 then 'Failed' else 'InFlight' end,

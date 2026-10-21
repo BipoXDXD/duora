@@ -37,11 +37,11 @@ Classes que a tabela 12.4 não cobre e que o modelo de dados cria. **Proposta �
 |---|---|---|
 | Sessões revogadas ou expiradas (`identity.login_sessions`, `auth_tickets`) | Ticket apagado na revogação ou expiração; linha da sessão mantida 30 dias para a lista de sessões e investigação de abuso | O ticket é segredo e não tem uso depois de inválido |
 | Tokens de confirmação e reset | Sem armazenamento (gerados pelo Data Protection); vida de 24 h e 30 min | Nada a apagar |
-| Outbox entregue (`ops.outbox_events`, `outbox_deliveries` em estado final) | 7 dias | Diagnóstico de entrega; o fato de negócio está nas tabelas do módulo |
-| Entregas `Failed` | Até revisão, no máximo 30 dias | Fila de revisão com causa sanitizada |
+| Outbox `Delivered`/`Expired` | **Aprovado em 21/10/2026 (#46):** mais de 7 dias desde `completed_at`; evento só após remoção de todas as entregas e mais de 7 dias desde `occurred_at` | Diagnóstico de entrega; o fato de negócio está nas tabelas do módulo |
+| Entregas `Failed` | **Aprovado em 21/10/2026 (#46):** preservar até revisão explícita; depois excluir apenas com `completed_at` há mais de 30 dias. Alertar aos 30 dias sem revisão, sem apagar | Fila de revisão com causa sanitizada |
 | Jobs concluídos (`ops.jobs`) | 7 dias; as linhas fixas dos tipos recorrentes (uma por tipo) não são apagadas | Idem |
 | Jobs `Failed` (`ops.jobs`) | Até resolução (reprocessar ou descartar como `Cancelled`, com auditoria); não são apagados antes disso | Um job de correção de estado falho pode deixar sala ou rodada parada; apagá-lo esconderia o defeito. O payload só tem IDs ([ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases-no-postgresql.md)) |
-| Recibos de webhook (`ops.webhook_receipts`) | 30 dias após processar | Janela de replay do fornecedor mais margem |
+| Recibos de webhook (`ops.webhook_receipts`) | **Aprovado em 21/10/2026 (#46):** mais de 30 dias desde `processed_at`, somente `Processed`/`Rejected`; data ausente ou `Received` permanece | Janela de replay do fornecedor mais margem |
 | Recibos de e-mail (`ops.email_receipts`) | 30 dias | Diagnóstico de entrega e supressão |
 | Auditoria (`ops.audit_events`) | 1 ano para ações privilegiadas e de segurança **(hipótese)**; `actor_id` pseudonimizado na exclusão da conta | Revisão de moderação, recurso e incidentes (INV-10) |
 | Verificações etárias substituídas ou expiradas | Manter só a mais recente decisiva por conta; anteriores apagadas após 90 dias **(hipótese)** | Rastreabilidade do resultado sem acumular histórico |
@@ -124,3 +124,11 @@ Não é possível apagar instantaneamente cada backup imutável (spec 12.4). A e
 4. **Margem dos tombstones** e custódia da chave de HMAC (sem a chave, o tombstone não reconhece o registro;
    com ela vazada, o tombstone é reversível por força bruta sobre e-mails).
 5. **Logs do fornecedor de e-mail e do fornecedor etário:** retenção depende do contrato escolhido.
+
+## Execução operacional aprovada (#46)
+
+As aprovações de 21/10/2026 acima são específicas; não ratificam os demais prazos propostos nesta página.
+O worker executa lotes de até 1.000 por tabela, mantendo a identidade recorrente e o cutoff do backlog.
+Falhas da retenção têm até oito tentativas e exigem retomada auditada após esgotar; nenhuma falha não
+revisada é descartada por idade. Revisão tem ator/data/motivo fechado e permanece na auditoria após expurgo.
+Veja [o procedimento operacional](../operations/retention.md), incluindo ativação e rollback.
