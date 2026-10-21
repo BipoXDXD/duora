@@ -1,0 +1,218 @@
+{
+  "kind": "constellation",
+  "contentVersion": 1,
+  "review": {
+    "status": "pending_human_review",
+    "approvedBy": null,
+    "approvedAt": null
+  },
+  "enUS": {
+    "title": "Constellation of Choices",
+    "objective": "Explore everyday choices. You can skip any card.",
+    "cards": [
+      {
+        "cardId": "small-pause",
+        "prompt": "Imagine a free afternoon. Which small break would you pick?",
+        "options": [
+          {
+            "optionId": "read",
+            "label": "Read a few pages"
+          },
+          {
+            "optionId": "make",
+            "label": "Make something by hand"
+          },
+          {
+            "optionId": "listen",
+            "label": "Listen to music"
+          },
+          {
+            "optionId": "notice",
+            "label": "Look out the window"
+          }
+        ]
+      },
+      {
+        "cardId": "shared-table",
+        "prompt": "You are planning an imaginary gathering. What would you put on the table?",
+        "options": [
+          {
+            "optionId": "draw",
+            "label": "Paper and colored pencils"
+          },
+          {
+            "optionId": "play",
+            "label": "A simple board game"
+          },
+          {
+            "optionId": "stories",
+            "label": "Short stories to share"
+          },
+          {
+            "optionId": "puzzle",
+            "label": "A puzzle to work on together"
+          }
+        ]
+      },
+      {
+        "cardId": "curiosity",
+        "prompt": "A fictional community center offers a short workshop. Which would you explore?",
+        "options": [
+          {
+            "optionId": "sound",
+            "label": "Everyday sound recording"
+          },
+          {
+            "optionId": "plants",
+            "label": "Growing herbs in pots"
+          },
+          {
+            "optionId": "print",
+            "label": "Making a simple print"
+          },
+          {
+            "optionId": "sky",
+            "label": "Reading a map of the sky"
+          }
+        ]
+      },
+      {
+        "cardId": "closing-note",
+        "prompt": "An imaginary day is ending. Which detail would you keep as a reminder?",
+        "options": [
+          {
+            "optionId": "color",
+            "label": "A color palette"
+          },
+          {
+            "optionId": "line",
+            "label": "A line from a story"
+          },
+          {
+            "optionId": "rhythm",
+            "label": "A short rhythm"
+          },
+          {
+            "optionId": "shape",
+            "label": "A shape sketched on paper"
+          }
+        ]
+      }
+    ]
+  },
+  "ptBR": {
+    "title": "Constelação de Escolhas",
+    "objective": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+    "cards": [
+      {
+        "cardId": "small-pause",
+        "prompt": "Imagine uma tarde livre. Qual pequena pausa você escolheria?",
+        "options": [
+          {
+            "optionId": "read",
+            "label": "Ler algumas páginas"
+          },
+          {
+            "optionId": "make",
+            "label": "Criar algo à mão"
+          },
+          {
+            "optionId": "listen",
+            "label": "Ouvir música"
+          },
+          {
+            "optionId": "notice",
+            "label": "Olhar pela janela"
+          }
+        ]
+      },
+      {
+        "cardId": "shared-table",
+        "prompt": "Você está planejando uma reunião imaginária. O que colocaria na mesa?",
+        "options": [
+          {
+            "optionId": "draw",
+            "label": "Papel e lápis de cor"
+          },
+          {
+            "optionId": "play",
+            "label": "Um jogo de tabuleiro simples"
+          },
+          {
+            "optionId": "stories",
+            "label": "Histórias curtas para compartilhar"
+          },
+          {
+            "optionId": "puzzle",
+            "label": "Um quebra-cabeça para montar em conjunto"
+          }
+        ]
+      },
+      {
+        "cardId": "curiosity",
+        "prompt": "Um centro comunitário fictício oferece uma oficina curta. Qual você exploraria?",
+        "options": [
+          {
+            "optionId": "sound",
+            "label": "Gravar sons do cotidiano"
+          },
+          {
+            "optionId": "plants",
+            "label": "Cultivar ervas em vasos"
+          },
+          {
+            "optionId": "print",
+            "label": "Fazer uma gravura simples"
+          },
+          {
+            "optionId": "sky",
+            "label": "Ler um mapa do céu"
+          }
+        ]
+      },
+      {
+        "cardId": "closing-note",
+        "prompt": "Um dia imaginário está terminando. Qual detalhe você guardaria como lembrança?",
+        "options": [
+          {
+            "optionId": "color",
+            "label": "Uma paleta de cores"
+          },
+          {
+            "optionId": "line",
+            "label": "Uma frase de uma história"
+          },
+          {
+            "optionId": "rhythm",
+            "label": "Um ritmo curto"
+          },
+          {
+            "optionId": "shape",
+            "label": "Uma forma desenhada no papel"
+          }
+        ]
+      }
+    ]
+  },
+  "audio": [
+    {
+      "cueId": "intro",
+      "enUS": {
+        "assetId": "constellation-v1-intro-en",
+        "transcript": "Explore everyday choices. You can skip any card.",
+        "accessibleDescription": "Constellation of Choices",
+        "provenance": "AI-generated voice; ElevenLabs eleven_v4; Sarah EXAVITQu4vr4xnSDxMaL; generation CBcWnbL6MkmW5v1Tgj1R; Creator paid plan confirmed by owner; human editorial review pending; media-manifest.json",
+        "sha256": "e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841",
+        "path": "audio/e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841.wav"
+      },
+      "ptBR": {
+        "assetId": "constellation-v1-intro-pt",
+        "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+        "accessibleDescription": "Constelação de Escolhas",
+        "provenance": "AI-generated voice; ElevenLabs eleven_v4; Sarah EXAVITQu4vr4xnSDxMaL; generation Q8M7IHElWIFVklZyaRpt; Creator paid plan confirmed by owner; human editorial review pending; media-manifest.json",
+        "sha256": "43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc",
+        "path": "audio/43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc.wav"
+      }
+    }
+  ]
+}

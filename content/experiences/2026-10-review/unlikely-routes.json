@@ -1,0 +1,200 @@
+{
+  "kind": "unlikely-routes",
+  "contentVersion": 1,
+  "review": {
+    "status": "pending_human_review",
+    "approvedBy": null,
+    "approvedAt": null
+  },
+  "enUS": {
+    "title": "Unlikely Routes",
+    "objective": "Plan a route through an imaginary island together.",
+    "example": "You each see different clues. Share only what you want, using the agreed language. Take turns choosing three stops, then confirm the route or request a revision. There is no single correct route. No real location is needed.",
+    "stops": [
+      {
+        "stepId": "meeting-place",
+        "prompt": "Where should the imaginary route begin?",
+        "options": [
+          {
+            "optionId": "garden",
+            "label": "The lantern garden"
+          },
+          {
+            "optionId": "workshop",
+            "label": "The paper workshop"
+          },
+          {
+            "optionId": "observatory",
+            "label": "The cloud observatory"
+          }
+        ]
+      },
+      {
+        "stepId": "crossing",
+        "prompt": "How should the route cross the island?",
+        "options": [
+          {
+            "optionId": "bridge",
+            "label": "Across the wooden bridge"
+          },
+          {
+            "optionId": "ferry",
+            "label": "On the little ferry"
+          },
+          {
+            "optionId": "path",
+            "label": "Along the shaded path"
+          }
+        ]
+      },
+      {
+        "stepId": "last-stop",
+        "prompt": "Where should the imaginary route end?",
+        "options": [
+          {
+            "optionId": "lookout",
+            "label": "At the sunset lookout"
+          },
+          {
+            "optionId": "library",
+            "label": "At the open-air library"
+          },
+          {
+            "optionId": "courtyard",
+            "label": "In the mosaic courtyard"
+          }
+        ]
+      }
+    ],
+    "clueSets": [
+      [
+        {
+          "text": "The lantern garden has benches under trees. The paper workshop has a large shared table."
+        },
+        {
+          "text": "The bridge offers an open view. The shaded path has several places to pause."
+        },
+        {
+          "text": "The lookout faces the evening sky. The courtyard has a wall of colorful tiles."
+        }
+      ],
+      [
+        {
+          "text": "The cloud observatory has a covered terrace. The paper workshop displays handmade maps."
+        },
+        {
+          "text": "The little ferry passes a small waterfall. The bridge connects two quiet squares."
+        },
+        {
+          "text": "The open-air library has illustrated books. The courtyard has space to draw a new map."
+        }
+      ]
+    ]
+  },
+  "ptBR": {
+    "title": "Rotas Improváveis",
+    "objective": "Planejem uma rota por uma ilha imaginária em conjunto.",
+    "example": "Cada pessoa vê pistas diferentes. Compartilhe apenas o que quiser, no idioma combinado. Alternem as escolhas de três paradas e depois confirmem a rota ou peçam uma revisão. Não há uma única rota certa. Nenhuma localização real é necessária.",
+    "stops": [
+      {
+        "stepId": "meeting-place",
+        "prompt": "Onde a rota imaginária deve começar?",
+        "options": [
+          {
+            "optionId": "garden",
+            "label": "No jardim das lanternas"
+          },
+          {
+            "optionId": "workshop",
+            "label": "Na oficina de papel"
+          },
+          {
+            "optionId": "observatory",
+            "label": "No observatório das nuvens"
+          }
+        ]
+      },
+      {
+        "stepId": "crossing",
+        "prompt": "Como a rota deve atravessar a ilha?",
+        "options": [
+          {
+            "optionId": "bridge",
+            "label": "Pela ponte de madeira"
+          },
+          {
+            "optionId": "ferry",
+            "label": "Na pequena balsa"
+          },
+          {
+            "optionId": "path",
+            "label": "Pela trilha sombreada"
+          }
+        ]
+      },
+      {
+        "stepId": "last-stop",
+        "prompt": "Onde a rota imaginária deve terminar?",
+        "options": [
+          {
+            "optionId": "lookout",
+            "label": "No mirante do pôr do sol"
+          },
+          {
+            "optionId": "library",
+            "label": "Na biblioteca ao ar livre"
+          },
+          {
+            "optionId": "courtyard",
+            "label": "No pátio dos mosaicos"
+          }
+        ]
+      }
+    ],
+    "clueSets": [
+      [
+        {
+          "text": "O jardim das lanternas tem bancos sob as árvores. A oficina de papel tem uma grande mesa compartilhada."
+        },
+        {
+          "text": "A ponte oferece uma vista aberta. A trilha sombreada tem vários lugares para fazer uma pausa."
+        },
+        {
+          "text": "O mirante fica de frente para o céu do entardecer. O pátio tem uma parede de azulejos coloridos."
+        }
+      ],
+      [
+        {
+          "text": "O observatório das nuvens tem um terraço coberto. A oficina de papel expõe mapas feitos à mão."
+        },
+        {
+          "text": "A pequena balsa passa por uma cachoeira. A ponte liga duas praças tranquilas."
+        },
+        {
+          "text": "A biblioteca ao ar livre tem livros ilustrados. O pátio tem espaço para desenhar um novo mapa."
+        }
+      ]
+    ]
+  },
+  "audio": [
+    {
+      "cueId": "intro",
+      "enUS": {
+        "assetId": "unlikely-routes-v1-intro-en",
+        "transcript": "Plan a route through an imaginary island together.",
+        "accessibleDescription": "Unlikely Routes",
+        "provenance": "AI-generated voice; ElevenLabs eleven_v4; Sarah EXAVITQu4vr4xnSDxMaL; generation 4acrAIFFsgr5TXo2OCqw; Creator paid plan confirmed by owner; human editorial review pending; media-manifest.json",
+        "sha256": "db07a523d6743bd5d350ac4ef885fb40fc08720951e12c40dcee48810ca38c97",
+        "path": "audio/db07a523d6743bd5d350ac4ef885fb40fc08720951e12c40dcee48810ca38c97.wav"
+      },
+      "ptBR": {
+        "assetId": "unlikely-routes-v1-intro-pt",
+        "transcript": "Planejem uma rota por uma ilha imaginária em conjunto.",
+        "accessibleDescription": "Rotas Improváveis",
+        "provenance": "AI-generated voice; ElevenLabs eleven_v4; Sarah EXAVITQu4vr4xnSDxMaL; generation VHs95yv6cXgSiMCpxwpP; Creator paid plan confirmed by owner; human editorial review pending; media-manifest.json",
+        "sha256": "04f4d49145097e1dc9246859edc87de76e57eb90f0de7e4e8a3c9658eea92853",
+        "path": "audio/04f4d49145097e1dc9246859edc87de76e57eb90f0de7e4e8a3c9658eea92853.wav"
+      }
+    }
+  ]
+}
