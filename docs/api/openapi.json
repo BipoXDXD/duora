@@ -3655,6 +3655,18 @@
               "null",
               "string"
             ]
+          },
+          "acceptedTermsLocale": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acceptedPrivacyLocale": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
         "additionalProperties": false

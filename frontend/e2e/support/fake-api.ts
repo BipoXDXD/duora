@@ -452,7 +452,16 @@ function parseBody(key: string, raw: string | null): RequestBody | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return null
   }
-  const entries = Object.entries(body)
+  let entries = Object.entries(body)
+  if (key === 'POST /auth/register') {
+    const locales = ['acceptedTermsLocale', 'acceptedPrivacyLocale']
+    const validLocales = entries
+      .filter(([name]) => locales.includes(name))
+      .every(([, value]) => value === null || value === 'pt-BR' || value === 'en-US')
+    if (!validLocales) return null
+    // Optional, nullable document metadata. Required fields and unknown fields remain strict below.
+    entries = entries.filter(([name]) => !locales.includes(name))
+  }
   const exactFields = entries.length === fields.length && entries.every(([name]) => fields.includes(name))
   const allText = entries.every((entry): entry is [string, string] => typeof entry[1] === 'string')
   return exactFields && allText ? Object.fromEntries(entries) : null

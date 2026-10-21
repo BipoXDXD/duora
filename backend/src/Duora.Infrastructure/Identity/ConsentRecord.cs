@@ -24,5 +24,8 @@ internal sealed class ConsentRecord
 
     public string Version { get; private set; } = "";
 
+    /// <summary>Language of this accepted document. Null is unknown, including legacy evidence.</summary>
+    public string? DocumentLocale { get; private set; }
+
     public DateTimeOffset AcceptedAt { get; private set; }
 }
