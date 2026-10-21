@@ -43,7 +43,7 @@ def layout(
 
 
 class ImageStorageTests(unittest.TestCase):
-    def test_import_inspects_config_id_and_keeps_manifest_reference(self) -> None:
+    def test_import_resolves_manifest_and_retains_classic_config_id(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             stage = Path(temp)
             manifest, config_id = layout(stage / "app")
@@ -53,11 +53,11 @@ class ImageStorageTests(unittest.TestCase):
                 operations.append(argv)
                 if argv[:3] == ["/usr/bin/docker", "image", "inspect"]:
                     if (
-                        argv[3] != config_id
+                        argv[3] != manifest
                         and argv[3]
                         != "ghcr.io/bipoxdxd/stillon:release-" + "a" * 40 + "@" + manifest
                     ):
-                        raise ValueError("manifest is not a Docker config ID")
+                        raise ValueError("unexpected manifest lookup")
                     return json.dumps(
                         [{"Id": config_id, "Architecture": "amd64", "Os": "linux"}]
                     ).encode()
@@ -76,6 +76,49 @@ class ImageStorageTests(unittest.TestCase):
                 "ghcr.io/bipoxdxd/stillon:release-" + "a" * 40 + "@" + manifest,
             )
             self.assertEqual(operations[-2][2], config_id)
+
+    def test_containerd_manifest_id_is_used_for_runtime_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            stage = Path(temp)
+            manifest, config_id = layout(stage / "app")
+            operations = []
+
+            def docker(argv: list[str]) -> bytes:
+                operations.append(argv)
+                if argv[:3] == ["/usr/bin/docker", "image", "inspect"]:
+                    if argv[3] == config_id:
+                        raise ValueError("Docker 29 does not index images by config digest")
+                    return json.dumps(
+                        [{"Id": manifest, "Architecture": "amd64", "Os": "linux"}]
+                    ).encode()
+                return b""
+
+            release = {
+                "project": "stillon",
+                "commit": "a" * 40,
+                "images": {"app": "ghcr.io/bipoxdxd/stillon@" + manifest},
+            }
+            with patch.object(r, "command", side_effect=docker):
+                refs, ids = r.import_images(release, stage)
+            self.assertEqual(ids, {"app": manifest})
+            self.assertTrue(refs["app"].endswith("@" + manifest))
+            self.assertEqual(operations[-2][2], manifest)
+
+    def test_unrelated_loaded_image_id_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            stage = Path(temp)
+            manifest, _ = layout(stage / "app")
+            release = {
+                "project": "stillon",
+                "commit": "a" * 40,
+                "images": {"app": "ghcr.io/bipoxdxd/stillon@" + manifest},
+            }
+            record = [{"Id": "sha256:" + "f" * 64, "Architecture": "amd64", "Os": "linux"}]
+            with (
+                patch.object(r, "command", return_value=json.dumps(record).encode()),
+                self.assertRaisesRegex(ValueError, "identity differs"),
+            ):
+                r.import_images(release, stage)
 
     def test_unresolvable_manifest_reference_refuses_before_coolify(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

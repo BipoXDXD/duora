@@ -429,13 +429,16 @@ def import_images(release: Any, stage: Any) -> Any:
                 if path.is_file():
                     archive.add(path, arcname=path.relative_to(root), recursive=False)
         command(["/usr/bin/docker", "load", "-i", str(bundle)])
-        actual = json.loads(command(["/usr/bin/docker", "image", "inspect", image_ids[role]]))[0]
+        actual = json.loads(command(["/usr/bin/docker", "image", "inspect", digest]))[0]
         if (
-            actual["Id"] != image_ids[role]
+            actual["Id"] not in {digest, image_ids[role]}
             or actual["Architecture"] != "amd64"
             or actual["Os"] != "linux"
         ):
             raise ValueError("Imported image identity differs")
+        # Docker containerd stores expose the manifest ID; classic stores use config IDs.
+        # Resolve the validated manifest first, then retain the daemon identity for runtime checks.
+        image_ids[role] = actual["Id"]
         tag = f"{PROJECTS[release['project']][role]}:release-{release['commit']}"
         command(["/usr/bin/docker", "tag", image_ids[role], tag])
         reference = tag + "@" + digest
