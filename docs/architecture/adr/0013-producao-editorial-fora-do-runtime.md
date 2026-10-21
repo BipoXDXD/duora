@@ -1,4 +1,4 @@
-# ADR-0013: IA fora do caminho crítico das partidas
+# ADR-0013: Produção editorial fora do runtime das partidas
 
 - **Status:** Accepted (2026-10-15)
 - **Origem:** spec 1.1, 6.1, 6.4, 12.2, 12.3 e 23.1 (ADR-013)
@@ -21,11 +21,11 @@ Alternativas consideradas:
 
 Propostas de conteúdo são preparadas fora do fluxo ao vivo e passam por validação de schema, comprimento,
 linguagem, conteúdo proibido, direitos e acessibilidade e por aprovação editorial antes de publicar uma versão
-imutável. `CreateSession` não consulta LLM. Moderação assistida (`IContentReviewProvider`) é condicional e
+imutável. `CreateSession` usa exclusivamente regras determinísticas. Moderação assistida (`IContentReviewProvider`) é condicional e
 recebe só o estritamente necessário.
 
 Porquê técnico: disponibilidade e regras estáveis por versão publicada. Porquê de negócio: o jogo funciona com
-o fornecedor de IA indisponível, e dados íntimos ficam fora de terceiros.
+o fornecedor de processamento externo indisponível, e dados íntimos ficam fora de terceiros.
 
 ## Consequências
 
@@ -41,7 +41,7 @@ de moderação exige política de dados, retenção e acesso própria antes de r
 ## Compliance
 
 - T-09 (versão nova do catálogo durante a partida): M2.
-- Teste de arquitetura: o módulo Experiences não referencia cliente de IA (a implementar no M2).
-- Teste de integração da partida com o fornecedor de IA ausente da composição (M2).
+- Teste de arquitetura: o módulo Experiences não referencia cliente de processamento externo (a implementar no M2).
+- Teste de integração da partida com o fornecedor de processamento externo ausente da composição (M2).
 
 Redação sobre preparação editorial atualizada por solicitação do responsável em 21/10/2026; ver ADR-0032. As restrições de runtime e moderação permanecem.

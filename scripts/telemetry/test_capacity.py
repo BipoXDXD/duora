@@ -25,9 +25,10 @@ class CapacityTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 capacity.validate_media_slice(runner)
 
-    def test_preflight_checks_capacity_before_credentials(self):
-        import preflight
-        with patch.object(preflight, 'check_capacity', side_effect=ValueError('capacity denied')) as check:
-            with self.assertRaisesRegex(ValueError, 'capacity denied'):
-                preflight.main()
-            check.assert_called_once()
+    def test_capacity_is_checked_before_runtime_resources(self):
+        with patch.object(capacity, 'deployment_profile', return_value='colocated'), \
+                patch.object(capacity.Path, 'read_text', return_value=''), \
+                patch.object(capacity, 'validate_media_slice') as media:
+            with self.assertRaises(ValueError):
+                capacity.check_capacity()
+            media.assert_not_called()

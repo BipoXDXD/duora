@@ -1,4 +1,4 @@
-# ADR-0031: Gateway OpenClaw separado com telemetria pública por mTLS
+# ADR-0031: Gateway separado com telemetria pública por mTLS
 
 - **Status:** Proposed (2026-10-21)
 - **Origem:** PR #97, orçamento KVM 2, INV-12/T-12, spec 14.3–14.4/15/19
@@ -21,13 +21,13 @@ Propor perfil remoto com coleta fixa no Duora e emissor sem privilégios, inicia
 Receptor separado sem privilégios na VPS de operações exige mTLS, pin cliente e origem IPv4 explícita,
 valida schema fechado/TTL/tamanho e persiste watermark antes do ACK. Monitor combina produto remoto e
 health local; gateway continua em container sem ferramentas administrativas, lendo só snapshot público.
-Slack/MCP/imagem/rollback existentes são reutilizados. Instalações são fresh-only e não ligam serviços.
+A configuração do serviço complementar, suas instalações e rollback ficam no registro operacional externo.
 
 ## Consequências
 
 - Menor impacto de falhas/atualizações/comprometimento do gateway no produto.
 - Custo e operação de outra VPS, PKI/rotação e tratamento de rede/relógios/replay.
-- Instalação conjunta permanece disponível; perfil remoto tem orçamentos e gates próprios.
+- Topologias conjunta e remota mantêm reservas e gates próprios; a instalação pertence ao registro externo.
 - Falha de transporte ou snapshot inválido é indisponibilidade, nunca estado saudável.
 
 ## Segurança e operação
@@ -41,4 +41,4 @@ Backup/WAL/retenção/restore do produto não mudam. Sem API/protocolo de mutaç
 
 Testes de schema/replay/restart, loopback mTLS com certificados descartáveis, separação de probes e
 orçamentos conciliados com units; testes no ops existente. Duas VPSs, cgroups/firewall, capacidade,
-restauração e entrega no smartphone continuam requisitos pendentes do runbook openclaw-remote.md.
+restauração e entrega no smartphone continuam requisitos pendentes do runbook telemetry-remote.md.

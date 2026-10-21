@@ -12,7 +12,7 @@ escala. Nada aqui é identidade visual final (spec 13.3, "ponto de partida de de
 
 Fontes: Refactoring UI (RUI) caps. 2 a 8; CSS in Depth (CID) caps. 2, 11, 12 e 15; Designing Interfaces
 (DI) caps. 8, 10 e 11; The Game Audio Strategy Guide (GASG) caps. 3, 5, 8 e 12; The Definitive Game Narrative
-Guide (NG) caps. 5 e 12. Notas de regra da casa em `~/.claude/knowledge/ui-design.md` não são citadas como fonte
+Guide (NG) caps. 5 e 12. Notas de regra da casa em registros locais do responsável não são citadas como fonte
 normativa.
 
 ## Princípios
@@ -189,7 +189,7 @@ fotografia"):
   recoloridos para `action` e `text-muted`. Componente e assets **implementados**
   (`frontend/src/shared/ui/illustration.tsx`); a colocação nas telas entra com cada tela.
 - **Cenários e personagens** nas experiências (proposto, [ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)), cada um a partir de um
-  [one pager](one-pager-template.md). Podem vir de 3D renderizado offline (Rodin ou Tripo) e, por experiência,
+  [one pager](one-pager-template.md). Podem vir de 3D renderizado offline (fontes editoriais aprovadas) e, por experiência,
   de 3D em tempo real com fallback 2D.
 
 > **Superseded by ADR-0027 (2026-10-19):** a decisão anterior, "objetos simbólicos, **nenhuma pessoa, rosto,
@@ -209,7 +209,7 @@ fotografia"):
 - O prefixo de prompt em `tools/visual/catalog.json` carrega essas proibições de texto, e
   `frontend/config/illustrations.test.ts` (job `frontend` do CI) e `tools/visual/test_catalog.py` (job `ops`)
   conferem que elas continuam lá. Fonte que viola a regra é descartada e gerada de novo, nunca retocada.
-- Só ferramentas aprovadas (imagem: GPT Image 2.5 ou Nano Banana Pro, via Tripo; 3D: Rodin ou Tripo) e só com
+- Só ferramentas aprovadas (imagem e 3D: registros editoriais aprovados) e só com
   linha em [assets-licenses.md](assets-licenses.md). Processo em [tools/visual/README.md](../../tools/visual/README.md).
 
 ### Uso
@@ -309,7 +309,7 @@ e seguem as mesmas regras; eles entram no Storybook quando a primeira experiênc
 
 - Identidade visual final (matiz, fonte, raio): decisão do responsável pelo produto. A direção de ilustração já
   foi escolhida (seção [Ilustração, cenário e personagem](#ilustração-cenário-e-personagem)).
-- Áudio: ElevenLabs Creator para voz, música e efeitos (SFX v2), com Freesound CC0 e Sonniss como complemento de efeitos, conforme ADR-0027; nada gerado ainda.
+- Áudio: origem editorial registrada para voz, música e efeitos (SFX v2), com Freesound CC0 e Sonniss como complemento de efeitos, conforme ADR-0027; nada gerado ainda.
 - Voz ao vivo: arquitetura decidida no ADR-0028; componente ainda não implementado.
 - Tokens propostos (`success`, `warning`, `*-surface`, `surface-raised`, `overlay`, sombras e movimento) entram
   no código junto com o primeiro componente que os usar, com teste de contraste.

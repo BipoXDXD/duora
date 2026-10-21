@@ -45,7 +45,7 @@ Schemas lógicos (spec 10.1): `identity`, `profiles`, `events`, `experiences`, `
 | Identity | Conta, credenciais, sessões, recuperação, presença e consentimentos | `identity`: `users`, tabelas do ASP.NET Core Identity, `login_sessions` (absorve `auth_tickets`, ADR-0019), `selfie_verifications`, `age_verifications` (histórico), `consent_records` | `GetEligibility`, `RevokeSessions`, `DisableAccount` | Decidir pareamento ou abrir conversas |
 | Profiles | Perfil, fotos do perfil, preferências e visibilidade | `profiles`: `profiles`, `preferences`, `profile_photos`, `countries`, `subdivisions` (expansão proposta no ADR-0030) | `GetAuthorizedProfile`, `UpdatePreferences` | Expor preferências privadas no DTO de outra pessoa |
 | Events | Evento, inscrição, lista de espera, check-in e rodada | `events`: `events`, `registrations`, `rounds` | `Register`, `CheckIn`, `StartRound`, `CancelEvent` | Formar pares ignorando Safety |
-| Matching | Seleção, histórico de pares e reserva do par | `events` (nota 1): `pairings`, `pairing_participants` | `BuildRoundPairings`, `ReleaseReservation` | Inferir atributos sensíveis por IA |
+| Matching | Seleção, histórico de pares e reserva do par | `events` (nota 1): `pairings`, `pairing_participants` | `BuildRoundPairings`, `ReleaseReservation` | Inferir atributos sensíveis por processamento externo |
 | Experiences | Catálogo imutável, sala (= sessão de jogo, nota 5), ações e projeções | `experiences`: `experience_definitions`, `experience_versions`, `game_sessions`, `game_participants`, `game_actions`, `voice_participation` e `voice_credentials` (ADR-0028) | `AcceptInvitation`, `ApplyAction`, `GetParticipantView`; voz: `JoinVoice`, `LeaveVoice`, `IssueVoiceCredential`, `RevokeVoiceForRoom`, `RevokeVoiceForUser`, `RevokeAllVoice`, `MarkVoiceCredentialsRevoked` (ADR-0028) | Aceitar estado ou resultado definido pelo cliente |
 | Connections | Decisões privadas e conexão entre duas contas | `social` (nota 2): `relationship_guards`, `decisions`, `connections` | `SubmitDecision`, `EndConnection` | Revelar quem rejeitou ou quando rejeitou |
 | Messaging | Conversa, membros e mensagens | `social`: `conversations`, `conversation_members`, `messages` | `SendMessage`, `GetMessages`, `CloseConversation` | Autorizar apenas pela existência do ID da conversa |
@@ -95,5 +95,5 @@ Todo caso de uso coordenado adquire locks nesta ordem; quem descobre recurso for
 6. Voz da sala: `experiences.voice_participation` e depois `experiences.voice_credentials`, em ordem estável
    ([ADR-0028](adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)).
 
-Nenhuma chamada a e-mail, storage, IA ou webhook de terceiro acontece enquanto os locks de negócio estão
+Nenhuma chamada a e-mail, storage, processamento externo ou webhook de terceiro acontece enquanto os locks de negócio estão
 mantidos. O protocolo de cada cenário está em [concurrency.md](../data/concurrency.md).

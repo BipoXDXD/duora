@@ -1,4 +1,4 @@
-# ADR-0012: Pareamento determinístico, sem LLM
+# ADR-0012: Pareamento determinístico, com regras determinísticas
 
 - **Status:** Accepted (2026-10-15)
 - **Origem:** spec 1.1, 5 e 23.1 (ADR-012)
@@ -12,7 +12,7 @@ inferir atributos sensíveis.
 
 Alternativas consideradas:
 
-- **Recomendação por LLM ou ranking de atratividade.** Fora da primeira entrega (spec 1.1): opaco, não
+- **Recomendação por processamento externo ou ranking de atratividade.** Fora da primeira entrega (spec 1.1): opaco, não
   reproduzível e com risco de inferir gênero, orientação ou "qualidade do perfil".
 - **Matching de cardinalidade máxima com restrições.** Adiado: avaliar se a heurística deixar pessoas
   elegíveis sem par de forma recorrente (spec 5.1).
@@ -44,4 +44,4 @@ com supressão de grupos pequenos (spec 5.3).
 
 - Testes unitários com semente fixa e `TimeProvider` de teste (M2).
 - T-02 (dois coordenadores reservando a mesma pessoa) e T-03 (bloqueio concorrente com pareamento): M2.
-- Teste de arquitetura: o módulo Matching não referencia cliente de IA (a implementar no M2).
+- Teste de arquitetura: o módulo Matching não referencia cliente de processamento externo (a implementar no M2).

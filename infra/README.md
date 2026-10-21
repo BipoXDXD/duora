@@ -171,6 +171,6 @@ cada mudança de rede (spec 15.2), não a leitura das regras.
 
 ## Agente operacional isolado (proposta)
 
-Configuração separada em [`openclaw/`](openclaw/) e scripts em [`scripts/openclaw/`](../scripts/openclaw/).
-O [runbook OpenClaw/Slack](../docs/operations/openclaw.md) documenta instalação, permissões, alertas, atualização,
+Configuração separada em [`telemetry/`](telemetry/) e scripts em [`scripts/telemetry/`](../scripts/telemetry/).
+O [runbook gateway/Slack](../docs/operations/telemetry.md) documenta instalação, permissões, alertas, atualização,
 rollback e aceite real. Não altera o executor de deploy nem habilita serviços automaticamente.

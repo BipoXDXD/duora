@@ -3,15 +3,15 @@
 - **Status:** Accepted (2026-10-19), decisões do responsável pelo produto em 2026-10-19. A voz ao vivo entre as
   duas pessoas tem ADR próprio: [ADR-0028](0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md).
 - **Origem:** spec 1.1, 6.1, 6.3, 6.4, 13.1, 13.3 a 13.7, 16.3 e 23.2; [ADR-0006](0006-mesma-origem-spa-api-hub.md),
-  [ADR-0010](0010-object-storage-externo-leitura-via-api.md), [ADR-0013](0013-ia-fora-do-caminho-critico.md),
+  [ADR-0010](0010-object-storage-externo-leitura-via-api.md), [ADR-0013](0013-producao-editorial-fora-do-runtime.md),
   [ADR-0020](0020-persistencia-da-sessao-de-jogo.md), [ADR-0022](0022-i18n-intl-messageformat-catalogo-tipado.md);
   [brief](../../product/experience-brief.md) (O4 e restrições); [system.md](../../design/system.md)
 - **Revisar quando:** o 3D em tempo real medido numa experiência estourar o orçamento de peso ou de desempenho, o
-  orçamento de mídia ou de créditos medido estourar a hipótese, o plano ou os termos de ElevenLabs, Freesound ou Sonniss mudarem, ou entrar um terceiro idioma
+  orçamento de mídia ou de créditos medido estourar a hipótese, o plano ou os termos de fonte externa, Freesound ou Sonniss mudarem, ou entrar um terceiro idioma
 - **Substitui em parte:** a direção "objetos simbólicos, sem pessoa" de [system.md](../../design/system.md#ilustração-cenário-e-personagem)
   (marcada como Superseded lá), o prefixo de prompt v1 de [assets-licenses.md](../../design/assets-licenses.md) e
   a linha "Experiências" da spec 1.1, que tirava 3D e voz do escopo. Nenhum ADR anterior é revogado: os ADRs
-  0013 (IA fora do caminho crítico) e 0020 (conteúdo pela versão fixada) passam a valer também para a mídia.
+  0013 (Produção editorial fora do runtime) e 0020 (conteúdo pela versão fixada) passam a valer também para a mídia.
 
 ## Contexto
 
@@ -43,7 +43,7 @@ Game Audio Strategy Guide* (Zdanowicz e Bambrick, Routledge; "GASG"). Páginas s
 
 Alternativas consideradas:
 
-- **3D: fonte offline renderizada em WebP** (escolhida como padrão). Modelos gerados no Rodin ou no Tripo,
+- **3D: fonte offline renderizada em WebP** (escolhida como padrão). Modelos gerados nas fontes aprovadas,
   compostos e renderizados fora do produto; o pipeline de `tools/visual` entrega WebP. Zero JavaScript novo,
   peso previsível, mesmo tratamento de acessibilidade das imagens. Contra: sem interação com o objeto.
 - **3D em tempo real com `<model-viewer>`** (Apache-2.0). Web component sobre three.js, com `alt`, controle
@@ -55,7 +55,7 @@ Alternativas consideradas:
 - **3D em tempo real como padrão.** Descartada: põe JavaScript pesado e GPU no caminho de toda experiência,
   para um ganho que as tarefas (escolher, confirmar, conversar) não pedem.
 - **TTS ao vivo** (gerar a fala na hora, inclusive com nome de participante ou texto do chat). Descartada:
-  viola o ADR-0013 (IA fora do caminho crítico), envia dado de participante a fornecedor e impede revisão
+  viola o ADR-0013 (Produção editorial fora do runtime), envia dado de participante a fornecedor e impede revisão
   editorial da fala.
 - **Mídia do catálogo em object storage** (ADR-0010). Descartada para o catálogo: o ADR-0010 trata mídia de
   pessoas, privada e lida pela API; a mídia do catálogo é pública, não pessoal e versionada com o conteúdo.
@@ -113,8 +113,8 @@ geração ao vivo (imagem, música ou TTS).
 - **Voz de referência humana** só com consentimento e licença documentados em
   [assets-licenses.md](../../design/assets-licenses.md).
 - **Música mínima** quando a etapa pede foco (escolha, ajuste, decisão): ambiente baixo ou silêncio.
-- **Fornecedores (decisões do responsável, 2026-10-19):** **ElevenLabs, plano Creator**, para voz (TTS), música e,
-  como fonte principal, efeitos e ambiências (SFX v2, `eleven_text_to_sound_v2`); **Freesound, só CC0**, e
+- **Fornecedores (decisões do responsável, 2026-10-19):** **fonte externa, plano Creator**, para voz (TTS), música e,
+  como fonte principal, efeitos e ambiências (SFX v2, `fonte externa`); **Freesound, só CC0**, e
   **Sonniss** como complemento de efeitos. Caminho único: texto revisado do catálogo → geração
   offline na saída de maior qualidade que o plano permitir → edição, mix e normalização → **uma única**
   codificação AAC-LC → hash → registro em [assets-licenses.md](../../design/assets-licenses.md) → nova versão de
@@ -123,20 +123,20 @@ geração ao vivo (imagem, música ou TTS).
 - **Orçamento de créditos (hipótese a medir):** o responsável tem duas contas Creator, com ~131 mil créditos cada
   (~262 mil no total). Os ~131 mil são a cota **mensal** do Creator (121 mil) mais um bônus de inscrição de 10 mil,
   que vale uma vez só; a partir do mês seguinte, cada conta tem 121 mil. Os termos de uso
-  (<https://elevenlabs.io/terms-of-use>, consultados em 2026-10-19) não proíbem ter várias contas, só
+  (<registro externo de origem>, consultados em 2026-10-19) não proíbem ter várias contas, só
   compartilhar credenciais (§3); créditos pré-pagos expiram em 12 meses e se perdem quando a conta é fechada
   (§3, §6(b)(vi)). A estimativa para 10 experiências é ~200 mil:
 
   | Item | Estimativa | Premissa |
   |---|---|---|
-  | Voz | ~110 mil | Rascunho em Eleven Flash v2.5 (50% do preço por caractere na API); final em Eleven v4 só das falas aprovadas ([modelos](https://elevenlabs.io/docs/overview/models); id exato de cada modelo a confirmar na API) |
+  | Voz | ~110 mil | Rascunho em Rascunho de menor custo e final somente das falas aprovadas; parâmetros no registro externo |
   | Música | ~30 mil | 1 loop por ambiente, 2 tentativas |
-  | Efeitos ElevenLabs | ~60 mil | ~300 gerações |
+  | Efeitos fonte externa | ~60 mil | ~300 gerações |
   | **Total** | **~200 mil** | Folga de ~62 mil |
 
   O pipeline tem **teto de créditos por execução** (para antes de passar dele) e **log do consumo por geração**.
   A proveniência registra qual das duas contas gerou cada arquivo.
-- **Limites da geração paga (ElevenLabs, Tripo e Rodin):** a geração é offline, feita pelo responsável fora do
+- **Limites da geração paga (fontes editoriais aprovadas):** a geração é offline, feita pelo responsável fora do
   runtime. Nenhuma rota, job ou consumidor do produto chama esses fornecedores, então não existe operação de pessoa
   usuária a limitar por conta e por IP; quem garante isso é um teste de arquitetura
   (`NoRuntimeModuleReferencesMediaGenerationProviders`: Web, Worker, Core e Infrastructure sem cliente nem
@@ -145,14 +145,14 @@ geração ao vivo (imagem, música ou TTS).
   limitada e respeito ao `429` do fornecedor pelo `Retry-After`, com backoff e jitter limitados. Testes do script
   contra servidor HTTP falso, nunca contra o fornecedor real: `GenerationStopsBeforeExceedingTheCreditCap`,
   `GenerationStopsAfterMaxAttemptsPerAsset` e `GenerationHonorsProviderRetryAfter`.
-- **Segredo:** `ELEVENLABS_API_KEY` só no ambiente de quem gera, nunca no repositório, em CI, log ou commit; o
-  MCP hospedado da ElevenLabs usa OAuth (metadados em <https://api.us.elevenlabs.io/.well-known/oauth-protected-resource>; fluxo a confirmar no primeiro uso) e não precisa de
+- **Segredo:** `EDITORIAL_API_KEY` só no ambiente de quem gera, nunca no repositório, em CI, log ou commit; o
+  MCP hospedado da fonte externa usa OAuth (metadados em <registro externo de origem>; fluxo a confirmar no primeiro uso) e não precisa de
   chave no repositório.
 - **Riscos de licença:**
   - Sonniss proíbe redistribuir som avulso e o repositório é público: versiona-se só o **mix final** em que o
     efeito entra, nunca o arquivo original (termo exato a confirmar na licença do pacote).
   - Freesound: só CC0, e nenhuma gravação com voz identificável.
-  - Voice Library da ElevenLabs: registrar o `voice_id` e o prazo de retirada da voz pela autora; voz clonada de
+  - Voice Library da fonte externa: registrar o `voice_id` e o prazo de retirada da voz pela autora; voz clonada de
     pessoa real só com consentimento assinado.
 
 ### 4. Formatos, orçamento e carregamento
@@ -196,8 +196,7 @@ volume próprio para a outra pessoa, e dispara o mesmo ducking da trilha.
 
 ### 7. 3D
 
-O 3D está no escopo nas duas formas. A **fonte offline** é o padrão: modelos do Rodin (Hyper3D, plano Business) ou
-do Tripo, compostos e renderizados fora do produto e entregues em WebP pelo pipeline. O **3D em tempo real** (GLB)
+O 3D está no escopo nas duas formas. A **fonte offline** é o padrão: modelos das fontes aprovadas no registro externo, compostos e renderizados fora do produto e entregues em WebP pelo pipeline. O **3D em tempo real** (GLB)
 é permitido por experiência, decidido no one pager do ambiente, e precisa funcionar em produção nos navegadores da
 matriz (spec 13.5), com orçamento de peso e **fallback 2D acessível** (o poster WebP do mesmo modelo, com o mesmo
 texto alternativo). O visualizador é o `<model-viewer>`, pela acessibilidade embutida (`alt`, teclado, `poster`,

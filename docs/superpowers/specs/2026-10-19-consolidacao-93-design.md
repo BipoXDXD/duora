@@ -6,7 +6,7 @@ Data: 19/10/2026. Estado: proposta para revisão; implementação não realizada
 
 Checkout encontrado em `/Users/01bipo/Documents/Projetos/CSharp/Duora`. A main local
 está em `5ea87255`, 234 commits atrás da main remota. A análise usa `92150065`, em
-worktree separado na branch `codex/consolidation-93`. Não alterar `relatorios/`,
+worktree separado na branch `maintenance/consolidation-93`. Não alterar `relatorios/`,
 `wt-dep70/` nem outros worktrees existentes. Nenhum merge, deploy ou serviço pago.
 
 A decisão vigente da issue 93 elimina verificação de idade. Confirmar e-mail continua
@@ -18,7 +18,7 @@ privilégio mínimo, proteção contra enumeração e pré-sequestro de contas.
 
 | PR | Tratamento proposto |
 |---|---|
-| 76 | Aproveitar observador, monitor e integração OpenClaw isolados, seus testes e runbook. Não instalar, enviar Slack nem provisionar credenciais. Incluir seus recursos no orçamento se forem ativados. |
+| 76 | Aproveitar observador, monitor e integração gateway isolados, seus testes e runbook. Não instalar, enviar Slack nem provisionar credenciais. Incluir seus recursos no orçamento se forem ativados. |
 | 87 | Aproveitar orçamento conservador, testes e protocolo de carga. Aplicar apenas o delta próprio: a branch também contém documentação ancestral já integrada. |
 | 88 | Não reintroduzir consumidor etário. Adaptar limite de tentativas, heartbeat, fencing e testes ao consumidor de selfie, se reutilizado. |
 | 91 | Não aplicar integralmente: a main já usa en-US, fallback en-US e migração de preferência legada. A branch antiga restauraria fallback pt-BR e removeria a migração atual. Reaproveitar somente eventual cobertura de teste comprovadamente ausente. |

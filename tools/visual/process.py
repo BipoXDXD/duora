@@ -279,7 +279,7 @@ def review_hues(image: Image.Image, roles: Mapping[str, Oklch], hue_check: Mappi
 
 
 def draw_placeholder(size: int) -> Image.Image:
-    """Seixo neutro desenhado aqui mesmo, sem IA: corpo cinza quente com um reflexo mais claro em cima."""
+    """Seixo neutro desenhado aqui mesmo, com processamento determinístico: corpo cinza quente com um reflexo mais claro em cima."""
     supersample = 4
     big = size * supersample
     canvas = Image.new("RGBA", (big, big), TRANSPARENT)

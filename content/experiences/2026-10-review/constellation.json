@@ -201,7 +201,7 @@
         "assetId": "constellation-v1-intro-en",
         "transcript": "Explore everyday choices. You can skip any card.",
         "accessibleDescription": "Constellation of Choices",
-        "provenance": "Recorded narration; ElevenLabs eleven_v4; Sarah EXAVITQu4vr4xnSDxMaL; generation CBcWnbL6MkmW5v1Tgj1R; Creator paid plan confirmed by owner; human editorial review pending; media-manifest.json",
+        "provenance": "Registro editorial duora-editorial-20261021; mídia fixada por SHA-256; revisão editorial pendente.",
         "sha256": "e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841",
         "path": "audio/e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841.wav"
       },
@@ -209,7 +209,7 @@
         "assetId": "constellation-v1-intro-pt",
         "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
         "accessibleDescription": "Constelação de Escolhas",
-        "provenance": "Recorded narration; ElevenLabs eleven_v4; Sarah EXAVITQu4vr4xnSDxMaL; generation Q8M7IHElWIFVklZyaRpt; Creator paid plan confirmed by owner; human editorial review pending; media-manifest.json",
+        "provenance": "Registro editorial duora-editorial-20261021; mídia fixada por SHA-256; revisão editorial pendente.",
         "sha256": "43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc",
         "path": "audio/43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc.wav"
       }

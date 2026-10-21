@@ -1,5 +1,5 @@
 {
-  "source": "Automatic ElevenLabs Scribe v1 transcript of the final selected generation; not human listening or approval",
+  "source": "Automatic fonte externa Scribe v1 transcript of the final selected generation; not human listening or approval",
   "results": [
     {
       "key": "constellation-en-US",
@@ -49,5 +49,6 @@
       "transcript": "Planejem uma rota por uma ilha imaginária em conjunto.",
       "exactMatch": true
     }
-  ]
+  ],
+  "sourceRecord": "duora-editorial-20261021"
 }

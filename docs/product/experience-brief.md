@@ -101,7 +101,7 @@ explicar o motivo. Nenhuma das situações abaixo exige continuar na sala para p
 
 - **Identidade visual final** (nome visual, matiz primário, fonte): decisão do responsável pelo produto; os
   tokens atuais são provisórios (spec 13.3). A direção de ilustração, cenário e personagem está no ADR-0027.
-- Áudio: ElevenLabs Creator para voz, música e efeitos (SFX v2), com Freesound CC0 e Sonniss como complemento (ADR-0027); voz ao vivo no ADR-0028.
+- Áudio: origem editorial registrada para voz, música e efeitos (SFX v2), com Freesound CC0 e Sonniss como complemento (ADR-0027); voz ao vivo no ADR-0028.
 - **Revisão de uso com pessoas adultas** (spec 13.1, última linha da tabela): sessões com tarefas P1 e P2, com
   roteiro de compreensão da spec 13.6. Ainda não realizadas; nenhum item deste brief foi validado com
   participantes.

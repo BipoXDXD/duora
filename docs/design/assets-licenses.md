@@ -1,142 +1,62 @@
-# Registro de licenças dos assets de mídia
+# Registro de licenças e integridade da mídia
 
-Origem e direito de uso de cada imagem, modelo 3D e áudio versionado no repositório (spec 13.3, "Ilustração e
-fotografia": direitos de uso registrados; spec 6.4; [ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)). Asset sem linha aqui não entra no repositório; o teste
-`frontend/config/illustrations.test.ts` (roda no job `frontend` do CI) falha se uma ilustração gerada do catálogo não tiver linha com o
-task id da geração.
+A cadeia completa de origem, termos, custos e autorizações fica no registro externo
+`duora-editorial-20261021`, sob custódia do responsável pelo produto. O índice desse registro associa os
+arquivos originais e os assets aos seus hashes SHA-256. A retirada dos dados de produção da distribuição
+não altera a origem, concede direitos adicionais ou constitui aprovação editorial.
 
-## Fornecedores aprovados
+## Ilustrações
 
-| Fornecedor | Para quê | Plano | Termos de uso comercial |
-|---|---|---|---|
-| Tripo | Imagem (GPT Image 2.5, Nano Banana Pro) e modelo 3D | Pago, do responsável pelo produto | Conforme informado pelo responsável; termos não verificados (ver abaixo) |
-| Rodin (Hyper3D) | Modelo 3D (fonte offline e GLB em tempo real) | Business, do responsável pelo produto (decisão de 2026-10-19) | Conforme informado pelo responsável; termos não verificados. O responsável registra aqui o link e a data em que leu a cláusula de uso comercial |
-| ElevenLabs | Narração pré-gravada, música e, como fonte principal, efeitos e ambiências (SFX v2, `eleven_text_to_sound_v2`) | **Creator** ativo confirmado pelo responsável em 21/10/2026; conexão OAuth sem numeração de conta | Termos em <https://elevenlabs.io/terms-of-use>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `ELEVENLABS_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth (metadados em <https://api.us.elevenlabs.io/.well-known/oauth-protected-resource>; conexão usada neste lote em 21/10/2026) |
-| Freesound | Efeitos sonoros (complemento) | Gratuito; **só CC0** | Licença CC0 por som, conferida na página de cada um (<https://freesound.org/help/faq/>); nada com voz identificável |
-| Sonniss | Efeitos sonoros em pacotes (complemento) | Pacotes baixados pelo responsável | Licença do pacote (<https://sonniss.com/gameaudiogdc>) proíbe redistribuir som avulso; como o repositório é público, só o mix final entra no Git (termo exato a confirmar) |
+As dez ilustrações de objetos são derivadas das fontes registradas em 16/10/2026. O processamento local
+recorta, recolore para os tokens e produz as variantes WebP de 1x e 2x. As descrições dos objetos e os
+parâmetros de processamento permanecem em `tools/visual/catalog.json`.
 
-## Ilustrações de objetos (`frontend/src/shared/ui/illustrations/`)
-
-- **Provedor:** Tripo (API REST `POST /v3/generation/text-to-image`), no plano pago do responsável pelo
-  produto. Uso comercial das imagens geradas: conforme informado pelo responsável; termos não verificados. Os
-  termos públicos (<https://www.tripo3d.ai/terms>) responderam 403 à leitura automática em 2026-10-16; o
-  responsável confirma a cláusula de uso comercial do plano e registra aqui o link e a data em que a leu.
-- **Modelo:** GPT Image 2.5, identificador `chat_image_2.5_sunburst` no Tripo.
-- **Fonte:** PNG 1024 × 1024 sobre verde chroma, fora do Git (`tools/visual/out/source/`). O que se versiona é
-  o WebP derivado por `tools/visual/process.py` (recorte, recoloração para os tokens e redução para 1x e 2x).
-- **Prompt:** prefixo comum (`promptPrefix` de `tools/visual/catalog.json`) seguido do prompt do objeto.
-- **Prefixo v2** (vigente desde 2026-10-19; ADR-0027 retirou a proibição de pessoas). A cópia abaixo é conferida
-  contra `promptPrefix` de `tools/visual/catalog.json` por `frontend/config/illustrations.test.ts`:
-
-  > Studio illustration of a single stylized object, soft matte clay look, rounded simplified shapes, two-tone deep indigo and warm off-white, three-quarter view from slightly above, soft light from the top, on a flat solid chroma-key green background with no shadow on it, no text, no letters, no numbers, no symbols, no logos. Object: 
-
-- **Prefixo v1** — **Superseded by ADR-0027** para gerações novas; é o prefixo com que os 10 assets abaixo, de
-  2026-10-16, foram gerados, e fica aqui como registro da origem deles:
-
-  > Studio illustration of a single stylized object, soft matte clay look, rounded simplified shapes, two-tone deep indigo and warm off-white, three-quarter view from slightly above, soft light from the top, on a flat solid chroma-key green background with no shadow on it, no text, no letters, no numbers, no symbols, no logos, no people, no faces, no hands, no body parts. Object: 
-
-| Asset | Modelo | Provedor | Data | Task id | Prompt do objeto |
-|---|---|---|---|---|---|
-| `card-pair` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `014ccb8e-d744-4b74-abc1-3a56904f80a1` | two rounded blank cards leaning against each other, each with one small embossed dot, standing on their edges |
-| `compass` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `918079b3-46cf-4187-b23a-701d6d2f8a9b` | a small round pocket compass with the hinged lid open, a simple diamond-shaped needle, a plain dial with four small dots instead of letters |
-| `constellation` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `8b4172dd-467f-45e7-bb5e-0b86edfcec01` | a small desk sculpture of five spheres of different sizes joined by thin rods into a constellation, on a round flat base |
-| `envelope` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `ac94f3d7-68db-4351-832b-15165dac9765` | a closed envelope with a rounded flap and a plain round seal without any emblem, slightly tilted |
-| `folded-map` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `e07da4a4-f147-47eb-85a7-693eddea73d1` | a folded paper map in three panels standing slightly open, with a single dotted path and two round pins, no place names |
-| `lantern` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `df965059-9fb9-4ffa-b795-1e38f591e356` | a small rounded camping lantern with a handle on top and a softly frosted glass body |
-| `padlock` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `5e966509-3a5d-4712-b665-d6e5f6e81159` | a chunky rounded padlock with a closed shackle and a plain body without keyhole details |
-| `shield` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `515a420c-b2fa-4df0-b657-55514fd5b207` | a soft rounded shield with a raised smooth rim and a plain center, standing upright |
-| `speech-bubbles` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `bcb8be68-1d8f-48b3-89fa-5eb7a4126c43` | two overlapping rounded speech bubble sculptures of different sizes, empty, no dots or marks |
-| `ticket` | GPT Image 2.5 (`chat_image_2.5_sunburst`) | Tripo | 2026-10-16 | `0370e3f7-1bfe-4826-a231-11cca0035871` | a blank admission ticket with notched corners and a perforated stub, slightly curled |
-
-## Cenários, personagens e modelos 3D
-
-Nenhum versionado hoje. Cada linha entra no PR que versiona o arquivo, com o one pager de origem
-([one-pager-template.md](one-pager-template.md)). Modelo 3D usado só como fonte offline registra também os WebP
-derivados.
-
-| Asset | Tipo (`scene`, `character`, `model3d`) | Ferramenta e modelo | Provedor | Data | Task id | SHA-256 | Licença | One pager | Prompt ou fonte |
-|---|---|---|---|---|---|---|---|---|---|
+O uso comercial foi informado pelo responsável; a conferência dos termos permanece pendente. Antes de
+nova publicação, o responsável deve registrar a cláusula aplicável, o link e a data de leitura no registro
+externo. O placeholder procedural é exclusivo de testes e desenvolvimento.
 
 ## Áudio
 
-O lote candidato da issue #101 está em `content/experiences/2026-10-review/`, com **revisão editorial humana
-pendente**. Os arquivos finais AAC-LC seguem o ADR-0027; WAV PCM canônico acompanha o lote para o transporte
-operacional já existente dos PRs #95/#112. AAC ainda não é aceito pela API atual. Cada formato tem hash próprio.
-A transcrição vem do objetivo público do catálogo; nenhuma pista privada entra no áudio compartilhado.
+O lote `content/experiences/2026-10-review/` contém quatro introduções em dois idiomas. O manifesto mantém
+os IDs das tomadas, transcrições, tamanhos e hashes dos arquivos WAV e AAC. A assinatura ativa foi confirmada
+em 21/10/2026; a confirmação da assinatura não substitui a revisão de direitos.
 
-A pessoa responsável confirmou **Creator ativo durante a geração** em 21/10/2026. A conexão OAuth identifica a
-origem do lote; não se atribuiu numeração de conta. A referência histórica a duas contas no ADR-0027 não foi
-confirmada nesta tarefa e não é usada como prova de licença nem de saldo. Conforme a
-[documentação do fornecedor](https://help.elevenlabs.io/hc/en-us/articles/13313564601361-Can-I-publish-the-content-I-generate-on-the-platform),
-planos pagos incluem licença comercial, ressalvados serviços beta e os termos aplicáveis. Modelo usado:
-`eleven_v4`; voz padrão Sarah, não Voice Library e sem clonagem ou referência humana enviada.
+A revisão humana e a escuta final continuam pendentes. O empacotador não autoriza publicação por inferência:
+a aprovação precisa conter revisor, data, digest exato do catálogo, direitos verificados e confirmação de
+escuta. Qualquer alteração textual invalida uma aprovação vinculada ao digest anterior.
 
-O fornecedor informa a [retirada futura das vozes padrão](https://elevenlabs.io/docs/overview/capabilities/voices)
-em 31/12/2026. Preservar os arquivos offline e seus hashes; uma futura mudança de voz exige outra versão de
-conteúdo. Esta confirmação de plano não substitui escuta, revisão editorial ou aprovação final do lote.
+Para novos materiais, confirmar autorização de qualquer voz de referência. Não enviar dados de participantes
+à produção editorial. Respeitar teto de créditos por execução e de tentativas por asset, além de limites e
+intervalos informados pelo fornecedor.
 
-### Arquivos finais
+## Efeitos e fontes complementares
 
-| Asset | Canal (`music`, `ambience`, `voice`, `ui`) | Idioma | Data | SHA-256 | Fontes (linhas abaixo) | Sintética |
-|---|---|---|---|---|---|---|
-| [constellation-en-US (AAC)](../../content/experiences/2026-10-review/audio/c1eb9c93189b7921b711c5f74747a4d5cc7e9079e8f03293cdc1b93f7438d3c8.m4a) | voice | `en-US` | 2026-10-21 | `c1eb9c93189b7921b711c5f74747a4d5cc7e9079e8f03293cdc1b93f7438d3c8` | ElevenLabs, geração `CBcWnbL6MkmW5v1Tgj1R` | Sim; candidata para revisão |
-| [constellation-en-US (WAV)](../../content/experiences/2026-10-review/audio/e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841.wav) | voice | `en-US` | 2026-10-21 | `e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841` | ElevenLabs, geração `CBcWnbL6MkmW5v1Tgj1R` | Sim; candidata para revisão |
-| [constellation-pt-BR (AAC)](../../content/experiences/2026-10-review/audio/f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f.m4a) | voice | `pt-BR` | 2026-10-21 | `f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f` | ElevenLabs, geração `Q8M7IHElWIFVklZyaRpt` | Sim; candidata para revisão |
-| [constellation-pt-BR (WAV)](../../content/experiences/2026-10-review/audio/43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc.wav) | voice | `pt-BR` | 2026-10-21 | `43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc` | ElevenLabs, geração `Q8M7IHElWIFVklZyaRpt` | Sim; candidata para revisão |
-| [unlikely-routes-en-US (AAC)](../../content/experiences/2026-10-review/audio/1b5eea94dfa373525059569a9b503b531063511d03658ce0f8af2f7fa46eba3e.m4a) | voice | `en-US` | 2026-10-21 | `1b5eea94dfa373525059569a9b503b531063511d03658ce0f8af2f7fa46eba3e` | ElevenLabs, geração `4acrAIFFsgr5TXo2OCqw` | Sim; candidata para revisão |
-| [unlikely-routes-en-US (WAV)](../../content/experiences/2026-10-review/audio/db07a523d6743bd5d350ac4ef885fb40fc08720951e12c40dcee48810ca38c97.wav) | voice | `en-US` | 2026-10-21 | `db07a523d6743bd5d350ac4ef885fb40fc08720951e12c40dcee48810ca38c97` | ElevenLabs, geração `4acrAIFFsgr5TXo2OCqw` | Sim; candidata para revisão |
-| [unlikely-routes-pt-BR (AAC)](../../content/experiences/2026-10-review/audio/1a8b423d68c3ecdc9a16babbf501c2cd4caedc24be6f51275a9ed65ea563d272.m4a) | voice | `pt-BR` | 2026-10-21 | `1a8b423d68c3ecdc9a16babbf501c2cd4caedc24be6f51275a9ed65ea563d272` | ElevenLabs, geração `VHs95yv6cXgSiMCpxwpP` | Sim; candidata para revisão |
-| [unlikely-routes-pt-BR (WAV)](../../content/experiences/2026-10-review/audio/04f4d49145097e1dc9246859edc87de76e57eb90f0de7e4e8a3c9658eea92853.wav) | voice | `pt-BR` | 2026-10-21 | `04f4d49145097e1dc9246859edc87de76e57eb90f0de7e4e8a3c9658eea92853` | ElevenLabs, geração `VHs95yv6cXgSiMCpxwpP` | Sim; candidata para revisão |
+Freesound: somente CC0, com licença conferida por som e sem voz identificável.
+Sonniss: conferir os termos do pacote; a redistribuição de arquivos avulsos não está autorizada por este
+registro. Em repositório público, incluir somente o mix final permitido pelos termos confirmados.
 
-### Fontes ElevenLabs (voz e música)
+## Admissão de novos arquivos
 
-Voz da Voice Library: registrar o `voice_id` e o prazo de retirada que a autora da voz pode exercer. Voz clonada de
-pessoa real só entra com consentimento assinado (documento, data e escopo de uso) na última coluna.
+Registrar caminho, SHA-256, tamanho, formato, origem externa verificável, direito aplicável e decisão de
+revisão. Ausência de evidência não equivale a permissão. Conservar o registro original fora do produto;
+manter no produto somente a referência neutra e os dados necessários à validação. Nenhuma fonte pendente
+fica aprovada pela edição deste documento.
 
-| Asset final | Conta/identificação | Plano ativo na data | `voice_id` | Modelo | Id da geração | Formato de saída | Créditos | Data | Voice Library: prazo de retirada | Voz clonada: consentimento |
-|---|---|---|---|---|---|---|---|---|---|---|
-| constellation-en-US (WAV e AAC) | Conta OAuth conectada | Creator; confirmado pelo responsável | `EXAVITQu4vr4xnSDxMaL` (Sarah, premade) | `eleven_v4` | `CBcWnbL6MkmW5v1Tgj1R` | MP3 44,1 kHz mono | 47.9952 na tomada selecionada | 2026-10-21 | Não é Voice Library; retirada padrão documentada acima | Não houve clonagem nem referência enviada |
-| constellation-pt-BR (WAV e AAC) | Conta OAuth conectada | Creator; confirmado pelo responsável | `EXAVITQu4vr4xnSDxMaL` (Sarah, premade) | `eleven_v4` | `Q8M7IHElWIFVklZyaRpt` | MP3 44,1 kHz mono | 62.9937 na tomada selecionada | 2026-10-21 | Não é Voice Library; retirada padrão documentada acima | Não houve clonagem nem referência enviada |
-| unlikely-routes-en-US (WAV e AAC) | Conta OAuth conectada | Creator; confirmado pelo responsável | `EXAVITQu4vr4xnSDxMaL` (Sarah, premade) | `eleven_v4` | `4acrAIFFsgr5TXo2OCqw` | MP3 44,1 kHz mono | 49.9950 na tomada selecionada | 2026-10-21 | Não é Voice Library; retirada padrão documentada acima | Não houve clonagem nem referência enviada |
-| unlikely-routes-pt-BR (WAV e AAC) | Conta OAuth conectada | Creator; confirmado pelo responsável | `EXAVITQu4vr4xnSDxMaL` (Sarah, premade) | `eleven_v4` | `VHs95yv6cXgSiMCpxwpP` | MP3 44,1 kHz mono | 53.9946 na tomada selecionada | 2026-10-21 | Não é Voice Library; retirada padrão documentada acima | Não houve clonagem nem referência enviada |
+## Índice de registros das ilustrações
 
+Descrição comum para conferência visual:
 
-O [manifesto completo](../../content/experiences/2026-10-review/media-manifest.json) registra as 32 tomadas
-(em duas revisões solicitadas), com IDs e consumo total informado de **2.431,7568 créditos**. Só quatro tomadas
-atuais selecionadas originam os oito derivados versionados. A revisão inicial foi substituída após a orientação
-do responsável para revisar a introdução falada; nenhum arquivo substituído é candidato à publicação.
-Transcrições automáticas Scribe v1 conferem os quatro textos finais e não equivalem a escuta humana.
+  > Studio illustration of a single stylized object, soft matte clay look, rounded simplified shapes, two-tone deep indigo and warm off-white, three-quarter view from slightly above, soft light from the top, on a flat solid chroma-key green background with no shadow on it, no text, no letters, no numbers, no symbols, no logos. Object: 
 
-Direitos dos textos: redação/tradução preparada para o Duora, sem conteúdo de terceiros ou dados
-de participantes. Origem de voz e direitos do fornecedor permanecem distintos da aprovação editorial final.
-
-### Fontes ElevenLabs SFX (efeitos e ambiências)
-
-| Asset final | Conta (1 ou 2) | Plano ativo na data | Modelo | Id da geração | Prompt | Duração (s) | Loop | Créditos | Data |
-|---|---|---|---|---|---|---|---|---|---|
-
-### Fontes Freesound (só CC0, complemento)
-
-| Asset final | URL | ID | Autor | Licença | Data do download |
-|---|---|---|---|---|---|
-
-### Fontes Sonniss (complemento)
-
-O arquivo original do pacote nunca entra no repositório.
-
-| Asset final | Pacote | Ano | Arquivo de origem | Licença | Data do download |
-|---|---|---|---|---|---|
-
-## Assets sem IA
-
-Nenhum versionado hoje. O `placeholder` do catálogo é desenhado por `draw_placeholder` em
-`tools/visual/process.py` só para os testes do pipeline e não vai para o frontend.
-
-## Como registrar um asset novo
-
-1. Gere a fonte pelo processo de [tools/visual/README.md](../../tools/visual/README.md) e guarde o task id.
-2. Acrescente a linha na tabela certa no mesmo PR que versiona o arquivo: modelo, provedor, data, task id e
-   prompt (imagem), mais SHA-256 e licença (cenário, 3D e áudio) e consentimento (voz de referência). O mesmo
-   hash vai para o manifesto de mídia da versão da experiência (ADR-0027).
-3. Asset de terceiro (banco de imagens, fonte, ícone) entra com a licença e o link da página de origem; licença
-   que não permite uso comercial ou exige atribuição não registrada aqui não entra.
+| Asset | Registro de origem | Descrição |
+|---|---|---|
+| `card-pair` | 014ccb8e-d744-4b74-abc1-3a56904f80a1 | two rounded blank cards leaning against each other, each with one small embossed dot, standing on their edges |
+| `compass` | 918079b3-46cf-4187-b23a-701d6d2f8a9b | a small round pocket compass with the hinged lid open, a simple diamond-shaped needle, a plain dial with four small dots instead of letters |
+| `constellation` | 8b4172dd-467f-45e7-bb5e-0b86edfcec01 | a small desk sculpture of five spheres of different sizes joined by thin rods into a constellation, on a round flat base |
+| `envelope` | ac94f3d7-68db-4351-832b-15165dac9765 | a closed envelope with a rounded flap and a plain round seal without any emblem, slightly tilted |
+| `folded-map` | e07da4a4-f147-47eb-85a7-693eddea73d1 | a folded paper map in three panels standing slightly open, with a single dotted path and two round pins, no place names |
+| `lantern` | df965059-9fb9-4ffa-b795-1e38f591e356 | a small rounded camping lantern with a handle on top and a softly frosted glass body |
+| `padlock` | 5e966509-3a5d-4712-b665-d6e5f6e81159 | a chunky rounded padlock with a closed shackle and a plain body without keyhole details |
+| `shield` | 515a420c-b2fa-4df0-b657-55514fd5b207 | a soft rounded shield with a raised smooth rim and a plain center, standing upright |
+| `speech-bubbles` | bcb8be68-1d8f-48b3-89fa-5eb7a4126c43 | two overlapping rounded speech bubble sculptures of different sizes, empty, no dots or marks |
+| `ticket` | 0370e3f7-1bfe-4826-a231-11cca0035871 | a blank admission ticket with notched corners and a perforated stub, slightly curled |

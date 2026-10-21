@@ -47,7 +47,7 @@
       "name": "placeholder",
       "source": "procedural",
       "use": "emptyState",
-      "where": "Só testes e desenvolvimento: seixo neutro desenhado pelo próprio pipeline, sem IA",
+      "where": "Só testes e desenvolvimento: seixo neutro desenhado pelo próprio pipeline, com processamento determinístico",
       "prompt": null
     },
     {

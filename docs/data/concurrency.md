@@ -29,7 +29,7 @@ fim a fim para idempotência e constraints como garantia de integridade (idem, c
 3. **Constraint é a última defesa.** Toda invariante tem `UNIQUE`, `CHECK` ou índice parcial
    ([model.md](model.md#índices-e-constraints-transversais-spec-103)); o lock evita o erro, a constraint
    garante que ele não passe. Check-then-insert sem constraint é write skew.
-4. **Nada externo sob lock.** Nenhuma chamada a e-mail, storage, fornecedor etário, IA ou webhook com locks de
+4. **Nada externo sob lock.** Nenhuma chamada a e-mail, storage, fornecedor etário, processamento externo ou webhook com locks de
    negócio mantidos; o efeito sai pela outbox no mesmo commit (spec 10.4).
 5. **Transação curta e limitada.** `SET LOCAL lock_timeout` em toda transação coordenada (**2 s, hipótese**) e
    `statement_timeout` da conta da aplicação; `idle_in_transaction_session_timeout` no servidor.

@@ -23,7 +23,7 @@ public sealed class ExperienceEngine<TContent, TState, TAction, TView>
         _clock = clock;
     }
 
-    /// <summary>Inicia a sessão agora, com o conteúdo publicado recebido. Não consulta LLM nem catálogo (ADR-0013).</summary>
+    /// <summary>Inicia a sessão agora, com o conteúdo publicado recebido. Não consulta processamento externo nem catálogo (ADR-0013).</summary>
     public GameSession<TState, TAction> CreateSession(
         TContent content,
         ParticipantPair participants,

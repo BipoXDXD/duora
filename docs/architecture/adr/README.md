@@ -20,8 +20,8 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0009](0009-uma-instancia-web-no-piloto.md) | Uma web ativa no piloto | Accepted | Disponibilidade/capacidade exigir backplane |
 | [0010](0010-object-storage-externo-leitura-via-api.md) | Object storage externo e leitura privada via API | Accepted | Egress/latência exigirem distribuição revisada |
 | [0011](0011-pgbackrest-wal-externo-restore-obrigatorio.md) | pgBackRest/WAL externo e restore obrigatório | Accepted | Volume/metas exigirem outra topologia |
-| [0012](0012-pareamento-deterministico-sem-llm.md) | Pareamento determinístico sem LLM | Accepted | Evidência de benefício com avaliação formal de risco |
-| [0013](0013-ia-fora-do-caminho-critico.md) | IA fora do caminho crítico de partidas | Accepted | Caso concreto aprovado com fallback equivalente |
+| [0012](0012-pareamento-deterministico.md) | Pareamento determinístico | Accepted | Evidência de benefício com avaliação formal de risco |
+| [0013](0013-producao-editorial-fora-do-runtime.md) | Produção editorial fora do runtime de partidas | Accepted | Caso concreto aprovado com fallback equivalente |
 | [0014](0014-automacao-com-gates.md) | Automação com gates para mudanças críticas | Accepted | Evidência para ampliar escopo de baixo risco |
 | [0015](0015-sem-kubernetes-redis-microsservicos.md) | Sem Kubernetes/Redis/microsserviços obrigatórios | Accepted | Necessidade medida |
 | [0016](0016-sala-e-sessao-de-jogo.md) | Sala é a `game_session` de um par numa rodada | Accepted | Sala sem sessão ou com várias sessões |
@@ -35,11 +35,11 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0024](0024-fluxo-de-verificacao-etaria.md) | Fluxo etário histórico | Superseded by 0029 | Fornecedor contratado ou parecer sobre o ECA Digital |
 | [0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md) | Fotos por corpo cru, quarentena no disco da VPS (FileSystem); S3 como alternativa, fila na outbox e sanitização com ImageSharp no Worker | Accepted | Receita acima de US$ 1 mi, revisão editorial, URL assinada ou `media-sanitizer` isolado |
 | [0026](0026-publico-idiomas-e-regiao-do-servidor.md) | Público principal fora do Brasil, produto inteiro em PT-BR e EN-US e servidor em Boston (EUA) | Accepted | Países do lançamento fixados, terceiro idioma ou servidor/backup em outro país |
-| [0027](0027-midia-das-experiencias-cenario-audio-e-3d.md) | Cenários e personagens, áudio pré-gerado mudo por padrão, mídia na `ExperienceVersion` e 3D offline por padrão e em tempo real por experiência | Accepted | 3D em tempo real ou mídia acima do orçamento medido, mudança de plano ou termos de ElevenLabs, Freesound ou Sonniss, ou terceiro idioma |
+| [0027](0027-midia-das-experiencias-cenario-audio-e-3d.md) | Cenários e personagens, áudio pré-gerado mudo por padrão, mídia na `ExperienceVersion` e 3D offline por padrão e em tempo real por experiência | Accepted | 3D em tempo real ou mídia acima do orçamento medido, mudança de plano ou termos de fonte externa, Freesound ou Sonniss, ou terceiro idioma |
 | [0028](0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md) | Voz ao vivo por WebRTC P2P com relay forçado na Cloudflare Realtime TURN; LiveKit Cloud como plano B | Accepted | Mute pelo servidor, sala com mais de 2 pessoas ou relay instável no Safari |
 | [0029](0029-confirmacao-email-presenca-sem-idade.md) | E-mail obrigatório e selfie de presença/qualidade, sem idade | Accepted; ativação pendente | Homologação do fornecedor |
 | [0030](0030-profile-country-subdivision.md) | País e subdivisão opcionais, expansão compatível com UF | Accepted | Mudança do recorte/fonte/licença; governança, ativação e contract |
-| [0031](0031-openclaw-remoto-telemetria-mtls.md) | Gateway OpenClaw separado e snapshot público por mTLS | Proposed | Mudança de contrato, PKI ou autoridade do agente |
+| [0031](0031-telemetry-remoto-telemetria-mtls.md) | Gateway gateway separado e snapshot público por mTLS | Proposed | Mudança de contrato, PKI ou autoridade do agente |
 | [0032](0032-narracao-natural-e-proveniencia-interna.md) | Narração natural e proveniência interna, sem mensagem de criação na experiência | Accepted | Exigência aplicável de divulgação, mudança de fornecedor ou escopo de voz |
 
 ## Regras

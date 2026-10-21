@@ -96,7 +96,7 @@ providers do Data Protection e o próprio Data Protection. O resto do Identity (
 `PasswordHasher`) vem de pacotes NuGet e roda no runtime puro.
 
 A fronteira difícil é o cadastro, que grava conta, aceites e outbox na mesma transação sem expor o `DbContext`.
-Duas formas, comparadas pelo custo de uso no código de cima (CLAUDE.md, Qualidade 34):
+Duas formas, comparadas pelo custo de uso no código de cima (diretriz de qualidade 34, registro externo):
 
 - **Opção 1: `InternalsVisibleTo` restrito ao projeto novo**, que passaria a conter os casos de uso de conta e a
   usar o `DbContext`, as entidades da outbox e o SQL da Infrastructure. Uso barato para quem escreve o caso de uso

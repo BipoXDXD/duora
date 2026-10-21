@@ -37,7 +37,7 @@ O Duora organiza encontros entre duas pessoas adultas em eventos com rodadas e e
 | Conta | Cadastro, confirmação de e-mail, login, recuperação, gestão de sessões e exclusão | Servidor OAuth próprio; múltiplos provedores sociais simultâneos |
 | Perfil | Nome de exibição, faixa etária pública, região aproximada, descrição curta, fotos aprovadas e preferências privadas | Geolocalização precisa, importação de redes sociais e enriquecimento de dados |
 | Eventos | Publicação administrativa, inscrição, fila de espera, check-in, rodadas e cancelamento | Marketplace de organizadores e eventos de terceiros |
-| Pareamento | Elegibilidade bilateral, bloqueios, não repetição no evento, justiça de espera e rastreabilidade técnica | Ranking de atratividade, inferência de orientação e recomendação por LLM |
+| Pareamento | Elegibilidade bilateral, bloqueios, não repetição no evento, justiça de espera e rastreabilidade técnica | Ranking de atratividade, inferência de orientação e recomendação por processamento externo |
 | Experiências | Um jogo completo na primeira fatia; segundo jogo antes da expansão do piloto; cenários e personagens ilustrados, trilha, ambiente e vozes pré-geradas com transcrição, 3D renderizado offline e, por experiência, 3D em tempo real com fallback 2D ([ADR-0027](../architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)) | Vídeo, scripts arbitrários, TTS ao vivo e qualquer geração ao vivo no caminho crítico |
 | Comunicação | Chat textual durante a sala e conversa persistente após interesse mútuo; voz ao vivo opcional entre as duas pessoas, dentro da experiência, desligada por padrão ([ADR-0028](../architecture/adr/0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md)) | Anexos, HTML, mensagens anônimas, criptografia ponta a ponta, gravação ou transcrição da voz ao vivo, e voz ou vídeo na conversa persistente |
 | Segurança interpessoal | Sair, bloquear, denunciar, encerrar conexão, revisão e recurso | Banimento permanente exclusivamente por classificador |
@@ -226,7 +226,7 @@ flowchart TB
 | Identity | Conta, credenciais, sessões, recuperação, estado etário | `GetEligibility`, `RevokeSessions`, `DisableAccount` | Decidir pareamento ou abrir conversas |
 | Profiles | Perfil, fotos, preferências e visibilidade | `GetAuthorizedProfile`, `UpdatePreferences` | Expor preferências privadas no DTO de outra pessoa |
 | Events | Evento, inscrição, lista de espera, check-in e rodada | `Register`, `CheckIn`, `StartRound`, `CancelEvent` | Formar pares ignorando Safety |
-| Matching | Seleção, histórico de pares e reservas | `BuildRoundPairings`, `ReleaseReservation` | Inferir atributos sensíveis por IA |
+| Matching | Seleção, histórico de pares e reservas | `BuildRoundPairings`, `ReleaseReservation` | Inferir atributos sensíveis por processamento externo |
 | Experiences | Catálogo imutável, sessão, ações e projeções | `AcceptInvitation`, `ApplyAction`, `GetParticipantView` | Aceitar estado ou resultado definido pelo cliente |
 | Connections | Decisões privadas e vínculo entre duas contas | `SubmitDecision`, `EndConnection` | Revelar quem rejeitou ou quando rejeitou |
 | Messaging | Conversa, membros e mensagens | `SendMessage`, `GetMessages`, `CloseConversation` | Autorizar apenas pela existência do ID da conversa |
@@ -400,7 +400,7 @@ Cada experiência publica `experienceId`, `rulesVersion`, `contentVersion`, `sch
 
 | Operação | Entrada | Saída | Restrição |
 |---|---|---|---|
-| `CreateSession` | Versão publicada, participantes, configuração e semente | Estado inicial persistível | Não consultar LLM durante a criação |
+| `CreateSession` | Versão publicada, participantes, configuração e semente | Estado inicial persistível | Não consultar processamento externo durante a criação |
 | `ValidateAction` | Estado atual, ator, ação e horário do servidor | Validação tipada | Ator e etapa devem permitir a ação |
 | `ApplyAction` | Ação já validada e versão esperada | Novo estado e eventos de domínio | Determinística com relógio/aleatoriedade injetados |
 | `ProjectForParticipant` | Estado interno e participante autorizado | DTO sem pistas/decisões de terceiros | Não serializar entidade integral e “esconder campos” depois |
@@ -442,7 +442,7 @@ Não retornar o objeto completo com `hidden: true`; se o dado não pode ser vist
 
 Cartões, instruções, variações e testes são preparados **fora do fluxo ao vivo**. O pipeline valida schema, comprimento, linguagem, conteúdo proibido, direitos de uso e acessibilidade; depois exige aprovação editorial antes da publicação. O catálogo registra origem, modelo quando aplicável, revisão humana, licença e hash do conteúdo; cada asset de mídia registra também hash, ferramenta, modelo, id da tarefa de geração e, para voz feita a partir de voz humana, o consentimento e a licença da pessoa.
 
-Não enviar conversas, fotos, preferências íntimas ou denúncias reais a um agente de criação de conteúdo. O jogo deve funcionar normalmente com o fornecedor de IA indisponível.
+Não enviar conversas, fotos, preferências íntimas ou denúncias reais a um agente de criação de conteúdo. O jogo deve funcionar normalmente com o fornecedor de processamento externo indisponível.
 
 ### 6.5. Mídia das experiências e voz ao vivo
 
@@ -458,7 +458,7 @@ Regras completas em [ADR-0027](../architecture/adr/0027-midia-das-experiencias-c
 | Peso | Orçamento por experiência (hipóteses no ADR-0027); áudio e 3D fora do caminho crítico do LCP; AAC-LC (`.m4a`) como formato obrigatório, por causa do Safari/iOS | Medição de build e de laboratório (13.5) |
 | 3D | Offline em WebP por padrão; tempo real por experiência, com orçamento e fallback 2D acessível; nenhuma ação exige arrastar ou girar | A11Y-04 |
 | Voz ao vivo | A conexão só nasce quando as duas pessoas tocam "Entrar na voz"; microfone desligado por padrão e ligado por gesto separado de cada pessoa; permissão pedida só nessa hora; indicador de microfone aberto e de quem fala; silenciar a outra pessoa, o próprio microfone e sair da voz sem sair da experiência; bloquear e denunciar na tela de voz; experiência completável sem voz; push-to-talk opcional; volume próprio e ducking | A11Y-04; TM-68 a TM-79; ADR-0028 |
-| Voz ao vivo: privacidade | Nenhuma gravação nem transcrição, nada enviado a LLM; denúncia sem áudio salvo ADR futuro; voz tratada como possível dado biométrico; IP de uma pessoa nunca exposto à outra (relay forçado e verificado no navegador de cada pessoa); mídia cifrada (DTLS-SRTP) entre os navegadores, contra VPS honesta; credencial TURN de ~5 min, revogada por: sair da voz ou da sala, bloqueio, denúncia, sala abortada (spec 4.2, 6.3), medida de moderação que restringe a conta (inclusive suspeita de menor), revogação da sessão de login e fim da sessão de jogo | TM-68 a TM-79 |
+| Voz ao vivo: privacidade | Nenhuma gravação nem transcrição, nada enviado a processamento externo; denúncia sem áudio salvo ADR futuro; voz tratada como possível dado biométrico; IP de uma pessoa nunca exposto à outra (relay forçado e verificado no navegador de cada pessoa); mídia cifrada (DTLS-SRTP) entre os navegadores, contra VPS honesta; credencial TURN de ~5 min, revogada por: sair da voz ou da sala, bloqueio, denúncia, sala abortada (spec 4.2, 6.3), medida de moderação que restringe a conta (inclusive suspeita de menor), revogação da sessão de login e fim da sessão de jogo | TM-68 a TM-79 |
 | Voz ao vivo: abuso e custo | O TURN é cobrado por GB e cada emissão chama a API da Cloudflare. API-R08, API-R09, API-R10 e `SendVoiceSignal` têm rate limit por conta **e** por IP (no hub, também por conexão) e teto de tentativas no banco, contado sob lock na transação do efeito: entradas por sessão de jogo e minutos de voz por conta e dia (R09 e R08), emissões por participação (R08), mensagens por participação (hub). Acima do limite, `429` com `Retry-After`; no hub, erro `RATE_LIMITED` com `retryAfterSeconds`. Orçamento de 1000 GB/mês de TURN (franquia gratuita da Cloudflare), alerta a 80% (800 GB) e kill switch a 100%, pelo runbook enquanto a API de consumo for a confirmar. Os limites por pessoa do ADR-0028 são valores iniciais, a medir no piloto | Um teste por limite (N+1 → `429` com `Retry-After`; teto + 1 → recusa com banco e outbox inalterados; chamadas paralelas no teto → um efeito); TM-74, TM-79 |
 
 <a id="s07"></a>
@@ -820,7 +820,7 @@ Usar `READ COMMITTED` com locks explícitos para os fluxos coordenados e versão
 | Worker atrasado vs novo lease | Conclusão condicionada ao token/epoch atual; resultado obsoleto não sobrescreve estado |
 | Exclusão vs notificação | Revalidar destinatário antes do efeito; cancelamento e restrições de leitura prevalecem |
 
-Todas as transações de negócio que produzem efeito assíncrono incluem a outbox no mesmo commit. Não chamar e-mail, storage, IA ou webhook de terceiro enquanto mantém locks de negócio.
+Todas as transações de negócio que produzem efeito assíncrono incluem a outbox no mesmo commit. Não chamar e-mail, storage, processamento externo ou webhook de terceiro enquanto mantém locks de negócio.
 
 ### 10.5. EF Core sem surpresas operacionais
 
@@ -1188,7 +1188,7 @@ A própria política do agente, `CODEOWNERS`, workflows e suítes de segurança 
 | Patches | Detecção, PR e homologação | Incompatibilidade, vulnerabilidade sem mitigação ou regressão |
 | Incidentes | Detectar, alertar, coletar diagnóstico sanitizado | Ação destrutiva, rotação crítica ou suspeita de vazamento |
 
-Evitar um “agente supervisor” permanentemente autorizado a executar comandos arbitrários. A base usa workflows determinísticos e runbooks restritos; IA pode ajudar a explicar sinais, mas não deve improvisar exclusões, mudanças de firewall, restaurações ou sanções.
+Evitar um “agente supervisor” permanentemente autorizado a executar comandos arbitrários. A base usa workflows determinísticos e runbooks restritos; processamento externo pode ajudar a explicar sinais, mas não deve improvisar exclusões, mudanças de firewall, restaurações ou sanções.
 
 <a id="s15"></a>
 ## 15. VPS, redes e infraestrutura
@@ -1310,7 +1310,7 @@ A base entrega mídia por stream autenticado da API. Isso simplifica revogação
 | Verificação etária | `IAgeEligibilityProvider` | Método adequado, minimização, acessibilidade, callbacks autenticados, revisão e prazo de retenção |
 | Moderação assistida | `IContentReviewProvider`, condicional | Dados estritamente necessários, avaliação de erro, revisão humana e política de uso/treinamento |
 | Monitoramento | OTLP e alertas externos | Filtragem, retenção, controle de acesso e exportação |
-| Geração de mídia (offline) | Nenhuma: ferramenta fora do runtime (imagem e 3D: Tripo, Rodin; voz, música e efeitos: ElevenLabs Creator, com SFX v2; complemento de efeitos: Freesound CC0 e Sonniss) | Uso comercial confirmado, nenhum dado de participante no prompt ou roteiro, consentimento da voz de referência, registro em `assets-licenses.md`; nenhuma rota, job ou consumidor do produto chama esses fornecedores (teste de arquitetura); o script de geração tem teto de créditos por execução, teto de tentativas por asset e respeita o `429`/`Retry-After` do fornecedor (ADR-0027) |
+| Geração de mídia (offline) | Nenhuma: ferramenta fora do runtime (imagem e 3D: fontes editoriais aprovadas; voz, música e efeitos: origem editorial registrada, com SFX v2; complemento de efeitos: Freesound CC0 e Sonniss) | Uso comercial confirmado, nenhum dado de participante no prompt ou roteiro, consentimento da voz de referência, registro em `assets-licenses.md`; nenhuma rota, job ou consumidor do produto chama esses fornecedores (teste de arquitetura); o script de geração tem teto de créditos por execução, teto de tentativas por asset e respeita o `429`/`Retry-After` do fornecedor (ADR-0027) |
 | Voz ao vivo | `ITurnCredentialIssuer` (Cloudflare Realtime TURN; ADR-0028) | Credencial de ~5 min e revogável, só relay, DTLS-SRTP entre os navegadores (protege contra VPS honesta, não contra VPS comprometida, TM-78); Cloudflare como sub-processador de IP e metadados; alerta de gasto e kill switch |
 | Pagamento futuro | `IPaymentGateway`, somente quando aprovado | Checkout hospedado, assinatura de webhooks, idempotência e conciliação; sem cartão no Duora |
 
@@ -1754,8 +1754,8 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 | ADR-009 | Uma web ativa no piloto | Evitar escala parcial e custo operacional extra | Disponibilidade/capacidade exigir backplane e múltiplas instâncias |
 | ADR-010 | Leitura privada via API; fotos no disco da VPS com cópia externa (adendo de 2026-10-16), não em object storage | Revogação central e cópia fora do host | Volume ou egress pedirem object storage, por novo ADR |
 | ADR-011 | pgBackRest/WAL externo e restore obrigatório | Reduzir perda de dados e provar recuperação | Volume/metas exigirem outra topologia |
-| ADR-012 | Pareamento determinístico sem LLM | Previsibilidade, privacidade e auditabilidade | Evidência de benefício com avaliação formal de risco |
-| ADR-013 | IA fora do caminho crítico de partidas | Disponibilidade e regras estáveis | Caso concreto aprovado com fallback equivalente |
+| ADR-012 | Pareamento determinístico | Previsibilidade, privacidade e auditabilidade | Evidência de benefício com avaliação formal de risco |
+| ADR-013 | Produção editorial fora do runtime de partidas | Disponibilidade e regras estáveis | Caso concreto aprovado com fallback equivalente |
 | ADR-014 | Automação com gates para mudanças críticas | Limitar erro e comprometimento por agentes | Evidência suficiente para ampliar escopo de baixo risco |
 | ADR-015 | Sem Kubernetes/Redis/microsserviços obrigatórios | VPS pequena não precisa dessas operações adicionais | Necessidade medida, não preferência de ferramenta |
 
@@ -1772,7 +1772,7 @@ Aumento de denúncias pode significar abuso maior ou mecanismo mais fácil de us
 | Desempenho | Metas e cenário definidos | Relatório no hardware selecionado | Ampliação de capacidade |
 | Recuperação | Estratégia e metas definidas | Restore cronometrado em host limpo | Lançamento |
 | Design | Sistema, estados e critérios definidos | Identidade visual final e teste de uso/acessibilidade | Aceite de UX |
-| Áudio | Mudo por padrão, canais, transcrição; ElevenLabs Creator para voz, música e efeitos (SFX v2), Freesound CC0 e Sonniss como complemento; orçamento de créditos como hipótese (ADR-0027) | Data da cláusula comercial do Creator, formato de saída da API (MP3 ou melhor), termo do Sonniss para mix; orçamento medido na primeira experiência | Primeiro áudio gerado |
+| Áudio | Mudo por padrão, canais, transcrição; origem editorial registrada para voz, música e efeitos (SFX v2), Freesound CC0 e Sonniss como complemento; orçamento de créditos como hipótese (ADR-0027) | Data da cláusula comercial do Creator, formato de saída da API (MP3 ou melhor), termo do Sonniss para mix; orçamento medido na primeira experiência | Primeiro áudio gerado |
 | Voz ao vivo | WebRTC P2P com relay forçado na Cloudflare Realtime TURN (ADR-0028) | `Permissions-Policy` em allowlist: `microphone`, `autoplay` e `speaker-selection` em `(self)`, todas as outras features em `()`, base legal, teste de contrato manual da revogação contra a Cloudflare real, teste no Safari/iOS | Voz ao vivo em produção |
 
 Essas pendências não são permissão para deixar a implementação vaga: cada uma tem responsável a designar e evidência exigida. O plano não inventa fornecedor, infraestrutura existente, política jurídica aprovada ou benchmark que não foi fornecido.
@@ -2033,7 +2033,7 @@ O catálogo contém **78 fichas temáticas**, agrupadas por trabalho técnico. U
 | ID | Fonte e páginas de consulta | Aplicação / limite |
 |---|---|---|
 | <a id="d-sec-01"></a>D-SEC-01 | **Requisitos e ameaças de APIs** — [OWASP ASVS](https://owasp.org/projects/asvs) · [OWASP API Security Top 10 — 2023](https://api-security.owasp.org/editions/2023/en/0x11-t10/) | ASVS 5.0 como base versionada de controles e API Top 10 para classes de risco. Nem um Top 10 nem um scanner são checklist completo de segurança. |
-| <a id="d-sec-02"></a>D-SEC-02 | **Prompt injection em agentes** — [LLM Prompt Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/LLM_Prompt_Injection_Prevention_Cheat_Sheet.html) | Conteúdo externo não é instrução privilegiada; sandbox, autorização de ferramenta e proteção de políticas/workflows. Sem acesso de agentes de código a produção. |
+| <a id="d-sec-02"></a>D-SEC-02 | **Prompt injection em agentes** — Princípio de isolamento de instruções externas | Conteúdo externo não é instrução privilegiada; sandbox, autorização de ferramenta e proteção de políticas/workflows. Sem acesso de agentes de código a produção. |
 | <a id="d-sec-03"></a>D-SEC-03 | **Autorização e sessões** — [Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html) · [Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) | Negar por padrão, avaliar relação/recurso, revogar acesso e impedir enumeração. Cruzar com Identity, antiforgery e T-01/T-03/T-13/T-14/T-21. |
 | <a id="d-sec-04"></a>D-SEC-04 | **Uploads e chamadas externas** — [File Upload](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) · [SSRF Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) | Assinatura real, dimensões, reencodificação, quarentena e limites. Não buscar URLs arbitrárias de usuários ou callbacks sem defesa de destino/rede. |
 | <a id="d-sec-05"></a>D-SEC-05 | **CSP, segredos e logs** — [Content Security Policy](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html) · [Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html) · [Logging](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) | CSP testada, custódia/rotação e registro mínimo. Proteção de segredos, tickets, signed URLs, mensagens e evidências em todas as camadas. |

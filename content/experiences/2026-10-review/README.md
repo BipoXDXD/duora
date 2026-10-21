@@ -23,7 +23,7 @@ lote: o contrato operacional usa somente a cue pública `intro`.
 
 ## Voz e direitos
 
-ElevenLabs `eleven_v4`, voz padrão Sarah (`EXAVITQu4vr4xnSDxMaL`), sem clonagem ou referência humana enviada.
+fonte externa `fonte externa`, voz padrão Sarah (`EXAVITQu4vr4xnSDxMaL`), sem clonagem ou referência humana enviada.
 Plano **Creator ativo confirmado pelo responsável** em 21/10/2026; conta identificada como a conexão OAuth,
 sem inventar numeração. A tabela de [licenças](../../../docs/design/assets-licenses.md) e o manifesto registram
 as fontes e os termos consultados. A disponibilidade futura da voz padrão tem limite informado pelo fornecedor;

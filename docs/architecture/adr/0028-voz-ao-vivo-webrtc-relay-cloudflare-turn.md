@@ -18,7 +18,7 @@ Audio Strategy Guide*, cap. 12, p. 383, sobre hostilidade contra jogadoras recon
 produto são fixas: a voz só existe se as duas pessoas entrarem nela; microfone desligado por padrão e ligado por
 gesto; permissão do navegador pedida só nessa hora; indicador de microfone aberto e de quem fala; silenciar a
 outra pessoa, desligar o próprio microfone e sair da voz sem sair da experiência; bloquear e denunciar a partir da
-tela de voz; experiência completável sem voz; nada gravado, transcrito ou enviado a LLM; denúncia sem áudio; o IP
+tela de voz; experiência completável sem voz; nada gravado, transcrito ou enviado a processamento externo; denúncia sem áudio; o IP
 de uma pessoa nunca chega à outra.
 
 Restrições de operação: uma VPS Hostinger KVM 2 (2 vCPU, 8 GB) com DNS na Cloudflare, uma instância web
@@ -186,7 +186,7 @@ permite teto de bytes por credencial é **a confirmar**; sem isso, o que limita 
 - **Sem gravação pelo Duora, contra uma VPS honesta:** a mídia é cifrada com DTLS-SRTP de navegador a navegador,
   e nem a VPS nem o relay têm o áudio em claro, **desde que a VPS repasse o SDP sem adulterar**. Uma VPS
   comprometida pode trocar a fingerprint DTLS no SDP e se colocar no meio; isso é ameaça registrada (TM-78), não
-  garantia. O Duora não grava, não transcreve e não envia áudio a LLM nem a moderação; a denúncia não leva áudio
+  garantia. O Duora não grava, não transcreve e não envia áudio a processamento externo nem a moderação; a denúncia não leva áudio
   (mudar isso exige ADR).
 - **Aviso na tela de voz:** "A outra pessoa pode gravar o que você diz no próprio aparelho." O Duora não tem como
   impedir gravação local.
@@ -266,7 +266,7 @@ Testes previstos (a criar com a implementação; nenhum existe hoje):
   com `raddr` `0.0.0.0`; `ClientClosesVoiceWhenSelectedPairIsNotRelay`; o microfone só é pedido depois do gesto;
   desligar o microfone para a captura; bloquear derruba a voz dos dois lados; sem hub além de N segundos, a voz
   encerra.
-- **Arquitetura:** nenhum módulo referencia STT, gravação ou LLM para a voz.
+- **Arquitetura:** nenhum módulo referencia STT, gravação ou processamento externo para a voz.
 - **Infra (PR separado):** `Permissions-Policy` em allowlist: `microphone`, `autoplay` e `speaker-selection` em `(self)`, todas as outras features em `()`.
 - **Manual, no protocolo A11Y-04:** Safari no iOS com relay (bug 312332 do WebKit, número a confirmar), VoiceOver e teclado em todos
   os controles da voz.

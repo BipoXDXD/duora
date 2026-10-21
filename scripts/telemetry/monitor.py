@@ -163,7 +163,7 @@ def main():
         atomic('/var/lib/duora-monitor/public/status.json', {
             'collected_at': now, 'checks': checks,
             'github': {repo: runs[:20] for repo, runs in runs_by_repo.items()}})
-        # Optional independent external dead-man endpoint, never interpreted by an LLM.
+        # Optional independent external dead-man endpoint, never interpreted by an processamento externo.
         if config.get('heartbeat_url') and all(checks.values()):
             try:
                 heartbeat = config['heartbeat_url']

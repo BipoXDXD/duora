@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Conservative co-located budget; no production queries, credentials or mutations.
 
-Constants are reconciled against Compose/systemd by test_openclaw_capacity.py.
+Constants are reconciled against Compose/systemd by test_telemetry_capacity.py.
 This gate is necessary, never evidence of load/isolation/restore acceptance.
 """
 from pathlib import Path

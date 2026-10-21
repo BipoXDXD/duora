@@ -108,13 +108,13 @@ Só promover após revisão humana, gates de CI e ensaio aprovado; não há capa
   aponta para #86, cujo fechamento depende das evidências/revisão. Mídia TURN externa não elimina o custo
   de sinalização/credenciais na API; ensaiar essas rotas quando implementadas.
 
-Consolidação #93: tetos de CPU de PostgreSQL/web e peso do edge conciliados com a alternativa do #89; RAM do #87. OpenClaw/monitor permanecem desligados; antes de ativar, incluir seus containers em todos os cenários e medir a margem.
+Consolidação #93: tetos de CPU de PostgreSQL/web e peso do edge conciliados com a alternativa do #89; RAM do #87. gateway/monitor permanecem desligados; antes de ativar, incluir seus containers em todos os cenários e medir a margem.
 
 
-## Reconciliação OpenClaw e backup de mídia
+## Reconciliação gateway e backup de mídia
 
 A main após #96 contém dois Composes e serviços no host. O orçamento anterior de 7.296 MiB
-não incluía OpenClaw, observadores nem o restic. Somar limites não prova consumo nem OOM,
+não incluía gateway, observadores nem o restic. Somar limites não prova consumo nem OOM,
 mas invalida a aprovação estática da topologia completa na KVM 2 de 8 GB decimais.
 
 | Cenário conservador | Tetos de processos (MiB) | Margem host (MiB) | Total (MiB) |
@@ -179,7 +179,7 @@ Enforcement em Ubuntu 24.04/cgroup v2 e todos os cenários continuam pendentes d
 
 ## Perfil remoto proposto
 
-O [perfil separado](openclaw-remote.md) acrescenta emissor de 64 MiB no Duora e receptor de 128 MiB
+O [perfil separado](telemetry-remote.md) acrescenta emissor de 64 MiB no Duora e receptor de 128 MiB
 em operações; mantém os probes existentes divididos entre produto e gateway. Gates estáticos:
 
 | Host | Componentes em MiB | Piso com margem |
@@ -192,5 +192,5 @@ reprova o piso do Duora. KVM 4 para produto e KVM 1 para operações são candid
 não resultados. CPU máxima de operações pode somar 1,1 vCPU em máquina de 1 vCPU; ensaiar polling,
 TLS, Slack/MCP e atualização sem prometer latência. No Duora, até 6,8 vCPU com migrador, produto, restic,
 coletor e emissor (tetos, não reservas). O perfil remoto recusa containers do produto no host do
-gateway; não usar nomes alternativos para contornar a separação. Não hospedar browser/LLM/builds.
+gateway; não usar nomes alternativos para contornar a separação. Não hospedar browser/processamento externo/builds.
 As constantes são conciliadas com Compose/units no teste existente, sem mudar workflows/gates.

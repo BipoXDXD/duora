@@ -101,14 +101,14 @@ class ActualEditorialArtifactsTests(unittest.TestCase):
                 self.assertEqual(data['review']['status'], 'pending_human_review')
                 self.assertIsNone(data['review'].get('approvedBy'))
                 for locale in ['enUS', 'ptBR']:
-                    self.assertNotIn('AI-generated', request[locale]['objective'])
-                    self.assertNotIn('gerada por IA', request[locale]['objective'])
+                    self.assertEqual(request[locale]['objective'], request['audio'][0][locale]['transcript'])
 
     def test_final_media_and_generation_metadata_match_every_checked_in_file(self):
         manifest = json.loads((self.root / 'media-manifest.json').read_text())
         self.assertEqual(4, len(manifest['assets']))
         self.assertLessEqual(manifest['reportedCredits'], manifest['totalCreditCap'])
-        self.assertIn('Creator active', manifest['planAtGeneration'])
+        self.assertEqual('duora-editorial-20261021', manifest['sourceRecord'])
+        self.assertIn('Active subscription', manifest['planAtGeneration'])
         for asset in manifest['assets']:
             with self.subTest(key=asset['key']):
                 source = next(take for take in manifest['allTakes'] if take['generationId'] == asset['generationId'])

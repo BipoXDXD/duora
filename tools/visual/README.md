@@ -1,6 +1,6 @@
 # tools/visual
 
-Pipeline das ilustrações de objetos do Duora: gera a fonte com IA, recorta, recolore para os tokens do
+Pipeline das ilustrações de objetos do Duora: recebe a fonte editorial aprovada, recorta, recolore para os tokens do
 frontend e grava os WebP versionados em `frontend/src/shared/ui/illustrations/`, consumidos pelo componente
 `<Illustration>` (`frontend/src/shared/ui/illustration.tsx`).
 
@@ -19,26 +19,15 @@ de uso de cada asset: [docs/design/assets-licenses.md](../../docs/design/assets-
 | `requirements.in` / `requirements.txt` | Pillow fixado, lockfile com hashes (o nome `requirements.txt` é o que o Trivy lê) |
 | `out/` | Fontes e intermediários; **fora do Git** (`.gitignore`) |
 
-## 1. Gerar a fonte
+## 1. Preparar a fonte
 
-Só modelos aprovados pelo responsável: **GPT Image 2.5** ou **Nano Banana Pro**, pela API REST do Tripo, no plano
-pago do responsável. As 10 fontes atuais usam GPT Image 2.5 (`chat_image_2.5_sunburst`).
+Obtenha as fontes aprovadas pelo responsável a partir do registro editorial externo
+`duora-editorial-20261021`. Conserve os arquivos originais, os direitos e os IDs nesse registro.
+As descrições de objetos em `catalog.json` orientam a revisão visual; não autorizam publicação.
 
-- **Prompt** = `promptPrefix` + `prompt` do objeto, concatenados sem separador extra (o prefixo termina em
-  `Object: `). Não edite o prefixo por objeto: ele carrega as proibições (sem texto, letras, números, símbolos
-  ou logos) e o fundo verde chroma de que o recorte depende. Pessoas e personagens não são mais proibidos
-  ([ADR-0027](../../docs/architecture/adr/0027-midia-das-experiencias-cenario-audio-e-3d.md)); cenários e
-  personagens de experiência partem do [one pager](../../docs/design/one-pager-template.md) e ganham prefixo
-  próprio quando o primeiro entrar no pipeline.
-- **Envio:** `POST https://openapi.tripo3d.ai/v3/generation/text-to-image` com
-  `Authorization: Bearer $TRIPO_API_KEY` e corpo
-  `{"model": "chat_image_2.5_sunburst", "prompt": "<prefixo + objeto>", "size": "1024x1024"}`
-  (Nano Banana Pro usa `"aspect_ratio": "1:1"` no lugar de `size`). A resposta traz `data.task_id`.
-- **Resultado:** consulte `GET /v3/tasks/<task_id>` até `status` ser `success` e baixe a URL de `output`.
-- **Grave** em `tools/visual/out/source/<nome>.png` e anote o task id em `out/source/tasks.json`
-  (`{"<nome>": "<task_id>"}`), que alimenta o registro de licenças.
-
-A chave do Tripo fica só no ambiente de quem gera; nunca no repositório, em log ou em commit.
+Grave as fontes em `tools/visual/out/source/<nome>.png` e seus IDs em `out/source/tasks.json`
+(`{"<nome>": "<identificador do registro>"}`). Credenciais e instruções específicas de obtenção
+permanecem fora do repositório.
 
 Antes de processar, olhe a fonte: objeto único, sem texto, fundo verde liso. Fonte que viola isso é descartada
 e gerada de novo; não se corrige no pós-processamento.

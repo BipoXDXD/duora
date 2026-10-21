@@ -20,7 +20,7 @@
 - Não aplicar DROP, apagar evidência ou executar migração destrutiva.
 - Nenhuma integração ou implantação antes de revisão humana e gates.
 - Preservar alterações locais do checkout original, branches antigas, workflows, CODEOWNERS e políticas protegidas.
-- Base de execução: worktree `work/duora`, branch `codex/consolidation-93`, main-base `92150065`; conferir divergência remota antes de publicar.
+- Base de execução: worktree `work/duora`, branch `maintenance/consolidation-93`, main-base `92150065`; conferir divergência remota antes de publicar.
 
 ## Review Focus
 
@@ -179,12 +179,12 @@ Credenciais temporárias de captura são emitidas em endpoint próprio, autentic
 
 ### Tarefa 7 — infraestrutura e observação
 
-**Arquivos:** os novos diretórios `infra/openclaw/`, `scripts/openclaw/`, `docs/operations/openclaw.md` do commit `71c98f2e`; ajustar `infra/README.md`; `infra/compose/compose.prod.yml`, `scripts/deploy/test_capacity_budget.py`, `docs/operations/capacity.md` do delta `1788c843`.
+**Arquivos:** os novos diretórios `infra/telemetry/`, `scripts/telemetry/`, `docs/operations/telemetry.md` do commit `71c98f2e`; ajustar `infra/README.md`; `infra/compose/compose.prod.yml`, `scripts/deploy/test_capacity_budget.py`, `docs/operations/capacity.md` do delta `1788c843`.
 
 - [ ] Aplicar deltas por arquivo sobre a main atual, sem trazer commits ancestrais de documentação do 87. Ler o AGENTS.md próprio do observador como instrução do componente, sem conceder acesso à produção.
-- [ ] Acrescentar testes de CPU/RAM por cenário antes de editar limites: postgres 2048 MiB; permanentes 5248 MiB; tetos web/postgres 1,5 CPU; worker 1; edge/backup 0,5. Pesos postgres/web 2048, edge 2048, worker 768, backup 512; migrador/restore fora do cenário normal. Monitor/OpenClaw só podem ativar quando incluídos no cenário agregado e cabendo na margem real.
+- [ ] Acrescentar testes de CPU/RAM por cenário antes de editar limites: postgres 2048 MiB; permanentes 5248 MiB; tetos web/postgres 1,5 CPU; worker 1; edge/backup 0,5. Pesos postgres/web 2048, edge 2048, worker 768, backup 512; migrador/restore fora do cenário normal. Monitor/gateway só podem ativar quando incluídos no cenário agregado e cabendo na margem real.
 - [ ] Validar mutações negativas em cópia temporária: memória acima do orçamento, serviço não contabilizado, CPU acima do host, privilégio ou socket Docker no observador. Repor arquivo após cada teste; nenhuma mudança no checkout original.
-- [ ] Rodar `python3 -m unittest discover -s scripts/openclaw -p 'test_*.py' -v`, `node --test scripts/openclaw/test-mcp.mjs`, suíte deploy em ambiente Python com requirements travado e Docker Compose config com valores sintéticos.
+- [ ] Rodar `python3 -m unittest discover -s scripts/telemetry -p 'test_*.py' -v`, `node --test registro operacional duora-operations-20261021`, suíte deploy em ambiente Python com requirements travado e Docker Compose config com valores sintéticos.
 - [ ] Não executar install/firewall/activate na máquina ou VPS, nem enviar Slack. Registrar carga/VPS/backup como pendentes, não aprovados. Commit independente de infraestrutura.
 
 ### Tarefa 8 — política linguística e fechamento
@@ -210,9 +210,9 @@ Implementação só é concluída quando todos os deltas aproveitáveis tiverem 
 
 ## Registro de execução — 19/10/2026
 
-Executado diretamente na branch local codex/consolidation-93, base main 92150065. Infraestrutura em ea7a6c6c; identidade/SPA/contratos/documentação no commit subsequente. A main original não foi alterada, nenhum merge ou deploy foi feito.
+Executado diretamente na branch local maintenance/consolidation-93, base main 92150065. Infraestrutura em ea7a6c6c; identidade/SPA/contratos/documentação no commit subsequente. A main original não foi alterada, nenhum merge ou deploy foi feito.
 
-Validações finais: 2454 testes backend com PostgreSQL em Docker, 670 Vitest, 132 Playwright, 358 testes de operações (os 14 dependentes de ambiente foram cobertos em execuções adicionais: 13 PostgreSQL + sonda Caddy), 10+7 OpenClaw. Restore/install travados, tipos, lint, formato, build Debug, Compose config, Gitleaks e Trivy passaram. Revisão independente identificou e teve corrigidos dois defeitos da SPA; regressões incluídas.
+Validações finais: 2454 testes backend com PostgreSQL em Docker, 670 Vitest, 132 Playwright, 358 testes de operações (os 14 dependentes de ambiente foram cobertos em execuções adicionais: 13 PostgreSQL + sonda Caddy), 10+7 gateway. Restore/install travados, tipos, lint, formato, build Debug, Compose config, Gitleaks e Trivy passaram. Revisão independente identificou e teve corrigidos dois defeitos da SPA; regressões incluídas.
 
 Rulings: limite de e-mail mantido em três emissões/hora (mais restritivo que cinco) e persistido no banco; substituição de cadastro preserva a defesa contra pré-registro. Teto/cooldown selfie de cinco/hora e um minuto; solicitação aberta reutilizada. E-mail numérico tem entrega em até dez minutos, sem reduzir a janela histórica de links legados. Limite de selfie/indisponibilidade responde 503 nesta versão, sem criar tentativa. Testes etários ativos foram substituídos por testes de aposentadoria; harnesses históricos não registram serviços no produto.
 

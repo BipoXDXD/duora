@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Root-owned, scheduled collector. No input from Slack/LLM; no secret/log payload export."""
+"""Root-owned, scheduled collector. No input from Slack/processamento externo; no secret/log payload export."""
 import json
 import math
 import os
