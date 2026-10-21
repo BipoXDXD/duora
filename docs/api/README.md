@@ -133,3 +133,12 @@ titular, CSRF e status Active/PendingEligibility; 503 em disputa de lock além d
 matching, residência ou segurança de login. `GET /me/time-zone/options` é autenticado e devolve
 `{timeZones: string[]}` (IANA do servidor mais UTC). `/me` acrescenta `preferredTimeZone` anulável;
 cliente sem campo continua usando o navegador. Não persistir detecção sem confirmação explícita.
+
+## Textos de Problem Details (issue #104)
+
+`title` é texto público em inglês selecionado explicitamente pelo `code`; `detail` não expõe mensagens
+internas. Status, códigos, `type`, `traceId`, `Retry-After` e valores de validação em `errors` são preservados.
+A SPA usa exclusivamente mensagens locais por código/status e fallback local para código desconhecido,
+inclusive nomes como `constructor` e `__proto__`. O parser mantém os campos do protocolo para diagnóstico,
+mas eles não são texto de interface. O [inventário e os testes](../testing/problem-details.md) registram
+produtores, títulos exatos e as duas mensagens legadas de upload em `errors`, preservadas por compatibilidade.

@@ -72,6 +72,9 @@ describe('RequestFailureAlert', () => {
   })
 
   it.each([
+    ['code herdado constructor', { kind: 'problem', status: 400, code: 'constructor' }],
+    ['code herdado __proto__', { kind: 'problem', status: 400, code: '__proto__' }],
+    ['code herdado toString', { kind: 'problem', status: 400, code: 'toString' }],
     ['code desconhecido', { kind: 'problem', status: 400, code: 'OUTRO' }],
     ['problem sem code', { kind: 'problem', status: 500, code: null }],
     ['falha inesperada', { kind: 'unexpected' }],

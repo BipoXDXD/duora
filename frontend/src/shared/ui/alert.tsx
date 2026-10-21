@@ -76,7 +76,11 @@ function describeFailure(t: Translate, failure: RequestFailure, problemMessages:
     case 'rate-limited':
       return t('common.rateLimited', retryWait(failure.retryAfterSeconds))
     case 'problem':
-      return t((failure.code === null ? undefined : problemMessages[failure.code]) ?? 'common.unexpectedError')
+      return t(
+        (failure.code !== null && Object.hasOwn(problemMessages, failure.code)
+          ? problemMessages[failure.code]
+          : undefined) ?? 'common.unexpectedError',
+      )
     case 'unexpected':
       return t('common.unexpectedError')
   }
