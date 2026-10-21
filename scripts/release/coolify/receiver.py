@@ -297,10 +297,20 @@ def validate_runtime(record: Any, uuid: Any, digest: Any = None) -> Any:
         or record["State"].get("Health", {}).get("Status", "healthy") != "healthy"
     ):
         raise ValueError("Application container is not healthy")
+    validate_runtime_identity(record, uuid, digest)
+
+
+def validate_runtime_identity(record: Any, uuid: Any, digest: Any) -> None:
     if uuid is not None and record["Config"]["Labels"].get("coolify.applicationUuid") != uuid:
         raise ValueError("Unexpected Coolify ownership")
     if digest is not None and record["Image"] != digest:
         raise ValueError("Running release image differs")
+
+
+class DockerOperationError(ValueError):
+    def __init__(self, status: int) -> None:
+        super().__init__("Docker operation failed")
+        self.status = status
 
 
 class DockerConnection(http.client.HTTPConnection):
@@ -320,7 +330,7 @@ def docker_request(method: Any, path: Any, body: Any = None, headers: Any = None
         response = connection.getresponse()
         data = response.read()
         if response.status not in {200, 201, 204}:
-            raise ValueError("Docker operation failed")
+            raise DockerOperationError(response.status)
         return data
     finally:
         connection.close()
@@ -429,15 +439,23 @@ def import_images(release: Any, stage: Any) -> Any:
                 if path.is_file():
                     archive.add(path, arcname=path.relative_to(root), recursive=False)
         command(["/usr/bin/docker", "load", "-i", str(bundle)])
-        actual = json.loads(command(["/usr/bin/docker", "image", "inspect", digest]))[0]
+        try:
+            actual = json.loads(command(["/usr/bin/docker", "image", "inspect", image_ids[role]]))[
+                0
+            ]
+        except DockerOperationError as error:
+            if error.status != 404:
+                raise
+            actual = json.loads(command(["/usr/bin/docker", "image", "inspect", digest]))[0]
         if (
             actual["Id"] not in {digest, image_ids[role]}
+            or actual.get("Descriptor", {}).get("digest", digest) != digest
             or actual["Architecture"] != "amd64"
             or actual["Os"] != "linux"
         ):
             raise ValueError("Imported image identity differs")
-        # Docker containerd stores expose the manifest ID; classic stores use config IDs.
-        # Resolve the validated manifest first, then retain the daemon identity for runtime checks.
+        # Docker classic stores use the config ID; containerd stores use the manifest ID.
+        # Both must be bound to the already validated OCI graph, never a mutable tag.
         image_ids[role] = actual["Id"]
         tag = f"{PROJECTS[release['project']][role]}:release-{release['commit']}"
         command(["/usr/bin/docker", "tag", image_ids[role], tag])
@@ -591,11 +609,25 @@ def deploy(release: Any, imported: Any, config: Any, state: Any, image_ids: Any)
         time.sleep(5)
     else:
         raise ValueError("Coolify timed out; inspect deployment before retry")
+    health_deadline = min(deadline, time.monotonic() + 120)
     for name in config["containers"]:
-        record = json.loads(command(["/usr/bin/docker", "inspect", name]))[0]
         role = config["image_roles"].get(name)
         digest = image_ids[role] if role else None
-        validate_runtime(record, uuid if project != "duora" else None, digest)
+        while True:
+            record = json.loads(command(["/usr/bin/docker", "inspect", name]))[0]
+            # Coolify can finish immediately after `compose up -d`, while health is starting.
+            # Identity errors are never retried and cannot become a false success.
+            starting = record["State"].get("Health", {}).get("Status") == "starting"
+            if (
+                starting
+                and record["State"]["Status"] == "running"
+                and time.monotonic() < health_deadline
+            ):
+                validate_runtime_identity(record, uuid if project != "duora" else None, digest)
+                time.sleep(2)
+                continue
+            validate_runtime(record, uuid if project != "duora" else None, digest)
+            break
     for probe in config["readiness"]:
         record = json.loads(command(["/usr/bin/docker", "inspect", probe["container"]]))[0]
         address = record["NetworkSettings"]["Networks"][probe["network"]]["IPAddress"]

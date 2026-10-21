@@ -13,12 +13,13 @@ Merge e instalação continuam sujeitos à revisão humana.
 | Travas por projeto e concurrency do GitHub não coordenam dois repositórios; ambos passam pelo mesmo preflight de disco | `host.lock` comum, não bloqueante, antes de receber arquivos e mantido até confirmar saúde. Quem perde deve repetir depois pelos gates normais; não há fila/retry implícito |
 | Importação pode continuar no daemon após a morte do cliente; pendência de um projeto não bloqueava outro | Intent comum durável antes do primeiro import. Qualquer falha mantém esse intent; pendências antigas de qualquer diretório de projeto também bloqueiam o host |
 | `DockerRootDir` podia estar em outro filesystem; 4 GiB comprimidos não limitavam expansão de camadas | Inventário administrativo de storage, orçamento por filesystem, limite agregado de expansão e recusa de compressão não suportada |
-| Digest do manifesto era comparado ao Docker Image ID, que deriva do config | Confere manifesto/config e o ID retornado pelo daemon; confirma resolução local da referência imutável antes de configurar Coolify |
+| Identidade Docker depende do backend: containerd pode usar manifesto como ID; store clássico usa config | Confere o grafo OCI, inspeciona config/manifesto e vincula o ID de runtime comprovado ao container; confirma referência imutável antes de configurar Coolify |
 | Cópias do receptor podiam divergir sem vínculo com o executável instalado | Artefato versionado com SHA-256, comparação entre repositórios/instalação e protocolo v2 preso aos bytes do receptor |
 
 O digest do manifesto continua a identificar a imagem transportada/escaneada. O config digest é obtido
-do manifesto validado. A resolução local pelo manifesto deve retornar esse config ID ou o próprio
-manifest ID (Docker 29/containerd); o ID efetivamente retornado é usado para conferir `Image` do container. Não se troca digest por tag mutável.
+do manifesto validado. O receptor inspeciona primeiro o config e, somente se o daemon responder 404, o manifesto. Aceita somente um ID de runtime igual ao
+manifesto (store containerd) ou config (store clássico), conferindo também o descriptor quando presente.
+Esse ID comprovado no daemon é usado para comparar `Image` do container. Erros de rede/servidor não acionam fallback. Depois de Coolify terminar, saúde `starting` tem até 120 segundos dentro do prazo da release; identidade incorreta e saúde falha continuam recusadas. Não se troca digest por tag mutável.
 Referência: [OCI config/ImageID](https://specs.opencontainers.org/image-spec/config/).
 
 ## Concorrência e limites da garantia
@@ -66,9 +67,9 @@ Monitorar bytes e inodes, validar quotas e folga reais na homologação e ajusta
 Arquivos `incoming-*` deixados por SIGKILL não são apagados automaticamente; só remover a pasta exata
 após confirmar que o processo/import correspondente terminou. Nunca executar prune global ou remover volumes.
 
-## Versionamento e instalação administrativa (não executada nesta revisão)
+## Versionamento e instalação administrativa (produção não alterada)
 
-`receiver-release.json` identifica a versão 2.0.1/protocolo 2 e o hash exato de `receiver.py`.
+`receiver-release.json` identifica a versão 2.0.2/protocolo 2 e o hash exato de `receiver.py`.
 Alterar receptor requer nova versão/hash e PRs coordenados nas duas cópias. O teste de artefato roda
 na suíte existente; não é necessária mudança de workflow. Para conferir ambos os checkouts:
 
@@ -92,7 +93,7 @@ Checklist para o administrador, depois da aprovação dos dois PRs:
 3. Adquirir `/var/lib/coolify-release/host.lock` sem recriar seu inode. Sob essa trava, revisar o inventário
    de storage, confirmar ausência de intents e guardar evidência da versão atual, hashes e entrypoints.
 4. Instalar **os bytes aprovados**, sem editar no host, em diretório imutável root-owned
-   `/opt/coolify-release/versions/2.0.1-<sha256>/`, com `receiver.py` e `receiver-release.json`.
+   `/opt/coolify-release/versions/2.0.2-<sha256>/`, com `receiver.py` e `receiver-release.json`.
    Diretórios e executável 0755, metadados 0644; nenhum pai pode ser gravável pelas contas de publicação.
    Conferir a versão instalada com `verify_artifact.py --peer <diretorio-da-versao>`.
 5. Manter `/opt/coolify-release/receiver.py` como entrada estável apontando para a versão aprovada.
@@ -144,5 +145,6 @@ expansão gzip, IDs distintos e referência imutável indisponível. Os testes d
 
 Sentinelas e simulações não comprovam integridade de PostgreSQL, isolamento efetivo de mounts, recovery após
 queda da VPS nem durabilidade do daemon. Nenhuma VPS, dado, segredo ou publicação de produção foi acessado.
-A aceitação ainda exige homologação descartável com Docker/Coolify reais, medição de memória/I/O/inodes,
-inventário atual de volumes/backups e ensaio de rollback com o schema e as versões efetivamente instaladas.
+A homologação descartável com Docker/Coolify/PostgreSQL reais está em [HOMOLOGATION.md](HOMOLOGATION.md),
+com versões, resultados, ensaios invalidados e limitações. Paridade com versões, schema, carga e backups
+efetivamente instalados continua exigindo validação operacional própria antes da ativação.

@@ -43,51 +43,68 @@ def layout(
 
 
 class ImageStorageTests(unittest.TestCase):
-    def test_import_resolves_manifest_and_retains_classic_config_id(self) -> None:
+    def test_import_binds_runtime_id_for_classic_and_containerd_stores(self) -> None:
+        for backend in ["classic", "containerd"]:
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as temp:
+                stage = Path(temp)
+                manifest, config_id = layout(stage / "app")
+                runtime_id = manifest if backend == "containerd" else config_id
+                operations: list[list[str]] = []
+
+                def docker(
+                    argv: list[str],
+                    operations: Any = operations,
+                    manifest: str = manifest,
+                    runtime_id: str = runtime_id,
+                    config_id: str = config_id,
+                    backend: str = backend,
+                ) -> bytes:
+                    operations.append(argv)
+                    if argv[:3] == ["/usr/bin/docker", "image", "inspect"]:
+                        if argv[3] == config_id and backend == "containerd":
+                            raise r.DockerOperationError(404)
+                        if argv[3] == manifest and backend == "classic":
+                            raise ValueError("classic store requires config ID lookup")
+                        if argv[3] not in {
+                            config_id,
+                            manifest,
+                            "ghcr.io/bipoxdxd/stillon:release-" + "a" * 40 + "@" + manifest,
+                        }:
+                            raise ValueError("inspect must bind the transported OCI graph")
+                        return json.dumps(
+                            [
+                                {
+                                    "Id": runtime_id,
+                                    "Architecture": "amd64",
+                                    "Os": "linux",
+                                    "Descriptor": {"digest": manifest},
+                                }
+                            ]
+                        ).encode()
+                    return b""
+
+                release = {
+                    "project": "stillon",
+                    "commit": "a" * 40,
+                    "images": {"app": "ghcr.io/bipoxdxd/stillon@" + manifest},
+                }
+                with patch.object(r, "command", side_effect=docker):
+                    refs, ids = r.import_images(release, stage)
+                self.assertEqual(ids, {"app": runtime_id})
+                self.assertEqual(
+                    refs["app"], "ghcr.io/bipoxdxd/stillon:release-" + "a" * 40 + "@" + manifest
+                )
+                self.assertEqual(operations[-2][2], runtime_id)
+
+    def test_docker_inspect_server_error_does_not_fall_back(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             stage = Path(temp)
             manifest, config_id = layout(stage / "app")
-            operations = []
 
             def docker(argv: list[str]) -> bytes:
-                operations.append(argv)
-                if argv[:3] == ["/usr/bin/docker", "image", "inspect"]:
-                    if (
-                        argv[3] != manifest
-                        and argv[3]
-                        != "ghcr.io/bipoxdxd/stillon:release-" + "a" * 40 + "@" + manifest
-                    ):
-                        raise ValueError("unexpected manifest lookup")
-                    return json.dumps(
-                        [{"Id": config_id, "Architecture": "amd64", "Os": "linux"}]
-                    ).encode()
-                return b""
-
-            release = {
-                "project": "stillon",
-                "commit": "a" * 40,
-                "images": {"app": "ghcr.io/bipoxdxd/stillon@" + manifest},
-            }
-            with patch.object(r, "command", side_effect=docker):
-                refs, ids = r.import_images(release, stage)
-            self.assertEqual(ids, {"app": config_id})
-            self.assertEqual(
-                refs["app"],
-                "ghcr.io/bipoxdxd/stillon:release-" + "a" * 40 + "@" + manifest,
-            )
-            self.assertEqual(operations[-2][2], config_id)
-
-    def test_containerd_manifest_id_is_used_for_runtime_identity(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            stage = Path(temp)
-            manifest, config_id = layout(stage / "app")
-            operations = []
-
-            def docker(argv: list[str]) -> bytes:
-                operations.append(argv)
-                if argv[:3] == ["/usr/bin/docker", "image", "inspect"]:
+                if argv[1:3] == ["image", "inspect"]:
                     if argv[3] == config_id:
-                        raise ValueError("Docker 29 does not index images by config digest")
+                        raise r.DockerOperationError(500)
                     return json.dumps(
                         [{"Id": manifest, "Architecture": "amd64", "Os": "linux"}]
                     ).encode()
@@ -98,27 +115,38 @@ class ImageStorageTests(unittest.TestCase):
                 "commit": "a" * 40,
                 "images": {"app": "ghcr.io/bipoxdxd/stillon@" + manifest},
             }
-            with patch.object(r, "command", side_effect=docker):
-                refs, ids = r.import_images(release, stage)
-            self.assertEqual(ids, {"app": manifest})
-            self.assertTrue(refs["app"].endswith("@" + manifest))
-            self.assertEqual(operations[-2][2], manifest)
+            with patch.object(r, "command", side_effect=docker), self.assertRaises(ValueError):
+                r.import_images(release, stage)
 
-    def test_unrelated_loaded_image_id_is_refused(self) -> None:
+    def test_import_refuses_unrelated_runtime_id_or_manifest_descriptor(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             stage = Path(temp)
-            manifest, _ = layout(stage / "app")
-            release = {
-                "project": "stillon",
-                "commit": "a" * 40,
-                "images": {"app": "ghcr.io/bipoxdxd/stillon@" + manifest},
-            }
-            record = [{"Id": "sha256:" + "f" * 64, "Architecture": "amd64", "Os": "linux"}]
-            with (
-                patch.object(r, "command", return_value=json.dumps(record).encode()),
-                self.assertRaisesRegex(ValueError, "identity differs"),
-            ):
-                r.import_images(release, stage)
+            manifest, config_id = layout(stage / "app")
+            for record in [
+                {"Id": "sha256:" + "0" * 64, "Architecture": "amd64", "Os": "linux"},
+                {
+                    "Id": config_id,
+                    "Architecture": "amd64",
+                    "Os": "linux",
+                    "Descriptor": {"digest": "sha256:" + "0" * 64},
+                },
+            ]:
+
+                def docker(argv: list[str], record: Any = record) -> bytes:
+                    return (
+                        json.dumps([record]).encode() if argv[1:3] == ["image", "inspect"] else b""
+                    )
+
+                release = {
+                    "project": "stillon",
+                    "commit": "a" * 40,
+                    "images": {"app": "ghcr.io/bipoxdxd/stillon@" + manifest},
+                }
+                with (
+                    patch.object(r, "command", side_effect=docker),
+                    self.assertRaisesRegex(ValueError, "identity"),
+                ):
+                    r.import_images(release, stage)
 
     def test_unresolvable_manifest_reference_refuses_before_coolify(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -144,6 +172,115 @@ class ImageStorageTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "immutable reference"),
             ):
                 r.import_images(release, stage)
+
+    def test_finished_coolify_waits_for_runtime_health_starting(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+
+            def api(path: str, method: str = "GET", payload: Any = None) -> Any:
+                if path.startswith("deployments/applications/"):
+                    return {"deployments": [], "count": 0}
+                if path.endswith("/start"):
+                    return {"deployment_uuid": "deployment"}
+                return {"status": "finished"}
+
+            def record(health: str) -> bytes:
+                return json.dumps(
+                    [
+                        {
+                            "Image": "sha256:" + "b" * 64,
+                            "State": {"Status": "running", "Health": {"Status": health}},
+                            "Config": {"Labels": {"coolify.applicationUuid": "app"}},
+                        }
+                    ]
+                ).encode()
+
+            release = {
+                "project": "duora",
+                "commit": "a" * 40,
+                "images": {"edge": "repo@sha256:" + "b" * 64},
+            }
+            config = {
+                "uuid": "app",
+                "containers": ["runtime"],
+                "image_roles": {"runtime": "edge"},
+                "readiness": [],
+            }
+            with (
+                patch.object(r, "api", side_effect=api),
+                patch.object(r, "configure_duora"),
+                patch.object(r, "command", side_effect=[record("starting"), record("healthy")]),
+                patch("time.sleep", return_value=None),
+            ):
+                result = r.deploy(release, {}, config, state, {"edge": "sha256:" + "b" * 64})
+            self.assertEqual(result, "deployment")
+            self.assertTrue((state / "current.json").exists())
+            self.assertFalse((state / "pending.json").exists())
+
+    def test_unready_or_wrong_runtime_keeps_pending_receipt(self) -> None:
+        for scenario in ["wrong-image", "wrong-owner", "unhealthy", "deadline"]:
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as temp:
+                state = Path(temp)
+
+                def api(path: str, method: str = "GET", payload: Any = None) -> Any:
+                    if path.startswith("deployments/applications/"):
+                        return {"deployments": [], "count": 0}
+                    if path.endswith("/start"):
+                        return {"deployment_uuid": "deployment"}
+                    return {"status": "finished"}
+
+                record = {
+                    "Image": "sha256:" + ("c" if scenario == "wrong-image" else "b") * 64,
+                    "State": {
+                        "Status": "running",
+                        "Health": {
+                            "Status": "unhealthy" if scenario == "unhealthy" else "starting"
+                        },
+                    },
+                    "Config": {
+                        "Labels": {
+                            "coolify.applicationUuid": "other"
+                            if scenario == "wrong-owner"
+                            else "app"
+                        }
+                    },
+                }
+                release = {
+                    "project": "stillon",
+                    "commit": "a" * 40,
+                    "images": {"app": "repo@sha256:" + "b" * 64},
+                }
+                config = {
+                    "uuid": "app",
+                    "containers": ["runtime"],
+                    "image_roles": {"runtime": "app"},
+                    "readiness": [],
+                }
+                with (
+                    patch.object(r, "api", side_effect=api),
+                    patch.object(r, "command", return_value=json.dumps([record]).encode()),
+                    patch(
+                        "time.monotonic",
+                        side_effect=[0, 0, 0, 121] if scenario == "deadline" else None,
+                        return_value=0,
+                    ),
+                    patch(
+                        "time.sleep",
+                        side_effect=AssertionError(
+                            "Identity and terminal health failures must not wait"
+                        ),
+                    ),
+                    self.assertRaises(ValueError),
+                ):
+                    r.deploy(
+                        release,
+                        {"app": "immutable-image"},
+                        config,
+                        state,
+                        {"app": "sha256:" + "b" * 64},
+                    )
+                self.assertTrue((state / "pending.json").exists())
+                self.assertFalse((state / "current.json").exists())
 
     def test_gzip_expansion_is_bounded_before_docker_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
