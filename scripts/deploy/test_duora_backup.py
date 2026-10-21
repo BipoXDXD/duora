@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -369,6 +370,73 @@ class ActionTests(unittest.TestCase):
         with backup.deploy_lock(self.state_dir, wait_seconds=0):
             backup.run_action("verify", FakeRunner(), project="duora", state_dir=self.state_dir,
                               egress_env=self.egress_env, lock_wait_seconds=0)
+
+
+class ArchiverStatsLagTests(unittest.TestCase):
+    """Um archive confirmado pode anteceder a publicação de pg_stat_archiver pelo PostgreSQL."""
+
+    def setUp(self) -> None:
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.state_dir = Path(temporary.name)
+        sleep = patch.object(backup.time, "sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
+
+    def verify(self, lines: list[str], *, info: str | None = None, fail_on: str | None = None) -> FakeRunner:
+        runner = FakeRunner(info=info, fail_on=fail_on)
+        reads = 0
+
+        def run(command: list[str], *, capture: bool = False, timeout_seconds: int = 0,
+                stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+            nonlocal reads
+            result = runner(command, capture=capture, timeout_seconds=timeout_seconds, stdin=stdin)
+            if "pg_stat_archiver" in " ".join(command) and result.returncode == 0:
+                result.stdout = lines[min(reads, len(lines) - 1)]
+                reads += 1
+            return result
+
+        backup.run_action("verify", run, project="duora", state_dir=self.state_dir, egress_env=None,
+                          clock=lambda: NOW)
+        return runner
+
+    def test_confirmed_archive_can_become_visible_after_the_first_stats_read(self) -> None:
+        self.verify([f"{NOW - 639}||{NOW}", f"{NOW - 1}||{NOW}"])
+
+        self.assertEqual(NOW, float((self.state_dir / ".backup-verify-ok").read_text()))
+        self.sleep.assert_called_once_with(1)
+
+    def test_healthy_stats_do_not_wait(self) -> None:
+        self.verify([f"{NOW - 1}||{NOW}"])
+
+        self.sleep.assert_not_called()
+
+    def test_stale_stats_still_block_after_five_seconds_of_polling(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "639 s"):
+            self.verify([f"{NOW - 639}||{NOW}"])
+
+        self.assertEqual([unittest.mock.call(1)] * 5, self.sleep.call_args_list)
+        self.assertFalse((self.state_dir / ".backup-verify-ok").exists())
+
+    def test_persistent_archive_failure_does_not_record_success(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "arquivamento falhando"):
+            self.verify([f"{NOW - 30}|{NOW - 10}|{NOW}"])
+
+        self.assertFalse((self.state_dir / ".backup-verify-ok").exists())
+
+    def test_invalid_stats_and_query_errors_fail_immediately(self) -> None:
+        for line, failure in [("garbage", None), (f"{NOW}||{NOW}", "pg_stat_archiver")]:
+            with self.subTest(line=line, failure=failure), self.assertRaises(backup.BackupError):
+                self.verify([line], fail_on=failure)
+        self.sleep.assert_not_called()
+        self.assertFalse((self.state_dir / ".backup-verify-ok").exists())
+
+    def test_bad_repository_is_not_retried_as_statistics_lag(self) -> None:
+        with self.assertRaisesRegex(backup.BackupError, "nenhum backup"):
+            self.verify([f"{NOW - 639}||{NOW}", f"{NOW - 1}||{NOW}"], info=info_json(backups=[]))
+
+        self.sleep.assert_not_called()
+        self.assertFalse((self.state_dir / ".backup-verify-ok").exists())
 
 
 class EgressFilterCheckTests(unittest.TestCase):

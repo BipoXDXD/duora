@@ -332,6 +332,12 @@ No Linux o lock é lido em `/proc/locks` (sem tomá-lo), casando dispositivo e i
 falso enquanto `postgres` e `backup` são recriados. O erro é sempre para o lado de alertar, nunca de esconder uma
 falha. Confira na VPS com `findmnt -T /var/lib/duora` (ext4 casa).
 
+**Estatísticas após o check.** O PostgreSQL pode publicar `pg_stat_archiver` depois de o `pgbackrest check`
+confirmar a chegada do WAL. Com repositório válido, o verify faz no máximo seis consultas, em transações separadas,
+com cinco pausas de 1 s e timeout de 5 s por consulta. Não repete o check nem aumenta o RPO de 300 s. Estatísticas
+ilegíveis, erro de SQL ou repositório inválido falham imediatamente; atraso ou falha de archive persistente ao fim
+das releituras também bloqueia. Testes: `ArchiverStatsLagTests`. Referência: [estatísticas cumulativas do PostgreSQL](https://www.postgresql.org/docs/18/monitoring-stats.html#MONITORING-STATS-VIEWS).
+
 **O verify falha fechado.** O deploy só segue com a prova positiva de backup saudável. Bloqueiam (código 1,
 mensagem clara):
 
