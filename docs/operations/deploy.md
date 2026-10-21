@@ -46,11 +46,17 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   `sudo grep DUORA_MEDIA_DIR /etc/duora/duora.env`.
 - [ ] **Rollback para antes do adendo do ADR-0010:** releases cujo web é anterior ao adendo de 2026-10-16 (fotos no
   disco da VPS) não sobem com o Compose atual; ver [rollback](#rollback-de-aplicação).
-- [ ] **Contato de suporte:** `Duora:SupportContact` traz um placeholder (`suporte@meetduora.com`) nas configurações
-  base; a spec ainda não define o canal. Antes de abrir a participantes reais, troque pelo canal definido e confira
-  que a caixa recebe. O público principal não é brasileiro e o atendimento é em PT-BR e EN-US
-  ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), proposta 5): prefira um endereço
-  neutro (`support@`) a `suporte@`.
+- [ ] **Contato de suporte (#82):** `Duora:SupportContact` usa o endereço público aprovado
+  `support@meetduora.com` no Web e no Worker. Confira eventuais overrides por ambiente antes da release.
+  Alias Duora Support criado no Zoho Mail Lite em 21/10/2026; envio/recebimento internos e entrega ao servidor
+  externo do titular verificados. Não é uma caixa independente nem configura SMTP transacional (#68).
+  Responsável: proprietário do projeto; cobertura declarada de 24 horas por dia, em PT-BR e EN-US.
+  Escalonamento privado: Gmail pessoal do responsável, sem publicar seu endereço. O encaminhamento foi
+  adicionado no Zoho, mas exige confirmação local pelo código recebido no Gmail; não marcá-lo como ativo
+  antes de conferir status e testar o alias após a confirmação, mantendo a cópia no Zoho.
+  Substituto e processo de severidades/evidência/escalonamento da spec 12.5 ainda não foram definidos.
+  Essas pendências operacionais impedem declarar o atendimento pronto para participantes reais.
+
 
 ## Manifesto da release (spec 17.2)
 
