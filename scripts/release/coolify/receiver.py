@@ -2,6 +2,7 @@
 """Root-owned, project-bound release ingress. Receives OCI data, never commands."""
 
 import fcntl
+import gzip
 import hashlib
 import http.client
 import ipaddress
@@ -42,7 +43,14 @@ SAFE_ENV = {
 }
 BASE = Path("/etc/coolify-release")
 STATE = Path("/var/lib/coolify-release")
+GOBLIN_IMAGES = Path("/srv/goblinshift/executor/images.json")
 LIMIT = 4 * 1024**3
+EXPANDED_LIMIT = 4 * LIMIT
+RESERVE = 8 * 1024**3
+
+
+def receiver_digest() -> str:
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 def json_unique(text: Any) -> Any:
@@ -64,16 +72,18 @@ def parse_request(value: Any) -> Any:
 
 
 def validate_release(data: Any, project: Any, commit: Any) -> Any:
-    fields = {"version", "project", "commit", "images"} | (
+    fields = {"version", "receiver_sha256", "project", "commit", "images"} | (
         {"duora"} if project == "duora" else set()
     )
     if (
         not isinstance(data, dict)
         or set(data) != fields
         or type(data["version"]) is not int
-        or data["version"] != 1
+        or data["version"] != 2
     ):
         raise ValueError("Unexpected release fields")
+    if data["receiver_sha256"] != receiver_digest():
+        raise ValueError("Receiver artifact differs; administrative update required")
     if data["project"] != project or data["commit"] != commit:
         raise ValueError("Release identity mismatch")
     if not isinstance(data["images"], dict) or set(data["images"]) != set(PROJECTS[project]):
@@ -219,7 +229,10 @@ def validate_oci(root: Any, digest: Any) -> Any:
         or desc.get("digest") != digest
     ):
         raise ValueError("Named or mismatched image refused")
-    if "platform" in desc and desc["platform"] != {"os": "linux", "architecture": "amd64"}:
+    if "platform" in desc and desc["platform"] != {
+        "os": "linux",
+        "architecture": "amd64",
+    }:
         raise ValueError("Unexpected platform")
     for blob in (root / "blobs/sha256").iterdir():
         hasher = hashlib.sha256()
@@ -247,8 +260,26 @@ def validate_oci(root: Any, digest: Any) -> Any:
         raise ValueError("Only linux/amd64 images accepted")
     if not isinstance(document.get("layers"), list):
         raise ValueError("Invalid image layers")
+    expanded = 0
     for layer in document["layers"]:
-        read_descriptor(layer)
+        path = read_descriptor(layer)
+        media_type = layer.get("mediaType")
+        if media_type in {
+            "application/vnd.oci.image.layer.v1.tar+gzip",
+            "application/vnd.docker.image.rootfs.diff.tar.gzip",
+        }:
+            with gzip.open(path, "rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    expanded += len(chunk)
+                    if expanded > EXPANDED_LIMIT:
+                        raise ValueError("Expanded image exceeds release budget")
+        elif media_type == "application/vnd.oci.image.layer.v1.tar":
+            expanded += path.stat().st_size
+        else:
+            raise ValueError("Unsupported image layer compression")
+        if expanded > EXPANDED_LIMIT:
+            raise ValueError("Expanded image exceeds release budget")
+    return document["config"]["digest"], expanded
 
 
 def deployment_finished(record: Any) -> Any:
@@ -304,7 +335,10 @@ def command(argv: Any) -> Any:
                 "POST",
                 "/images/load?quiet=1",
                 archive,
-                {"Content-Type": "application/x-tar", "Content-Length": str(path.stat().st_size)},
+                {
+                    "Content-Type": "application/x-tar",
+                    "Content-Length": str(path.stat().st_size),
+                },
             )
         for line in data.splitlines():
             if json_unique(line).get("error"):
@@ -363,14 +397,28 @@ def atomic_json(path: Any, data: Any) -> Any:
         handle.flush()
         os.fsync(handle.fileno())
     temporary.replace(path)
+    sync_directory(path.parent)
+
+
+def sync_directory(path: Any) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def import_images(release: Any, stage: Any) -> Any:
     imported = {}
+    image_ids = {}
+    expanded = 0
     for role, reference in release["images"].items():
         digest = reference.split("@")[1]
         root = stage / role
-        validate_oci(root, digest)
+        image_ids[role], size = validate_oci(root, digest)
+        expanded += size
+        if expanded > EXPANDED_LIMIT:
+            raise ValueError("Expanded release exceeds budget")
     # Every role validates before any Docker mutation. Repack only checked regular files.
     for role, reference in release["images"].items():
         digest = reference.split("@")[1]
@@ -381,13 +429,22 @@ def import_images(release: Any, stage: Any) -> Any:
                 if path.is_file():
                     archive.add(path, arcname=path.relative_to(root), recursive=False)
         command(["/usr/bin/docker", "load", "-i", str(bundle)])
-        actual = json.loads(command(["/usr/bin/docker", "image", "inspect", digest]))[0]
-        if actual["Id"] != digest or actual["Architecture"] != "amd64" or actual["Os"] != "linux":
+        actual = json.loads(command(["/usr/bin/docker", "image", "inspect", image_ids[role]]))[0]
+        if (
+            actual["Id"] != image_ids[role]
+            or actual["Architecture"] != "amd64"
+            or actual["Os"] != "linux"
+        ):
             raise ValueError("Imported image identity differs")
         tag = f"{PROJECTS[release['project']][role]}:release-{release['commit']}"
-        command(["/usr/bin/docker", "tag", digest, tag])
-        imported[role] = tag + "@" + digest
-    return imported
+        command(["/usr/bin/docker", "tag", image_ids[role], tag])
+        reference = tag + "@" + digest
+        # Prove the immutable reference resolves locally before Coolify can use it.
+        resolved = json.loads(command(["/usr/bin/docker", "image", "inspect", reference]))[0]
+        if resolved["Id"] != image_ids[role]:
+            raise ValueError("Imported manifest reference differs")
+        imported[role] = reference
+    return imported, image_ids
 
 
 def update_envs(uuid: Any, values: Any) -> Any:
@@ -493,11 +550,12 @@ def configure_duora(release: Any, config: Any) -> Any:
         update_envs(config["uuid"], {"DUORA_OBSERVER_IMAGE": manifest["images"]["edge"]})
 
 
-def deploy(release: Any, imported: Any, config: Any, state: Any) -> Any:
+def deploy(release: Any, imported: Any, config: Any, state: Any, image_ids: Any) -> Any:
     require_no_pending(state)
     require_idle(config["uuid"])
     atomic_json(
-        state / "pending.json", {"release": release, "deployment_uuid": None, "status": "intent"}
+        state / "pending.json",
+        {"release": release, "deployment_uuid": None, "status": "intent"},
     )
     project = release["project"]
     uuid = config["uuid"]
@@ -510,10 +568,11 @@ def deploy(release: Any, imported: Any, config: Any, state: Any) -> Any:
             "GS_WEB_IMAGE": imported["web"],
             "GS_EXECUTOR_IMAGE": release["images"]["executor"],
         }
-        whitelist = Path("/srv/goblinshift/executor/images.json")
+        whitelist = GOBLIN_IMAGES
         previous = json_unique(whitelist.read_bytes())["allowed"]
         atomic_json(
-            whitelist, {"allowed": list(dict.fromkeys([release["images"]["executor"], *previous]))}
+            whitelist,
+            {"allowed": list(dict.fromkeys([release["images"]["executor"], *previous]))},
         )
     if project == "duora":
         configure_duora(release, config)
@@ -532,7 +591,7 @@ def deploy(release: Any, imported: Any, config: Any, state: Any) -> Any:
     for name in config["containers"]:
         record = json.loads(command(["/usr/bin/docker", "inspect", name]))[0]
         role = config["image_roles"].get(name)
-        digest = release["images"][role].split("@")[1] if role else None
+        digest = image_ids[role] if role else None
         validate_runtime(record, uuid if project != "duora" else None, digest)
     for probe in config["readiness"]:
         record = json.loads(command(["/usr/bin/docker", "inspect", probe["container"]]))[0]
@@ -561,7 +620,49 @@ def deploy(release: Any, imported: Any, config: Any, state: Any) -> Any:
         json_unique((state / "current.json").read_bytes()),
     )
     (state / "pending.json").unlink()
+    sync_directory(state)
     return deployment
+
+
+def require_host_idle() -> None:
+    # Also fence intents left by older receivers, including an unknown project directory.
+    require_no_pending(STATE)
+    for state in STATE.iterdir():
+        if state.is_dir():
+            require_no_pending(state)
+
+
+def require_storage(state: Any) -> None:
+    info = json_unique(docker_request("GET", "/info"))
+    docker_root = Path(info["DockerRootDir"])
+    if not docker_root.is_absolute() or not docker_root.is_dir():
+        raise ValueError("Cannot establish Docker storage budget")
+    # Inventory is administrative: containerd root can differ from DockerRootDir.
+    storage = json_unique((BASE / "storage.json").read_bytes())
+    if (
+        set(storage) != {"version", "image_roots"}
+        or type(storage["version"]) is not int
+        or storage["version"] != 1
+    ):
+        raise ValueError("Unexpected administrative storage inventory")
+    names = storage["image_roots"]
+    if not isinstance(names, list) or not names or len(names) > 16:
+        raise ValueError("Image storage roots required")
+    roots = [docker_root]
+    for name in names:
+        if not isinstance(name, str) or not Path(name).is_absolute() or not Path(name).is_dir():
+            raise ValueError("Invalid image storage root")
+        roots.append(Path(name))
+    budgets = {state.stat().st_dev: [state, 2 * LIMIT + RESERVE]}
+    for root in roots:
+        device = root.stat().st_dev
+        if device not in budgets:
+            budgets[device] = [root, LIMIT + EXPANDED_LIMIT + RESERVE]
+        elif budgets[device][0] == state:
+            budgets[device][1] = 3 * LIMIT + EXPANDED_LIMIT + RESERVE
+    for root, required in budgets.values():
+        if shutil.disk_usage(root).free < required:
+            raise ValueError("Insufficient free disk for safe release")
 
 
 def main() -> None:
@@ -574,19 +675,28 @@ def main() -> None:
     state = STATE / project
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     shared = Path("/opt/stillon/.entrada.trava") if project == "stillon" else None
-    with release_locks(state / "release.lock", shared):
-        require_no_pending(state)
-        if shutil.disk_usage(state).free < 4 * LIMIT + 8 * 1024**3:
-            raise ValueError("Insufficient free disk for safe release")
+    with (
+        release_locks(STATE / "host.lock"),
+        release_locks(state / "release.lock", shared),
+    ):
+        require_host_idle()
+        require_storage(state)
         with tempfile.TemporaryDirectory(prefix="incoming-", dir=state) as temporary:
             stage = Path(temporary)
             unpack(sys.stdin.buffer, stage, set(PROJECTS[project]))
             release = validate_release(
                 json_unique((stage / "release.json").read_bytes()), project, sha
             )
-            imported = import_images(release, stage)
+            # Survives process death: a daemon import/start can outlive its HTTP client.
+            atomic_json(
+                STATE / "pending.json",
+                {"project": project, "commit": sha, "status": "importing"},
+            )
+            imported, image_ids = import_images(release, stage)
             config = json_unique((BASE / (project + ".json")).read_bytes())
-            deployment = deploy(release, imported, config, state)
+            deployment = deploy(release, imported, config, state, image_ids)
+            (STATE / "pending.json").unlink()
+            sync_directory(STATE)
             print(
                 json.dumps(
                     {
@@ -605,7 +715,9 @@ if __name__ == "__main__":
     except Exception as error:
         # Detailed diagnosis stays on the root side; CI receives a fixed message.
         descriptor = os.open(
-            "/var/log/coolify-release-errors.log", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600
+            "/var/log/coolify-release-errors.log",
+            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+            0o600,
         )
         with os.fdopen(descriptor, "a") as error_log:
             traceback.print_exc(file=error_log)
