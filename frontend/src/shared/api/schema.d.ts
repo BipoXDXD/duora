@@ -2941,6 +2941,7 @@ export interface components {
             /** Format: date-time */
             checkInOpensAt: string;
             state: string;
+            timeZone: null | string;
         };
         GameResponse: {
             experienceId: string;
@@ -3096,6 +3097,7 @@ export interface components {
             capacity: number | string;
             /** Format: uuid */
             experienceVersionId: string;
+            timeZone?: null | string;
         };
         PublishRoutesCatalogRequest: {
             /** Format: int32 */

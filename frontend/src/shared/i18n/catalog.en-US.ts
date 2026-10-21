@@ -6,6 +6,9 @@ import type { Catalog } from './catalog'
  * and keep error messages just as neutral: they never reveal whether an email has an account.
  */
 export const en = {
+  'dates.eventTime': 'Event time: {time}',
+  'dates.eventZoneUnknown': 'Reference: {time}; event time zone not provided',
+  'dates.withBrowserTime': '{event} ({local} in your browser’s time zone)',
   'routes.ownClues': 'Only you can see these clues.',
   'routes.deadline': 'Experience deadline: {deadline}.',
   'routes.acknowledge': 'Got it',
