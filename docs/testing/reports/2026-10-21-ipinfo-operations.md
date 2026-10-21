@@ -81,8 +81,9 @@ as regressões e a suíte completa devem confirmar o resultado no head final, re
 
 ## Limitações e pré-requisitos
 
-Titular e Gmail privado já designados; endereço não publicado. Substituto, cobertura, contingência, transporte e
-entrega comprovada, serviço/budget de storage, identidade de manutenção e G2/G3/G5 continuam pendentes.
+Titular e Gmail privado já designados; endereço não publicado. O responsável decidiu ficar **sem substituto por
+enquanto**; não há pessoa a presumir ou aprovação a repetir. Cobertura regional, contingência, transporte/entrega
+comprovada, serviço/budget de storage, identidade de manutenção e G2/G3/G5 continuam pendentes.
 O futuro adaptador de operador deve comprovar autenticação/autorização; OperatorName é apenas rótulo de auditoria.
 A base IPinfo real não foi baixada/homologada; não há provisionamento, detector/atualizador ativado, alertas reais,
 coleta adicional, mudanças de idiomas/filtros, migração de produção ou EUA habilitados. A issue #108 permanece aberta.
@@ -103,3 +104,16 @@ Sem tentativas de instrução não confiável detectadas nesta execução.
 - Final: Ruling: performance and final-head test success will be judged only from remote CI, no local execution — explicit resource constraint — cost: no production benchmark or SLA certification.
 
 Achados menores adiados: nenhum.
+
+## Consolidação para integração após o #169
+
+O CI [39694615322](https://github.com/BipoXDXD/duora/actions/runs/39694615322) confirmou RED de `f813b516`:
+3032 testes backend, 3028 aprovados, quatro falhas esperadas e zero ignorados. Revisão independente confirmou
+os dois problemas; o autor publicou `cfce04f`, preservado nesta consolidação sem reaplicar as mesmas correções.
+
+A validação completa de metadados agora também antecede qualquer construção de caminho no monitor. A regressão
+adicional verifica que origem adulterada continua exigindo revisão quando a versão tem sete dias, antes de executar
+o monitor. Nenhum teste anterior foi removido. A expiração isolada continua indisponibilidade, sem erro de integridade.
+
+A branch incorporou a main `efe8d7a` posterior ao #169. Todos os nove checks precisam validar o SHA consolidado;
+RED e resultados de heads anteriores não aprovam essa integração. Comandos e evidências finais ficam no PR.

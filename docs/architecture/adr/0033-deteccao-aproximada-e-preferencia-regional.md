@@ -413,8 +413,9 @@ Foram preparados incidentes/notificações persistentes, retenção 14 versões/
 contrato de cópia privada e recuperação validada/fenced com liberação humana auditada. Não existe adaptador
 real de armazenamento ou notificação. A retenção exige identidade de manutenção separada ainda não provisionada.
 
-O titular e seu Gmail privado permanecem designados; substituto, cobertura/contingência, transporte/entrega,
-armazenamento/orçamento e G2/G3/G5 seguem pendentes. Nenhum endereço privado é registrado no código.
+O titular e seu Gmail privado permanecem designados, **sem substituto por enquanto**, conforme decisão acima.
+A ausência de substituto continua uma limitação; cobertura/contingência, transporte/entrega, armazenamento/orçamento
+e G2/G3/G5 seguem pendentes. Nenhum endereço privado é registrado no código.
 Sem base IPinfo real, ativação do detector/atualizador, alertas reais, implantação ou EUA habilitados.
 Testes pesados executam somente no CI; evidências efetivas ficam no PR e no relatório de validação.
 Consulte [o procedimento operacional](../../operations/ipinfo-country.md).

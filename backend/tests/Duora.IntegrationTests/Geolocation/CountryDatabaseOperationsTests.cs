@@ -504,6 +504,22 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
             await new CountryDatabaseRecoveryService(store, h.Validator, h.Root, enabled: true).RecoverAsync(Ct));
     }
 
+    [Fact]
+    public async Task ExpiredManifestWithInvalidMetadataStillRequiresReviewBeforeHealthMonitor()
+    {
+        await using var h = await Prepared();
+        await using (var q = h.MaintenanceSource.CreateCommand(
+            "update ops.country_database_versions set manifest=jsonb_set(manifest,'{Source}','\"https://invalid.example/country.mmdb\"')"))
+        { await q.ExecuteNonQueryAsync(Ct); }
+        h.Time.Advance(TimeSpan.FromDays(7));
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
+        Assert.Equal(CountryDatabaseRecoveryOutcome.ReviewRequired,
+            await new CountryDatabaseRecoveryService(store, h.Validator, h.Root, enabled: true).RecoverAsync(Ct));
+        var notices = new Notices();
+        await new CountryDatabaseHealthService(store, h.Validator, h.Root, notices, enabled: true).RunOnceAsync(Ct);
+        Assert.Contains(notices.Items, n => n.Code == "Integrity" && n.Severity == 2);
+    }
+
     private async Task<CountryDatabasePipelineTests.Harness> Prepared()
     {
         var h = await CountryDatabasePipelineTests.Harness.Create(postgres);

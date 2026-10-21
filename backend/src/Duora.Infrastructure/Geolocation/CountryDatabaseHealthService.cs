@@ -32,7 +32,9 @@ public sealed class CountryDatabaseHealthService(CountryDatabaseOperationsStore 
                 var age = now - m.BuiltAt;
                 if (age >= TimeSpan.FromHours(72))
                 { conditions["Age"] = age >= TimeSpan.FromHours(168) ? 2 : 1; }
-                if (!File.Exists(Path.Combine(root, m.Sha256 + ".mmdb")))
+                if (!m.HasCoherentMetadata(now))
+                { integrity = true; }
+                else if (!File.Exists(Path.Combine(root, m.Sha256 + ".mmdb")))
                 { conditions["MissingBase"] = 2; }
                 else if (m.IsAdmissible(now))
                 {
@@ -49,8 +51,6 @@ public sealed class CountryDatabaseHealthService(CountryDatabaseOperationsStore 
                     catch (UnauthorizedAccessException)
                     { conditions["Disk"] = 2; }
                 }
-                else if (!m.HasCoherentMetadata(now))
-                { integrity = true; }
             }
             if (s.Blocked && s.Error is "Unauthorized" or "Schema" or "Integrity" or "ApprovalRequired" or "Validation" or "Disk")
             { conditions[s.Error] = 2; }
