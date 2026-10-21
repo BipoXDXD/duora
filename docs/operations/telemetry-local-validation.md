@@ -8,7 +8,7 @@ continuam exigindo aceite das duas VPSs. **Não instalado, não ativado, sem rec
 
 Os testes funcionais abaixo foram executados no snapshot
 `d79321d477362e3d207680bb68b378278febc21b`, cuja integração é idêntica ao merge do PR #113
-`60142612d772ba0bccbb7d488d1e8337b8c2f745`. O PR documental parte da main
+`60142612d772ba0bccbb7d488d1e8337b8c2f745`. O PR parte da main
 `6c89d99bf990db780e8ac8bf7c89ae0dc4e6816f`. O delta posterior não altera `scripts/telemetry`,
 `infra/telemetry`, os runbooks da integração, os testes de orçamento ou a role backup.
 O scanner foi repetido no snapshot inicial e na árvore documental atual; os resultados não são
@@ -61,11 +61,21 @@ docker run --rm --dns 1.1.1.1 -v "$PWD:/repo:ro" -w /repo \
   --ignorefile .trivyignore --exit-code 1
 ```
 
-Saída da árvore atual: [trivy-current.log](evidence/telemetry-2026-10-21/trivy-current.log).
+Saída da árvore documental antes da atualização do Go: [trivy-current.log](evidence/telemetry-2026-10-21/trivy-current.log).
 O scan usa a base baixada nessa execução. Zero achados HIGH/CRITICAL reportados dentro do escopo
 configurado e das exceções existentes. Não é scan da imagem gateway ou garantia sobre
 vulnerabilidades futuras. O aviso de ausência de Python site-packages significa que a detecção
 de licenças pip foi omitida; este comando não substitui a auditoria de licenças/SBOM do CI.
+
+## Correção posterior no build da borda
+
+O CI do PR #121 detectou CVE-2026-111943 no Go 1.26.9 embutido no Caddy,
+na análise das imagens amd64/arm64. O scan de filesystem acima não cobre esse binário.
+O build passou a usar Go 1.26.10, fixado pelo digest do índice multiarch oficial,
+que inclui a [correção de crypto/x509](https://go.dev/doc/devel/release#go1.26.10).
+Caddy e x/net mantêm suas versões; nenhum gate, scanner ou ignore foi alterado.
+A aceitação desta correção depende dos builds e scans das duas arquiteturas no CI
+do novo commit. As evidências locais acima continuam vinculadas aos snapshots informados.
 
 ## Pacotes e evidências
 
