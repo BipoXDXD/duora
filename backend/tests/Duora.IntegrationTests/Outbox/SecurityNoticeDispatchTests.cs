@@ -61,13 +61,13 @@ public sealed class SecurityNoticeDispatchTests(PostgresFixture postgres)
     }
 
     /// <summary>
-    /// Rollback da release com a gravação para a do leitor: o worker da release anterior lê o payload que o gravador
-    /// grava (mesma serialização, sem campo a mais) e entrega. A consulta de drenagem do deploy.md conta o aviso
-    /// enquanto ele está na fila e deixa de contar depois da entrega.
+    /// O produtor e o dispatcher compilados nesta versão concordam sobre o payload. Não executa binário de uma
+    /// release anterior nem comprova compatibilidade com workers históricos. A consulta de drenagem conta o
+    /// aviso enquanto ele está na fila e deixa de contar depois da entrega por pickup.
     /// </summary>
     [Theory]
     [MemberData(nameof(WrittenNotices))]
-    public async Task EveryNoticeTheWriterRecordsIsDeliveredByTheReader(SecurityChange change, EmailLanguage language)
+    public async Task EveryNoticeTheWriterRecordsIsDeliveredByTheCurrentReader(SecurityChange change, EmailLanguage language)
     {
         await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
         var written = AccountEmailOutbox.CreateSecurityNotice(

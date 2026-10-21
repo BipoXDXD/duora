@@ -34,6 +34,11 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   administrativo) não vai a deploy numa release que não tenha o leitor (`feat/admin-bootstrap-reader`) já
   implantado. Antes de voltar para uma release anterior a esse leitor, a consulta do
   [rollback](#rollback-de-aplicação) desse tipo precisa devolver zero.
+- [ ] **Uso de código de recuperação (#139):** antes da release que produz `RecoveryCodeUsedNotice`, implante uma
+  release intermediária que reconheça esse tipo mas ainda não o produza, com web e worker dessa mesma release.
+  Registre seu manifesto/digests e confirme que todos os workers antigos foram substituídos. O #139 acrescentou
+  leitura e gravação juntas: a presença do leitor de #51 não satisfaz este requisito. Sem o artefato intermediário
+  aprovado e implantado, interrompa a promoção; veja o [procedimento específico](#aviso-de-uso-de-código-de-recuperação-68-21102026).
 - [ ] **Reaplicar `app_dirs`:** antes da primeira release com o Compose do #72, e sempre que `duora_media_dir` ou o
   template do `duora.env` mudarem, rode o playbook (`site.yml`, com `--check --diff` antes; [infra/README.md](../../infra/README.md)).
   Ele cria as áreas de fotos com os marcadores e grava `DUORA_MEDIA_DIR` no `duora.env`; sem isso o `duora-deploy`
@@ -240,12 +245,14 @@ o leitor (`feat/security-notifications-reader`, sem nenhuma gravação), depois 
 (`feat/security-notifications`). O instante citado no e-mail é o `occurred_at` do evento, não um campo do payload.
 Um worker anterior ao leitor encerra esses tipos como `Failed` (`InvalidPayload`), sem retry: o aviso se perde.
 Rollback da release com a gravação para a do leitor é seguro: o leitor entrega tudo o que a gravação grava
-(`SecurityNoticeDispatchTests.EveryNoticeTheWriterRecordsIsDeliveredByTheReader`). Para uma release anterior ao
+para os cinco tipos listados acima. Isso não inclui `RecoveryCodeUsedNotice`, acrescentado depois no #139;
+para ele, siga o procedimento específico ao final. `SecurityNoticeDispatchTests` verifica a serialização e o
+dispatcher compilados na mesma versão; não executa um worker histórico. Para uma release anterior ao
 leitor, em dois passos, porque o web com a gravação continua gravando avisos enquanto estiver no ar:
 
 1. volte primeiro para a release do leitor (sem gravação) e deixe o worker dela esvaziar a fila;
 2. só com a consulta abaixo devolvendo zero, volte para a release anterior ao leitor. Entregas que ainda estejam em
-   `Pending` por falha transitória (SMTP fora) contam: espere-as ou aceite perdê-las, e registre a decisão.
+   `Pending` por falha transitória contam: aguarde a recuperação e a entrega; não as descarte para liberar rollback.
 
 ```sql
 select count(*) from ops.outbox_deliveries d
@@ -639,8 +646,46 @@ Testes dos scripts: `python3 -m unittest discover -s scripts/deploy -v`.
 
 ### Aviso de uso de código de recuperação (#68, 21/10/2026)
 
-`RecoveryCodeUsedNotice` é um novo tipo de aviso bilíngue. Atualize o worker leitor antes de liberar a web que
-passa a gravá-lo, com as duas partes da mesma release. Para rollback, interrompa primeiro as gravações e drene
-as entregas `Pending`/`InFlight` desse tipo com o worker compatível antes de voltar ao leitor antigo. Não marque
-como entregue nem descarte os avisos para permitir rollback. Os testes cobrem o adaptador pickup existente;
-a homologação de SMTP depende do adaptador/ambiente de entrega real e não foi substituída por esses testes.
+`RecoveryCodeUsedNotice` é um novo tipo de aviso bilíngue. Um worker anterior ao #139 não o reconhece: encerra a
+entrega como `Failed/InvalidPayload`, sem retry. A conclusão terminal também limpa o payload da outbox. Uma fila
+`Pending`/`InFlight` vazia, isoladamente, não prova que os avisos foram entregues.
+
+**Implantação em duas releases.** O `duora-deploy` sobe web, worker e edge no mesmo comando Compose; ele não
+garante que o consumidor fique pronto antes do produtor e não verifica compatibilidade de tipos da outbox.
+No caminho normal ele para o worker gerenciado antes da migração, o que evita que esse processo antigo consuma
+os novos avisos; isso não é um teste de compatibilidade nem protege uma reversão para o leitor antigo.
+Não use uma execução direta do manifesto do #139 como prova de implantação do leitor antes do gravador.
+
+1. Prepare pelo fluxo de release uma versão intermediária com o novo enum, seu mapeamento e catálogo bilíngue,
+   mas sem a chamada que produz `SecurityChange.RecoveryCodeUsed` em `VerifySecondFactorAsync`. Ela precisa ler os
+   payloads antigos e novos sem produzir o novo aviso. Submeta o artefato a revisão humana, aos nove gates e a
+   ensaio de leitura com payloads da versão produtora; registre os manifestos e digests das duas versões.
+2. Implante a versão intermediária completa (web e worker da mesma release). Confirme o digest de todos os
+   consumidores em execução e a ausência de workers anteriores, inclusive instâncias com leases em andamento.
+   Se não houver essa release aprovada e validada, a promoção fica bloqueada.
+3. Só então promova a release produtora. Durante sua substituição, tanto o worker intermediário quanto o novo
+   reconhecem `RecoveryCodeUsedNotice`. Preserve o manifesto intermediário como destino de reversão elegível.
+
+**Reversão sem consumidor incompatível.** Volte primeiro à release intermediária, cujo web não produz o novo
+tipo e cujo worker ainda o entende. Aguarde o encerramento das requisições do produtor anterior e confirme que
+nenhuma outra instância continua gravando. Deixe o consumidor compatível processar retries e leases retomados.
+Antes de voltar a qualquer worker anterior ao #139, a consulta abaixo deve devolver zero:
+
+```sql
+select count(*) from ops.outbox_deliveries d
+join ops.outbox_events e on e.id = d.outbox_event_id
+where d.consumer = 'transactional-email' and d.status in ('Pending', 'InFlight')
+  and e.payload->>'kind' = 'RecoveryCodeUsedNotice';
+```
+
+Registre também o resultado das entregas desse tipo durante a drenagem. `Failed`/`Expired`, `InvalidPayload`,
+falha de transporte ou ausência dessa evidência bloqueiam a afirmação de drenagem sem perda e exigem revisão
+operacional; após a limpeza do payload, a consulta pelo tipo já não encontra a entrega terminal. Não marque
+como entregue nem descarte avisos para permitir rollback. Sem a intermediária elegível, mantenha o worker
+compatível e interrompa a reversão; não use diretamente o manifesto antigo. O executor restrito não oferece
+um modo automático de separar essas fases. A homologação deve ensaiar esse caminho antes da promoção.
+
+Os testes locais usam o adaptador pickup: `Delivered` significa que o arquivo foi escrito, não recebimento por
+um provedor SMTP ou pela caixa do titular. Eles demonstram composição, atomicidade, retry e deduplicação desse
+adaptador. Não demonstram entrega SMTP, tratamento de bounces ou deduplicação do provedor após envio com perda
+de confirmação. A homologação externa permanece pendente na #68.
