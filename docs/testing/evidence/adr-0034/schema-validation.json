@@ -1,0 +1,80 @@
+{
+  "validator": "jsonschema 4.25.1",
+  "dialect": "Draft 2020-12",
+  "openapi": "3.1.1",
+  "cases": [
+    {
+      "name": "body-empty-pt",
+      "status": 400,
+      "schema": "HttpValidationProblemDetails",
+      "publishedValid": false,
+      "errors": [
+        "Additional properties are not allowed ('code', 'traceId' were unexpected)"
+      ],
+      "withoutExtensionsValid": true,
+      "inMemoryDeclaredExtensionsValid": true,
+      "unknownMemberStillRejected": true
+    },
+    {
+      "name": "body-empty-en",
+      "status": 400,
+      "schema": "HttpValidationProblemDetails",
+      "publishedValid": false,
+      "errors": [
+        "Additional properties are not allowed ('code', 'traceId' were unexpected)"
+      ],
+      "withoutExtensionsValid": true,
+      "inMemoryDeclaredExtensionsValid": true,
+      "unknownMemberStillRejected": true
+    },
+    {
+      "name": "key-missing",
+      "status": 400,
+      "schema": "HttpValidationProblemDetails",
+      "publishedValid": false,
+      "errors": [
+        "Additional properties are not allowed ('code', 'traceId' were unexpected)"
+      ],
+      "withoutExtensionsValid": true,
+      "inMemoryDeclaredExtensionsValid": true,
+      "unknownMemberStillRejected": true
+    },
+    {
+      "name": "key-invalid",
+      "status": 400,
+      "schema": "HttpValidationProblemDetails",
+      "publishedValid": false,
+      "errors": [
+        "Additional properties are not allowed ('code', 'traceId' were unexpected)"
+      ],
+      "withoutExtensionsValid": true,
+      "inMemoryDeclaredExtensionsValid": true,
+      "unknownMemberStillRejected": true
+    },
+    {
+      "name": "body-empty-optin-ignored",
+      "status": 400,
+      "schema": "HttpValidationProblemDetails",
+      "publishedValid": false,
+      "errors": [
+        "Additional properties are not allowed ('code', 'traceId' were unexpected)"
+      ],
+      "withoutExtensionsValid": true,
+      "inMemoryDeclaredExtensionsValid": true,
+      "unknownMemberStillRejected": true
+    },
+    {
+      "name": "type-unsupported",
+      "status": 415,
+      "schema": "ProblemDetails",
+      "publishedValid": false,
+      "errors": [
+        "Additional properties are not allowed ('code', 'traceId' were unexpected)"
+      ],
+      "withoutExtensionsValid": true,
+      "inMemoryDeclaredExtensionsValid": true,
+      "unknownMemberStillRejected": true
+    }
+  ],
+  "rootCauseControl": "Changing only UnmappedMemberHandling in cloned serializer options changes only additionalProperties false to absent; JsonExtensionData metadata exists but dynamic code/traceId names are not schema properties."
+}

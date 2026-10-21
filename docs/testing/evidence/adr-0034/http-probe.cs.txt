@@ -1,0 +1,103 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using System.Text.Json.Schema;
+using Duora.IntegrationTests.Identity;
+using Duora.IntegrationTests.Media;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+
+namespace Duora.IntegrationTests;
+
+public sealed class ValidationContractProbe(PostgresFixture postgres)
+{
+    [Fact]
+    public async Task CaptureCurrentContractWithoutChangingRuntime()
+    {
+        var output = Environment.GetEnvironmentVariable("DUORA_PROBE_OUTPUT")
+            ?? throw new InvalidOperationException("Missing probe output directory.");
+        Directory.CreateDirectory(output);
+        await using var accounts = new DuoraWebFactory(postgres.ConnectionString);
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString);
+        using var key = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var names = new SubjectAlternativeNameBuilder();
+        names.AddDnsName("localhost");
+        names.AddIpAddress(IPAddress.Loopback);
+        certificateRequest.CertificateExtensions.Add(names.Build());
+        using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddHours(1));
+        using var exported = X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), password: null);
+        factory.UseKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(exported)));
+        factory.StartServer();
+        var address = factory.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+        using var handler = new SocketsHttpHandler { UseCookies = false, AllowAutoRedirect = false };
+        var thumbprint = exported.Thumbprint;
+        handler.SslOptions.RemoteCertificateValidationCallback = (_, presented, _, _) =>
+            presented is not null && string.Equals(presented.GetCertHashString(), thumbprint, StringComparison.OrdinalIgnoreCase);
+        using var http = new HttpClient(handler) { BaseAddress = new Uri(address) };
+        var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
+        async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request)
+        {
+            using (request)
+            {
+                if (cookies.Count > 0) request.Headers.Add("Cookie", string.Join("; ", cookies.Select(c => $"{c.Key}={c.Value}")));
+                if (cookies.TryGetValue("XSRF-TOKEN", out var token)) request.Headers.Add("X-XSRF-TOKEN", Uri.UnescapeDataString(token));
+                request.Headers.Add("Origin", DuoraWebFactory.PublicOrigin);
+                request.Headers.Add("Sec-Fetch-Site", "same-origin");
+                var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
+                foreach (var header in response.Headers.TryGetValues("Set-Cookie", out var values) ? values : [])
+                {
+                    var pair = header.Split(';', 2)[0].Split('=', 2);
+                    cookies[pair[0]] = pair[1];
+                }
+                return response;
+            }
+        }
+        var account = await new IdentityScenario(postgres, accounts).CreateConfirmedAccountAsync();
+        using (var csrf = await SendAsync(new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/csrf"))) Assert.Equal(HttpStatusCode.NoContent, csrf.StatusCode);
+        using (var login = await SendAsync(new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login") { Content = JsonContent.Create(new { email = account.Email, password = account.Password }) })) Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        var cases = new[] { "body-empty-pt", "body-empty-en", "key-missing", "key-invalid", "body-empty-optin-ignored", "type-unsupported" };
+        foreach (var name in cases)
+        {
+            var bytes = name.StartsWith("body-empty", StringComparison.Ordinal) ? Array.Empty<byte>() : MediaScenario.JpegLike();
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new(name == "type-unsupported" ? "text/html" : "image/jpeg");
+            var request = new HttpRequestMessage(HttpMethod.Post, MediaScenario.PhotosPath) { Content = content };
+            if (name != "key-missing") request.Headers.Add("Idempotency-Key", name == "key-invalid" ? "bad key" : MediaScenario.NewKey());
+            request.Headers.Add("Accept-Language", name == "body-empty-pt" ? "pt-BR" : "en-US");
+            if (name == "body-empty-optin-ignored") request.Headers.Add("Duora-Validation-Format", "codes-v1");
+            using var response = await SendAsync(request);
+            var expectedStatus = name == "type-unsupported" ? HttpStatusCode.UnsupportedMediaType : HttpStatusCode.BadRequest;
+            var expectedCode = name == "type-unsupported" ? "UNSUPPORTED_MEDIA_TYPE" : "VALIDATION_FAILED";
+            await ProblemAssert.IsProblemAsync(response, expectedStatus, expectedCode);
+            var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            var headers = response.Headers.Where(p => p.Key != "Set-Cookie").Concat(response.Content.Headers)
+                .ToDictionary(p => p.Key, p => p.Value.ToArray());
+            await File.WriteAllTextAsync(Path.Combine(output, name + ".json"), body, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(Path.Combine(output, name + ".headers.json"), JsonSerializer.Serialize(new { status = (int)response.StatusCode, headers }), TestContext.Current.CancellationToken);
+        }
+        Assert.Empty(await new MediaScenario(postgres, factory).UploadsOfAsync(account.UserId));
+        Assert.Equal(0, new MediaScenario(postgres, factory).StoredObjectCount());
+        var options = factory.Services.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>().Value.SerializerOptions;
+        foreach (var type in new[] { typeof(HttpValidationProblemDetails), typeof(Microsoft.AspNetCore.Mvc.ProblemDetails) })
+        {
+            var info = options.GetTypeInfo(type);
+            var diagnostics = new { type = type.FullName, kind = info.Kind.ToString(), converter = info.Converter.GetType().FullName,
+                unmapped = options.UnmappedMemberHandling.ToString(), properties = info.Properties.Select(p => new { p.Name, p.IsExtensionData }) };
+            await File.WriteAllTextAsync(Path.Combine(output, type.Name + "-metadata.json"), JsonSerializer.Serialize(diagnostics), TestContext.Current.CancellationToken);
+            foreach (var strict in new[] { true, false })
+            {
+                var clone = new JsonSerializerOptions(options) { UnmappedMemberHandling = strict ? System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow : System.Text.Json.Serialization.JsonUnmappedMemberHandling.Skip };
+                var schema = clone.GetJsonSchemaAsNode(type);
+                await File.WriteAllTextAsync(Path.Combine(output, type.Name + (strict ? "-disallow" : "-skip") + ".schema.json"), schema.ToJsonString(), TestContext.Current.CancellationToken);
+            }
+        }
+    }
+}
