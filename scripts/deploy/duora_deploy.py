@@ -531,7 +531,7 @@ def _query(compose: list[str], run: Runner, sql: str, what: str = "leitura do hi
 def _wait_ready(compose: list[str], run: Runner, timeout_seconds: int, sleep: Callable[[float], None]) -> None:
     # O edge (Caddy, Alpine) tem wget e está na mesma rede do web; a saúde nunca passa pela borda pública.
     probe = compose + ["exec", "--no-TTY", "edge", "wget", "--quiet", "--spider", "--timeout=5",
-                       "http://web:8080/health/ready"]
+                       "http://duora-web:8080/health/ready"]
     attempts = max(1, timeout_seconds // READINESS_INTERVAL_SECONDS + 1)
     for attempt in range(attempts):
         if run(probe).returncode == 0:

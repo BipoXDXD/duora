@@ -127,7 +127,7 @@ solta o lock se o processo morrer).
    `reconcile-privileges.sql` (tira do `duora_app` todo acesso ao histórico do EF) e confere que a última migration
    do banco é a última do manifesto.
 8. Sobe web, worker e edge da release (`up --wait --no-deps`).
-9. Smoke: `GET http://web:8080/health/ready` de dentro do edge (rede interna), por até 90 s; depois confere que
+9. Smoke: `GET http://duora-web:8080/health/ready` de dentro do edge (rede interna privada), por até 90 s; depois confere que
    web, worker e edge estão `running` (pega restart em laço).
 10. Só então promove os arquivos para `releases/` e grava `current.json` (o anterior vira `previous.json`).
 
