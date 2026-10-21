@@ -580,6 +580,65 @@ public sealed class AdminBootstrapTests : IAsyncDisposable
         Assert.Equal("", notice.Token);
     }
 
+    [Theory]
+    [InlineData("pt-BR", "pt-BR")]
+    [InlineData("en-US", "en-US")]
+    [InlineData(null, "en-US")]
+    public async Task ReissueSnapshotsTheStoredLocaleWithoutAnHttpRequest(string? locale, string expected)
+    {
+        var email = IdentityScenario.NewEmail();
+        var grant = await GrantAsync(email);
+        await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var update = new NpgsqlCommand(
+            "update identity.users set preferred_locale = $1 where id = $2", connection);
+        update.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Text, Value = (object?)locale ?? DBNull.Value });
+        update.Parameters.AddWithValue(grant.UserId);
+        await update.ExecuteNonQueryAsync(Ct);
+
+        await ReissueAsync(email);
+
+        var payload = await Scenario.ScalarTextAsync(
+            "select payload::text from ops.outbox_events where payload->>'userId' = $1 and payload->>'kind' = 'PasswordResetNotice'",
+            grant.UserId.ToString("D"));
+        using var document = System.Text.Json.JsonDocument.Parse(payload);
+        Assert.Equal(expected, document.RootElement.GetProperty("language").GetString());
+        update.Parameters[0].Value = expected == "pt-BR" ? "en-US" : "pt-BR";
+        await update.ExecuteNonQueryAsync(Ct);
+        Assert.Equal(payload, await Scenario.ScalarTextAsync(
+            "select payload::text from ops.outbox_events where payload->>'userId' = $1 and payload->>'kind' = 'PasswordResetNotice'",
+            grant.UserId.ToString("D")));
+    }
+
+    [Fact]
+    public async Task ReissueWaitsForAConcurrentLocaleChangeAndCapturesTheCommittedValue()
+    {
+        var email = IdentityScenario.NewEmail();
+        var grant = await GrantAsync(email);
+        await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var transaction = await connection.BeginTransactionAsync(Ct);
+        await using var update = new NpgsqlCommand(
+            "update identity.users set preferred_locale = 'pt-BR' where id = $1", connection, transaction);
+        update.Parameters.AddWithValue(grant.UserId);
+        await update.ExecuteNonQueryAsync(Ct);
+        var reissuing = ReissueAsync(email);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (await Scenario.ScalarAsync(
+            "select count(*) from pg_stat_activity where $1 = any(pg_blocking_pids(pid))", connection.ProcessID) == 0)
+        {
+            await Task.Delay(20, timeout.Token);
+        }
+
+        Assert.False(reissuing.IsCompleted);
+        await transaction.CommitAsync(Ct);
+        await reissuing.WaitAsync(TimeSpan.FromSeconds(15), Ct);
+        Assert.Equal("pt-BR", await Scenario.ScalarTextAsync(
+            "select payload->>'language' from ops.outbox_events where payload->>'userId' = $1 and payload->>'kind' = 'PasswordResetNotice'",
+            grant.UserId.ToString("D")));
+    }
+
     [Fact]
     public async Task ReissuingEndsTheSessionsOpenedWithThePreviousPassword()
     {
