@@ -28,7 +28,8 @@ class CaddyAccessLogTests(unittest.TestCase):
         # também precisa sair.
         cls.addClassCleanup(remove_container, cls.container)
         _run(["docker", "run", "--detach", "--name", cls.container,
-              "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal", "--add-host", "web:127.0.0.1",
+              "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal",
+              "--add-host", "web:127.0.0.2", "--add-host", "duora-web:127.0.0.1",
               "--volume", f"{CADDYFILE}:/etc/caddy/Caddyfile:ro", IMAGE])
         cls._wait_ready()
         # Um "web" mínimo no próprio container, só para o proxy ter a quem mandar o corpo: o teto de 64 KiB é aplicado

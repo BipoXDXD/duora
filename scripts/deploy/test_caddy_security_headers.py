@@ -186,7 +186,8 @@ class CaddySecurityHeadersTests(unittest.TestCase):
         cls.addClassCleanup(remove_container, cls.container)
         # Porta efêmera só no loopback do host: o teste fala HTTPS com o Caddy como o navegador falaria.
         _run(["docker", "run", "--detach", "--name", cls.container,
-              "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal", "--add-host", "web:127.0.0.1",
+              "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal",
+              "--add-host", "web:127.0.0.2", "--add-host", "duora-web:127.0.0.1",
               "--publish", "127.0.0.1::443",
               "--volume", f"{CADDYFILE}:/etc/caddy/Caddyfile:ro", "--volume", f"{cls.site}:/srv:ro", IMAGE])
         _run(["docker", "exec", "--detach", cls.container, "caddy", "run", "--config",

@@ -93,7 +93,7 @@
 		respond "" {err.status_code}
 	}
 
-	# Saúde e documentação técnica ficam na rede interna (web:8080), nunca na borda pública.
+	# Saúde e documentação técnica ficam na rede interna (duora-web:8080), nunca na borda pública.
 	@internal path /health /health/* /openapi /openapi/*
 	handle @internal {
 		# error, não respond: passa pelo handle_errors e sai com no-store, como todo erro da borda.
@@ -103,7 +103,7 @@
 	# API: status, cookies e cabeçalhos de cache do backend passam intactos; sem Cache-Control, nada é guardado.
 	handle /api/* {
 		header ?Cache-Control "no-store"
-		reverse_proxy web:8080
+		reverse_proxy duora-web:8080
 	}
 
 	# Callbacks de fornecedor (verificação etária, ADR-0024): só o web os autentica, pela assinatura sobre os bytes
@@ -113,13 +113,13 @@
 		request_body {
 			max_size 64KiB
 		}
-		reverse_proxy web:8080
+		reverse_proxy duora-web:8080
 	}
 
 	# SignalR: WebSocket (e fallbacks de streaming) sem buffer e sem timeout de requisição; numa recarga de config,
 	# as conexões abertas duram mais 5 min em vez de reconectarem todas de uma vez.
 	handle /hubs/* {
-		reverse_proxy web:8080 {
+		reverse_proxy duora-web:8080 {
 			flush_interval -1
 			stream_close_delay 5m
 		}

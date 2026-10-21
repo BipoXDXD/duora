@@ -384,7 +384,7 @@ def login_status(context: ssl.SSLContext, cookies: str, token: str) -> int:
 
 def wait_ready(compose: list[str]) -> None:
     probe = compose + ["exec", "--no-TTY", "edge", "wget", "--quiet", "--spider", "--timeout=5",
-                       "http://web:8080/health/ready"]
+                       "http://duora-web:8080/health/ready"]
     deadline = time.monotonic() + READY_TIMEOUT_SECONDS
     while time.monotonic() < deadline:
         if subprocess.run(probe, capture_output=True, check=False).returncode == 0:
