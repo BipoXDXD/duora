@@ -431,3 +431,18 @@ it('keeps a manual country edit even after reverting to undisclosed while a sugg
   expect(country).toHaveValue('')
   expect(api.patches).toEqual([])
 })
+
+it('keeps a saved undisclosed location because null cannot prove that the country was never chosen manually', async () => {
+  const api = useProfileBackend({ displayName: 'Ana', bio: null, countryCode: null, subdivisionCode: null, version: 3 })
+  server.use(
+    http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+    http.post(`${API}/me/region-detection`, () =>
+      HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' }),
+    ),
+  )
+  const { user } = await renderApp('/account/profile')
+  await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+  await waitFor(() => expect(screen.queryByText('Consultando sugestão…')).not.toBeInTheDocument())
+  expect(screen.getByRole('combobox', { name: 'País' })).toHaveValue('')
+  expect(api.patches).toEqual([])
+})

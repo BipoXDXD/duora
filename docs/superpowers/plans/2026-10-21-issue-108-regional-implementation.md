@@ -338,7 +338,10 @@ Responsáveis nominais e canal de alertas continuam pendentes; o corte V3 contin
 - O componente comum de sugestão é usado nos formulários existentes de perfil e preferência. Só a ação explícita
   faz POST; resposta fica no componente montado, sem cache/localStorage. Cada pedido tem geração e AbortController;
   novo pedido, cancelamento e saída descartam o anterior. Toda edição manual regional, mesmo revertida, invalida a
-  pré-seleção; região já salva nunca é substituída. Nenhuma leitura ou salvamento sincroniza automaticamente os recursos.
+  pré-seleção; região já salva nunca é substituída, inclusive null ("não informar"). Como não existe metadado de
+  origem para diferenciar null manual de ausência, somente perfil não salvo (versão 0) admite pré-seleção. Um perfil
+  existente sem país usa escolha manual; não acrescentar rastreamento para inferir a intenção. Nenhuma leitura ou
+  salvamento sincroniza automaticamente os recursos.
 - Declaração continua pelo PATCH/ETag do perfil; preferência pelo PUT/ETag próprio. Mensagens e conflitos pertencem
   a cada formulário, com rascunho preservado em 412. Sugestão não grava, não altera idiomas e não ativa o filtro.
 - Cobertura: HTTP sintético de IPv4/IPv6, proxies, autenticação/CSRF/corpo, N+1 e snapshots PostgreSQL em

@@ -47,7 +47,7 @@ O cancelamento em TestServer pode propagar OperationCanceledException ou ser tra
 ambos exigem lookup alcançado, token cancelado e snapshot preservado.
 
 Vitest exercita formulários existentes e POST real no cliente HTTP via MSW: pré-seleção sem escrita, manual
-mesmo após voltar ao valor inicial, A após B, cancelamento/saída, preferência salva e estados sem sugestão.
+mesmo após voltar ao valor inicial, A após B, cancelamento/saída, preferência salva, localização salva como null e estados sem sugestão.
 Playwright cobre PT-BR/EN-US nos três projetos, acessibilidade e sucesso do perfil com conflito independente
 na preferência. O simulador oferece capacidade false por padrão, como o servidor; fixtures habilitadas são
 exclusivas dos testes. As coberturas anteriores de 412/duas abas e pareamento V3 continuam obrigatórias.

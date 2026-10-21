@@ -346,7 +346,10 @@ Contrato HTTP e sugestão temporária foram preparados usando o fluxo manual exi
 continua somente `DisabledCountryLookup`: capacidade false e POST disabled, sem leitor, arquivo ou serviço real.
 A disponibilidade é consultada por GET autenticado separado, sem lookup; só ação explícita autoriza o POST sem corpo.
 Somente rascunho inicial intocado pode receber sugestão; edição manual, gravação/releitura explícita, pedido posterior,
-cancelamento e desmontagem protegem contra resposta atrasada. Cada formulário conserva salvamento/ETag independente.
+cancelamento e desmontagem protegem contra resposta atrasada. Perfil com versão persistida preserva inclusive
+país null: sem metadado de origem regional, só versão 0 pode ser pré-selecionada; perfil existente usa escolha manual.
+Isso evita substituir uma escolha salva de não informar, sem coletar origem adicional. Cada formulário conserva
+salvamento/ETag independente.
 
 Os limites iniciais propostos (6/minuto/conta e 60/minuto/origem, em memória) e a admissão conservadora de IP estão
 registrados no [plano](../../superpowers/plans/2026-10-21-issue-108-regional-implementation.md#registro-de-execução-de-21102026--etapas-5-e-6).

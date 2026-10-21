@@ -260,9 +260,11 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
         />
         <RegionSuggestion
           onCountry={(country) => {
+            // Sem origem regional persistida, null em perfil salvo também pode ser uma escolha manual.
             if (
               regionEdited.current ||
               base.countryCode !== null ||
+              base.version !== '0' ||
               save.isPending ||
               reload.isPending ||
               failure !== null
