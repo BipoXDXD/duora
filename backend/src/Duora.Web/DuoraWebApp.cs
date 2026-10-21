@@ -55,6 +55,7 @@ internal static class DuoraWebApp
             PatchFieldOpenApi.Configure(options);
             ProfileEndpoints.ConfigureOpenApi(options);
             RegionalPreferenceEndpoints.ConfigureOpenApi(options);
+            RegionDetectionEndpoints.ConfigureOpenApi(options);
         });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<System.Diagnostics.DistributedContextPropagator>(new InboundTraceContextDiscarded());
@@ -77,6 +78,8 @@ internal static class DuoraWebApp
         builder.Services.AddAuthRateLimiting();
         builder.Services.AddBlockRateLimiting();
         builder.Services.AddPhotoUploadRateLimiting();
+        builder.Services.AddRegionDetectionRateLimiting();
+        builder.Services.AddSingleton<Duora.Infrastructure.Geolocation.ICountryLookup, Duora.Infrastructure.Geolocation.DisabledCountryLookup>();
         builder.Services.AddTrustedReverseProxy();
 
         var app = builder.Build();
@@ -106,6 +109,7 @@ internal static class DuoraWebApp
         api.MapProfileEndpoints();
         api.MapPreferenceEndpoints();
         api.MapRegionalPreferenceEndpoints();
+        api.MapRegionDetectionEndpoints();
         api.MapTimeZoneEndpoints();
         api.MapParticipationEndpoints();
         api.MapBlockEndpoints();
