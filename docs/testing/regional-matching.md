@@ -102,3 +102,7 @@ não comprovam Gmail real, base IPinfo, retenção fora do host, SLA de 15 minut
 Titular/Gmail privado já designados por decisão posterior; substituto, contingência/cobertura, transporte,
 armazenamento/orçamento e homologação G2/G3/G5 continuam pendentes. Nenhum serviço é registrado, detector ou
 atualizador ativado, alerta real enviado ou país habilitado. #108 aberta. Ver [runbook](../operations/ipinfo-country.md).
+
+A regressão de liberação humana verifica que autorização de reparo não passa a uma promoção posterior.
+Casos de manifesto adulterado abrangem origem, tipo inválido e cronologia de primeiro download, com alerta e bloqueio;
+a validação estrutural é compartilhada entre admissão, monitor e recuperação, preservando o corte de 168h.

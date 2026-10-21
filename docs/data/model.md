@@ -1009,6 +1009,7 @@ só incidentes entram no transporte futuro. Índice parcial de pendências; rete
 Não inclui dados de participante, IPs, endereço Gmail ou exceções/URLs do fornecedor.
 
 Estado singleton acrescenta last_observed_at (marca UTC persistida), review_required e repair_authorized.
+A autorização de reparo não atravessa gerações: promoção/recuperação a consomem e um novo bloqueio a revoga.
 Recuperação/revogação incrementam geração e fencing do job na mesma transação, na ordem job → estado.
 Liberação humana grava ops.audit_events com OperatorName, referência opaca de revisão e geração esperada;
 o adaptador operacional de autenticação/autorização ainda não existe. Serviços estão desativados/não registrados.

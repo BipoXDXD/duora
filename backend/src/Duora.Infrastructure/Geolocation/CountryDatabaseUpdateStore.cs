@@ -162,7 +162,7 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
         { return CountryDatabasePromotion.LostLease; }
         var changed = await Execute(c, """
             update ops.country_database_state set active_sha256=$1,active_fencing_token=$2,
-              first_failure_at=null,last_error_code=null
+              first_failure_at=null,last_error_code=null,repair_authorized=false
             where singleton and not blocked and active_fencing_token<$2
             """, ct, canonical.Sha256, lease.Token);
         if (changed != 1)
