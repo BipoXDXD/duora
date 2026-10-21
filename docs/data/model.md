@@ -510,7 +510,7 @@ erDiagram
 - **Colunas:** `id`; `definition_id`; `rules_version`, `content_version`, `schema_version int` (`CHECK (> 0)`,
   como `ExperienceVersion` no Core);
   `editorial_state text` (`Draft`, `Validated`, `Published`, `Retired`); `content jsonb`; `content_sha256
-  bytea`; `license text`; `origin text` (`human`, `editorial_external`); `model text`; `approved_by uuid`;
+  bytea`; `license text`; `model text`; `approved_by uuid`;
   `approved_at`, `published_at`, `retired_at timestamptz`; `version bigint`.
 - **Constraints:** `UNIQUE (definition_id, rules_version, content_version)`; FK `definition_id` `RESTRICT`;
   FK `approved_by` → `identity.users` `SET NULL` (coluna anulável; a aprovação também está na auditoria);

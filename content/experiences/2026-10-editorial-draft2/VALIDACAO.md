@@ -46,7 +46,7 @@ PASS: 68 assertions using delivered catalog and Duora.Core: contracts, locale pr
 
 A main consultada já contém `content/experiences/2026-10-review` e testes editoriais, além das fixtures citadas na solicitação. Esta entrega adapta esse material, preserva seus IDs e não duplica a produção de mídia. As afirmações de licença e plano pago do candidato anterior não foram verificadas nesta tarefa nem transferidas para o novo manifesto.
 
-O README anterior descreve omissão do aviso de processamento externo por orientação de outra tarefa. Isso é contexto histórico, não autorização nesta conversa para descumprir o ADR. A proposta inclui o aviso na fala e no objetivo. `RoomPage.tsx` exibe descrição, player e transcrição, mas não um campo separado de narrador. O rótulo proposto permanece no documento complementar, sujeito à integração e revisão de acessibilidade.
+A orientação de produto em 21/10/2026 retira declarações sobre o processo de criação dos textos públicos, conforme ADR-0032. Origem, licenças e consentimento continuam registros técnicos. A direção de voz prioriza naturalidade e depende de escuta; nenhuma voz foi produzida ou aprovada nesta alteração.
 
 Em Rotas, `transcript == objective` e `accessibleDescription == title` são exigidos pelo serviço. O empacotador existente também impõe essa convenção às duas experiências. A API de Constelação aceita de 1 a 8 cues, porém esta versão editorial escolhe apenas `intro`; não se apresenta essa escolha como um limite geral da API.
 

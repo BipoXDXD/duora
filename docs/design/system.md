@@ -168,8 +168,7 @@ nada aqui está implementado.
   aparelho só volta a tocar depois do primeiro gesto da página.
 - **Preferências no aparelho:** ligado/desligado, volume de cada canal e **"Reduzir áudio"** (desliga `music` e
   `ambience`). Guardadas em `localStorage` como preferência, validadas como dado externo; nunca no servidor.
-- **Transcrição:** toda fala aparece em texto na tela, no idioma ativo, com quem fala e o rótulo "voz
-  sintética" quando for; a introdução da experiência avisa com clareza que as vozes são de produção editorial. A transcrição não é região viva (o leitor de tela não a lê duas vezes por cima do
+- **Transcrição:** toda fala aparece em texto na tela, no idioma ativo, com quem fala, sem mensagem sobre o processo de criação (ADR-0032). A transcrição não é região viva (o leitor de tela não a lê duas vezes por cima do
   áudio); fica alcançável por título.
 - **Paleta sonora** por ambiente, escolhida antes de gerar, coerente com a paleta visual e o tom do brief
   (GASG cap. 3, pp. 51–52): cor tonal unificada, sem misturar realismo e lo-fi.
@@ -296,7 +295,7 @@ verificação de acessibilidade do Storybook e, quando houver interação, uma `
 | Decisão privada | Sem escolha, escolha salva, alterável, prazo encerrado, conexão formada, salvando, erro | `fieldset` + `legend` com dois rádios ou botões de alternância; texto de privacidade junto | 01, 03 |
 | Chat | Lista vazia, carregando histórico, mensagem `sending`/`sent`/`failed`, nova mensagem, histórico longo, indisponível | Lista com `role="log"`; não move foco ao chegar mensagem; composer com label e contador de 2.000 caracteres | 05 |
 | Controle de som (proposto) | Mudo (padrão), ligado, por canal (música, ambiente, voz), "Reduzir áudio", sem suporte de áudio | Botão de alternância com `aria-pressed` e rótulo textual ("Som desligado"/"Som ligado"); volumes por `<input type="range">` com label; na Barra da sala, sempre alcançável por teclado; preferência lembrada no aparelho | 04, 07 |
-| Transcrição de fala (proposto) | Vazia, fala atual, histórico curto, voz editorial | Texto com quem fala; não é região viva; aviso "voz editorial" junto | 04 |
+| Transcrição de fala (proposto) | Vazia, fala atual, histórico curto | Texto com quem fala; não é região viva; rótulo neutro de narração | 04 |
 | Cenário de experiência (proposto) | Imagem, imagem + personagem, carregando (dimensões reservadas), 3D com poster, 3D indisponível | `alt` ou `decorative`; nada da regra só na imagem; sem layout shift | 04, 06 |
 | Voz ao vivo (proposto) | Fora da voz (padrão), aguardando a outra pessoa entrar, na voz com microfone desligado, pedindo permissão, permissão negada, microfone aberto, mudo, push-to-talk, falando (eu/outra pessoa), outra pessoa silenciada, reconectando, indisponível | Indicador de microfone aberto e de quem fala em texto além do ícone; "Silenciar a outra pessoa", "Desligar meu microfone", "Sair da voz", "Bloquear" e "Denunciar" com rótulo; nada depende de ouvir | 03, 04, 05 |
 | Faixa de prazo (proposto) | Normal, aviso (2 min), final (30 s), encerrado | Horário absoluto + restante em minutos; anuncia só nos marcos | 08 |

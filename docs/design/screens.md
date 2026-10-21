@@ -305,7 +305,7 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 ├──────────────────────────────────────┤
 │ ░░░░░ cenário: cais ao entardecer ░░ │
 │ Guia: "Toda rota começa por um porto"│
-│ (voz editorial)                      │
+│ Narração                            │
 ├──────────────────────────────────────┤
 │ Objetivo: montar juntos um passeio   │
 │ por uma cidade inventada.            │
