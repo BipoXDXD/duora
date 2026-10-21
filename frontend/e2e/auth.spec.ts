@@ -33,7 +33,7 @@ test.describe('jornada de entrada', () => {
     await page.getByRole('button', { name: 'Criar conta' }).click()
 
     await expect(page.getByRole('heading', { level: 1, name: 'Verifique seu e-mail' })).toBeVisible()
-    await expect(page).toHaveURL(/\/verifique-seu-email$/)
+    await expect(page).toHaveURL(/\/check-email$/)
 
     // A pessoa abre o link recebido por e-mail e confirma com a senha do cadastro.
     await page.goto(api.lastEmailLink('confirmation').path)
@@ -56,7 +56,7 @@ test.describe('jornada de entrada', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
     await expect(page.getByRole('status')).toContainText('Você saiu da sua conta.')
 
-    await page.goto('/conta')
+    await page.goto('/account')
     await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
     await expect(page.getByRole('status')).toContainText('Entre para continuar.')
   })
@@ -64,7 +64,7 @@ test.describe('jornada de entrada', () => {
   test('encerrar a sessão corrente leva à entrada', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
     api.seedConfirmedUser('ana@exemplo.com', PASSWORD)
-    await page.goto('/entrar')
+    await page.goto('/login')
     await signIn(page, 'ana@exemplo.com')
 
     await page.getByRole('button', { name: /^Encerrar esta sessão/ }).click()
@@ -77,7 +77,7 @@ test.describe('jornada de entrada', () => {
     const api = await FakeDuoraApi.install(page)
     api.seedConfirmedUser('ana@exemplo.com', PASSWORD)
     const newPassword = 'outra frase longa de senha nova'
-    await page.goto('/entrar')
+    await page.goto('/login')
 
     await page.getByRole('link', { name: 'Esqueci minha senha' }).click()
     // A entrada também tem um campo "E-mail": sem esperar a tela nova, o fill pode cair no campo que está saindo.
@@ -87,7 +87,7 @@ test.describe('jornada de entrada', () => {
     await expect(page.getByRole('status')).toBeFocused()
 
     await page.goto(api.lastEmailLink('password-reset').path)
-    await expect(page).toHaveURL(/\/redefinir-senha$/)
+    await expect(page).toHaveURL(/\/reset-password$/)
     await page.getByLabel('Senha nova', { exact: true }).fill(newPassword)
     await page.getByRole('button', { name: 'Salvar senha nova' }).click()
     const success = page.getByRole('status')
@@ -105,7 +105,7 @@ test.describe('jornada de entrada', () => {
   test('entrada só com teclado: preencher e enviar com Enter', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
     api.seedConfirmedUser('ana@exemplo.com', PASSWORD)
-    await page.goto('/entrar')
+    await page.goto('/login')
 
     await page.getByLabel('E-mail', { exact: true }).focus()
     await page.keyboard.type('ana@exemplo.com')
@@ -121,7 +121,7 @@ test.describe('jornada de entrada', () => {
 test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', () => {
   test('entrada com credenciais inválidas', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/entrar')
+    await page.goto('/login')
     await signIn(page, 'ninguem@exemplo.com')
     await expect(page.getByRole('alert')).toContainText('E-mail ou senha incorretos.')
 
@@ -131,7 +131,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
   test('entrada com limite temporário', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
     api.failNext({ method: 'POST', path: '/auth/login' }, { status: 429, code: 'RATE_LIMITED', retryAfter: '120' })
-    await page.goto('/entrar')
+    await page.goto('/login')
     await signIn(page, 'ana@exemplo.com')
     await expect(page.getByRole('alert')).toContainText('espere 2 minutos')
 
@@ -140,7 +140,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('entrada com aviso de sessão necessária', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/conta')
+    await page.goto('/account')
     await expect(page.getByRole('status')).toContainText('Entre para continuar.')
 
     await expectNoAxeViolations(page)
@@ -148,7 +148,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('cadastro com erros de validação', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/criar-conta')
+    await page.goto('/register')
     await page.getByLabel('Senha', { exact: true }).fill('curta')
     await page.getByRole('button', { name: 'Criar conta' }).click()
     await expect(page.getByLabel('E-mail', { exact: true })).toBeFocused()
@@ -160,7 +160,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
   test('cadastro com erro de rede', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
     api.failNext({ method: 'POST', path: '/auth/register' }, 'network-error')
-    await page.goto('/criar-conta')
+    await page.goto('/register')
     await page.getByLabel('E-mail', { exact: true }).fill('ana@exemplo.com')
     await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('checkbox', { name: /Termos de uso/ }).check()
@@ -173,7 +173,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('verifique seu e-mail', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/verifique-seu-email')
+    await page.goto('/check-email')
     await expect(page.getByRole('heading', { level: 1, name: 'Verifique seu e-mail' })).toBeVisible()
 
     await expectNoAxeViolations(page)
@@ -181,7 +181,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('confirmação com token inválido', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/confirmar-email#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
+    await page.goto('/confirm-email#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
     await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Confirmar e-mail' }).click()
     await expect(page.getByRole('alert')).toContainText('Link inválido ou senha incorreta.')
@@ -192,7 +192,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('confirmação com link malformado', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/confirmar-email')
+    await page.goto('/confirm-email')
     await expect(page.getByRole('alert')).toBeVisible()
 
     await expectNoAxeViolations(page)
@@ -201,7 +201,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
   test('recuperação de senha com erro de rede', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
     api.failNext({ method: 'POST', path: '/auth/password-reset-requests' }, 'network-error')
-    await page.goto('/esqueci-a-senha')
+    await page.goto('/forgot-password')
     await page.getByLabel('E-mail', { exact: true }).fill('ana@exemplo.com')
     await page.getByRole('button', { name: 'Enviar link' }).click()
     await expect(page.getByRole('alert')).toContainText('Confira sua conexão')
@@ -211,7 +211,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('recuperação de senha enviada', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/esqueci-a-senha')
+    await page.goto('/forgot-password')
     await page.getByLabel('E-mail', { exact: true }).fill('ana@exemplo.com')
     await page.getByRole('button', { name: 'Enviar link' }).click()
     await expect(page.getByRole('status')).toContainText('Se houver uma conta com esse e-mail')
@@ -221,7 +221,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('redefinição com token inválido', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/redefinir-senha#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
+    await page.goto('/reset-password#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=vencido')
     await page.getByLabel('Senha nova', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Salvar senha nova' }).click()
     await expect(page.getByRole('alert')).toContainText('Peça um link novo.')
@@ -231,7 +231,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('redefinição com erro de validação', async ({ page }) => {
     await FakeDuoraApi.install(page)
-    await page.goto('/redefinir-senha#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=abc')
+    await page.goto('/reset-password#userId=0199f1a2-3b4c-7d5e-8f60-718293a4b5c6&token=abc')
     await page.getByRole('button', { name: 'Salvar senha nova' }).click()
     await expect(page.getByLabel('Senha nova', { exact: true })).toBeFocused()
 
@@ -240,7 +240,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
 
   test('conta com e-mail pendente e sessões fora do ar', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
-    await page.goto('/criar-conta')
+    await page.goto('/register')
     await page.getByLabel('E-mail', { exact: true }).fill('ana@exemplo.com')
     await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('checkbox', { name: /Termos de uso/ }).check()
@@ -248,7 +248,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
     await page.getByRole('button', { name: 'Criar conta' }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Verifique seu e-mail' })).toBeVisible()
     api.failNext({ method: 'GET', path: '/me/sessions', times: 3 }, 'network-error')
-    await page.goto('/entrar')
+    await page.goto('/login')
     await signIn(page, 'ana@exemplo.com')
 
     await expect(page.getByText('Confirme seu e-mail para continuar.')).toBeVisible()
@@ -260,7 +260,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
   test('conta com a lista de sessões', async ({ page }) => {
     const api = await FakeDuoraApi.install(page)
     api.seedConfirmedUser('ana@exemplo.com', PASSWORD)
-    await page.goto('/entrar')
+    await page.goto('/login')
     await signIn(page, 'ana@exemplo.com')
     await expect(page.getByText('Esta sessão', { exact: true })).toBeVisible()
 

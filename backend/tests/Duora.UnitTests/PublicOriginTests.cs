@@ -35,6 +35,6 @@ public sealed class PublicOriginTests
     {
         Assert.True(PublicOrigin.TryParse("https://duora.example", out var origin));
 
-        Assert.Equal(new Uri("https://duora.example/confirmar-email?a=1"), origin.Resolve("/confirmar-email?a=1"));
+        Assert.Equal(new Uri("https://duora.example/confirm-email?a=1"), origin.Resolve("/confirm-email?a=1"));
     }
 }

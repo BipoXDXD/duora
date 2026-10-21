@@ -8,7 +8,7 @@ import { RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { DocumentTitle } from '@/shared/ui/document-title'
 import { AccountContext } from './account-context'
-import type { LoginState } from './login-state'
+import { readLoginState, type LoginState } from './login-state'
 import { useMe } from './session-hooks'
 
 /**
@@ -90,8 +90,8 @@ export function RequireSession(): React.JSX.Element {
 function RedirectToLogin({ sessionExpired }: { readonly sessionExpired: boolean }): React.JSX.Element {
   const location = useLocation()
   const state: LoginState = {
+    ...readLoginState({ from: `${location.pathname}${location.search}${location.hash}` }),
     notice: sessionExpired ? 'session-expired' : 'sign-in-required',
-    from: `${location.pathname}${location.search}`,
   }
   return <Navigate to={paths.login} replace state={state} />
 }

@@ -35,7 +35,7 @@ public sealed class AccountEmailPortugueseTextTests
             Para confirmar este endereço de e-mail no Duora, abra o link abaixo. Vamos pedir a senha que você
             escolheu no cadastro.
 
-            https://duora.example/confirmar-email#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1
+            https://duora.example/confirm-email#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1
 
             Se você não pediu este cadastro, ignore esta mensagem: sem a senha, ninguém confirma a conta.
             """,
@@ -54,7 +54,7 @@ public sealed class AccountEmailPortugueseTextTests
             Recebemos um pedido para redefinir a senha da conta ligada a este e-mail. Para escolher uma nova senha,
             abra o link abaixo:
 
-            https://duora.example/redefinir-senha#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1
+            https://duora.example/reset-password#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1
 
             Se você não fez esse pedido, ignore esta mensagem; sua senha continua a mesma.
             """,
@@ -73,7 +73,7 @@ public sealed class AccountEmailPortugueseTextTests
             Alguém tentou criar uma conta no Duora com este e-mail, que já tem cadastro. Se foi você, entre
             normalmente ou recupere a senha em:
 
-            https://duora.example/recuperar-senha
+            https://duora.example/forgot-password
 
             Se não foi você, nenhuma ação é necessária.
             """,
@@ -92,7 +92,7 @@ public sealed class AccountEmailPortugueseTextTests
             Recebemos um pedido de redefinição de senha para este e-mail, mas o cadastro dele nunca foi
             confirmado. Para usar o Duora com este endereço, faça o cadastro de novo:
 
-            https://duora.example/cadastro
+            https://duora.example/register
 
             Se você não fez esse pedido, ignore esta mensagem.
             """,
@@ -111,7 +111,7 @@ public sealed class AccountEmailPortugueseTextTests
             Recebemos um pedido de redefinição de senha para este e-mail, mas não há conta do Duora com ele.
             Se quiser criar uma, use:
 
-            https://duora.example/cadastro
+            https://duora.example/register
 
             Se você não fez esse pedido, ignore esta mensagem.
             """,

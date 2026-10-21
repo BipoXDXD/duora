@@ -82,7 +82,7 @@ test.describe('página inicial', () => {
     })
     await page.route('**/assets/LoginPage-*.js', (route) => route.fulfill({ status: 404, body: 'não encontrado' }))
 
-    await page.goto('/entrar')
+    await page.goto('/login')
 
     await expect(page.getByRole('heading', { level: 1, name: 'Há uma versão nova do Duora' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Recarregar a página' })).toBeVisible()

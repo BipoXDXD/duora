@@ -66,7 +66,7 @@ describe('página inicial: entrada', () => {
     renderAt('/')
 
     const main = screen.getByRole('main')
-    expect(within(main).getByRole('link', { name: 'Criar conta' })).toHaveAttribute('href', '/criar-conta')
-    expect(within(main).getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar')
+    expect(within(main).getByRole('link', { name: 'Criar conta' })).toHaveAttribute('href', '/register')
+    expect(within(main).getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/login')
   })
 })

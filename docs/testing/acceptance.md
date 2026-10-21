@@ -93,3 +93,12 @@ Esta fatia acrescenta cobertura a T-05, T-09 e T-27 sem declarar os demais fluxo
 
 Os resultados executados pertencem ao relatório da entrega; estes nomes são rastreabilidade, não evidência
 por si só. Conteúdo editorial de produção e a matriz manual completa de acessibilidade permanecem pendentes.
+
+## Compatibilidade de rotas da SPA (#105)
+
+`routes.spec.ts` cobre caminhos portugueses e canônicos em inglês em PT-BR/EN-US, com Chromium, WebKit
+e mobile Chromium: confirmação por código de oito dígitos e token legado, reset, retorno protegido,
+rejeição de open redirect e remoção de credenciais da URL/histórico/storage. `legacy-routes.test.tsx`
+e `login-state.test.ts` cobrem aliases e validação do estado do navegador. A suíte existente de
+privacidade de sessão mantém T-14/T-21; os testes HTTP mantêm T-13 e autorização no servidor.
+Inventário, contrato de e-mail e rollback: [spa-routes.md](../architecture/spa-routes.md).

@@ -45,11 +45,11 @@ public sealed class AccountEmailLanguageTests
     }
 
     [Theory]
-    [InlineData("EmailConfirmation", "https://duora.example/confirmar-email#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1")]
-    [InlineData("PasswordReset", "https://duora.example/redefinir-senha#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1")]
-    [InlineData("RegistrationAttemptOnExistingAccount", "https://duora.example/recuperar-senha")]
-    [InlineData("PendingRegistrationReminder", "https://duora.example/cadastro")]
-    [InlineData("PasswordResetForUnknownAddress", "https://duora.example/cadastro")]
+    [InlineData("EmailConfirmation", "https://duora.example/confirm-email#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1")]
+    [InlineData("PasswordReset", "https://duora.example/reset-password#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1")]
+    [InlineData("RegistrationAttemptOnExistingAccount", "https://duora.example/forgot-password")]
+    [InlineData("PendingRegistrationReminder", "https://duora.example/register")]
+    [InlineData("PasswordResetForUnknownAddress", "https://duora.example/register")]
     public void EnglishEmailKeepsTheSameLinkAsThePortugueseOne(string kind, string link)
     {
         var english = Compose(kind, EmailLanguage.English);
