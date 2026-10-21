@@ -21,7 +21,10 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
             insert into ops.jobs(id,kind,aggregate_id,due_at,available_at)
             values($1,'country-database-update','00000000-0000-7000-8000-000000000108',$2,$2) on conflict do nothing
             """, ct, Guid.CreateVersion7(), CountryDatabaseSchedule.LatestDue(now));
-        Guid id; int attempts; DateTimeOffset due; bool expired;
+        Guid id;
+        int attempts;
+        DateTimeOffset due;
+        bool expired;
         await using (var q = Command(c, """
             select id,attempts,due_at,status='InFlight' from ops.jobs
             where kind='country-database-update' and
@@ -30,18 +33,24 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
             """, now))
         await using (var r = await q.ExecuteReaderAsync(ct))
         {
-            if (!await r.ReadAsync(ct)) { return null; }
-            id = r.GetGuid(0); attempts = r.GetInt32(1); due = r.GetFieldValue<DateTimeOffset>(2); expired = r.GetBoolean(3);
+            if (!await r.ReadAsync(ct))
+            { return null; }
+            id = r.GetGuid(0);
+            attempts = r.GetInt32(1);
+            due = r.GetFieldValue<DateTimeOffset>(2);
+            expired = r.GetBoolean(3);
         }
         await Execute(c, "insert into ops.country_database_state(singleton) values(true) on conflict do nothing", ct);
         await using (var q = Command(c, "select blocked from ops.country_database_state where singleton for update"))
         {
-            if ((bool)(await q.ExecuteScalarAsync(ct))!) { return null; }
+            if ((bool)(await q.ExecuteScalarAsync(ct))!)
+            { return null; }
         }
         var latest = CountryDatabaseSchedule.LatestDue(now);
         if (due < latest)
         {
-            due = latest; attempts = 0;
+            due = latest;
+            attempts = 0;
             await Execute(c, "update ops.country_database_state set first_failure_at=null where singleton", ct);
         }
         if (attempts >= 4)
@@ -86,7 +95,8 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
         await using var c = await source.OpenConnectionAsync(ct);
         await using var tx = await c.BeginTransactionAsync(ct);
         await Limits(c, ct);
-        if (!await Own(c, lease, ct)) { return false; }
+        if (!await Own(c, lease, ct))
+        { return false; }
         var now = time.GetUtcNow();
         await Execute(c, "update ops.country_database_state set first_failure_at=coalesce(first_failure_at,$1) where singleton", ct, now);
         await using var q = Command(c, "select first_failure_at from ops.country_database_state where singleton");
@@ -98,11 +108,13 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
             if (await Execute(c, """
                 update ops.jobs set status='Pending',available_at=$3,lease_expires_at=null,last_error_code=$4
                 where id=$1 and fencing_token=$2 and status='InFlight' and lease_expires_at>$5
-                """, ct, lease.Id, lease.Token, at, code, time.GetUtcNow()) != 1) { return false; }
+                """, ct, lease.Id, lease.Token, at, code, time.GetUtcNow()) != 1)
+            { return false; }
         }
         else
         {
-            if (!await StillOwned(c, lease, ct)) { return false; }
+            if (!await StillOwned(c, lease, ct))
+            { return false; }
             await EndCycle(c, lease.Id, now, code, !transient, ct);
         }
         await tx.CommitAsync(ct);
@@ -111,11 +123,13 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
 
     public async Task<CountryDatabasePromotion> PromoteAsync(CountryDatabaseUpdateLease lease, CountryDatabaseManifest manifest, string? approvedInitialHash, CancellationToken ct)
     {
-        if (!manifest.IsAdmissible(time.GetUtcNow())) { return CountryDatabasePromotion.InvalidManifest; }
+        if (!manifest.IsAdmissible(time.GetUtcNow()))
+        { return CountryDatabasePromotion.InvalidManifest; }
         await using var c = await source.OpenConnectionAsync(ct);
         await using var tx = await c.BeginTransactionAsync(ct);
         await Limits(c, ct);
-        if (!await Own(c, lease, ct)) { return CountryDatabasePromotion.LostLease; }
+        if (!await Own(c, lease, ct))
+        { return CountryDatabasePromotion.LostLease; }
         var previous = await ReadActive(c, ct);
         if (previous is null ? approvedInitialHash != manifest.Sha256
             : previous.DatabaseType != manifest.DatabaseType || previous.Schema != manifest.Schema
@@ -124,14 +138,17 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
             return CountryDatabasePromotion.RequiresApproval;
         }
         var canonical = await RegisterVersion(c, manifest, ct);
-        if (canonical is null) { return CountryDatabasePromotion.InvalidManifest; }
-        if (!await StillOwned(c, lease, ct)) { return CountryDatabasePromotion.LostLease; }
+        if (canonical is null)
+        { return CountryDatabasePromotion.InvalidManifest; }
+        if (!await StillOwned(c, lease, ct))
+        { return CountryDatabasePromotion.LostLease; }
         var changed = await Execute(c, """
             update ops.country_database_state set active_sha256=$1,active_fencing_token=$2,
               first_failure_at=null,last_error_code=null
             where singleton and not blocked and active_fencing_token<$2
             """, ct, canonical.Sha256, lease.Token);
-        if (changed != 1) { return CountryDatabasePromotion.LostLease; }
+        if (changed != 1)
+        { return CountryDatabasePromotion.LostLease; }
         await EndCycle(c, lease.Id, time.GetUtcNow(), null, false, ct);
         await tx.CommitAsync(ct);
         return previous?.Sha256 == manifest.Sha256 ? CountryDatabasePromotion.Unchanged : CountryDatabasePromotion.Promoted;
@@ -140,13 +157,16 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
     /// <summary>Records first-download metadata before file publication; this never changes the active pointer.</summary>
     public async Task<CountryDatabaseManifest?> RecordCandidateAsync(CountryDatabaseUpdateLease lease, CountryDatabaseManifest manifest, CancellationToken ct)
     {
-        if (!manifest.IsAdmissible(time.GetUtcNow())) { return null; }
+        if (!manifest.IsAdmissible(time.GetUtcNow()))
+        { return null; }
         await using var c = await source.OpenConnectionAsync(ct);
         await using var tx = await c.BeginTransactionAsync(ct);
         await Limits(c, ct);
-        if (!await Own(c, lease, ct)) { return null; }
+        if (!await Own(c, lease, ct))
+        { return null; }
         var canonical = await RegisterVersion(c, manifest, ct);
-        if (canonical is null || !await StillOwned(c, lease, ct)) { return null; }
+        if (canonical is null || !await StillOwned(c, lease, ct))
+        { return null; }
         await tx.CommitAsync(ct);
         return canonical;
     }
@@ -220,8 +240,11 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
 
     private static NpgsqlCommand Command(NpgsqlConnection c, string sql, params object[] values)
     {
-        var q = c.CreateCommand(); q.CommandText = sql; q.CommandTimeout = 3;
-        foreach (var value in values) { q.Parameters.Add(new NpgsqlParameter { Value = value }); }
+        var q = c.CreateCommand();
+        q.CommandText = sql;
+        q.CommandTimeout = 3;
+        foreach (var value in values)
+        { q.Parameters.Add(new NpgsqlParameter { Value = value }); }
         return q;
     }
 

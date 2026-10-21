@@ -29,7 +29,8 @@ public sealed class CountryDatabaseArtifactValidator(CountryDatabaseValidationPr
         }
         var bytes = new byte[checked((int)file.Length)];
         await file.ReadExactlyAsync(bytes, ct);
-        if (file.ReadByte() != -1) { throw new CountryDatabaseValidationException("Integrity"); }
+        if (file.ReadByte() != -1)
+        { throw new CountryDatabaseValidationException("Integrity"); }
         return Validate(bytes, downloadedAt, ct);
     }
 
@@ -43,7 +44,8 @@ public sealed class CountryDatabaseArtifactValidator(CountryDatabaseValidationPr
         using var file = File.OpenRead(path);
         var bytes = new byte[checked((int)expected.SizeBytes)];
         file.ReadExactly(bytes);
-        if (file.ReadByte() != -1) { throw new CountryDatabaseValidationException("Integrity"); }
+        if (file.ReadByte() != -1)
+        { throw new CountryDatabaseValidationException("Integrity"); }
         var reader = Open(bytes, expected.FirstDownloadedAt, out var actual, ct);
         if (actual with { ValidatedAt = expected.ValidatedAt } != expected)
         {
@@ -72,12 +74,16 @@ public sealed class CountryDatabaseArtifactValidator(CountryDatabaseValidationPr
             }
             manifest = new(Convert.ToHexStringLower(SHA256.HashData(bytes)), bytes.LongLength,
                 new DateTimeOffset(meta.BuildDate), downloadedAt, time.GetUtcNow(), meta.DatabaseType);
-            if (!manifest.IsAdmissible(time.GetUtcNow())) { throw new CountryDatabaseValidationException("Integrity"); }
-            var count = 0; var ipv4 = false; var ipv6 = false;
+            if (!manifest.IsAdmissible(time.GetUtcNow()))
+            { throw new CountryDatabaseValidationException("Integrity"); }
+            var count = 0;
+            var ipv4 = false;
+            var ipv6 = false;
             foreach (var network in reader.FindAll<Dictionary<string, object>>(cacheSize: 16))
             {
                 ct.ThrowIfCancellationRequested();
-                if (++count > profile.MaxNetworks) { throw new CountryDatabaseValidationException("Integrity"); }
+                if (++count > profile.MaxNetworks)
+                { throw new CountryDatabaseValidationException("Integrity"); }
                 var map = network.Data;
                 if (!map.TryGetValue("country", out var country) || country is not string
                     || map.Any(p => p.Key is not ("country" or "country_name" or "continent" or "continent_name") || p.Value is not string))
@@ -87,7 +93,8 @@ public sealed class CountryDatabaseArtifactValidator(CountryDatabaseValidationPr
                 ipv4 |= network.Start.AddressFamily == AddressFamily.InterNetwork;
                 ipv6 |= network.Start.AddressFamily == AddressFamily.InterNetworkV6;
             }
-            if (!ipv4 || !ipv6) { throw new CountryDatabaseValidationException("Schema"); }
+            if (!ipv4 || !ipv6)
+            { throw new CountryDatabaseValidationException("Schema"); }
             return reader;
         }
         catch (Exception error) when (error is InvalidDatabaseException or DeserializationException or InvalidDataException or ArgumentException or OverflowException)

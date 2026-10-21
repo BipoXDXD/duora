@@ -7,6 +7,7 @@ namespace Duora.IntegrationTests.Geolocation;
 public sealed class CountryDatabaseUpdateTests(PostgresFixture postgres)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
+    private static readonly int[] RetryMinutes = [0, 15, 60, 240];
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(2);
     private static readonly DateTimeOffset Now = new(2026, 10, 21, 9, 0, 0, TimeSpan.Zero);
 
@@ -125,6 +126,23 @@ public sealed class CountryDatabaseUpdateTests(PostgresFixture postgres)
         var retention = new Duora.Infrastructure.Operations.RetentionService(h.Source, h.Time);
         Assert.NotEqual(first.Id, Assert.IsType<Duora.Infrastructure.Operations.RetentionJob>(await retention.ClaimAsync(Ct)).Id);
         Assert.Equal(first.Id, Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct)).Id);
+    }
+
+    [Fact]
+    public async Task FinalAttemptRetryAfterSurvivesRestartAndDailyRollover()
+    {
+        await using var h = await Harness.Create(postgres);
+        foreach (var minutes in RetryMinutes)
+        {
+            h.Time.SetUtcNow(Now.AddMinutes(minutes));
+            var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+            Assert.True(await h.Store.FailAsync(lease, "RateLimited", true, minutes == 240 ? Now.AddDays(3) : null, Ct));
+        }
+        h.Time.SetUtcNow(Now.AddDays(1));
+        var restarted = new CountryDatabaseUpdateStore(h.Source, h.Time, LeaseDuration);
+        Assert.Null(await restarted.ClaimAsync(Ct));
+        h.Time.SetUtcNow(Now.AddDays(3));
+        Assert.Equal(1, Assert.IsType<CountryDatabaseUpdateLease>(await restarted.ClaimAsync(Ct)).Attempt);
     }
 
     internal static CountryDatabaseManifest Manifest(char hash, DateTimeOffset now) =>

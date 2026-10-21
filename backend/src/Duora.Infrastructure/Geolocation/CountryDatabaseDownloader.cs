@@ -33,7 +33,9 @@ public sealed class CountryDatabaseDownloader : IDisposable
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.MaxBytes, 0);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.Timeout, TimeSpan.Zero);
         _client = new(handler, disposeHandler: true) { Timeout = Timeout.InfiniteTimeSpan };
-        _options = options; _token = token; _time = time;
+        _options = options;
+        _token = token;
+        _time = time;
         _createFile = createFile ?? (path => new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, FileOptions.Asynchronous));
     }
 
@@ -49,20 +51,23 @@ public sealed class CountryDatabaseDownloader : IDisposable
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, uri);
                 request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("identity"));
-                if (hop == 0) { request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token); }
+                if (hop == 0)
+                { request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token); }
                 using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token);
                 if (response.StatusCode is HttpStatusCode.MovedPermanently or HttpStatusCode.Found or HttpStatusCode.SeeOther
                     or HttpStatusCode.TemporaryRedirect or HttpStatusCode.PermanentRedirect)
                 {
                     var location = response.Headers.Location;
-                    if (hop == 3 || location is null) { throw new CountryDatabaseUpdateException("Validation", false); }
+                    if (hop == 3 || location is null)
+                    { throw new CountryDatabaseUpdateException("Validation", false); }
                     var next = location.IsAbsoluteUri ? location : new Uri(uri, location);
                     if (next.Scheme != Uri.UriSchemeHttps || next.Port != 443 || next.UserInfo.Length != 0 || next.Fragment.Length != 0
                         || !_options.RedirectHosts.Contains(next.IdnHost))
                     {
                         throw new CountryDatabaseUpdateException("Validation", false);
                     }
-                    uri = next; continue;
+                    uri = next;
+                    continue;
                 }
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
@@ -74,24 +79,31 @@ public sealed class CountryDatabaseDownloader : IDisposable
                     DateTimeOffset? at = retry?.Date;
                     if (retry?.Delta is { } delta)
                     {
-                        try { at = _time.GetUtcNow() + delta; }
+                        try
+                        { at = _time.GetUtcNow() + delta; }
                         catch (ArgumentOutOfRangeException) { throw new CountryDatabaseUpdateException("Validation", false); }
                     }
                     throw new CountryDatabaseUpdateException("RateLimited", true, at);
                 }
-                if ((int)response.StatusCode >= 500) { throw new CountryDatabaseUpdateException("ServerError", true); }
-                if (response.StatusCode == HttpStatusCode.RequestTimeout) { throw new CountryDatabaseUpdateException("Timeout", true); }
-                if (response.StatusCode != HttpStatusCode.OK) { throw new CountryDatabaseUpdateException("Validation", false); }
+                if ((int)response.StatusCode >= 500)
+                { throw new CountryDatabaseUpdateException("ServerError", true); }
+                if (response.StatusCode == HttpStatusCode.RequestTimeout)
+                { throw new CountryDatabaseUpdateException("Timeout", true); }
+                if (response.StatusCode != HttpStatusCode.OK)
+                { throw new CountryDatabaseUpdateException("Validation", false); }
                 if (response.Content.Headers.ContentLength > _options.MaxBytes || response.Content.Headers.ContentEncoding.Count != 0)
                 {
                     throw new CountryDatabaseUpdateException("Integrity", false);
                 }
                 await using var input = await response.Content.ReadAsStreamAsync(linked.Token);
                 await using var output = _createFile(destination);
-                var buffer = new byte[65536]; long size = 0; int count;
+                var buffer = new byte[65536];
+                long size = 0;
+                int count;
                 while ((count = await input.ReadAsync(buffer, linked.Token)) != 0)
                 {
-                    if (count > _options.MaxBytes - size) { throw new CountryDatabaseUpdateException("Integrity", false); }
+                    if (count > _options.MaxBytes - size)
+                    { throw new CountryDatabaseUpdateException("Integrity", false); }
                     size += count;
                     await output.WriteAsync(buffer.AsMemory(0, count), linked.Token);
                 }
@@ -100,7 +112,8 @@ public sealed class CountryDatabaseDownloader : IDisposable
                     throw new CountryDatabaseUpdateException("Integrity", false);
                 }
                 await output.FlushAsync(linked.Token);
-                if (output is FileStream file) { file.Flush(flushToDisk: true); }
+                if (output is FileStream file)
+                { file.Flush(flushToDisk: true); }
                 return _time.GetUtcNow();
             }
             throw new CountryDatabaseUpdateException("Validation", false);

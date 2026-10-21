@@ -39,15 +39,19 @@ public sealed class CountryDatabaseDownloadTests
     [InlineData("https://downloads.example.invalid:444/file")]
     public async Task UnsafeRedirectIsRejectedBeforeAnySecondRequest(string location)
     {
-        using var h = new Harness(); var calls = 0;
+        using var h = new Harness();
+        var calls = 0;
         using var downloader = h.Downloader((_, _) =>
         {
             calls++;
-            var response = new HttpResponseMessage(HttpStatusCode.Found); response.Headers.Location = new Uri(location);
+            var response = new HttpResponseMessage(HttpStatusCode.Found);
+            response.Headers.Location = new Uri(location);
             return Task.FromResult(response);
         });
         var error = await Assert.ThrowsAsync<CountryDatabaseUpdateException>(() => downloader.DownloadAsync(h.Path, Ct));
-        Assert.False(error.Transient); Assert.Equal(1, calls); Assert.DoesNotContain("secret", error.ToString(), StringComparison.Ordinal);
+        Assert.False(error.Transient);
+        Assert.Equal(1, calls);
+        Assert.DoesNotContain("secret", error.ToString(), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -65,8 +69,10 @@ public sealed class CountryDatabaseDownloadTests
             return Task.FromResult(r);
         });
         var error = await Assert.ThrowsAsync<CountryDatabaseUpdateException>(() => downloader.DownloadAsync(h.Path, Ct));
-        Assert.Equal(transient, error.Transient); Assert.Equal(code, error.Code);
-        if (status is 429 or 503) { Assert.Equal(Now.AddMinutes(30), error.RetryAfter); }
+        Assert.Equal(transient, error.Transient);
+        Assert.Equal(code, error.Code);
+        if (status is 429 or 503)
+        { Assert.Equal(Now.AddMinutes(30), error.RetryAfter); }
         Assert.DoesNotContain("synthetic-sensitive-canary", error.ToString(), StringComparison.Ordinal);
     }
 
@@ -79,7 +85,8 @@ public sealed class CountryDatabaseDownloadTests
         {
             Assert.Equal("Integrity", (await Assert.ThrowsAsync<CountryDatabaseUpdateException>(() => downloader.DownloadAsync(h.Path, Ct))).Code);
         }
-        if (File.Exists(h.Path)) { File.Delete(h.Path); }
+        if (File.Exists(h.Path))
+        { File.Delete(h.Path); }
         using (var downloader = h.Downloader((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         { Content = new ByteArrayContent([1]) }), createFile: _ => new FullDisk()))
         {
@@ -90,19 +97,24 @@ public sealed class CountryDatabaseDownloadTests
     [Fact]
     public async Task TimeoutCancelsInFlightRequestAndSanitizesNetworkExceptions()
     {
-        using var h = new Harness(); var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var h = new Harness();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using (var downloader = h.Downloader(async (_, ct) =>
         {
-            started.SetResult(); await Task.Delay(Timeout.InfiniteTimeSpan, ct); return new(HttpStatusCode.OK);
+            started.SetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return new(HttpStatusCode.OK);
         }))
         {
             var work = downloader.DownloadAsync(h.Path, Ct);
-            await started.Task.WaitAsync(Ct); h.Time.Advance(TimeSpan.FromSeconds(30));
+            await started.Task.WaitAsync(Ct);
+            h.Time.Advance(TimeSpan.FromSeconds(30));
             Assert.Equal("Timeout", (await Assert.ThrowsAsync<CountryDatabaseUpdateException>(() => work)).Code);
         }
         using var broken = h.Downloader((_, _) => throw new HttpRequestException("synthetic-token-canary"));
         var error = await Assert.ThrowsAsync<CountryDatabaseUpdateException>(() => broken.DownloadAsync(h.Path, Ct));
-        Assert.Equal("Network", error.Code); Assert.DoesNotContain("synthetic-token-canary", error.ToString(), StringComparison.Ordinal);
+        Assert.Equal("Network", error.Code);
+        Assert.DoesNotContain("synthetic-token-canary", error.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

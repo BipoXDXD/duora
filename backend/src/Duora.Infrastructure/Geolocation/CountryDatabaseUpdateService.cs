@@ -22,15 +22,18 @@ public sealed partial class CountryDatabaseUpdateService(
             var manifest = await validator.ValidateFileAsync(path, downloadedAt, ct);
             // Durable first-download metadata precedes publication. A stale worker may not even admit a candidate.
             var canonical = await store.RecordCandidateAsync(lease, manifest, ct);
-            if (canonical is null) { return CountryDatabaseUpdateOutcome.LostLease; }
+            if (canonical is null)
+            { return CountryDatabaseUpdateOutcome.LostLease; }
             var target = Path.Combine(root, canonical.Sha256 + ".mmdb");
-            try { File.Move(path, target, overwrite: false); }
+            try
+            { File.Move(path, target, overwrite: false); }
             catch (IOException) when (File.Exists(target))
             {
                 // Reuse an existing immutable artifact only after verifying the exact bytes and original manifest.
                 using var verified = validator.OpenVerified(target, canonical, ct);
             }
-            if (!OperatingSystem.IsWindows()) { File.SetUnixFileMode(target, UnixFileMode.UserRead); }
+            if (!OperatingSystem.IsWindows())
+            { File.SetUnixFileMode(target, UnixFileMode.UserRead); }
             var promotion = await store.PromoteAsync(lease, canonical, approvedInitialHash, ct);
             return promotion switch
             {
@@ -46,7 +49,8 @@ public sealed partial class CountryDatabaseUpdateService(
         catch (UnauthorizedAccessException) { return await Failure(lease, "Disk", false, null, ct); }
         finally
         {
-            try { if (Directory.Exists(attempt)) { Directory.Delete(attempt, recursive: true); } }
+            try
+            { if (Directory.Exists(attempt)) { Directory.Delete(attempt, recursive: true); } }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
                 // Never leak a path/provider exception. A future operations sweep must reconcile crash/IO orphans.
@@ -69,10 +73,12 @@ public sealed partial class CountryDatabaseUpdateService(
         Directory.CreateDirectory(directory);
         if (!OperatingSystem.IsWindows())
         {
-            if (!existed) { File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); }
+            if (!existed)
+            { File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute); }
             var publicBits = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
                 | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
-            if ((File.GetUnixFileMode(directory) & publicBits) != 0) { throw new CountryDatabaseUpdateException("Validation", false); }
+            if ((File.GetUnixFileMode(directory) & publicBits) != 0)
+            { throw new CountryDatabaseUpdateException("Validation", false); }
         }
     }
 }

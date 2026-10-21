@@ -29,15 +29,20 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
         Reader? candidate = null;
         try
         {
-            if (!manifest.IsAdmissible(time.GetUtcNow())) { return false; }
+            if (!manifest.IsAdmissible(time.GetUtcNow()))
+            { return false; }
             var path = Path.Combine(root, manifest.Sha256 + ".mmdb");
             candidate = validator.OpenVerified(path, manifest, ct);
             lock (_gate)
             {
-                if (_disposed || generation < _generation || (generation == _generation && _manifest is not null && _manifest.Sha256 != manifest.Sha256)) { return false; }
+                if (_disposed || generation < _generation || (generation == _generation && _manifest is not null && _manifest.Sha256 != manifest.Sha256))
+                { return false; }
                 var previous = _reader;
-                _reader = candidate; candidate = null; _manifest = manifest;
-                if (generation is { } confirmed) { _generation = confirmed; }
+                _reader = candidate;
+                candidate = null;
+                _manifest = manifest;
+                if (generation is { } confirmed)
+                { _generation = confirmed; }
                 previous?.Dispose();
             }
             return true;
@@ -60,7 +65,8 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
             try
             {
                 var code = _reader.Find<CountryEntry>(address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address)?.Country;
-                if (code is not { Length: 2 } || code.Any(c => !char.IsAsciiLetterUpper(c))) { return new(CountryLookupStatus.Unknown); }
+                if (code is not { Length: 2 } || code.Any(c => !char.IsAsciiLetterUpper(c)))
+                { return new(CountryLookupStatus.Unknown); }
                 // A conservative BCL mapping, using only the explicit code, never the UI/server culture.
                 if (!string.Equals(new RegionInfo(code).TwoLetterISORegionName, code, StringComparison.Ordinal))
                 {
@@ -78,7 +84,10 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
     {
         lock (_gate)
         {
-            _disposed = true; _reader?.Dispose(); _reader = null; _manifest = null;
+            _disposed = true;
+            _reader?.Dispose();
+            _reader = null;
+            _manifest = null;
         }
         GC.SuppressFinalize(this);
     }

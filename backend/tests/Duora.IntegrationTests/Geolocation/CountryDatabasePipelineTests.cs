@@ -48,7 +48,8 @@ public sealed class CountryDatabasePipelineTests(PostgresFixture postgres)
         var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
         Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
         var previous = await h.Store.ReadActiveAsync(Ct);
-        h.Time.Advance(TimeSpan.FromDays(1)); h.Payload = [0, 1];
+        h.Time.Advance(TimeSpan.FromDays(1));
+        h.Payload = [0, 1];
         lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
         Assert.Equal(CountryDatabaseUpdateOutcome.Failed, await h.Service.ExecuteAsync(lease, Ct));
         Assert.Equal(previous, await h.Store.ReadActiveAsync(Ct));
@@ -70,7 +71,8 @@ public sealed class CountryDatabasePipelineTests(PostgresFixture postgres)
         {
             if (h.Calls == 1)
             {
-                started.SetResult(); await resume.Task.WaitAsync(ct);
+                started.SetResult();
+                await resume.Task.WaitAsync(ct);
                 return new(HttpStatusCode.OK) { Content = new ByteArrayContent(oldPayload) };
             }
             return new(HttpStatusCode.OK) { Content = new ByteArrayContent(newPayload) };
@@ -130,7 +132,8 @@ public sealed class CountryDatabasePipelineTests(PostgresFixture postgres)
         public Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? Send { get; set; }
         private Harness(NpgsqlDataSource source, bool approve)
         {
-            Source = source; Store = new(source, Time, TimeSpan.FromMinutes(2));
+            Source = source;
+            Store = new(source, Time, TimeSpan.FromMinutes(2));
             Validator = new(new(SyntheticMmdb.DatabaseType, 1024 * 1024, 100), Time);
             Downloader = new(new Handler(this), new(1024 * 1024, TimeSpan.FromMinutes(10), new HashSet<string>(StringComparer.Ordinal)), "synthetic-token", Time);
             Service = new(Store, Downloader, Validator, Root, approve ? Validator.Validate(Payload, Now, Ct).Sha256 : null);
@@ -140,8 +143,10 @@ public sealed class CountryDatabasePipelineTests(PostgresFixture postgres)
             new(NpgsqlDataSource.Create(await postgres.CreateMigratedDatabaseAsync(Ct)), approve);
         public async ValueTask DisposeAsync()
         {
-            Downloader.Dispose(); await Source.DisposeAsync();
-            if (Directory.Exists(Root)) { Directory.Delete(Root, true); }
+            Downloader.Dispose();
+            await Source.DisposeAsync();
+            if (Directory.Exists(Root))
+            { Directory.Delete(Root, true); }
         }
         private sealed class Handler(Harness harness) : HttpMessageHandler
         {
