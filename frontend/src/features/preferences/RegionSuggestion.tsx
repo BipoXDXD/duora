@@ -14,22 +14,41 @@ export function RegionSuggestion({
   readonly onCountry: (country: 'BR') => boolean
 }): React.JSX.Element | null {
   const { id } = useAccount()
+  const { t } = useI18n()
+  const queries = useQueryClient()
+  const [disabledForAccount, setDisabledForAccount] = useState<string | null>(null)
   const capability = useQuery({
     queryKey: ['account', id, 'region-detection-capability'],
     queryFn: ({ signal }) => fetchRegionDetectionCapability(signal),
     gcTime: 0,
   })
-  return capability.isError || capability.data !== true ? null : <SuggestionControls key={id} onCountry={onCountry} />
+  if (capability.isError || capability.data !== true) {
+    return disabledForAccount === id ? <p role="status">{t('regionSuggestion.disabled')}</p> : null
+  }
+  return (
+    <SuggestionControls
+      key={id}
+      onCountry={onCountry}
+      onDisabled={() => {
+        setDisabledForAccount(id)
+        queries.setQueryData(['account', id, 'region-detection-capability'], false)
+      }}
+    />
+  )
 }
 
-function SuggestionControls({ onCountry }: { readonly onCountry: (country: 'BR') => boolean }): React.JSX.Element {
+function SuggestionControls({
+  onCountry,
+  onDisabled,
+}: {
+  readonly onCountry: (country: 'BR') => boolean
+  readonly onDisabled: () => void
+}): React.JSX.Element {
   const { t } = useI18n()
   const queries = useQueryClient()
   const request = useRef<{ sequence: number; controller: AbortController | null }>({ sequence: 0, controller: null })
   const [pending, setPending] = useState(false)
-  const [message, setMessage] = useState<
-    'applied' | 'kept' | 'unknown' | 'unsupported' | 'unavailable' | 'disabled' | null
-  >(null)
+  const [message, setMessage] = useState<'applied' | 'kept' | 'unknown' | 'unsupported' | 'unavailable' | null>(null)
   useEffect(() => {
     const current = request.current
     return () => {
@@ -53,6 +72,10 @@ function SuggestionControls({ onCountry }: { readonly onCountry: (country: 'BR')
     try {
       const result = await suggestRegion(controller.signal)
       if (sequence !== request.current.sequence || controller.signal.aborted) return
+      if (result.status === 'disabled') {
+        onDisabled()
+        return
+      }
       setMessage(result.status === 'detected' ? (onCountry(result.countryCode) ? 'applied' : 'kept') : result.status)
     } catch (error) {
       if (isUnauthorized(error) && !controller.signal.aborted) void queries.invalidateQueries({ queryKey: meQueryKey })

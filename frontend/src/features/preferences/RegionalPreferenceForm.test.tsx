@@ -177,6 +177,8 @@ it.each(['unknown', 'unsupported', 'unavailable', 'disabled'])(
     const { user } = await renderApp('/account/preferences')
     await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
     await screen.findByText(/Escolha manualmente/)
+    if (status === 'disabled')
+      expect(screen.queryByRole('button', { name: 'Sugerir país pela conexão' })).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Preferência regional' })).toHaveValue('pending')
     expect(api.writes).toEqual([])
   },
