@@ -29,7 +29,7 @@ Os achados aparecem no log do job; o inventário de licenças e o changelog do c
 | openapi-typescript | 7.13.0 | versão exata em `frontend/package.json` + `pnpm-lock.yaml` | lockfile com integridade; versão exata porque um bump muda a saída gerada |
 | Microsoft.Extensions.ApiDescription.Server | 10.0.13 | `Directory.Packages.props` + `packages.lock.json` | lockfile com content hash |
 | pyright, ansible-core, ansible-lint | 1.1.408, 2.21.5, 26.10.1 | `scripts/deploy/requirements.in` + `scripts/deploy/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes` no job `ops`; o mesmo pyright checa `scripts/` e `tools/visual` |
-| Pillow | 12.3.0 | `tools/visual/requirements.in` + `tools/visual/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes`; só no tooling de ilustrações, nunca no app |
+| Pillow | 13.0.0 | `tools/visual/requirements.in` + `tools/visual/requirements.txt` com hashes (`uv pip compile --generate-hashes`) | `pip install --require-hashes`; só no tooling de ilustrações, nunca no app |
 | Verificadores próprios | — | `scripts/supply-chain/*.py` (licenças, `.trivyignore`, segredo em imagem), só biblioteca padrão do Python do runner | testes unitários rodam no início do job |
 
 As ferramentas em container rodam por `docker run` com o repositório montado somente leitura, no mesmo padrão do
