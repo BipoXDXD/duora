@@ -1,0 +1,4 @@
+MaxMind.Db 5.2.0
+https://github.com/maxmind/MaxMind-DB-Reader-dotnet/tree/v5.2.0
+Software distributed under the Apache License, Version 2.0 (LICENSE.txt).
+This notice applies to the reader, not to IPinfo database contents.

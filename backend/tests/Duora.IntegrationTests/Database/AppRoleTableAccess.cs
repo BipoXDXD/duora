@@ -64,6 +64,8 @@ internal static class AppRoleTableAccess
             // ops (dono: Operations; outbox de propriedade comum, modules.md nota 4)
             ["ops.__ef_migrations_history"] = AppTableAccess.None,
             ["ops.audit_events"] = AppTableAccess.AppendOnly,
+            ["ops.country_database_versions"] = AppTableAccess.AppendOnly,
+            ["ops.country_database_state"] = AppTableAccess.ReadWrite,
             ["ops.outbox_deliveries"] = AppTableAccess.ReadWrite,
             ["ops.outbox_events"] = AppTableAccess.ReadWrite,
             // Não é append-only: o processamento muda o estado na mesma transação e a retenção apaga em lote.

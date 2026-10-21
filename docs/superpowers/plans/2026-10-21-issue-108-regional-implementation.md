@@ -349,3 +349,28 @@ Responsáveis nominais e canal de alertas continuam pendentes; o corte V3 contin
   cancelamento e navegação; Playwright PT-BR/EN-US e acessibilidade, com gravação parcial entre recursos.
 
 Não implementados: etapas 7–10, detector real, atualizador, alertas operacionais, implantação, ativação do filtro ou EUA.
+
+
+## Registro de execução de 21/10/2026 — etapas 7 e 8
+
+Autorização do responsável: implementar estas duas etapas sem ativar o detector nem habilitar US.
+Aprovação adicional explícita: MaxMind.Db 5.2.0, Apache-2.0. G2 fica parcialmente resolvido apenas quanto à
+biblioteca; arquivo IPinfo real, schema/data/cadência, autenticação, redirecionamentos e limites continuam pendentes.
+O texto original acima registra o plano aprovado, não substitui este estado de execução.
+
+- Preparados leitor local, validade por epoch, manifesto verificável, troca de geração e adaptador desligado.
+- Preparados agenda durável, retries relativos à primeira falha, download limitado, validação sintética,
+  lease renovável, fencing e publicação imutável antes do commit do ponteiro.
+- Adicionado tipo exclusivo em ops.jobs e tabelas Operations aditivas; nenhum job é criado pela migração.
+- Web mantém DisabledCountryLookup; WorkerHost não registra o novo executor. Nenhum volume, token ou base é provisionado.
+- Fixtures próprias cobrem IPv4/IPv6, corrupção, datas, restart, concorrência, HTTP e armazenamento.
+- Retenção, alertas, recuperação administrativa e ensaios reais continuam na etapa 9; não são capacidade operacional comprovada.
+
+Decisões de execução: consumidor singleton separado de Participation; cache de decodificação limitado a 16 entradas;
+códigos ISO validados conservadoramente pela BCL sem inferir cultura; redirecionamentos limitados a três e sem
+repassar Authorization. Valores de bytes/tempo/redes e allowlist não recebem defaults operacionais.
+São pré-requisitos futuros: storage privado compartilhado, relógio confiável e homologação real. Nenhum recurso é criado.
+
+G3 (titular, substituto e canal) e G5 permanecem abertos. Issue #108 aberta; BR + 27 UFs; sem implantação, detector ativo ou US.
+Consulte o [ADR](../../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md#execução-autorizada-das-etapas-7-e-8--21102026)
+e a [preparação operacional](../../operations/ipinfo-country.md). Evidência de execução efetiva fica no PR e no CI.

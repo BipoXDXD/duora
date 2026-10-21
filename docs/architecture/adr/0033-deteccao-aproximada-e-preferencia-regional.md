@@ -356,3 +356,38 @@ registrados no [plano](../../superpowers/plans/2026-10-21-issue-108-regional-imp
 São hipóteses para revisão antes da operação real, não homologação de carga ou autorização de ativação.
 Continuam pendentes responsáveis nominais, substituto e canal de alertas. G2–G5, detector/MMDB real, atualização,
 implantação, corte do filtro V3 e habilitação dos EUA não são resolvidos por esta entrega.
+
+
+### Execução autorizada das etapas 7 e 8 — 21/10/2026
+
+O responsável aprovou explicitamente **MaxMind.Db 5.2.0, Apache-2.0**, como leitor local MMDB. A licença do
+software é separada da licença **CC BY-SA 4.0 dos dados IPinfo IP to Country**. O texto da licença acompanha
+os binários do leitor. A aprovação da biblioteca resolve somente essa parte de G2; não homologa o arquivo real.
+
+O leitor e a atualização foram preparados e testados com MMDB próprio e redes de documentação. Não há arquivo
+IPinfo, segredo, download real, registro do leitor no Web ou do atualizador no Worker. `DisabledCountryLookup`
+continua sendo a única implementação registrada. O catálogo permanece BR + 27 UFs; a #108 continua aberta.
+
+Operations possui o tipo isolado `country-database-update` em `ops.jobs`, estado singleton e manifestos imutáveis.
+Claim, renovação e promoção usam lease/fencing; download e validação ocorrem fora de transações. A agenda diária
+é 06h America/Sao_Paulo, sem recuperar cada dia perdido. Os retries +15min/+1h/+4h partem da primeira falha do ciclo,
+respeitando Retry-After; falhas de credencial, schema, integridade ou aprovação bloqueiam novas tentativas até revisão.
+
+Publicação registra o primeiro manifesto duravelmente, instala arquivo por hash sem sobrescrita e só então
+confirma o ponteiro por fencing. O consumidor confere o mesmo conteúdo usado pelo parser, geração, hash, schema e
+epoch; troca o leitor após validar o candidato, preservando consultas em andamento. Redownload não altera a data
+original, a validade ou o início da retenção. Sem versão admissível, a sugestão fica indisponível e o fluxo manual permanece.
+
+A idade usa o epoch do MMDB, nunca a data de download: aviso a partir de 72h e recusa a partir de 168h, inclusive
+com atualizador parado. Retrocesso observado do relógio não pode reativar uma base expirada no processo; confiança
+no relógio após reinício e ensaios de recuperação operacional permanecem requisitos antes da ativação.
+
+O perfil de validação, limites de bytes/tempo/redes, metadados reais, autenticação e hosts de redirecionamento
+exigem homologação explícita G2. Não existem valores operacionais presumidos. Primeira promoção requer aprovação
+do hash; troca de produto/schema/licença e regressão de epoch exigem revisão. O armazenamento privado compartilhado
+(leitura no Web, escrita no Worker), seus acessos, orçamento e relógios precisam ser verificados antes de registrar serviços.
+
+Retenção automática, monitor independente, histórico de alertas e recuperação administrativa são a etapa 9,
+ainda não implementada. Responsáveis nominais, substituto e canal de alertas seguem pendentes (G3); G5 e autorização
+de implantação também permanecem abertos. Ver [preparação operacional](../../operations/ipinfo-country.md) e
+[matriz de testes](../../testing/regional-matching.md#leitor-e-atualização-inativos--etapas-7-e-8).

@@ -10,6 +10,7 @@
     <!-- Pacote NuGet, não o framework compartilhado: traz IdentityDbContext, UserManager e PasswordHasher. -->
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="MaxMind.Db" />
     <PackageReference Include="AWSSDK.Rekognition" />
     <PackageReference Include="AWSSDK.SecurityToken" />
     <PackageReference Include="AWSSDK.S3" />
@@ -24,5 +25,9 @@
   <ItemGroup>
     <!-- Os testes de integração aplicam as migrations com o DbContext interno, como fará o job migrador. -->
     <InternalsVisibleTo Include="Duora.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Geolocation/Licenses/MaxMind.Db/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          TargetPath="licenses/MaxMind.Db/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
