@@ -5,6 +5,8 @@
 **Tecnologias:** ASP.NET Core, contratos OpenAPI, TypeScript/Zod, PostgreSQL real nos testes de efeitos.
 **Especificação:** issue #141; inventário em [problem-details.md](../../testing/problem-details.md); base inspecionada `a4711d6ec2cdd11dda892ed5ab41f66bb2009edc`.
 
+**Formalização para revisão:** [ADR-0034](../../architecture/adr/0034-codigos-de-validacao-do-upload.md), com textos PT-BR/en-US, limites do transporte/classificador atual e matriz complementar de testes. Continua sem implementação autorizada.
+
 ## Limite desta entrega
 
 Este arquivo é uma proposta técnica revisável e um plano de execução futura. Não altera endpoint, schema executável, texto de resposta, upload, tipo/tamanho permitido, idempotência, segurança ou configuração. A autorização posterior para implementar deve citar este plano. O merge da documentação foi autorizado pelo responsável; não equivale à autorização da migração ou de deploy.
