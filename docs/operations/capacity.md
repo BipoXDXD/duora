@@ -36,7 +36,8 @@ mais restore somam 1.664 MiB. Proibido usar o perfil restore como carga concorre
 Sem blue-green ou réplicas extras (ADR-0009). A margem de host é planejamento, não reserva Docker:
 cobre SO, daemon, agentes e memória não cobrada nos containers; confirmar folga real por `MemAvailable`.
 Caches, `tmpfs` e shared memory cobrados no cgroup consomem o teto do container. Swap não amplia o orçamento.
-Collector não existe neste Compose; sua inclusão exige orçamento e teste novos, não uso implícito da folga.
+Este subtotal cobre somente o Compose de produto. Observadores e restic do host têm orçamento
+separado abaixo; não usar a folga deste subtotal como autorização para ativá-los.
 
 PostgreSQL mantém `shared_buffers=512MB` e `max_connections=100`. A redução do teto de 2,5 para 2 GiB
 preserva folga para host/migração; é hipótese a validar. `work_mem` multiplica por operação/conexão e
@@ -108,3 +109,69 @@ Só promover após revisão humana, gates de CI e ensaio aprovado; não há capa
   de sinalização/credenciais na API; ensaiar essas rotas quando implementadas.
 
 Consolidação #93: tetos de CPU de PostgreSQL/web e peso do edge conciliados com a alternativa do #89; RAM do #87. gateway/monitor permanecem desligados; antes de ativar, incluir seus containers em todos os cenários e medir a margem.
+
+
+## Reconciliação gateway e backup de mídia
+
+A main após #96 contém dois Composes e serviços no host. O orçamento anterior de 7.296 MiB
+não incluía gateway, observadores nem o restic. Somar limites não prova consumo nem OOM,
+mas invalida a aprovação estática da topologia completa na KVM 2 de 8 GB decimais.
+
+| Cenário conservador | Tetos de processos (MiB) | Margem host (MiB) | Total (MiB) |
+|---|---:|---:|---:|
+| Produto + gateway + observadores | 7.040 | 1.536 | 8.576 |
+| Acima + migrador, sem restic | 7.552 | 1.536 | 9.088 |
+| Produto + gateway + observadores + restic | 8.064 | 1.536 | 9.600 |
+| Acima + migrador (worker contado) | 8.576 | 1.536 | **10.112** |
+| Restore, web/worker/postgres parados + gateway/observadores/restic | 4.480 | 1.536 | 6.016 |
+| Sem gateway, com observadores/restic/migrador | 7.040 | 1.536 | 8.576 |
+
+Full/diff/check físico executam no container backup (512 MiB já contados); comandos executados
+no postgres compartilham o limite desse container. O lock existente serializa full/diff/verificação
+do repositório com deploy. O cálculo ainda permite sobreposição conservadora. WAL não é suspenso.
+Restic roda no host e pode coincidir com migração, banco e outras units de mídia; seu lock de
+repositório não é limite de memória. A slice `duora-media.slice` limita **a soma** dessas units
+a 1.024 MiB (MemoryHigh 768 MiB, sem swap adicional, CPUQuota 50%). Não é 1 GiB por instância.
+Instalada pela role backup, preserva os timers, OnFailure, retenção, Object Lock e gates de restore.
+Comandos administrativos diretos fora da slice não estão cobertos: executar operações manuais em
+unit transitória na mesma slice, com comando revisado, ou em host isolado e janela exclusiva.
+Não executar init/restore/prune manual concorrente fora desse orçamento.
+
+Não há medição que aprove 1 GiB para o dataset real do restic. Ensaiar backup, prune, check e restore
+com volume e cardinalidade representativos; pressão/OOM/falha exige redimensionar e recalcular,
+jamais aceitar marcador antigo como sucesso, desativar verificações ou reduzir retenção.
+A capacidade anterior do produto também precisa ser reavaliada com mídia: 8.320 MiB com migração,
+restic e margem, mesmo sem qualquer observador. Não anunciar que desligar apenas o gateway resolve.
+
+Preservados PostgreSQL 2.048, web 1.536, worker 1.024 e backup 512 MiB. Gateway mantém 1.536 MiB
+(heap Node 1.024 MiB não cobre processos auxiliares, buffers ou tmpfs); CPU reduzida para 0,5,
+peso 256 abaixo do backup 512, `oom_score_adj=500` favorece sacrificar o agente sob OOM global,
+sem garantir imunidade do produto. Observadores mantêm 128 MiB/20% cada, sem swap adicional,
+pesos CPU/I/O 25. Pesos de systemd e Docker dependem da hierarquia: verificar cgroups, não
+comparar números entre branches como garantia de prioridade. IOWeight depende do controlador/disco.
+CPU concorrente pode alcançar tetos de 6,4 vCPU (produto 5 + gateway 0,5 + observadores 0,4 +
+restic 0,5), ou 7,4 com migrador, em host de 2 vCPU. Isso é oversubscription, não reserva;
+latência, throttling, CPU steal e atraso de archive precisam passar no ensaio.
+
+`capacity.py` recusa instalação antes de criar recursos se `MemTotal` < 10.112 MiB ou
+`MemAvailable` < 1.536 MiB, sem usar swap como RAM. Preflight, ativação e partida systemd
+repetem o gate; preflight também exige MemoryMax=1.024 MiB na slice de mídia carregada.
+Os testes conciliam constantes com Compose/units, rejeitam inventário ausente/malformado e KVM 2.
+Esse piso não garante desempenho, não lê consumo de produção e não verifica sozinho drift de
+todos os limites instalados. Validar o Compose efetivo, todas as units/drop-ins e cgroups no ensaio.
+
+Caminho proposto: aumentar a RAM utilizável acima do piso e ensaiar CPU/I/O; ou preparar uma
+mudança separada para gateway remoto. O segundo caminho requer transporte autenticado da telemetria,
+pois os bind mounts locais atuais não funcionam em outro host. Não expor Docker/SSH como atalho.
+Não reduzir limites essenciais ou o gateway para caber por aritmética sem benchmark.
+
+Executar os cenários anteriores com Slack/MCP, polling Actions, restic e full/diff concorrentes;
+ensaiar atualização (gateway parado durante config validate, sem duas instâncias), migração,
+reboot e rollback. Registrar memória atual/pico/OOM, CPU, PSI e I/O de todos os cgroups, incluindo
+slice de mídia e processos auxiliares. Reservar espaço para imagens, 2 GiB de estado, snapshots
+privados do agente, WAL e mídia; medir livre **depois** das reservas. Não construir imagens na VPS.
+O `MemAvailable` do gate é só uma fotografia, não aprovação de carga sustentada.
+
+Referências de semântica: [Compose services](https://docs.docker.com/reference/compose-file/services/)
+e [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html).
+Enforcement em Ubuntu 24.04/cgroup v2 e todos os cenários continuam pendentes de homologação.

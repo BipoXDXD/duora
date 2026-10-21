@@ -54,7 +54,22 @@ const regionSchema = z.union([z.literal(''), z.enum(REGION_CODES)], {
   error: () => 'profile.error.unknownRegion' satisfies ProfileErrorKey,
 })
 
-export const profileFormSchema = z.object({ displayName: displayNameSchema, bio: bioSchema, regionCode: regionSchema })
+export const profileFormSchema = z
+  .object({
+    displayName: displayNameSchema,
+    bio: bioSchema,
+    countryCode: z.enum(['', 'BR'], { error: () => 'profile.error.unknownRegion' satisfies ProfileErrorKey }),
+    subdivisionCode: regionSchema,
+  })
+  .superRefine((value, context) => {
+    if (value.countryCode === '' && value.subdivisionCode !== '') {
+      context.addIssue({
+        code: 'custom',
+        path: ['subdivisionCode'],
+        message: 'profile.error.unknownRegion' satisfies ProfileErrorKey,
+      })
+    }
+  })
 
 export type ProfileFormInput = z.input<typeof profileFormSchema>
 export type ProfileFormValues = z.output<typeof profileFormSchema>
@@ -70,6 +85,11 @@ export function toProfileChanges(values: ProfileFormValues, edited: EditedFields
   return {
     ...(edited.displayName === true ? { displayName: values.displayName } : {}),
     ...(edited.bio === true ? { bio: values.bio === '' ? null : values.bio } : {}),
-    ...(edited.regionCode === true ? { regionCode: values.regionCode === '' ? null : values.regionCode } : {}),
+    ...(edited.countryCode === true || edited.subdivisionCode === true
+      ? {
+          countryCode: values.countryCode === '' ? null : values.countryCode,
+          subdivisionCode: values.subdivisionCode === '' ? null : values.subdivisionCode,
+        }
+      : {}),
   }
 }
