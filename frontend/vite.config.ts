@@ -5,6 +5,7 @@ import path from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type ProxyOptions, type ServerOptions } from 'vite'
+import { platformEnums } from './config/platform-enums.ts'
 import { readDevServerSettings, type TlsFiles } from './config/dev-server.ts'
 
 // Variáveis privadas do servidor de desenvolvimento; nunca use VITE_* para isso.
@@ -14,7 +15,7 @@ export default defineConfig(({ command, mode, isPreview }) => {
   const isDevServer = command === 'serve' && isPreview !== true && process.env.VITEST === undefined
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [platformEnums(), react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, './src'),
