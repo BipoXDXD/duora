@@ -1244,3 +1244,19 @@ trancam sala e gravam com versão esperada; zero linhas no UPDATE provoca rollba
 usuário e par não se repete no evento. Aborto, recusa, expiração e conclusão liberam as duas reservas; bloqueio
 executa aborto/liberação na própria transação. Não se implementou entrega push de invalidações: HTTP e polling
 são os caminhos de recuperação desta fatia.
+
+## Preferência regional privada implementada — #108, etapas 1 e 2
+
+Profiles possui `profiles.regional_preferences(user_id, mode, version, updated_at)` e
+`profiles.regional_preference_countries(user_id, country_code)`. Ausência de linha significa `pending`, versão 0;
+as linhas persistidas permitem somente `countries` ou `unrestricted`, com versão >= 1. Não há backfill de opt-in.
+País aceito referencia `profiles.countries`; PK composta impede duplicação. Triggers diferidas verificam no
+commit que `countries` tem países e `unrestricted` não tem; escritas de filhos travam o pai antes da mudança
+para serializar com alterações do modo. FK de titular e de preferência usam RESTRICT. A aplicação tem DML
+ordinário, sem TRUNCATE nem administração do catálogo.
+
+GET lê modo, países e versão em um statement. PUT usa a guarda compartilhada, revalida conta e versão e
+confirma pai/filhos/marcador de segurança na mesma transação. Dados são privados, independentes da localização
+declarada e dos idiomas; esta expansão não muda perfil, versões legadas, catálogo BR + 27 UFs ou matching.
+A migração é aditiva e sem inferência; Down recusa perda de dados. Nenhum detector, dado de IP ou histórico
+regional foi acrescentado. Elegibilidade regional no pareamento permanece para as etapas seguintes.

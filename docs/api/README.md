@@ -142,3 +142,22 @@ A SPA usa exclusivamente mensagens locais por código/status e fallback local pa
 inclusive nomes como `constructor` e `__proto__`. O parser mantém os campos do protocolo para diagnóstico,
 mas eles não são texto de interface. O [inventário e os testes](../testing/problem-details.md) registram
 produtores, títulos exatos e as duas mensagens legadas de upload em `errors`, preservadas por compatibilidade.
+
+## Preferência regional privada — issue #108, etapas 1 e 2
+
+`GET /api/v1/me/regional-preferences` retorna `mode`, `countryCodes` e `version`, com ETag e `no-store`.
+Sem declaração, responde `pending`, lista vazia e versão/ETag `0`, sem criar linha nem inferir consentimento.
+`PUT` substitui a preferência com `If-Match`: `countries` exige lista não vazia de países habilitados, sem
+repetição; `unrestricted` exige lista vazia explícita. `pending`, null, ausência, códigos desconhecidos e campos
+extras são recusados. O catálogo desta release continua somente BR; US não é aceito. Header ausente ou `*`
+retorna 428; versão vencida ou ETag incompatível retorna 412; corpo inválido retorna 400 sem ecoar valores.
+
+A autorização é do próprio titular; CSRF e as proteções existentes de conta permanecem. Gravação de modo,
+países e versão é atômica sob a guarda compartilhada do usuário; a conta e a versão são relidas após o lock.
+A versão regional é independente de perfil, locale e idiomas. Leitura de modo/lista/versão usa um único snapshot.
+Nenhuma preferência privada é projetada em DTO de outra pessoa.
+
+Esta fatia adiciona persistência e API; não ativa filtro no pareamento, UI de preferência, detecção por IP,
+atualizador ou US. O tratamento de `pending` no pareamento virá com as etapas 3/4 do plano, não neste PR.
+Responsáveis nominais e canal de alertas continuam pendentes. Aplicação da migração e implantação exigem
+revisão/autorização próprias; reversão mantém schema e dados e exige migração forward revisada.
