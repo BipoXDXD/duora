@@ -78,6 +78,14 @@ Exceção aceita em 2026-10-16 para o pipeline de ilustrações (aprovada pelo r
 |---|---|---|
 | `pillow` 12.3.0 | MIT-CMU | só no tooling offline `tools/visual`; não vai para o bundle nem para as imagens. Enquanto o SBOM não cobrir `tools/visual`, a exceção não casa com componente e aparece como aviso |
 
+Exceção aprovada em 2026-10-21 pelo responsável, na decisão da issue #78:
+
+| Componente de inventário reservado | Licença | Escopo |
+|---|---|---|
+| `duora-location-catalog-cldr-48.2` | Unicode-3.0 | Futuro snapshot de localização da release CLDR 48.2, com origem, hashes e obrigações em [catalog-licenses.md](catalog-licenses.md). Não importado; nenhum país habilitado por esta aprovação |
+
+A licença permanece fora da allowlist geral. A exceção casa somente com esse nome e licença exatos; a versão faz parte do nome porque o mecanismo atual não verifica `version` nas exceções de licença declarada. Outra versão deve receber nova revisão e identidade, sem reaproveitar esta aprovação. O aviso de exceção sem uso é esperado enquanto o dataset não for incorporado. O SBOM atual de pacotes não inventaria automaticamente dados vendorizados: a futura incorporação precisa de inventário verificável, hashes e avisos distribuídos, conforme o registro de aprovação.
+
 Exceção aceita para o pipeline de fotos ([ADR-0025](../architecture/adr/0025-pipeline-de-fotos-imagesharp-s3-outbox.md)):
 
 | Pacote | Licença | Motivo |
