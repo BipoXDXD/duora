@@ -27,7 +27,7 @@ internal static class PreferenceEndpoints
             .AddOpenApiOperationTransformer(DocumentConcurrency);
     }
 
-    private static Task DocumentConcurrency(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
+    internal static Task DocumentConcurrency(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
     {
         if (operation.Responses?.TryGetValue("200", out var ok) == true && ok is OpenApiResponse response)
         {

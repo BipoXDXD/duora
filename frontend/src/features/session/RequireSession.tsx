@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router'
 import { ApiProblemError, classifyRequestFailure, isUnauthorized } from '@/shared/api'
+import { AccountTimeZoneProvider } from '@/shared/i18n/AccountTimeZoneProvider'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { RequestFailureAlert } from '@/shared/ui/alert'
@@ -48,7 +49,9 @@ export function RequireSession(): React.JSX.Element {
     if (pathname === paths.changePassword) return <Navigate to={paths.account} replace />
     return (
       <AccountContext value={me.data}>
-        <Outlet key={me.data.id} />
+        <AccountTimeZoneProvider timeZone={me.data.preferredTimeZone ?? null}>
+          <Outlet key={me.data.id} />
+        </AccountTimeZoneProvider>
       </AccountContext>
     )
   }

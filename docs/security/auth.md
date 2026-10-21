@@ -437,7 +437,7 @@ não avisa. O aviso vai para o endereço gravado e sai bilíngue (pt-BR e en): q
 mudança, então o `Accept-Language` da requisição vai no payload (`language`), como nos outros e-mails de conta, mas
 não decide o texto. O texto é fixo, sem token, código,
 senha, e-mail, IP ou aparelho: diz o que mudou, quando (o `occurred_at` do evento, em UTC, com minuto) e leva à
-página da conta (`/conta`), onde ficam as sessões. Janela de entrega de 72 h (**hipótese**). Leitor e gravação
+página da conta (`/conta`), onde ficam as sessões. Com preferência IANA explícita, acrescenta o horário no fuso salvo, identificado por IANA e deslocamento UTC; a referência UTC permanece. Sem preferência, só UTC. O fuso é capturado na mesma transação da credencial (`preferredTimeZone` opcional na outbox), nunca inferido do idioma, IP ou aparelho nem consultado novamente na entrega. O worker leitor deve preceder o web gravador; manter esse leitor até drenar payloads com preferência em rollback ([detalhes](../testing/event-time-zones.md)). Janela de entrega de 72 h (**hipótese**). Leitor e gravação
 entraram em deploys separados ([deploy.md](../operations/deploy.md#rollback-de-aplicação)).
 
 ## Contrato de rotas API-A01 a A16

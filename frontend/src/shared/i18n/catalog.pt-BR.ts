@@ -5,9 +5,25 @@
  * Mensagens de erro são neutras: não revelam se um e-mail tem conta (spec 8.2, API-A02 e A06).
  */
 export const ptBR = {
+  'timeZone.loading': 'Carregando fuso horário…',
+  'timeZone.label': 'Fuso horário da conta (opcional)',
+  'timeZone.hint':
+    'Escolha por cidade ou nome. Deixe vazio para usar o navegador. Esta preferência é privada: não muda sua residência, os pares ou o fuso dos eventos. O botão do dispositivo apenas preenche; Salvar confirma. Nos avisos de segurança, o fuso salvo aparece junto da referência UTC.',
+  'timeZone.invalid': 'Selecione um fuso válido da lista ou deixe o campo vazio.',
+  'timeZone.device': 'Usar fuso deste dispositivo',
+  'timeZone.save': 'Salvar fuso horário',
+  'timeZone.saved': 'Fuso horário salvo.',
+  'timeZone.conflict':
+    'Outra aba alterou seu fuso. Recarregue a versão atual; sua escolha será preservada para revisão.',
+  'timeZone.reload': 'Recarregar fuso atual',
+  'timeZone.reloaded': 'Fuso atual: {zone}. Sua escolha ainda não foi salva.',
+  'timeZone.unset': 'não definido (usar navegador)',
   'dates.eventTime': 'Horário do evento: {time}',
   'dates.eventZoneUnknown': 'Referência: {time}; fuso do evento não informado',
-  'dates.withBrowserTime': '{event} ({local} no fuso do seu navegador)',
+  'dates.withBrowserTime': '{event}\nNo fuso do navegador: {local}',
+  'dates.withPreferredTime': '{event}\nNo seu fuso salvo: {local}',
+  'dates.zoneUnsupported': 'Referência: {time}; este dispositivo não reconhece o fuso {zone}',
+  'dates.withUnsupportedParticipant': '{event}\n{reference}',
   'routes.ownClues': 'Só você vê estas pistas.',
   'routes.deadline': 'Prazo da experiência: {deadline}.',
   'routes.acknowledge': 'Entendi',
