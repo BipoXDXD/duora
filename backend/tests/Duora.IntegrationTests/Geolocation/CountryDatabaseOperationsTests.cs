@@ -7,6 +7,7 @@ namespace Duora.IntegrationTests.Geolocation;
 
 public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
 {
+    private static readonly bool[] ExpectedRecoveryOrder = [false, true];
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -398,7 +399,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         h.Time.Advance(TimeSpan.FromMinutes(15));
         await monitor.RunOnceAsync(Ct);
         Assert.False(overtookIncident);
-        Assert.Equal([false, true], notices.Items.Where(n => n.Code == "Age").Select(n => n.Recovered));
+        Assert.Equal(ExpectedRecoveryOrder, notices.Items.Where(n => n.Code == "Age").Select(n => n.Recovered));
     }
 
     [Fact]
