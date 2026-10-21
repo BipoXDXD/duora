@@ -75,7 +75,7 @@ internal static class RoutesCatalogEndpoints
         catch (ArgumentException) { return Invalid(); }
     }
 
-    private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Invalid() => ApiProblems.Problem(400, ApiProblems.ValidationFailed, "Invalid bilingual catalog or audio manifest.");
+    private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Invalid() => ApiProblems.Problem(400, ApiProblems.ValidationFailed);
     private static CatalogAudioUploadVariant Variant(CatalogAudioVariantRequest input) =>
         new(input.AssetId, input.Transcript, input.AccessibleDescription, input.Provenance, input.Sha256, input.Bytes);
     private static UnlikelyRoutesContent Content(RoutesCatalogContentRequest input, int version)

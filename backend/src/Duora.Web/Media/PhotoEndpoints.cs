@@ -69,8 +69,7 @@ internal static class PhotoEndpoints
         {
             return ApiProblems.Problem(
                 StatusCodes.Status503ServiceUnavailable,
-                ApiProblems.MediaUploadsDisabled,
-                "O envio de fotos está desligado.");
+                ApiProblems.MediaUploadsDisabled);
         }
 
         if (!TryReadHeaders(context.Request, idempotencyKey, out var command, out var refusal))
@@ -88,8 +87,7 @@ internal static class PhotoEndpoints
         {
             return ApiProblems.Problem(
                 StatusCodes.Status403Forbidden,
-                ApiProblems.AccountRestricted,
-                "A situação da conta não permite enviar fotos.");
+                ApiProblems.AccountRestricted);
         }
 
         if (limiter.TryConsume(userId, context.Connection.RemoteIpAddress) is { } retryAfter)
@@ -133,8 +131,7 @@ internal static class PhotoEndpoints
         {
             return ApiProblems.Problem(
                 StatusCodes.Status415UnsupportedMediaType,
-                ApiProblems.UnsupportedMediaType,
-                "Envie a foto como image/jpeg, image/png ou image/webp.");
+                ApiProblems.UnsupportedMediaType);
         }
 
         switch (PhotoLimits.CheckContentLength(request.ContentLength))
@@ -142,13 +139,11 @@ internal static class PhotoEndpoints
             case UploadLengthVerdict.Missing:
                 return ApiProblems.Problem(
                     StatusCodes.Status411LengthRequired,
-                    ApiProblems.LengthRequired,
-                    "Envie o header Content-Length com o tamanho da foto.");
+                    ApiProblems.LengthRequired);
             case UploadLengthVerdict.TooLarge:
                 return ApiProblems.Problem(
                     StatusCodes.Status413PayloadTooLarge,
-                    ApiProblems.PayloadTooLarge,
-                    "A foto passa de 5 MiB.");
+                    ApiProblems.PayloadTooLarge);
             case UploadLengthVerdict.Empty:
                 return ApiProblems.Validation(new Dictionary<string, string[]> { ["body"] = ["A foto está vazia."] });
             case UploadLengthVerdict.Accepted:
@@ -189,46 +184,39 @@ internal static class PhotoEndpoints
             context,
             InProgressRetryAfter,
             StatusCodes.Status409Conflict,
-            ApiProblems.IdempotencyRequestInProgress,
-            "O envio com esta chave ainda está em andamento."),
+            ApiProblems.IdempotencyRequestInProgress),
         PhotoUploadResult.KeyReused => ApiProblems.Problem(
             StatusCodes.Status409Conflict,
-            ApiProblems.IdempotencyKeyReused,
-            "Esta chave já foi usada com outra foto."),
+            ApiProblems.IdempotencyKeyReused),
         PhotoUploadResult.PendingLimitReached => RetryLater(
             context,
             PendingLimitRetryAfter,
             StatusCodes.Status429TooManyRequests,
-            ApiProblems.UploadPendingLimit,
-            "Há fotos demais em processamento. Aguarde o resultado delas."),
+            ApiProblems.UploadPendingLimit),
         PhotoUploadResult.QueueFull => RetryLater(
             context,
             QueueFullRetryAfter,
             StatusCodes.Status503ServiceUnavailable,
-            ApiProblems.MediaQueueFull,
-            "Muitas fotos em processamento agora. Tente de novo em instantes."),
+            ApiProblems.MediaQueueFull),
         PhotoUploadResult.OwnerMissing => TypedResults.Unauthorized(),
         PhotoUploadResult.AccountRestricted => ApiProblems.Problem(
             StatusCodes.Status403Forbidden,
-            ApiProblems.AccountRestricted,
-            "A situação da conta não permite enviar fotos."),
+            ApiProblems.AccountRestricted),
         PhotoUploadResult.BodyIncomplete => ApiProblems.Problem(
             StatusCodes.Status400BadRequest,
-            ApiProblems.UploadIncomplete,
-            "A foto não chegou inteira. Envie de novo com a mesma chave."),
+            ApiProblems.UploadIncomplete),
         PhotoUploadResult.StorageFailed => RetryLater(
             context,
             StorageRetryAfter,
             StatusCodes.Status503ServiceUnavailable,
-            ApiProblems.StorageUnavailable,
-            "Não foi possível guardar a foto agora. Envie de novo com a mesma chave."),
+            ApiProblems.StorageUnavailable),
         _ => throw new InvalidOperationException("Resultado de upload sem resposta."),
     };
 
-    private static ProblemHttpResult RetryLater(HttpContext context, TimeSpan retryAfter, int status, string code, string title)
+    private static ProblemHttpResult RetryLater(HttpContext context, TimeSpan retryAfter, int status, string code)
     {
         ApiProblems.SetRetryAfter(context, retryAfter);
-        return ApiProblems.Problem(status, code, title);
+        return ApiProblems.Problem(status, code);
     }
 
     private static async Task<Results<Ok<PhotoStatusResponse>, NotFound, UnauthorizedHttpResult>> GetStatusAsync(

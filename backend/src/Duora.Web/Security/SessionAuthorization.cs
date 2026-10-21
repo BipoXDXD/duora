@@ -173,8 +173,7 @@ internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewa
             ApiProblems.SetRetryAfter(context, EligibilityRetryAfter);
             await ApiProblems.Problem(
                     StatusCodes.Status503ServiceUnavailable,
-                    ApiProblems.TemporarilyUnavailable,
-                    "Tente novamente em instantes.")
+                    ApiProblems.TemporarilyUnavailable)
                 .ExecuteAsync(context);
             return;
         }
@@ -183,8 +182,7 @@ internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewa
         {
             await ApiProblems.Problem(
                     StatusCodes.Status403Forbidden,
-                    ApiProblems.PasswordChangeRequired,
-                    "Troque a senha temporária para continuar.")
+                    ApiProblems.PasswordChangeRequired)
                 .ExecuteAsync(context);
             return;
         }
@@ -193,8 +191,7 @@ internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewa
         {
             await ApiProblems.Problem(
                     StatusCodes.Status403Forbidden,
-                    ApiProblems.MfaEnrollmentRequired,
-                    "Cadastre o segundo fator para continuar.")
+                    ApiProblems.MfaEnrollmentRequired)
                 .ExecuteAsync(context);
             return;
         }

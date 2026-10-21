@@ -96,19 +96,17 @@ internal static class MfaEndpoints
                 await CurrentSession.RenewAsync(context, antiforgery, activated.SecurityStamp, now, now, now);
                 return TypedResults.Ok(new RecoveryCodesResponse(activated.RecoveryCodes));
             case MfaActivation.InvalidCode:
-                return ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.MfaCodeInvalid, "Código inválido.");
+                return ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.MfaCodeInvalid);
             case MfaActivation.NotStarted:
                 return ApiProblems.Problem(
                     StatusCodes.Status409Conflict,
-                    ApiProblems.MfaEnrollmentNotStarted,
-                    "Comece o cadastro do autenticador antes de confirmar.");
+                    ApiProblems.MfaEnrollmentNotStarted);
             case MfaActivation.AlreadyEnabled:
                 return AlreadyEnabled();
             case MfaActivation.PasswordChangeRequired:
                 return ApiProblems.Problem(
                     StatusCodes.Status403Forbidden,
-                    ApiProblems.PasswordChangeRequired,
-                    "Troque a senha temporária para continuar.");
+                    ApiProblems.PasswordChangeRequired);
             default:
                 throw new InvalidOperationException("Resultado de ativação não mapeado.");
         }
@@ -153,16 +151,15 @@ internal static class MfaEndpoints
             case MfaDeactivation.RequiredByRole:
                 return ApiProblems.Problem(
                     StatusCodes.Status403Forbidden,
-                    ApiProblems.MfaRequiredByRole,
-                    "O papel desta conta exige MFA.");
+                    ApiProblems.MfaRequiredByRole);
             default:
                 throw new InvalidOperationException("Resultado de desativação não mapeado.");
         }
     }
 
     private static ProblemHttpResult AlreadyEnabled() =>
-        ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.MfaAlreadyEnabled, "O MFA já está ativo.");
+        ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.MfaAlreadyEnabled);
 
     private static ProblemHttpResult NotEnabled() =>
-        ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.MfaNotEnabled, "O MFA não está ativo.");
+        ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.MfaNotEnabled);
 }

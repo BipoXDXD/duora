@@ -15,7 +15,7 @@ internal static class SelfieVerificationEndpoints
         {
             var status = await service.RequestAsync(DuoraClaims.ReadUserId(context.User)!.Value, ct);
             return status is null
-                ? ApiProblems.Problem(503, "SELFIE_UNAVAILABLE", "Selfie verification unavailable.") as IResult
+                ? ApiProblems.Problem(503, "SELFIE_UNAVAILABLE") as IResult
                 : TypedResults.Accepted("/api/v1/me/selfie-verifications/current", Response(status));
         }).Produces<SelfieVerificationResponse>(202).ProducesProblem(503).RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption);
         group.MapGet("/current", async (HttpContext context, SelfieVerificationService service, CancellationToken ct) =>

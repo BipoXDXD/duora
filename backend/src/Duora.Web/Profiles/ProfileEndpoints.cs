@@ -160,8 +160,7 @@ internal static class ProfileEndpoints
         {
             return ApiProblems.Problem(
                 StatusCodes.Status403Forbidden,
-                ApiProblems.AccountRestricted,
-                "A situação da conta não permite alterar o perfil.");
+                ApiProblems.AccountRestricted);
         }
 
         var condition = EntityTags.ParseIfMatch(ifMatch);
@@ -169,8 +168,7 @@ internal static class ProfileEndpoints
         {
             return ApiProblems.Problem(
                 StatusCodes.Status428PreconditionRequired,
-                ApiProblems.PreconditionRequired,
-                "Envie o ETag da última leitura do perfil no header If-Match.");
+                ApiProblems.PreconditionRequired);
         }
 
         if (ProfileEditParser.Parse(request, out var errors) is not { } edit)
@@ -184,8 +182,7 @@ internal static class ProfileEndpoints
         return saved is null
             ? ApiProblems.Problem(
                 StatusCodes.Status412PreconditionFailed,
-                ApiProblems.PreconditionFailed,
-                "O perfil mudou desde a sua leitura. Recarregue e aplique a alteração de novo.")
+                ApiProblems.PreconditionFailed)
             : Respond(context, saved);
     }
 

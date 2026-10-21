@@ -127,9 +127,9 @@ internal static class PreferenceEndpoints
         }
     }
 
-    private static ProblemHttpResult Missing() => ApiProblems.Problem(428, ApiProblems.PreconditionRequired, "Envie o ETag da última leitura.");
-    private static ProblemHttpResult Stale() => ApiProblems.Problem(412, ApiProblems.PreconditionFailed, "O recurso mudou. Recarregue antes de salvar.");
-    private static ProblemHttpResult Restricted() => ApiProblems.Problem(403, ApiProblems.AccountRestricted, "A situação da conta não permite esta alteração.");
+    private static ProblemHttpResult Missing() => ApiProblems.Problem(428, ApiProblems.PreconditionRequired);
+    private static ProblemHttpResult Stale() => ApiProblems.Problem(412, ApiProblems.PreconditionFailed);
+    private static ProblemHttpResult Restricted() => ApiProblems.Problem(403, ApiProblems.AccountRestricted);
 
     private static Ok<OwnPreferencesResponse> Respond(HttpContext context, OwnPreferences preferences)
     {

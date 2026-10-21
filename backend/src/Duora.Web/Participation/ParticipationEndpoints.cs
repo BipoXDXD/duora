@@ -23,7 +23,7 @@ internal static class ParticipationEndpoints
             catch (PostgresException e) when (e.SqlState is PostgresErrorCodes.LockNotAvailable or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure)
             {
                 ApiProblems.SetRetryAfter(context.HttpContext, TimeSpan.FromSeconds(2));
-                return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable, "Temporarily unavailable.");
+                return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
             }
         });
         routes.MapGet("/events", async (ParticipationService service, CancellationToken ct) =>
@@ -61,8 +61,8 @@ internal static class ParticipationEndpoints
     private static IResult Result(ParticipationOutcome outcome) => outcome switch
     {
         ParticipationOutcome.Done => Results.NoContent(),
-        ParticipationOutcome.Conflict => ApiProblems.Problem(409, "VERSION_CONFLICT", "Reload the current room."),
-        ParticipationOutcome.Invalid => ApiProblems.Problem(400, "VALIDATION_FAILED", "Invalid request."),
+        ParticipationOutcome.Conflict => ApiProblems.Problem(409, "VERSION_CONFLICT"),
+        ParticipationOutcome.Invalid => ApiProblems.Problem(400, "VALIDATION_FAILED"),
         _ => Results.NotFound(),
     };
 

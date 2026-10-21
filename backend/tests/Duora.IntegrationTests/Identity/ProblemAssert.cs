@@ -19,7 +19,10 @@ internal static class ProblemAssert
         Assert.Equal(code, (string?)body["code"]);
         Assert.Equal((int)status, (int?)body["status"]);
         Assert.False(string.IsNullOrEmpty((string?)body["type"]));
-        Assert.False(string.IsNullOrEmpty((string?)body["title"]));
+        var expectedTitle = ProblemTextTests.PublicTitles.SingleOrDefault(row => row.Data.Item1 == code)?.Data.Item2
+            ?? "The request could not be completed.";
+        Assert.Equal(expectedTitle, (string?)body["title"]);
+        Assert.Null(body["detail"]);
         Assert.False(string.IsNullOrEmpty((string?)body["traceId"]));
         Assert.DoesNotContain("Exception", text, StringComparison.Ordinal);
         Assert.DoesNotContain("   at ", text, StringComparison.Ordinal);
