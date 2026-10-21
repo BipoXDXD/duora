@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -415,7 +415,7 @@ class ArchiverStatsLagTests(unittest.TestCase):
         with self.assertRaisesRegex(backup.BackupError, "639 s"):
             self.verify([f"{NOW - 639}||{NOW}"])
 
-        self.assertEqual([unittest.mock.call(1)] * 5, self.sleep.call_args_list)
+        self.assertEqual([call(1)] * 5, self.sleep.call_args_list)
         self.assertFalse((self.state_dir / ".backup-verify-ok").exists())
 
     def test_persistent_archive_failure_does_not_record_success(self) -> None:
