@@ -52,6 +52,11 @@ apagasse o rascunho que hoje deve ser preservado.
 Arquivos: `frontend/e2e/problem-settings.spec.ts`, `frontend/e2e/problem-mutations.spec.ts` e utilitário
 `frontend/e2e/support/problem-canary.ts`.
 
+O acompanhamento [#150](https://github.com/BipoXDXD/duora/issues/150) acrescenta
+[seis testes de componente dos callbacks da selfie](selfie-callbacks.md), com SDK/HTTP simulados.
+Eles cobrem conclusão com erro, cancelamento e erro do SDK; não alteram o total de 174 execuções E2E da
+#142 nem substituem homologação real.
+
 ## Limites e caminhos não aplicáveis
 
 - A matriz contém respostas **sintéticas**. Não prova persistência PostgreSQL, aplicação real de cota,
