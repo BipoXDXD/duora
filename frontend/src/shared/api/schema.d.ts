@@ -3121,6 +3121,8 @@ export interface components {
             password: null | string;
             acceptedTermsVersion: null | string;
             acceptedPrivacyVersion: null | string;
+            acceptedTermsLocale?: null | string;
+            acceptedPrivacyLocale?: null | string;
         };
         ResetPasswordRequest: {
             /** Format: uuid */

@@ -67,6 +67,8 @@ internal static class AuthEndpoints
         validation.NewPassword("password", request.Password, out var password);
         validation.DocumentVersion("acceptedTermsVersion", request.AcceptedTermsVersion, out var termsVersion);
         validation.DocumentVersion("acceptedPrivacyVersion", request.AcceptedPrivacyVersion, out var privacyVersion);
+        validation.DocumentLocale("acceptedTermsLocale", request.AcceptedTermsLocale);
+        validation.DocumentLocale("acceptedPrivacyLocale", request.AcceptedPrivacyLocale);
         if (!validation.IsValid || email is null || password is null || termsVersion is null || privacyVersion is null)
         {
             return ApiProblems.Validation(validation.Errors);
@@ -83,7 +85,9 @@ internal static class AuthEndpoints
             termsVersion,
             privacyVersion,
             EmailLanguageNegotiation.FromRequest(context.Request),
-            cancellationToken);
+            cancellationToken,
+            request.AcceptedTermsLocale,
+            request.AcceptedPrivacyLocale);
         return TypedResults.Accepted((string?)null);
     }
 

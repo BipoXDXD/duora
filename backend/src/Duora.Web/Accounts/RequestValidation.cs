@@ -99,6 +99,10 @@ internal sealed class RequestValidation
         return value.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_') || Fail(field, InvalidFormat);
     }
 
+    /// <summary>Explicit document language; null means unknown, never inferred from account or request language.</summary>
+    public bool DocumentLocale(string field, string? value) =>
+        value is null or "pt-BR" or "en-US" || Fail(field, InvalidFormat);
+
     public bool Token(string field, string? value, [NotNullWhen(true)] out string? token)
     {
         token = value;
