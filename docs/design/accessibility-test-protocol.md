@@ -114,7 +114,7 @@ Duas pessoas (A com teclado e VoiceOver; B com qualquer configuração).
    e a mesma privacidade.
 8. Quando a versão tiver mídia (spec 6.5): entre na experiência sem tocar no Controle de som. **Esperado:**
    nenhum som. Ligue o som pelo teclado. **Esperado:** estado anunciado ("Som ligado"); cada fala aparece na
-   transcrição com quem fala e, se for o caso, "voz sintética"; VoiceOver não lê a transcrição por cima do
+   transcrição com quem fala, sem mensagem sobre o processo de criação (ADR-0032); VoiceOver não lê a transcrição por cima do
    áudio sem pedido.
 9. Ative "Reduzir áudio" e mude o volume de cada canal; recarregue a página. **Esperado:** preferências
    mantidas, som só depois do primeiro gesto; nenhum som perto dos marcos de prazo nem na decisão privada.
