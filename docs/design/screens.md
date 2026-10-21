@@ -163,11 +163,15 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 - **Propósito:** encontrar eventos autorizados e ver a própria participação.
 - **Conteúdo:** cards com título, data e horário com fuso, mostrando os dois fusos quando o do evento e o da pessoa
   diferem (ADR-0026). Exemplo de um evento às 20:00 em São Paulo (`America/Sao_Paulo`) visto de Boston
-  (`America/New_York`), com `Intl.DateTimeFormat` e `timeZoneName: 'short'` (saída conferida no Node 24): em PT-BR,
-  "sex., 16 de out., 20:00 BRT (19:00 GMT-4 no seu fuso)"; em EN-US, "Fri, Oct 16, 8:00 PM GMT-3 (7:00 PM EDT
-  your time)". A abreviação só sai por nome no fuso "da casa" do idioma; nos outros, o `Intl` mostra o deslocamento
-  (`GMT-4`, `GMT-3`). Quando os fusos coincidem, só um aparece ("sex., 16 de out., 20:00 BRT"). Formato mais legível
-  (`shortGeneric`) em proposta na issue #81. Regras resumidas, situação própria. Sem lista de participantes nem contadores de popularidade.
+  (`America/New_York`), com `Intl.DateTimeFormat` e `timeZoneName: 'shortGeneric'` + offset (saída conferida no Node 24.21 / ICU 78.3): em PT-BR,
+  `Horário do evento: 16/10/2026, 20:00 — BRT · UTC−03:00` e, na linha seguinte,
+  `No fuso do navegador: 16/10/2026, 19:00 — Horário Nova York · UTC−04:00`. Em en-US:
+  `Event time: 10/16/26, 8:00 PM — São Paulo Time · UTC−03:00` e
+  `In your browser’s time zone: 10/16/26, 7:00 PM — ET · UTC−04:00`.
+  Havendo preferência explícita, usar “No seu fuso salvo” / “In your saved time zone”.
+  UTC é `UTC`; nomes dependem do ICU/CLDR. Sempre incluir o offset do instante para a hora repetida;
+  quando os fusos canônicos coincidem, só a linha do evento aparece. Decisão aprovada na issue #81,
+  adendo do ADR-0026 em 2026-10-21. Regras resumidas, situação própria. Sem lista de participantes nem contadores de popularidade.
 - **Ações:** cada card é um link para o detalhe.
 - **Estados:** `loading` (skeleton de 3 cards); `empty` ("Nenhum evento aberto agora. Avisaremos por e-mail
   quando houver." + "Ajustar avisos ›"); `error`; `offline`.
@@ -524,3 +528,8 @@ O texto de emergência e o número local são conteúdo a validar pelo responsá
   `loading`, `empty`, `error` e `offline` conforme as convenções.
 - **Wireframes:** fora deste documento; a administração entra no fluxo de design quando o marco correspondente
   começar.
+
+
+### Preferência de fuso (conta)
+
+Campo opcional e privado, pesquisável por nome/cidade e ID IANA. Inicialmente vazio, com fallback do navegador identificado. “Usar fuso deste dispositivo” só preenche; “Salvar fuso horário” confirma. Esvaziar e salvar remove. Mostrar independência de residência, matching e fuso dos eventos; avisos de segurança combinam fuso salvo e referência UTC. Mudanças de idioma ou viagem não reescrevem a escolha. Em conflito, preservar rascunho, exigir recarregar e mostrar o valor atual antes do novo Salvar. Runtime sem suporte ao fuso mostra referência UTC explícita.

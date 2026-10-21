@@ -16,6 +16,8 @@ function useBackend() {
   const stored = { version: 0, languages: [] as string[], optIn: false }
   const writes: unknown[] = []
   server.use(
+    http.get(`${API}/me/time-zone`, () => HttpResponse.json({ timeZone: null, version: '0' })),
+    http.get(`${API}/me/time-zone/options`, () => HttpResponse.json({ timeZones: ['UTC'] })),
     http.get(`${API}/me`, () => HttpResponse.json(me)),
     http.get(`${API}/me/preferences`, () =>
       HttpResponse.json({

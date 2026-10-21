@@ -10,6 +10,7 @@ import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { CheckboxField, SelectField } from '@/shared/ui/form-fields'
 import { Page, TextLink } from '@/shared/ui/page'
+import { AccountTimeZoneSection } from './AccountTimeZoneForm'
 import {
   fetchLocale,
   fetchPreferences,
@@ -49,6 +50,7 @@ export function PreferencesPage(): React.JSX.Element {
       ) : locale.data === undefined ? null : (
         <LocaleForm initial={locale.data} />
       )}
+      <AccountTimeZoneSection />
       <TextLink to={paths.account}>{t('profile.backToAccount')}</TextLink>
     </Page>
   )

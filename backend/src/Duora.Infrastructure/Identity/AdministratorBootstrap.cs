@@ -138,7 +138,7 @@ public sealed class AdministratorBootstrap
             now + TemporaryPasswordLifetime);
     }
 
-    private sealed record ReissuedAccount(Guid UserId, string Email);
+    private sealed record ReissuedAccount(Guid UserId, string Email, string? PreferredTimeZone);
 
     /// <summary>
     /// Conta já confirmada (o operador responde pelo endereço) e ativa, sem MFA. Devolve null se o e-mail já tem
@@ -190,7 +190,7 @@ public sealed class AdministratorBootstrap
               and exists (
                   select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
                   where ur.user_id = u.id and r.name = {issue.Role})
-            returning u.id as "UserId", u.email as "Email"
+            returning u.id as "UserId", u.email as "Email", u.preferred_time_zone as "PreferredTimeZone"
             """).ToListAsync(cancellationToken);
         return rows.Count == 1 ? rows[0] : null;
     }
@@ -218,7 +218,8 @@ public sealed class AdministratorBootstrap
             account.Email,
             account.UserId,
             EmailLanguageTag.Default,
-            now));
+            now,
+            account.PreferredTimeZone));
         await _db.SaveChangesAsync(cancellationToken);
     }
 

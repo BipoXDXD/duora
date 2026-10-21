@@ -54,7 +54,9 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
     <section className="flex flex-col gap-4 rounded-lg border border-border p-5">
       <h2 className="text-xl font-semibold">{event.title}</h2>
       <p>
-        <time dateTime={event.startsAt}>{formatEventDateTime(new Date(event.startsAt), event.timeZone)}</time>
+        <time className="whitespace-pre-line" dateTime={event.startsAt}>
+          {formatEventDateTime(new Date(event.startsAt), event.timeZone)}
+        </time>
       </p>
       {participation.isError ? <RequestFailureAlert failure={classifyRequestFailure(participation.error)} /> : null}
       {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
