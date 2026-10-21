@@ -146,10 +146,15 @@ export const ptBR = {
 
   'checkEmail.title': 'Verifique seu e-mail',
   'checkEmail.body':
-    'Se for possível criar a conta com esse endereço, você vai receber um e-mail com um link de confirmação.',
-  'checkEmail.hint': 'Não chegou? Confira a caixa de spam e as abas de promoções. O link vale por tempo limitado.',
+    'Se for possível criar a conta com esse endereço, você vai receber um e-mail com um código de confirmação e o acesso à página para digitá-lo.',
+  'checkEmail.hint':
+    'Não chegou? Confira a caixa de spam e as abas de promoções. O código vale por 15 minutos após o cadastro. Se expirar, faça o cadastro novamente.',
   'checkEmail.signInLink': 'Ir para a entrada',
 
+  'checkEmail.requestAgain': 'Cadastrar novamente para receber outro código',
+  'confirmEmail.code': 'Código de confirmação',
+  'confirmEmail.codeHint': 'Digite os 8 dígitos do e-mail. O código vale por 15 minutos após o cadastro.',
+  'validation.emailCodeInvalid': 'Informe o código de 8 dígitos.',
   'confirmEmail.title': 'Confirmar e-mail',
   'confirmEmail.intro': 'Para concluir a confirmação do seu endereço, informe sua senha e use o botão abaixo.',
   'confirmEmail.password': 'Senha',
@@ -211,7 +216,7 @@ export const ptBR = {
   'account.signOut': 'Sair',
   'account.signingOut': 'Saindo…',
   'account.statusLabel.PendingEmail': 'Aguardando confirmação do e-mail',
-  'account.statusLabel.PendingEligibility': 'Aguardando verificação de idade',
+  'account.statusLabel.PendingEligibility': 'Aguardando confirmação de presença',
   'account.statusLabel.Active': 'Ativa',
   'account.statusLabel.Restricted': 'Restrita',
   'account.statusLabel.Suspended': 'Suspensa',

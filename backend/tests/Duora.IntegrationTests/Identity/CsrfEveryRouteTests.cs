@@ -82,6 +82,9 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             // O corpo de verdade é a imagem crua; sem token, a recusa vem antes de olhar o corpo.
             ["POST /api/v1/me/photos"] = null,
             ["POST /api/v1/me/age-verifications"] = new { },
+            ["POST /api/v1/me/selfie-verifications"] = new { },
+            ["POST /api/v1/me/selfie-verifications/{id:guid}/capture"] = new { },
+            ["POST /api/v1/me/selfie-verifications/{id:guid}/complete"] = new { },
             ["PUT /api/v1/me/preferences"] = new { communicationLanguages = new[] { "en" }, allowDifferentDisplayLocales = false },
             ["PUT /api/v1/me/locale"] = new { locale = "en-US" },
             ["PUT /api/v1/events/{eventId:guid}/registration"] = null,
@@ -109,6 +112,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             var name = $"{method} {pattern}";
             Assert.True(bodies.TryGetValue(name, out var body), $"Sem corpo de exemplo para {name}: acrescente-o aqui.");
             var path = pattern
+                .Replace("{id:guid}", account.UserId.ToString(), StringComparison.Ordinal)
                 .Replace("{sessionId:guid}", sessionId.ToString(), StringComparison.Ordinal)
                 .Replace("{targetUserId:guid}", pendingLink.UserId.ToString(), StringComparison.Ordinal)
                 .Replace("{eventId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
@@ -137,12 +141,11 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand("""
             with activated as (update identity.users set status='Active' where id=$1 returning id)
-            insert into identity.age_verifications(id,user_id,state,policy_version,provider,request_nonce,requested_at,decided_at,version)
-            select $2,id,'VerifiedAdult','test','Fake',$3,$4,$4,1 from activated
+            insert into identity.selfie_verifications(id,user_id,state,policy_version,requested_at,expires_at,completed_at,version)
+            select $2,id,'Passed','test',$3,$3,$3,1 from activated
             """, connection);
         command.Parameters.AddWithValue(user);
         command.Parameters.AddWithValue(Guid.NewGuid());
-        command.Parameters.AddWithValue(Guid.NewGuid().ToString("N"));
         command.Parameters.AddWithValue(_time.GetUtcNow());
         await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
     }

@@ -56,6 +56,8 @@ internal sealed class AgeVerificationOutboxHarness : IAsyncDisposable
             .. extraArgs,
         ];
         var builder = WorkerHost.CreateBuilder(args);
+        // Historical compatibility harness only. Production hosts never register this retired consumer.
+        builder.Services.AddAgeVerification().AddAgeVerificationDispatch();
         builder.Services.AddSingleton(Time);
         var host = builder.Build();
         _hosts.Add(host);

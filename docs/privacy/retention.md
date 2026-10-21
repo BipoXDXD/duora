@@ -1,5 +1,8 @@
 # Retenção, exclusão e preservação
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Prazos de guarda, mecanismo de exclusão, preservação e tombstones. Fontes: spec 4.3, 10.7, 12.1, 12.4, 16.2,
 18.3, 18.4 e 19.2; [model.md](../data/model.md); [data-map.md](data-map.md); ADR
 [0011](../architecture/adr/0011-pgbackrest-wal-externo-restore-obrigatorio.md).

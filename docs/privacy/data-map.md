@@ -1,5 +1,8 @@
 # Mapa de dados pessoais
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Finalidades, categorias de dados por tabela, base legal, fornecedores e acessos por papel. Fontes: spec 1.3,
 6.4, 8, 10.2, 12, 16.3, 19.2 e 25.15; [model.md](../data/model.md) (tabelas e classes de sensibilidade);
 [threat-model.md](../security/threat-model.md); fichas D-PRIV-01 (LGPD, Marco Civil da Internet), D-PRIV-02
@@ -198,3 +201,9 @@ jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 | J-11 | Fornecedores | Contratos de tratamento (DPA) e lista de subprocessadores | Onde a Hostinger (empresa com sede fora dos EUA, a confirmar no contrato), a Backblaze e os futuros fornecedores de e-mail e de verificação etária tratam ou acessam dados? Há DPA e cláusulas de transferência? Se J-10 se aplicar, cada fornecedor tem certificação no Data Privacy Framework ou cláusulas-padrão (cap. V do GDPR)? | Tabela de fornecedores e de transferências; J-10 |
 | J-12 | Todas | Lei de defesa do consumidor e de práticas enganosas (por exemplo, FTC Act seção 5 nos EUA) aplicada aos documentos voltados ao usuário | Termos e política de privacidade saem em PT-BR e EN-US (ADR-0026): qual versão prevalece, que lei e foro os termos escolhem, e que promessas da política viram obrigação verificável? | Documentos voltados ao usuário; `identity.consent_records` |
 | J-13 | Todas | LGPD art. 3.º; GDPR art. 3(2) e art. 27; regras equivalentes das outras jurisdições | Onde fica o controlador e qual o seu estabelecimento? Sem estabelecimento no Brasil nem na UE, que critério de alcance territorial vale (oferta de serviço, monitoramento, coleta) e é preciso representante (GDPR art. 27) ou contato local? | Documentos voltados ao usuário (identificação do controlador); J-02, J-10 |
+
+## Selfie de presença — implementação da issue #93
+
+`identity.selfie_verifications`: ID interno, titular, estado, política e datas; referência de sessão e feedback transitórios removidos após 24h. Sem imagens, templates, idade, documentos ou scores no banco/outbox/log. A exclusão física futura de contas deve remover estas linhas; não há implementação de exclusão física no produto atual.
+
+AWS recebe vídeo de captura diretamente do SDK; o worker obtém frame de referência em memória para brilho/nitidez/pose (DEFAULT). AuditImagesLimit=0, sem S3/OutputConfig. Prazo contratual no fornecedor, opt-out de uso secundário, DPA, região e transferências precisam ser homologados antes de Enabled=true. Expiração de sessão não prova exclusão contratual. Credenciais temporárias STS ficam apenas em memória do navegador e não vão para URL/storage/telemetria.

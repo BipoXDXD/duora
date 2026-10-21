@@ -26,8 +26,7 @@ internal static class WorkerHost
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddInfrastructure(builder.Configuration, ConnectionShare.Worker);
         builder.Services.AddTransactionalEmailDispatch();
-        builder.Services.AddAgeVerification();
-        builder.Services.AddAgeVerificationDispatch();
+        builder.Services.AddSelfieVerification();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
         builder.Services.AddMediaProcessing();
         builder.Services.AddParticipation();
@@ -35,7 +34,7 @@ internal static class WorkerHost
         AddPhotoSanitizer(builder.Services);
         builder.Services.AddHostedService<HeartbeatService>();
         builder.Services.AddHostedService<TransactionalEmailService>();
-        builder.Services.AddHostedService<AgeVerificationProviderService>();
+        builder.Services.AddHostedService<SelfieVerificationProviderService>();
         builder.Services.AddHostedService<MediaProcessingService>();
 
         return builder;

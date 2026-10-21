@@ -462,6 +462,74 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Identity.SelfieVerificationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("FeedbackCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("feedback_code");
+
+                    b.Property<string>("PolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("policy_version");
+
+                    b.Property<string>("ProviderReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_reference");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("state");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id").HasName("pk_selfie_verifications");
+
+                    b.HasIndex("ProviderReference").HasDatabaseName("ux_selfie_provider_reference")
+                        .IsUnique();
+
+                    b.HasIndex("UserId").HasDatabaseName("ux_selfie_open_user")
+                        .IsUnique()
+                        .HasFilter("state IN ('Pending','Capturing','Processing')");
+
+                    b.HasIndex("UserId", "RequestedAt").HasDatabaseName("ix_selfie_user_requested_at");
+
+                    b.ToTable("selfie_verifications", "identity", t =>
+                        {
+                            t.HasCheckConstraint("ck_selfie_state", "state IN ('Pending','Capturing','Processing','Passed','RecaptureRequired','Inconclusive','Expired')");
+
+                            t.HasCheckConstraint("ck_selfie_version", "version >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Media.MediaAsset", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1266,6 +1334,15 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_login_sessions_users");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Identity.SelfieVerificationRecord", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired().HasConstraintName("fk_selfie_verifications_users");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Media.MediaAsset", b =>

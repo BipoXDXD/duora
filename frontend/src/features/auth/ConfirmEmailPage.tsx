@@ -6,7 +6,7 @@ import { classifyRequestFailure, type RequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
-import { PasswordField } from '@/shared/ui/form-fields'
+import { PasswordField, TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { confirmEmail } from './auth-api'
 import { currentPasswordSchema, type EmailLink } from './auth-schemas'
@@ -15,7 +15,10 @@ import { useValidationMessage } from './validation-message'
 
 const PROBLEM_MESSAGES = { INVALID_TOKEN: 'confirmEmail.invalidToken' } as const
 
-const confirmEmailSchema = z.object({ password: currentPasswordSchema })
+const confirmEmailSchema = z.object({
+  password: currentPasswordSchema,
+  code: z.string(),
+})
 
 /**
  * Confirmação de e-mail pelo link recebido. Pede um clique em vez de confirmar ao abrir a página
@@ -47,12 +50,21 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
   const fieldError = useValidationMessage()
   const form = useForm<z.input<typeof confirmEmailSchema>, unknown, z.output<typeof confirmEmailSchema>>({
     resolver: zodResolver(confirmEmailSchema),
-    defaultValues: { password: '' },
+    defaultValues: { password: '', code: '' },
   })
-  const confirmation = useMutation({ mutationFn: (password: string) => confirmEmail(link, password) })
-  const submit = form.handleSubmit(({ password }) => {
+  const usesCode = link.token === 'code'
+  const confirmation = useMutation({
+    mutationFn: ({ password, code }: { password: string; code: string }) =>
+      confirmEmail({ ...link, token: usesCode ? code : link.token }, password),
+  })
+  const submit = form.handleSubmit(({ password, code }) => {
+    const normalizedCode = code.replace(/\s/g, '')
+    if (usesCode && !/^[0-9]{8}$/.test(normalizedCode)) {
+      form.setError('code', { message: 'validation.emailCodeInvalid' }, { shouldFocus: true })
+      return
+    }
     if (!confirmation.isPending) {
-      confirmation.mutate(password)
+      confirmation.mutate({ password, code: normalizedCode })
     }
   })
 
@@ -87,6 +99,17 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
           void submit(event)
         }}
       >
+        {usesCode ? (
+          <TextField
+            label={t('confirmEmail.code')}
+            hint={t('confirmEmail.codeHint')}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={16}
+            error={fieldError(form.formState.errors.code?.message)}
+            {...form.register('code')}
+          />
+        ) : null}
         <PasswordField
           label={t('confirmEmail.password')}
           hint={t('confirmEmail.passwordHint')}

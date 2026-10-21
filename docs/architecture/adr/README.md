@@ -32,11 +32,12 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0021](0021-jobs-duraveis-e-leases-no-postgresql.md) | Jobs duráveis em `ops.jobs` com lease, fencing token, retry e `Expired` | Accepted | Idade do job mais antigo acima do alvo ou terceiro uso do protocolo de fila |
 | [0022](0022-i18n-intl-messageformat-catalogo-tipado.md) | Interface em PT-BR e EN com intl-messageformat e catálogo tipado próprio | Accepted | Terceiro idioma ou tradução por fornecedor externo |
 | [0023](0023-topologia-do-backup-repository-host-e-object-lock.md) | Backup por repository host separado com mTLS, credenciais fora do postgres e bucket com versionamento + Object Lock | Accepted | pgBackRest restringir operações por certificado ou provedor sem Object Lock |
-| [0024](0024-fluxo-de-verificacao-etaria.md) | Verificação etária: fornecedor só no worker via outbox, webhook HMAC inline e regra pura no Core | Accepted | Fornecedor contratado ou parecer sobre o ECA Digital |
+| [0024](0024-fluxo-de-verificacao-etaria.md) | Fluxo etário histórico | Superseded by 0029 | Fornecedor contratado ou parecer sobre o ECA Digital |
 | [0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md) | Fotos por corpo cru, quarentena no disco da VPS (FileSystem); S3 como alternativa, fila na outbox e sanitização com ImageSharp no Worker | Accepted | Receita acima de US$ 1 mi, revisão editorial, URL assinada ou `media-sanitizer` isolado |
 | [0026](0026-publico-idiomas-e-regiao-do-servidor.md) | Público principal fora do Brasil, produto inteiro em PT-BR e EN-US e servidor em Boston (EUA) | Accepted | Países do lançamento fixados, terceiro idioma ou servidor/backup em outro país |
 | [0027](0027-midia-das-experiencias-cenario-audio-e-3d.md) | Cenários e personagens, áudio pré-gerado mudo por padrão, mídia na `ExperienceVersion` e 3D offline por padrão e em tempo real por experiência | Accepted | 3D em tempo real ou mídia acima do orçamento medido, mudança de plano ou termos de fonte externa, Freesound ou Sonniss, ou terceiro idioma |
 | [0028](0028-voz-ao-vivo-webrtc-relay-cloudflare-turn.md) | Voz ao vivo por WebRTC P2P com relay forçado na Cloudflare Realtime TURN; LiveKit Cloud como plano B | Accepted | Mute pelo servidor, sala com mais de 2 pessoas ou relay instável no Safari |
+| [0029](0029-confirmacao-email-presenca-sem-idade.md) | E-mail obrigatório e selfie de presença/qualidade, sem idade | Accepted; ativação pendente | Homologação do fornecedor |
 
 ## Regras
 

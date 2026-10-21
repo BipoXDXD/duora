@@ -37,6 +37,16 @@ function useSessionsEndpoint(respond: () => Response = () => HttpResponse.json({
 }
 
 describe('rota protegida', () => {
+  it('conta pendente pede presença sem verificação etária', async () => {
+    useMeEndpoint(() => HttpResponse.json({ ...ME, status: 'PendingEligibility' }))
+    useSessionsEndpoint()
+    await renderApp('/conta')
+    expect(
+      await screen.findByText('Aguardando confirmação de presença', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/verificação de idade/i)).not.toBeInTheDocument()
+  })
+
   it('sem sessão (401) leva à entrada pedindo para entrar, lembrando de onde veio', async () => {
     useMeEndpoint(() => problem(401, 'UNAUTHENTICATED'))
     await renderApp('/conta')

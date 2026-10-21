@@ -1,5 +1,8 @@
 # Modelo de ameaças — M1
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Modelo de ameaças do Duora para o marco M1 (identidade e proteção), com os fluxos de M2 que já dependem das
 decisões tomadas aqui (hub, decisão privada, worker e outbox). Fontes: spec 1.2, 1.3, 7, 8, 9, 10.4–10.6, 11,
 12, 16 e 20.2; [context.md](../architecture/context.md) (fronteiras F1 a F10);

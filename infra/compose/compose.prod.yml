@@ -26,8 +26,11 @@ x-hardened: &hardened
   restart: unless-stopped
   logging: *logging
 
+# Orçamento experimental KVM 2 (2 vCPU / 8 GB): docs/operations/capacity.md.
+# cpus = teto; cpu_shares = peso relativo sob contenção, nunca reserva ou garantia.
 services:
   postgres:
+    cpu_shares: 2048
     image: ${DUORA_POSTGRES_IMAGE:?defina DUORA_POSTGRES_IMAGE (digest da release)}
     # Roda direto como o usuário postgres da imagem: o diretório do volume já é dele (modo 1777 na imagem), então o
     # entrypoint não precisa de root nem de capabilities para preparar o PGDATA.
@@ -90,8 +93,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2560M
-          cpus: "2"
+          memory: 2048M
+          cpus: "1.5"
           pids: 256
 
   # Repository host do pgBackRest (spec 18.2 e 18.3; decidido pelo usuário em 2026-10-15): o único container com
@@ -102,6 +105,7 @@ services:
   # também apaga o repositório pelo servidor TLS. Contra isso, versionamento + Object Lock no bucket (ADR-0023).
   # Mesma imagem do postgres (mesma versão do pgBackRest); os timers do host chamam "docker exec" via duora-backup.
   backup:
+    cpu_shares: 512
     image: ${DUORA_POSTGRES_IMAGE:?defina DUORA_POSTGRES_IMAGE (digest da release)}
     <<: *hardened
     user: "999:999"
@@ -146,12 +150,13 @@ services:
       resources:
         limits:
           memory: 512M
-          cpus: "1"
+          cpus: "0.5"
           pids: 128
 
   # Job de restore (docs/operations/backup-restore.md): só com "--profile restore run --rm restore ...", com o
   # postgres parado. Igual ao backup, mas com o volume do banco gravável e sem servidor TLS.
   restore:
+    cpu_shares: 512
     image: ${DUORA_POSTGRES_IMAGE:?defina DUORA_POSTGRES_IMAGE (digest da release)}
     profiles: [restore]
     <<: *hardened
@@ -177,6 +182,7 @@ services:
           pids: 128
 
   web:
+    cpu_shares: 2048
     image: ${DUORA_WEB_IMAGE:?defina DUORA_WEB_IMAGE (digest da release)}
     <<: *hardened
     user: "1654:1654"
@@ -230,10 +236,11 @@ services:
       resources:
         limits:
           memory: 1536M
-          cpus: "2"
+          cpus: "1.5"
           pids: 512
 
   worker:
+    cpu_shares: 768
     image: ${DUORA_WORKER_IMAGE:?defina DUORA_WORKER_IMAGE (digest da release)}
     <<: *hardened
     user: "1654:1654"
@@ -281,6 +288,7 @@ services:
           pids: 256
 
   edge:
+    cpu_shares: 2048
     image: ${DUORA_EDGE_IMAGE:?defina DUORA_EDGE_IMAGE (digest da release)}
     <<: *hardened
     user: "10001:10001"
@@ -320,6 +328,7 @@ services:
 
   # Job exclusivo de migração: só roda com "--profile migrate run --rm migrator", chamado pelo deploy.
   migrator:
+    cpu_shares: 512
     image: ${DUORA_MIGRATOR_IMAGE:?defina DUORA_MIGRATOR_IMAGE (digest da release)}
     profiles: [migrate]
     <<: *hardened

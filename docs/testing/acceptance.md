@@ -1,5 +1,8 @@
 # Matriz de testes de aceite
 
+> **Decisão vigente — 19/10/2026, issue #93:** verificação etária foi retirada. Participação exige conta Active, e-mail confirmado e selfie de qualidade/presença Passed, além dos demais controles. Referências etárias remanescentes descrevem o sistema anterior ou questões jurídicas históricas; não são requisitos de implementação. Ver [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md).
+
+
 Matriz T-01 a T-28 da spec 20.2, com invariantes ([scope.md](../product/scope.md)), rotas da API (spec 8),
 camada de teste prevista (spec 20.1) e marco (spec 22). O aceite é orientado por risco, não por percentual de
 cobertura (spec 20.3).
@@ -22,7 +25,7 @@ cobertura (spec 20.3).
 
 | ID | Cenário | Resultado obrigatório | Invariante / API | Camada prevista | Marco | Status |
 |---|---|---|---|---|---|---|
-| T-01 | Conta pendente, suspensa ou sem requisito etário tenta participar | API nega, hub não concede contexto e inscrição não avança | INV-01; API-E03, API-E05, API-R01, hub | HTTP, Integração | M1 | parcial: policy `EligibleParticipant` por HTTP numa rota sentinela do ambiente `Testing` (403 para pendente e restrita; 200 para elegível, inclusive verificada há anos, porque a verificação adulta não vence; 503 sem banco) e enumeração das rotas de `/api/v1` fora da lista do titular (`EligibleParticipantPolicyTests`); faltam as rotas de evento e sala e o hub, que ainda não existem |
+| T-01 | Conta pendente, suspensa ou sem confirmação de e-mail ou presença tenta participar | API nega, hub não concede contexto e inscrição não avança | INV-01; API-E03, API-E05, API-R01, hub | HTTP, Integração | M1 | parcial: policy `EligibleParticipant` por HTTP numa rota sentinela do ambiente `Testing` (403 para pendente e restrita; 200 para elegível, inclusive verificada há anos, porque a verificação adulta não vence; 503 sem banco) e enumeração das rotas de `/api/v1` fora da lista do titular (`EligibleParticipantPolicyTests`); faltam as rotas de evento e sala e o hub, que ainda não existem |
 | T-02 | Dois coordenadores tentam reservar a mesma pessoa | Uma reserva; conflito tratado sem participante duplicado | INV-02; `BuildRoundPairings` | Integração (concorrência) | M2 (inferido) | parcial, só domínio: `PairSelectorPropertyTests.NobodyAppearsInTwoPairs` (ninguém aparece em dois pares, em qualquer ordem de entrada). Falta a reserva concorrente de dois coordenadores sobre o banco |
 | T-03 | Bloqueio disputa com mensagem, pareamento e leitura | Operações ordenadas pelo commit; novas autorizações negadas após o bloqueio | INV-03; API-S01, API-C03, API-C04, API-P04, `BuildRoundPairings` | Integração (concorrência), HTTP | M1 (¹) | parcial: S01 e `CheckInteraction` (`BlockEndpointTests`, `BlockConcurrencyTests`, `InteractionCheckTests`: bloqueio idempotente, 2 bloqueios simultâneos → 1 registro, bilateral a partir do commit); no domínio, `InteractionPolicyTests` (bloqueio em qualquer direção barra a interação, veredito neutro) e `PairSelectorPropertyTests.NoPairIsBlocked` (par bloqueado nunca é formado). Faltam o ramo P04 (Profiles) e, no M2, mensagem e pareamento sobre o banco |
 | T-04 | Duas decisões positivas simultâneas e seus retries | Uma conexão e uma conversa; escolhas privadas preservadas | INV-04, INV-06; API-R06 | Integração (concorrência) | M2 (inferido) | não implementado |
