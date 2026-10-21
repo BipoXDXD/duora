@@ -359,6 +359,101 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         Assert.Equal(CountryDatabasePromotion.LostLease, await delayed.PromoteAsync(lease, previous, null, Ct));
     }
 
+    [Fact]
+    public async Task PublicationGateProtectsNewStagingFromAConcurrentMaintenanceSnapshot()
+    {
+        await using var h = await Prepared();
+        h.Time.Advance(TimeSpan.FromDays(1));
+        h.Payload = SyntheticMmdb.Create(h.Time.GetUtcNow().AddHours(-1));
+        var files = await new CountryDatabaseOperationsStore(h.Source, h.Time).LockFilesAsync(Ct);
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        var pending = h.Service.ExecuteAsync(lease, Ct);
+        var createdBeforeGate = Directory.GetDirectories(h.Root).Length;
+        await files.DisposeAsync();
+        await pending;
+        Assert.Equal(0, createdBeforeGate);
+    }
+
+    [Fact]
+    public async Task RecoveryNotificationCannotOvertakeItsUndeliveredIncident()
+    {
+        await using var h = await Prepared();
+        var m = (await h.Store.ReadActiveAsync(Ct))!;
+        h.Time.SetUtcNow(m.BuiltAt.AddHours(72));
+        await using (var q = h.Source.CreateCommand("update ops.country_database_state set last_attempt_at=$1 where singleton"))
+        {
+            q.Parameters.AddWithValue(h.Time.GetUtcNow());
+            await q.ExecuteNonQueryAsync(Ct);
+        }
+        var notices = new Notices { Fail = true };
+        var monitor = new CountryDatabaseHealthService(new(h.Source, h.Time), h.Validator, h.Root, notices, enabled: true);
+        await monitor.RunOnceAsync(Ct);
+        h.Time.Advance(TimeSpan.FromMinutes(1));
+        h.Payload = SyntheticMmdb.Create(h.Time.GetUtcNow().AddHours(-1));
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
+        notices.Fail = false;
+        await monitor.RunOnceAsync(Ct);
+        var overtookIncident = notices.Items.Any(n => n.Code == "Age");
+        h.Time.Advance(TimeSpan.FromMinutes(15));
+        await monitor.RunOnceAsync(Ct);
+        Assert.False(overtookIncident);
+        Assert.Equal([false, true], notices.Items.Where(n => n.Code == "Age").Select(n => n.Recovered));
+    }
+
+    [Fact]
+    public async Task EqualEpochCopiesIncludeActiveAndPreviousAndRecoverLastPromotion()
+    {
+        await using var h = await CountryDatabasePipelineTests.Harness.Create(postgres);
+        var start = h.Time.GetUtcNow();
+        var artifacts = new[] { "BR", "US", "CA" }.Select(country =>
+        {
+            var bytes = SyntheticMmdb.Create(start.AddHours(-1), country: country);
+            return (Bytes: bytes, Hash: h.Validator.Validate(bytes, start, Ct).Sha256);
+        }).OrderBy(x => x.Hash, StringComparer.Ordinal).ToArray();
+        h.RebuildService(artifacts[0].Hash);
+        for (var i = 0; i < artifacts.Length; i++)
+        {
+            h.Time.SetUtcNow(start.AddDays(i));
+            h.Payload = artifacts[i].Bytes;
+            var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+            Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
+        }
+        var archive = new Archive();
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
+        await new CountryDatabaseRetentionService(store, h.Root, archive, enabled: true).RunOnceAsync(Ct);
+        var copiedActive = archive.Files.ContainsKey(artifacts[2].Hash);
+        var copiedPrevious = archive.Files.ContainsKey(artifacts[1].Hash);
+        Assert.Equal(CountryDatabaseRecoveryOutcome.Recovered,
+            await new CountryDatabaseRecoveryService(store, h.Validator, h.Root, archive, enabled: true).RecoverAsync(Ct));
+        Assert.True(copiedActive);
+        Assert.True(copiedPrevious);
+        Assert.Equal(artifacts[2].Hash, (await h.Store.ReadActiveAsync(Ct))!.Sha256);
+    }
+
+    [Fact]
+    public async Task SlowArchiveCannotPreventIndependentAgeAndExecutionAlerts()
+    {
+        await using var h = await Prepared();
+        var archive = new Archive
+        {
+            PutStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+            ContinuePut = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var retention = new CountryDatabaseRetentionService(new(h.MaintenanceSource, h.Time), h.Root, archive, enabled: true);
+        var pending = retention.RunOnceAsync(Ct);
+        await archive.PutStarted.Task.WaitAsync(Ct);
+        h.Time.Advance(TimeSpan.FromHours(72));
+        var notices = new Notices();
+        var error = await Record.ExceptionAsync(() => new CountryDatabaseHealthService(new(h.Source, h.Time),
+            h.Validator, h.Root, notices, enabled: true).RunOnceAsync(Ct));
+        archive.ContinuePut.SetResult();
+        await pending;
+        Assert.Null(error);
+        Assert.Contains(notices.Items, n => n.Code == "Age" && n.Severity == 1);
+        Assert.Contains(notices.Items, n => n.Code == "NoExecution");
+    }
+
     private async Task<CountryDatabasePipelineTests.Harness> Prepared()
     {
         var h = await CountryDatabasePipelineTests.Harness.Create(postgres);
@@ -400,12 +495,16 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     {
         public Dictionary<string, byte[]> Files { get; } = new(StringComparer.Ordinal);
         public Task<IReadOnlyList<string>> ListAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>(Files.Keys.ToArray());
-        public Task PutAsync(CountryDatabaseManifest manifest, Stream content, CancellationToken ct)
+        public TaskCompletionSource? PutStarted { get; init; }
+        public TaskCompletionSource? ContinuePut { get; init; }
+        public async Task PutAsync(CountryDatabaseManifest manifest, Stream content, CancellationToken ct)
         {
+            PutStarted?.TrySetResult();
+            if (ContinuePut is not null)
+            { await ContinuePut.Task.WaitAsync(ct); }
             using var copy = new MemoryStream();
             content.CopyTo(copy);
             Files.TryAdd(manifest.Sha256, copy.ToArray());
-            return Task.CompletedTask;
         }
         public Task<Stream?> OpenAsync(string hash, CancellationToken ct) =>
             Task.FromResult<Stream?>(Files.TryGetValue(hash, out var bytes) ? new MemoryStream(bytes, writable: false) : null);
