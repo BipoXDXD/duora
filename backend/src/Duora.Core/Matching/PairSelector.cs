@@ -31,7 +31,7 @@ public static class PairSelector
 
         return round.AlgorithmVersion switch
         {
-            PairingAlgorithmVersion.GreedyByPriorityV1 or PairingAlgorithmVersion.GreedyByPriorityV2 => SelectGreedyByPriority(round),
+            PairingAlgorithmVersion.GreedyByPriorityV1 or PairingAlgorithmVersion.GreedyByPriorityV2 or PairingAlgorithmVersion.GreedyByPriorityV3 => SelectGreedyByPriority(round),
             _ => throw new InvalidOperationException($"Versão de algoritmo sem implementação: {round.AlgorithmVersion}."),
         };
     }
@@ -44,7 +44,7 @@ public static class PairSelector
 
         var pairs = PairsOf(ranked, partnerOf);
         var candidates = ranked.ToDictionary(candidate => candidate.UserId);
-        var agreements = round.AlgorithmVersion == PairingAlgorithmVersion.GreedyByPriorityV2
+        var agreements = round.AlgorithmVersion is PairingAlgorithmVersion.GreedyByPriorityV2 or PairingAlgorithmVersion.GreedyByPriorityV3
             ? pairs.ToFrozenDictionary(pair => pair, pair => CommunicationPolicy.Agree(
                 candidates[pair.UserLow].Communication, candidates[pair.UserHigh].Communication)!)
             : FrozenDictionary<UserPair, CommunicationAgreement>.Empty;

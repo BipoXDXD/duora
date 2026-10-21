@@ -152,6 +152,12 @@ A integração de bloqueio já aborta `game_sessions` e libera ambas as `pairing
 com guardas → evento → rodada → sala. Leituras e replay reautorizam participação, elegibilidade e bloqueio.
 Não há hub nem outbox de invalidação de salas nesta fatia: recuperação é HTTP autoritativo, com polling da SPA.
 
+A entrega regional das etapas 3–4 (#108, ADR-0033) inclui PATCH moderno e legado da localização nessa
+mesma guarda e mantém versão própria de preferência regional. Em rodadas V3, o snapshot posterior às
+guardas exclui pending e lê país declarado e países aceitos, com bilateralidade e todo o acordo linguístico.
+V2 permanece para rodadas já identificadas; o corte não é ativado nesta entrega. Ver
+[runbook V3](../operations/regional-matching.md) e [testes](../testing/regional-matching.md).
+
 ### C4. Duas ações de jogo
 
 API-R03 (M2), protocolo do [ADR-0020](../architecture/adr/0020-persistencia-da-sessao-de-jogo.md) (item 7).

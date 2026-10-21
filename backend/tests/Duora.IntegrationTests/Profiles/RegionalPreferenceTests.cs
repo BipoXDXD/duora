@@ -128,6 +128,11 @@ public sealed class RegionalPreferenceTests(PostgresFixture postgres) : IAsyncDi
         using var browser = await scenario.SignedInBrowserAsync(account);
         using var profile = await browser.PatchRawJsonAsync("/api/v1/me/profile", """{"countryCode":"BR","subdivisionCode":"BR-SP"}""", "\"0\"");
         Assert.Equal(HttpStatusCode.OK, profile.StatusCode);
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var guard = new NpgsqlCommand("select security_version from safety.user_guards where user_id=$1", connection);
+        guard.Parameters.AddWithValue(account.UserId);
+        Assert.Equal(1L, await guard.ExecuteScalarAsync(Ct));
         using var saved = await PutAsync(browser, """{"mode":"countries","countryCodes":["BR"]}""", "0");
         Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
         Assert.Equal("\"1\"", saved.Headers.ETag!.ToString());
@@ -142,15 +147,12 @@ public sealed class RegionalPreferenceTests(PostgresFixture postgres) : IAsyncDi
         Assert.Equal("\"1\"", location.Headers.ETag!.ToString());
         var locationBody = JsonNode.Parse(await location.Content.ReadAsStringAsync(Ct))!;
         Assert.Equal("BR-SP", (string?)locationBody["subdivisionCode"]);
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
-        await connection.OpenAsync(Ct);
-        await using var guard = new NpgsqlCommand("select security_version from safety.user_guards where user_id=$1", connection);
-        guard.Parameters.AddWithValue(account.UserId);
-        Assert.Equal(1L, await guard.ExecuteScalarAsync(Ct));
+        Assert.Equal(2L, await guard.ExecuteScalarAsync(Ct));
         using var languageEdit = await browser.PutAsync("/api/v1/me/preferences",
             """{"communicationLanguages":["pt"],"allowDifferentDisplayLocales":false}""",
             new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = "\"0\"" }));
         Assert.Equal(HttpStatusCode.OK, languageEdit.StatusCode);
+        Assert.Equal(3L, await guard.ExecuteScalarAsync(Ct));
         using var regionalRead = await browser.GetAsync("/api/v1/me/regional-preferences");
         Assert.Equal("\"1\"", regionalRead.Headers.ETag!.ToString());
         Assert.Equal("countries", (string?)JsonNode.Parse(await regionalRead.Content.ReadAsStringAsync(Ct))!["mode"]);

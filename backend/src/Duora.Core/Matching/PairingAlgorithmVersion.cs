@@ -11,4 +11,7 @@ public enum PairingAlgorithmVersion
 
     /// <summary>Explicit shared communication language and bilateral cross-locale consent.</summary>
     GreedyByPriorityV2 = 2,
+
+    /// <summary>Bilateral declared-country preferences in addition to the V2 communication policy.</summary>
+    GreedyByPriorityV3 = 3,
 }
