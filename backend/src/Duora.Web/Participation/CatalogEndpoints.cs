@@ -49,7 +49,7 @@ internal static class CatalogEndpoints
                 or PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure)
             {
                 ApiProblems.SetRetryAfter(context.HttpContext, TimeSpan.FromSeconds(2));
-                return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable, "Temporarily unavailable.");
+                return ApiProblems.Problem(503, ApiProblems.TemporarilyUnavailable);
             }
         });
 
@@ -61,7 +61,7 @@ internal static class CatalogEndpoints
             var service = http.RequestServices.GetRequiredService<ParticipationService>();
             return user is not null && await service.IsProductAdministratorAsync(user.Value, http.RequestAborted)
                 ? await next(context)
-                : ApiProblems.Problem(403, "FORBIDDEN", "Forbidden.");
+                : ApiProblems.Problem(403, "FORBIDDEN");
         });
 
     private static async Task<IResult> PublishAsync(HttpContext context, ParticipationService service, CancellationToken ct)
@@ -112,7 +112,7 @@ internal static class CatalogEndpoints
         catch (ArgumentException) { return Invalid(); }
     }
 
-    private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Invalid() => ApiProblems.Problem(400, ApiProblems.ValidationFailed, "Invalid bilingual catalog or audio manifest.");
+    private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Invalid() => ApiProblems.Problem(400, ApiProblems.ValidationFailed);
     private static CatalogAudioUploadVariant Variant(CatalogAudioVariantRequest input) =>
         new(input.AssetId, input.Transcript, input.AccessibleDescription, input.Provenance, input.Sha256, input.Bytes);
     private static ConstellationContent Content(CatalogContentRequest input, int version)

@@ -19,7 +19,8 @@ internal static class ProblemAssert
         Assert.Equal(code, (string?)body["code"]);
         Assert.Equal((int)status, (int?)body["status"]);
         Assert.False(string.IsNullOrEmpty((string?)body["type"]));
-        Assert.False(string.IsNullOrEmpty((string?)body["title"]));
+        Assert.Equal(Duora.Web.Http.ApiProblems.TitleFor(code), (string?)body["title"]);
+        Assert.Null(body["detail"]);
         Assert.False(string.IsNullOrEmpty((string?)body["traceId"]));
         Assert.DoesNotContain("Exception", text, StringComparison.Ordinal);
         Assert.DoesNotContain("   at ", text, StringComparison.Ordinal);

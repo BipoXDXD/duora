@@ -40,7 +40,6 @@ internal static class StepUp
 
         return ValueTask.FromResult<object?>(ApiProblems.Problem(
             StatusCodes.Status401Unauthorized,
-            ApiProblems.ReauthenticationRequired,
-            "Confirme a senha para continuar."));
+            ApiProblems.ReauthenticationRequired));
     }
 }

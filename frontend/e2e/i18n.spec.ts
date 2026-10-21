@@ -136,3 +136,41 @@ test.describe('seletor de idioma', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
   })
 })
+
+for (const locale of ['pt-BR', 'en-US'] as const) {
+  test.describe(`safe Problem Details (${locale})`, () => {
+    test.use({ locale })
+    for (const code of ['INVALID_CREDENTIALS', 'UNKNOWN_CODE']) {
+      test(`translates ${code} without displaying API text`, async ({ page }) => {
+        await FakeDuoraApi.install(page)
+        await page.route('**/api/v1/auth/login', async (route) => {
+          await route.fulfill({
+            status: 400,
+            contentType: 'application/problem+json',
+            body: JSON.stringify({
+              status: 400,
+              code,
+              title: 'CANARY_TITLE_104',
+              detail: 'CANARY_DETAIL_104',
+            }),
+          })
+        })
+        await page.goto('/login')
+        await page.getByLabel(locale === 'pt-BR' ? 'E-mail' : 'Email', { exact: true }).fill('synthetic@example.com')
+        await page.getByLabel(locale === 'pt-BR' ? 'Senha' : 'Password', { exact: true }).fill(PASSWORD)
+        await page.getByRole('button', { name: locale === 'pt-BR' ? 'Entrar' : 'Sign in', exact: true }).click()
+        const expected =
+          code === 'INVALID_CREDENTIALS'
+            ? locale === 'pt-BR'
+              ? 'E-mail ou senha incorretos.'
+              : 'Incorrect email or password.'
+            : locale === 'pt-BR'
+              ? 'Algo deu errado do nosso lado.'
+              : 'Something went wrong on our side.'
+        await expect(page.getByRole('alert')).toContainText(expected)
+        await expect(page.locator('body')).not.toContainText('CANARY_')
+        await expectNoAxeViolations(page)
+      })
+    }
+  })
+}

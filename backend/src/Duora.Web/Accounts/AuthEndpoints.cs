@@ -155,13 +155,11 @@ internal static class AuthEndpoints
             case LoginOutcome.MfaRequired:
                 return ApiProblems.Problem(
                     StatusCodes.Status401Unauthorized,
-                    ApiProblems.MfaRequired,
-                    "A conta exige um segundo fator.");
+                    ApiProblems.MfaRequired);
             default:
                 return ApiProblems.Problem(
                     StatusCodes.Status401Unauthorized,
-                    ApiProblems.InvalidCredentials,
-                    "E-mail ou senha inválidos.");
+                    ApiProblems.InvalidCredentials);
         }
     }
 
@@ -290,5 +288,5 @@ internal static class AuthEndpoints
     }
 
     private static ProblemHttpResult InvalidToken() =>
-        ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.InvalidToken, "Link inválido ou expirado.");
+        ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.InvalidToken);
 }

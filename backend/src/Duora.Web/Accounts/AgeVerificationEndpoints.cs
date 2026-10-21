@@ -10,7 +10,7 @@ internal static class AgeVerificationEndpoints
     public static void MapAgeVerificationEndpoints(this IEndpointRouteBuilder api)
     {
         var group = api.MapGroup("/me/age-verifications").WithTags("Me").ProducesProblem(401).ProducesProblem(403);
-        group.MapPost("", () => ApiProblems.Problem(410, "AGE_VERIFICATION_RETIRED", "Age verification has been retired."));
-        group.MapGet("/current", () => ApiProblems.Problem(410, "AGE_VERIFICATION_RETIRED", "Age verification has been retired."));
+        group.MapPost("", () => ApiProblems.Problem(410, "AGE_VERIFICATION_RETIRED"));
+        group.MapGet("/current", () => ApiProblems.Problem(410, "AGE_VERIFICATION_RETIRED"));
     }
 }

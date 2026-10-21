@@ -1,3 +1,4 @@
+import { ApiProblemError, classifyRequestFailure } from '@/shared/api'
 import { screen } from '@testing-library/react'
 import { renderWithI18n } from '@/test/render'
 import { describe, expect, it } from 'vitest'
@@ -81,5 +82,32 @@ describe('RequestFailureAlert', () => {
     )
 
     expect(screen.getByRole('alert')).toHaveTextContent('Algo deu errado do nosso lado.')
+  })
+})
+
+describe('API text cannot become user-facing content', () => {
+  it.each([
+    ['pt-BR', 'INVALID_CREDENTIALS', 'E-mail ou senha incorretos.'],
+    ['en-US', 'INVALID_CREDENTIALS', 'Incorrect email or password.'],
+    ['pt-BR', 'UNKNOWN_CODE', 'Algo deu errado do nosso lado.'],
+    ['en-US', 'UNKNOWN_CODE', 'Something went wrong on our side.'],
+  ] as const)('%s translates %s and hides arbitrary text', (locale, code, expected) => {
+    const error = new ApiProblemError({
+      type: 'about:blank',
+      status: 400,
+      code,
+      title: 'CANARY_TITLE_104',
+      detail: 'CANARY_DETAIL_104',
+      errors: { email: ['CANARY_FIELD_104'] },
+    })
+    renderWithI18n(
+      <RequestFailureAlert
+        failure={classifyRequestFailure(error)}
+        problemMessages={{ INVALID_CREDENTIALS: 'login.invalidCredentials' }}
+      />,
+      locale,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(expected)
+    expect(document.body).not.toHaveTextContent('CANARY_')
   })
 })
