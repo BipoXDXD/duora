@@ -98,6 +98,13 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       state.mode = 'unrestricted'
       state.version++
       await save.click()
+      await expectSafeError(
+        page,
+        locale,
+        pt
+          ? 'A preferência regional mudou em outra aba. Seu rascunho foi preservado. Recarregue a versão atual antes de salvar novamente.'
+          : 'Your regional preference changed in another tab. Your draft was preserved. Reload the current version before saving again.',
+      )
       await expect(save).toBeDisabled()
       await page
         .getByRole('button', { name: pt ? 'Recarregar preferência regional' : 'Reload regional preference' })
