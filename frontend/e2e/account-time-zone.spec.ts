@@ -124,7 +124,8 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       )
       await page.goto('/events')
       const ny = browserName === 'chromium' ? 'Horário New York' : 'Horário Nova York'
-      const sp = browserName === 'chromium' ? 'Sao Paulo Time' : 'São Paulo Time'
+      // WebKit uses platform ICU: macOS retains the accent; Linux and Chromium do not.
+      const sp = browserName === 'webkit' && process.platform === 'darwin' ? 'São Paulo Time' : 'Sao Paulo Time'
       await expect(page.locator('time')).toHaveText(
         locale === 'pt-BR'
           ? [
