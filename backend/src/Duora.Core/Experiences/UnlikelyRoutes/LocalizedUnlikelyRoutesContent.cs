@@ -57,7 +57,7 @@ public sealed class LocalizedUnlikelyRoutesContent : IExperienceContent
             Title = content.Title,
             Objective = content.Objective,
             Example = content.Example,
-            MyClues = content.ClueSets[clueSet].Select(clue => clue.Text).ToArray(),
+            MyClues = view.MyClues.Count == 0 ? [] : content.ClueSets[clueSet].Select(clue => clue.Text).ToArray(),
             CurrentStop = stop is null ? null : new RouteStopView(stop.StepId, stop.Prompt,
                 stop.Options.Select(option => new RouteOptionView(option.OptionId, option.Label)).ToArray()),
             Route = session.State.Shared.ChosenOptions.Select((option, index) => new ChosenStopView(content.Stops[index].StepId,
