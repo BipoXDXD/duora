@@ -227,3 +227,114 @@ a responsabilidade pela habilitação de países. A prioridade manual e a indepe
 
 Fontes consultadas na comparação de 21/10/2026. A validação desta entrega é documental; não houve teste do
 arquivo de base, benchmark de precisão ou execução do detector.
+
+## Adendo de 2026-10-21 — governança operacional aprovada
+
+O responsável aprovou a governança abaixo, solicitando registro documental e mantendo **responsáveis nominais
+(titular e substituto) e canal de alertas pendentes**. Este adendo resolve os parâmetros operacionais anteriormente
+listados como recomendações; as seções e o adendo anteriores preservam o histórico. A aprovação não implementa
+nem ativa detector, atualizador ou monitoramento, e não habilita EUA ou outros países.
+
+### Atualização e promoção
+
+- Verificar a distribuição aprovada `country.mmdb` diariamente às **06h de America/Sao_Paulo**. O horário é
+  do Duora, sem pressupor horário de publicação da IPinfo. Não substituir produto/base/fornecedor automaticamente.
+- Em falha transitória, repetir após 15 minutos, 1 hora e 4 horas, respeitando `Retry-After`. Não repetir
+  automaticamente erros de credencial, schema ou integridade como se fossem falhas transitórias.
+- Baixar por HTTPS para área temporária, com credencial protegida e redirecionamentos limitados aos destinos
+  documentados do fornecedor. Nunca registrar token ou URL assinada nem sobrescrever o arquivo ativo diretamente.
+- Validar legibilidade MMDB, schema esperado, IPv4/IPv6, data coerente, limites de tamanho e testes de leitura.
+  Só promover arquivo aprovado, por troca atômica, preservando a versão anterior válida.
+- Uma execução de atualização por vez; consultas em andamento terminam com a versão consistente que abriram.
+- Manifesto por versão: fornecedor, produto, data de construção/publicação, instante de download, SHA-256,
+  licença, resultado da validação e instante de ativação. Hash calculado localmente identifica o artefato e
+  detecta alterações posteriores; sozinho não comprova autenticidade da origem.
+- Primeira versão exige homologação humana. Depois, promoção automática apenas dentro do mesmo produto,
+  schema e licença, com todos os testes aprovados. Mudança nesses elementos ou regressão bloqueia promoção
+  para revisão humana. A implementação posterior deverá detalhar os testes e limites de tamanho.
+
+### Idade e alertas
+
+Idade é o tempo desde a data verificável de construção/publicação do artefato, nunca desde o download.
+Baixar o mesmo arquivo novamente não renova sua validade. Data ausente, incoerente ou futura impede promoção
+até investigação. Os limites abaixo são política do Duora, não exigências atribuídas ao fornecedor.
+
+| Condição | Comportamento aprovado | Alerta |
+|---|---|---|
+| Base válida com idade menor que 72 horas | Sugestão disponível | Nenhum alerta de idade |
+| Idade a partir de 72 horas e menor que 7 dias | Sugestão ainda disponível | Aviso ao responsável |
+| Idade a partir de 7 dias | Suspender somente a detecção; manter seleção manual | Indisponibilidade |
+| Nenhuma base válida ou arquivo ativo corrompido | Tentar recuperação; sem versão admissível, suspender detecção | Imediato |
+| Todas as tentativas diárias falharam | Preservar base ativa enquanto admissível | Aviso operacional |
+| Credencial recusada, schema inesperado ou integridade inválida | Interromper tentativa; não promover arquivo | Imediato para investigação |
+| Atualizador sem executar há 36 horas | Investigar agendamento, mesmo com base recente | Aviso independente |
+
+Monitorar a idade independentemente do sucesso do atualizador; sua falha não pode impedir a suspensão no limite.
+Alertas são deduplicados por incidente: notificar mudança de gravidade, lembrar diariamente enquanto houver
+intervenção pendente e confirmar recuperação. Titular, substituto e canal ainda serão definidos.
+
+Prazos de atendimento aprovados: até um dia útil para aviso e quatro horas **dentro da cobertura acordada**
+para indisponibilidade. Não pressupor plantão 24x7; a cobertura precisa ser explicitada ao designar a operação.
+
+Suspensão da detecção não altera preferências salvas, idiomas, reservas ou filtros de pareamento. Não recorrer
+a API externa, país arbitrário ou base vencida. Permanecem a prioridade manual e o tratamento `unsupported`
+para país não habilitado.
+
+### Retenção e armazenamento
+
+| Material | Retenção aprovada |
+|---|---|
+| Bases aprovadas | No máximo 14 versões, cada uma por até 14 dias desde o download |
+| Versões admissíveis para recuperação | Somente validadas, com idade de construção/publicação menor que 7 dias |
+| Downloads incompletos/rejeitados | Excluir ao terminar execução; manter somente diagnóstico sanitizado |
+| Manifestos, histórico de promoção e alertas | 90 dias, sem IPs consultados ou dados de participantes |
+| Histórico de detecção de participantes | Não armazenar |
+
+Arquivo expirado pode permanecer para diagnóstico dentro da retenção, mas não volta ao serviço. Remover o
+arquivo ativo ao completar 14 dias desde o download, mesmo sem substituta. A retenção não prolonga a validade.
+
+Guardar também a versão ativa e a anterior em armazenamento privado separado do host, submetido aos mesmos
+prazos e exclusões. Evitar bases em imagens de distribuição ou backups gerais de longa duração. Dimensionamento,
+serviço de armazenamento e valor do orçamento operacional serão definidos antes de provisionamento; nenhum
+recurso ou gasto é criado por este registro. Preservar atribuição/licença nos artefatos retidos.
+
+### Recuperação
+
+1. Rejeitar atualização defeituosa e manter a versão ativa válida.
+2. Diante de erro estrutural/leitura na ativa, selecionar a última aprovada ainda com idade inferior a sete dias.
+3. Conferir hash, manifesto, schema e leitura antes da troca atômica.
+4. Sem versão admissível, deixar a detecção indisponível e sustentar o fluxo manual.
+5. Retomar automaticamente após versão válida e recente em falhas de disponibilidade. Incidentes de integridade,
+   licença ou schema exigem liberação humana antes da retomada.
+
+Recuperação não redefine data original nem reescreve localização/preferência. Backup restaurado também passa
+pela validação e limite de idade; não reativar cegamente arquivo antigo. Meta aprovada: recuperar em até
+15 minutos quando houver cópia válida disponível, a homologar antes de assumir esse tempo como capacidade
+comprovada. Sem cópia admissível, não há promessa de recuperação automática; seleção manual permanece disponível.
+
+Antes da ativação, ensaiar arquivo truncado, credencial inválida, rede indisponível, disco cheio, atualização
+concorrente, reinício durante promoção, base vencida e restauração de backup antigo. Repetir ensaio de recuperação
+trimestralmente e após mudanças no atualizador ou armazenamento. Esses ensaios ainda não foram executados.
+
+### Responsabilidade e observabilidade
+
+Definir responsável técnico nominal e substituto, ambos com acesso ao procedimento. O dono do produto aprova
+mudanças de fornecedor, licença, finalidade, retenção e limite de idade. Titular/substituto e canal de alertas
+continuam pendentes por instrução explícita do responsável; não foram presumidos.
+
+Monitorar apenas idade/identificação da base ativa, última execução/atualização bem-sucedida, falhas por categoria,
+latência da atualização, validação/recuperação e disponibilidade da detecção. Distinguir ausência de publicação,
+falha de download e rejeição de artefato. Não incluir IPs de participantes, países por pessoa, tokens ou payloads.
+
+### Pré-requisitos e escopo preservado
+
+Permanecem pré-requisitos de homologação: acesso e cadência efetiva de `country.mmdb`, confiabilidade de sua data,
+limites de download, biblioteca de leitura e termos, validação do primeiro arquivo e ensaios operacionais.
+A cadência diária publicada para a oferta IPinfo não substitui essa homologação. Antes de ativar a operação,
+resolver responsáveis/canal, cobertura de atendimento e detalhes de armazenamento/orçamento, e obter autorização
+para implementação e implantação. Não há autorização para contratar ou provisionar nesta entrega.
+
+**Somente documentação:** nenhuma rotina, alerta, automação, dependência, download de base, detector, endpoint,
+coleta, migração ou implantação foi criado. O catálogo executável permanece BR + 27 UFs; EUA não habilitados.
+A issue #108 fica aberta; a #78 continua responsável pela habilitação de países. Este registro não altera
+permissões de automação, workflows ou gates de revisão existentes.
