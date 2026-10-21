@@ -134,6 +134,9 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
             SecurityChange.RecoveryCodesRegenerated => (
                 "Novos códigos de recuperação no Duora",
                 $"Novos códigos de recuperação foram gerados para a sua conta do Duora em {occurredAtUtc}; os anteriores deixaram de valer."),
+            SecurityChange.RecoveryCodeUsed => (
+                "Código de recuperação usado no Duora",
+                $"Um código de recuperação foi usado para acessar sua conta do Duora em {occurredAtUtc}."),
             SecurityChange.PasswordChanged => (
                 "Senha alterada no Duora",
                 $"A senha da sua conta do Duora foi alterada em {occurredAtUtc}."),
@@ -279,6 +282,9 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
             SecurityChange.RecoveryCodesRegenerated => (
                 "New recovery codes for Duora",
                 $"New recovery codes were generated for your Duora account on {occurredAtUtc}; the previous ones no longer work."),
+            SecurityChange.RecoveryCodeUsed => (
+                "Recovery code used for Duora",
+                $"A recovery code was used to access your Duora account on {occurredAtUtc}."),
             SecurityChange.PasswordChanged => (
                 "Duora password changed",
                 $"The password of your Duora account was changed on {occurredAtUtc}."),

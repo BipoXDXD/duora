@@ -24,6 +24,39 @@ public sealed class AuthLimitsAcrossAccountsAndAddressesTests(PostgresFixture po
     /// <summary>Teto padrão do bloqueio do Identity (AccountServiceCollectionExtensions).</summary>
     private const int LockoutThreshold = 20;
 
+    [Theory]
+    [InlineData(MfaScenario.RecoveryCodes)]
+    [InlineData(PasswordChanges)]
+    public async Task CredentialMutationsShareAccountQuotaAndRejectWithoutSideEffects(string path)
+    {
+        var time = TestClock.StartingNow();
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            Time = time,
+            TestServices = RemoteAddressFromTestHeader.Register,
+        };
+        var scenario = new IdentityScenario(postgres, factory);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        using var first = await scenario.SignedInBrowserAsync(account);
+        var mfa = await MfaScenario.EnableAsync(first, time);
+        using var second = new Browser(factory);
+        using var login = await MfaScenario.LoginAsync(second, account, twoFactorCode: Totp.Next(time, mfa.SharedKey));
+        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        await second.FetchCsrfTokenAsync();
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            using var counted = await (attempt % 2 == 0 ? first : second).PostJsonAsync(
+                MfaScenario.Reauthenticate, new { password = WrongPassword }, RemoteAddressFromTestHeader.From(Address(attempt)));
+            Assert.Equal(HttpStatusCode.Unauthorized, counted.StatusCode);
+        }
+        var before = await scenario.ScalarTextAsync("select concat_ws('|', password_hash, security_stamp, (select count(*) from ops.outbox_events where payload->>'userId'=$1::text), (select string_agg(value, ',' order by name) from identity.user_tokens where user_id=$1)) from identity.users where id=$1", account.UserId);
+        object? body = path == PasswordChanges ? new { currentPassword = account.Password, newPassword = "a different long password" } : null;
+        using var limited = await second.PostJsonAsync(path, body, RemoteAddressFromTestHeader.From(Address(20)));
+        await ProblemAssert.IsProblemAsync(limited, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
+        ProblemAssert.RetryAfterSeconds(limited);
+        Assert.Equal(before, await scenario.ScalarTextAsync("select concat_ws('|', password_hash, security_stamp, (select count(*) from ops.outbox_events where payload->>'userId'=$1::text), (select string_agg(value, ',' order by name) from identity.user_tokens where user_id=$1)) from identity.users where id=$1", account.UserId));
+    }
+
     [Fact]
     public async Task LoginAttemptsAgainstOneAccountAreLimitedEvenWhenEachComesFromAnotherAddress()
     {
