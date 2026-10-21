@@ -191,6 +191,33 @@ public sealed class SecurityNoticeEmailsTests
             email.TextBody);
     }
 
+    [Theory]
+    [InlineData("America/New_York", "2026-03-08T06:59:00Z", "08/03/2026, 01:59", "3/8/26, 1:59 AM", "UTC−05:00")]
+    [InlineData("America/New_York", "2026-03-08T07:00:00Z", "08/03/2026, 03:00", "3/8/26, 3:00 AM", "UTC−04:00")]
+    [InlineData("America/New_York", "2026-11-01T05:30:00Z", "01/11/2026, 01:30", "11/1/26, 1:30 AM", "UTC−04:00")]
+    [InlineData("America/New_York", "2026-11-01T06:30:00Z", "01/11/2026, 01:30", "11/1/26, 1:30 AM", "UTC−05:00")]
+    [InlineData("America/Sao_Paulo", "2026-03-08T06:59:00Z", "08/03/2026, 03:59", "3/8/26, 3:59 AM", "UTC−03:00")]
+    [InlineData("America/Sao_Paulo", "2026-11-01T06:30:00Z", "01/11/2026, 03:30", "11/1/26, 3:30 AM", "UTC−03:00")]
+    public void PreferredZoneAddsBothLocalLiteralsWithoutRemovingTheUtcReference(string zone, string value, string pt, string en, string offset)
+    {
+        var instant = DateTimeOffset.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+        var email = Emails.SecurityNotice(Recipient, SecurityChange.PasswordChanged, instant, zone);
+        Assert.Contains($"No seu fuso salvo: {pt} — {zone} · {offset}", email.TextBody, StringComparison.Ordinal);
+        Assert.Contains($"In your saved time zone: {en} — {zone} · {offset}", email.TextBody, StringComparison.Ordinal);
+        var original = Emails.SecurityNotice(Recipient, SecurityChange.PasswordChanged, instant);
+        var bodies = original.TextBody.Split("\n\n---\n\n", StringSplitOptions.None);
+        Assert.All(bodies, body => Assert.Contains(body, email.TextBody, StringComparison.Ordinal));
+        Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SavedUtcKeepsTheExactUtcOnlyMessageAndInvalidZoneIsRejected()
+    {
+        Assert.Equal(Emails.SecurityNotice(Recipient, SecurityChange.PasswordChanged, OccurredAt).TextBody,
+            Emails.SecurityNotice(Recipient, SecurityChange.PasswordChanged, OccurredAt, "UTC").TextBody);
+        Assert.Throws<ArgumentException>(() => Emails.SecurityNotice(Recipient, SecurityChange.PasswordChanged, OccurredAt, "Eastern Standard Time"));
+    }
+
     private static int CountOccurrences(string text, string value)
     {
         var count = 0;

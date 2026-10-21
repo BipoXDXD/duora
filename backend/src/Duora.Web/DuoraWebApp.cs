@@ -104,6 +104,7 @@ internal static class DuoraWebApp
         api.MapMeEndpoints();
         api.MapProfileEndpoints();
         api.MapPreferenceEndpoints();
+        api.MapTimeZoneEndpoints();
         api.MapParticipationEndpoints();
         api.MapBlockEndpoints();
         api.MapMfaEndpoints();

@@ -19,6 +19,10 @@ public sealed class DuoraUser : IdentityUser<Guid>
 
     public long LocaleVersion { get; private set; }
 
+    public string? PreferredTimeZone { get; private set; }
+
+    public long TimeZoneVersion { get; private set; }
+
     public AccountStatus Status { get; private set; }
 
     /// <summary>Criação da conta; num cadastro pendente substituído, o instante do cadastro que ficou.</summary>
