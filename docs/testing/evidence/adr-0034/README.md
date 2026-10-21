@@ -17,6 +17,11 @@ contendo este relatório, com diretório chamado `duora`. Os scripts TypeScript/
 caminho relativo para a fonte. Os executáveis do clone devem permanecer iguais à base indicada acima.
 Defina REPO como a raiz desse clone. PROBE ficará em uma pasta irmã; não use ambiente implantado.
 
+Para reproduzir a revisão histórica exata, use o commit
+`01fa45304b42ab964e9bff54f7d6b1fc50cd781f`: ele contém estes probes e fontes de produto iguais à base
+indicada. Uma execução em main posterior é uma nova medição; não substitui as capturas nem as contagens
+históricas do relatório. Não é necessário alterar o schema ou a aplicação para reproduzir a divergência.
+
 ```sh
 set -e
 REPO="$PWD"
