@@ -85,7 +85,8 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             }
         }
         // Loading validates the complete bilingual content; an unpublished or malformed catalog cannot open an event.
-        if (await ContentAsync(connection, contentId, ct) is null)
+        var kind = await ContentKindAsync(connection, contentId, ct);
+        if (kind == "unlikely-routes" ? await RoutesContentAsync(connection, contentId, ct) is null : kind != "constellation" || await ContentAsync(connection, contentId, ct) is null)
         {
             return null;
         }

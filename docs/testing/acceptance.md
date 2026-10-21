@@ -78,3 +78,18 @@ Não são cenários T-NN da spec, mas entram no aceite do marco indicado.
 Cada release registra, por teste: commit, ambiente, dataset sintético, resultado e link para o artefato do
 runner (template de relatório de teste, spec 21.3). Testes de carga e recuperação têm relatório próprio em
 `docs/testing/performance.md` e `docs/operations/backup-restore.md` (a escrever).
+
+## Fatia operacional de Rotas Improváveis — issue #100
+
+Esta fatia acrescenta cobertura a T-05, T-09 e T-27 sem declarar os demais fluxos do M2 concluídos:
+
+- `UnlikelyRoutesSnapshotTests`: formato JSON v1, versões, atribuição de pistas, restauração e recibos.
+- `RoutesCatalogPublicationTests`: publicação incompleta recusada, equivalência bilíngue, áudio público,
+  MFA e imutabilidade do tipo e do conteúdo; catálogo anterior preservado como Constelação.
+- `RoutesParticipationTests`: PostgreSQL real, pistas individuais, reinício, alternância, reenvio,
+  concorrência, revisão limitada, conclusão e liberação; bloqueio, inelegibilidade e prazo.
+- `RoutesRoom.test.tsx` e `e2e-real/unlikely-routes.spec.ts`: etapas acessíveis e fluxo com duas pessoas,
+  interface EN-US/PT-BR, áudio localizado e conclusão sem solicitar microfone.
+
+Os resultados executados pertencem ao relatório da entrega; estes nomes são rastreabilidade, não evidência
+por si só. Conteúdo editorial de produção e a matriz manual completa de acessibilidade permanecem pendentes.
