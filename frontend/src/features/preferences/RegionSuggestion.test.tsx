@@ -6,8 +6,8 @@ import { I18nProvider } from '@/shared/i18n/I18nProvider'
 import { RegionSuggestion } from './RegionSuggestion'
 
 vi.mock('./region-detection-api', () => ({
-  fetchRegionDetectionCapability: async () => true,
-  suggestRegion: async () => ({ status: 'disabled', countryCode: null, observedAt: '2026-10-21T12:00:00Z' }),
+  fetchRegionDetectionCapability: () => Promise.resolve(true),
+  suggestRegion: () => Promise.resolve({ status: 'disabled', countryCode: null, observedAt: '2026-10-21T12:00:00Z' }),
 }))
 
 it('removes the available action when POST reports disabled after an enabled capability', async () => {
