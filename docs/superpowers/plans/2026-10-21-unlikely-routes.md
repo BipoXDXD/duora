@@ -4,7 +4,7 @@
 
 Estender a fatia entregue no PR #95 para Rotas Improváveis: publicação, persistência, sala HTTP e SPA,
 recuperação e conclusão bilíngue sem microfone. Reutilizar pareamento, idioma combinado, aceite bilateral,
-guardas, reservas e jobs. INV-05 (privacidade), INV-06 (reenvio), INV-09 (versão fixada), API-R01/R04 e
+guardas, reservas e jobs. INV-05 (privacidade), INV-06 (reenvio), INV-09 (versão fixada), API-R01/R02/R03/R04 e
 ADR-0020/0021 orientam a entrega. Não alterar região, chat, voz nem a elegibilidade vigente (ADR-0029).
 O catálogo editorial real continua na issue #101.
 

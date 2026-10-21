@@ -62,6 +62,11 @@ public sealed class RoutesCatalogPublicationTests(PostgresFixture postgres)
         {
             Assert.Equal("unlikely-routes", await query.ExecuteScalarAsync(ct));
         }
+        using (var publishedEvent = await administrator.PostJsonAsync("/api/v1/admin/events",
+            new PublishEventRequest("Routes event", clock.GetUtcNow().AddMinutes(20), 10, id)))
+        {
+            Assert.Equal(HttpStatusCode.Created, publishedEvent.StatusCode);
+        }
         foreach (var sql in new[]
         {
             "update experiences.experience_versions set experience_kind='constellation' where id=$1",
