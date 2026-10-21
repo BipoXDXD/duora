@@ -11,7 +11,7 @@ task id da geração.
 |---|---|---|---|
 | Tripo | Imagem (GPT Image 2.5, Nano Banana Pro) e modelo 3D | Pago, do responsável pelo produto | Conforme informado pelo responsável; termos não verificados (ver abaixo) |
 | Rodin (Hyper3D) | Modelo 3D (fonte offline e GLB em tempo real) | Business, do responsável pelo produto (decisão de 2026-10-19) | Conforme informado pelo responsável; termos não verificados. O responsável registra aqui o link e a data em que leu a cláusula de uso comercial |
-| ElevenLabs | Voz sintética (TTS), música e, como fonte principal, efeitos e ambiências (SFX v2, `eleven_text_to_sound_v2`) | **Creator**, duas contas do responsável (decisões de 2026-10-19) | Termos em <https://elevenlabs.io/terms-of-use>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `ELEVENLABS_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth (metadados em <https://api.us.elevenlabs.io/.well-known/oauth-protected-resource>; fluxo a confirmar no primeiro uso) |
+| ElevenLabs | Voz sintética (TTS), música e, como fonte principal, efeitos e ambiências (SFX v2, `eleven_text_to_sound_v2`) | **Creator** ativo confirmado pelo responsável em 21/10/2026; conexão OAuth sem numeração de conta | Termos em <https://elevenlabs.io/terms-of-use>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `ELEVENLABS_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth (metadados em <https://api.us.elevenlabs.io/.well-known/oauth-protected-resource>; conexão usada neste lote em 21/10/2026) |
 | Freesound | Efeitos sonoros (complemento) | Gratuito; **só CC0** | Licença CC0 por som, conferida na página de cada um (<https://freesound.org/help/faq/>); nada com voz identificável |
 | Sonniss | Efeitos sonoros em pacotes (complemento) | Pacotes baixados pelo responsável | Licença do pacote (<https://sonniss.com/gameaudiogdc>) proíbe redistribuir som avulso; como o repositório é público, só o mix final entra no Git (termo exato a confirmar) |
 
@@ -59,22 +59,56 @@ derivados.
 
 ## Áudio
 
-Nenhum versionado hoje. O que entra no Git é o **arquivo final** (mix codificado em AAC-LC, ADR-0027), com uma
-linha por idioma (`pt-BR`, `en-US`) na tabela de arquivos finais; as fontes de cada fornecedor ficam nas tabelas
-seguintes, ligadas pelo nome do arquivo final. A transcrição é o texto da fala no conteúdo da versão.
+O lote candidato da issue #101 está em `content/experiences/2026-10-review/`, com **revisão editorial humana
+pendente**. Os arquivos finais AAC-LC seguem o ADR-0027; WAV PCM canônico acompanha o lote para o transporte
+operacional já existente dos PRs #95/#112. AAC ainda não é aceito pela API atual. Cada formato tem hash próprio.
+A transcrição vem do objetivo público do catálogo; nenhuma pista privada entra no áudio compartilhado.
+
+A pessoa responsável confirmou **Creator ativo durante a geração** em 21/10/2026. A conexão OAuth identifica a
+origem do lote; não se atribuiu numeração de conta. A referência histórica a duas contas no ADR-0027 não foi
+confirmada nesta tarefa e não é usada como prova de licença nem de saldo. Conforme a
+[documentação do fornecedor](https://help.elevenlabs.io/hc/en-us/articles/13313564601361-Can-I-publish-the-content-I-generate-on-the-platform),
+planos pagos incluem licença comercial, ressalvados serviços beta e os termos aplicáveis. Modelo usado:
+`eleven_v4`; voz padrão Sarah, não Voice Library e sem clonagem ou referência humana enviada.
+
+O fornecedor informa a [retirada futura das vozes padrão](https://elevenlabs.io/docs/overview/capabilities/voices)
+em 31/12/2026. Preservar os arquivos offline e seus hashes; uma futura mudança de voz exige outra versão de
+conteúdo. Esta confirmação de plano não substitui escuta, revisão editorial ou aprovação final do lote.
 
 ### Arquivos finais
 
 | Asset | Canal (`music`, `ambience`, `voice`, `ui`) | Idioma | Data | SHA-256 | Fontes (linhas abaixo) | Sintética |
 |---|---|---|---|---|---|---|
+| [constellation-en-US (AAC)](../../content/experiences/2026-10-review/audio/c1eb9c93189b7921b711c5f74747a4d5cc7e9079e8f03293cdc1b93f7438d3c8.m4a) | voice | `en-US` | 2026-10-21 | `c1eb9c93189b7921b711c5f74747a4d5cc7e9079e8f03293cdc1b93f7438d3c8` | ElevenLabs, geração `CBcWnbL6MkmW5v1Tgj1R` | Sim; candidata para revisão |
+| [constellation-en-US (WAV)](../../content/experiences/2026-10-review/audio/e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841.wav) | voice | `en-US` | 2026-10-21 | `e339bb40a0c8c04ecc935638ebcbca5121e84a19bdd1c2496bff51d59ae5d841` | ElevenLabs, geração `CBcWnbL6MkmW5v1Tgj1R` | Sim; candidata para revisão |
+| [constellation-pt-BR (AAC)](../../content/experiences/2026-10-review/audio/f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f.m4a) | voice | `pt-BR` | 2026-10-21 | `f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f` | ElevenLabs, geração `Q8M7IHElWIFVklZyaRpt` | Sim; candidata para revisão |
+| [constellation-pt-BR (WAV)](../../content/experiences/2026-10-review/audio/43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc.wav) | voice | `pt-BR` | 2026-10-21 | `43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc` | ElevenLabs, geração `Q8M7IHElWIFVklZyaRpt` | Sim; candidata para revisão |
+| [unlikely-routes-en-US (AAC)](../../content/experiences/2026-10-review/audio/1b5eea94dfa373525059569a9b503b531063511d03658ce0f8af2f7fa46eba3e.m4a) | voice | `en-US` | 2026-10-21 | `1b5eea94dfa373525059569a9b503b531063511d03658ce0f8af2f7fa46eba3e` | ElevenLabs, geração `4acrAIFFsgr5TXo2OCqw` | Sim; candidata para revisão |
+| [unlikely-routes-en-US (WAV)](../../content/experiences/2026-10-review/audio/db07a523d6743bd5d350ac4ef885fb40fc08720951e12c40dcee48810ca38c97.wav) | voice | `en-US` | 2026-10-21 | `db07a523d6743bd5d350ac4ef885fb40fc08720951e12c40dcee48810ca38c97` | ElevenLabs, geração `4acrAIFFsgr5TXo2OCqw` | Sim; candidata para revisão |
+| [unlikely-routes-pt-BR (AAC)](../../content/experiences/2026-10-review/audio/1a8b423d68c3ecdc9a16babbf501c2cd4caedc24be6f51275a9ed65ea563d272.m4a) | voice | `pt-BR` | 2026-10-21 | `1a8b423d68c3ecdc9a16babbf501c2cd4caedc24be6f51275a9ed65ea563d272` | ElevenLabs, geração `VHs95yv6cXgSiMCpxwpP` | Sim; candidata para revisão |
+| [unlikely-routes-pt-BR (WAV)](../../content/experiences/2026-10-review/audio/04f4d49145097e1dc9246859edc87de76e57eb90f0de7e4e8a3c9658eea92853.wav) | voice | `pt-BR` | 2026-10-21 | `04f4d49145097e1dc9246859edc87de76e57eb90f0de7e4e8a3c9658eea92853` | ElevenLabs, geração `VHs95yv6cXgSiMCpxwpP` | Sim; candidata para revisão |
 
 ### Fontes ElevenLabs (voz e música)
 
 Voz da Voice Library: registrar o `voice_id` e o prazo de retirada que a autora da voz pode exercer. Voz clonada de
 pessoa real só entra com consentimento assinado (documento, data e escopo de uso) na última coluna.
 
-| Asset final | Conta (1 ou 2) | Plano ativo na data | `voice_id` | Modelo | Id da geração | Formato de saída | Créditos | Data | Voice Library: prazo de retirada | Voz clonada: consentimento |
+| Asset final | Conta/identificação | Plano ativo na data | `voice_id` | Modelo | Id da geração | Formato de saída | Créditos | Data | Voice Library: prazo de retirada | Voz clonada: consentimento |
 |---|---|---|---|---|---|---|---|---|---|---|
+| constellation-en-US (WAV e AAC) | Conta OAuth conectada | Creator; confirmado pelo responsável | `EXAVITQu4vr4xnSDxMaL` (Sarah, premade) | `eleven_v4` | `CBcWnbL6MkmW5v1Tgj1R` | MP3 44,1 kHz mono | 47.9952 na tomada selecionada | 2026-10-21 | Não é Voice Library; retirada padrão documentada acima | Não houve clonagem nem referência enviada |
+| constellation-pt-BR (WAV e AAC) | Conta OAuth conectada | Creator; confirmado pelo responsável | `EXAVITQu4vr4xnSDxMaL` (Sarah, premade) | `eleven_v4` | `Q8M7IHElWIFVklZyaRpt` | MP3 44,1 kHz mono | 62.9937 na tomada selecionada | 2026-10-21 | Não é Voice Library; retirada padrão documentada acima | Não houve clonagem nem referência enviada |
+| unlikely-routes-en-US (WAV e AAC) | Conta OAuth conectada | Creator; confirmado pelo responsável | `EXAVITQu4vr4xnSDxMaL` (Sarah, premade) | `eleven_v4` | `4acrAIFFsgr5TXo2OCqw` | MP3 44,1 kHz mono | 49.9950 na tomada selecionada | 2026-10-21 | Não é Voice Library; retirada padrão documentada acima | Não houve clonagem nem referência enviada |
+| unlikely-routes-pt-BR (WAV e AAC) | Conta OAuth conectada | Creator; confirmado pelo responsável | `EXAVITQu4vr4xnSDxMaL` (Sarah, premade) | `eleven_v4` | `VHs95yv6cXgSiMCpxwpP` | MP3 44,1 kHz mono | 53.9946 na tomada selecionada | 2026-10-21 | Não é Voice Library; retirada padrão documentada acima | Não houve clonagem nem referência enviada |
+
+
+O [manifesto completo](../../content/experiences/2026-10-review/media-manifest.json) registra as 32 tomadas
+(em duas revisões solicitadas), com IDs e consumo total informado de **2.431,7568 créditos**. Só quatro tomadas
+atuais selecionadas originam os oito derivados versionados. A revisão inicial foi substituída após a orientação
+do responsável para retirar o aviso falado sobre IA; nenhum arquivo substituído é candidato à publicação.
+Transcrições automáticas Scribe v1 conferem os quatro textos finais e não equivalem a escuta humana.
+
+Direitos dos textos: redação/tradução original assistida por IA para o Duora, sem conteúdo de terceiros ou dados
+de participantes. Origem de voz e direitos do fornecedor permanecem distintos da aprovação editorial final.
 
 ### Fontes ElevenLabs SFX (efeitos e ambiências)
 

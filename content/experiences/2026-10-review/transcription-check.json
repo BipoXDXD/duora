@@ -1,0 +1,53 @@
+{
+  "source": "Automatic ElevenLabs Scribe v1 transcript of the final selected generation; not human listening or approval",
+  "results": [
+    {
+      "key": "constellation-en-US",
+      "allCompleted": true,
+      "hasFailures": false,
+      "generationIds": [
+        "O4vXON9iDK2qidSCvMIr"
+      ],
+      "credits": 0,
+      "expected": "Explore everyday choices. You can skip any card.",
+      "transcript": "Explore everyday choices. You can skip any card.",
+      "exactMatch": true
+    },
+    {
+      "key": "constellation-pt-BR",
+      "allCompleted": true,
+      "hasFailures": false,
+      "generationIds": [
+        "3Y2bpzds6T0JsAQdbGMi"
+      ],
+      "credits": 0,
+      "expected": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "exactMatch": true
+    },
+    {
+      "key": "unlikely-routes-en-US",
+      "allCompleted": true,
+      "hasFailures": false,
+      "generationIds": [
+        "xMEXeigjC1H3fzawAuVV"
+      ],
+      "credits": 0,
+      "expected": "Plan a route through an imaginary island together.",
+      "transcript": "Plan a route through an imaginary island together.",
+      "exactMatch": true
+    },
+    {
+      "key": "unlikely-routes-pt-BR",
+      "allCompleted": true,
+      "hasFailures": false,
+      "generationIds": [
+        "bX9jAjElsDbUhdeb0f0b"
+      ],
+      "credits": 0,
+      "expected": "Planejem uma rota por uma ilha imaginária em conjunto.",
+      "transcript": "Planejem uma rota por uma ilha imaginária em conjunto.",
+      "exactMatch": true
+    }
+  ]
+}
