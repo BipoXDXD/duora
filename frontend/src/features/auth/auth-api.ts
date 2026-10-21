@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { sendMutation, sendMutationForJson } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
+import type { Locale } from '@/shared/i18n/locale'
 import type { EmailLink } from './auth-schemas'
 
 type LoginRequest = components['schemas']['LoginRequest']
@@ -16,6 +17,9 @@ export interface Registration {
   readonly password: string
   readonly acceptedTermsVersion: string
   readonly acceptedPrivacyVersion: string
+  /** Explicit document metadata; omitted/null means unknown, not the interface language. */
+  readonly acceptedTermsLocale?: Locale | null
+  readonly acceptedPrivacyLocale?: Locale | null
 }
 
 /** 202 neutro: a resposta não revela se o e-mail já tem conta. */

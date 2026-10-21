@@ -146,7 +146,10 @@ internal sealed class ConsentRecordConfiguration : IEntityTypeConfiguration<Cons
     {
         var documents = string.Join(", ", Enum.GetNames<LegalDocument>().Select(name => $"'{name}'"));
         builder.ToTable("consent_records", DatabaseSchemas.Identity, table =>
-            table.HasCheckConstraint("ck_consent_records_document", $"document IN ({documents})"));
+        {
+            table.HasCheckConstraint("ck_consent_records_document", $"document IN ({documents})");
+            table.HasCheckConstraint("ck_consent_records_document_locale", "document_locale IN ('pt-BR', 'en-US')");
+        });
         builder.HasKey(c => c.Id).HasName("pk_consent_records");
 
         builder.Property(c => c.Id).HasColumnName("id").ValueGeneratedNever();
@@ -154,6 +157,7 @@ internal sealed class ConsentRecordConfiguration : IEntityTypeConfiguration<Cons
         builder.Property(c => c.Document).HasColumnName("document").HasConversion<string>().HasMaxLength(16);
         builder.Property(c => c.Version).HasColumnName("version").HasMaxLength(32).IsRequired();
         builder.Property(c => c.AcceptedAt).HasColumnName("accepted_at");
+        builder.Property(c => c.DocumentLocale).HasColumnName("document_locale").HasColumnType("text");
 
         builder.HasOne<DuoraUser>()
             .WithMany()

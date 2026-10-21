@@ -93,7 +93,9 @@ public sealed class AccountService
         string termsVersion,
         string privacyVersion,
         EmailLanguage language,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? termsLocale = null,
+        string? privacyLocale = null)
     {
         var now = _time.GetUtcNow();
         // O PasswordHasher padrão não usa o usuário; o hash é calculado antes de saber qual caso é este.
@@ -107,7 +109,7 @@ public sealed class AccountService
             return;
         }
 
-        await ReplaceConsentsUnlessConfirmedAsync(registration, termsVersion, privacyVersion, now, cancellationToken);
+        await ReplaceConsentsUnlessConfirmedAsync(registration, termsVersion, privacyVersion, termsLocale, privacyLocale, now, cancellationToken);
         await GrantParticipantRoleUnlessAnyAsync(registration.UserId, cancellationToken);
         var user = await _users.FindByIdAsync(registration.UserId.ToString("D"))
             ?? throw new InvalidOperationException("Conta sumiu dentro da transação do cadastro.");
@@ -434,6 +436,8 @@ public sealed class AccountService
         RegistrationRow registration,
         string termsVersion,
         string privacyVersion,
+        string? termsLocale,
+        string? privacyLocale,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -445,10 +449,10 @@ public sealed class AccountService
             cancellationToken);
         await _db.Database.ExecuteSqlAsync(
             $"""
-            insert into identity.consent_records (id, user_id, document, version, accepted_at)
-            select v.id, {registration.UserId}, v.document, v.version, {now}
-            from (values ({Guid.CreateVersion7(now)}, {terms}, {termsVersion}),
-                         ({Guid.CreateVersion7(now)}, {privacy}, {privacyVersion})) as v(id, document, version)
+            insert into identity.consent_records (id, user_id, document, version, accepted_at, document_locale)
+            select v.id, {registration.UserId}, v.document, v.version, {now}, v.document_locale
+            from (values ({Guid.CreateVersion7(now)}, {terms}, {termsVersion}, {termsLocale}),
+                         ({Guid.CreateVersion7(now)}, {privacy}, {privacyVersion}, {privacyLocale})) as v(id, document, version, document_locale)
             where {replace}
             """,
             cancellationToken);

@@ -221,6 +221,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(16)")
                         .HasColumnName("document");
 
+                    b.Property<string>("DocumentLocale")
+                        .HasColumnType("text")
+                        .HasColumnName("document_locale");
+
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
@@ -241,6 +245,8 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.ToTable("consent_records", "identity", t =>
                         {
                             t.HasCheckConstraint("ck_consent_records_document", "document IN ('Terms', 'Privacy')");
+
+                            t.HasCheckConstraint("ck_consent_records_document_locale", "document_locale IN ('pt-BR', 'en-US')");
                         });
                 });
 

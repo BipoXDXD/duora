@@ -10,10 +10,19 @@ export const PASSWORD_MAX_LENGTH = 128
 // RFC 5321: o caminho de envio aceita no máximo 254 caracteres num endereço.
 export const EMAIL_MAX_LENGTH = 254
 
-/** Versões dos documentos legais que a pessoa aceita no cadastro, enviadas ao servidor. */
+/**
+ * Document metadata must come from the document actually presented, never from the UI/account locale.
+ * The current registration only has version labels; document publication is pending issue #9.
+ * Keep unknown languages null until published document metadata can be bound to each acceptance.
+ */
+export const REGISTRATION_DOCUMENTS = {
+  terms: { version: '2026-10-01', locale: null },
+  privacy: { version: '2026-10-01', locale: null },
+} as const
+
 export const LEGAL_DOCUMENT_VERSIONS = {
-  terms: '2026-10-01',
-  privacy: '2026-10-01',
+  terms: REGISTRATION_DOCUMENTS.terms.version,
+  privacy: REGISTRATION_DOCUMENTS.privacy.version,
 } as const
 
 // Validação de formato só para orientar; o servidor decide (spec 2.2, React Hook Form + Zod).

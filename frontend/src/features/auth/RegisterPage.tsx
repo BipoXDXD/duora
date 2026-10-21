@@ -13,6 +13,7 @@ import { register } from './auth-api'
 import {
   emailSchema,
   LEGAL_DOCUMENT_VERSIONS,
+  REGISTRATION_DOCUMENTS,
   newPasswordSchema,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -32,8 +33,10 @@ function submitRegistration({ email, password }: RegisterForm): Promise<void> {
   return register({
     email,
     password,
-    acceptedTermsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
-    acceptedPrivacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
+    acceptedTermsVersion: REGISTRATION_DOCUMENTS.terms.version,
+    acceptedPrivacyVersion: REGISTRATION_DOCUMENTS.privacy.version,
+    acceptedTermsLocale: REGISTRATION_DOCUMENTS.terms.locale,
+    acceptedPrivacyLocale: REGISTRATION_DOCUMENTS.privacy.locale,
   })
 }
 
