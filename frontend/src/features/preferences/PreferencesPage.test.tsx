@@ -51,7 +51,7 @@ function useBackend() {
 describe('private communication preferences', () => {
   it('requires a declaration, starts unchecked, and saves only explicit choices', async () => {
     const api = useBackend()
-    const { user } = await renderApp('/conta/preferencias')
+    const { user } = await renderApp('/account/preferences')
     const english = await screen.findByRole('checkbox', { name: 'Inglês' })
     expect(english).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Aceito pares/ })).not.toBeChecked()
@@ -65,7 +65,7 @@ describe('private communication preferences', () => {
   })
   it('keeps the draft on conflict and requires explicit reload before retry', async () => {
     const api = useBackend()
-    const { user } = await renderApp('/conta/preferencias')
+    const { user } = await renderApp('/account/preferences')
     await user.click(await screen.findByRole('checkbox', { name: 'Inglês' }))
     api.concurrentUpdate()
     await user.click(screen.getByRole('button', { name: 'Salvar preferências' }))
@@ -92,7 +92,7 @@ it('loads the account display locale and persists header changes without declari
       return HttpResponse.json({ locale: 'pt-BR', version: '1' })
     }),
   )
-  const { user } = await renderApp('/conta/preferencias')
+  const { user } = await renderApp('/account/preferences')
   await screen.findByRole('heading', { name: 'Communication preferences' })
   await user.click(screen.getByRole('button', { name: 'Português' }))
   await screen.findByRole('heading', { name: 'Preferências de comunicação' })
@@ -114,7 +114,7 @@ it('does not apply a delayed locale save to a different signed-in account', asyn
       return HttpResponse.json({ locale: 'en-US', version: '1' })
     }),
   )
-  const { user, queryClient } = await renderApp('/conta/preferencias')
+  const { user, queryClient } = await renderApp('/account/preferences')
   await user.selectOptions(await screen.findByRole('combobox', { name: 'Idioma da interface e conteúdo' }), 'en-US')
   await user.click(screen.getByRole('button', { name: 'Salvar idioma de exibição' }))
   await waitFor(() => {
@@ -135,7 +135,7 @@ it('does not apply a delayed locale save to a different signed-in account', asyn
 
 it('does not save a header language choice after the account changes during its locale read', async () => {
   useBackend()
-  const { user, queryClient } = await renderApp('/conta/preferencias')
+  const { user, queryClient } = await renderApp('/account/preferences')
   await screen.findByRole('combobox', { name: 'Idioma da interface e conteúdo' })
   let release: (() => void) | undefined
   const pending = new Promise<void>((resolve) => {

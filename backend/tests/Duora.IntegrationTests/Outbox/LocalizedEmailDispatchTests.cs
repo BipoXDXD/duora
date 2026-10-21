@@ -36,7 +36,7 @@ public sealed class LocalizedEmailDispatchTests(PostgresFixture postgres)
         var mail = await File.ReadAllTextAsync(Assert.Single(harness.MailFiles()), Ct);
         Assert.Contains(subjectLine + "\n", mail, StringComparison.Ordinal);
         Assert.Contains(bodyExcerpt, mail, StringComparison.Ordinal);
-        Assert.Contains($"{EmailOutboxHarness.PublicOrigin}/confirmar-email#userId=", mail, StringComparison.Ordinal);
+        Assert.Contains($"{EmailOutboxHarness.PublicOrigin}/confirm-email#userId=", mail, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public sealed class LocalizedEmailDispatchTests(PostgresFixture postgres)
         var mail = await File.ReadAllTextAsync(Assert.Single(harness.MailFiles()), Ct);
         Assert.Contains("Subject: Duora password reset\n", mail, StringComparison.Ordinal);
         Assert.Contains("We received a request to reset the password", mail, StringComparison.Ordinal);
-        Assert.Contains($"{EmailOutboxHarness.PublicOrigin}/redefinir-senha#userId=", mail, StringComparison.Ordinal);
+        Assert.Contains($"{EmailOutboxHarness.PublicOrigin}/reset-password#userId=", mail, StringComparison.Ordinal);
         Assert.Contains("&token=tok-1", mail, StringComparison.Ordinal);
     }
 

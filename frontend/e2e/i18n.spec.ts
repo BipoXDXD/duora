@@ -76,7 +76,7 @@ test.describe('interface em inglês (navegador em en-US)', () => {
     const api = await FakeDuoraApi.install(page)
     api.seedConfirmedUser('ana@example.com', PASSWORD)
 
-    await page.goto('/entrar')
+    await page.goto('/login')
     await page.getByLabel('Email', { exact: true }).fill('nobody@example.com')
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
@@ -85,7 +85,7 @@ test.describe('interface em inglês (navegador em en-US)', () => {
 
     const sentMessages: string[] = []
     for (const email of ['ana@example.com', 'nobody@example.com']) {
-      await page.goto('/esqueci-a-senha')
+      await page.goto('/forgot-password')
       await page.getByLabel('Email', { exact: true }).fill(email)
       await page.getByRole('button', { name: 'Send link' }).click()
       sentMessages.push(await page.getByRole('status').innerText())
@@ -110,7 +110,7 @@ test.describe('seletor de idioma', () => {
   }) => {
     // No WebKit, como no Safari padrão, Tab não alcança links; Option+Tab alcança (ver smoke.spec.ts).
     const nextKey = browserName === 'webkit' ? 'Alt+Tab' : 'Tab'
-    await page.goto('/entrar')
+    await page.goto('/login')
     await expect(page.getByRole('banner').getByRole('group', { name: 'Idioma' })).toBeVisible()
     const english = page.getByRole('banner').getByRole('button', { name: 'English' })
     await expect(english).toHaveAttribute('aria-pressed', 'false')

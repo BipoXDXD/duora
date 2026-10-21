@@ -24,7 +24,7 @@ async function signInAsAna(page: Page): Promise<FakeDuoraApi> {
   const api = await FakeDuoraApi.install(page)
   api.seedConfirmedUser(ANA, PASSWORD)
   api.seedConfirmedUser(BRUNO, PASSWORD)
-  await page.goto('/entrar')
+  await page.goto('/login')
   await signIn(page, ANA)
   await expect(page.getByText(ANA)).toBeVisible()
   await expect(page.getByText('Navegador de teste (ana)')).toBeVisible()
@@ -83,7 +83,7 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
   test('A sai em outra aba: esta aba deixa de mostrar A na hora, sem esperar foco', async ({ page }) => {
     await signInAsAna(page)
     const otherTab = await page.context().newPage()
-    await otherTab.goto('/conta')
+    await otherTab.goto('/account')
     await expect(otherTab.getByText(ANA)).toBeVisible()
 
     await otherTab.getByRole('button', { name: 'Sair' }).click()
@@ -95,7 +95,7 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
   test('B entra em outra aba: esta aba passa a mostrar B e nada de A', async ({ page }) => {
     await signInAsAna(page)
     const otherTab = await page.context().newPage()
-    await otherTab.goto('/entrar')
+    await otherTab.goto('/login')
     const anaTraces = await watchForAnaTraces(page)
     // A entrada desta aba já começa limpa (o observador vê a tela de A antes da troca).
     await page.evaluate(() => Reflect.set(window, '__dadosDeAna', []))
@@ -153,7 +153,7 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
 
 test('página pública restaurada do bfcache não recarrega e mantém o rascunho do cadastro', async ({ page }) => {
   await FakeDuoraApi.install(page)
-  await page.goto('/criar-conta')
+  await page.goto('/register')
   await page.getByLabel('E-mail', { exact: true }).fill(ANA)
   await page.evaluate(() => Reflect.set(window, '__mesmoDocumento', true))
 

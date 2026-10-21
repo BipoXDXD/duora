@@ -38,7 +38,7 @@ async function fill(user: RenderedApp['user'], confirmation = PASSWORD) {
 }
 
 describe('troca obrigatória da senha inicial', () => {
-  it.each(['/conta', '/conta/perfil', '/conta/ativar-mfa', '/trocar-senha-inicial'])(
+  it.each(['/account', '/account/profile', '/account/enable-mfa', '/change-initial-password'])(
     'restringe a navegação: %s',
     async (path) => {
       restricted()
@@ -47,12 +47,12 @@ describe('troca obrigatória da senha inicial', () => {
         'autocomplete',
         'current-password',
       )
-      expect(screen.getByTestId('location')).toHaveTextContent('/trocar-senha-inicial')
+      expect(screen.getByTestId('location')).toHaveTextContent('/change-initial-password')
     },
   )
   it('valida confirmação antes de enviar', async () => {
     restricted()
-    const { user } = await renderApp('/conta')
+    const { user } = await renderApp('/account')
     await fill(user, 'outra senha longa')
     expect(await screen.findByText('As senhas não coincidem.')).toBeInTheDocument()
   })
@@ -100,7 +100,7 @@ describe('troca obrigatória da senha inicial', () => {
         ),
       )
     })
-    const { user } = await renderApp('/entrar', queryClient)
+    const { user } = await renderApp('/login', queryClient)
     await enter(user, screen.getByLabelText('E-mail'), ME.email)
     await enter(user, screen.getByLabelText('Senha'), TEMPORARY)
     await user.click(screen.getByRole('button', { name: 'Entrar' }))
@@ -144,7 +144,7 @@ describe('troca obrigatória da senha inicial', () => {
         return problem(status, code)
       }),
     )
-    const { user } = await renderApp('/conta')
+    const { user } = await renderApp('/account')
     await fill(user)
     expect(await screen.findByRole('alert')).toHaveTextContent(message)
     expect(calls).toBe(1)
@@ -160,15 +160,15 @@ describe('troca obrigatória da senha inicial', () => {
         ),
       ),
     )
-    const { user } = await renderApp('/conta')
+    const { user } = await renderApp('/account')
     await fill(user)
     expect(await screen.findByRole('alert')).toHaveTextContent('diferente da senha temporária')
   })
   it('sessão expirada vai à entrada', async () => {
     server.use(http.get(`${API}/me`, () => problem(401, 'UNAUTHENTICATED')))
-    await renderApp('/trocar-senha-inicial')
+    await renderApp('/change-initial-password')
     await waitFor(() => {
-      expect(screen.getByTestId('location')).toHaveTextContent('/entrar')
+      expect(screen.getByTestId('location')).toHaveTextContent('/login')
     })
   })
   it('participante normal não fica preso na troca', async () => {
@@ -176,7 +176,7 @@ describe('troca obrigatória da senha inicial', () => {
       http.get(`${API}/me`, () => HttpResponse.json({ ...ME, roles: ['participant'] })),
       http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
     )
-    await renderApp('/trocar-senha-inicial')
+    await renderApp('/change-initial-password')
     expect(
       await screen.findByRole('heading', { name: 'Sua conta' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
     ).toBeInTheDocument()
@@ -193,7 +193,7 @@ it('falha de rede mantém a troca disponível sem reenviar a senha', async () =>
       return HttpResponse.error()
     }),
   )
-  const { user } = await renderApp('/conta')
+  const { user } = await renderApp('/account')
   await fill(user)
   expect(await screen.findByRole('alert')).toHaveTextContent('conexão')
   expect(calls).toBe(1)
@@ -201,8 +201,8 @@ it('falha de rede mantém a troca disponível sem reenviar a senha', async () =>
 
 describe('entrar novamente encerra a sessão restrita', () => {
   it.each([
-    ['troca de senha', '/trocar-senha-inicial', () => problem(403, 'PASSWORD_CHANGE_REQUIRED')],
-    ['cadastro de MFA', '/conta/ativar-mfa', () => problem(403, 'MFA_ENROLLMENT_REQUIRED')],
+    ['troca de senha', '/change-initial-password', () => problem(403, 'PASSWORD_CHANGE_REQUIRED')],
+    ['cadastro de MFA', '/account/enable-mfa', () => problem(403, 'MFA_ENROLLMENT_REQUIRED')],
   ])('%s: chama o logout antes de ir à entrada', async (_fase, path, me) => {
     useAntiforgeryEndpoint()
     const logouts: (string | null)[] = []
@@ -220,7 +220,7 @@ describe('entrar novamente encerra a sessão restrita', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('location')).toHaveTextContent(/^\/entrar$/)
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/login$/)
     })
     expect(logouts).toHaveLength(1)
     expect(logouts[0]).toMatch(/^token-\d+$/)
@@ -233,13 +233,13 @@ describe('entrar novamente encerra a sessão restrita', () => {
     restricted()
     useAntiforgeryEndpoint()
     server.use(http.post(`${API}/auth/logout`, () => HttpResponse.error()))
-    const { user } = await renderApp('/trocar-senha-inicial')
+    const { user } = await renderApp('/change-initial-password')
 
     await user.click(
       await screen.findByRole('button', { name: 'Entrar novamente' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
     )
 
     expect(await screen.findByRole('alert')).toHaveTextContent('conexão')
-    expect(screen.getByTestId('location')).toHaveTextContent('/trocar-senha-inicial')
+    expect(screen.getByTestId('location')).toHaveTextContent('/change-initial-password')
   })
 })

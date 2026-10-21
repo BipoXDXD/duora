@@ -88,7 +88,7 @@ function useProfileBackend(initial: StoredProfile = { displayName: null, bio: nu
 describe('perfil: leitura', () => {
   it('mostra carregando e depois os valores salvos nos campos', async () => {
     useProfileBackend({ displayName: 'Ana', bio: 'Gosto de jogos.', version: 3 })
-    await renderApp('/conta/perfil')
+    await renderApp('/account/profile')
 
     expect(await screen.findByText('Carregando seu perfil…')).toBeInTheDocument()
     expect(await screen.findByLabelText('Nome de exibição')).toHaveValue('Ana')
@@ -109,7 +109,7 @@ describe('perfil: leitura', () => {
             ),
       ),
     )
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
 
     expect(await screen.findByText('Não foi possível carregar seu perfil.')).toBeInTheDocument()
     failing = false
@@ -120,7 +120,7 @@ describe('perfil: leitura', () => {
 
   it('o perfil sai da memória quando a pessoa deixa a tela (gcTime 0, T-21)', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    const { user, queryClient } = await renderApp('/conta/perfil')
+    const { user, queryClient } = await renderApp('/account/profile')
     await screen.findByLabelText('Nome de exibição')
     expect(queryClient.getQueryData(profileQueryKey(ME.id))).toBeDefined()
 
@@ -134,7 +134,7 @@ describe('perfil: leitura', () => {
 
   it('a conta tem o link para editar o perfil', async () => {
     useProfileBackend()
-    const { user } = await renderApp('/conta')
+    const { user } = await renderApp('/account')
 
     await user.click(await screen.findByRole('link', { name: 'Editar perfil' }))
 
@@ -145,7 +145,7 @@ describe('perfil: leitura', () => {
 describe('perfil: edição', () => {
   it('salva com o ETag lido e usa a versão nova no envio seguinte', async () => {
     const backend = useProfileBackend()
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
 
     await user.type(await screen.findByLabelText('Nome de exibição'), 'Ana')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
@@ -165,7 +165,7 @@ describe('perfil: edição', () => {
 
   it('valida no navegador antes de enviar', async () => {
     const backend = useProfileBackend()
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
 
     await screen.findByLabelText('Nome de exibição')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
@@ -177,7 +177,7 @@ describe('perfil: edição', () => {
 
   it('uma releitura em segundo plano não troca a versão sobre a qual a edição foi feita', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    const { user, queryClient } = await renderApp('/conta/perfil')
+    const { user, queryClient } = await renderApp('/account/profile')
     await screen.findByLabelText('Nome de exibição')
 
     backend.changeElsewhere({ displayName: 'Outra aba' })
@@ -192,7 +192,7 @@ describe('perfil: edição', () => {
 describe('perfil: região', () => {
   it('permite somente país e limpar a localização sem conservar a UF antiga', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-SP', version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Região' }), '')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
     expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
@@ -209,7 +209,7 @@ describe('perfil: região', () => {
 
   it('mostra a UF salva no select, com "Não informar" e as 27 UFs pelo nome', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-BA', version: 1 })
-    await renderApp('/conta/perfil')
+    await renderApp('/account/profile')
 
     const region = await screen.findByRole('combobox', { name: 'Região' })
     expect(region).toHaveValue('BR-BA')
@@ -224,7 +224,7 @@ describe('perfil: região', () => {
 
   it('as UFs vêm em ordem alfabética do nome, depois de "Não informar"', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
     await user.selectOptions(await screen.findByRole('combobox', { name: 'País' }), 'BR')
 
     const region = await screen.findByRole('combobox', { name: 'Região' })
@@ -239,14 +239,14 @@ describe('perfil: região', () => {
 
   it('perfil sem região começa em "Não informar"', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    await renderApp('/conta/perfil')
+    await renderApp('/account/profile')
 
     expect(await screen.findByRole('combobox', { name: 'Região' })).toHaveValue('')
   })
 
   it('código de região que esta versão não conhece aparece como "Não informar" e não é apagado', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-ZZ', version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
 
     const region = await screen.findByRole('combobox', { name: 'Região' })
     expect(region).toHaveValue('')
@@ -262,7 +262,7 @@ describe('perfil: região', () => {
 
   it('escolher uma UF manda o país e a subdivisão', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
 
     await user.selectOptions(await screen.findByRole('combobox', { name: 'País' }), 'BR')
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Região' }), 'Pernambuco')
@@ -275,7 +275,7 @@ describe('perfil: região', () => {
 
   it('"Não informar" manda null, que limpa a região no servidor', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-SP', version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
 
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Região' }), 'Não informar')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
@@ -286,7 +286,7 @@ describe('perfil: região', () => {
 
   it('a ajuda diz que só o estado é guardado', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    await renderApp('/conta/perfil')
+    await renderApp('/account/profile')
 
     expect(await screen.findByRole('combobox', { name: 'Região' })).toHaveAccessibleDescription(
       'Opcional. Só o estado, nunca a cidade ou o endereço.',
@@ -295,7 +295,7 @@ describe('perfil: região', () => {
 
   it('no conflito, a versão salva mostra a região pelo nome', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-SP', version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
     const region = await screen.findByRole('combobox', { name: 'Região' })
 
     backend.changeElsewhere({ regionCode: 'BR-RJ' })
@@ -312,7 +312,7 @@ describe('perfil: região', () => {
 describe('perfil: conflito (412, T-19)', () => {
   it('avisa, mantém o que foi digitado, recarrega a versão atual e reaplica sobre ela', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: 'Oi', version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
     const name = await screen.findByLabelText('Nome de exibição')
 
     backend.changeElsewhere({ bio: 'Escrito na outra aba' })
@@ -335,7 +335,7 @@ describe('perfil: conflito (412, T-19)', () => {
 
   it('reaplicar manda só o campo editado e não desfaz o que a outra aba mudou', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: 'Oi', version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
     const name = await screen.findByLabelText('Nome de exibição')
 
     backend.changeElsewhere({ bio: 'Escrito na outra aba' })
@@ -353,7 +353,7 @@ describe('perfil: conflito (412, T-19)', () => {
 
   it('descartar troca o rascunho pela versão salva', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
     const name = await screen.findByLabelText('Nome de exibição')
 
     backend.changeElsewhere({ displayName: 'Ana da outra aba' })
@@ -371,7 +371,7 @@ describe('perfil: outras falhas', () => {
   it('conta restrita recebe a explicação, não um erro genérico', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
     server.use(http.patch(`${API}/me/profile`, () => problem(403, 'ACCOUNT_RESTRICTED')))
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
 
     await screen.findByLabelText('Nome de exibição')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
@@ -382,7 +382,7 @@ describe('perfil: outras falhas', () => {
   it('falha de rede ao salvar mostra o erro de conexão', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
     server.use(http.patch(`${API}/me/profile`, () => HttpResponse.error()))
-    const { user } = await renderApp('/conta/perfil')
+    const { user } = await renderApp('/account/profile')
 
     await screen.findByLabelText('Nome de exibição')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))

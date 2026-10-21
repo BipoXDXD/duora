@@ -51,7 +51,7 @@ const accepted = () => new HttpResponse(null, { status: 202 })
 
 describe('tela de cadastro', () => {
   it('usa autocomplete de e-mail e de senha nova', async () => {
-    await renderApp('/criar-conta')
+    await renderApp('/register')
 
     expect(document.title).toBe('Criar conta · Duora')
     expect(screen.getByLabelText('E-mail')).toHaveAttribute('autocomplete', 'email')
@@ -62,7 +62,7 @@ describe('tela de cadastro', () => {
   it('envia e-mail, senha e as versões aceitas, com CSRF, e leva à tela neutra', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     const received = useRegisterEndpoint(accepted)
-    const app = await renderApp('/criar-conta')
+    const app = await renderApp('/register')
 
     await fillAndSubmit(app, {})
 
@@ -78,7 +78,7 @@ describe('tela de cadastro', () => {
         token: antiforgery.latestToken(),
       },
     ])
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/verifique-seu-email$/)
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/check-email$/)
   })
 
   it.each([
@@ -89,7 +89,7 @@ describe('tela de cadastro', () => {
   ])('senha com %i caracteres é aceita no cliente? %s', async (length, valid) => {
     useAntiforgeryEndpoint()
     const received = useRegisterEndpoint(accepted)
-    const app = await renderApp('/criar-conta')
+    const app = await renderApp('/register')
 
     await fillAndSubmit(app, { password: 'a'.repeat(length) })
 
@@ -109,7 +109,7 @@ describe('tela de cadastro', () => {
 
   it('exige os dois aceites, com erro em cada caixa e foco na primeira', async () => {
     const received = useRegisterEndpoint(accepted)
-    const app = await renderApp('/criar-conta')
+    const app = await renderApp('/register')
 
     await fillAndSubmit(app, { acceptTerms: false, acceptPrivacy: false })
 
@@ -124,7 +124,7 @@ describe('tela de cadastro', () => {
   })
 
   it('e-mail inválido: erro associado e foco no campo', async () => {
-    const app = await renderApp('/criar-conta')
+    const app = await renderApp('/register')
 
     await fillAndSubmit(app, { email: 'ana@' })
 
@@ -136,7 +136,7 @@ describe('tela de cadastro', () => {
   it('429 mostra o tempo de espera e mantém o formulário preenchido', async () => {
     useAntiforgeryEndpoint()
     useRegisterEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '30' }))
-    const app = await renderApp('/criar-conta')
+    const app = await renderApp('/register')
 
     await fillAndSubmit(app, {})
 
@@ -148,7 +148,7 @@ describe('tela de cadastro', () => {
   it('erro de rede tem mensagem própria', async () => {
     useAntiforgeryEndpoint()
     useRegisterEndpoint(() => HttpResponse.error())
-    const app = await renderApp('/criar-conta')
+    const app = await renderApp('/register')
 
     await fillAndSubmit(app, {})
 
@@ -158,7 +158,7 @@ describe('tela de cadastro', () => {
   it('falha ao obter o token antiforgery não envia o cadastro', async () => {
     server.use(http.get(`${API}/auth/csrf`, () => HttpResponse.error()))
     const received = useRegisterEndpoint(accepted)
-    const app = await renderApp('/criar-conta')
+    const app = await renderApp('/register')
 
     await fillAndSubmit(app, {})
 
@@ -169,7 +169,7 @@ describe('tela de cadastro', () => {
   it('erro inesperado do servidor usa a mensagem genérica', async () => {
     useAntiforgeryEndpoint()
     useRegisterEndpoint(() => problem(500, 'INTERNAL'))
-    const app = await renderApp('/criar-conta')
+    const app = await renderApp('/register')
 
     await fillAndSubmit(app, {})
 
@@ -179,10 +179,10 @@ describe('tela de cadastro', () => {
 
 describe('tela "verifique seu e-mail"', () => {
   it('é neutra: não confirma que o endereço tem conta', async () => {
-    await renderApp('/verifique-seu-email')
+    await renderApp('/check-email')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Verifique seu e-mail' })).toBeInTheDocument()
     expect(screen.getByText(/Se for possível criar a conta/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Ir para a entrada' })).toHaveAttribute('href', '/entrar')
+    expect(screen.getByRole('link', { name: 'Ir para a entrada' })).toHaveAttribute('href', '/login')
   })
 })

@@ -15,12 +15,12 @@ test('selfie: instruções acessíveis, indisponibilidade e saída sem documento
       json: { status: 503, title: 'Unavailable', code: 'SELFIE_UNAVAILABLE' },
     }),
   )
-  await page.goto('/entrar')
+  await page.goto('/login')
   await page.getByLabel('E-mail', { exact: true }).fill('selfie@example.com')
   await page.getByLabel('Senha', { exact: true }).fill('frase longa de senha de teste')
   await page.getByRole('button', { name: 'Entrar' }).click()
   await expect(page.getByText('selfie@example.com')).toBeVisible()
-  await page.goto('/conta/selfie')
+  await page.goto('/account/selfie')
   await expect(page.getByRole('heading', { name: 'Confirmar presença' })).toBeVisible()
   await expect(page.getByText(/Não estimamos sua idade/)).toBeVisible()
   const start = page.getByRole('button', { name: 'Iniciar captura' })

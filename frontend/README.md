@@ -102,14 +102,17 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
 
 ## Autenticação e sessão (M1)
 
-| Rota                                                     | Tela                                                                         |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `/criar-conta`                                           | Cadastro, com aceite dos Termos e da Privacidade (`LEGAL_DOCUMENT_VERSIONS`) |
-| `/verifique-seu-email`                                   | Aviso neutro depois do cadastro                                              |
-| `/confirmar-email#userId=…&token=…`                      | Confirmação por clique, com a senha do cadastro (link do e-mail)             |
-| `/entrar`                                                | Entrada; mostra aviso de sessão expirada, saída ou entrada necessária        |
-| `/esqueci-a-senha` e `/redefinir-senha#userId=…&token=…` | Recuperação de senha                                                         |
-| `/conta`                                                 | Área autenticada: conta, sessões, revogação e saída                          |
+Rotas canônicas em inglês para os dois idiomas. [Inventário e compatibilidade](../docs/architecture/spa-routes.md).
+A confirmação atual pede o código de oito dígitos e a senha; links legados com token continuam aceitos.
+
+| Rota                                                    | Tela                                                                         |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `/register`                                             | Cadastro, com aceite dos Termos e da Privacidade (`LEGAL_DOCUMENT_VERSIONS`) |
+| `/check-email`                                          | Aviso neutro depois do cadastro                                              |
+| `/confirm-email#userId=…&token=…`                       | Confirmação por clique, com a senha do cadastro (link do e-mail)             |
+| `/login`                                                | Entrada; mostra aviso de sessão expirada, saída ou entrada necessária        |
+| `/forgot-password` e `/reset-password#userId=…&token=…` | Recuperação de senha                                                         |
+| `/account`                                              | Área autenticada: conta, sessões, revogação e saída                          |
 
 - `401 MFA_REQUIRED` no login mostra só uma mensagem neutra de que o segundo fator é exigido e ainda não
   está disponível. O passo de segundo fator entra com o MFA administrativo, na onda 2 do M1.
@@ -152,7 +155,7 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
   vez, com guarda de 60 s em `sessionStorage` (`duora.newVersionReloadAt`). Se ainda falhar, o error boundary da
   área avisa que há versão nova e oferece "Recarregar a página"; ele não tenta baixar o chunk de novo.
 - A área da conta espera os chunks do guarda e da página juntos, para não mostrar um segundo fallback.
-- Nos testes, `renderApp` é assíncrono e espera o chunk (`await renderApp('/entrar')`); um `render` próprio
+- Nos testes, `renderApp` é assíncrono e espera o chunk (`await renderApp('/login')`); um `render` próprio
   usa `await waitForRouteChunk()`. O E2E `smoke.spec.ts` garante que a página inicial não baixa as telas de
   formulário e que um chunk com 404 dá uma recarga só e depois o aviso.
 

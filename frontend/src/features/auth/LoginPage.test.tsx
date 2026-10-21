@@ -44,7 +44,7 @@ async function fillAndSubmit(user: RenderedApp['user'], email: string, password:
 
 describe('tela de entrada', () => {
   it('tem título, label persistente e autocomplete de credenciais', async () => {
-    await renderApp('/entrar')
+    await renderApp('/login')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
     expect(document.title).toBe('Entrar · Duora')
@@ -56,7 +56,7 @@ describe('tela de entrada', () => {
     const antiforgery = useAntiforgeryEndpoint()
     const received = useLoginEndpoint(() => new HttpResponse(null, { status: 204 }))
     useAccountEndpoints()
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await fillAndSubmit(user, ' ana@exemplo.com ', 'frase longa de senha')
 
@@ -76,7 +76,7 @@ describe('tela de entrada', () => {
     useAccountEndpoints()
     const queryClient = createTestQueryClient()
     queryClient.setQueryData(['account', 'identidade-anterior', 'sessions'], [{ id: 'x' }])
-    const { user } = await renderApp('/entrar', queryClient)
+    const { user } = await renderApp('/login', queryClient)
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
 
@@ -88,12 +88,12 @@ describe('tela de entrada', () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => new HttpResponse(null, { status: 204 }))
     useAccountEndpoints()
-    const { user } = await renderApp({ pathname: '/entrar', state: { from: '/conta?aba=sessoes' } })
+    const { user } = await renderApp({ pathname: '/login', state: { from: '/account?aba=sessoes' } })
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
 
     await waitFor(() => {
-      expect(screen.getByTestId('location')).toHaveTextContent(/^\/conta\?aba=sessoes$/)
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/account\?aba=sessoes$/)
     })
   })
 
@@ -101,19 +101,19 @@ describe('tela de entrada', () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => new HttpResponse(null, { status: 204 }))
     useAccountEndpoints()
-    const { user } = await renderApp({ pathname: '/entrar', state: { from: '/admin/usuarios' } })
+    const { user } = await renderApp({ pathname: '/login', state: { from: '/admin/usuarios' } })
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
 
     await waitFor(() => {
-      expect(screen.getByTestId('location')).toHaveTextContent(/^\/conta$/)
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/account$/)
     })
   })
 
   it('credenciais inválidas: erro neutro, sem apagar o que foi digitado', async () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => problem(401, 'INVALID_CREDENTIALS'))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'senha-errada-longa')
 
@@ -125,7 +125,7 @@ describe('tela de entrada', () => {
   it('segundo fator exigido: mensagem neutra e campo para o código', async () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
 
@@ -136,7 +136,7 @@ describe('tela de entrada', () => {
   it('429 mostra o tempo do Retry-After', async () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '90' }))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
 
@@ -146,7 +146,7 @@ describe('tela de entrada', () => {
   it('erro de rede tem mensagem própria', async () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => HttpResponse.error())
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
 
@@ -155,7 +155,7 @@ describe('tela de entrada', () => {
 
   it('campos vazios: erros em texto e foco no primeiro campo inválido, sem chamar a API', async () => {
     const received = useLoginEndpoint(() => new HttpResponse(null, { status: 204 }))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await fillAndSubmit(user, '', '')
 
@@ -167,7 +167,7 @@ describe('tela de entrada', () => {
   })
 
   it('foca o primeiro inválido e mantém o campo válido preenchido', async () => {
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await fillAndSubmit(user, 'ana@exemplo.com', '')
 
@@ -180,16 +180,16 @@ describe('tela de entrada', () => {
     ['sign-in-required', 'Entre para continuar.'],
     ['signed-out', 'Você saiu da sua conta.'],
   ])('mostra o aviso %s vindo da navegação', async (notice, text) => {
-    await renderApp({ pathname: '/entrar', state: { notice } })
+    await renderApp({ pathname: '/login', state: { notice } })
 
     expect(screen.getByRole('status')).toHaveTextContent(text)
   })
 
   it('oferece os caminhos de recuperação e cadastro', async () => {
-    await renderApp('/entrar')
+    await renderApp('/login')
 
-    expect(screen.getByRole('link', { name: 'Esqueci minha senha' })).toHaveAttribute('href', '/esqueci-a-senha')
-    expect(screen.getByRole('link', { name: 'Criar conta' })).toHaveAttribute('href', '/criar-conta')
+    expect(screen.getByRole('link', { name: 'Esqueci minha senha' })).toHaveAttribute('href', '/forgot-password')
+    expect(screen.getByRole('link', { name: 'Criar conta' })).toHaveAttribute('href', '/register')
   })
 
   it('ignora meQueryKey antigo no cache: a área consulta a identidade de novo', async () => {
@@ -198,7 +198,7 @@ describe('tela de entrada', () => {
     useAccountEndpoints()
     const queryClient = createTestQueryClient()
     queryClient.setQueryData(meQueryKey, { ...ME, email: 'outra@exemplo.com' })
-    const { user } = await renderApp('/entrar', queryClient)
+    const { user } = await renderApp('/login', queryClient)
 
     await fillAndSubmit(user, 'ana@exemplo.com', 'frase longa de senha')
 
@@ -214,7 +214,7 @@ it('envia o TOTP solicitado e entra com MFA ativo', async () => {
     ++attempt === 1 ? problem(401, 'MFA_REQUIRED') : new HttpResponse(null, { status: 204 }),
   )
   useAccountEndpoints()
-  const { user } = await renderApp('/entrar')
+  const { user } = await renderApp('/login')
   await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
   await user.type(await screen.findByLabelText('Código do autenticador'), '123456')
   await user.click(screen.getByRole('button', { name: 'Entrar' }))
@@ -232,7 +232,7 @@ describe('segundo fator na entrada', () => {
   it.each(['', '12345', '1234567', 'abcdef'])('recusa o código %s sem chamar a API de novo', async (code) => {
     useAntiforgeryEndpoint()
     const received = useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
     const field = await screen.findByLabelText('Código do autenticador')
     if (code !== '') await user.type(field, code)
@@ -247,7 +247,7 @@ describe('segundo fator na entrada', () => {
     useAntiforgeryEndpoint()
     let attempt = 0
     useLoginEndpoint(() => (++attempt === 1 ? problem(401, 'MFA_REQUIRED') : problem(401, 'INVALID_CREDENTIALS')))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
     await user.type(await screen.findByLabelText('Código do autenticador'), '654321')
 
@@ -260,7 +260,7 @@ describe('segundo fator na entrada', () => {
   it('o campo do código recebe o foco quando aparece', async () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
 
@@ -287,7 +287,7 @@ describe('segundo fator na entrada', () => {
         ),
       )
     })
-    const { user } = await renderApp('/entrar', queryClient)
+    const { user } = await renderApp('/login', queryClient)
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
     await user.type(await screen.findByLabelText('Código do autenticador'), '12')
 
@@ -313,7 +313,7 @@ describe('segundo fator na entrada', () => {
   it('volta ao código do autenticador', async () => {
     useAntiforgeryEndpoint()
     useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
     await user.click(await screen.findByRole('button', { name: 'Usar um código de recuperação' }))
 
@@ -326,7 +326,7 @@ describe('segundo fator na entrada', () => {
   it('código de recuperação vazio é recusado sem chamar a API de novo', async () => {
     useAntiforgeryEndpoint()
     const received = useLoginEndpoint(() => problem(401, 'MFA_REQUIRED'))
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
     await user.click(await screen.findByRole('button', { name: 'Usar um código de recuperação' }))
 
@@ -355,7 +355,7 @@ describe('segundo fator na entrada', () => {
         ),
       )
     })
-    const { user } = await renderApp('/entrar', queryClient)
+    const { user } = await renderApp('/login', queryClient)
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
     await user.type(await screen.findByLabelText('Código do autenticador'), '123456')
     await user.click(screen.getByRole('button', { name: 'Entrar' }))
@@ -373,7 +373,7 @@ it('aceita o TOTP com espaços e envia só os dígitos', async () => {
     ++attempt === 1 ? problem(401, 'MFA_REQUIRED') : new HttpResponse(null, { status: 204 }),
   )
   useAccountEndpoints()
-  const { user } = await renderApp('/entrar')
+  const { user } = await renderApp('/login')
   await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
   await user.type(await screen.findByLabelText('Código do autenticador'), ' 123 456 ')
   await user.click(screen.getByRole('button', { name: 'Entrar' }))

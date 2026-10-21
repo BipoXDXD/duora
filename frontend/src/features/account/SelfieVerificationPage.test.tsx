@@ -22,7 +22,7 @@ describe('selfie sem idade', () => {
         HttpResponse.json({ id: null, state: 'NotStarted', nextStep: 'Start', feedbackCode: null, expiresAt: null }),
       ),
     )
-    await renderApp('/conta/selfie')
+    await renderApp('/account/selfie')
     expect(
       await screen.findByRole('heading', { name: 'Confirmar presença', level: 1 }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
     ).toBeInTheDocument()
@@ -83,7 +83,7 @@ it('após expirar solicita credenciais novas para a nova tentativa', async () =>
     ),
   )
   const user = userEvent.setup()
-  await renderApp('/conta/selfie')
+  await renderApp('/account/selfie')
   await user.click(await screen.findByRole('button', { name: 'Abrir câmera' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }))
   expect(await screen.findByText(`Camera session: ${firstId}`)).toBeInTheDocument()
   expired = true
