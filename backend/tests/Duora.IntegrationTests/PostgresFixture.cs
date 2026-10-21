@@ -74,6 +74,8 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// <summary>Conexão da aplicação (<c>duora_app</c>) no banco compartilhado e migrado.</summary>
     public string ConnectionString => ConnectAs("duora_app", _appPassword, DatabaseName);
 
+    internal string ContainerId => _container.Id;
+
     /// <summary>Conexão do migrador, dono das tabelas: para inspecionar o catálogo sem o filtro de privilégios do
     /// <c>information_schema</c> e para ler o histórico de migrations, que o app não enxerga.</summary>
     public string MigratorConnectionString => ConnectAs("duora_migrator", _migratorPassword, DatabaseName);
