@@ -79,7 +79,8 @@ public sealed class CountryDatabaseRecoveryService(CountryDatabaseOperationsStor
                 { throw new CountryDatabaseValidationException("Integrity"); }
                 output.Flush(flushToDisk: true);
             }
-            using (validator.OpenVerified(candidate, m, ct)) { }
+            using (validator.OpenVerified(candidate, m, ct))
+            { }
             File.Move(candidate, path, overwrite: s.RepairAuthorized);
             if (!OperatingSystem.IsWindows())
             { File.SetUnixFileMode(path, UnixFileMode.UserRead); }

@@ -60,7 +60,8 @@ public sealed partial class CountryDatabaseUpdateService(
                 {
                     File.Delete(Path.Combine(root, publishedHash + ".mmdb"));
                 }
-                if (Directory.Exists(attempt)) { Directory.Delete(attempt, recursive: true); }
+                if (Directory.Exists(attempt))
+                { Directory.Delete(attempt, recursive: true); }
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
