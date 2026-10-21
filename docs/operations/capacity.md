@@ -175,3 +175,22 @@ O `MemAvailable` do gate é só uma fotografia, não aprovação de carga susten
 Referências de semântica: [Compose services](https://docs.docker.com/reference/compose-file/services/)
 e [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html).
 Enforcement em Ubuntu 24.04/cgroup v2 e todos os cenários continuam pendentes de homologação.
+
+
+## Perfil remoto proposto
+
+O [perfil separado](telemetry-remote.md) acrescenta emissor de 64 MiB no Duora e receptor de 128 MiB
+em operações; mantém os probes existentes divididos entre produto e gateway. Gates estáticos:
+
+| Host | Componentes em MiB | Piso com margem |
+|---|---|---:|
+| Duora (`source`) | Produto 5.248 + migrador 512 + restic 1.024 + coletor 128 + emissor 64 + host 1.536 | **8.512 MiB** |
+| Operações (`remote-gateway`) | Gateway 1.536 + receptor 128 + monitor 128 + coletor local 128 + host 1.536 | **3.456 MiB** |
+
+MemAvailable mínimo continua 1.536 MiB em cada host, sem contar swap como capacidade. KVM 2 ainda
+reprova o piso do Duora. KVM 4 para produto e KVM 1 para operações são candidatos à homologação,
+não resultados. CPU máxima de operações pode somar 1,1 vCPU em máquina de 1 vCPU; ensaiar polling,
+TLS, Slack/MCP e atualização sem prometer latência. No Duora, até 6,8 vCPU com migrador, produto, restic,
+coletor e emissor (tetos, não reservas). O perfil remoto recusa containers do produto no host do
+gateway; não usar nomes alternativos para contornar a separação. Não hospedar browser/processamento externo/builds.
+As constantes são conciliadas com Compose/units no teste existente, sem mudar workflows/gates.

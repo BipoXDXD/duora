@@ -1,0 +1,10 @@
+[Unit]
+Description=Send the latest Duora snapshot every fifteen seconds
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

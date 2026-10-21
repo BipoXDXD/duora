@@ -44,10 +44,10 @@ def marker(path, now, maximum):
         return False
 
 
-def collect(runner=run, state=Path('/var/lib/duora'), now=None):
+def collect(runner=run, state=Path('/var/lib/duora'), now=None, include_gateway=True):
     now = time.time() if now is None else now
     checks = {}
-    for service in (*SERVICES, 'gateway'):
+    for service in (*SERVICES, *(['gateway'] if include_gateway else [])):
         try:
             ids = runner(['/usr/bin/docker', 'ps', '-aq', '--filter',
                           f"label=com.docker.compose.project={'duora-agent' if service == 'gateway' else 'duora'}", '--filter',
@@ -83,5 +83,25 @@ def collect(runner=run, state=Path('/var/lib/duora'), now=None):
     return {'collected_at': now, 'checks': checks}
 
 
+def gateway_snapshot(runner=run, now=None):
+    good = False
+    try:
+        ids = runner(['/usr/bin/docker', 'ps', '-aq', '--filter',
+                      'label=com.docker.compose.project=duora-agent', '--filter',
+                      'label=com.docker.compose.service=gateway']).split()
+        if len(ids) == 1:
+            state = json.loads(runner(['/usr/bin/docker', 'inspect', '--format', '{{json .State}}', ids[0]]))
+            good = (state.get('Status') == 'running' and not state.get('Restarting')
+                    and not state.get('OOMKilled') and state.get('Health', {}).get('Status') == 'healthy')
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return {'collected_at': time.time() if now is None else now, 'checks': {'service:gateway': bool(good)}}
+
+
 if __name__ == '__main__':
-    atomic('/var/lib/duora-observer/host.json', collect())
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', choices=('colocated', 'source', 'gateway'), default='colocated')
+    mode = parser.parse_args().mode
+    path = '/var/lib/duora-telemetry/host.json' if mode == 'source' else '/var/lib/duora-observer/host.json'
+    atomic(path, gateway_snapshot() if mode == 'gateway' else collect(include_gateway=mode == 'colocated'))
