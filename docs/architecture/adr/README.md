@@ -40,6 +40,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0029](0029-confirmacao-email-presenca-sem-idade.md) | E-mail obrigatório e selfie de presença/qualidade, sem idade | Accepted; ativação pendente | Homologação do fornecedor |
 
 | [0030](0030-profile-country-subdivision.md) | País e subdivisão opcionais, expansão compatível com UF | Proposed | Países e manutenção do catálogo definidos; etapa contract |
+| [0031](0031-openclaw-remoto-telemetria-mtls.md) | Gateway OpenClaw separado e snapshot público por mTLS | Proposed | Mudança de contrato, PKI ou autoridade do agente |
 
 ## Regras
 
