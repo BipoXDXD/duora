@@ -456,6 +456,31 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         Assert.Contains(notices.Items, n => n.Code == "NoExecution");
     }
 
+    [Fact]
+    public async Task HumanRepairAuthorizationDoesNotCarryAcrossPromotionGenerations()
+    {
+        await using var h = await Prepared();
+        h.Time.Advance(TimeSpan.FromDays(1));
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        Assert.True(await h.Store.FailAsync(lease, "Unauthorized", false, null, Ct));
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
+        var archive = new Archive();
+        var recovery = new CountryDatabaseRecoveryService(store, h.Validator, h.Root, archive, enabled: true);
+        Assert.True(OperatorName.TryParse("synthetic-operator", out var actor));
+        Assert.True(await recovery.ReleaseAsync(await Generation(h.Source), Guid.NewGuid(), actor, Ct));
+        // A later normal update must not inherit the previous incident's repair authorization.
+        h.Time.Advance(TimeSpan.FromDays(1));
+        h.Payload = SyntheticMmdb.Create(h.Time.GetUtcNow().AddHours(-1));
+        lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
+        await new CountryDatabaseRetentionService(store, h.Root, archive, enabled: true).RunOnceAsync(Ct);
+        var m = (await h.Store.ReadActiveAsync(Ct))!;
+        var path = Path.Combine(h.Root, m.Sha256 + ".mmdb");
+        File.Delete(path);
+        await File.WriteAllBytesAsync(path, [0, 1], Ct);
+        Assert.Equal(CountryDatabaseRecoveryOutcome.ReviewRequired, await recovery.RecoverAsync(Ct));
+    }
+
     private async Task<CountryDatabasePipelineTests.Harness> Prepared()
     {
         var h = await CountryDatabasePipelineTests.Harness.Create(postgres);
