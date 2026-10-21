@@ -24,6 +24,7 @@ internal enum AccountEmailKind
     /// (expand/contract, model.md); a gravação veio com o bootstrap administrativo.
     /// </summary>
     PasswordResetUnavailable,
+    RecoveryCodeUsedNotice,
 }
 
 /// <summary>
@@ -68,6 +69,7 @@ internal static class AccountEmailOutbox
             or AccountEmailKind.MfaDisabledNotice
             or AccountEmailKind.RecoveryCodesRegeneratedNotice
             or AccountEmailKind.PasswordChangedNotice
+            or AccountEmailKind.RecoveryCodeUsedNotice
             or AccountEmailKind.PasswordResetNotice => TimeSpan.FromHours(72),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Tipo de e-mail desconhecido."),
     };
@@ -79,6 +81,7 @@ internal static class AccountEmailOutbox
         [SecurityChange.MfaDisabled] = AccountEmailKind.MfaDisabledNotice,
         [SecurityChange.RecoveryCodesRegenerated] = AccountEmailKind.RecoveryCodesRegeneratedNotice,
         [SecurityChange.PasswordChanged] = AccountEmailKind.PasswordChangedNotice,
+        [SecurityChange.RecoveryCodeUsed] = AccountEmailKind.RecoveryCodeUsedNotice,
         [SecurityChange.PasswordReset] = AccountEmailKind.PasswordResetNotice,
     };
 

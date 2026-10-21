@@ -636,3 +636,11 @@ python3 scripts/deploy/smoke_local.py --commit "$(git rev-parse HEAD)"
 `docker rm -f duora-smoke-registry`.
 
 Testes dos scripts: `python3 -m unittest discover -s scripts/deploy -v`.
+
+### Aviso de uso de código de recuperação (#68, 21/10/2026)
+
+`RecoveryCodeUsedNotice` é um novo tipo de aviso bilíngue. Atualize o worker leitor antes de liberar a web que
+passa a gravá-lo, com as duas partes da mesma release. Para rollback, interrompa primeiro as gravações e drene
+as entregas `Pending`/`InFlight` desse tipo com o worker compatível antes de voltar ao leitor antigo. Não marque
+como entregue nem descarte os avisos para permitir rollback. Os testes cobrem o adaptador pickup existente;
+a homologação de SMTP depende do adaptador/ambiente de entrega real e não foi substituída por esses testes.

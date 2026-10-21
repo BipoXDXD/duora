@@ -27,6 +27,12 @@ public sealed class SecurityNoticeEmailsTests
     public static TheoryData<SecurityChange, string, string, string> ExpectedTexts => new()
     {
         {
+            SecurityChange.RecoveryCodeUsed,
+            "Código de recuperação usado no Duora / Recovery code used for Duora",
+            "Um código de recuperação foi usado para acessar sua conta do Duora em 2026-10-16 17:05 UTC.",
+            "A recovery code was used to access your Duora account on 2026-10-16 17:05 UTC."
+        },
+        {
             SecurityChange.MfaEnabled,
             "Verificação em duas etapas ativada no Duora / Two-step verification turned on for Duora",
             "A verificação em duas etapas foi ativada na sua conta do Duora em 2026-10-16 17:05 UTC.",

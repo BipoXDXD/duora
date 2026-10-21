@@ -22,6 +22,7 @@ public sealed class SecurityNoticeDispatchTests(PostgresFixture postgres)
         { nameof(AccountEmailKind.MfaDisabledNotice), "Subject: Verificação em duas etapas desativada no Duora / Two-step verification turned off for Duora" },
         { nameof(AccountEmailKind.RecoveryCodesRegeneratedNotice), "Subject: Novos códigos de recuperação no Duora / New recovery codes for Duora" },
         { nameof(AccountEmailKind.PasswordChangedNotice), "Subject: Senha alterada no Duora / Duora password changed" },
+        { nameof(AccountEmailKind.RecoveryCodeUsedNotice), "Subject: Código de recuperação usado no Duora / Recovery code used for Duora" },
         { nameof(AccountEmailKind.PasswordResetNotice), "Subject: Senha redefinida no Duora / Duora password reset completed" },
     };
 

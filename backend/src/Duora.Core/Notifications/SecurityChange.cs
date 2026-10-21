@@ -13,4 +13,5 @@ public enum SecurityChange
     /// do bootstrap administrativo.
     /// </summary>
     PasswordReset,
+    RecoveryCodeUsed,
 }
