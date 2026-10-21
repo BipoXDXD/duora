@@ -13,6 +13,7 @@ internal static class ParticipationEndpoints
     public static void MapParticipationEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapCatalogEndpoints();
+        api.MapRoutesCatalogEndpoints();
         var routes = api.MapGroup("").WithTags("Participation").RequireAuthorization(ParticipationPolicies.EligibleParticipant)
             .ProducesProblem(401).ProducesProblem(403);
         routes.AddEndpointFilter(async (context, next) =>
@@ -45,6 +46,10 @@ internal static class ParticipationEndpoints
             long.TryParse(request.ExpectedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
                 ? Result(await service.ActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.CardId, request.OptionId, ct))
                 : Result(ParticipationOutcome.Invalid));
+        routes.MapPost("/rooms/{roomId:guid}/routes-actions", async (Guid roomId, RoutesActionRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
+            long.TryParse(request.ExpectedVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var version)
+                ? Result(await service.RoutesActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.Stage, request.StepId, request.OptionId, ct))
+                : Result(ParticipationOutcome.Invalid));
         api.MapPost("/admin/events", async (PublishEventRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
             await service.PublishAsync(request.Title, request.StartsAt, request.Capacity, request.ExperienceVersionId, User(context), ct) is { } id
                 ? Results.Created($"/api/v1/events/{id}", new { eventId = id }) : Result(ParticipationOutcome.Invalid))
@@ -71,8 +76,15 @@ internal static class ParticipationEndpoints
             g.MyAnswer is not { } answer ? null : new AnswerResponse(answer.Kind.ToString(), answer.Option is not { } o ? null : new(o.OptionId, o.Label)),
             g.AwaitingPartner, g.Revealed.Select(r => new RevealedResponse(r.CardId, r.Prompt, r.MyOptionLabel, r.PartnerOptionLabel, r.ChoseTheSame)).ToArray(),
             g.Passed.Select(p => new PassedResponse(p.CardId, p.Prompt)).ToArray(), g.AvailableActions);
+        var r = room.RoutesGame;
+        var routesGame = r is null ? null : new RoutesGameResponse(r.ExperienceId, r.RulesVersion, r.ContentVersion, r.SchemaVersion,
+            r.ResourceVersion.ToString(CultureInfo.InvariantCulture), r.Status.ToString(), r.Deadline, r.Stage.ToString(), r.Title, r.Objective,
+            r.Example, r.MyClues, r.CurrentStop is not { } stop ? null : new RouteStopResponse(stop.StepId, stop.Prompt,
+                stop.Options.Select(o => new OptionResponse(o.OptionId, o.Label)).ToArray()), r.IsMyTurn,
+            r.Route.Select(stop => new ChosenStopResponse(stop.StepId, stop.Prompt, stop.OptionLabel)).ToArray(),
+            r.RevisionsRemaining, r.AwaitingPartner, r.AvailableActions);
         return new(room.Id, room.State, room.Version.ToString(CultureInfo.InvariantCulture), room.Language, room.PolicyVersion, room.Locale, room.InviteExpiresAt, game,
             room.Audio.Select(cue => new RoomAudioResponse(cue.CueId, cue.AssetId, cue.Transcript, cue.AccessibleDescription, cue.Sha256,
-                $"/api/v1/rooms/{room.Id}/audio/{cue.AssetId}")).ToArray());
+                $"/api/v1/rooms/{room.Id}/audio/{cue.AssetId}")).ToArray(), routesGame);
     }
 }

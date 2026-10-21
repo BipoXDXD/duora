@@ -31,7 +31,8 @@ public sealed class SelfieVerificationDispatcher
     {
         var now = _time.GetUtcNow();
         // No images exist here; remove transient session references and feedback after 24 hours.
-        await _db.Set<SelfieVerificationRecord>().Where(v => v.ExpiresAt < now.AddHours(-24) && v.ProviderReference != null)
+        await _db.Set<SelfieVerificationRecord>().Where(v => v.ExpiresAt < now.AddHours(-24)
+                && (v.ProviderReference != null || v.FeedbackCode != null))
             .ExecuteUpdateAsync(s => s.SetProperty(v => v.ProviderReference, (string?)null)
                 .SetProperty(v => v.FeedbackCode, (string?)null), cancellationToken);
 

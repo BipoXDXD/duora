@@ -29,6 +29,9 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
 InaccessiblePaths=/etc/duora /var/lib/duora /var/run/docker.sock /etc/duora-agent
 MemoryMax=128M
+MemorySwapMax=0
+CPUWeight=25
+IOWeight=25
 CPUQuota=20%
 TasksMax=16
 

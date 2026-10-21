@@ -7,7 +7,8 @@ import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page, TextLink } from '@/shared/ui/page'
-import { act, fetchRoom, roomCommand, type Room } from './participation-api'
+import { RoutesGamePanel } from './RoutesGamePanel'
+import { act, actOnRoutes, fetchRoom, roomCommand, type RoutesAction, type Room } from './participation-api'
 
 export function RoomPage(): React.JSX.Element {
   const { roomId = '' } = useParams()
@@ -55,12 +56,17 @@ function RoomBody({
     onSuccess: refresh,
     onError: refresh,
   })
+  const routesAction = useMutation({
+    mutationFn: (choice: RoutesAction) => actOnRoutes(room, choice),
+    onSuccess: refresh,
+    onError: refresh,
+  })
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
   const active = state === 'active'
   const completed = state === 'completed'
   const closed = !invited && !active && !completed
-  const busy = command.isPending || action.isPending
+  const busy = command.isPending || action.isPending || routesAction.isPending
   const card = room.game?.currentCard
   return (
     <>
@@ -73,6 +79,7 @@ function RoomBody({
       <p>{t('preferences.voiceOptional')}</p>
       {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
       {action.isError ? <RequestFailureAlert failure={classifyRequestFailure(action.error)} /> : null}
+      {routesAction.isError ? <RequestFailureAlert failure={classifyRequestFailure(routesAction.error)} /> : null}
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>
@@ -99,19 +106,28 @@ function RoomBody({
       ) : null}
       {completed ? <Alert variant="success">{t('participation.completed')}</Alert> : null}
       {closed ? <p role="status">{t('participation.closed')}</p> : null}
+      {room.audio.map((audio) => (
+        <section key={audio.cueId} lang={room.displayLocale} className="flex flex-col gap-2">
+          <p>{audio.accessibleDescription}</p>
+          <audio controls muted preload="none" aria-label={audio.accessibleDescription}>
+            <source src={audio.url} type="audio/wav" />
+          </audio>
+          <p>{audio.transcript}</p>
+        </section>
+      ))}
+      {room.routesGame === null ? null : (
+        <RoutesGamePanel
+          game={room.routesGame}
+          locale={room.displayLocale}
+          active={active}
+          busy={busy}
+          onAction={routesAction.mutate}
+        />
+      )}
       {room.game === null ? null : (
         <section lang={room.displayLocale} className="flex flex-col gap-4">
           <h2 className="text-xl font-semibold">{room.game.title}</h2>
           <p>{room.game.objective}</p>
-          {room.audio.map((audio) => (
-            <section key={audio.cueId} className="flex flex-col gap-2">
-              <p>{audio.accessibleDescription}</p>
-              <audio controls muted preload="none" aria-label={audio.accessibleDescription}>
-                <source src={audio.url} type="audio/wav" />
-              </audio>
-              <p>{audio.transcript}</p>
-            </section>
-          ))}
           {room.game.awaitingPartner && active ? <p role="status">{t('participation.awaitingPartner')}</p> : null}
           {active && card !== null && card !== undefined ? (
             <fieldset disabled={busy || room.game.awaitingPartner} className="flex flex-col gap-3">

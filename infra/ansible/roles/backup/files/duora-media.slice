@@ -1,0 +1,10 @@
+[Unit]
+Description=Aggregate budget for all Duora media backup and verification jobs
+
+[Slice]
+MemoryHigh=768M
+MemoryMax=1024M
+MemorySwapMax=0
+CPUQuota=50%
+CPUWeight=50
+IOWeight=50
