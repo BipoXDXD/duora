@@ -52,6 +52,7 @@
     group: root
     mode: "0644"
   loop:
+    - duora-media.slice
     - duora-backup@.service
     - duora-backup-failed@.service
     - duora-backup-full.timer
