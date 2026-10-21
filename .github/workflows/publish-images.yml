@@ -1,7 +1,15 @@
-# Publicação explícita; não implanta nem acessa o ambiente de produção.
+# Publica imagens após gates; a implantação é feita pelo workflow Coolify release.
 name: Publish release images
 
 on:
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+    secrets:
+      SIXLABORS_LICENSE_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       commit:
@@ -43,7 +51,7 @@ jobs:
         run: python3 -m unittest discover -s scripts/release -v
       - name: Verify exact commit and CI gates
         id: gates
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ inputs.commit != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_COMMIT: ${{ inputs.commit }}
@@ -52,7 +60,7 @@ jobs:
           python3 scripts/release/check_ci.py
 
   images:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ inputs.commit != '' }}
     needs: verify
     permissions:
       contents: read

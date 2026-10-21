@@ -1,0 +1,146 @@
+name: Coolify release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full SHA of current main with every CI gate successful
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/coolify.yml
+      - .github/workflows/publish-images.yml
+      - scripts/release/coolify/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coolify-production
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  RELEASE_PROJECT: duora
+
+jobs:
+  release-tools:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test release boundary and original media
+        run: |
+          python3 -m unittest discover -s scripts/release/coolify -v
+          python3 scripts/release/coolify/assets.py
+
+  gates:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      commit: ${{ steps.gates.outputs.commit }}
+      ci_run: ${{ steps.gates.outputs.ci_run }}
+    steps:
+      # Use trusted main tooling for CI validation.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Exact CI gates
+        id: gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.commit || github.sha }}
+          WAIT_FOR_CI: 'true'
+        run: python3 scripts/release/coolify/gate.py
+      - name: Release tooling tests
+        run: python3 -m unittest discover -s scripts/release/coolify -v
+
+  images:
+    needs: gates
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    uses: BipoXDXD/duora/.github/workflows/publish-images.yml@4dd3fa044aecd81392e208c6f4c419be24164288
+    with:
+      commit: ${{ needs.gates.outputs.commit }}
+    secrets:
+      SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
+
+  deploy:
+    needs: [gates, images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: production
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    env:
+      RELEASE_COMMIT: ${{ needs.gates.outputs.commit }}
+      CI_RUN_ID: ${{ needs.gates.outputs.ci_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.gates.outputs.commit }}
+      - name: Preserve original assets
+        run: python3 scripts/release/coolify/assets.py
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - name: Install pinned OCI transport
+        run: go install github.com/google/go-containerregistry/cmd/crane@v0.22.1
+      - name: Registry authentication on hosted runner only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | crane auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Validated publication artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-amd64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/publication
+      - name: Configure project-bound publication key
+        env:
+          SSH_KEY: ${{ secrets.COOLIFY_RELEASE_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.COOLIFY_RELEASE_KNOWN_HOSTS }}
+          TARGET: ${{ vars.COOLIFY_RELEASE_TARGET }}
+        run: |
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS" && test -n "$TARGET"
+          install -m 700 -d "$RUNNER_TEMP/release-ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/release-ssh/key"
+          chmod 600 "$RUNNER_TEMP/release-ssh/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/release-ssh/known_hosts"
+      - name: Refuse superseded main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/coolify/gate.py
+      - name: Import verified OCI images and publish through Coolify
+        env:
+          DEPLOY_KEY: ${{ runner.temp }}/release-ssh/key
+          DEPLOY_KNOWN_HOSTS: ${{ runner.temp }}/release-ssh/known_hosts
+          DEPLOY_TARGET: ${{ vars.COOLIFY_RELEASE_TARGET }}
+          PUBLICATION_FILE: ${{ runner.temp }}/publication/publication.json
+        run: bash scripts/release/coolify/send.sh
+      - name: Remove runner credentials
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/release-ssh"
+          crane auth logout ghcr.io
