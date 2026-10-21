@@ -101,6 +101,24 @@ public sealed class UnlikelyRoutesSnapshotTests
     }
 
     [Fact]
+    public void RejectsActionLogLargerThanMaximumPossibleGame()
+    {
+        var engine = Engine(ClockAtRoundStart());
+        var snapshot = UnlikelyRoutesSnapshot.Capture(AtChoices(engine, NewSession(engine)));
+        var corrupt = snapshot with
+        {
+            Control = snapshot.Control with { ResourceVersion = 99 },
+            Actions = Enumerable.Range(0, 17).Select(index => snapshot.Actions[0] with
+            {
+                ActionId = Guid.NewGuid(),
+                ExpectedVersion = index + 1,
+                ResultingVersion = index + 2,
+            }).ToArray(),
+        };
+        Assert.Throws<ArgumentException>(() => corrupt.Restore(ContentV1()));
+    }
+
+    [Fact]
     public void RejectsCorruptSnapshotBoundaries()
     {
         var engine = Engine(ClockAtRoundStart());
@@ -121,6 +139,7 @@ public sealed class UnlikelyRoutesSnapshotTests
             snapshot with { Actions = [snapshot.Actions[0] with { Actor = Outsider.Value }] },
             snapshot with { Actions = [snapshot.Actions[0] with { Sha256 = "invalid" }] },
             snapshot with { Actions = [snapshot.Actions[0] with { ResultingVersion = 99 }] },
+            snapshot with { Actions = [snapshot.Actions[0], snapshot.Actions[0] with { ActionId = Guid.NewGuid() }] },
         ];
         foreach (var item in invalid)
         {
