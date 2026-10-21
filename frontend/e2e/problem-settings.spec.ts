@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 import { authenticatedPage, editableResource, expectSafeError, type Locale } from './support/problem-canary.ts'
 
+async function expectStatus(page: Page, text: string) {
+  // Each independently saved preference can have its own visible status.
+  await expect(page.getByRole('status').filter({ hasText: text })).toBeVisible()
+}
+
 async function settings(page: Page, locale: Locale) {
   await authenticatedPage(page, locale)
   const preferences = await editableResource(page, '/me/preferences', {
@@ -13,6 +18,9 @@ async function settings(page: Page, locale: Locale) {
   const zone = await editableResource(page, '/me/time-zone', { timeZone: 'UTC', version: '1' })
   await page.route('**/api/v1/me/time-zone/options', (route) =>
     route.fulfill({ json: { timeZones: ['UTC', 'America/New_York', 'America/Sao_Paulo'] } }),
+  )
+  await page.route('**/api/v1/me/regional-preferences', (route) =>
+    route.fulfill({ json: { mode: 'pending', countryCodes: [], version: '0' } }),
   )
   await page.goto('/account/preferences')
   return { preferences, display, zone }
@@ -95,7 +103,8 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       await expect(save).toBeDisabled()
       preferences.value = { ...preferences.value, version: '2' }
       await page.getByRole('button', { name: labels.review, exact: true }).click()
-      await expect(page.getByRole('status')).toContainText(
+      await expectStatus(
+        page,
         pt
           ? 'Versão atual carregada. Seu rascunho foi preservado; compare antes de salvar.'
           : 'Current version loaded. Your draft is preserved; compare before saving.',
@@ -107,7 +116,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       const sent = await request
       expect(sent.headers()['if-match']).toBe('"2"')
       expect(sent.postDataJSON()).toEqual({ communicationLanguages: ['en', 'pt'], allowDifferentDisplayLocales: false })
-      await expect(page.getByRole('status')).toContainText(pt ? 'Preferências salvas.' : 'Preferences saved.')
+      await expectStatus(page, pt ? 'Preferências salvas.' : 'Preferences saved.')
     })
 
     test('time zone 412 reload preserves draft and resubmits the current version', async ({ page }) => {
@@ -129,7 +138,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       await page
         .getByRole('button', { name: pt ? 'Recarregar fuso atual' : 'Reload current time zone', exact: true })
         .click()
-      await expect(page.getByRole('status')).toContainText('America/New_York')
+      await expectStatus(page, 'America/New_York')
       await expect(field).toHaveValue('America/Sao_Paulo')
       zone.failure = null
       const request = page.waitForRequest((r) => r.url().endsWith('/me/time-zone') && r.method() === 'PUT')
@@ -137,7 +146,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       const sent = await request
       expect(sent.headers()['if-match']).toBe('"2"')
       expect(sent.postDataJSON()).toEqual({ timeZone: 'America/Sao_Paulo' })
-      await expect(page.getByRole('status')).toContainText(pt ? 'Fuso horário salvo.' : 'Time zone saved.')
+      await expectStatus(page, pt ? 'Fuso horário salvo.' : 'Time zone saved.')
     })
 
     test('locale 412 review restores the saved choice without switching the UI on failure', async ({ page }) => {
@@ -164,7 +173,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       expect(sent.headers()['if-match']).toBe('"2"')
       expect(sent.postDataJSON()).toEqual({ locale: other })
       await expect(page.locator('html')).toHaveAttribute('lang', other)
-      await expect(page.getByRole('status')).toContainText(pt ? 'Display language saved.' : 'Idioma de exibição salvo.')
+      await expectStatus(page, pt ? 'Display language saved.' : 'Idioma de exibição salvo.')
     })
 
     test('429 shows localized Retry-After without an automatic mutation retry', async ({ page }) => {

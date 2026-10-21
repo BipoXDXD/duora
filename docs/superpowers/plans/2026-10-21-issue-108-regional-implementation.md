@@ -293,3 +293,21 @@ prepara V3 com versão persistida por rodada. Corte opcional sem configuração 
 não são reinterpretadas. A migração expande a aceitação V2/V3 e vincula versão do par à rodada, sem backfill.
 Ver [runbook do corte](../../operations/regional-matching.md) e [matriz de testes](../../testing/regional-matching.md).
 Responsáveis nominais/canal pendentes; sem detector, UI, MMDB, EUA ou implantação. A issue segue aberta.
+
+## Continuação autorizada — interface manual
+
+Após auditoria e integração do PR #143 (`787b9b9`), o responsável autorizou em 21/10/2026
+avançar nas guardas, no filtro bilateral e na interface manual. As etapas 3–4 têm entrega
+própria em andamento; este PR implementa somente a parte manual da etapa 6 sobre a API
+já integrada. A #108 permanece aberta. Detector, MMDB, atualização, operação, novos países
+e ativação do filtro não integram esta entrega.
+
+A interface conserva localização declarada e preferência em recursos e salvamentos independentes.
+O perfil manual já existente não é alterado. Não há botão de detecção enquanto essa capacidade
+estiver ausente. Pending requer ação explícita; 412 conserva o rascunho e exige recarregar a versão
+antes de nova confirmação. Nenhum consentimento é preenchido para usuários antigos. Catálogo BR.
+
+Enquanto a publicação permanecer V2, a interface informa visivelmente que salvar a preferência
+prepara a escolha e ainda não restringe os pareamentos atuais. No corte G4, atualizar essa indicação
+junto da ativação e da comunicação aos participantes. Workers incompatíveis não podem coexistir
+com V3. Em defeito após ativação, pausar matching e corrigir para frente, sem apagar preferências.

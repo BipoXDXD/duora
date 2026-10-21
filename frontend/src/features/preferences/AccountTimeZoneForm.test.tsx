@@ -17,6 +17,9 @@ function useBackend(locale: 'pt-BR' | 'en-US') {
   const writes: unknown[] = []
   server.use(
     http.get(`${API}/me`, () => HttpResponse.json({ ...me, preferredLocale: locale })),
+    http.get(`${API}/me/regional-preferences`, () =>
+      HttpResponse.json({ mode: 'pending', countryCodes: [], version: '0' }),
+    ),
     http.get(`${API}/me/preferences`, () =>
       HttpResponse.json({
         communicationLanguages: [],
