@@ -1,4 +1,5 @@
 using Duora.Core.Profiles;
+using Duora.Infrastructure.Identity;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -48,18 +49,39 @@ public sealed class ProfileStore
             return current.Version == expectedVersion ? current : null;
         }
 
+        if (edit.Location is not null || edit.Region is not null)
+        {
+            return await LanguagePreferenceGuard.RunAsync(_dataSource, userId, async connection =>
+            {
+                var saved = await WriteAsync(userId, expectedVersion, edit, connection, cancellationToken);
+                if (saved is not null)
+                {
+                    await using var marker = new NpgsqlCommand(
+                        "update safety.user_guards set security_version=security_version+1 where user_id=@user_id", connection);
+                    marker.Parameters.AddWithValue("user_id", userId);
+                    await marker.ExecuteNonQueryAsync(cancellationToken);
+                }
+                return saved;
+            }, cancellationToken);
+        }
+        return await WriteAsync(userId, expectedVersion, edit, null, cancellationToken);
+    }
+
+    private async Task<OwnProfile?> WriteAsync(Guid userId, long expectedVersion, ProfileEdit edit,
+        NpgsqlConnection? connection, CancellationToken cancellationToken)
+    {
         var location = edit.Location ?? (edit.Region is null ? null
             : new ProfileLocation(edit.Region.NewRegion is null ? null : "BR", edit.Region.NewRegion?.Value));
         var legacyRegion = location?.CountryCode == "BR" ? location.SubdivisionCode : null;
         await using var command = expectedVersion == OwnProfile.Unsaved.Version
-            ? _dataSource.CreateCommand(
+            ? CreateCommand(connection,
                 $"""
                 insert into profiles.profiles (user_id, display_name, bio, region_code, country_code, subdivision_code, version, updated_at)
                 values (@user_id, @display_name, @bio, @region_code, @country_code, @subdivision_code, 1, @now)
                 on conflict (user_id) do nothing
                 returning {Columns}
                 """)
-            : _dataSource.CreateCommand(
+            : CreateCommand(connection,
                 $"""
                 update profiles.profiles
                 set display_name = case when @set_display_name then @display_name else display_name end,
@@ -85,6 +107,9 @@ public sealed class ProfileStore
         command.Parameters.Add(TextParameter("subdivision_code", location?.SubdivisionCode));
         return await ReadSingleAsync(command, cancellationToken);
     }
+
+    private NpgsqlCommand CreateCommand(NpgsqlConnection? connection, string sql) =>
+        connection is null ? _dataSource.CreateCommand(sql) : new NpgsqlCommand(sql, connection);
 
     private static NpgsqlParameter TextParameter(string name, string? value) =>
         new(name, NpgsqlDbType.Text) { Value = value is null ? DBNull.Value : value };

@@ -165,6 +165,10 @@ public sealed class PostgresFixture : IAsyncLifetime
             Username = role,
             Password = password,
             Database = database,
+            // Each scratch database has a different connection string. Migrator pools would otherwise retain
+            // one idle backend per database until the process exits, starving unrelated HTTP tests. These
+            // administrative connections are short-lived; application pools and the server budget stay intact.
+            Pooling = role != "duora_migrator",
         }.ConnectionString;
 }
 
