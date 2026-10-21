@@ -21,7 +21,7 @@ public sealed partial class KestrelPhotoUploadTests
         Assert.Contains("@sha256:", image, StringComparison.Ordinal);
         var config = await File.ReadAllTextAsync(Path.Combine(root, "infra", "caddy", "Caddyfile"), Cancellation);
         // Mesma configuração da borda; só endereço, certificado e porta são de teste. Nenhuma policy é retirada.
-        config = config.Replace("web:8080", $"host.testcontainers.internal:{backend.Port.ToString(CultureInfo.InvariantCulture)}", StringComparison.Ordinal);
+        config = config.Replace("duora-web:8080", $"host.testcontainers.internal:{backend.Port.ToString(CultureInfo.InvariantCulture)}", StringComparison.Ordinal);
         using var certificate = SelfSignedCertificate();
         using var key = certificate.GetRSAPrivateKey() ?? throw new InvalidOperationException("Certificado de teste sem chave.");
         await using var proxy = new ContainerBuilder(image)
