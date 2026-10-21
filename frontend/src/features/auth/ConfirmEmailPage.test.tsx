@@ -5,7 +5,7 @@ import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { renderApp, type RenderedApp } from '@/test/render'
 
 const USER_ID = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'
-const LINK = `/confirmar-email#userId=${USER_ID}&token=${encodeURIComponent('tok+en/=')}`
+const LINK = `/confirm-email#userId=${USER_ID}&token=${encodeURIComponent('tok+en/=')}`
 const PASSWORD = 'frase longa do cadastro'
 
 function useConfirmEndpoint(respond: () => Response) {
@@ -59,7 +59,7 @@ describe('tela de confirmação de e-mail', () => {
     const success = await screen.findByRole('status')
     expect(success).toHaveTextContent('E-mail confirmado.')
     expect(success).toHaveFocus()
-    expect(screen.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/entrar')
+    expect(screen.getByRole('link', { name: 'Entrar' })).toHaveAttribute('href', '/login')
     expect(received).toEqual([
       { body: { userId: USER_ID, token: 'tok+en/=', password: PASSWORD }, token: antiforgery.latestToken() },
     ])
@@ -71,7 +71,7 @@ describe('tela de confirmação de e-mail', () => {
     const app = await renderApp(LINK)
 
     await waitFor(() => {
-      expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirmar-email$/)
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirm-email$/)
     })
     await confirmWithPassword(app, PASSWORD)
 
@@ -95,10 +95,10 @@ describe('tela de confirmação de e-mail', () => {
   })
 
   it('um link com token na query também sai da URL, mesmo recusado', async () => {
-    await renderApp(`/confirmar-email?userId=${USER_ID}&token=abc`)
+    await renderApp(`/confirm-email?userId=${USER_ID}&token=abc`)
 
     await waitFor(() => {
-      expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirmar-email$/)
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/confirm-email$/)
     })
   })
 
@@ -110,7 +110,7 @@ describe('tela de confirmação de e-mail', () => {
     await confirmWithPassword(app, 'senha errada qualquer')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Link inválido ou senha incorreta.')
-    expect(screen.getByRole('link', { name: 'Criar conta de novo' })).toHaveAttribute('href', '/criar-conta')
+    expect(screen.getByRole('link', { name: 'Criar conta de novo' })).toHaveAttribute('href', '/register')
     expect(screen.getByLabelText('Senha')).toHaveValue('senha errada qualquer')
   })
 
@@ -137,10 +137,10 @@ describe('tela de confirmação de e-mail', () => {
   })
 
   it.each([
-    ['sem parâmetros', '/confirmar-email'],
-    ['sem token', `/confirmar-email#userId=${USER_ID}`],
-    ['userId inválido', '/confirmar-email#userId=123&token=abc'],
-    ['formato antigo, na query', `/confirmar-email?userId=${USER_ID}&token=abc`],
+    ['sem parâmetros', '/confirm-email'],
+    ['sem token', `/confirm-email#userId=${USER_ID}`],
+    ['userId inválido', '/confirm-email#userId=123&token=abc'],
+    ['formato antigo, na query', `/confirm-email?userId=${USER_ID}&token=abc`],
   ])('link malformado (%s) não chama a API', async (_caso, path) => {
     const received = useConfirmEndpoint(noContent)
     await renderApp(path)
@@ -155,7 +155,7 @@ describe('confirmação por código', () => {
   it('pede o código digitável e envia no corpo, sem confirmação automática', async () => {
     useAntiforgeryEndpoint()
     const received = useConfirmEndpoint(noContent)
-    const app = await renderApp(`/confirmar-email#userId=${USER_ID}&token=code`)
+    const app = await renderApp(`/confirm-email#userId=${USER_ID}&token=code`)
     const input = screen.getByLabelText('Código de confirmação')
     expect(input).toHaveAttribute('autocomplete', 'one-time-code')
     expect(input).toHaveAttribute('inputmode', 'numeric')
@@ -168,7 +168,7 @@ describe('confirmação por código', () => {
 
   it('código ausente mantém o foco no campo e não chama a API', async () => {
     const received = useConfirmEndpoint(noContent)
-    const app = await renderApp(`/confirmar-email#userId=${USER_ID}&token=code`)
+    const app = await renderApp(`/confirm-email#userId=${USER_ID}&token=code`)
     await confirmWithPassword(app, PASSWORD)
     expect(screen.getByLabelText('Código de confirmação')).toHaveFocus()
     expect(screen.getByLabelText('Código de confirmação')).toHaveAttribute('aria-invalid', 'true')

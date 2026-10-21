@@ -16,7 +16,7 @@ async function expectNoAxeViolations(page: Page): Promise<void> {
 async function openProfile(page: Page): Promise<FakeDuoraApi> {
   const api = await FakeDuoraApi.install(page)
   api.seedConfirmedUser(EMAIL, PASSWORD)
-  await page.goto('/entrar')
+  await page.goto('/login')
   await page.getByLabel('E-mail', { exact: true }).fill(EMAIL)
   await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()

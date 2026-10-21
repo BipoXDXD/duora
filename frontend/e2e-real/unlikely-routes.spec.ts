@@ -31,7 +31,7 @@ async function json<T>(page: Page, path: string): Promise<T> {
   return (await response.json()) as T
 }
 async function declare(page: Page, language: 'English' | 'Portuguese', optIn: boolean): Promise<void> {
-  await page.goto('/conta/preferencias')
+  await page.goto('/account/preferences')
   const english = page.getByRole('checkbox', { name: 'English', exact: true })
   const portuguese = page.getByRole('checkbox', { name: 'Portuguese', exact: true })
   await english.setChecked(language === 'English')
@@ -104,12 +104,12 @@ test('real PostgreSQL Routes: bilingual private clues, alternating choices, revi
     const bob = await at(contexts, 1).newPage()
     // Account locale may have been persisted by another real-browser scenario.
     for (const [index, page] of [alice, bob].entries()) {
-      await page.goto('/entrar')
+      await page.goto('/login')
       await page.getByLabel('Email', { exact: true }).fill(at(seed.accounts, index).email)
       await page.getByLabel('Password', { exact: true }).fill(at(seed.accounts, index).password)
       await page.getByRole('button', { name: 'Sign in', exact: true }).click()
       await expect(page.getByRole('heading', { name: /Your account|Sua conta/ })).toBeVisible()
-      await page.goto('/conta/preferencias')
+      await page.goto('/account/preferences')
       const locale = page.getByRole('combobox', {
         name: /Interface and content language|Idioma da interface e conteúdo/,
       })
@@ -118,7 +118,7 @@ test('real PostgreSQL Routes: bilingual private clues, alternating choices, revi
       await expect(page.getByText('Display language saved.', { exact: true })).toBeVisible()
       await declare(page, 'English', true)
     }
-    await bob.goto('/conta/preferencias')
+    await bob.goto('/account/preferences')
     await bob.getByRole('combobox', { name: 'Interface and content language' }).selectOption('pt-BR')
     await bob.getByRole('button', { name: 'Save display language' }).click()
     await expect(bob.getByText('Idioma de exibição salvo.')).toBeVisible()

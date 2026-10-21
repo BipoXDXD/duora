@@ -6,7 +6,7 @@ describe('readLoginState', () => {
   it('lê aviso e destino interno', () => {
     expect(readLoginState({ notice: 'session-expired', from: '/conta?aba=sessoes' })).toEqual({
       notice: 'session-expired',
-      from: '/conta?aba=sessoes',
+      from: '/account?aba=sessoes',
     })
   })
 
@@ -37,4 +37,28 @@ describe('readLoginState', () => {
       expect(readLoginState({ from })).toEqual({})
     },
   )
+})
+
+describe('canonical safe returns', () => {
+  it.each([
+    ['/conta/perfil?tab=photos#section', '/account/profile?tab=photos#section'],
+    ['/account/preferences', '/account/preferences'],
+    ['/events', '/events'],
+    ['/rooms/0199f1a2-3b4c-7d5e-8f60-718293a4b5c6', '/rooms/0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'],
+    ['/conta?token=secret&userId=private&tab=sessions#token=secret', '/account?tab=sessions'],
+  ])('%s becomes %s', (from, expected) => {
+    expect(readLoginState({ from })).toEqual({ from: expected })
+  })
+  it.each([
+    '/\\evil.example/account',
+    '/\t/evil.example/account',
+    '/%2f%2fevil.example',
+    '/account/../login',
+    '/account\\profile',
+    '/rooms/not-an-id',
+    '/confirm-email',
+    '/login?next=/account',
+  ])('rejects %s', (from) => {
+    expect(readLoginState({ from })).toEqual({})
+  })
 })

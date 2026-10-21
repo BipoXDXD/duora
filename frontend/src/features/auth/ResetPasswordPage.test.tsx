@@ -6,7 +6,7 @@ import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { createTestQueryClient, renderApp, type RenderedApp } from '@/test/render'
 
 const USER_ID = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'
-const LINK = `/redefinir-senha#userId=${USER_ID}&token=reset-token`
+const LINK = `/reset-password#userId=${USER_ID}&token=reset-token`
 
 function useResetEndpoint(respond: () => Response) {
   const received: { body: unknown; token: string | null }[] = []
@@ -64,7 +64,7 @@ describe('tela de redefinição de senha', () => {
     const app = await renderApp(LINK)
 
     await waitFor(() => {
-      expect(screen.getByTestId('location')).toHaveTextContent(/^\/redefinir-senha$/)
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/reset-password$/)
     })
     await submitPassword(app, 'outra frase longa de senha')
 
@@ -108,7 +108,7 @@ describe('tela de redefinição de senha', () => {
     await submitPassword(app, 'outra frase longa de senha')
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Peça um link novo.')
-    expect(screen.getByRole('link', { name: 'Pedir um link novo' })).toHaveAttribute('href', '/esqueci-a-senha')
+    expect(screen.getByRole('link', { name: 'Pedir um link novo' })).toHaveAttribute('href', '/forgot-password')
   })
 
   it('429 mostra o tempo de espera', async () => {
@@ -133,10 +133,10 @@ describe('tela de redefinição de senha', () => {
   })
 
   it('link malformado não mostra o formulário', async () => {
-    await renderApp('/redefinir-senha#userId=nao-e-uuid&token=x')
+    await renderApp('/reset-password#userId=nao-e-uuid&token=x')
 
     expect(screen.getByRole('alert')).toHaveTextContent('Este link de recuperação é inválido ou expirou.')
     expect(screen.queryByLabelText('Senha nova')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Pedir um link novo' })).toHaveAttribute('href', '/esqueci-a-senha')
+    expect(screen.getByRole('link', { name: 'Pedir um link novo' })).toHaveAttribute('href', '/forgot-password')
   })
 })

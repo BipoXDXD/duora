@@ -38,8 +38,9 @@ conversa, segurança e privacidade **sem decorar ícones**. As telas citadas est
 | Sala (modo focado) | `/eventos/{id}/sala` | Convite, experiência, chat da sala | Não aparece na navegação; entra-se pela sala de espera |
 | Decisão | `/decisoes/{sessaoId}` | Decisão privada e janela | Alcançável pela sala ao fim do jogo e por aviso em Eventos até a janela fechar |
 
-Rotas em PT-BR sem acento, coerentes com a interface; nenhuma rota leva dado sensível no path ou na query
-(identificadores são opacos).
+Os caminhos propostos acima são históricos. As rotas implementadas usam um único conjunto em inglês,
+independente do idioma da interface, com aliases dos links antigos. O inventário e as regras de
+compatibilidade estão em [spa-routes.md](../architecture/spa-routes.md). Nenhuma credencial deve ir no path ou na query.
 
 **Alternativa considerada:** uma área "Conta" separada de "Perfil" (cinco itens). Descartada porque cinco
 rótulos a 320 px exigiriam texto menor que 12 px ou rótulos truncados; "Conta" vira seção dentro de Perfil, e

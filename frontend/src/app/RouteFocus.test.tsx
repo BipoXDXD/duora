@@ -11,7 +11,7 @@ describe('mudança de rota (A11Y-02)', () => {
   })
 
   it('ao navegar, move o foco para o h1 da página nova e anuncia o título', async () => {
-    const { user } = await renderApp('/entrar')
+    const { user } = await renderApp('/login')
 
     await user.click(screen.getByRole('link', { name: 'Criar conta' }))
 

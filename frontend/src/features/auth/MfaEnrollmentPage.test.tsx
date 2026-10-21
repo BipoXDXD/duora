@@ -64,7 +64,7 @@ async function submitCode(user: RenderedApp['user'], code: string) {
 }
 
 describe('fase do cadastro de MFA', () => {
-  it.each(['/conta', '/conta/perfil', '/trocar-senha-inicial', '/conta/ativar-mfa'])(
+  it.each(['/account', '/account/profile', '/change-initial-password', '/account/enable-mfa'])(
     'conta privilegiada sem MFA vai ao cadastro: %s',
     async (path) => {
       mfaPhase()
@@ -76,13 +76,13 @@ describe('fase do cadastro de MFA', () => {
           { timeout: ROUTE_CHUNK_TIMEOUT_MS },
         ),
       ).toBeInTheDocument()
-      expect(screen.getByTestId('location')).toHaveTextContent(/^\/conta\/ativar-mfa$/)
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/account\/enable-mfa$/)
     },
   )
 
   it('403 MFA_ENROLLMENT_REQUIRED em /me, que o servidor não emite hoje, também leva ao cadastro', async () => {
     server.use(http.get(`${API}/me`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')))
-    await renderApp('/conta/perfil')
+    await renderApp('/account/profile')
     expect(
       await screen.findByRole(
         'heading',
@@ -90,7 +90,7 @@ describe('fase do cadastro de MFA', () => {
         { timeout: ROUTE_CHUNK_TIMEOUT_MS },
       ),
     ).toBeInTheDocument()
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/conta\/ativar-mfa$/)
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/account\/enable-mfa$/)
   })
 
   it.each(['12345', '1234567', 'abcdef', '12 456'])('recusa o código %s sem chamar a API', async (code) => {
@@ -98,7 +98,7 @@ describe('fase do cadastro de MFA', () => {
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
     const confirmation = useConfirmationEndpoint(() => HttpResponse.json({ recoveryCodes: ['x'] }))
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
     await startEnrollment(user)
 
     await submitCode(user, code)
@@ -122,7 +122,7 @@ describe('fase do cadastro de MFA', () => {
         return HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] })
       }),
     )
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
     await startEnrollment(user)
 
     await submitCode(user, '123 456')
@@ -142,7 +142,7 @@ describe('fase do cadastro de MFA', () => {
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
     const confirmation = useConfirmationEndpoint(() => problem(status, code))
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
     await startEnrollment(user)
 
     await submitCode(user, '123456')
@@ -158,7 +158,7 @@ describe('fase do cadastro de MFA', () => {
     mfaPhase()
     useAntiforgeryEndpoint()
     const enrollment = useEnrollmentEndpoint(() => problem(status, code))
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
 
     await user.click(
       await screen.findByRole('button', { name: 'Configurar autenticador' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
@@ -175,7 +175,7 @@ describe('limite de tentativas', () => {
     mfaPhase()
     useAntiforgeryEndpoint()
     const enrollment = useEnrollmentEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '30' }))
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
 
     await user.click(
       await screen.findByRole('button', { name: 'Configurar autenticador' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
@@ -192,7 +192,7 @@ describe('limite de tentativas', () => {
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
     const confirmation = useConfirmationEndpoint(() => problem(429, 'RATE_LIMITED', { 'Retry-After': '120' }))
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
     await startEnrollment(user)
 
     await submitCode(user, '123456')
@@ -210,7 +210,7 @@ describe('foco ao trocar de estado', () => {
     mfaPhase()
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
 
     await startEnrollment(user)
 
@@ -223,7 +223,7 @@ describe('foco ao trocar de estado', () => {
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
     useConfirmationEndpoint(() => HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] }))
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
     await startEnrollment(user)
 
     await submitCode(user, '123456')
@@ -272,7 +272,7 @@ describe('segredo do TOTP e códigos de recuperação', () => {
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
     useConfirmationEndpoint(() => HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] }))
-    const { user, queryClient } = await renderApp('/conta/ativar-mfa')
+    const { user, queryClient } = await renderApp('/account/enable-mfa')
 
     await startEnrollment(user)
     expect(persistedTraces(queryClient)).not.toContain(SHARED_KEY)
@@ -289,7 +289,7 @@ describe('segredo do TOTP e códigos de recuperação', () => {
 describe('textos da tela', () => {
   it('participante lê instruções neutras, sem "sua conta exige"', async () => {
     server.use(http.get(`${API}/me`, () => HttpResponse.json({ ...ADMIN_WITHOUT_MFA, roles: ['participant'] })))
-    await renderApp('/conta/ativar-mfa')
+    await renderApp('/account/enable-mfa')
 
     await screen.findByRole(
       'heading',
@@ -312,7 +312,7 @@ describe('textos da tela', () => {
         return HttpResponse.json({ sharedKey: SHARED_KEY, authenticatorUri: 'otpauth://totp/test' })
       }),
     )
-    const { user } = await renderApp('/conta/ativar-mfa')
+    const { user } = await renderApp('/account/enable-mfa')
 
     await user.click(
       await screen.findByRole('button', { name: 'Configurar autenticador' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
@@ -348,7 +348,7 @@ describe('erro 401 nas fases restritas', () => {
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
     useConfirmationEndpoint(() => problem(401, 'REAUTHENTICATION_REQUIRED'))
-    const { user, queryClient } = await renderApp('/conta/ativar-mfa')
+    const { user, queryClient } = await renderApp('/account/enable-mfa')
     await startEnrollment(user)
 
     await submitCode(user, '123456')
@@ -365,7 +365,7 @@ describe('erro 401 nas fases restritas', () => {
     const me = countedMe(() => problem(403, 'PASSWORD_CHANGE_REQUIRED'))
     useAntiforgeryEndpoint()
     server.use(http.post(`${API}/me/password-changes`, () => problem(401, 'INVALID_CREDENTIALS')))
-    const { user, queryClient } = await renderApp('/trocar-senha-inicial')
+    const { user, queryClient } = await renderApp('/change-initial-password')
     await user.type(await screen.findByLabelText('Senha temporária', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS }), 'X')
     await user.type(screen.getByLabelText('Senha nova'), ' minha senha própria longa ')
     await user.type(screen.getByLabelText('Confirme a nova senha'), ' minha senha própria longa ')
