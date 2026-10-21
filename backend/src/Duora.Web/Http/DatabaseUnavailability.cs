@@ -56,8 +56,7 @@ internal sealed class DatabaseUnavailableExceptionHandler : IExceptionHandler
         ApiProblems.SetRetryAfter(httpContext, RetryAfter);
         await ApiProblems.Problem(
                 StatusCodes.Status503ServiceUnavailable,
-                ApiProblems.TemporarilyUnavailable,
-                "Serviço temporariamente indisponível. Tente novamente em instantes.")
+                ApiProblems.TemporarilyUnavailable)
             .ExecuteAsync(httpContext);
         return true;
     }

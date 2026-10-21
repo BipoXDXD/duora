@@ -20,8 +20,7 @@ internal sealed class AccountBusyExceptionHandler : IExceptionHandler
         ApiProblems.SetRetryAfter(httpContext, busy.RetryAfter);
         await ApiProblems.Problem(
                 StatusCodes.Status503ServiceUnavailable,
-                ApiProblems.TemporarilyUnavailable,
-                "A conta está ocupada. Tente novamente em instantes.")
+                ApiProblems.TemporarilyUnavailable)
             .ExecuteAsync(httpContext);
         return true;
     }

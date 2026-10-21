@@ -41,7 +41,7 @@ internal static class TimeZoneEndpoints
         var condition = EntityTags.ParseIfMatch(ifMatch);
         if (condition.Kind == IfMatchKind.Missing)
         {
-            return ApiProblems.Problem(428, ApiProblems.PreconditionRequired, "Envie o ETag da última leitura.");
+            return ApiProblems.Problem(428, ApiProblems.PreconditionRequired);
         }
         if (request.TimeZone is { } zone && !TimeZones.IsSupported(zone))
         {
@@ -52,12 +52,12 @@ internal static class TimeZoneEndpoints
             var saved = condition.Kind == IfMatchKind.Version
                 ? await store.UpdateOwnAsync(userId, condition.Version, request.TimeZone, cancellationToken) : null;
             return saved is null
-                ? ApiProblems.Problem(412, ApiProblems.PreconditionFailed, "O recurso mudou. Recarregue antes de salvar.")
+                ? ApiProblems.Problem(412, ApiProblems.PreconditionFailed)
                 : Respond(context, saved);
         }
         catch (TimeZonePreferenceRestrictedException)
         {
-            return ApiProblems.Problem(403, ApiProblems.AccountRestricted, "A situação da conta não permite esta alteração.");
+            return ApiProblems.Problem(403, ApiProblems.AccountRestricted);
         }
     }
 

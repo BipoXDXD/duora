@@ -45,7 +45,7 @@ internal sealed class CsrfProtectionMiddleware(RequestDelegate next, IAntiforger
         if (!HasTrustedProvenance(context.Request) || !await antiforgery.IsRequestValidAsync(context))
         {
             await ApiProblems
-                .Problem(StatusCodes.Status403Forbidden, ApiProblems.CsrfValidationFailed, "Requisição recusada.")
+                .Problem(StatusCodes.Status403Forbidden, ApiProblems.CsrfValidationFailed)
                 .ExecuteAsync(context);
             return;
         }

@@ -113,5 +113,5 @@ internal static class ReauthenticationEndpoints
     }
 
     private static ProblemHttpResult InvalidCredentials() =>
-        ApiProblems.Problem(StatusCodes.Status401Unauthorized, ApiProblems.InvalidCredentials, "Senha ou código inválido.");
+        ApiProblems.Problem(StatusCodes.Status401Unauthorized, ApiProblems.InvalidCredentials);
 }

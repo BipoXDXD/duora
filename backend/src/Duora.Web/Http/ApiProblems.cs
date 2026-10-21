@@ -45,20 +45,20 @@ internal static class ApiProblems
     public const string WebhookPayloadInvalid = "WEBHOOK_PAYLOAD_INVALID";
     public const string WebhookSignatureInvalid = "WEBHOOK_SIGNATURE_INVALID";
 
-    public static ProblemHttpResult Problem(int status, string code, string title) =>
-        TypedResults.Problem(statusCode: status, title: title, type: TypeFor(code), extensions: CodeExtension(code));
+    public static ProblemHttpResult Problem(int status, string code) =>
+        TypedResults.Problem(statusCode: status, title: TitleFor(code), type: TypeFor(code), extensions: CodeExtension(code));
 
     public static ValidationProblem Validation(IDictionary<string, string[]> errors) =>
         TypedResults.ValidationProblem(
             errors,
-            title: "A requisição tem campos inválidos.",
+            title: TitleFor(ValidationFailed),
             type: TypeFor(ValidationFailed),
             extensions: CodeExtension(ValidationFailed));
 
     public static ProblemHttpResult TooManyRequests(HttpContext context, TimeSpan retryAfter)
     {
         SetRetryAfter(context, retryAfter);
-        return Problem(StatusCodes.Status429TooManyRequests, RateLimited, "Muitas tentativas. Tente novamente mais tarde.");
+        return Problem(StatusCodes.Status429TooManyRequests, RateLimited);
     }
 
     public static void SetRetryAfter(HttpContext context, TimeSpan retryAfter) =>
@@ -72,28 +72,76 @@ internal static class ApiProblems
     public static void AddDefaultCode(ProblemDetailsContext context)
     {
         var problem = context.ProblemDetails;
-        if (problem.Extensions.ContainsKey("code"))
-        {
-            return;
-        }
-
-        var code = problem.Status switch
-        {
-            StatusCodes.Status400BadRequest => InvalidRequest,
-            StatusCodes.Status401Unauthorized => "UNAUTHENTICATED",
-            StatusCodes.Status403Forbidden => "FORBIDDEN",
-            StatusCodes.Status404NotFound => "NOT_FOUND",
-            StatusCodes.Status405MethodNotAllowed => "METHOD_NOT_ALLOWED",
-            StatusCodes.Status411LengthRequired => LengthRequired,
-            StatusCodes.Status413PayloadTooLarge => PayloadTooLarge,
-            StatusCodes.Status415UnsupportedMediaType => UnsupportedMediaType,
-            StatusCodes.Status429TooManyRequests => RateLimited,
-            StatusCodes.Status500InternalServerError => "INTERNAL_ERROR",
-            var other => $"HTTP_{other}",
-        };
+        var code = problem.Extensions.TryGetValue("code", out var existing) && existing is string supplied
+            ? supplied
+            : problem.Status switch
+            {
+                StatusCodes.Status400BadRequest => InvalidRequest,
+                StatusCodes.Status401Unauthorized => "UNAUTHENTICATED",
+                StatusCodes.Status403Forbidden => "FORBIDDEN",
+                StatusCodes.Status404NotFound => "NOT_FOUND",
+                StatusCodes.Status405MethodNotAllowed => "METHOD_NOT_ALLOWED",
+                StatusCodes.Status411LengthRequired => LengthRequired,
+                StatusCodes.Status413PayloadTooLarge => PayloadTooLarge,
+                StatusCodes.Status415UnsupportedMediaType => UnsupportedMediaType,
+                StatusCodes.Status429TooManyRequests => RateLimited,
+                StatusCodes.Status500InternalServerError => "INTERNAL_ERROR",
+                var other => $"HTTP_{other}",
+            };
         problem.Extensions["code"] = code;
         problem.Type = TypeFor(code);
+        problem.Title = TitleFor(code);
+        problem.Detail = null;
     }
+
+    // Explicit public text only: never use exception messages or request values.
+    private static string TitleFor(string code) => code switch
+    {
+        AccountNotEligible => "The account is not eligible for this operation.",
+        AccountRestricted => "The account cannot perform this operation.",
+        AgeVerificationNotAvailable => "Age verification is not available.",
+        AgeVerificationUnavailable => "Age verification is temporarily unavailable.",
+        CsrfValidationFailed => "Request rejected.",
+        IdempotencyKeyReused => "This idempotency key has already been used for another request.",
+        IdempotencyRequestInProgress => "The request with this idempotency key is still in progress.",
+        InvalidCredentials => "Invalid credentials.",
+        InvalidRequest => "Invalid request.",
+        InvalidToken => "Invalid or expired link.",
+        LengthRequired => "Content-Length is required.",
+        MediaQueueFull => "Photo processing is busy. Try again later.",
+        MediaUploadsDisabled => "Photo uploads are disabled.",
+        MfaRequired => "A second authentication factor is required.",
+        PasswordChangeRequired => "Change your temporary password to continue.",
+        PayloadTooLarge => "Request payload is too large.",
+        PreconditionFailed => "The resource has changed. Reload it before saving.",
+        PreconditionRequired => "Provide the ETag from the last read in If-Match.",
+        MfaCodeInvalid => "Invalid authentication code.",
+        MfaAlreadyEnabled => "MFA is already enabled.",
+        MfaEnrollmentNotStarted => "Start MFA enrollment before confirming.",
+        MfaEnrollmentRequired => "Enroll a second authentication factor to continue.",
+        MfaNotEnabled => "MFA is not enabled.",
+        MfaRequiredByRole => "MFA is required for this account role.",
+        ReauthenticationRequired => "Confirm your credentials to continue.",
+        RateLimited => "Too many requests. Try again later.",
+        SelfBlock => "You cannot block your own account.",
+        StorageUnavailable => "Photo storage is temporarily unavailable. Retry with the same key.",
+        TemporarilyUnavailable => "Service temporarily unavailable. Try again later.",
+        UnsupportedMediaType => "Unsupported media type.",
+        UploadIncomplete => "The upload is incomplete. Retry with the same key.",
+        UploadPendingLimit => "Too many photos are pending. Wait for processing to finish.",
+        ValidationFailed => "The request contains invalid fields.",
+        WebhookPayloadInvalid => "Invalid webhook payload.",
+        WebhookSignatureInvalid => "Invalid webhook signature.",
+        "UNAUTHENTICATED" => "Authentication required.",
+        "FORBIDDEN" => "Forbidden.",
+        "NOT_FOUND" => "Resource not found.",
+        "METHOD_NOT_ALLOWED" => "Method not allowed.",
+        "INTERNAL_ERROR" => "An unexpected error occurred.",
+        "AGE_VERIFICATION_RETIRED" => "Age verification has been retired.",
+        "SELFIE_UNAVAILABLE" => "Selfie verification unavailable.",
+        "VERSION_CONFLICT" => "The resource has changed. Reload it before continuing.",
+        _ => "The request could not be completed.",
+    };
 
     private static Dictionary<string, object?> CodeExtension(string code) => new() { ["code"] = code };
 

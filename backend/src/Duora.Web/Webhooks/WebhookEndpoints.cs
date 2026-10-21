@@ -8,7 +8,7 @@ internal static class WebhookEndpoints
 {
     public static void MapWebhookEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/webhooks/{provider}", () => ApiProblems.Problem(410, "AGE_VERIFICATION_RETIRED", "Age verification has been retired."))
+        app.MapPost("/webhooks/{provider}", () => ApiProblems.Problem(410, "AGE_VERIFICATION_RETIRED"))
             .AllowAnonymous().WithMetadata(new CsrfExemptEndpoint()).ExcludeFromDescription();
     }
 }
