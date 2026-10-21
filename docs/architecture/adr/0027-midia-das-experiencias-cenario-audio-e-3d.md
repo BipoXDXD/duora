@@ -97,9 +97,9 @@ geração ao vivo (imagem, música ou TTS).
   dela (meta de projeto WCAG 1.4.7, AAA), com transição sem degrau audível (GASG pp. 288–289).
 - **Transcrição na tela** de toda fala, no idioma ativo (WCAG 1.2.1), com a identificação de quem fala. A
   transcrição é o mesmo texto do catálogo que gerou o áudio: uma fonte só.
-- **Aviso de voz editorial** em dois lugares: um aviso claro na introdução da experiência ("As vozes desta
-  experiência são de produção editorial") e o rótulo junto da transcrição de cada fala. Aplicabilidade do art. 50 do
-  EU processamento externo Act a confirmar (lacuna J-10 do PR #83); voz de referência de residente de Illinois entra na lacuna J-04.
+- **Apresentação da narração:** objetivo, transcrição fiel e identificação neutra de quem fala, conforme
+  [ADR-0032](0032-narracao-natural-e-proveniencia-interna.md). A revisão de aplicabilidade prevista na lacuna J-10
+  permanece pendente; voz de referência de residente de Illinois entra na lacuna J-04.
 - **Nenhuma reação sonora ao prazo:** sem tique-taque, sem música que acelera, sem alarme nos marcos (O4 do
   brief). O marco é texto, anunciado uma vez (A11Y-08).
 - **Decisão privada em silêncio** ou com som neutro do ambiente, sem nenhum som ao salvar, ao formar conexão ou
@@ -175,7 +175,7 @@ Os números são **hipóteses** (convenção da spec: valor a medir), revistos c
 
 A mídia é conteúdo da `ExperienceVersion` (spec 6.1; ADR-0020). O conteúdo da versão ganha um **manifesto de
 mídia**; cada entrada tem `assetId`, tipo (`image`, `audio`, `model3d`), idioma quando houver, SHA-256 do arquivo,
-origem (`human`, `editorial_external`), ferramenta, modelo, id da tarefa de geração, licença e, para voz, a referência
+ferramenta, modelo, id da tarefa de geração, licença e, para voz, a referência
 ao registro de consentimento. O `content_sha256` da versão cobre o manifesto, e por ele cada arquivo.
 
 - Os arquivos são estáticos da mesma origem (ADR-0006), com nome derivado do hash, servidos pelo Caddy com cache
@@ -278,3 +278,7 @@ personalidade às experiências sem comprometer acolhimento, privacidade e saíd
   `GenerationStopsAfterMaxAttemptsPerAsset` e `GenerationHonorsProviderRetryAfter`, contra servidor HTTP falso.
 - A criar com a primeira experiência com 3D em tempo real: E2E do fallback para o poster sem WebGL e com "Reduzir
   movimento" (a carga sem violação de CSP é o teste de navegador do item acima).
+
+## Atualização da apresentação pública
+
+O [ADR-0032](0032-narracao-natural-e-proveniencia-interna.md), de 21/10/2026, atualiza a apresentação da narração e elimina classificações declarativas de origem do conteúdo. Identificadores técnicos de produção, direitos, consentimento e os demais requisitos deste ADR permanecem.

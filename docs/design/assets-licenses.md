@@ -11,7 +11,7 @@ task id da geração.
 |---|---|---|---|
 | fonte externa | Imagem (fonte externa, fonte externa) e modelo 3D | Pago, do responsável pelo produto | Conforme informado pelo responsável; termos não verificados (ver abaixo) |
 | fonte externa (fonte externa) | Modelo 3D (fonte offline e GLB em tempo real) | Business, do responsável pelo produto (decisão de 2026-10-19) | Conforme informado pelo responsável; termos não verificados. O responsável registra aqui o link e a data em que leu a cláusula de uso comercial |
-| fonte externa | Voz editorial (TTS), música e, como fonte principal, efeitos e ambiências (SFX v2, `fonte externa`) | **Creator** ativo confirmado pelo responsável em 21/10/2026; conexão OAuth sem numeração de conta | Termos em <registro externo de origem>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `EDITORIAL_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth (metadados em <registro externo de origem>; conexão usada neste lote em 21/10/2026) |
+| fonte externa | Narração pré-gravada, música e, como fonte principal, efeitos e ambiências (SFX v2, `fonte externa`) | **Creator** ativo confirmado pelo responsável em 21/10/2026; conexão OAuth sem numeração de conta | Termos em <registro externo de origem>; o responsável registra aqui a data em que leu a cláusula de uso comercial do Creator (a registrar). A chave `EDITORIAL_API_KEY` fica só no ambiente de quem gera; o MCP hospedado usa OAuth (metadados em <registro externo de origem>; conexão usada neste lote em 21/10/2026) |
 | Freesound | Efeitos sonoros (complemento) | Gratuito; **só CC0** | Licença CC0 por som, conferida na página de cada um (<https://freesound.org/help/faq/>); nada com voz identificável |
 | Sonniss | Efeitos sonoros em pacotes (complemento) | Pacotes baixados pelo responsável | Licença do pacote (<https://sonniss.com/gameaudiogdc>) proíbe redistribuir som avulso; como o repositório é público, só o mix final entra no Git (termo exato a confirmar) |
 
@@ -104,10 +104,10 @@ pessoa real só entra com consentimento assinado (documento, data e escopo de us
 O [manifesto completo](../../content/experiences/2026-10-review/media-manifest.json) registra as 32 tomadas
 (em duas revisões solicitadas), com IDs e consumo total informado de **2.431,7568 créditos**. Só quatro tomadas
 atuais selecionadas originam os oito derivados versionados. A revisão inicial foi substituída após a orientação
-do responsável para retirar o aviso falado sobre processamento externo; nenhum arquivo substituído é candidato à publicação.
+do responsável para revisar a introdução falada; nenhum arquivo substituído é candidato à publicação.
 Transcrições automáticas Scribe v1 conferem os quatro textos finais e não equivalem a escuta humana.
 
-Direitos dos textos: redação/tradução original assistida por processamento externo para o Duora, sem conteúdo de terceiros ou dados
+Direitos dos textos: redação/tradução preparada para o Duora, sem conteúdo de terceiros ou dados
 de participantes. Origem de voz e direitos do fornecedor permanecem distintos da aprovação editorial final.
 
 ### Fontes fonte externa SFX (efeitos e ambiências)

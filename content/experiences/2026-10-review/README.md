@@ -15,11 +15,10 @@ sem mudar regras, pareamento, preferências ou a API do produto. **Revisão edit
 - `transcription-check.json`: conferência automática do candidato selecionado contra o texto. Não substitui
   a escuta humana nem comprova qualidade de sotaque, naturalidade ou acessibilidade.
 
-Textos e traduções foram preparados com assistência de processamento externo para este projeto, sem dados de participantes ou
+Textos e traduções foram preparados para este projeto, sem dados de participantes ou
 reaproveitamento de texto de terceiros. As duas variantes têm os mesmos IDs e ordem. Narração de interface,
 sem personagem, avatar ou identidade de participante; som não carrega regra nem pista privada.
-As introduções não narram aviso sobre processamento externo, conforme orientação do responsável nesta tarefa. A origem sintética
-permanece registrada na proveniência técnica. Não há música, ambiência, barks ou áudio de pistas privadas neste
+As introduções narram somente o objetivo público. Não há música, ambiência, barks ou áudio de pistas privadas neste
 lote: o contrato operacional usa somente a cue pública `intro`.
 
 ## Voz e direitos

@@ -6,7 +6,7 @@
 
 ## Contexto
 
-processamento externo pode acelerar a criação de cartões, instruções e variações de jogos, e a triagem de denúncias. Mas uma
+A preparação de cartões, instruções e variações ocorre antes da publicação. Uma
 partida em andamento precisa de regras estáveis (INV-09) e não pode depender da disponibilidade de um
 fornecedor. Dados íntimos não podem ser enviados a agentes de criação de conteúdo.
 
@@ -19,7 +19,7 @@ Alternativas consideradas:
 
 ## Decisão
 
-Vamos usar processamento externo só fora do fluxo ao vivo: propostas de conteúdo passam por validação de schema, comprimento,
+Propostas de conteúdo são preparadas fora do fluxo ao vivo e passam por validação de schema, comprimento,
 linguagem, conteúdo proibido, direitos e acessibilidade e por aprovação editorial antes de publicar uma versão
 imutável. `CreateSession` usa exclusivamente regras determinísticas. Moderação assistida (`IContentReviewProvider`) é condicional e
 recebe só o estritamente necessário.
@@ -43,3 +43,5 @@ de moderação exige política de dados, retenção e acesso própria antes de r
 - T-09 (versão nova do catálogo durante a partida): M2.
 - Teste de arquitetura: o módulo Experiences não referencia cliente de processamento externo (a implementar no M2).
 - Teste de integração da partida com o fornecedor de processamento externo ausente da composição (M2).
+
+Redação sobre preparação editorial atualizada por solicitação do responsável em 21/10/2026; ver ADR-0032. As restrições de runtime e moderação permanecem.

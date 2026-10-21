@@ -14,3 +14,7 @@
 - **Limites:** até 120 caracteres por fala; som desligado por padrão, WAV PCM mono 48 kHz para a API e AAC-LC 64 kbit/s para escuta.
 - **Nunca:** pista do outro no payload, som de prazo, localização real ou compatibilidade romântica inferida.
 - **Revisão humana:** tradução, compreensão de pistas, escuta e aprovação final ainda pendentes.
+
+## Direção para novas tomadas
+
+Conforme ADR-0032, priorizar voz adulta e conversacional, pausas naturais e pronúncia fluente em cada idioma. Evitar cadência robótica, tom publicitário, teatralidade, sedução e urgência. A voz Sarah citada acima identifica o candidato anterior, não uma seleção obrigatória para novas tomadas. Escolher por escuta humana antes de aprovar o áudio.
