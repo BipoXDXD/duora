@@ -34,3 +34,22 @@ dados sintéticos e construtores reais de Preferences. Nada comprova acesso ao f
 alertas, recuperação ou desempenho sob volume operacional; esses ensaios dependem das próximas etapas.
 Sem detector, base real, coleta de IP, UI regional, ativação de V3, implantação ou US habilitado.
 Titular/substituto e canal de alertas permanecem pendentes. A issue #108 continua aberta.
+
+
+## Contrato inativo e sugestão temporária — etapas 5 e 6
+
+`RegionDetectionTests` usa somente resultados sintéticos e PostgreSQL descartável. Verifica autenticação,
+CSRF, recusa de corpo com IP, no-store, IP ausente/não público, IPv4/IPv6/mapeado, proxy confiável de um salto,
+cadeia residual e cabeçalho de remetente não confiável. US resulta em unsupported sem país exposto.
+N+1 separa limite de conta e origem; snapshots de perfil, preferências, idiomas, locale, guarda e histórico
+permanecem iguais em sucesso, unknown, unavailable e cancelamento. Captura de logs recusa IP e país da observação.
+O cancelamento em TestServer pode propagar OperationCanceledException ou ser tratado pelo middleware como 499;
+ambos exigem lookup alcançado, token cancelado e snapshot preservado.
+
+Vitest exercita formulários existentes e POST real no cliente HTTP via MSW: pré-seleção sem escrita, manual
+mesmo após voltar ao valor inicial, A após B, cancelamento/saída, preferência salva, localização salva como null e estados sem sugestão.
+Playwright cobre PT-BR/EN-US nos três projetos, acessibilidade e sucesso do perfil com conflito independente
+na preferência. O simulador oferece capacidade false por padrão, como o servidor; fixtures habilitadas são
+exclusivas dos testes. As coberturas anteriores de 412/duas abas e pareamento V3 continuam obrigatórias.
+
+Sem ensaio real IPinfo/MMDB: leitor/atualizador e operação ainda não foram implementados/autorizados nesta entrega.

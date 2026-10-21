@@ -85,6 +85,7 @@ export async function authenticatedPage(page: Page, locale: Locale): Promise<voi
       },
     }),
   )
+  await page.route('**/api/v1/me/region-detection/capability', (route) => route.fulfill({ json: { enabled: false } }))
   await page.route('**/api/v1/auth/csrf', (route) =>
     route.fulfill({ status: 204, headers: { 'Set-Cookie': 'XSRF-TOKEN=synthetic; Path=/; SameSite=Lax' } }),
   )

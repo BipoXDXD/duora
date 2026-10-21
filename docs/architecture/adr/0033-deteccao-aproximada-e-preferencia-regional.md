@@ -338,3 +338,21 @@ para implementação e implantação. Não há autorização para contratar ou p
 coleta, migração ou implantação foi criado. O catálogo executável permanece BR + 27 UFs; EUA não habilitados.
 A issue #108 fica aberta; a #78 continua responsável pela habilitação de países. Este registro não altera
 permissões de automação, workflows ou gates de revisão existentes.
+
+
+### Execução autorizada das etapas 5 e 6 — 21/10/2026
+
+Contrato HTTP e sugestão temporária foram preparados usando o fluxo manual existente. O registro de produção
+continua somente `DisabledCountryLookup`: capacidade false e POST disabled, sem leitor, arquivo ou serviço real.
+A disponibilidade é consultada por GET autenticado separado, sem lookup; só ação explícita autoriza o POST sem corpo.
+Somente rascunho inicial intocado pode receber sugestão; edição manual, gravação/releitura explícita, pedido posterior,
+cancelamento e desmontagem protegem contra resposta atrasada. Perfil com versão persistida preserva inclusive
+país null: sem metadado de origem regional, só versão 0 pode ser pré-selecionada; perfil existente usa escolha manual.
+Isso evita substituir uma escolha salva de não informar, sem coletar origem adicional. Cada formulário conserva
+salvamento/ETag independente.
+
+Os limites iniciais propostos (6/minuto/conta e 60/minuto/origem, em memória) e a admissão conservadora de IP estão
+registrados no [plano](../../superpowers/plans/2026-10-21-issue-108-regional-implementation.md#registro-de-execução-de-21102026--etapas-5-e-6).
+São hipóteses para revisão antes da operação real, não homologação de carga ou autorização de ativação.
+Continuam pendentes responsáveis nominais, substituto e canal de alertas. G2–G5, detector/MMDB real, atualização,
+implantação, corte do filtro V3 e habilitação dos EUA não são resolvidos por esta entrega.

@@ -59,3 +59,21 @@ Em defeito no filtro ou concorrência, **pausar novos pares com `Participation__
 conservar dados/versões e corrigir para frente. Nunca usar retirada do corte ou retorno a V2 como fallback
 silencioso. A migração Down recusa apagar histórico V3; rollback de binário exige pausa e plano revisado,
 sem remover schema/preferências e sem consumidores antigos executando rodadas V3.
+
+
+## Capacidade de sugestão nesta entrega (etapas 5 e 6)
+
+O registro executável é sempre `DisabledCountryLookup`. GET autenticado `/api/v1/me/region-detection/capability`
+retorna enabled false; POST sem corpo `/api/v1/me/region-detection` retorna disabled. A SPA não oferece ação
+quando a capacidade é false ou não pode ser lida. Não existe configuração de ativação real, acesso a arquivo,
+download, leitor MMDB ou serviço de geolocalização nesta fatia.
+
+O contrato já aplica limites em memória por conta e origem (IPv4/endereço e IPv6/prefixo /64), sem fila,
+429 e Retry-After. Proposta revisável neste PR: `RateLimiting:RegionDetectionPerAccount` = 6/minuto e
+`RateLimiting:RegionDetectionPerIp` = 60/minuto. Mudança exige janela positiva e PermitLimit >= 1.
+Teste N+1 confirma isolamento das cotas, sem caracterizar validação de carga real. Antes da ativação,
+rever limites com evidência agregada de carga/NAT, sem IP ou país por participante em logs/telemetria.
+As cotas reiniciam com o processo e supõem a única instância web do ADR-0009.
+
+Responsáveis nominais, substituto e canal de alertas continuam pendentes. Etapas 7–10 e G2–G5 não são
+satisfeitos por estes endpoints/UI. Nenhum corte V3, país adicional ou mudança operacional é ativado aqui.

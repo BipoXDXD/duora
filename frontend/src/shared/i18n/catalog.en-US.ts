@@ -6,6 +6,17 @@ import type { Catalog } from './catalog'
  * and keep error messages just as neutral: they never reveal whether an email has an account.
  */
 export const en = {
+  'regionSuggestion.action': 'Suggest country from connection',
+  'regionSuggestion.hint':
+    'Optional approximate suggestion; VPNs may indicate another country. Review and save this form to confirm. Languages stay unchanged.',
+  'regionSuggestion.loading': 'Looking up suggestion…',
+  'regionSuggestion.cancel': 'Cancel suggestion',
+  'regionSuggestion.applied': 'Brazil preselected in this draft. Review and save to confirm.',
+  'regionSuggestion.kept': 'Your manual choice was kept.',
+  'regionSuggestion.unknown': 'Country could not be identified. Choose manually.',
+  'regionSuggestion.unsupported': 'The estimated country is not available yet. Choose manually.',
+  'regionSuggestion.unavailable': 'Suggestion is unavailable. Choose manually.',
+  'regionSuggestion.disabled': 'Suggestion is disabled. Choose manually.',
   'regional.activation':
     'Regional preferences are being prepared. Saving here does not yet restrict current matches. Your choice will be recorded for activation of the filter.',
   'regional.loading': 'Loading regional preference…',

@@ -2,7 +2,9 @@ import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 
 /** Servidor MSW dos testes de componente; cada teste declara os handlers que usa com `server.use`. */
-export const server = setupServer()
+export const server = setupServer(
+  http.get('/api/v1/me/region-detection/capability', () => HttpResponse.json({ enabled: false })),
+)
 
 export const API = '/api/v1'
 const ANTIFORGERY_COOKIE = 'XSRF-TOKEN'

@@ -134,3 +134,105 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
     })
   })
 }
+
+for (const locale of ['pt-BR', 'en-US'] as const) {
+  test.describe(`regional suggestion / ${locale}`, () => {
+    test.use({ locale })
+    const pt = locale === 'pt-BR'
+    test('suggestion requires explicit save and a manual edit wins while it is pending', async ({ page }) => {
+      const state = await setup(page, locale)
+      await page.route('**/api/v1/me/region-detection/capability', (route) =>
+        route.fulfill({ json: { enabled: true } }),
+      )
+      let finish!: () => void
+      let started!: () => void
+      const began = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      await page.route('**/api/v1/me/region-detection', async (route) => {
+        expect(route.request().method()).toBe('POST')
+        expect(route.request().postData()).toBeNull()
+        expect(route.request().headers()['x-xsrf-token']).toBe('synthetic')
+        started()
+        await pending
+        await route.fulfill({ json: { status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' } })
+      })
+      await page.reload()
+      await page
+        .getByRole('button', {
+          name: pt ? 'Sugerir país pela conexão' : 'Suggest country from connection',
+          exact: true,
+        })
+        .click()
+      await began
+      const field = page.getByRole('combobox', {
+        name: pt ? 'Preferência regional' : 'Regional preference',
+        exact: true,
+      })
+      await field.selectOption('unrestricted')
+      finish()
+      await expect(
+        page.getByText(pt ? 'Sua escolha manual foi mantida.' : 'Your manual choice was kept.', { exact: true }),
+      ).toBeVisible()
+      await expect(field).toHaveValue('unrestricted')
+      expect(state.writes).toEqual([])
+      await page
+        .getByRole('button', { name: pt ? 'Salvar preferência regional' : 'Save regional preference', exact: true })
+        .click()
+      await expect.poll(() => state.mode).toBe('unrestricted')
+      await expect(page.locator('html')).toHaveAttribute('lang', locale)
+      expect(
+        (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze())
+          .violations,
+      ).toEqual([])
+    })
+    test('saving one resource and failing the other never reports joint success', async ({ page }) => {
+      const state = await setup(page, locale)
+      const profile = {
+        displayName: 'Ana',
+        bio: null,
+        countryCode: null as string | null,
+        subdivisionCode: null,
+        regionCode: null,
+        version: 0,
+      }
+      await page.route('**/api/v1/me/profile', async (route) => {
+        if (route.request().method() === 'PATCH') {
+          expect(route.request().headers()['if-match']).toBe(`"${String(profile.version)}"`)
+          Object.assign(profile, route.request().postDataJSON() as object, { version: profile.version + 1 })
+        }
+        await route.fulfill({ json: { ...profile, version: String(profile.version) } })
+      })
+      await expect(
+        page.getByRole('combobox', { name: pt ? 'Preferência regional' : 'Regional preference', exact: true }),
+      ).toBeVisible()
+      await page.goto('/account/profile')
+      await page.getByRole('combobox', { name: pt ? 'País' : 'Country', exact: true }).selectOption('BR')
+      await page.getByRole('button', { name: pt ? 'Salvar perfil' : 'Save profile', exact: true }).click()
+      await expect(page.getByText(pt ? 'Perfil salvo.' : 'Profile saved.', { exact: true })).toBeVisible()
+      state.failure = { status: 412, code: 'PRECONDITION_FAILED' }
+      await page.goto('/account/preferences')
+      await page
+        .getByRole('combobox', { name: pt ? 'Preferência regional' : 'Regional preference', exact: true })
+        .selectOption('unrestricted')
+      await page
+        .getByRole('button', { name: pt ? 'Salvar preferência regional' : 'Save regional preference', exact: true })
+        .click()
+      await expect(
+        page.getByRole('button', {
+          name: pt ? 'Recarregar preferência regional' : 'Reload regional preference',
+          exact: true,
+        }),
+      ).toBeVisible()
+      expect(profile.countryCode).toBe('BR')
+      expect(state.mode).toBe('pending')
+      await expect(
+        page.getByText(pt ? 'Preferência regional salva.' : 'Regional preference saved.', { exact: true }),
+      ).toHaveCount(0)
+      await expect(page.getByText(pt ? 'Perfil salvo.' : 'Profile saved.', { exact: true })).toHaveCount(0)
+    })
+  })
+}
