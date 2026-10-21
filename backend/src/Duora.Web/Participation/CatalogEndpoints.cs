@@ -38,7 +38,7 @@ internal static class CatalogEndpoints
             .HandleCatalogContention().ProducesProblem(503);
     }
 
-    private static TBuilder HandleCatalogContention<TBuilder>(this TBuilder builder)
+    internal static TBuilder HandleCatalogContention<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder => builder.AddEndpointFilter(async (context, next) =>
         {
             try

@@ -78,7 +78,11 @@ public sealed partial class ParticipationService
                 await ReleaseAsync(connection, row, "Expired", ct);
             }
 
-            if (row?.Public is not null && job.Kind == "game-deadline" && row.State == "Active")
+            if (row?.Public is not null && job.Kind == "game-deadline" && row.State == "Active" && row.Kind == "unlikely-routes")
+            {
+                await ResolveRoutesDeadlineAsync(connection, row, job.DueAt, ct);
+            }
+            else if (row?.Public is not null && job.Kind == "game-deadline" && row.State == "Active")
             {
                 var content = await ContentAsync(connection, row.ContentId, ct) ?? throw new InvalidOperationException("Pinned catalog missing.");
                 var session = await RestoreAsync(connection, row, content, ct);

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Duora.Core.Identity;
+using Duora.IntegrationTests.Participation;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
@@ -93,6 +94,8 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             ["POST /api/v1/rooms/{roomId:guid}/reject"] = null,
             ["POST /api/v1/rooms/{roomId:guid}/exit"] = null,
             ["POST /api/v1/rooms/{roomId:guid}/actions"] = new { actionId = Guid.NewGuid(), expectedVersion = "1", type = "skip-card", cardId = "morning" },
+            ["POST /api/v1/rooms/{roomId:guid}/routes-actions"] = new { actionId = Guid.NewGuid(), expectedVersion = "1", type = "acknowledge", stage = "Introduction" },
+            ["POST /api/v1/admin/route-experience-versions"] = RoutesCatalogPublicationTests.Request(),
             ["POST /api/v1/admin/events"] = new { title = "Synthetic", startsAt = DateTimeOffset.UtcNow.AddDays(1), capacity = 10, experienceVersionId = Guid.NewGuid() },
             ["POST /api/v1/admin/experience-versions"] = new
             {
@@ -103,7 +106,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 editorialApproved = true,
             },
         };
-        string[] emails = [account.Email, pendingEmail, newEmail];
+        string[] emails = [account.Email, administrator.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
 
         var routes = MutatingRoutes();
@@ -201,6 +204,8 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 (select count(*) from media.uploads m join identity.users u on u.id = m.owner_id
                    where u.email = any($1)),
                 (select count(*) from identity.age_verifications v join identity.users u on u.id = v.user_id
+                   where u.email = any($1)),
+                (select count(*) from experiences.experience_versions v join identity.users u on u.id = v.approved_by
                    where u.email = any($1)))
             """,
             connection);
