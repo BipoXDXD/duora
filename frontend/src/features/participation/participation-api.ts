@@ -5,7 +5,8 @@ import type { components } from '@/shared/api/schema'
 const eventSchema = z.object({
   eventId: z.string(),
   title: z.string(),
-  startsAt: z.string(),
+  startsAt: z.iso.datetime({ offset: true }),
+  timeZone: z.string().nullable().default(null),
   checkInOpensAt: z.string(),
   state: z.string(),
 }) satisfies z.ZodType<components['schemas']['EventResponse']>

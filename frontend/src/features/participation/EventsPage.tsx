@@ -33,7 +33,7 @@ export function EventsPage(): React.JSX.Element {
   )
 }
 function EventEntry({ event, userId }: { readonly event: Event; readonly userId: string }): React.JSX.Element {
-  const { t, formatDateTime } = useI18n()
+  const { t, formatEventDateTime } = useI18n()
   const client = useQueryClient()
   const key = ['account', userId, 'participation', event.eventId]
   const participation = useQuery({
@@ -53,7 +53,9 @@ function EventEntry({ event, userId }: { readonly event: Event; readonly userId:
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-border p-5">
       <h2 className="text-xl font-semibold">{event.title}</h2>
-      <p>{formatDateTime(new Date(event.startsAt))}</p>
+      <p>
+        <time dateTime={event.startsAt}>{formatEventDateTime(new Date(event.startsAt), event.timeZone)}</time>
+      </p>
       {participation.isError ? <RequestFailureAlert failure={classifyRequestFailure(participation.error)} /> : null}
       {command.isError ? <RequestFailureAlert failure={classifyRequestFailure(command.error)} /> : null}
       {participation.data?.roomId === null || participation.data?.roomId === undefined ? (

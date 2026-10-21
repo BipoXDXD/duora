@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { I18nContext, type I18n } from './i18n-context'
 import type { Locale } from './locale'
 import { saveLocalePreference } from './locale-preference'
-import { createDateTimeFormatter, createTranslator } from './translator'
+import { createDateTimeFormatter, createEventDateTimeFormatter, createTranslator } from './translator'
 
 interface I18nProviderProps {
   /** Idioma da primeira renderização (ver resolveInitialLocale). */
@@ -23,6 +23,7 @@ export function I18nProvider({ initialLocale, children }: I18nProviderProps): Re
       locale,
       t: createTranslator(locale),
       formatDateTime: createDateTimeFormatter(locale),
+      formatEventDateTime: createEventDateTimeFormatter(locale),
       changeLocale: (next) => {
         saveLocalePreference(next)
         setLocale(next)
