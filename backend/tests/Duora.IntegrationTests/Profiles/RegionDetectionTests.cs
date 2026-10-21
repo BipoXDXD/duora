@@ -39,6 +39,24 @@ public sealed class RegionDetectionTests(PostgresFixture postgres)
         }
     }
 
+    [Fact]
+    public async Task DisabledCapabilityDoesNotInvokeTheLookupEvenWithAPublicConnection()
+    {
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            TestServices = services =>
+            {
+                RemoteAddressFromTestHeader.Register(services);
+                services.AddSingleton<ICountryLookup>(new FailIfUsedLookup());
+            },
+        };
+        var scenario = new IdentityScenario(postgres, factory);
+        using var browser = await scenario.SignedInBrowserAsync(await scenario.CreateConfirmedAccountAsync());
+        using var response = await browser.PostJsonAsync("/api/v1/me/region-detection", null, RemoteAddressFromTestHeader.From("8.8.8.8"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("disabled", (string?)JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!["status"]);
+    }
+
     [Theory]
     [InlineData("8.8.8.8", null, "BR", "detected")]
     [InlineData("::ffff:8.8.8.8", null, "BR", "detected")]
@@ -183,7 +201,7 @@ public sealed class RegionDetectionTests(PostgresFixture postgres)
             Assert.Equal(status.ToString().ToLowerInvariant(), (string?)JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!["status"]);
         }
         Assert.Equal(before, await SnapshotAsync(account.UserId));
-        Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains("8.8.8.8", StringComparison.Ordinal) || entry.Text.Contains("\"BR\"", StringComparison.Ordinal));
+        Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains("8.8.8.8", StringComparison.Ordinal) || System.Text.RegularExpressions.Regex.IsMatch(entry.Text, @"\bBR\b"));
     }
 
     private async Task<string> SnapshotAsync(Guid userId)
@@ -219,6 +237,12 @@ public sealed class RegionDetectionTests(PostgresFixture postgres)
             services.AddSingleton<ICountryLookup>(lookup);
         },
     };
+
+    private sealed class FailIfUsedLookup : ICountryLookup
+    {
+        public bool Enabled => false;
+        public CountryLookupResult Lookup(IPAddress address) => throw new InvalidOperationException("Disabled lookup must not execute.");
+    }
 
     private sealed class SyntheticLookup(string? country, CountryLookupStatus? status = null, Action? duringLookup = null) : ICountryLookup
     {

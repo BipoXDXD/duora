@@ -60,6 +60,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             },
             ["POST /api/v1/auth/login"] = new { email = account.Email, password = account.Password },
             ["POST /api/v1/auth/logout"] = null,
+            ["POST /api/v1/me/region-detection"] = null,
             ["POST /api/v1/auth/password-reset-requests"] = new { email = account.Email },
             ["POST /api/v1/auth/password-resets"] = new
             {
