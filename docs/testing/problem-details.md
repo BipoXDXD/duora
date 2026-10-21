@@ -149,3 +149,8 @@ Os códigos de verificação etária desativada e webhook ainda declarados perma
 ## Reversão e limites
 
 Reverter o commit restaura os títulos anteriores; não há migração, flag ou implantação. A compatibilidade de schema é verificada pela regeneração e comparação de OpenAPI/tipos. A garantia de apresentação se refere aos caminhos inventariados e aos testes descritos; novas páginas devem manter a fronteira RequestFailure e estender os canários.
+
+## Ampliação de cobertura — issue #142
+
+A [matriz de mutações e limites](problem-details-mutations.md) registra os canários adicionais de
+preferências, idioma, fuso, MFA, selfie, eventos e comandos de sala/jogos, em PT-BR/en-US.
