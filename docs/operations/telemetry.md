@@ -17,7 +17,7 @@ os verificadores de backup nem seus gates. Nenhuma política ou workflow protegi
 |---|---|---|
 | Coletor systemd | Root, código fixo, sem listener ou argumentos do chat; consulta Docker/systemd e dois marcadores existentes; publica só booleanos e timestamp | 128 MiB, 20% CPU, 16 tarefas |
 | Monitor systemd | Usuário `duora-monitor`, sem grupos privilegiados; lê snapshot e GitHub Actions; webhook Slack separado do bot | 128 MiB, 20% CPU, 16 tarefas |
-| gateway | UID reservado 22001; Slack Socket Mode; MCP local com quatro ferramentas sem argumentos; apenas telemetria pública sanitizada | 1 CPU, 1,5 GiB RAM sem swap adicional, 128 PIDs, estado em filesystem próprio de 2 GiB |
+| gateway | UID reservado 22001; Slack Socket Mode; MCP local com quatro ferramentas sem argumentos; apenas telemetria pública sanitizada | 0,5 CPU (peso 256), 1,5 GiB RAM sem swap adicional, 128 PIDs, estado em filesystem próprio de 2 GiB |
 | Operador | Instala, configura credenciais, aprova digest, atualiza ou usa o executor de produção existente | Conta administrativa separada, fora do agente |
 
 O coletor é privilegiado porque o Docker socket equivale a root. Ele não aceita requisições e seu código é
@@ -110,8 +110,14 @@ O modelo e a credencial são escolhidos pelo operador; não pressupõe que assin
 
 Este runbook não implica acesso SSH do agente. Use console Hostinger ou canal administrativo já aprovado.
 A branch deve passar revisão humana e gates existentes antes de produção. Confira Ubuntu 24.04, Docker Compose v2,
-iptables, systemd, Python 3.12, UID 22001 livre, subnet sem colisão e capacidade: cerca de 1,75 GiB de limites de RAM
-adicionais, 2 GiB reservados para estado, imagens e backups do agente. O instalador exige >4 GiB livres antes da reserva.
+iptables, systemd, Python 3.12, UID 22001 livre e subnet sem colisão. **A KVM 2 de 8 GB não passa
+no orçamento reconciliado:** mínimo de 10.112 MiB MemTotal e 1.536 MiB MemAvailable para a topologia
+completa, incluindo migrador e restic. Ver [capacity.md](capacity.md). Esse mínimo é gate de planejamento,
+não homologação. Antes da instalação, registrar ensaio em host equivalente, isolamento e aprovação humana
+da mudança; instalar a slice de mídia pela role backup revisada e conferir os limites efetivos. A instalação
+recusa memória insuficiente antes de criar usuários/disco. Não diminuir o piso para contornar o bloqueio.
+Reservar também 2 GiB para estado, imagens e backups do agente. O instalador exige >4 GiB livres antes da
+reserva, mas isso não comprova espaço suficiente para WAL, fotos, imagens e snapshots posteriores.
 
 1. Revise e execute `sudo sh scripts/telemetry/install.sh --approve-install`. Instala somente a integração;
    cria usuário monitor sem login/grupos privilegiados, filesystem limitado e units; **não habilita o agente**.
@@ -129,7 +135,8 @@ adicionais, 2 GiB reservados para estado, imagens e backups do agente. O instala
    Não dê ao agente o token GitHub nem o webhook.
 5. Crie `/etc/duora-agent/image.env` root 0600 contendo exatamente
    `GATEWAY_IMAGE=registry/imagem@sha256:DIGEST_APROVADO`. Pull explícito dessa imagem pelo operador, após verificação.
-6. Execute `sudo python3 /opt/duora-agent/preflight.py`. Depois ative o monitor e o timer:
+6. Com capacidade, isolamento e autorização registrados, execute `sudo python3 /opt/duora-agent/preflight.py`.
+   Ele confere memória e a slice de mídia antes das credenciais. Depois ative o monitor e o timer:
    `sudo systemctl enable --now duora-observer.timer duora-monitor.service`.
 7. Execute `sudo python3 /opt/duora-agent/activate.py --approve-image registry/imagem@sha256:DIGEST_APROVADO`.
    A ativação exige aprovação do digest, valida schema real, verifica saúde e faz probe MCP. Só depois do aceite
@@ -198,3 +205,35 @@ O plugin GitHub permitiu consultar metadados reais de Actions; isso não valida 
 Registre data, digest, host de homologação, comandos, resultados e latências no PR/controle de mudança.
 Sem esses registros, a integração é **candidata à instalação**, não operação comprovada. Não foram encontradas
 instruções maliciosas nos materiais consultados; os payloads de injeção nos testes são sintéticos.
+
+
+## Evidência exigida antes da mudança
+
+- Capacidade: inventário sanitizado com MemTotal/MemAvailable, versão/cgroup e recursos efetivos de
+  todos os containers/units; cenários de capacity.md aprovados com métricas e dataset declarado.
+- Imagem: SHA/digest, licença/SBOM/scanner e plugin Slack compatível. `config validate`, auditoria,
+  MCP e teste de saúde precisam da imagem aprovada; testes com mocks não substituem isso.
+- Slack: app dedicado, Socket Mode, app token `connections:write`, bot com escopos do manifest,
+  canal privado e membros explícitos. Webhook independente e restrito ao canal de alertas; token
+  do modelo separado da assinatura de chat. Credenciais nunca no repositório/relatório.
+- GitHub: Actions + Metadata somente leitura, apenas repositórios monitorados, validade/rotação;
+  testar 403/429, expiração, falha e reexecução com esse token. Runners fora da VPS; não conceder
+  token de deploy ao monitor. O job ops existente passa a executar suites gateway por um teste
+  de entrada em scripts/deploy, sem modificar workflows, permissões ou gates protegidos.
+- Heartbeat: `heartbeat_url: null` é configuração de exemplo incompleta. Provedor externo à VPS,
+  timeout sugerido 5 min e entrega fora da VPS, de preferência também independente do Slack.
+  A URL de ping é credencial: configurar monitor.json como root:duora-monitor 0640 antes de iniciar (não publicar a URL em evidências).
+  O monitor só pinga quando todos os checks estão bons; ausência pode indicar falha parcial,
+  indisponibilidade do Slack/GitHub ou queda total, não somente falta de energia da VPS.
+- Smartphone: instalar/autenticar Slack, habilitar notificações do canal e revisar DND, permissões
+  do sistema e economia de bateria. Registrar falha **e recuperação** recebidas com horário;
+  testar também o alerta externo após desligamento do host de homologação. Nenhum envio real
+  de mensagem ou inscrição em serviço externo foi feito nesta alteração.
+- Recuperação: provar restore PostgreSQL e mídia/reconciliação de exclusões; testar backup/check/prune
+  dentro da slice e alertas OnFailure. OOM do restic reprova o ensaio; não muda RPO/RTO ou retenção.
+- Autorização: registrar alvo, release/digest, janela, impacto, evidências e rollback. Um gate local
+  aprovado não autoriza produção. Não há acesso SSH, leitura de segredos ou ativação nesta revisão.
+
+Validação nova: `python3 -m unittest discover -s scripts/deploy -p 'test_telemetry_capacity.py' -v`.
+Inclui conciliação entre recursos, gate de memória, suites Python e processo MCP Node por stdio.
+Resultados locais devem ser registrados no PR; não confundir o histórico acima com homologação atual.
