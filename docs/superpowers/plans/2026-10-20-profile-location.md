@@ -32,7 +32,7 @@ The owner explicitly approved US and Brazil, ISO as the reference, CLDR 48.2 and
 
 ## Outstanding work
 
-- [ ] License policy: merge the separate scoped-policy PR after all required checks pass. The future data component is not imported; an unused-exception warning is expected until incorporation and inventory are implemented.
+- [x] License policy: [PR #117](https://github.com/BipoXDXD/duora/pull/117) merged as `e3d399b66d48b58f19a6fdacfd3d50bf44e1f1e1` after all nine checks passed in [CI 39561009857](https://github.com/BipoXDXD/duora/actions/runs/39561009857). The exception is scoped to the reserved CLDR 48.2 identity; the future data component is not imported, and an unused-exception warning is expected until incorporation/inventory are implemented.
 - [ ] Maintenance governance: appoint technical/editorial owners and confirm the update cadence. Monthly review remains a recommendation, not an approved assignment or schedule.
 - [ ] Editorial review: review all PT-BR/EN-US labels before incorporation; the 78 Portuguese subdivision labels inspected in CLDR 48.2 are marked provisional. Preserve provenance for editorial changes and referenced historical codes.
 - [ ] Jurisdictional eligibility/minimum age: resolve J-05 of the data map. Optional declared profile location is not proof of residence or eligibility; `age_band` was not changed.
