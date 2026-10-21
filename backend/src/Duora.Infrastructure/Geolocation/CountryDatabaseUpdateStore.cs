@@ -41,7 +41,7 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
             expired = r.GetBoolean(3);
         }
         await Execute(c, "insert into ops.country_database_state(singleton) values(true) on conflict do nothing", ct);
-        await using (var q = Command(c, "select blocked from ops.country_database_state where singleton for update"))
+        await using (var q = Command(c, "select blocked or coalesce(greatest(last_observed_at,last_attempt_at)>$1,false) from ops.country_database_state where singleton for update", now))
         {
             if ((bool)(await q.ExecuteScalarAsync(ct))!)
             { return null; }
@@ -82,6 +82,8 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
             update ops.jobs set lease_expires_at=greatest(lease_expires_at,$4)
             where id=$1 and kind='country-database-update' and fencing_token=$2
               and status='InFlight' and lease_expires_at>$3
+              and exists(select 1 from ops.country_database_state where singleton and not blocked
+                and coalesce(greatest(last_observed_at,last_attempt_at)<=$3,true))
             """, ct, lease.Id, lease.Token, now, now + leaseDuration) == 1;
     }
 
@@ -239,7 +241,7 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
     {
         await using var c = await source.OpenConnectionAsync(ct);
         await using var q = Command(c, """
-            select s.active_fencing_token,case when s.review_required or s.last_observed_at>$1 then null else v.manifest::text end
+            select s.active_fencing_token,case when s.review_required or coalesce(greatest(s.last_observed_at,s.last_attempt_at)>$1,false) then null else v.manifest::text end
             from ops.country_database_state s left join ops.country_database_versions v on v.sha256=s.active_sha256
             where s.singleton
             """, time.GetUtcNow());
@@ -262,15 +264,20 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
     {
         await using var q = Command(c, """
             select 1 from ops.jobs where id=$1 and kind='country-database-update' and fencing_token=$2
-              and status='InFlight' and lease_expires_at>$3 for update
+              and status='InFlight' and lease_expires_at>$3
+              and exists(select 1 from ops.country_database_state where singleton and not blocked
+                and coalesce(greatest(last_observed_at,last_attempt_at)<=$3,true)) for update
             """, lease.Id, lease.Token, time.GetUtcNow());
         return await q.ExecuteScalarAsync(ct) is not null;
     }
 
     private async Task<bool> StillOwned(NpgsqlConnection c, CountryDatabaseUpdateLease lease, CancellationToken ct)
     {
-        await using var q = Command(c, "select 1 from ops.jobs where id=$1 and fencing_token=$2 and status='InFlight' and lease_expires_at>$3",
-            lease.Id, lease.Token, time.GetUtcNow());
+        await using var q = Command(c, """
+            select 1 from ops.jobs where id=$1 and fencing_token=$2 and status='InFlight' and lease_expires_at>$3
+              and exists(select 1 from ops.country_database_state where singleton and not blocked
+                and coalesce(greatest(last_observed_at,last_attempt_at)<=$3,true))
+            """, lease.Id, lease.Token, time.GetUtcNow());
         return await q.ExecuteScalarAsync(ct) is not null;
     }
 

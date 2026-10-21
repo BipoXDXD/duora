@@ -53,7 +53,10 @@ localmente nenhum comando de build/teste/Docker; apenas leitura, edição, git d
 Uma revisão independente de toda a branch, somente leitura e sem execução local, identificou quatro problemas
  importantes: staging criado depois do snapshot de limpeza; recuperação ultrapassando alerta ainda não entregue;
  escolha lexicográfica entre builds de mesmo epoch; storage lento impedindo monitor independente. Todos ganharam
- testes de reprodução e entram na única rodada de correção. Nenhum achado menor foi adiado.
+ testes de reprodução e correções na única rodada prevista. Nenhum achado menor foi adiado.
+O CI `39691747312`/head `8e8fb36` reproduziu os quatro achados mais os quatro regressivos conhecidos:
+3028 testes, 3020 passando, oito falhando e zero ignorados. A versão corrigida precisa dos nove checks verdes;
+os resultados definitivos e o hash conferido são registrados no PR, evitando atribuir um resultado antigo ao novo head.
 
 O CI `39689986348` confirmou 3020/3023 testes backend, com três falhas novas esperadas (zero ignorados): relógio
  gerando falsa recuperação, retenção de incidente antigo e atualização após exclusão da antiga ativa. Os outros

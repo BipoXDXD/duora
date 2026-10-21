@@ -65,7 +65,8 @@ Incidentes ativos e notificações são persistidos em Operations, sem IP, país
 
 Primeira ocorrência, mudança de gravidade e recuperação geram evento; intervenção ainda pendente gera lembrete
 a cada 24h, sem repetir por poll/restart. A fila reserva entrega por 15 minutos e processa até 32 eventos por
-invocação. `ICountryDatabaseNotifier` exige deduplicação pelo Id durável: uma queda depois do envio e antes do
+invocação. Eventos pendentes do mesmo incidente preservam ordem, inclusive após falha de envio; recuperação não
+ultrapassa aviso/indisponibilidade ainda sem confirmação. `ICountryDatabaseNotifier` exige deduplicação pelo Id durável: uma queda depois do envio e antes do
 commit pode repetir a chamada com o mesmo Id. Falha não registra detalhes do transporte e mantém retry limitado.
 O único adaptador está nos testes; não há SMTP, Gmail API, credencial, endereço ou envio real. O Gmail privado
 escolhido pelo titular continua sendo o destino autorizado, **não um canal operacional comprovado**.
@@ -84,16 +85,19 @@ Leitores usam cópia imutável em memória: `OpenVerified` fecha o handle de arq
 Remover arquivo de disco não interrompe a consulta em andamento. Refresh respeita geração e revogação; a idade
 é conferida em toda consulta. A publicação e a manutenção compartilham um advisory lock de sessão PostgreSQL
 exclusivo, separado das transações/guardas de participação. Downloads e notificações ficam fora desse lock;
-ele limita escritores, não consultas. Espera de lock é limitada e uma falha exige retry pelo futuro orquestrador.
+ele limita escritores, não consultas. Criação de staging também participa desse protocolo. O monitor não adquire
+esse lock: avalia snapshot SQL e verifica geração antes de registrar, inclusive durante cópia externa lenta.
+Espera de lock de escritores é limitada e uma falha exige retry pelo futuro orquestrador.
 
 Manifestos, aprovações, tombstones e eventos saem aos **90 dias**; incidentes ainda ativos representam uma condição
-atual e o ciclo de retenção conserva apenas sua notificação recente. `duora_app` continua sem UPDATE/DELETE/TRUNCATE
+atual: registros inativos expiram, a data de abertura é limitada à janela de 90 dias e só notificações recentes ficam. `duora_app` continua sem UPDATE/DELETE/TRUNCATE
 em versões, aprovações e tombstones. A retenção requer **data source de manutenção com privilégio específico**;
 provisionar essa role, identidade e grants mínimos é pré-requisito de G3, sem reutilizar o migrador em produção.
 Os testes usam o migrador somente no PostgreSQL descartável para simular essa capacidade e adulterações negativas.
 
 `ICountryDatabaseArchive` prepara cópia da ativa/anterior aprovada, limitada a dois objetos privados e aos mesmos
-prazos. O adaptador futuro deve reter manifesto original, atribuição IPinfo/CC BY-SA 4.0 e excluir todas as versões,
+prazos. Empates de epoch seguem a ordem durável de promoção, nunca a ordem lexicográfica do hash;
+a ativa tem prioridade na cópia, junto da anterior distinta. O adaptador futuro deve reter manifesto original, atribuição IPinfo/CC BY-SA 4.0 e excluir todas as versões,
 réplicas e uploads incompletos de cada chave removida; não incluir credenciais nem bases em backup geral duradouro.
 Serviço, orçamento, limites, timeouts, ACLs e demonstração de exclusão/entrega permanecem pendentes. Só existe
 adaptador sintético em memória nos testes; **nenhum armazenamento fora do host foi contratado ou provisionado**.

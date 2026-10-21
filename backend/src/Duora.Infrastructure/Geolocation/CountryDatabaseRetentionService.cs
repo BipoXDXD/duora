@@ -33,7 +33,7 @@ public sealed class CountryDatabaseRetentionService(CountryDatabaseOperationsSto
         if (archive is null)
         { return; }
         var copies = s.Approved.Where(m => keep.Contains(m.Sha256))
-            .OrderByDescending(m => m.BuiltAt).ThenBy(m => m.Sha256, StringComparer.Ordinal).Take(2).ToArray();
+            .OrderByDescending(m => m.Sha256 == s.Active?.Sha256).ThenByDescending(m => m.BuiltAt).Take(2).ToArray();
         var copyHashes = copies.Select(m => m.Sha256).ToHashSet(StringComparer.Ordinal);
         // Delete first: failure may reduce redundancy, never silently extend retention or exceed the copy budget.
         foreach (var hash in await archive.ListAsync(ct))

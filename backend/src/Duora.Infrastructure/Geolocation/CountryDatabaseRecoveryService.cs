@@ -18,7 +18,7 @@ public sealed class CountryDatabaseRecoveryService(CountryDatabaseOperationsStor
         { return CountryDatabaseRecoveryOutcome.ReviewRequired; }
         // Never select an older build merely because the newest approved file is missing.
         var m = s.Approved.Where(m => !s.Retired.Contains(m.Sha256))
-            .OrderByDescending(m => m.BuiltAt).ThenBy(m => m.Sha256, StringComparer.Ordinal).FirstOrDefault();
+            .OrderByDescending(m => m.BuiltAt).FirstOrDefault();
         if (m is null)
         { return CountryDatabaseRecoveryOutcome.Unavailable; }
         if (!m.IsAdmissible(store.UtcNow))

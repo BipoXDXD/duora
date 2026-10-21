@@ -17,8 +17,12 @@ public sealed partial class CountryDatabaseUpdateService(
         var attempt = Path.Combine(root, ".attempt-" + Guid.NewGuid().ToString("N"));
         try
         {
-            EnsurePrivateDirectory(root);
-            EnsurePrivateDirectory(attempt);
+            // Cleanup cannot enter between its ownership snapshot and creation of a newly leased staging directory.
+            await using (await store.LockFilesAsync(ct))
+            {
+                EnsurePrivateDirectory(root);
+                EnsurePrivateDirectory(attempt);
+            }
             var path = Path.Combine(attempt, "candidate.mmdb");
             var downloadedAt = await downloader.DownloadAsync(path, ct);
             publication = await store.LockFilesAsync(ct);

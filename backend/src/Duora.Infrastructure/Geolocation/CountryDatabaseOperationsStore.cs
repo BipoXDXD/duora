@@ -27,6 +27,9 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
             from ops.country_database_versions v
             left join ops.country_database_approvals a using(sha256)
             left join ops.country_database_retired r using(sha256)
+            left join lateral(select max(n.id) as promotion_id from ops.country_database_notifications n
+              where n.code='Promoted' and n.sha256=v.sha256) p on true
+            order by p.promotion_id desc nulls last,a.promoted_at desc nulls last,v.sha256
             """))
         await using (var r = await q.ExecuteReaderAsync(ct))
         {
@@ -120,9 +123,11 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
             await using (var c = await source.OpenConnectionAsync(ct))
             await using (var q = Command(c, """
                 update ops.country_database_notifications set available_at=$2
-                where id=(select id from ops.country_database_notifications
-                  where outbound and delivered_at is null and available_at<=$1
-                  order by id for update skip locked limit 1)
+                where id=(select n.id from ops.country_database_notifications n
+                  where n.outbound and n.delivered_at is null and n.available_at<=$1
+                    and not exists(select 1 from ops.country_database_notifications earlier
+                      where earlier.code=n.code and earlier.id<n.id and earlier.outbound and earlier.delivered_at is null)
+                  order by n.id for update skip locked limit 1)
                 returning id,code,severity,recovered,occurred_at
                 """, UtcNow, UtcNow.AddMinutes(15)))
             await using (var r = await q.ExecuteReaderAsync(ct))
@@ -169,7 +174,7 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
         await Lock(c, ct);
         if (!await Matches(c, generation, ct))
         { return false; }
-        await using (var q = Command(c, "select last_observed_at from ops.country_database_state where singleton"))
+        await using (var q = Command(c, "select greatest(last_observed_at,last_attempt_at) from ops.country_database_state where singleton"))
         {
             if (await q.ExecuteScalarAsync(ct) is DateTime observed && UtcNow < new DateTimeOffset(observed))
             { return false; }
