@@ -272,6 +272,8 @@ export const ptBR = {
   'profile.error.displayNameTooLong': 'O nome pode ter no máximo {max} caracteres.',
   'profile.error.bioTooLong': 'A descrição pode ter no máximo {max} caracteres.',
   'profile.error.invalidCharacters': 'Remova caracteres de controle ou invisíveis deste campo.',
+  'profile.country': 'País',
+  'profile.countryHint': 'Opcional. Você pode informar somente o país ou não informar a localização.',
   'profile.region': 'Região',
   'profile.regionHint': 'Opcional. Só o estado, nunca a cidade ou o endereço.',
   'profile.regionNotInformed': 'Não informar',

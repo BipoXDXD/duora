@@ -5,9 +5,9 @@ namespace Duora.Core.Profiles;
 /// enquanto nada foi salvo e sobe a cada gravação. Os textos são o que está gravado, sem passar de novo pela regra de
 /// entrada (<see cref="Profiles.DisplayName"/> e <see cref="ProfileBio"/> valem só para a escrita): se a regra
 /// endurecer, uma linha antiga continua legível, e o CHECK do banco é o mínimo garantido. <c>RegionCode</c> é a UF em
-/// ISO 3166-2:BR, ou <c>null</c> quando a pessoa não informou.
+/// ISO 3166-2:BR legado. CountryCode e SubdivisionCode representam a localização opcional do novo contrato.
 /// </summary>
-public sealed record OwnProfile(string? DisplayName, string? Bio, string? RegionCode, long Version)
+public sealed record OwnProfile(string? DisplayName, string? Bio, string? RegionCode, long Version, string? CountryCode = null, string? SubdivisionCode = null)
 {
     /// <summary>Perfil de quem ainda não salvou nada: ler não cria linha no banco.</summary>
     public static OwnProfile Unsaved { get; } = new(null, null, null, 0);
@@ -18,9 +18,9 @@ public sealed record OwnProfile(string? DisplayName, string? Bio, string? Region
 /// <see cref="BioChange"/> com valor <c>null</c>, e deixar de informar a região é um <see cref="RegionChange"/> com
 /// valor <c>null</c>.
 /// </summary>
-public sealed record ProfileEdit(DisplayName? DisplayName, BioChange? Bio, RegionChange? Region)
+public sealed record ProfileEdit(DisplayName? DisplayName, BioChange? Bio, RegionChange? Region, ProfileLocation? Location = null)
 {
-    public bool ChangesNothing => DisplayName is null && Bio is null && Region is null;
+    public bool ChangesNothing => DisplayName is null && Bio is null && Region is null && Location is null;
 }
 
 /// <summary>Troca da descrição; <c>NewBio</c> <c>null</c> apaga.</summary>
