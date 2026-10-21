@@ -1,7 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
+import { RegionSuggestion } from '@/features/preferences/RegionSuggestion'
 import { useAccount } from '@/features/session/account-context'
 import { meQueryKey, profileQueryKey } from '@/features/session/query-keys'
 import { classifyRequestFailure, isUnauthorized, type RequestFailure } from '@/shared/api'
@@ -130,6 +131,7 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
   const { t, locale } = useI18n()
   const regionOptions = useRegionOptions()
   const [base, setBase] = useState(initial)
+  const regionEdited = useRef(false)
   const [reloaded, setReloaded] = useState(false)
   const form = useForm<ProfileFormInput, unknown, ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -188,6 +190,7 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
           reloading={reload.isPending}
           onReload={() => {
             if (!reload.isPending) {
+              regionEdited.current = true
               reload.mutate()
             }
           }}
@@ -208,7 +211,15 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
         method="post"
         aria-busy={save.isPending}
         className="flex flex-col gap-6"
+        onChangeCapture={(event) => {
+          if (
+            event.target instanceof HTMLSelectElement &&
+            ['countryCode', 'subdivisionCode'].includes(event.target.name)
+          )
+            regionEdited.current = true
+        }}
         onSubmit={(event) => {
+          regionEdited.current = true
           void submit(event)
         }}
       >
@@ -246,6 +257,20 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
           options={countryCode === '' ? regionOptions.slice(0, 1) : regionOptions}
           error={errorText(form.formState.errors.subdivisionCode?.message)}
           {...form.register('subdivisionCode')}
+        />
+        <RegionSuggestion
+          onCountry={(country) => {
+            if (
+              regionEdited.current ||
+              base.countryCode !== null ||
+              save.isPending ||
+              reload.isPending ||
+              failure !== null
+            )
+              return false
+            form.setValue('countryCode', country, { shouldDirty: true, shouldValidate: true })
+            return true
+          }}
         />
         <SubmitButton pending={save.isPending} label={t('profile.save')} pendingLabel={t('profile.saving')} />
       </form>

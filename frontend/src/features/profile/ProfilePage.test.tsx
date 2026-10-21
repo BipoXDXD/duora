@@ -390,3 +390,44 @@ describe('perfil: outras falhas', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Confira sua conexão')
   })
 })
+
+it('suggests only an untouched undisclosed country and saves through the independent profile PATCH', async () => {
+  const api = useProfileBackend({ displayName: 'Ana', bio: null, countryCode: null, subdivisionCode: null, version: 0 })
+  server.use(
+    http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+    http.post(`${API}/me/region-detection`, () =>
+      HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' }),
+    ),
+  )
+  const { user } = await renderApp('/account/profile')
+  await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'País' })).toHaveValue('BR'))
+  expect(api.patches).toEqual([])
+  await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+  await screen.findByText('Perfil salvo.')
+  expect(api.patches).toEqual([{ ifMatch: '"0"', body: { countryCode: 'BR', subdivisionCode: null } }])
+})
+
+it('keeps a manual country edit even after reverting to undisclosed while a suggestion is pending', async () => {
+  const api = useProfileBackend({ displayName: 'Ana', bio: null, countryCode: null, subdivisionCode: null, version: 0 })
+  let finish!: () => void
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  server.use(
+    http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+    http.post(`${API}/me/region-detection`, async () => {
+      await pending
+      return HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' })
+    }),
+  )
+  const { user } = await renderApp('/account/profile')
+  await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+  const country = screen.getByRole('combobox', { name: 'País' })
+  await user.selectOptions(country, 'BR')
+  await user.selectOptions(country, '')
+  finish()
+  await screen.findByText('Sua escolha manual foi mantida.')
+  expect(country).toHaveValue('')
+  expect(api.patches).toEqual([])
+})

@@ -226,6 +226,8 @@ export class FakeDuoraApi {
         return this.#me()
       case 'GET /me/sessions':
         return this.#listSessions()
+      case 'GET /me/region-detection/capability':
+        return this.#currentUser() === null ? problem(401, 'UNAUTHENTICATED') : json({ enabled: false })
       case 'GET /me/profile':
         return this.#readProfile()
       case 'DELETE /me/sessions/:id':

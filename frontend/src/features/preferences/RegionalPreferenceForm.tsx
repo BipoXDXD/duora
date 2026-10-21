@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useAccount } from '@/features/session/account-context'
 import type { Me } from '@/features/session/session-api'
 import { meQueryKey } from '@/features/session/query-keys'
@@ -8,6 +8,7 @@ import { useI18n } from '@/shared/i18n/i18n-context'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { CheckboxField, SelectField } from '@/shared/ui/form-fields'
+import { RegionSuggestion } from './RegionSuggestion'
 import { fetchRegionalPreferences, saveRegionalPreferences, type RegionalPreferences } from './regional-preferences-api'
 
 export function RegionalPreferenceSection(): React.JSX.Element {
@@ -32,6 +33,7 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
   const account = useAccount()
   const queries = useQueryClient()
   const [base, setBase] = useState(initial)
+  const manuallyEdited = useRef(false)
   const [mode, setMode] = useState(initial.mode)
   const [brazil, setBrazil] = useState(initial.countryCodes.includes('BR'))
   const [invalid, setInvalid] = useState(false)
@@ -62,6 +64,7 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
   const conflict = failure?.kind === 'problem' && failure.status === 412
   const busy = save.isPending || reload.isPending
   const edited = () => {
+    manuallyEdited.current = true
     setInvalid(false)
     setReloaded(false)
     if (save.isSuccess) save.reset()
@@ -75,7 +78,10 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
           setInvalid(true)
           return
         }
-        if (!busy && !conflict) save.mutate()
+        if (!busy && !conflict) {
+          manuallyEdited.current = true
+          save.mutate()
+        }
       }}
     >
       <Alert variant="info">{t('regional.activation')}</Alert>
@@ -110,6 +116,15 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
           />
         </fieldset>
       ) : null}
+      <RegionSuggestion
+        onCountry={() => {
+          if (manuallyEdited.current || base.mode !== 'pending' || busy || conflict) return false
+          setMode('countries')
+          setBrazil(true)
+          setInvalid(false)
+          return true
+        }}
+      />
       {conflict ? (
         <>
           <Alert variant="error">{t('regional.conflict')}</Alert>
@@ -117,6 +132,7 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
             type="button"
             disabled={busy}
             onClick={() => {
+              manuallyEdited.current = true
               reload.mutate()
             }}
           >
