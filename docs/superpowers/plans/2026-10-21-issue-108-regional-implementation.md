@@ -284,6 +284,16 @@ não altera a localização declarada, não cria UI/detector/atualizador e não 
 e canal de alertas continuam pendentes. A issue permanece aberta; merge, aplicação da migração e implantação
 seguem os gates e autorizações próprios. O corpo das etapas conserva o plano original aprovado.
 
+## Registro de execução de 21/10/2026 — etapas 3 e 4
+
+O responsável autorizou as etapas 3 e 4 e abertura de PR. Essa autorização sucede a entrega das etapas 1–2
+integrada no PR #143 e libera G0 somente para a entrega B; não autoriza as etapas 5–10 nem ativação.
+A entrega serializa a localização moderna/legada, projeta preferências bilaterais por país após guardas e
+prepara V3 com versão persistida por rodada. Corte opcional sem configuração por padrão; rodadas existentes
+não são reinterpretadas. A migração expande a aceitação V2/V3 e vincula versão do par à rodada, sem backfill.
+Ver [runbook do corte](../../operations/regional-matching.md) e [matriz de testes](../../testing/regional-matching.md).
+Responsáveis nominais/canal pendentes; sem detector, UI, MMDB, EUA ou implantação. A issue segue aberta.
+
 ## Continuação autorizada — interface manual
 
 Após auditoria e integração do PR #143 (`787b9b9`), o responsável autorizou em 21/10/2026

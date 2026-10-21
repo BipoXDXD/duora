@@ -37,6 +37,7 @@ internal static class ProfileEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
             .ProducesProblem(StatusCodes.Status428PreconditionRequired)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .AddOpenApiOperationTransformer(DocumentETag)
             .AddOpenApiOperationTransformer(RequireIfMatch);
     }
@@ -176,14 +177,21 @@ internal static class ProfileEndpoints
             return ApiProblems.Validation(errors);
         }
 
-        var saved = condition.Kind == IfMatchKind.Version
-            ? await profiles.UpdateOwnAsync(userId, condition.Version, edit, cancellationToken)
-            : null;
-        return saved is null
-            ? ApiProblems.Problem(
-                StatusCodes.Status412PreconditionFailed,
-                ApiProblems.PreconditionFailed)
-            : Respond(context, saved);
+        try
+        {
+            var saved = condition.Kind == IfMatchKind.Version
+                ? await profiles.UpdateOwnAsync(userId, condition.Version, edit, cancellationToken)
+                : null;
+            return saved is null
+                ? ApiProblems.Problem(
+                    StatusCodes.Status412PreconditionFailed,
+                    ApiProblems.PreconditionFailed)
+                : Respond(context, saved);
+        }
+        catch (LanguagePreferenceRestrictedException)
+        {
+            return ApiProblems.Problem(StatusCodes.Status403Forbidden, ApiProblems.AccountRestricted);
+        }
     }
 
     private static Ok<OwnProfileResponse> Respond(HttpContext context, OwnProfile profile)
