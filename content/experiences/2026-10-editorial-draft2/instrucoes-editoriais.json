@@ -1,0 +1,110 @@
+{
+  "status": "draft_for_review_not_runtime_fields",
+  "entries": [
+    {
+      "experience": "common",
+      "id": "sound",
+      "visibility": "public",
+      "ptBR": "O som é opcional. Todo o conteúdo necessário está disponível em texto.",
+      "enUS": "Sound is optional. All content needed to play is available as text."
+    },
+    {
+      "experience": "common",
+      "id": "exit",
+      "visibility": "public",
+      "ptBR": "Você pode sair da sala a qualquer momento. Não precisa explicar o motivo.",
+      "enUS": "You can leave the room at any time. You do not need to explain why."
+    },
+    {
+      "experience": "common",
+      "id": "speaker",
+      "visibility": "public",
+      "ptBR": "Narração da interface — voz gerada por IA.",
+      "enUS": "Interface narration — AI-generated voice."
+    },
+    {
+      "experience": "common",
+      "id": "language",
+      "visibility": "public",
+      "ptBR": "Usem o idioma combinado para conversar. O jogo não traduz a conversa.",
+      "enUS": "Use your agreed language to talk. The game does not translate your conversation."
+    },
+    {
+      "experience": "constellation",
+      "id": "cards",
+      "visibility": "public",
+      "ptBR": "Escolha uma opção e confirme, ou pule. Conversar sobre o cartão é opcional.",
+      "enUS": "Choose an option and confirm, or skip. Talking about the card is optional."
+    },
+    {
+      "experience": "constellation",
+      "id": "privacy",
+      "visibility": "public",
+      "ptBR": "Sua escolha fica privada até ambos escolherem. Se alguém pular, nenhuma escolha aparece.",
+      "enUS": "Your choice stays private until both choose. If either person skips, neither choice is shown."
+    },
+    {
+      "experience": "constellation",
+      "id": "waiting",
+      "visibility": "self",
+      "ptBR": "Sua resposta foi registrada. O cartão avança quando as duas pessoas responderem.",
+      "enUS": "Your response was recorded. The card advances when both people have responded."
+    },
+    {
+      "experience": "constellation",
+      "id": "summary",
+      "visibility": "public",
+      "ptBR": "O resumo mostra cartões revelados e pulados, sem identificar quem pulou. Não há nota de compatibilidade.",
+      "enUS": "The summary shows revealed and skipped cards without naming who skipped. There is no compatibility score."
+    },
+    {
+      "experience": "unlikely-routes",
+      "id": "introduction",
+      "visibility": "public",
+      "ptBR": "Leia o objetivo e o exemplo. Selecione Entendi. A etapa avança quando ambos confirmarem.",
+      "enUS": "Read the objective and example. Select Got it. The stage advances when both confirm."
+    },
+    {
+      "experience": "unlikely-routes",
+      "id": "clues",
+      "visibility": "self",
+      "ptBR": "Só você vê estas pistas. Compartilhe o que quiser. Selecione Entendi para seguir.",
+      "enUS": "Only you can see these clues. Share what you want. Select Got it to continue."
+    },
+    {
+      "experience": "unlikely-routes",
+      "id": "choices",
+      "visibility": "public",
+      "ptBR": "Na sua vez, marque uma opção e selecione Escolher. Vocês alternam as três escolhas.",
+      "enUS": "On your turn, select an option and choose Choose. Take turns making the three choices."
+    },
+    {
+      "experience": "unlikely-routes",
+      "id": "other-turn",
+      "visibility": "public",
+      "ptBR": "Esta escolha é da outra pessoa. A rota continua visível para vocês.",
+      "enUS": "This choice belongs to the other person. The route remains visible to both of you."
+    },
+    {
+      "experience": "unlikely-routes",
+      "id": "adjustment",
+      "visibility": "public",
+      "ptBR": "Revise a rota. Ambos precisam confirmar. Pedir revisão, se disponível, apaga a rota e reabre as escolhas.",
+      "enUS": "Review the route. Both must confirm. Requesting a revision, if available, clears the route and reopens choices."
+    },
+    {
+      "experience": "unlikely-routes",
+      "id": "conclusion",
+      "visibility": "public",
+      "ptBR": "Esta é a rota que vocês montaram. Ela não indica compatibilidade nem exige continuar o contato.",
+      "enUS": "This is the route you built. It does not indicate compatibility or require further contact."
+    },
+    {
+      "experience": "common",
+      "id": "keyboard",
+      "visibility": "public",
+      "ptBR": "Use Tab para chegar aos controles. Use setas nas opções e Espaço para marcar; ative o botão para confirmar.",
+      "enUS": "Use Tab to reach controls. Use arrows within options and Space to select; activate the button to confirm."
+    }
+  ]
+}
