@@ -41,7 +41,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0030](0030-profile-country-subdivision.md) | País e subdivisão opcionais, expansão compatível com UF | Accepted | Mudança do recorte/fonte/licença; governança, ativação e contract |
 | [0031](0031-telemetry-remoto-telemetria-mtls.md) | Gateway gateway separado e snapshot público por mTLS | Proposed | Mudança de contrato, PKI ou autoridade do agente |
 | [0032](0032-narracao-natural-e-proveniencia-interna.md) | Narração natural e proveniência interna, sem mensagem de criação na experiência | Accepted | Exigência aplicável de divulgação, mudança de fornecedor ou escopo de voz |
-| [0033](0033-deteccao-aproximada-e-preferencia-regional.md) | Sugestão regional opcional, declaração manual e filtro bilateral por país; IPinfo IP to Country MMDB / CC BY-SA 4.0 aprovadas | Accepted; implementação pendente | Mudança da base/licença, governança, granularidade, proxies ou persistência de detecções |
+| [0033](0033-deteccao-aproximada-e-preferencia-regional.md) | Sugestão regional, filtro bilateral por país e IPinfo Country MMDB / CC BY-SA 4.0; governança operacional aprovada | Accepted; implementação pendente | Base/licença, limites operacionais, granularidade, proxies ou persistência; responsáveis e canal pendentes |
 
 ## Regras
 
