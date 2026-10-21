@@ -2885,7 +2885,8 @@ export interface components {
         /**
          * @description Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec
          *     8.1); `"0"` quando o perfil ainda não foi salvo. Nome, descrição e região vêm `null` enquanto não
-         *     preenchidos. `RegionCode` é a UF em ISO 3166-2:BR (`BR-SP`).
+         *     preenchidos. CountryCode e SubdivisionCode são opcionais. RegionCode preserva a projeção legada de UF,
+         *     ou null para localização não informada ou somente país.
          */
         OwnProfileResponse: {
             displayName: null | string;
@@ -2896,6 +2897,16 @@ export interface components {
              */
             regionCode: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
             version: string;
+            /**
+             * @description ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode.
+             * @enum {null|string}
+             */
+            countryCode?: "BR" | null;
+            /**
+             * @description Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request.
+             * @enum {null|string}
+             */
+            subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
         };
         ParticipationResponse: {
             state: string;
@@ -3066,6 +3077,16 @@ export interface components {
              * @enum {null|string}
              */
             regionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
+            /**
+             * @description ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode.
+             * @enum {null|string}
+             */
+            countryCode?: "BR" | null;
+            /**
+             * @description Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request.
+             * @enum {null|string}
+             */
+            subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
         };
     };
     responses: never;

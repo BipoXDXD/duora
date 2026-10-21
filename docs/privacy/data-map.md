@@ -52,7 +52,7 @@ outro nome (por exemplo, consentimento *opt-in* para dado sensível), a confirma
 | `identity.auth_tickets`, `identity.user_tokens` | Ticket de sessão, chave TOTP, códigos de recuperação | Pessoa usuária | S | F-01 | Não | A definir com apoio jurídico |
 | `identity.age_verifications` | Resultado mínimo, instante da decisão, instante da suspeita de menor (`NotAdult`), referência do fornecedor, versão da política | Pessoa usuária | P3 | F-02 | Possível (biometria no fornecedor, se o método usar) | A definir com apoio jurídico |
 | `identity.consent_records` | Versões de termos aceitas e instantes | Pessoa usuária | P2 | F-01, F-08 | Não | A definir com apoio jurídico |
-| `profiles.profiles` | Nome de exibição, faixa etária, região aproximada (hoje UF em ISO 3166-2:BR, opcional; país mais subdivisão proposto no ADR-0026; nunca cidade, CEP, código postal nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
+| `profiles.profiles` | Nome de exibição, faixa etária, região aproximada (país opcional + subdivisão de primeiro nível opcional na expansão ADR-0030, inicialmente BR e as UFs existentes; campo UF legado mantido; nunca cidade, CEP, código postal nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
 | `profiles.preferences` | Critérios privados de compatibilidade | Pessoa usuária | P3 | F-03 | **Provável** se incluírem gênero buscado ou orientação (vida sexual) | A definir com apoio jurídico |
 | `profiles.profile_photos`, `media.*` | Fotos (originais em quarentena e derivados), hash, dimensões | Pessoa usuária e terceiros fotografados | P3 | F-03, F-05 | Imagem é dado pessoal; biometria só se houver tratamento biométrico (não previsto) | A definir com apoio jurídico |
 | `events.registrations` | Inscrição, check-in, presença | Pessoa usuária | P2 | F-03 | Participar de evento de encontros pode revelar vida afetiva | A definir com apoio jurídico |
@@ -75,7 +75,7 @@ outro nome (por exemplo, consentimento *opt-in* para dado sensível), a confirma
 | Registros de acesso (se aplicáveis) | Data, hora e IP de acesso | Pessoa usuária | P2 | F-10 | Não | A definir com apoio jurídico (Marco Civil, art. 15, a avaliar) |
 
 O que **não** é coletado por desenho: documento de identidade ou biometria brutos (spec 12.2), localização
-precisa (spec 1.1; a região do perfil para na UF hoje, e na subdivisão de primeiro nível na proposta do ADR-0026; o `CHECK` do banco não aceita nada mais fino), importação de redes sociais, telemetria comportamental com preferências identificáveis,
+precisa (spec 1.1; a região do perfil para na subdivisão de primeiro nível; na expansão ADR-0030, as FKs limitam ao catálogo aprovado e permitem informar somente país ou nada), importação de redes sociais, telemetria comportamental com preferências identificáveis,
 session replay ou gravação de digitação em telas privadas (spec 13.6), conteúdo de chat em analytics.
 
 ## Fornecedores

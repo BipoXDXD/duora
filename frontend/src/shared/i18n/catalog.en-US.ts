@@ -251,6 +251,8 @@ export const en = {
   'profile.error.displayNameTooLong': 'The name can have at most {max} characters.',
   'profile.error.bioTooLong': 'The description can have at most {max} characters.',
   'profile.error.invalidCharacters': 'Remove control or invisible characters from this field.',
+  'profile.country': 'Country',
+  'profile.countryHint': 'Optional. You can share only your country or leave your location undisclosed.',
   'profile.region': 'Region',
   'profile.regionHint': 'Optional. Only the state, never the city or address.',
   'profile.regionNotInformed': 'Prefer not to say',

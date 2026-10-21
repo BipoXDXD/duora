@@ -11,7 +11,7 @@ namespace Duora.Infrastructure.Profiles;
 /// </summary>
 public sealed class ProfileStore
 {
-    private const string Columns = "display_name, bio, region_code, version";
+    private const string Columns = "display_name, bio, region_code, version, country_code, subdivision_code";
 
     private readonly NpgsqlDataSource _dataSource;
     private readonly TimeProvider _time;
@@ -48,11 +48,14 @@ public sealed class ProfileStore
             return current.Version == expectedVersion ? current : null;
         }
 
+        var location = edit.Location ?? (edit.Region is null ? null
+            : new ProfileLocation(edit.Region.NewRegion is null ? null : "BR", edit.Region.NewRegion?.Value));
+        var legacyRegion = location?.CountryCode == "BR" ? location.SubdivisionCode : null;
         await using var command = expectedVersion == OwnProfile.Unsaved.Version
             ? _dataSource.CreateCommand(
                 $"""
-                insert into profiles.profiles (user_id, display_name, bio, region_code, version, updated_at)
-                values (@user_id, @display_name, @bio, @region_code, 1, @now)
+                insert into profiles.profiles (user_id, display_name, bio, region_code, country_code, subdivision_code, version, updated_at)
+                values (@user_id, @display_name, @bio, @region_code, @country_code, @subdivision_code, 1, @now)
                 on conflict (user_id) do nothing
                 returning {Columns}
                 """)
@@ -62,6 +65,8 @@ public sealed class ProfileStore
                 set display_name = case when @set_display_name then @display_name else display_name end,
                     bio = case when @set_bio then @bio else bio end,
                     region_code = case when @set_region_code then @region_code else region_code end,
+                    country_code = case when @set_region_code then @country_code else country_code end,
+                    subdivision_code = case when @set_region_code then @subdivision_code else subdivision_code end,
                     version = version + 1,
                     updated_at = @now
                 where user_id = @user_id and version = @expected_version
@@ -72,10 +77,12 @@ public sealed class ProfileStore
         command.Parameters.AddWithValue("now", _time.GetUtcNow());
         command.Parameters.AddWithValue("set_display_name", edit.DisplayName is not null);
         command.Parameters.AddWithValue("set_bio", edit.Bio is not null);
-        command.Parameters.AddWithValue("set_region_code", edit.Region is not null);
+        command.Parameters.AddWithValue("set_region_code", location is not null);
         command.Parameters.Add(TextParameter("display_name", edit.DisplayName?.Value));
         command.Parameters.Add(TextParameter("bio", edit.Bio?.NewBio?.Value));
-        command.Parameters.Add(TextParameter("region_code", edit.Region?.NewRegion?.Value));
+        command.Parameters.Add(TextParameter("region_code", legacyRegion));
+        command.Parameters.Add(TextParameter("country_code", location?.CountryCode));
+        command.Parameters.Add(TextParameter("subdivision_code", location?.SubdivisionCode));
         return await ReadSingleAsync(command, cancellationToken);
     }
 
@@ -94,6 +101,8 @@ public sealed class ProfileStore
             reader.IsDBNull(0) ? null : reader.GetString(0),
             reader.IsDBNull(1) ? null : reader.GetString(1),
             reader.IsDBNull(2) ? null : reader.GetString(2),
-            reader.GetInt64(3));
+            reader.GetInt64(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetString(5));
     }
 }

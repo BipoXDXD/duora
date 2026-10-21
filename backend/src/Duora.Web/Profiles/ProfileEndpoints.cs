@@ -65,6 +65,16 @@ internal static class ProfileEndpoints
 
     private static void SetRegionCodes(IDictionary<string, IOpenApiSchema> properties)
     {
+        if (properties.TryGetValue("countryCode", out var country) && country is OpenApiSchema countrySchema)
+        {
+            countrySchema.Enum = [.. ProfileLocationCatalog.Countries.Select(code => (JsonNode)JsonValue.Create(code)), JsonNullSentinel.JsonNull];
+            countrySchema.Description = "ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode.";
+        }
+        if (properties.TryGetValue("subdivisionCode", out var subdivision) && subdivision is OpenApiSchema subdivisionSchema)
+        {
+            subdivisionSchema.Enum = [.. ProfileLocationCatalog.Subdivisions.Select(location => (JsonNode)JsonValue.Create(location.SubdivisionCode!)), JsonNullSentinel.JsonNull];
+            subdivisionSchema.Description = "Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request.";
+        }
         if (properties.TryGetValue("regionCode", out var property) && property is OpenApiSchema schema)
         {
             schema.Enum = [.. RegionCode.All.Select(code => (JsonNode)JsonValue.Create(code)), JsonNullSentinel.JsonNull];
@@ -186,6 +196,8 @@ internal static class ProfileEndpoints
             profile.DisplayName,
             profile.Bio,
             profile.RegionCode,
-            profile.Version.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            profile.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            profile.CountryCode,
+            profile.SubdivisionCode));
     }
 }

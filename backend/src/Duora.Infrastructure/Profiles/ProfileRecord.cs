@@ -26,6 +26,11 @@ internal sealed class ProfileRecord
     /// <summary>UF em ISO 3166-2:BR (<see cref="Core.Profiles.RegionCode"/>); <c>null</c> quando não informada.</summary>
     public string? RegionCode { get; private set; }
 
+    /// <summary>País opcional; a subdivisão também é opcional e limitada pelo catálogo.</summary>
+    public string? CountryCode { get; private set; }
+
+    public string? SubdivisionCode { get; private set; }
+
     /// <summary>Token de concorrência exposto como ETag; sobe a cada gravação.</summary>
     public long Version { get; private set; }
 
@@ -44,7 +49,8 @@ internal sealed class ProfileRecordConfiguration : IEntityTypeConfiguration<Prof
                 $"char_length(display_name) BETWEEN 1 AND {DisplayName.MaxLength}");
             table.HasCheckConstraint("ck_profiles_bio", $"char_length(bio) BETWEEN 1 AND {ProfileBio.MaxLength}");
             table.HasCheckConstraint("ck_profiles_version", "version >= 1");
-            // Conjunto fixo (27 UFs, muda só por emenda constitucional): CHECK, não lookup table (SQL 6 em model.md).
+            table.HasCheckConstraint("ck_profiles_location_country", "subdivision_code IS NULL OR country_code IS NOT NULL");
+            // Contrato legado preservado durante expand; as colunas novas usam tabelas de referência.
             table.HasCheckConstraint("ck_profiles_region_code", $"region_code IN ({RegionCodeList()})");
         });
         builder.HasKey(p => p.UserId).HasName("pk_profiles");
@@ -53,6 +59,14 @@ internal sealed class ProfileRecordConfiguration : IEntityTypeConfiguration<Prof
         builder.Property(p => p.DisplayName).HasColumnName("display_name");
         builder.Property(p => p.Bio).HasColumnName("bio");
         builder.Property(p => p.RegionCode).HasColumnName("region_code");
+        builder.Property(p => p.CountryCode).HasColumnName("country_code");
+        builder.Property(p => p.SubdivisionCode).HasColumnName("subdivision_code");
+        builder.HasIndex(p => new { p.CountryCode, p.SubdivisionCode }).HasDatabaseName("ix_profiles_location");
+        builder.HasOne<CountryRecord>().WithMany().HasForeignKey(p => p.CountryCode)
+            .HasConstraintName("fk_profiles_countries").OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<SubdivisionRecord>().WithMany().HasForeignKey(p => new { p.CountryCode, p.SubdivisionCode })
+            .HasPrincipalKey(p => new { p.CountryCode, p.Code })
+            .HasConstraintName("fk_profiles_subdivisions").OnDelete(DeleteBehavior.Restrict);
         builder.Property(p => p.Version).HasColumnName("version");
         builder.Property(p => p.UpdatedAt).HasColumnName("updated_at");
 
