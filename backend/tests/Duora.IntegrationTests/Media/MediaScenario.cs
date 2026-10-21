@@ -49,18 +49,23 @@ internal sealed class MediaScenario(string connectionString, DuoraWebFactory fac
         Browser browser,
         byte[] bytes,
         string contentType = "image/jpeg",
-        string? idempotencyKey = null)
+        string? idempotencyKey = null,
+        string? validationFormat = null)
     {
         var content = new ByteArrayContent(bytes);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-        return await UploadContentAsync(browser, content, idempotencyKey ?? NewKey());
+        return await UploadContentAsync(browser, content, idempotencyKey ?? NewKey(), validationFormat);
     }
 
-    public static Task<HttpResponseMessage> UploadContentAsync(Browser browser, HttpContent content, string? idempotencyKey)
+    public static Task<HttpResponseMessage> UploadContentAsync(Browser browser, HttpContent content, string? idempotencyKey, string? validationFormat = null)
     {
         var extra = idempotencyKey is null
             ? new Dictionary<string, string>()
             : new Dictionary<string, string> { ["Idempotency-Key"] = idempotencyKey };
+        if (validationFormat is not null)
+        {
+            extra["Duora-Validation-Format"] = validationFormat;
+        }
         return browser.PostContentAsync(PhotosPath, content, new MutationHeaders(Extra: extra));
     }
 

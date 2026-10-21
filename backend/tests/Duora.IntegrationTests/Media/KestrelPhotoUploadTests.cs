@@ -136,29 +136,57 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
     [InlineData("empty", "en-US")]
     [InlineData("missing-key", "en-US")]
     [InlineData("invalid-key", "en-US")]
-    [InlineData("ignored-format", "en-US")]
+    [InlineData("codes-format", "en-US")]
+    [InlineData("codes-format", "pt-BR")]
+    [InlineData("codes-key", "en-US")]
+    [InlineData("duplicate-format", "en-US")]
+    [InlineData("list-format", "en-US")]
+    [InlineData("case-format", "en-US")]
+    [InlineData("empty-format", "en-US")]
+    [InlineData("unknown-format", "en-US")]
     [InlineData("unsupported-type", "en-US")]
     public async Task UploadRefusalsSatisfyTheGeneratedAndPublishedErrorSchemas(string scenario, string locale)
     {
         var session = await SignInAsync();
-        var empty = scenario is "empty" or "ignored-format";
+        var empty = scenario is "empty" or "codes-format" or "duplicate-format" or "list-format" or "case-format" or "empty-format" or "unknown-format";
         var content = new ByteArrayContent(empty ? [] : MediaScenario.JpegLike());
         content.Headers.ContentType = new MediaTypeHeaderValue(scenario == "unsupported-type" ? "text/html" : "image/jpeg");
         using var request = Upload(content);
         request.Headers.Add("Accept-Language", locale);
-        if (scenario is "missing-key" or "invalid-key")
+        if (scenario is "missing-key" or "invalid-key" or "codes-key")
         {
             request.Headers.Remove("Idempotency-Key");
-            if (scenario == "invalid-key")
+            if (scenario is "invalid-key" or "codes-key")
             {
                 request.Headers.Add("Idempotency-Key", "bad key");
             }
         }
-        if (scenario == "ignored-format")
+        if (scenario is "codes-format" or "codes-key")
         {
             request.Headers.Add("Duora-Validation-Format", "codes-v1");
         }
 
+        if (scenario == "duplicate-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "codes-v1");
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "codes-v1");
+        }
+        if (scenario == "list-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "codes-v1, codes-v1");
+        }
+        if (scenario == "case-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "CODES-V1");
+        }
+        if (scenario == "empty-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "");
+        }
+        if (scenario == "unknown-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "unknown");
+        }
         using var response = await session.SendAsync(request);
 
         var unsupported = scenario == "unsupported-type";
@@ -172,18 +200,56 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
             var field = empty ? "body" : "Idempotency-Key";
             Assert.Equal([field], errors.Select(p => p.Key));
             Assert.Equal(
-                empty ? "A foto está vazia." : "Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.",
+                scenario == "codes-format" ? "PHOTO_BODY_EMPTY" : scenario == "codes-key" ? "IDEMPOTENCY_KEY_INVALID" : empty ? "A foto está vazia." : "Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.",
                 errors[field]![0]!.GetValue<string>());
             Assert.Single(errors[field]!.AsArray());
         }
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         Assert.Equal("no-cache", Assert.Single(response.Headers.Pragma).Name);
-        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
+        Assert.Equal(scenario is "codes-format" or "codes-key", response.Headers.Contains("Duora-Validation-Format"));
+        if (scenario is "codes-format" or "codes-key")
+        {
+            Assert.Equal("codes-v1", Assert.Single(response.Headers.GetValues("Duora-Validation-Format")));
+        }
+        if (!unsupported)
+        {
+            Assert.Contains("Duora-Validation-Format", response.Headers.Vary);
+        }
         Assert.False(response.Headers.Contains("Retry-After"));
         var media = new MediaScenario(_postgres, _kestrel);
         Assert.Empty(await media.UploadsOfAsync(session.UserId));
         Assert.Equal(0, media.StoredObjectCount());
         await ProblemSchemaAssertions.MatchesUploadRefusalAsync(_kestrel, response, body);
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(false, "codes-v1")]
+    [InlineData(true, null)]
+    [InlineData(true, "codes-v1")]
+    public async Task NegotiationPreservesMissingAndExcessiveLengthOverRealHttps(bool excessive, string? selector)
+    {
+        var session = await SignInAsync();
+        using HttpContent content = excessive
+            ? new ByteArrayContent(MediaScenario.JpegLike((5 * 1024 * 1024) + 1))
+            : new StreamContent(new ForwardOnlyStream(MediaScenario.JpegLike()));
+        content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+        using var request = Upload(content);
+        // Let the server refuse the declared size before this client transmits a body it will not read.
+        request.Headers.ExpectContinue = true;
+        request.Headers.Remove("Idempotency-Key");
+        if (selector is not null)
+        {
+            request.Headers.Add("Duora-Validation-Format", selector);
+        }
+        using var response = await session.SendAsync(request);
+        await ProblemAssert.IsProblemAsync(response,
+            excessive ? HttpStatusCode.RequestEntityTooLarge : HttpStatusCode.LengthRequired,
+            excessive ? "PAYLOAD_TOO_LARGE" : "LENGTH_REQUIRED");
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
+        var media = new MediaScenario(_postgres, _kestrel);
+        Assert.Empty(await media.UploadsOfAsync(session.UserId));
+        Assert.Equal(0, media.StoredObjectCount());
     }
 
     private static async Task<bool> WaitUntilAsync(Func<Task<bool>> condition, TimeSpan limit)

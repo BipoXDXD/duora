@@ -2581,6 +2581,14 @@
               "pattern": "^[A-Za-z0-9_-]+$",
               "type": "string"
             }
+          },
+          {
+            "name": "Duora-Validation-Format",
+            "in": "header",
+            "description": "Optional request-local validation format. Only one exact codes-v1 value selects field codes for empty body or invalid Idempotency-Key; all other values preserve the legacy strings. Accept-Language does not select this format.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -2619,6 +2627,21 @@
           },
           "400": {
             "description": "Bad Request",
+            "headers": {
+              "Duora-Validation-Format": {
+                "description": "Present as codes-v1 only for the two negotiated VALIDATION_FAILED refusals. Clients must require this exact confirmation before interpreting field codes; otherwise use local fallback without retrying POST.",
+                "schema": {
+                  "pattern": "^codes-v1$",
+                  "type": "string"
+                }
+              },
+              "Vary": {
+                "description": "Includes Duora-Validation-Format for both representations of the two validation refusals, preserving existing values or wildcard. Does not make POST cacheable.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/problem+json": {
                 "schema": {

@@ -145,17 +145,18 @@ internal static class PhotoEndpoints
                     StatusCodes.Status413PayloadTooLarge,
                     ApiProblems.PayloadTooLarge);
             case UploadLengthVerdict.Empty:
-                return ApiProblems.Validation(new Dictionary<string, string[]> { ["body"] = ["A foto está vazia."] });
+                return UploadValidationFormat.Refuse(request, "body", "A foto está vazia.", "PHOTO_BODY_EMPTY");
             case UploadLengthVerdict.Accepted:
                 break;
         }
 
         return IdempotencyKey.TryParse(idempotencyKey, out _)
             ? null
-            : ApiProblems.Validation(new Dictionary<string, string[]>
-            {
-                [IdempotencyKeyHeader] = ["Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'."],
-            });
+            : UploadValidationFormat.Refuse(
+                request,
+                IdempotencyKeyHeader,
+                "Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.",
+                "IDEMPOTENCY_KEY_INVALID");
     }
 
     /// <summary>
@@ -255,6 +256,30 @@ internal static class PhotoEndpoints
                     Pattern = "^[A-Za-z0-9_-]+$",
                 };
             }
+        }
+
+        operation.Parameters ??= [];
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = UploadValidationFormat.Header,
+            In = ParameterLocation.Header,
+            Required = false,
+            Description = "Optional request-local validation format. Only one exact codes-v1 value selects field codes for empty body or invalid Idempotency-Key; all other values preserve the legacy strings. Accept-Language does not select this format.",
+            Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+        });
+        if (operation.Responses?["400"] is OpenApiResponse validation)
+        {
+            validation.Headers ??= new Dictionary<string, IOpenApiHeader>();
+            validation.Headers[UploadValidationFormat.Header] = new OpenApiHeader
+            {
+                Description = "Present as codes-v1 only for the two negotiated VALIDATION_FAILED refusals. Clients must require this exact confirmation before interpreting field codes; otherwise use local fallback without retrying POST.",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String, Pattern = "^codes-v1$" },
+            };
+            validation.Headers["Vary"] = new OpenApiHeader
+            {
+                Description = "Includes Duora-Validation-Format for both representations of the two validation refusals, preserving existing values or wildcard. Does not make POST cacheable.",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+            };
         }
 
         if (operation.RequestBody is OpenApiRequestBody body)
