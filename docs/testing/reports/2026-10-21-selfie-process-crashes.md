@@ -72,6 +72,11 @@ InFlight também depois do encerramento foi aplicada antes dessas aprovações.
 
 ## Não executado e pendências
 
+Atualização posterior: o [ensaio de conexão perdida durante COMMIT](2026-10-21-selfie-commit-network.md)
+acrescenta seis casos de rede real com PostgreSQL, incluindo a transação Npgsql de conclusão da fila.
+A pendência de COMMIT abaixo descreve o limite histórico deste ensaio de processos; o relatório novo
+delimita a cobertura adicional e as homologações que continuam abertas.
+
 - Workers em containers separados, Windows/Linux operacionais, queda do host, perda de energia,
   indisponibilidade/failover do PostgreSQL e restauração dedicada: este ensaio mata processos locais,
   mantendo o banco disponível.
