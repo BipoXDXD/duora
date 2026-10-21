@@ -36,20 +36,20 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         Assert.DoesNotContain(notices.Items, n => n.Code == "Age");
         h.Time.Advance(TimeSpan.FromTicks(1));
         await Monitor().RunOnceAsync(Ct);
-        Assert.Single(notices.Items.Where(n => n.Code == "Age" && n.Severity == 1));
+        Assert.Single(notices.Items, n => n.Code == "Age" && n.Severity == 1);
         await Task.WhenAll(Monitor().RunOnceAsync(Ct), Monitor().RunOnceAsync(Ct));
-        Assert.Single(notices.Items.Where(n => n.Code == "Age"));
+        Assert.Single(notices.Items, n => n.Code == "Age");
         h.Time.Advance(TimeSpan.FromDays(1));
         await Monitor().RunOnceAsync(Ct);
         Assert.Equal(2, notices.Items.Count(n => n.Code == "Age"));
         h.Time.SetUtcNow(manifest.BuiltAt.AddHours(168));
         await Monitor().RunOnceAsync(Ct);
-        Assert.Single(notices.Items.Where(n => n.Code == "Age" && n.Severity == 2 && !n.Recovered));
+        Assert.Single(notices.Items, n => n.Code == "Age" && n.Severity == 2 && !n.Recovered);
         h.Payload = SyntheticMmdb.Create(h.Time.GetUtcNow().AddHours(-1));
         var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
         Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
         await Monitor().RunOnceAsync(Ct);
-        Assert.Single(notices.Items.Where(n => n.Code == "Age" && n.Recovered));
+        Assert.Single(notices.Items, n => n.Code == "Age" && n.Recovered);
     }
 
     [Fact]
@@ -63,10 +63,10 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         Assert.DoesNotContain(notices.Items, n => n.Code == "NoExecution");
         h.Time.Advance(TimeSpan.FromTicks(1));
         await monitor.RunOnceAsync(Ct);
-        Assert.Single(notices.Items.Where(n => n.Code == "NoExecution"));
+        Assert.Single(notices.Items, n => n.Code == "NoExecution");
         File.Delete(Path.Combine(h.Root, (await h.Store.ReadActiveAsync(Ct))!.Sha256 + ".mmdb"));
         await monitor.RunOnceAsync(Ct);
-        Assert.Single(notices.Items.Where(n => n.Code == "MissingBase" && n.Severity == 2));
+        Assert.Single(notices.Items, n => n.Code == "MissingBase" && n.Severity == 2);
     }
 
     [Theory]
@@ -81,9 +81,9 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         Assert.True(await h.Store.FailAsync(lease, code, false, null, Ct));
         var notices = new Notices();
         await new CountryDatabaseHealthService(new(h.Source, h.Time), h.Validator, h.Root, notices, enabled: true).RunOnceAsync(Ct);
-        Assert.Single(notices.Items.Where(n => n.Code == code && n.Severity == 2));
+        Assert.Single(notices.Items, n => n.Code == code && n.Severity == 2);
         await new CountryDatabaseHealthService(new(h.Source, h.Time), h.Validator, h.Root, notices, enabled: true).RunOnceAsync(Ct);
-        Assert.Single(notices.Items.Where(n => n.Code == code));
+        Assert.Single(notices.Items, n => n.Code == code);
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         notices.Fail = false;
         h.Time.Advance(TimeSpan.FromMinutes(15));
         await monitor.RunOnceAsync(Ct);
-        Assert.Single(notices.Items.Where(n => n.Code == "Exhausted"));
+        Assert.Single(notices.Items, n => n.Code == "Exhausted");
         Assert.Equal(1L, await Count(h.Source, "select count(*) from ops.country_database_notifications where code='Exhausted'"));
     }
 
