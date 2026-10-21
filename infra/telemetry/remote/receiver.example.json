@@ -1,0 +1,1 @@
+{"bind":"REPLACE_OPS_IPV4","port":8443,"source_ipv4":"REPLACE_DUORA_EGRESS_IPV4","client_fingerprints":["REPLACE_CLIENT_CERT_SHA256"]}
