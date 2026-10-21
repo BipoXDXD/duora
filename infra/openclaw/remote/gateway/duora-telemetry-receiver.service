@@ -1,0 +1,41 @@
+[Unit]
+Description=Bounded authenticated Duora snapshot receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=duora-receiver
+Group=duora-receiver
+ExecStart=/usr/bin/python3 /opt/duora-agent/telemetry_receiver.py
+LoadCredential=ca.pem:/etc/duora-telemetry/secrets/receiver-ca.pem
+LoadCredential=cert.pem:/etc/duora-telemetry/secrets/receiver-cert.pem
+LoadCredential=key.pem:/etc/duora-telemetry/secrets/receiver-key.pem
+StateDirectory=duora-remote
+StateDirectoryMode=0755
+UMask=0022
+Restart=on-failure
+RestartSec=10
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+CapabilityBoundingSet=
+InaccessiblePaths=-/etc/duora -/var/lib/duora -/var/run/docker.sock -/etc/duora-agent -/etc/duora-observer -/var/lib/duora-monitor -/etc/duora-telemetry/secrets
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=20%
+CPUWeight=25
+IOWeight=25
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target

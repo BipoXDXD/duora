@@ -11,6 +11,13 @@ A integração não concede sudo, Docker socket, SSH, token de escrita GitHub ou
 `/var/lib/duora`, fotos ou banco ao agente. Não modifica `duora-deploy`, seu sudoers, o Compose de produção,
 os verificadores de backup nem seus gates. Nenhuma política ou workflow protegido é alterado.
 
+## Perfil em VPS separada
+
+O [runbook remoto](openclaw-remote.md) reutiliza esta integração com emissor de saída no Duora,
+receptor mTLS na VPS de operações e monitor combinando produto remoto com gateway local. Tem
+orçamentos e instalação próprios; não aplicar os passos de instalação conjunta abaixo ao perfil
+remoto. Nenhum dos perfis foi instalado/homologado na VPS por esta implementação.
+
 ## Fronteiras
 
 | Componente | Autoridade e dados | Recursos |
