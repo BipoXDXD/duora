@@ -678,6 +678,15 @@ class DeployTests(unittest.TestCase):
 
         self.assertEqual(3, sum("/health/ready" in " ".join(c) for c in runner.commands))
 
+    def test_readiness_uses_private_duora_alias(self) -> None:
+        runner = FakeRunner()
+
+        self.run_deploy(runner)
+
+        probes = [c for c in runner.commands if "/health/ready" in " ".join(c)]
+        self.assertEqual(1, len(probes))
+        self.assertEqual("http://duora-web:8080/health/ready", probes[0][-1])
+
     def test_readiness_timeout_fails_and_keeps_previous_release_current(self) -> None:
         self.paths.state_dir.mkdir(parents=True)
         (self.paths.state_dir / "current.json").write_text('{"releaseId": "anterior"}')
