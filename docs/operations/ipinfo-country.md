@@ -38,8 +38,11 @@ pode continuar somente enquanto admissível. Redownload conserva datas originais
 - Verificar sincronização e confiabilidade do relógio em todos os processos e após restart. Datas futuras/ausentes são inválidas;
   recuo observado no leitor bloqueia a sugestão até o relógio alcançar a marca observada. Um host reiniciado com relógio
   incorreto não pode ser liberado sem verificação externa; não existe serviço de atestação de tempo nesta entrega.
-- G3: definir titular, substituto, canal de alertas, cobertura de atendimento, serviço e orçamento de armazenamento.
-  **Responsáveis nominais e canal permanecem pendentes.** G5: ensaios e autorização própria de implantação.
+- G3: o responsável designou **a si como titular, seu Gmail privado como canal de alertas e nenhum substituto por enquanto**.
+  [Decisão registrada em 21/10/2026](https://github.com/BipoXDXD/duora/issues/108#issuecomment-6327178280).
+  Não publicar o endereço privado. Permanecem pendentes contingência/substituição, cobertura regional de atendimento,
+  serviço e orçamento de armazenamento e comprovação de entrega dos alertas. A ausência de substituto é uma limitação
+  expressa, não cobertura comprovada; G3 permanece aberto. G5: ensaios e autorização própria de implantação.
 
 ## Agenda e falhas
 

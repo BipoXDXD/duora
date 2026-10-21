@@ -2,7 +2,9 @@
 
 Escopo autorizado: etapas 7 e 8 do plano; MaxMind.Db 5.2.0/Apache-2.0 aprovado explicitamente pelo responsável.
 [PR #167](https://github.com/BipoXDXD/duora/pull/167). Issue #108 permanece aberta. Não aplicar migração em produção,
-ativar serviços ou habilitar EUA. Titular, substituto e canal de alertas continuam pendentes.
+ativar serviços ou habilitar EUA. O responsável designou a si como titular, Gmail privado para alertas e nenhum
+substituto por enquanto ([decisão](https://github.com/BipoXDXD/duora/issues/108#issuecomment-6327178280)).
+Cobertura regional, contingência, transporte/entrega de alertas, armazenamento e G3/G5 continuam pendentes.
 
 ## Alterações
 

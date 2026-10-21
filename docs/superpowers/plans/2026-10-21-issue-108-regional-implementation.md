@@ -46,7 +46,7 @@
 | G4 | Migração ensaiada, versão nova dos consumidores, testes de concorrência, comunicação/configuração dos usuários existentes | Ativação do filtro regional |
 | G5 | Primeiro snapshot homologado, atribuição, ensaios de recuperação/alertas e autorização de implantação | Ativação do detector |
 
-G3 permanece aberto por instrução do responsável. Pode-se desenvolver e testar com fixtures sintéticas após G0/G1 sem inventar nomes ou canal. Não declarar operação pronta com esse marco aberto. BR pode receber o fluxo regional sem US; a habilitação internacional continua na #78.
+G3 permanece aberto. A designação posterior do proprietário como titular, Gmail privado para alertas e ausência de substituto por enquanto consta do registro ao fim deste plano. Cobertura, contingência, armazenamento e comprovação operacional continuam pendentes. Pode-se desenvolver e testar com fixtures sintéticas após G0/G1 sem inventar pessoas ou endereços. Não declarar operação pronta com esse marco aberto. BR pode receber o fluxo regional sem US; a habilitação internacional continua na #78.
 
 A governança aprovada não especifica números para tamanho máximo do artefato, limite de requisições do endpoint ou cobertura de atendimento. O plano exige registrar esses valores na revisão do respectivo PR, com evidência de tamanho/carga e política operacional; não os trata como já aprovados.
 
@@ -221,7 +221,7 @@ Interface planejada: `DatabaseAgePolicy.Evaluate(DateTimeOffset publishedAt, Dat
 **Criar:** `backend/src/Duora.Infrastructure/Geolocation/CountryDatabaseHealthService.cs`, `CountryDatabaseRetentionService.cs`, `CountryDatabaseRecoveryService.cs`, testes `backend/tests/Duora.IntegrationTests/Geolocation/CountryDatabaseOperationsTests.cs`; `docs/operations/ipinfo-country.md` e `docs/testing/regional-matching.md`.
 
 - [ ] Monitor independente do atualizador: ausência de execução 36h, idade 72h, corte 168h, falhas de credencial/schema/integridade, ausência de base e tentativas esgotadas. Estados persistidos deduplicam incidentes e sobrevivem ao restart.
-- [ ] Definir interface de notificação com adaptador de teste. Não escolher fornecedor/canal nem enviar alertas reais enquanto o canal estiver pendente. Canal inativo impede declarar operação pronta.
+- [ ] Definir interface de notificação com adaptador de teste. O Gmail privado do titular foi escolhido como destino; transporte e entrega real continuam pendentes. Não contratar/ativar provedor nem enviar alertas reais por esta preparação. Canal inativo impede declarar operação pronta.
 - [ ] Repetir lembrete diário só quando houver intervenção pendente; notificar mudança de gravidade e recuperação. Testar cruzamento exato de limiares e incidente persistente sem tempestade de mensagens.
 - [ ] Limpeza aplica simultaneamente teto de 14 versões e 14 dias desde primeiro download daquela versão; download repetido não estende retenção. Limpeza não apaga o arquivo em uso por leitura em andamento sem descarte seguro do handle.
 - [ ] Aos 14 dias remover inclusive antiga ativa; diagnóstico não autoriza uso depois de 7 dias. Excluir temporários rejeitados ao fim da execução e varrer órfãos de crashes. Metadados/alertas expiram em 90 dias.
@@ -229,7 +229,7 @@ Interface planejada: `DatabaseAgePolicy.Evaluate(DateTimeOffset publishedAt, Dat
 - [ ] Recuperação verifica hash/manifesto/schema/leitura/idade, usa versão validada mais recente admissível. Disponibilidade pode retomar automaticamente; integridade/licença/schema mantêm estado de bloqueio até liberação humana.
 - [ ] Testar recuperação sem rede com cópia válida, sem cópia recente, manifesto adulterado, relógio incorreto, base antiga rebaixada e retomada impedida em incidente de integridade.
 - [ ] Runbook registra meta de até 15 minutos com cópia válida, atendimento em um dia útil/quatro horas dentro da cobertura acordada e ensaio trimestral/após mudanças. Medir antes de afirmar meta atingida.
-- [ ] Manter titular, substituto e canal explicitamente pendentes. Não criar agendamentos de chat ou monitores neste trabalho documental.
+- [ ] Preservar a designação posterior do titular/canal e a ausência expressa de substituto; registrar cobertura e contingência ainda pendentes. Não criar agendamentos de chat ou monitores neste trabalho documental.
 
 ## Etapa 10 — Homologação, ativação e reversão
 
@@ -371,6 +371,14 @@ códigos ISO validados conservadoramente pela BCL sem inferir cultura; redirecio
 repassar Authorization. Valores de bytes/tempo/redes e allowlist não recebem defaults operacionais.
 São pré-requisitos futuros: storage privado compartilhado, relógio confiável e homologação real. Nenhum recurso é criado.
 
-G3 (titular, substituto e canal) e G5 permanecem abertos. Issue #108 aberta; BR + 27 UFs; sem implantação, detector ativo ou US.
+G3 e G5 permanecem abertos; a designação posterior de titular/canal está registrada abaixo. Issue #108 aberta; BR + 27 UFs; sem implantação, detector ativo ou US.
 Consulte o [ADR](../../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md#execução-autorizada-das-etapas-7-e-8--21102026)
 e a [preparação operacional](../../operations/ipinfo-country.md). Evidência de execução efetiva fica no PR e no CI.
+
+## Decisão operacional posterior — 21/10/2026
+
+O proprietário será o titular; seu Gmail privado será o canal de alertas; **sem substituto por enquanto**, conforme
+[resposta expressa](https://github.com/BipoXDXD/duora/issues/108#issuecomment-6327178280).
+Este registro substitui as referências históricas a titular/canal pendentes. Não publicar o endereço privado.
+Não comprova cobertura regional 24/7, contingência, entrega de alertas, armazenamento ou G3/G5 concluídos.
+Detector, atualizador, filtro e EUA continuam inativos; a #108 permanece aberta.

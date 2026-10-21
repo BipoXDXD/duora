@@ -388,6 +388,18 @@ do hash; troca de produto/schema/licença e regressão de epoch exigem revisão.
 (leitura no Web, escrita no Worker), seus acessos, orçamento e relógios precisam ser verificados antes de registrar serviços.
 
 Retenção automática, monitor independente, histórico de alertas e recuperação administrativa são a etapa 9,
-ainda não implementada. Responsáveis nominais, substituto e canal de alertas seguem pendentes (G3); G5 e autorização
-de implantação também permanecem abertos. Ver [preparação operacional](../../operations/ipinfo-country.md) e
+ainda não implementada. A designação posterior de titular/canal consta do adendo abaixo; G3, G5 e autorização
+de implantação permanecem abertos. Ver [preparação operacional](../../operations/ipinfo-country.md) e
 [matriz de testes](../../testing/regional-matching.md#leitor-e-atualização-inativos--etapas-7-e-8).
+
+## Adendo de 21/10/2026 — titular e canal de alertas
+
+O responsável confirmou: **"Eu como titular; Gmail privado; sem substituto por enquanto"**.
+[Registro na issue #108](https://github.com/BipoXDXD/duora/issues/108#issuecomment-6327178280).
+As referências anteriores a titular/canal indefinidos registram o estado histórico e são substituídas por esta decisão.
+Não publicar o endereço privado nem inventar um substituto. A ausência de substituto fica como limitação expressa.
+
+A decisão não comprova entrega de alertas, cobertura regional 24/7 ou contingência. Permanecem necessários cobertura,
+substituição/contingência, serviço/orçamento de armazenamento, homologação e os demais requisitos de G3/G5.
+Não altera os prazos de resposta aprovados, não provisiona serviço ou gasto e não autoriza ativar detector,
+atualizador, filtro regional ou EUA. A #108 permanece aberta.
