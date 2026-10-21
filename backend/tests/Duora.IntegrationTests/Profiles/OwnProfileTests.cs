@@ -29,6 +29,64 @@ public sealed class OwnProfileTests : IAsyncDisposable
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
     [Fact]
+    public async Task LegacyTextEditKeepsCountryOnlyAndExplicitNullClearsIt()
+    {
+        var (_, browser) = await SignedInAsync();
+        using var _ = browser;
+        using var first = await PatchAsync(browser, """{"countryCode":"BR"}""", "\"0\"");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        using var text = await PatchAsync(browser, """{"bio":"Hello"}""", "\"1\"");
+        Assert.Equal(HttpStatusCode.OK, text.StatusCode);
+        Assert.Equal("BR", (string?)(await ReadObjectAsync(text))["countryCode"]);
+        using var clear = await PatchAsync(browser, """{"regionCode":null}""", "\"2\"");
+        Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
+        Assert.Null((await ReadObjectAsync(clear))["countryCode"]);
+        using var empty = await PatchAsync(browser, "{}", "\"3\"");
+        Assert.Equal("\"3\"", empty.Headers.ETag?.ToString());
+    }
+
+    [Fact]
+    public async Task CountryOnlyAndLegacyEditsPreserveConcurrencyAndPrivacy()
+    {
+        var (_, browser) = await SignedInAsync();
+        using var _ = browser;
+        using var first = await PatchAsync(browser, """{"countryCode":"BR","subdivisionCode":"BR-SP"}""", "\"0\"");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal("BR-SP", (string?)(await ReadObjectAsync(first))["regionCode"]);
+        using var countryOnly = await PatchAsync(browser, """{"countryCode":"BR"}""", "\"1\"");
+        Assert.Equal(HttpStatusCode.OK, countryOnly.StatusCode);
+        var body = await ReadObjectAsync(countryOnly);
+        Assert.Equal("BR", (string?)body["countryCode"]);
+        Assert.Null(body["subdivisionCode"]);
+        Assert.Null(body["regionCode"]);
+        using var stale = await PatchAsync(browser, """{"countryCode":null}""", "\"1\"");
+        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
+        using var legacy = await PatchAsync(browser, """{"regionCode":"BR-BA"}""", "\"2\"");
+        Assert.Equal(HttpStatusCode.OK, legacy.StatusCode);
+        Assert.Equal("BR", (string?)(await ReadObjectAsync(legacy))["countryCode"]);
+        using var clear = await PatchAsync(browser, """{"regionCode":null}""", "\"3\"");
+        Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
+        Assert.Null((await ReadObjectAsync(clear))["countryCode"]);
+    }
+
+    [Theory]
+    [InlineData("{\"countryCode\":\"US\"}")]
+    [InlineData("{\"countryCode\":\"br\"}")]
+    [InlineData("{\"countryCode\":\"\"}")]
+    [InlineData("{\"countryCode\":null,\"subdivisionCode\":\"BR-SP\"}")]
+    [InlineData("{\"countryCode\":\"BR\",\"subdivisionCode\":\"US-MA\"}")]
+    [InlineData("{\"subdivisionCode\":\"BR-SP\"}")]
+    [InlineData("{\"countryCode\":\"BR\",\"regionCode\":\"BR-SP\"}")]
+    public async Task InvalidLocationDoesNotCreateProfile(string json)
+    {
+        var (account, browser) = await SignedInAsync();
+        using var _ = browser;
+        using var response = await PatchAsync(browser, json, "\"0\"");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("none", await StoredAsync(account.UserId));
+    }
+
+    [Fact]
     public async Task UnsavedProfileReadsAsEmptyVersionZeroWithoutCreatingARow()
     {
         var (account, browser) = await SignedInAsync();
@@ -41,7 +99,7 @@ public sealed class OwnProfileTests : IAsyncDisposable
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         var body = await ReadObjectAsync(response);
         Assert.Equal(
-            ["bio", "displayName", "regionCode", "version"],
+            ["bio", "countryCode", "displayName", "regionCode", "subdivisionCode", "version"],
             body.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.Null(body["displayName"]);
         Assert.Null(body["bio"]);

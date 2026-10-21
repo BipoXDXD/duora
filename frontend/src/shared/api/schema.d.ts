@@ -1145,6 +1145,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/route-experience-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishRoutesCatalogRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogPublishedResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Payload Too Large */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/events": {
         parameters: {
             query?: never;
@@ -1851,6 +1935,56 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": components["schemas"]["RoomActionRequest"];
+                };
+            };
+            responses: {
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{roomId}/routes-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    roomId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RoutesActionRequest"];
                 };
             };
             responses: {
@@ -2779,6 +2913,11 @@ export interface components {
             currentPassword: null | string;
             newPassword: null | string;
         };
+        ChosenStopResponse: {
+            stepId: string;
+            prompt: string;
+            optionLabel: string;
+        };
         CompleteSelfieVerificationRequest: Record<string, never>;
         ConfirmEmailRequest: {
             /** Format: uuid */
@@ -2885,7 +3024,8 @@ export interface components {
         /**
          * @description Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec
          *     8.1); `"0"` quando o perfil ainda não foi salvo. Nome, descrição e região vêm `null` enquanto não
-         *     preenchidos. `RegionCode` é a UF em ISO 3166-2:BR (`BR-SP`).
+         *     preenchidos. CountryCode e SubdivisionCode são opcionais. RegionCode preserva a projeção legada de UF,
+         *     ou null para localização não informada ou somente país.
          */
         OwnProfileResponse: {
             displayName: null | string;
@@ -2896,6 +3036,16 @@ export interface components {
              */
             regionCode: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
             version: string;
+            /**
+             * @description ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode.
+             * @enum {null|string}
+             */
+            countryCode?: "BR" | null;
+            /**
+             * @description Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request.
+             * @enum {null|string}
+             */
+            subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
         };
         ParticipationResponse: {
             state: string;
@@ -2946,6 +3096,14 @@ export interface components {
             capacity: number | string;
             /** Format: uuid */
             experienceVersionId: string;
+        };
+        PublishRoutesCatalogRequest: {
+            /** Format: int32 */
+            contentVersion: number | string;
+            enUS: components["schemas"]["RoutesCatalogContentRequest"];
+            ptBR: components["schemas"]["RoutesCatalogContentRequest"];
+            audio: components["schemas"]["CatalogAudioRequest"][];
+            editorialApproved: boolean;
         };
         /** @description Reautenticação (API-A13): senha e, se a conta tem MFA, o código do autenticador. */
         ReauthenticateRequest: {
@@ -3004,6 +3162,61 @@ export interface components {
             invitationExpiresAt: string;
             game: null | components["schemas"]["GameResponse"];
             audio: components["schemas"]["RoomAudioResponse"][];
+            routesGame?: null | components["schemas"]["RoutesGameResponse"];
+        };
+        RoutesActionRequest: {
+            /** Format: uuid */
+            actionId: string;
+            expectedVersion: string;
+            type: string;
+            stage: null | string;
+            stepId: null | string;
+            optionId: null | string;
+        };
+        RoutesCatalogClueRequest: {
+            text: string;
+        };
+        RoutesCatalogContentRequest: {
+            title: string;
+            objective: string;
+            example: string;
+            stops: components["schemas"]["RoutesCatalogStopRequest"][];
+            clueSets: components["schemas"]["RoutesCatalogClueRequest"][][];
+        };
+        RoutesCatalogStopRequest: {
+            stepId: string;
+            prompt: string;
+            options: components["schemas"]["OptionResponse"][];
+        };
+        RoutesGameResponse: {
+            experienceId: string;
+            /** Format: int32 */
+            rulesVersion: number | string;
+            /** Format: int32 */
+            contentVersion: number | string;
+            /** Format: int32 */
+            schemaVersion: number | string;
+            resourceVersion: string;
+            status: string;
+            /** Format: date-time */
+            deadline: string;
+            stage: string;
+            title: string;
+            objective: string;
+            example: string;
+            myClues: string[];
+            currentStop: null | components["schemas"]["RouteStopResponse"];
+            isMyTurn: boolean;
+            route: components["schemas"]["ChosenStopResponse"][];
+            /** Format: int32 */
+            revisionsRemaining: number | string;
+            awaitingPartner: boolean;
+            availableActions: string[];
+        };
+        RouteStopResponse: {
+            stepId: string;
+            prompt: string;
+            options: components["schemas"]["OptionResponse"][];
         };
         SelfieCaptureCredentialsResponse: {
             accessKeyId: string;
@@ -3066,6 +3279,16 @@ export interface components {
              * @enum {null|string}
              */
             regionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
+            /**
+             * @description ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode.
+             * @enum {null|string}
+             */
+            countryCode?: "BR" | null;
+            /**
+             * @description Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request.
+             * @enum {null|string}
+             */
+            subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
         };
     };
     responses: never;

@@ -77,3 +77,33 @@ para a SPA tratá-los:
 |---|---|---|---|
 | `PASSWORD_CHANGE_REQUIRED` | `403` | toda rota com sessão, menos A16 | A conta entrou com a senha temporária do bootstrap administrativo e só pode trocá-la ([auth.md](../security/auth.md#bootstrap-administrativo-d4)) |
 | `SAME_AS_TEMPORARY_PASSWORD` | `400` (`VALIDATION_FAILED`, em `errors.newPassword`) | A16 | A senha nova repete a temporária |
+
+## Localização do perfil (expansão da issue #78)
+
+API-P01/P02 acrescentam `countryCode` e `subdivisionCode`, opcionais e anuláveis, conservando `regionCode`.
+No PATCH, enviar `countryCode` substitui a localização inteira (subdivisão omitida/null significa só país;
+país null significa não informada). Omitir ambos preserva; não misturar com `regionCode` nem enviar subdivisão
+sem o campo país. Erros por campo: `INVALID_LOCATION`, `COUNTRY_REQUIRED`, `CONFLICTING_LOCATION_FIELDS`,
+todos 400/`VALIDATION_FAILED`, sem ecoar valores. ETag/If-Match e respostas 412/428 permanecem.
+O [ADR-0030](../architecture/adr/0030-profile-country-subdivision.md) detalha transição, privacidade e rollback.
+
+## Rotas Improváveis (issue #100)
+
+`POST /admin/route-experience-versions` publica conteúdo PT-BR/EN-US com os mesmos IDs de paradas e opções,
+dois conjuntos privados de pistas e áudio público introdutório nos dois idiomas. Exige administrador,
+MFA recente e aprovação editorial. A versão publicada é imutável, inclusive seu tipo de experiência.
+A cue `intro` usa o objetivo público como transcrição e o título como descrição acessível; o responsável
+editorial verifica também a correspondência dos bytes de áudio. Não se publicam pistas no áudio compartilhado.
+
+`GET /rooms/{roomId}` acrescenta `routesGame` opcional/nulo, preservando `game` de Constelação. Só um deles
+é preenchido. O payload de Rotas contém apenas as pistas da própria pessoa após a introdução, a etapa,
+a parada atual, opções permitidas e o roteiro compartilhado. IDs internos, sorteio e recibos não são
+projetados. Textos e áudio respeitam o locale fixado de cada participante; versão e estrutura são comuns.
+
+`POST /rooms/{roomId}/routes-actions` recebe `actionId`, `expectedVersion` decimal em string e uma ação:
+`acknowledge` com `stage` (`Introduction` ou `Clues`), `choose-option` com `stepId` e `optionId`,
+`confirm-route` ou `request-revision`. Campos específicos de outras ações devem ser nulos/ausentes.
+O `actionId` do corpo identifica o reenvio, como na ação de Constelação. Repeti-lo com o mesmo corpo e
+versão não duplica o efeito; outro corpo é inválido. Conflito de versão retorna `409`; a SPA relê a sala.
+Autorização, elegibilidade, saída e bloqueios são revalidados antes de reconhecer um reenvio. A rota de
+ações de uma experiência não pode operar a outra.
