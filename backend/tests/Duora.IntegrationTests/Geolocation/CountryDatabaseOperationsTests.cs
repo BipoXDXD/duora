@@ -7,6 +7,7 @@ namespace Duora.IntegrationTests.Geolocation;
 
 public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
 {
+    private static readonly string[] SyntheticCountries = ["BR", "US", "CA"];
     private static readonly bool[] ExpectedRecoveryOrder = [false, true];
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -407,7 +408,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     {
         await using var h = await CountryDatabasePipelineTests.Harness.Create(postgres);
         var start = h.Time.GetUtcNow();
-        var artifacts = new[] { "BR", "US", "CA" }.Select(country =>
+        var artifacts = SyntheticCountries.Select(country =>
         {
             var bytes = SyntheticMmdb.Create(start.AddHours(-1), country: country);
             return (Bytes: bytes, Hash: h.Validator.Validate(bytes, start, Ct).Sha256);
