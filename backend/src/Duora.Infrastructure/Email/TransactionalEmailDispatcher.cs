@@ -132,6 +132,11 @@ public sealed partial class TransactionalEmailDispatcher
             return false;
         }
 
+        if (message.PreferredTimeZone is { } zone
+            && (!TimeZones.IsSupported(zone) || AccountEmailOutbox.SecurityChangeOf(message.Kind) is null))
+        {
+            return false;
+        }
         var language = EmailLanguageTag.ParseOrDefault(message.Language);
         email = (message.Kind, message.Token) switch
         {
@@ -145,7 +150,7 @@ public sealed partial class TransactionalEmailDispatcher
             // Aviso nunca leva credencial: com token, o payload é defeito de quem gravou e não sai. O aviso é
             // bilíngue, então o idioma do pedido não conta.
             (_, null) when AccountEmailOutbox.SecurityChangeOf(message.Kind) is { } change =>
-                _emails.SecurityNotice(to, change, delivery.OccurredAt),
+                _emails.SecurityNotice(to, change, delivery.OccurredAt, message.PreferredTimeZone),
             _ => null,
         };
         return email is not null;

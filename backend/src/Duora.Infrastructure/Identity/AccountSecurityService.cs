@@ -804,7 +804,7 @@ public sealed class AccountSecurityService
         CancellationToken cancellationToken)
     {
         var to = user.Email ?? throw new InvalidOperationException("Conta sem e-mail gravado.");
-        _db.Add(AccountEmailOutbox.CreateSecurityNotice(change, to, user.Id, language, _time.GetUtcNow()));
+        _db.Add(AccountEmailOutbox.CreateSecurityNotice(change, to, user.Id, language, _time.GetUtcNow(), user.PreferredTimeZone));
         await _db.SaveChangesAsync(cancellationToken);
     }
 

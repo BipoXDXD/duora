@@ -346,3 +346,18 @@ Implicações para a implementação (ainda não implementadas neste registro):
 - Métricas agregadas de espera e não pareamento, sem preferências individuais ou grupos pequenos; sem conteúdo de chat/voz em telemetria. Entrega futura por migração aditiva e leitor tolerante; rollback não pode ampliar silenciosamente as preferências aceitas.
 
 Região é um filtro independente: detectar automaticamente a região como preferência inicial, filtrar pela mesma região e permitir escolher outra. Escolha manual prevalece sobre detecção posterior. A granularidade (país, subdivisão ou área), o método de detecção e o tratamento de falha continuam pendentes; esta aprovação linguística não os decide. Não introduzir geolocalização precisa.
+
+
+## Adendo: apresentação de fusos aprovada (2026-10-21, issue #81)
+
+As três decisões de UX da proposta 4 foram aprovadas explicitamente pelo responsável. Este adendo substitui os exemplos de `short` acima para **eventos**, sem mudar o contrato de instantes UTC ou datas civis:
+
+1. Usar `shortGeneric` no idioma ativo e **sempre** acrescentar o deslocamento UTC do instante. Por exemplo, `01/11/2026, 01:30 — Horário Nova York · UTC−04:00` e `11/1/26, 1:30 AM — ET · UTC−04:00`. UTC aparece como `UTC`; se o runtime só fornecer um deslocamento, não o duplicar. Nomes geográficos podem variar com ICU/CLDR.
+2. Na hora repetida de novembro em Nova York, `05:30Z` e `06:30Z` aparecem como `01:30` com `UTC−04:00` e `UTC−05:00`, respectivamente. Calcular pelo instante do evento, nunca pelo dia de abertura da tela. Evento fica na primeira linha; o horário completo da pessoa fica na segunda quando os IDs canônicos diferirem, inclusive com a data quando atravessa meia-noite.
+3. Guardar uma preferência IANA privada, opcional e inicialmente nula na conta. Seleção pesquisável por nome/cidade; “Usar fuso deste dispositivo” só preenche, e “Salvar” confirma. Campo vazio + Salvar remove. Viagem, idioma e detecção posterior não alteram a escolha. Com escolha, a segunda linha identifica “fuso salvo”; sem escolha, identifica “navegador”. O fuso do evento nunca é substituído.
+
+A escolha não declara idioma, residência, disponibilidade nem elegibilidade; não muda pareamento, prazos, `birth_date` ou stamps de segurança. Avisos de credenciais continuam bilíngues e mantêm a referência UTC; quando há preferência, acrescentam o horário local (IANA e offset) capturado na transação da mudança. Sem preferência, saem só em UTC. Outros e-mails sem instante a apresentar permanecem iguais.
+
+A API própria usa ETag/If-Match independente, CSRF e validação IANA; conflito preserva o rascunho e exige recarregar antes de novo Salvar. Runtime de navegador que não reconheça um fuso válido no servidor apresenta referência UTC e identifica a limitação. Detalhes de migração, implantação, rollback e testes: [event-time-zones.md](../../testing/event-time-zones.md).
+
+Nenhuma das três decisões permanece pendente de aprovação. Este recorte não encerra números/moeda/telefone da issue #81, não inclui cobrança nem aprova outros itens deste ADR.

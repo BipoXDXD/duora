@@ -101,23 +101,23 @@ describe('horário do evento e do navegador', () => {
   const instant = new Date('2026-10-16T23:00:00Z')
   it('identifica ambos os fusos com mensagens traduzidas', () => {
     expect(createEventDateTimeFormatter('pt-BR', 'America/New_York')(instant, 'America/Sao_Paulo')).toBe(
-      'Horário do evento: 16/10/2026, 20:00 BRT (16/10/2026, 19:00 GMT-4 no fuso do seu navegador)',
+      'Horário do evento: 16/10/2026, 20:00 — BRT · UTC−03:00\nNo fuso do navegador: 16/10/2026, 19:00 — Horário Nova York · UTC−04:00',
     )
     expect(createEventDateTimeFormatter('en-US', 'America/New_York')(instant, 'America/Sao_Paulo')).toBe(
-      'Event time: 10/16/26, 8:00 PM GMT-3 (10/16/26, 7:00 PM EDT in your browser’s time zone)',
+      'Event time: 10/16/26, 8:00 PM — São Paulo Time · UTC−03:00\nIn your browser’s time zone: 10/16/26, 7:00 PM — ET · UTC−04:00',
     )
   })
   it('não duplica fusos iguais, mas distingue fusos com o mesmo deslocamento', () => {
     expect(createEventDateTimeFormatter('en-US', 'America/New_York')(instant, 'America/New_York')).toBe(
-      'Event time: 10/16/26, 7:00 PM EDT',
+      'Event time: 10/16/26, 7:00 PM — ET · UTC−04:00',
     )
     expect(createEventDateTimeFormatter('en-US', 'America/Toronto')(instant, 'America/New_York')).toContain(
-      'in your browser’s time zone',
+      'In your browser’s time zone',
     )
   })
   it('mostra a data correta quando a conversão cruza a meia-noite', () => {
     expect(createEventDateTimeFormatter('pt-BR', 'America/New_York')(new Date('2026-10-17T02:30:00Z'), 'UTC')).toBe(
-      'Horário do evento: 17/10/2026, 02:30 UTC (16/10/2026, 22:30 GMT-4 no fuso do seu navegador)',
+      'Horário do evento: 17/10/2026, 02:30 UTC\nNo fuso do navegador: 16/10/2026, 22:30 — Horário Nova York · UTC−04:00',
     )
   })
   it('não inventa um fuso para eventos legados', () => {
