@@ -30,7 +30,15 @@ def requested(project: Any, sha: Any) -> Any:
         return result
     if project == "stillon":
         return {"app": PROJECTS[project]["app"] + ":" + sha}
-    return {role: repo + ":sha-" + sha[:12] for role, repo in PROJECTS[project].items()}
+    result = json.loads(Path(os.environ["SCANNED_IMAGES_FILE"]).read_text())
+    if set(result) != set(PROJECTS[project]):
+        raise ValueError("Missing scanned image roles")
+    for role, reference in result.items():
+        if not re.fullmatch(
+            re.escape(PROJECTS[project][role]) + r"@sha256:[0-9a-f]{64}", reference
+        ):
+            raise ValueError("Scanned images must be immutable exact references")
+    return result
 
 
 def make_duora_manifest(publication: Any, images: Any, commit: Any) -> Any:
@@ -87,6 +95,8 @@ def main() -> None:
         publication = json.loads(Path(os.environ["PUBLICATION_FILE"]).read_text())
         release["duora"] = make_duora_manifest(publication, images, sha)
     validate_release(release, project, sha)
+    if project != "stillon" and images != references:
+        raise ValueError("Transport digest differs from scanned publication")
     for role, reference in images.items():
         validate_oci(root / role, reference.split("@")[1])
     (root / "release.json").write_text(json.dumps(release))

@@ -17,6 +17,7 @@ import tempfile
 import time
 import traceback
 import urllib.parse
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,7 @@ SAFE_ENV = {
 }
 BASE = Path("/etc/coolify-release")
 STATE = Path("/var/lib/coolify-release")
-LIMIT = 8 * 1024**3
+LIMIT = 4 * 1024**3
 
 
 def json_unique(text: Any) -> Any:
@@ -94,7 +95,68 @@ def validate_release(data: Any, project: Any, commit: Any) -> Any:
     return data
 
 
-def unpack(stream: Any, destination: Any, roles: Any, limit: Any = LIMIT) -> Any:
+@contextmanager
+def transport_deadline(seconds: Any) -> Any:
+    def expired(signum: Any, frame: Any) -> None:
+        raise ValueError("Release input deadline exceeded")
+
+    previous = signal.signal(signal.SIGALRM, expired)
+    timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *timer)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def spool_tar(stream: Any, target: Any, limit: Any, max_members: Any) -> None:
+    total = 0
+    members = 0
+    raw_limit = limit + max(10240, min(limit // 10, 64 * 1024**2))
+
+    def copy_exact(size: Any) -> bytes:
+        nonlocal total
+        result = bytearray()
+        while size:
+            chunk = stream.read(min(size, 1024 * 1024))
+            if not chunk:
+                raise ValueError("Incomplete release stream")
+            total += len(chunk)
+            if total > raw_limit:
+                raise ValueError("Raw archive exceeds limit")
+            target.write(chunk)
+            if size <= 512:
+                result.extend(chunk)
+            size -= len(chunk)
+        return bytes(result)
+
+    while True:
+        header = copy_exact(512)
+        if header == bytes(512):
+            if copy_exact(512) != bytes(512):
+                raise ValueError("Invalid TAR end marker")
+            break
+        members += 1
+        if members > max_members or header[156:157] not in {b"0", b"\0", b"5"}:
+            raise ValueError("TAR extensions, links or excessive entries refused")
+        raw_size = header[124:136].strip(b" \0")
+        if raw_size and re.fullmatch(b"[0-7]+", raw_size) is None:
+            raise ValueError("Noncanonical TAR size")
+        size = int(raw_size or b"0", 8)
+        if size > limit or (header[156:157] == b"5" and size):
+            raise ValueError("Unexpected archive member size")
+        copy_exact(((size + 511) // 512) * 512)
+    target.seek(0)
+
+
+def unpack(
+    stream: Any,
+    destination: Any,
+    roles: Any,
+    limit: Any = LIMIT,
+    max_members: Any = 50000,
+    timeout: Any = 900,
+) -> None:
     seen = set()
     total = 0
     names = "|".join(re.escape(role) for role in roles)
@@ -102,36 +164,45 @@ def unpack(stream: Any, destination: Any, roles: Any, limit: Any = LIMIT) -> Any
         r"(release\.json|(?:" + names + r")/(?:oci-layout|index\.json|blobs/sha256/" + HEX + r"))"
     )
     directory_pattern = re.compile(r"(?:" + names + r")(?:/blobs(?:/sha256)?)?")
-    with tarfile.open(fileobj=stream, mode="r|") as archive:
-        for member in archive:
-            name = member.name.removeprefix("./").rstrip("/")
-            if member.isdir() and (name in {"", "."} or directory_pattern.fullmatch(name)):
-                continue
-            if not member.isfile() or not file_pattern.fullmatch(name) or name in seen:
-                raise ValueError("Archive path, type or duplicate refused")
-            seen.add(name)
-            total += member.size
-            if (
-                total > limit
-                or member.size < 0
-                or (name == "release.json" and member.size > 131072)
-            ):
-                raise ValueError("Release exceeds size limit")
-            path = destination / name
-            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            source = archive.extractfile(member)
-            if source is None:
-                raise ValueError("Missing archive data")
-            with path.open("xb") as target:
-                shutil.copyfileobj(source, target, 1024 * 1024)
+    with transport_deadline(timeout), tempfile.TemporaryFile(dir=destination) as raw:
+        # Bound bytes/time and reject extension headers BEFORE tarfile can allocate metadata.
+        spool_tar(stream, raw, limit, max_members)
+        with tarfile.open(fileobj=raw, mode="r:") as archive:
+            for member in archive:
+                name = member.name.removeprefix("./").rstrip("/")
+                if member.isdir() and (name in {"", "."} or directory_pattern.fullmatch(name)):
+                    continue
+                if not member.isfile() or not file_pattern.fullmatch(name) or name in seen:
+                    raise ValueError("Archive path, type or duplicate refused")
+                seen.add(name)
+                total += member.size
+                if (
+                    total > limit
+                    or member.size < 0
+                    or (name == "release.json" and member.size > 131072)
+                ):
+                    raise ValueError("Release exceeds size limit")
+                path = destination / name
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                source = archive.extractfile(member)
+                if source is None:
+                    raise ValueError("Missing archive data")
+                with path.open("xb") as target:
+                    shutil.copyfileobj(source, target, 1024 * 1024)
+
+
+def metadata(path: Any, maximum: Any = 1024 * 1024) -> Any:
+    if path.stat().st_size > maximum:
+        raise ValueError("OCI JSON metadata exceeds size limit")
+    return json_unique(path.read_bytes())
 
 
 def validate_oci(root: Any, digest: Any) -> Any:
     if not DIGEST.fullmatch(digest):
         raise ValueError("Invalid image digest")
-    if json_unique((root / "oci-layout").read_bytes()) != {"imageLayoutVersion": "1.0.0"}:
+    if metadata(root / "oci-layout", 1024) != {"imageLayoutVersion": "1.0.0"}:
         raise ValueError("Unexpected OCI layout")
-    index = json_unique((root / "index.json").read_bytes())
+    index = metadata(root / "index.json")
     if (
         not isinstance(index, dict)
         or set(index) - {"schemaVersion", "mediaType", "manifests"}
@@ -170,8 +241,8 @@ def validate_oci(root: Any, digest: Any) -> Any:
             raise ValueError("Blob size mismatch")
         return path
 
-    document = json_unique(read_descriptor(desc).read_bytes())
-    config = json_unique(read_descriptor(document["config"]).read_bytes())
+    document = metadata(read_descriptor(desc))
+    config = metadata(read_descriptor(document["config"]), 4 * 1024 * 1024)
     if config.get("os") != "linux" or config.get("architecture") != "amd64":
         raise ValueError("Only linux/amd64 images accepted")
     if not isinstance(document.get("layers"), list):
@@ -338,35 +409,96 @@ def update_envs(uuid: Any, values: Any) -> Any:
     )
 
 
-def configure_duora(release: Any, config: Any) -> Any:
-    # The existing reviewed executor checks schema, backups, WAL and readiness.
-    manifest = release["duora"]
-    module_path = Path("/usr/local/sbin/duora-deploy")
-    import importlib.util
+def link_previous(manifest: Any, current_id: Any) -> Any:
+    if current_id == manifest["releaseId"]:
+        raise ValueError("Release is already current")
+    return {**manifest, "previousReleaseId": current_id}
 
-    loader = importlib.machinery.SourceFileLoader("duora_manifest", str(module_path))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    if spec is None:
-        raise ValueError("Cannot load reviewed manifest parser")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    loader.exec_module(module)
-    module.parse_manifest(json.dumps(manifest), image_prefix="ghcr.io/bipoxdxd/duora-")
-    pinned = Path("/etc/duora/coolify-deploy.json")
-    current = json_unique(pinned.read_bytes())
-    path = Path("/opt/duora/releases") / (manifest["releaseId"] + ".json")
-    if path.exists() and json_unique(path.read_bytes()) != manifest:
-        raise ValueError("Release ID already used")
-    atomic_json(path, manifest)
-    current["manifest"] = str(path)
-    current["manifest_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-    current["observer_environment"]["DUORA_OBSERVER_IMAGE"] = manifest["images"]["edge"]
-    # Git config remains frozen, so all other observer metadata stays pinned.
-    atomic_json(pinned, current)
-    update_envs(config["uuid"], {"DUORA_OBSERVER_IMAGE": manifest["images"]["edge"]})
+
+def require_no_pending(state: Any) -> None:
+    if (state / "pending.json").exists():
+        raise ValueError("Unresolved release intent: inspect Coolify and reconcile before retry")
+
+
+def require_idle(uuid: Any) -> None:
+    offset = 0
+    while True:
+        result = api("deployments/applications/" + uuid + "?skip=" + str(offset) + "&take=100")
+        records = result["deployments"]
+        for record in records:
+            if record["status"] not in {
+                "finished",
+                "failed",
+                "cancelled-by-user",
+                "cancelled",
+                "error",
+            }:
+                raise ValueError(
+                    "Coolify has an active or unknown deployment; refusing configuration mutation"
+                )
+        offset += len(records)
+        if offset >= result["count"]:
+            return
+        if not records or offset > 10000:
+            raise ValueError("Cannot establish an idle deployment queue")
+
+
+@contextmanager
+def release_locks(own: Any, shared: Any = None) -> Any:
+    with ExitStack() as stack:
+        for path in [own] + ([shared] if shared is not None else []):
+            handle = stack.enter_context(path.open("a"))
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+
+
+def atomic_text(path: Any, text: Any) -> None:
+    temporary = path.with_suffix(".next")
+    with temporary.open("w") as handle:
+        os.chmod(temporary, 0o600)
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temporary.replace(path)
+
+
+def configure_duora(release: Any, config: Any) -> Any:
+    with release_locks(Path("/var/lib/duora/.deploy.lock")):
+        # The existing reviewed executor checks schema, backups, WAL and readiness.
+        current_id = json_unique(Path("/var/lib/duora/current.json").read_bytes())["releaseId"]
+        manifest = link_previous(release["duora"], current_id)
+        release["duora"] = manifest
+        module_path = Path("/usr/local/sbin/duora-deploy")
+        import importlib.util
+
+        loader = importlib.machinery.SourceFileLoader("duora_manifest", str(module_path))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        if spec is None:
+            raise ValueError("Cannot load reviewed manifest parser")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        loader.exec_module(module)
+        module.parse_manifest(json.dumps(manifest), image_prefix="ghcr.io/bipoxdxd/duora-")
+        pinned = Path("/etc/duora/coolify-deploy.json")
+        current = json_unique(pinned.read_bytes())
+        path = Path("/opt/duora/releases") / (manifest["releaseId"] + ".json")
+        if path.exists() and json_unique(path.read_bytes()) != manifest:
+            raise ValueError("Release ID already used")
+        atomic_json(path, manifest)
+        current["manifest"] = str(path)
+        current["manifest_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        current["observer_environment"]["DUORA_OBSERVER_IMAGE"] = manifest["images"]["edge"]
+        # Git config remains frozen, so all other observer metadata stays pinned.
+        atomic_json(pinned, current)
+        update_envs(config["uuid"], {"DUORA_OBSERVER_IMAGE": manifest["images"]["edge"]})
 
 
 def deploy(release: Any, imported: Any, config: Any, state: Any) -> Any:
+    require_no_pending(state)
+    require_idle(config["uuid"])
+    atomic_json(
+        state / "pending.json", {"release": release, "deployment_uuid": None, "status": "intent"}
+    )
     project = release["project"]
     uuid = config["uuid"]
     values = {}
@@ -417,10 +549,16 @@ def deploy(release: Any, imported: Any, config: Any, state: Any) -> Any:
             connection.close()
     if project == "stillon":
         command(["/usr/bin/docker", "tag", imported["app"], "stillon:" + release["commit"]])
-        (Path("/opt/stillon") / "versao").write_text(release["commit"] + "\n")
+        atomic_text(Path("/opt/stillon/versao"), release["commit"] + "\n")
     atomic_json(
         state / "current.json",
         {"release": release, "deployment_uuid": deployment, "finished_at": time.time()},
+    )
+    history = state / "history"
+    history.mkdir(exist_ok=True, mode=0o700)
+    atomic_json(
+        history / (release["commit"] + "-" + str(int(time.time())) + ".json"),
+        json_unique((state / "current.json").read_bytes()),
     )
     (state / "pending.json").unlink()
     return deployment
@@ -435,9 +573,10 @@ def main() -> None:
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     state = STATE / project
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (state / "release.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if shutil.disk_usage(state).free < 20 * 1024**3:
+    shared = Path("/opt/stillon/.entrada.trava") if project == "stillon" else None
+    with release_locks(state / "release.lock", shared):
+        require_no_pending(state)
+        if shutil.disk_usage(state).free < 4 * LIMIT + 8 * 1024**3:
             raise ValueError("Insufficient free disk for safe release")
         with tempfile.TemporaryDirectory(prefix="incoming-", dir=state) as temporary:
             stage = Path(temporary)
