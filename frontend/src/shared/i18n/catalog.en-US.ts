@@ -6,6 +6,25 @@ import type { Catalog } from './catalog'
  * and keep error messages just as neutral: they never reveal whether an email has an account.
  */
 export const en = {
+  'regional.activation':
+    'Regional preferences are being prepared. Saving here does not yet restrict current matches. Your choice will be recorded for activation of the filter.',
+  'regional.loading': 'Loading regional preference…',
+  'regional.label': 'Regional preference',
+  'regional.hint':
+    'Choose the declared country of people you accept meeting. Acceptance is mutual. This private choice does not change your profile location, languages or time zone. No restriction also accepts people without a declared country.',
+  'regional.pending': 'You have not chosen a regional preference yet. No option is saved automatically.',
+  'regional.invalid': 'Choose an option and select at least one country if restricting by country.',
+  'regional.choose': 'Choose your preference',
+  'regional.countries': 'Selected countries only',
+  'regional.unrestricted': 'No country restriction',
+  'regional.acceptedCountries': 'Accepted countries',
+  'regional.brazil': 'Brazil',
+  'regional.conflict':
+    'Your regional preference changed in another tab. Your draft was preserved. Reload the current version before saving again.',
+  'regional.reload': 'Reload regional preference',
+  'regional.reloaded': 'Currently saved choice: {choice}. Your draft was preserved; review and save to confirm.',
+  'regional.save': 'Save regional preference',
+  'regional.saved': 'Regional preference saved.',
   'timeZone.loading': 'Loading time zone…',
   'timeZone.label': 'Account time zone (optional)',
   'timeZone.hint':

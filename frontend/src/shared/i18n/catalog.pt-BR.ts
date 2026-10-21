@@ -5,6 +5,26 @@
  * Mensagens de erro são neutras: não revelam se um e-mail tem conta (spec 8.2, API-A02 e A06).
  */
 export const ptBR = {
+  'regional.activation':
+    'A preferência regional está em preparação. Salvar aqui ainda não restringe os pareamentos atuais. Sua escolha ficará registrada para a ativação do filtro.',
+  'regional.loading': 'Carregando preferência regional…',
+  'regional.label': 'Preferência regional',
+  'regional.hint':
+    'Escolha o país declarado das pessoas que aceita conhecer. A aceitação é mútua. Esta escolha é privada e não altera sua localização no perfil, idiomas ou fuso horário. Sem restrição aceita também pessoas sem país informado.',
+  'regional.pending': 'Você ainda não escolheu sua preferência regional. Nenhuma opção é salva automaticamente.',
+  'regional.invalid': 'Escolha uma opção e, se restringir por país, selecione ao menos um país.',
+  'regional.choose': 'Escolha sua preferência',
+  'regional.countries': 'Somente países escolhidos',
+  'regional.unrestricted': 'Sem restrição de país',
+  'regional.acceptedCountries': 'Países aceitos',
+  'regional.brazil': 'Brasil',
+  'regional.conflict':
+    'A preferência regional mudou em outra aba. Seu rascunho foi preservado. Recarregue a versão atual antes de salvar novamente.',
+  'regional.reload': 'Recarregar preferência regional',
+  'regional.reloaded':
+    'Escolha salva atualmente: {choice}. Seu rascunho foi preservado; revise e salve para confirmar.',
+  'regional.save': 'Salvar preferência regional',
+  'regional.saved': 'Preferência regional salva.',
   'timeZone.loading': 'Carregando fuso horário…',
   'timeZone.label': 'Fuso horário da conta (opcional)',
   'timeZone.hint':
