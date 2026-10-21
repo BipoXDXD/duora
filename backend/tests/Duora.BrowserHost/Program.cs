@@ -50,6 +50,10 @@ internal static class BrowserHostProgram
             },
         };
         var participation = factory.Services.GetRequiredService<ParticipationService>();
+        control.SeedRoutes = async () => new
+        {
+            eventId = await RoutesBrowserScenarioSeed.InitializeAsync(postgres.ConnectionString, participation, clock.GetUtcNow(), shutdown.Token),
+        };
         control.ProcessJobs = async () =>
         {
             for (var count = 0; count < 1000; count++)
@@ -110,6 +114,7 @@ internal sealed class BrowserControl(FakeTimeProvider clock, IFileProvider files
 {
     public object? Seed { get; set; }
     public Func<Task>? ProcessJobs { get; set; }
+    public Func<Task<object>>? SeedRoutes { get; set; }
 
     public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
     {
@@ -123,6 +128,11 @@ internal sealed class BrowserControl(FakeTimeProvider clock, IFileProvider files
                     return;
                 }
                 await context.Response.WriteAsJsonAsync(Seed, context.RequestAborted);
+                return;
+            }
+            if (context.Request.Path == "/__test/routes-seed" && HttpMethods.IsPost(context.Request.Method) && SeedRoutes is not null)
+            {
+                await context.Response.WriteAsJsonAsync(await SeedRoutes(), context.RequestAborted);
                 return;
             }
             if (context.Request.Path == "/__test/advance" && HttpMethods.IsPost(context.Request.Method))
