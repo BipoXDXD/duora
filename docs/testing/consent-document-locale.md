@@ -30,6 +30,19 @@ só exibe rótulos de versão: seus idiomas ficam explicitamente NULL. A API est
 real por documento quando identificado; nunca apresenta uma preferência de UI como prova de documento visto.
 Não há catálogo jurídico ou prova criptográfica de apresentação nesta mudança.
 
+## Fonte canônica escolhida
+
+Em 21/10/2026, o responsável informou que ainda não havia uma fonte definida e autorizou a escolha.
+A fonte técnica será o próprio repositório Duora: `docs/legal/terms/<version>/<locale>.md` e
+`docs/legal/privacy/<version>/<locale>.md`, com locales `pt-BR` e `en-US`. Esses caminhos são uma convenção
+para a futura publicação, não documentos já existentes ou aprovados.
+
+Cada versão publicada deve permanecer imutável; correções criam nova versão. A futura apresentação deve
+usar os metadados do arquivo efetivamente exibido, inclusive em caso de fallback, e vincular o aceite a
+esses metadados. Trocar documento/versão/idioma exige novo aceite. Não usar textos de terceiros, traduções
+não revisadas ou o idioma da interface como substitutos. Publicação, conteúdo e aprovação seguem a #9.
+Até essa entrega existir, os rótulos atuais continuam com locale NULL.
+
 ## Testes
 
 `ConsentLocaleTests` usa PostgreSQL real/Testcontainers e os papéis migrador/aplicação do projeto:
