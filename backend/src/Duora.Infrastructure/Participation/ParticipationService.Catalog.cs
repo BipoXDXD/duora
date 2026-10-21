@@ -38,6 +38,12 @@ public sealed partial class ParticipationService
             return null;
         }
         var localized = new LocalizedConstellationContent(enUS, ptBR, audio.Select(ToAudio));
+        return await PersistCatalogAsync(administrator, localized.ContentVersion, "constellation", enUS, ptBR, audio, ct);
+    }
+
+    private async Task<Guid?> PersistCatalogAsync<T>(Guid administrator, int contentVersion, string kind, T enUS, T ptBR,
+        IReadOnlyList<CatalogAudioUpload> audio, CancellationToken ct)
+    {
         var manifest = audio.Select(cue => new CatalogAudioManifest(cue.CueId, Manifest(cue.EnUS), Manifest(cue.PtBR))).ToArray();
         if (audio.SelectMany(cue => new[] { cue.EnUS.AssetId, cue.PtBR.AssetId }).Distinct(StringComparer.Ordinal).Count() != audio.Count * 2)
         {
@@ -65,9 +71,9 @@ public sealed partial class ParticipationService
         // The immutable catalog UUID is the persistence identity; the numeric content version is scoped to it.
         var id = Guid.CreateVersion7();
         await Execute(connection, """
-            insert into experiences.experience_versions(id,content_version,rules_version,schema_version,editorial_state,content_en,content_pt,audio_manifest,approved_by)
-            values($1,$2,1,1,'Draft',$3::jsonb,$4::jsonb,$5::jsonb,$6)
-            """, ct, id, localized.ContentVersion, enJson, ptJson, manifestJson, administrator);
+            insert into experiences.experience_versions(id,content_version,rules_version,schema_version,editorial_state,content_en,content_pt,audio_manifest,approved_by,experience_kind)
+            values($1,$2,1,1,'Draft',$3::jsonb,$4::jsonb,$5::jsonb,$6,$7)
+            """, ct, id, contentVersion, enJson, ptJson, manifestJson, administrator, kind);
         foreach (var cue in audio)
         {
             foreach (var (locale, variant) in new[] { ("en-US", cue.EnUS), ("pt-BR", cue.PtBR) })
@@ -92,8 +98,10 @@ public sealed partial class ParticipationService
         {
             return null;
         }
-        var content = await ContentAsync(connection, row.ContentId, ct);
-        if (content is null || !content.ProjectAudio(row.Locale).Any(item => item.AssetId == assetId))
+        var audio = row.Kind == "unlikely-routes"
+            ? (await RoutesContentAsync(connection, row.ContentId, ct))?.ProjectAudio(row.Locale)
+            : (await ContentAsync(connection, row.ContentId, ct))?.ProjectAudio(row.Locale);
+        if (audio is null || !audio.Any(item => item.AssetId == assetId))
         {
             return null;
         }

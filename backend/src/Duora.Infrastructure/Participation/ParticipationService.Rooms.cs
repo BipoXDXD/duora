@@ -1,13 +1,14 @@
 using System.Text.Json;
 using Duora.Core.Experiences;
 using Duora.Core.Experiences.Constellation;
+using Duora.Core.Experiences.UnlikelyRoutes;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
 
 namespace Duora.Infrastructure.Participation;
 
 public sealed record ParticipationRoom(Guid Id, string State, long Version, string Language, int PolicyVersion,
-    string Locale, DateTimeOffset InviteExpiresAt, ConstellationView? Game, IReadOnlyList<LocalizedAudioView> Audio);
+    string Locale, DateTimeOffset InviteExpiresAt, ConstellationView? Game, IReadOnlyList<LocalizedAudioView> Audio, UnlikelyRoutesView? RoutesGame = null);
 
 public sealed partial class ParticipationService
 {
@@ -15,7 +16,7 @@ public sealed partial class ParticipationService
     private ExperienceEngine<ConstellationContent, ConstellationState, ConstellationAction, ConstellationView> Engine => new(new ConstellationRules(), new PreciseClock(time));
     private sealed record RoomRow(Guid Id, Guid PairingId, Guid RoundId, Guid EventId, Guid Low, Guid High,
         Guid ContentId, string State, long Version, DateTimeOffset Expires, DateTimeOffset RoundStart,
-        string Language, int Policy, string Locale, string? Public, string? Control);
+        string Language, int Policy, string Locale, string? Public, string? Control, string Kind, DateTimeOffset? StartedAt, DateTimeOffset? Deadline);
 
     private static async Task<LocalizedConstellationContent?> ContentAsync(NpgsqlConnection connection, Guid id, CancellationToken ct)
     {
@@ -60,8 +61,8 @@ public sealed partial class ParticipationService
         await using (var query = Command(connection, """
             select s.id,s.pairing_id,p.round_id,p.event_id,p.user_low,p.user_high,s.experience_version_id,s.state,s.version,
               s.invite_expires_at,r.starts_at,p.communication_language,p.communication_policy_version,gp.display_locale,
-              s.public_state::text,s.control_state::text
-            from experiences.game_sessions s join events.pairings p on p.id=s.pairing_id
+              s.public_state::text,s.control_state::text,ev.experience_kind,s.game_started_at,s.active_deadline_at
+            from experiences.game_sessions s join experiences.experience_versions ev on ev.id=s.experience_version_id join events.pairings p on p.id=s.pairing_id
             join events.rounds r on r.id=p.round_id join experiences.game_participants gp on gp.game_session_id=s.id
             where s.id=$1 and gp.user_id=$2 and (gp.departed_at is null or not $3)
             """, room, user, authorize))
@@ -72,7 +73,7 @@ public sealed partial class ParticipationService
                 return null;
             }
 
-            row = new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetGuid(3), reader.GetGuid(4), reader.GetGuid(5), reader.GetGuid(6), reader.GetString(7), reader.GetInt64(8), reader.GetFieldValue<DateTimeOffset>(9), reader.GetFieldValue<DateTimeOffset>(10), reader.GetString(11), reader.GetInt32(12), reader.GetString(13), reader.IsDBNull(14) ? null : reader.GetString(14), reader.IsDBNull(15) ? null : reader.GetString(15));
+            row = new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetGuid(3), reader.GetGuid(4), reader.GetGuid(5), reader.GetGuid(6), reader.GetString(7), reader.GetInt64(8), reader.GetFieldValue<DateTimeOffset>(9), reader.GetFieldValue<DateTimeOffset>(10), reader.GetString(11), reader.GetInt32(12), reader.GetString(13), reader.IsDBNull(14) ? null : reader.GetString(14), reader.IsDBNull(15) ? null : reader.GetString(15), reader.GetString(16), reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17), reader.IsDBNull(18) ? null : reader.GetFieldValue<DateTimeOffset>(18));
         }
         if (lockRows)
         {
@@ -106,8 +107,15 @@ public sealed partial class ParticipationService
         }
 
         ConstellationView? game = null;
+        UnlikelyRoutesView? routesGame = null;
         IReadOnlyList<LocalizedAudioView> audio = [];
-        if (row.Public is not null && row.State is "Active" or "Completed")
+        if (row.Kind == "unlikely-routes" && row.Public is not null && row.State is "Active" or "Completed")
+        {
+            var content = await RoutesContentAsync(connection, row.ContentId, ct) ?? throw new InvalidOperationException("Pinned catalog missing.");
+            routesGame = content.Project(await RestoreRoutesAsync(connection, row, content, ct), new(user), row.Locale);
+            audio = content.ProjectAudio(row.Locale);
+        }
+        else if (row.Public is not null && row.State is "Active" or "Completed")
         {
             var content = await ContentAsync(connection, row.ContentId, ct) ?? throw new InvalidOperationException("Pinned catalog missing.");
             game = content.Project(await RestoreAsync(connection, row, content, ct), new(user), row.Locale);
@@ -118,7 +126,7 @@ public sealed partial class ParticipationService
         }
         await tx.CommitAsync(ct);
         var state = row.State == "Invited" && row.Expires <= Now ? "Expired" : row.State;
-        return new(row.Id, state, row.Version, row.Language, row.Policy, row.Locale, row.Expires, game, audio);
+        return new(row.Id, state, row.Version, row.Language, row.Policy, row.Locale, row.Expires, game, audio, routesGame);
     }
 
     public async Task<ParticipationOutcome> RespondAsync(Guid room, Guid user, bool accept, CancellationToken ct)
@@ -151,7 +159,11 @@ public sealed partial class ParticipationService
 
         await using var countQuery = Command(connection, "select count(*) from experiences.game_participants where game_session_id=$1 and accepted_at is not null", room);
         var count = (long)(await countQuery.ExecuteScalarAsync(ct))!;
-        if (count == 2)
+        if (count == 2 && row.Kind == "unlikely-routes")
+        {
+            await StartRoutesAsync(connection, row, ct);
+        }
+        else if (count == 2)
         {
             var content = await ContentAsync(connection, row.ContentId, ct) ?? throw new InvalidOperationException("Pinned catalog missing.");
             var session = Engine.CreateSession(content.ForLocale("en-US"), new(new(row.Low), new(row.High)), row.RoundStart, GameTimeLimits.Default, new SessionSeed(0));
@@ -185,7 +197,7 @@ public sealed partial class ParticipationService
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
         var row = await LoadRoomAsync(connection, room, user, true, ct);
-        if (row?.Public is null || row.State is "Aborted" or "Expired")
+        if (row?.Public is null || row.Kind != "constellation" || row.State is "Aborted" or "Expired")
         {
             return ParticipationOutcome.Unavailable;
         }
