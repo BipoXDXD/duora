@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { useAccount } from '@/features/session/account-context'
 import { meQueryKey, profileQueryKey } from '@/features/session/query-keys'
 import { classifyRequestFailure, isUnauthorized, type RequestFailure } from '@/shared/api'
@@ -100,7 +100,12 @@ function ProfileBody({ profile, failure, onRetry, userId }: ProfileBodyProps): R
 }
 
 function toFormValues(profile: OwnProfile): ProfileFormInput {
-  return { displayName: profile.displayName ?? '', bio: profile.bio ?? '', regionCode: profile.regionCode ?? '' }
+  return {
+    displayName: profile.displayName ?? '',
+    bio: profile.bio ?? '',
+    countryCode: profile.countryCode ?? '',
+    subdivisionCode: profile.subdivisionCode ?? '',
+  }
 }
 
 /** "Não informar" primeiro; as UFs pelo nome no idioma ativo, em ordem alfabética desse idioma. */
@@ -122,7 +127,7 @@ function useRegionOptions(): readonly { readonly value: string; readonly label: 
  */
 function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readonly userId: string }) {
   const queryClient = useQueryClient()
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const regionOptions = useRegionOptions()
   const [base, setBase] = useState(initial)
   const [reloaded, setReloaded] = useState(false)
@@ -130,6 +135,7 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
     resolver: zodResolver(profileFormSchema),
     defaultValues: toFormValues(initial),
   })
+  const countryCode = useWatch({ control: form.control, name: 'countryCode' })
   const save = useMutation({
     mutationFn: ({ values, edited }: { readonly values: ProfileFormValues; readonly edited: EditedFields }) =>
       updateOwnProfile(base.version, toProfileChanges(values, edited)),
@@ -221,11 +227,25 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
           {...form.register('bio')}
         />
         <SelectField
+          label={t('profile.country')}
+          hint={t('profile.countryHint')}
+          options={[
+            { value: '', label: t('profile.regionNotInformed') },
+            { value: 'BR', label: new Intl.DisplayNames([locale], { type: 'region' }).of('BR') ?? 'BR' },
+          ]}
+          error={errorText(form.formState.errors.countryCode?.message)}
+          {...form.register('countryCode', {
+            onChange: () => {
+              form.setValue('subdivisionCode', '', { shouldDirty: true, shouldValidate: true })
+            },
+          })}
+        />
+        <SelectField
           label={t('profile.region')}
           hint={t('profile.regionHint')}
-          options={regionOptions}
-          error={errorText(form.formState.errors.regionCode?.message)}
-          {...form.register('regionCode')}
+          options={countryCode === '' ? regionOptions.slice(0, 1) : regionOptions}
+          error={errorText(form.formState.errors.subdivisionCode?.message)}
+          {...form.register('subdivisionCode')}
         />
         <SubmitButton pending={save.isPending} label={t('profile.save')} pendingLabel={t('profile.saving')} />
       </form>
@@ -262,7 +282,7 @@ interface SavedVersionProps {
 
 /** A divergência à vista: o que está salvo agora, lado a lado com o rascunho que continua no formulário. */
 function SavedVersion({ profile, onDiscard }: SavedVersionProps): React.JSX.Element {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   return (
     <div className="flex flex-col items-start gap-4">
       <Alert variant="info">
@@ -272,8 +292,14 @@ function SavedVersion({ profile, onDiscard }: SavedVersionProps): React.JSX.Elem
           <dd className="break-words">{profile.displayName ?? t('profile.emptyValue')}</dd>
           <dt className="font-semibold">{t('profile.savedBio')}</dt>
           <dd className="break-words whitespace-pre-line">{profile.bio ?? t('profile.emptyValue')}</dd>
+          <dt className="font-semibold">{t('profile.country')}</dt>
+          <dd>
+            {profile.countryCode === null
+              ? t('profile.regionNotInformed')
+              : new Intl.DisplayNames([locale], { type: 'region' }).of(profile.countryCode)}
+          </dd>
           <dt className="font-semibold">{t('profile.savedRegion')}</dt>
-          <dd>{regionName(t, profile.regionCode)}</dd>
+          <dd>{regionName(t, profile.subdivisionCode)}</dd>
         </dl>
       </Alert>
       <Button variant="secondary" onClick={onDiscard}>

@@ -34,6 +34,37 @@ const gameSchema = z.object({
   passed: z.array(z.object({ cardId: z.string(), prompt: z.string() })),
   availableActions: z.array(z.string()),
 })
+const routesGameSchema = z.object({
+  experienceId: z.string(),
+  rulesVersion: z.number(),
+  contentVersion: z.number(),
+  schemaVersion: z.number(),
+  resourceVersion: z.string(),
+  status: z.string(),
+  deadline: z.string(),
+  stage: z.enum(['Introduction', 'Clues', 'Choices', 'Adjustment', 'Conclusion']),
+  title: z.string(),
+  objective: z.string(),
+  example: z.string(),
+  myClues: z.array(z.string()),
+  currentStop: z
+    .object({
+      stepId: z.string(),
+      prompt: z.string(),
+      options: z.array(z.object({ optionId: z.string(), label: z.string() })),
+    })
+    .nullable(),
+  isMyTurn: z.boolean(),
+  route: z.array(z.object({ stepId: z.string(), prompt: z.string(), optionLabel: z.string() })),
+  revisionsRemaining: z.number(),
+  awaitingPartner: z.boolean(),
+  availableActions: z.array(z.string()),
+})
+export type RoutesGame = z.output<typeof routesGameSchema>
+export type RoutesAction =
+  | { type: 'acknowledge'; stage: 'Introduction' | 'Clues' }
+  | { type: 'choose-option'; stepId: string; optionId: string }
+  | { type: 'confirm-route' | 'request-revision' }
 const roomSchema = z.object({
   roomId: z.string(),
   state: z.string(),
@@ -43,6 +74,7 @@ const roomSchema = z.object({
   displayLocale: z.enum(['en-US', 'pt-BR']),
   invitationExpiresAt: z.string(),
   game: gameSchema.nullable(),
+  routesGame: routesGameSchema.nullable().default(null),
   audio: z
     .array(
       z.object({
@@ -127,5 +159,15 @@ export async function act(
     path: `/api/v1/rooms/${encodeURIComponent(room.roomId)}/actions`,
     headers: { 'Idempotency-Key': actionId },
     body: { actionId, expectedVersion: room.version, type, cardId, ...(optionId === undefined ? {} : { optionId }) },
+  })
+}
+
+export async function actOnRoutes(room: Room, choice: RoutesAction): Promise<void> {
+  const actionId = crypto.randomUUID()
+  return sendMutation({
+    method: 'POST',
+    path: `/api/v1/rooms/${encodeURIComponent(room.roomId)}/routes-actions`,
+    headers: { 'Idempotency-Key': actionId },
+    body: { actionId, expectedVersion: room.version, ...choice },
   })
 }

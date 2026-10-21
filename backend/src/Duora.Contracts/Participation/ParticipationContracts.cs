@@ -4,7 +4,7 @@ public sealed record EventResponse(Guid EventId, string Title, DateTimeOffset St
 public sealed record ParticipationResponse(string State, Guid? RoomId);
 public sealed record RoomActionRequest(Guid ActionId, string ExpectedVersion, string Type, string CardId, string? OptionId);
 public sealed record RoomResponse(Guid RoomId, string State, string Version, string CommunicationLanguage,
-    int CommunicationPolicyVersion, string DisplayLocale, DateTimeOffset InvitationExpiresAt, GameResponse? Game, IReadOnlyList<RoomAudioResponse> Audio);
+    int CommunicationPolicyVersion, string DisplayLocale, DateTimeOffset InvitationExpiresAt, GameResponse? Game, IReadOnlyList<RoomAudioResponse> Audio, RoutesGameResponse? RoutesGame = null);
 public sealed record GameResponse(string ExperienceId, int RulesVersion, int ContentVersion, int SchemaVersion,
     string ResourceVersion, string Status, DateTimeOffset Deadline, string Stage, string Title, string Objective,
     int CardCount, CardResponse? CurrentCard, AnswerResponse? MyAnswer, bool AwaitingPartner,

@@ -19,6 +19,11 @@ public sealed class LocalizedRoutesAndAudioTests
         var catalog = new LocalizedUnlikelyRoutesContent(en, pt);
         var engine = Engine(ClockAtRoundStart());
         var session = NewSession(engine, en);
+        Assert.Empty(catalog.Project(session, Ana, "en-US")!.MyClues);
+        Assert.Empty(catalog.Project(session, Ana, "pt-BR")!.MyClues);
+        session = Act(engine, session, Ana, new UnlikelyRoutesAction.Acknowledge(RoutesStage.Introduction));
+        Assert.Empty(catalog.Project(session, Ana, "en-US")!.MyClues);
+        session = Act(engine, session, Bia, new UnlikelyRoutesAction.Acknowledge(RoutesStage.Introduction));
         var english = catalog.Project(session, Ana, "en-US")!;
         var portuguese = catalog.Project(session, Ana, "pt-BR")!;
         Assert.Equal("Start early", Assert.Single(english.MyClues));

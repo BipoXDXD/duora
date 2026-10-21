@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import stat
+from capacity import check_capacity
 
 IMAGE = re.compile(r'OPENCLAW_IMAGE=([a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64})\n?\Z')
 
@@ -57,6 +58,7 @@ def secure(path, owner, mode):
 
 
 def main():
+    check_capacity()
     if os.geteuid() != 0:
         raise ValueError('administrator execution required')
     if not os.path.ismount('/var/lib/duoraagent'):
