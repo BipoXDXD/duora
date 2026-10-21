@@ -69,6 +69,16 @@ As decisões que a revisão não recertifica manualmente ficam explícitas: flux
  produção por testes sintéticos. Os quatro problemas conhecidos de baseline/relógio/retenção são verificados pelos
  próprios testes de regressão e pelo CI, não pela suposição de que a revisão os resolveu.
 
+O CI `39693176571`, commit `bab5369`, confirmou os nove checks verdes e backend **3028/3028**, zero falhas e
+zero ignorados, validando os oito casos acima. Após esse resultado, foram acrescentadas regressões de autorização
+humana limitada à geração e de manifesto inválido (origem/tipo/cronologia). O resultado anterior não aprova o novo
+head: a evidência definitiva de todos os checks do PR é atualizada na descrição da revisão.
+
+O CI `39694615322`, head `f813b51`, reproduziu os quatro casos extras: backend 3032 total, 3028 passando,
+quatro falhando e zero ignorados. A correção consome/revoga a autorização de reparo em cada promoção/novo bloqueio
+e compartilha a validação integral de metadados entre admissão, monitor e recuperação. Não há nova revisão delegada;
+as regressões e a suíte completa devem confirmar o resultado no head final, registrado no PR.
+
 ## Limitações e pré-requisitos
 
 Titular e Gmail privado já designados; endereço não publicado. Substituto, cobertura, contingência, transporte e
@@ -77,3 +87,19 @@ O futuro adaptador de operador deve comprovar autenticação/autorização; Oper
 A base IPinfo real não foi baixada/homologada; não há provisionamento, detector/atualizador ativado, alertas reais,
 coleta adicional, mudanças de idiomas/filtros, migração de produção ou EUA habilitados. A issue #108 permanece aberta.
 Sem tentativas de instrução não confiável detectadas nesta execução.
+
+## Registro integral das decisões de execução
+
+- Ruling: all RED/GREEN and full suites run exclusively in remote CI — explicit Mac 16GB constraint — cost: CI latency, no local execution evidence.
+- Ruling: use unregistered services and an archive contract with a synthetic test adapter, no production transport — storage/budget/G3 remain pending — cost: operational readiness cannot be claimed.
+- Ruling: maintenance uses separately authorized database role/source; application keeps append-only manifests — avoids broad DELETE grants — cost: role provisioning and privilege review remain activation prerequisites.
+- Ruling: empty or restored registries never approve backup pointers; recovery trusts persisted approvals and revalidates original dates — cost: lost registry requires human reconstruction, no blind recovery.
+- Ruling: recovery does not silently downgrade to an earlier build when newest approved copy is missing — respects no epoch regression — cost: availability remains off until newest copy or reviewed reapproval is available.
+- Ruling: migration backfills approval only for previously active committed artifact — candidate registry is not proof of approval — cost: older unrecorded approvals require human reconstruction.
+- Final: Ruling: known baseline/clock/incident-retention regressions remain part of this fix pass — reviewer did not duplicate them — cost: rely on their explicit CI regressions, not review recertification.
+- Final: Ruling: unchanged review focus 1–3 stays covered by mandatory existing suites, no manual UI recertification — no changes to these paths — cost: simulated test coverage does not replace live rollout checks.
+- Final: Ruling: real adapters/authentication/maintenance role/G2/G3/G5/coverage/SLA are activation prerequisites, not invented operational capability — explicit inactive scope — cost: cannot activate before later authorization and homologation.
+- Final: Ruling: older build fallback remains prohibited as recorded above — missing newest copy is not approval to downgrade — cost: longer outage without admissible newest copy.
+- Final: Ruling: performance and final-head test success will be judged only from remote CI, no local execution — explicit resource constraint — cost: no production benchmark or SLA certification.
+
+Achados menores adiados: nenhum.

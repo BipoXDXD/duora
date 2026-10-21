@@ -116,6 +116,8 @@ adaptador sintético em memória nos testes; **nenhum armazenamento fora do host
   registra auditoria e invalida leases. Não existe endpoint, comando público ou liberação automática. O futuro
   adaptador operacional deve autenticar/autorizar o operador antes da chamada; OperatorName sozinho é rótulo,
   não prova de identidade. Uma liberação permite reparar arquivo, mas não serve bytes antes de nova validação.
+   A autorização é consumida pela recuperação ou por qualquer promoção posterior; um incidente novo exige nova revisão.
+   O monitor confere todos os campos/coerência do manifesto, inclusive origem, tipo e cronologia, antes de declarar saúde.
 5. Trocar arquivo completo e confirmar ponteiro com fencing; não copiar credenciais, rejuvenecer download ou confiar
   em geração de outro backup. Manifesto/registro perdido exige reconstrução e homologação humanas.
 

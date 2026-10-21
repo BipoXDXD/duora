@@ -23,8 +23,7 @@ public sealed class CountryDatabaseRecoveryService(CountryDatabaseOperationsStor
         { return CountryDatabaseRecoveryOutcome.Unavailable; }
         if (!m.IsAdmissible(store.UtcNow))
         {
-            if (store.UtcNow - m.BuiltAt >= TimeSpan.FromHours(168) && m.ValidatedAt <= store.UtcNow
-                && m.License == "CC-BY-SA-4.0" && m.Schema == "ipinfo-country-v1" && m.Product == "country.mmdb")
+            if (m.HasCoherentMetadata(store.UtcNow) && store.UtcNow - m.BuiltAt >= TimeSpan.FromHours(168))
             { return CountryDatabaseRecoveryOutcome.Unavailable; }
             await store.HoldAsync(s.Generation, ct);
             return CountryDatabaseRecoveryOutcome.ReviewRequired;

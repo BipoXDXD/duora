@@ -49,8 +49,7 @@ public sealed class CountryDatabaseHealthService(CountryDatabaseOperationsStore 
                     catch (UnauthorizedAccessException)
                     { conditions["Disk"] = 2; }
                 }
-                else if (age < TimeSpan.Zero || m.FirstDownloadedAt > now || m.ValidatedAt > now
-                    || m.Product != "country.mmdb" || m.Schema != "ipinfo-country-v1" || m.License != "CC-BY-SA-4.0")
+                else if (!m.HasCoherentMetadata(now))
                 { integrity = true; }
             }
             if (s.Blocked && s.Error is "Unauthorized" or "Schema" or "Integrity" or "ApprovalRequired" or "Validation" or "Disk")

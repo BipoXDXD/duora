@@ -82,7 +82,7 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
         var now = UtcNow < snapshot.LastObserved ? snapshot.LastObserved : UtcNow;
         if (integrityHold && !snapshot.ReviewRequired)
         {
-            await Execute(c, "update ops.country_database_state set review_required=true,blocked=true,last_error_code='Integrity' where singleton", ct);
+            await Execute(c, "update ops.country_database_state set review_required=true,blocked=true,repair_authorized=false,last_error_code='Integrity' where singleton", ct);
             await Fence(c, ct);
         }
         var existing = new Dictionary<string, (int Severity, DateTimeOffset Notified)>(StringComparer.Ordinal);
