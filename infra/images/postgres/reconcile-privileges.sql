@@ -57,3 +57,11 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Country database manifests are immutable; retention privileges require their own reviewed migration.
+DO $$
+BEGIN
+  IF to_regclass('ops.country_database_versions') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE, TRUNCATE ON ops.country_database_versions FROM duora_app;
+  END IF;
+END $$;
