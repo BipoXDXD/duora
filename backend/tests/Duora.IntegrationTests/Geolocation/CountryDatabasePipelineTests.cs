@@ -29,13 +29,14 @@ public sealed class CountryDatabasePipelineTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task FirstArtifactWithoutApprovalIsRetainedForReviewAndNeverBecomesActive()
+    public async Task FirstArtifactWithoutApprovalRetainsOnlyMetadataAndNeverBecomesActive()
     {
         await using var h = await Harness.Create(postgres, approve: false);
         var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
         Assert.Equal(CountryDatabaseUpdateOutcome.Failed, await h.Service.ExecuteAsync(lease, Ct));
         Assert.Null(await h.Store.ReadActiveAsync(Ct));
         Assert.Equal(1, await Count(h.Source, "select count(*) from ops.country_database_versions"));
+        Assert.Empty(Directory.GetFiles(h.Root));
         h.Time.Advance(TimeSpan.FromDays(1));
         Assert.Null(await h.Store.ClaimAsync(Ct));
         Assert.Empty(Directory.GetDirectories(h.Root));

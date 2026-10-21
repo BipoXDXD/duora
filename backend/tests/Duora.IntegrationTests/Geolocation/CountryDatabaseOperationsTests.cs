@@ -1,4 +1,5 @@
 using System.Net;
+using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Geolocation;
 using Npgsql;
 
@@ -158,8 +159,9 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         var recovery = new CountryDatabaseRecoveryService(store, h.Validator, h.Root, archive, enabled: true);
         Assert.Equal(CountryDatabaseRecoveryOutcome.ReviewRequired, await recovery.RecoverAsync(Ct));
         var generation = await Generation(h.Source);
-        Assert.False(await recovery.ReleaseAsync(generation - 1, Guid.NewGuid(), Ct));
-        Assert.True(await recovery.ReleaseAsync(generation, Guid.NewGuid(), Ct));
+        Assert.True(OperatorName.TryParse("synthetic-operator", out var actor));
+        Assert.False(await recovery.ReleaseAsync(generation - 1, Guid.NewGuid(), actor, Ct));
+        Assert.True(await recovery.ReleaseAsync(generation, Guid.NewGuid(), actor, Ct));
         Assert.Equal(CountryDatabaseRecoveryOutcome.Recovered, await recovery.RecoverAsync(Ct));
         Assert.Equal(1L, await Count(h.Source, "select count(*) from ops.country_database_notifications where code='ReviewReleased'"));
     }

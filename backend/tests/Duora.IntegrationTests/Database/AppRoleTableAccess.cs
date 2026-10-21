@@ -64,6 +64,10 @@ internal static class AppRoleTableAccess
             // ops (dono: Operations; outbox de propriedade comum, modules.md nota 4)
             ["ops.__ef_migrations_history"] = AppTableAccess.None,
             ["ops.audit_events"] = AppTableAccess.AppendOnly,
+            ["ops.country_database_approvals"] = AppTableAccess.AppendOnly,
+            ["ops.country_database_retired"] = AppTableAccess.AppendOnly,
+            ["ops.country_database_incidents"] = AppTableAccess.ReadWrite,
+            ["ops.country_database_notifications"] = AppTableAccess.ReadWrite,
             ["ops.country_database_versions"] = AppTableAccess.AppendOnly,
             ["ops.country_database_state"] = AppTableAccess.ReadWrite,
             ["ops.outbox_deliveries"] = AppTableAccess.ReadWrite,
