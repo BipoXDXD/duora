@@ -163,3 +163,67 @@ depende de plano e autorização posteriores; merge e implantação seguem os ga
 - [Issue #108](https://github.com/BipoXDXD/duora/issues/108), [PR #110](https://github.com/BipoXDXD/duora/pull/110), [PR #119](https://github.com/BipoXDXD/duora/pull/119).
 - [ASP.NET Core: proxies e forwarded headers](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0).
 - [Limitações com VPN/proxy](https://support.maxmind.com/knowledge-base/articles/anonymizer-and-proxy-data-maxmind), referência técnica, não escolha de fornecedor.
+
+## Adendo de 2026-10-21 — IPinfo IP to Country em MMDB e licença aprovadas
+
+Após a comparação de bases locais, o responsável aprovou explicitamente **IPinfo IP to Country em MMDB**
+e a licença **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)**. Este adendo resolve
+as pendências de fornecedor, base, formato e licença registradas acima; as seções anteriores preservam o
+contexto da decisão original. Não altera os demais requisitos do ADR nem autoriza implementação ou ativação.
+
+### Escolha e justificativa
+
+A distribuição escolhida é o recorte **IP to Country**, arquivo `country.mmdb`, documentado entre os schemas
+alternativos da oferta gratuita IPinfo Lite. Não é o pacote completo `ipinfo_lite.mmdb` com ASN, nem uma base
+City, de coordenadas ou de detecção de VPN. A futura integração utilizará apenas o código ISO do país;
+rótulos continuarão vindo do catálogo do produto. CLDR/Unicode-3.0 e IPinfo/CC BY-SA 4.0 têm finalidades
+separadas e não substituem a licença um do outro.
+
+A escolha favorece consulta local, sem envio de IP de participante ao fornecedor por consulta, distribuição
+sem cobrança de licença na oferta consultada e atualização diária anunciada para IPinfo Lite. Formato MMDB
+permite consulta local sem importar faixas de IP para o PostgreSQL do produto. Gratuidade não elimina o custo
+operacional de download, validação, armazenamento e manutenção. Não houve contratação ou criação de conta.
+
+Não se afirma superioridade de precisão medida para Brasil/EUA: a comparação foi documental, sem benchmark.
+A detecção continua sendo estimativa corrigível pela pessoa; VPN pode indicar o país da saída. Falhas e país
+não habilitado continuam sem fallback permissivo, conforme a decisão original.
+
+### Licença, proveniência e minimização
+
+A licença aprovada exige preservar atribuição à IPinfo, link para a licença e indicação de alterações quando
+houver; adaptações compartilhadas ficam sujeitas ao ShareAlike. A implementação futura deverá documentar
+os avisos de atribuição, origem, nome do artefato, versão/data, hash e eventuais transformações. Manter a base
+separada do código e evitar redistribuição ou transformação desnecessária. A aprovação da licença dos dados
+não aprova automaticamente uma biblioteca de leitura ou outra dependência de software.
+
+Nenhum arquivo de base ou token entra neste PR. Não publicar credenciais de download, consultar IPs de
+participantes, adicionar ASN/cidade/coordenadas ao fluxo, armazenar histórico de detecção ou transmitir IPs
+a uma API externa. Downloads futuros da base são distintos de consultas de participantes.
+
+### Pendências que permanecem
+
+- Confirmar acesso, continuidade e cadência efetiva da distribuição específica `country.mmdb`; a atualização
+  diária anunciada para a oferta não equivale a validação operacional deste artefato.
+- Designar responsável técnico e orçamento operacional; definir atualização, alertas, retenção de versões,
+  recuperação e limite de desatualização. Verificação diária, alerta após 72 horas e suspensão após sete dias
+  foram recomendações da comparação, **não decisões aprovadas por esta escolha de base/licença**.
+- Validar licença/versão da biblioteca de leitura, proveniência do primeiro snapshot e apresentação da atribuição
+  no produto, antes de introduzir dependências ou dados.
+- Elaborar plano e obter autorização para implementação, migrações e ativação; homologar precisão com amostra
+  autorizada e referência de localização, sem usar dados de participantes por padrão. Testes sintéticos cobrem
+  contratos e falhas, mas não demonstram precisão geográfica.
+
+**Esta entrega é exclusivamente documental.** Não implementa detector, endpoints, persistência, filtros ou
+rotina de atualização; não altera contratos, seeds, configurações ou coleta; não habilita EUA nem outros países;
+não aplica migração nem realiza implantação. Cobertura mundial da base não amplia o catálogo executável,
+que permanece BR + 27 UFs. A issue #108 continua aberta para as pendências e entregas futuras; a #78 conserva
+a responsabilidade pela habilitação de países. A prioridade manual e a independência linguística permanecem.
+
+### Referências da escolha
+
+- [IPinfo Lite Database — distribuição IP to Country, MMDB e licença](https://ipinfo.io/developers/ipinfo-lite-database).
+- [IPinfo Lite — oferta gratuita e atualização diária](https://ipinfo.io/lite).
+- [CC BY-SA 4.0 — atribuição, alterações e compartilhamento pela mesma licença](https://creativecommons.org/licenses/by-sa/4.0/).
+
+Fontes consultadas na comparação de 21/10/2026. A validação desta entrega é documental; não houve teste do
+arquivo de base, benchmark de precisão ou execução do detector.
