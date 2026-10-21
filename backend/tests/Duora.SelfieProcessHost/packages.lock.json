@@ -367,6 +367,7 @@
           "AWSSDK.S3": "[4.0.104, )",
           "AWSSDK.SecurityToken": "[4.0.101.4, )",
           "Duora.Core": "[1.0.0, )",
+          "MaxMind.Db": "[5.2.0, )",
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.13, )",
           "Microsoft.Extensions.Configuration.KeyPerFile": "[10.0.13, )",
           "Microsoft.Extensions.Diagnostics.HealthChecks": "[10.0.13, )",
@@ -400,6 +401,12 @@
         "dependencies": {
           "AWSSDK.Core": "[4.0.102.11, 5.0.0)"
         }
+      },
+      "MaxMind.Db": {
+        "type": "CentralTransitive",
+        "requested": "[5.2.0, )",
+        "resolved": "5.2.0",
+        "contentHash": "UJ6zwjzV8YZ4YbELCUsK+9lEut5Ea6ks3p8CXEK9hQm8GxhJYrKsVxXcVvZsJ2Nzij1e89dXYrqUH7MCoWdhqg=="
       },
       "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
         "type": "CentralTransitive",
