@@ -2801,6 +2801,8 @@ export interface paths {
                 header: {
                     /** @description Chave do cliente para repetir o envio sem duplicar: 1 a 64 caracteres [A-Za-z0-9_-]. */
                     "Idempotency-Key": string;
+                    /** @description Optional request-local validation format. Only one exact codes-v1 value selects field codes for empty body or invalid Idempotency-Key; all other values preserve the legacy strings. Accept-Language does not select this format. */
+                    "Duora-Validation-Format"?: string;
                 };
                 path?: never;
                 cookie?: never;
@@ -2825,6 +2827,10 @@ export interface paths {
                 /** @description Bad Request */
                 400: {
                     headers: {
+                        /** @description Present as codes-v1 only for the two negotiated VALIDATION_FAILED refusals. Clients must require this exact confirmation before interpreting field codes; otherwise use local fallback without retrying POST. */
+                        "Duora-Validation-Format"?: string;
+                        /** @description Includes Duora-Validation-Format for both representations of the two validation refusals, preserving existing values or wildcard. Does not make POST cacheable. */
+                        Vary?: string;
                         [name: string]: unknown;
                     };
                     content: {
