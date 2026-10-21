@@ -95,7 +95,7 @@ public sealed class RegionalPreferenceMigrationTests(PostgresFixture postgres)
         foreach (var sql in new[]
         {
             "update profiles.regional_preferences set mode='unrestricted' where user_id=@owner",
-            "update profiles.regional_preference_countries set user_id=@other where user_id=@owner",
+            "update profiles.regional_preferences set mode='countries' where user_id=@other; update profiles.regional_preference_countries set user_id=@other where user_id=@owner",
         })
         {
             await using var tx = await connection.BeginTransactionAsync(Ct);
