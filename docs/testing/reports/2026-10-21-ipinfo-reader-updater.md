@@ -85,3 +85,11 @@ As três regressões acima falharam pelo comportamento esperado. As outras duas 
 A lista de tabelas foi ampliada pelos nomes exatos esperados; continua comparando o inventário completo.
 A correção preserva os cinco testes que falharam e todos os demais. O resultado GREEN final pertence ao commit e à execução
 registrados no PR, não à execução RED acima.
+
+
+No head773d721, a suíte executou2904 testes:2903 passaram,1 falhou,0 ignorados. As quatro falhas comportamentais/de
+inventário foram resolvidas, mas o gerador continuou presente na compilação apesar de ExcludeAssets.
+[Execução intermediária](https://github.com/BipoXDXD/duora/actions/runs/39673252410).
+O projeto agora também remove **somente MaxMind.Db.SourceGenerator** da entrada Analyzer imediatamente antes de CoreCompile.
+O teste de arquitetura, .NET analyzers e scanners continuam inalterados. O novo CI precisa comprovar a execução com o fallback JIT;
+o resultado intermediário não demonstrava que a exclusão do gerador fosse efetiva.
