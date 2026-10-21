@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
@@ -39,6 +39,7 @@ function useBackend(locale: 'pt-BR' | 'en-US' = 'pt-BR') {
       return HttpResponse.json({ ...state, version: String(state.version) })
     }),
   )
+  server.use(http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: false })))
   const csrf = useAntiforgeryEndpoint()
   return { state, writes, csrf }
 }
@@ -111,4 +112,218 @@ describe.each([
     await screen.findByText(saved)
     expect(api.writes[1]).toEqual({ mode: 'countries', countryCodes: ['BR'] })
   })
+})
+
+describe('optional country suggestion', () => {
+  it('preselects only an untouched pending draft, requires a separate explicit save, and keeps languages unchanged', async () => {
+    const api = useBackend()
+    server.use(
+      http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+      http.post(`${API}/me/region-detection`, () =>
+        HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' }),
+      ),
+    )
+    const { user } = await renderApp('/account/preferences')
+    await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Preferência regional' })).toHaveValue('countries'))
+    expect(screen.getByRole('checkbox', { name: 'Brasil' })).toBeChecked()
+    expect(api.writes).toEqual([])
+    expect(screen.getByRole('checkbox', { name: 'Inglês' })).not.toBeChecked()
+    await user.click(screen.getByRole('button', { name: 'Salvar preferência regional' }))
+    await screen.findByText('Preferência regional salva.')
+    expect(api.writes).toEqual([{ mode: 'countries', countryCodes: ['BR'] }])
+  })
+  it('keeps a manual choice when detection finishes after editing, without disabling the manual fields', async () => {
+    useBackend()
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    server.use(
+      http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+      http.post(`${API}/me/region-detection`, async () => {
+        await pending
+        return HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' })
+      }),
+    )
+    const { user } = await renderApp('/account/preferences')
+    await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Preferência regional' }), 'unrestricted')
+    await act(async () => {
+      finish()
+      await pending
+    })
+    await screen.findByText('Sua escolha manual foi mantida.')
+    expect(screen.getByRole('combobox', { name: 'Preferência regional' })).toHaveValue('unrestricted')
+  })
+  it('has no detection action while capability is disabled', async () => {
+    useBackend()
+    await renderApp('/account/preferences')
+    await screen.findByRole('combobox', { name: 'Preferência regional' })
+    expect(screen.queryByRole('button', { name: 'Sugerir país pela conexão' })).not.toBeInTheDocument()
+  })
+})
+
+it.each(['unknown', 'unsupported', 'unavailable', 'disabled'])(
+  'a %s result leaves pending unchanged and does not save',
+  async (status) => {
+    const api = useBackend()
+    server.use(
+      http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+      http.post(`${API}/me/region-detection`, () =>
+        HttpResponse.json({ status, countryCode: null, observedAt: '2026-10-21T12:00:00Z' }),
+      ),
+    )
+    const { user } = await renderApp('/account/preferences')
+    await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+    await screen.findByText(/Escolha manualmente/)
+    if (status === 'disabled')
+      expect(screen.queryByRole('button', { name: 'Sugerir país pela conexão' })).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Preferência regional' })).toHaveValue('pending')
+    expect(api.writes).toEqual([])
+  },
+)
+
+it('ignores A after B, discards a canceled observation and never changes a saved preference', async () => {
+  const api = useBackend()
+  let finishA!: () => void
+  let startedA!: () => void
+  const aStarted = new Promise<void>((resolve) => {
+    startedA = resolve
+  })
+  const aPending = new Promise<void>((resolve) => {
+    finishA = resolve
+  })
+  let calls = 0
+  server.use(
+    http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+    http.post(`${API}/me/region-detection`, async () => {
+      calls++
+      if (calls === 1) {
+        startedA()
+        await aPending
+        return HttpResponse.json({ status: 'unsupported', countryCode: null, observedAt: '2026-10-21T12:00:00Z' })
+      }
+      return HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:01Z' })
+    }),
+  )
+  const { user } = await renderApp('/account/preferences')
+  const button = await screen.findByRole('button', { name: 'Sugerir país pela conexão' })
+  await user.click(button)
+  await aStarted
+  await user.click(button)
+  await screen.findByText('Brasil pré-selecionado neste rascunho. Confira e salve para confirmar.')
+  await act(async () => {
+    finishA()
+    await aPending
+  })
+  expect(screen.queryByText(/O país estimado/)).not.toBeInTheDocument()
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Preferência regional' }), 'unrestricted')
+  await user.click(screen.getByRole('button', { name: 'Salvar preferência regional' }))
+  await screen.findByText('Preferência regional salva.')
+  await user.click(button)
+  await screen.findByText('Sua escolha manual foi mantida.')
+  expect(screen.getByRole('combobox', { name: 'Preferência regional' })).toHaveValue('unrestricted')
+  expect(api.writes).toEqual([{ mode: 'unrestricted', countryCodes: [] }])
+})
+
+it('cancel and navigation discard the observation and a new visit starts pending', async () => {
+  const api = useBackend()
+  let finish!: () => void
+  let started!: () => void
+  const began = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  server.use(
+    http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+    http.post(`${API}/me/region-detection`, async () => {
+      started()
+      await pending
+      return HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' })
+    }),
+  )
+  const view = await renderApp('/account/preferences')
+  await view.user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+  await began
+  await view.user.click(screen.getByRole('button', { name: 'Cancelar sugestão' }))
+  view.unmount()
+  await act(async () => {
+    finish()
+    await pending
+  })
+  await renderApp('/account/preferences')
+  expect(await screen.findByRole('combobox', { name: 'Preferência regional' })).toHaveValue('pending')
+  expect(api.writes).toEqual([])
+})
+
+it('an expired session on suggestion is revalidated instead of leaving the private form usable', async () => {
+  useBackend()
+  server.use(
+    http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+    http.post(`${API}/me/region-detection`, () => {
+      server.use(http.get(`${API}/me`, () => problem(401, 'AUTHENTICATION_REQUIRED')))
+      return problem(401, 'AUTHENTICATION_REQUIRED')
+    }),
+  )
+  const { user } = await renderApp('/account/preferences')
+  await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+  await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Preferência regional' })).not.toBeInTheDocument())
+})
+
+it('never replaces a previously saved preference even when the current form was not edited', async () => {
+  const api = useBackend()
+  api.state.mode = 'unrestricted'
+  api.state.version = 7
+  server.use(
+    http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+    http.post(`${API}/me/region-detection`, () =>
+      HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' }),
+    ),
+  )
+  const { user } = await renderApp('/account/preferences')
+  await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+  await screen.findByText('Sua escolha manual foi mantida.')
+  expect(screen.getByRole('combobox', { name: 'Preferência regional' })).toHaveValue('unrestricted')
+  expect(api.writes).toEqual([])
+})
+
+it('a capability failure removes the action and invalidates an in-flight observation', async () => {
+  const api = useBackend()
+  let finish!: () => void
+  let started!: () => void
+  const began = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  server.use(
+    http.get(`${API}/me/region-detection/capability`, () => HttpResponse.json({ enabled: true })),
+    http.post(`${API}/me/region-detection`, async () => {
+      started()
+      await pending
+      return HttpResponse.json({ status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' })
+    }),
+  )
+  const { user, queryClient } = await renderApp('/account/preferences')
+  await user.click(await screen.findByRole('button', { name: 'Sugerir país pela conexão' }))
+  await began
+  server.use(http.get(`${API}/me/region-detection/capability`, () => problem(503, 'TEMPORARILY_UNAVAILABLE')))
+  await act(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ['account', '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6', 'region-detection-capability'],
+    })
+  })
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Sugerir país pela conexão' })).not.toBeInTheDocument(),
+  )
+  await act(async () => {
+    finish()
+    await pending
+  })
+  expect(screen.getByRole('combobox', { name: 'Preferência regional' })).toHaveValue('pending')
+  expect(api.writes).toEqual([])
 })

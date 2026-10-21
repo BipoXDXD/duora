@@ -311,3 +311,41 @@ Enquanto a publicação permanecer V2, a interface informa visivelmente que salv
 prepara a escolha e ainda não restringe os pareamentos atuais. No corte G4, atualizar essa indicação
 junto da ativação e da comunicação aos participantes. Workers incompatíveis não podem coexistir
 com V3. Em defeito após ativação, pausar matching e corrigir para frente, sem apagar preferências.
+
+
+## Registro de execução de 21/10/2026 — etapas 5 e 6
+
+Autorizadas explicitamente as etapas 5 e 6, reutilizando a interface manual do PR #146. O adaptador registrado
+é sempre `DisabledCountryLookup`: não há chave de configuração que ligue um leitor real, acesso a arquivo,
+MMDB, download, serviço externo ou seed US nesta entrega. G2–G5 permanecem como pré-requisitos das entregas futuras.
+Responsáveis nominais e canal de alertas continuam pendentes; o corte V3 continua sem valor configurado.
+
+- `GET /api/v1/me/region-detection/capability` informa somente a disponibilidade, sem consultar a conexão.
+  Sem capacidade, a UI mantém o fluxo manual e não oferece ação de detecção. Falha dessa leitura também não a oferece.
+- `POST /api/v1/me/region-detection` aceita somente corpo vazio e usa exclusivamente `RemoteIpAddress` após o
+  middleware existente. Não percorre X-Forwarded-For. Uma cadeia residual após o salto confiável é inconclusiva.
+  Estados: detected (somente BR habilitado), unknown, unsupported (inclui US sintético), unavailable, disabled.
+  `observedAt` usa o relógio do servidor; não há escrita em perfil, preferência, idiomas, guardas ou histórico de pares.
+- Hipótese inicial revisável de limites, proposta neste PR: 6/minuto por conta e 60/minuto por origem, sem fila;
+  conta impede renovação por troca de IP, origem mais alta acomoda NAT. Usa o mecanismo local existente, IPv6 /64,
+  429/Retry-After e reinicia com o processo. Testes N+1 isolam ambas as cotas; não é orçamento operacional homologado.
+  Antes de ativar um detector real, medir carga e impacto de NAT, revisar valores/cobertura e obter aprovação operacional.
+- Admissão de IP deliberadamente conservadora: IPv4 público e IPv6 global unicast 2000::/3, recusando endereços
+  especiais, documentação e transição. IPv4 mapeado é normalizado. Exceções globais de blocos especiais não geram
+  sugestão; não há fallback por locale, fuso ou país do servidor. Conferência: registros
+  [IPv4 IANA](https://www.iana.org/assignments/iana-ipv4-special-registry/) e
+  [IPv6 IANA](https://www.iana.org/assignments/iana-ipv6-special-registry/).
+- O componente comum de sugestão é usado nos formulários existentes de perfil e preferência. Só a ação explícita
+  faz POST; resposta fica no componente montado, sem cache/localStorage. Cada pedido tem geração e AbortController;
+  novo pedido, cancelamento e saída descartam o anterior. Toda edição manual regional, mesmo revertida, invalida a
+  pré-seleção; região já salva nunca é substituída, inclusive null ("não informar"). Como não existe metadado de
+  origem para diferenciar null manual de ausência, somente perfil não salvo (versão 0) admite pré-seleção. Um perfil
+  existente sem país usa escolha manual; não acrescentar rastreamento para inferir a intenção. Nenhuma leitura ou
+  salvamento sincroniza automaticamente os recursos.
+- Declaração continua pelo PATCH/ETag do perfil; preferência pelo PUT/ETag próprio. Mensagens e conflitos pertencem
+  a cada formulário, com rascunho preservado em 412. Sugestão não grava, não altera idiomas e não ativa o filtro.
+- Cobertura: HTTP sintético de IPv4/IPv6, proxies, autenticação/CSRF/corpo, N+1 e snapshots PostgreSQL em
+  sucesso, desconhecido, indisponibilidade e cancelamento; MSW/Vitest de respostas atrasadas, manual/salvo,
+  cancelamento e navegação; Playwright PT-BR/EN-US e acessibilidade, com gravação parcial entre recursos.
+
+Não implementados: etapas 7–10, detector real, atualizador, alertas operacionais, implantação, ativação do filtro ou EUA.

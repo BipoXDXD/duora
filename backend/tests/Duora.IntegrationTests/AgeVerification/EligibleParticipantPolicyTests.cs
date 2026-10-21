@@ -37,6 +37,8 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
         "GET /api/v1/me/profile",
         "GET /api/v1/me/preferences",
         "PUT /api/v1/me/preferences",
+        "GET /api/v1/me/region-detection/capability",
+        "POST /api/v1/me/region-detection",
         "GET /api/v1/me/regional-preferences",
         "PUT /api/v1/me/regional-preferences",
         "GET /api/v1/me/locale",

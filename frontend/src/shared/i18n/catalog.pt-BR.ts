@@ -5,6 +5,17 @@
  * Mensagens de erro são neutras: não revelam se um e-mail tem conta (spec 8.2, API-A02 e A06).
  */
 export const ptBR = {
+  'regionSuggestion.action': 'Sugerir país pela conexão',
+  'regionSuggestion.hint':
+    'Sugestão aproximada e opcional; VPNs podem indicar outro país. Confira e salve este formulário para confirmar. Idiomas não são alterados.',
+  'regionSuggestion.loading': 'Consultando sugestão…',
+  'regionSuggestion.cancel': 'Cancelar sugestão',
+  'regionSuggestion.applied': 'Brasil pré-selecionado neste rascunho. Confira e salve para confirmar.',
+  'regionSuggestion.kept': 'Sua escolha manual foi mantida.',
+  'regionSuggestion.unknown': 'Não foi possível identificar o país. Escolha manualmente.',
+  'regionSuggestion.unsupported': 'O país estimado ainda não está disponível. Escolha manualmente.',
+  'regionSuggestion.unavailable': 'A sugestão está indisponível. Escolha manualmente.',
+  'regionSuggestion.disabled': 'A sugestão está desativada. Escolha manualmente.',
   'regional.activation':
     'A preferência regional está em preparação. Salvar aqui ainda não restringe os pareamentos atuais. Sua escolha ficará registrada para a ativação do filtro.',
   'regional.loading': 'Carregando preferência regional…',
