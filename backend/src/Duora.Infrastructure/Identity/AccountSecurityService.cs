@@ -469,6 +469,8 @@ public sealed class AccountSecurityService
         if (proved == SecondFactorKind.RecoveryCode)
         {
             await AppendAuditAsync(user.Id, AuditAction.MfaRecoveryCodeUsed, cancellationToken);
+            await NotifyHolderAsync(user, SecurityChange.RecoveryCodeUsed,
+                EmailLanguageTag.Match(user.PreferredLocale) ?? EmailLanguageTag.Default, cancellationToken);
         }
 
         return proved;

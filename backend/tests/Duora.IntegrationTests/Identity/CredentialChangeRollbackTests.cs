@@ -41,6 +41,23 @@ public sealed class CredentialChangeRollbackTests : IAsyncDisposable
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
     [Fact]
+    public async Task AFailedRecoveryNoticeRollsBackConsumptionAndAllowsRetry()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var enrolled = await Scenario.SignedInBrowserAsync(account);
+        var mfa = await MfaScenario.EnableAsync(enrolled, _time);
+        var before = await AccountStateAsync(account.UserId);
+        _failure.Arm(account.UserId);
+        using var browser = new Browser(_factory);
+        using var failed = await MfaScenario.LoginAsync(browser, account, recoveryCode: mfa.RecoveryCodes[0]);
+        Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
+        Assert.True(_failure.Fired);
+        Assert.Equal(before, await AccountStateAsync(account.UserId));
+        using var retry = await MfaScenario.LoginAsync(browser, account, recoveryCode: mfa.RecoveryCodes[0]);
+        Assert.Equal(HttpStatusCode.NoContent, retry.StatusCode);
+    }
+
+    [Fact]
     public async Task AFailedPasswordChangeLeavesNoNoticeAndNoChange()
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
