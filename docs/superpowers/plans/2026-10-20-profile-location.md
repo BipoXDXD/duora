@@ -21,14 +21,26 @@
 - Conflict reload must preserve untouched location fields.
 - No US or other country seed; synthetic second country exists only in isolated integrity tests.
 
+## Approved decisions (2026-10-21)
+
+The owner explicitly approved US and Brazil, ISO as the reference, CLDR 48.2 and Unicode-3.0. The dated addendum to [ADR-0030](../../architecture/adr/0030-profile-country-subdivision.md) preserves the original expansion decision and records this later approval.
+
+- [x] Product scope: US with 50 states + DC (51 subdivisions), and BR with the existing 27 UFs; no territories or other countries. Country/subdivision remain optional.
+- [x] Source and license: versioned snapshot from [CLDR release-48-2](https://github.com/unicode-org/cldr/releases/tag/release-48-2), checked against ISO 3166, under Unicode-3.0. License authorization and provenance are recorded separately in [catalog-licenses.md](../../security/catalog-licenses.md); approval is specific to the release, not a global license allowlist change.
+
+**Runtime state:** BR + 27 UFs only. No country enablement, dataset import, schema/API/SPA change or deployment is authorized by these decision records. The first future implementation must preserve version/hashes/notices, validate the approved ISO subset and supply an auditable data inventory; package SBOMs do not automatically cover vendored data.
+
 ## Outstanding work
 
-- [ ] Product: approve launch countries and the permitted subdivision level for each country. Review the jurisdictional eligibility/minimum-age decision identified by issue #78 and J-05 of the data map; `age_band` was not changed.
-- [ ] Catalog maintenance: choose the authoritative source, distribution license/version, update owner and cadence, translated labels, and policy for retired codes. Recommend reviewed versioned ISO snapshots while the list is small. The package-license CI result does not approve a future catalog source.
+- [x] License policy: [PR #117](https://github.com/BipoXDXD/duora/pull/117) merged as `e3d399b66d48b58f19a6fdacfd3d50bf44e1f1e1` after all nine checks passed in [CI 39561009857](https://github.com/BipoXDXD/duora/actions/runs/39561009857). The exception is scoped to the reserved CLDR 48.2 identity; the future data component is not imported, and an unused-exception warning is expected until incorporation/inventory are implemented.
+- [ ] Maintenance governance: appoint technical/editorial owners and confirm the update cadence. Monthly review remains a recommendation, not an approved assignment or schedule.
+- [ ] Editorial review: review all PT-BR/EN-US labels before incorporation; the 78 Portuguese subdivision labels inspected in CLDR 48.2 are marked provisional. Preserve provenance for editorial changes and referenced historical codes.
+- [ ] Jurisdictional eligibility/minimum age: resolve J-05 of the data map. Optional declared profile location is not proof of residence or eligibility; `age_band` was not changed.
+- [ ] Future catalog implementation: only after explicit authorization, import the approved snapshot/subset, extend validation/contracts/generated client/form and tests, and implement inventory/hash/license-notice verification. Country activation and deployment are separate approvals; neither is part of this task.
 - [ ] Contract: retire old consumers, then propose a separate approved breaking-change PR to remove `region_code`, its CHECK, the compatibility trigger and the legacy API field. Retain the additive schema and data until then.
 - [ ] Before deployment: measure lock/backfill/index duration with representative synthetic data and rehearse the documented transition/rollback. Do not run mixed old writers after activating the new SPA; returning to the old binary requires pausing profile edits and preserving the expanded schema/data.
 
-BR + the existing 27 UFs remains the compatibility baseline. US or another country requires explicit product approval; 50 states + DC is only a recommendation if US is approved. No geolocation, city, address or inferred country.
+No geolocation, city, address or inferred country is introduced. The issue stays open for the work above; approving the product/catalog decisions alone does not complete activation, eligibility, contract or deployment.
 
 ## Verification ledger
 
