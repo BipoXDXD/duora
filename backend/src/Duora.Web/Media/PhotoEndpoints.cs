@@ -145,17 +145,14 @@ internal static class PhotoEndpoints
                     StatusCodes.Status413PayloadTooLarge,
                     ApiProblems.PayloadTooLarge);
             case UploadLengthVerdict.Empty:
-                return ApiProblems.Validation(new Dictionary<string, string[]> { ["body"] = ["A foto está vazia."] });
+                return PhotoValidationProblems.EmptyBody(request);
             case UploadLengthVerdict.Accepted:
                 break;
         }
 
         return IdempotencyKey.TryParse(idempotencyKey, out _)
             ? null
-            : ApiProblems.Validation(new Dictionary<string, string[]>
-            {
-                [IdempotencyKeyHeader] = ["Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'."],
-            });
+            : PhotoValidationProblems.InvalidIdempotencyKey(request);
     }
 
     /// <summary>
@@ -255,6 +252,33 @@ internal static class PhotoEndpoints
                     Pattern = "^[A-Za-z0-9_-]+$",
                 };
             }
+        }
+
+        operation.Parameters ??= [];
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = PhotoValidationProblems.HeaderName,
+            In = ParameterLocation.Header,
+            Required = false,
+            Description = "Optional format of the two upload validation refusals. Only one exact codes-v1 value, after HTTP whitespace normalization, selects field codes. Missing, empty, unknown, differently cased, duplicate or comma-separated values keep the legacy strings. Does not enable uploads.",
+            Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+        });
+        if (operation.Responses?.TryGetValue("400", out var badRequest) == true && badRequest is OpenApiResponse validation)
+        {
+            validation.Description = "Validation failed. For an empty declared body or an invalid Idempotency-Key, legacy Portuguese strings remain the default. An exact codes-v1 opt-in selects errors.body=[PHOTO_BODY_EMPTY] or errors.Idempotency-Key=[IDEMPOTENCY_KEY_INVALID], with the same HTTP 400, VALIDATION_FAILED, field and single-item array. Accept-Language does not change this format. Other refusals are unchanged.";
+            validation.Headers ??= new Dictionary<string, IOpenApiHeader>();
+            validation.Headers[PhotoValidationProblems.HeaderName] = new OpenApiHeader
+            {
+                Required = false,
+                Description = "Exact codes-v1 confirmation, only on the two refusals when their errors contain field codes. Absent for the legacy format and all other responses; clients must require this confirmation before interpreting field codes.",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+            };
+            validation.Headers["Vary"] = new OpenApiHeader
+            {
+                Required = false,
+                Description = "Includes Duora-Validation-Format for both formats of these two refusals, preserving existing tokens and Vary: *. Cache-Control: no-store and Pragma: no-cache remain unchanged.",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+            };
         }
 
         if (operation.RequestBody is OpenApiRequestBody body)

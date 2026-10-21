@@ -42,7 +42,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0031](0031-telemetry-remoto-telemetria-mtls.md) | Gateway gateway separado e snapshot público por mTLS | Proposed | Mudança de contrato, PKI ou autoridade do agente |
 | [0032](0032-narracao-natural-e-proveniencia-interna.md) | Narração natural e proveniência interna, sem mensagem de criação na experiência | Accepted | Exigência aplicável de divulgação, mudança de fornecedor ou escopo de voz |
 | [0033](0033-deteccao-aproximada-e-preferencia-regional.md) | Sugestão regional, filtro bilateral por país e IPinfo Country MMDB / CC BY-SA 4.0; governança operacional aprovada | Accepted; implementação pendente | Base/licença, limites operacionais, granularidade, proxies ou persistência; responsáveis e canal pendentes |
-| [0034](0034-codigos-de-validacao-do-upload.md) | Códigos de validação de upload por adesão explícita, com legado padrão | Proposed | Consumidor externo, negociação incompatível ou retirada do legado |
+| [0034](0034-codigos-de-validacao-do-upload.md) | Códigos de validação de upload por adesão explícita, com legado padrão | Accepted; adesão/ativação separadas | Consumidor externo, negociação incompatível ou retirada do legado |
 
 ## Regras
 

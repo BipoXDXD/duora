@@ -116,8 +116,25 @@ Os códigos de verificação etária desativada e webhook ainda declarados perma
 
 - `AddProblemDetails` usa `AddDefaultCode`: 400 INVALID_REQUEST, 401 UNAUTHENTICATED, 403 FORBIDDEN, 404 NOT_FOUND, 405 METHOD_NOT_ALLOWED, 411 LENGTH_REQUIRED, 413 PAYLOAD_TOO_LARGE, 415 UNSUPPORTED_MEDIA_TYPE, 429 RATE_LIMITED e 500 INTERNAL_ERROR. Demais status continuam `HTTP_{status}` (inclusive um 503 sem código de aplicação).
 - UseStatusCodePages, desafio/forbid, binding JSON e UseExceptionHandler chegam ao mesmo normalizador. Títulos padrão do ASP.NET eram dependentes do framework; agora vêm do catálogo. `detail` é removido mesmo quando já há código; exceção, SQL e entrada não viram texto público.
-- `ApiProblems.Validation` mantém 400, VALIDATION_FAILED e `errors` por campo; o título passa de “A requisição tem campos inválidos.” para “The request contains invalid fields.”. `RequestValidation`, perfil, preferências, fuso e MFA retornam códigos por campo, preservados. Exceção legada: upload retorna `errors.body = ["A foto está vazia."]` e `errors.Idempotency-Key = ["Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'."]`. Esses valores de `errors` são preservados por compatibilidade; não são title/detail nem usados como texto da SPA. Uma migração deles para códigos exige contrato separado. Sem tradução automática nem alteração de descrições OpenAPI.
+- `ApiProblems.Validation` mantém 400, VALIDATION_FAILED e `errors` por campo; o título passa de “A requisição tem campos inválidos.” para “The request contains invalid fields.”. `RequestValidation`, perfil, preferências, fuso e MFA retornam códigos por campo, preservados. O upload mantém como padrão `errors.body = ["A foto está vazia."]` e `errors.Idempotency-Key = ["Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'."]`. Esses valores não são title/detail nem texto da SPA. A #154 implementa o contrato opt-in separado descrito abaixo; não há tradução automática dos valores da API.
+
 - `ApiProblems.TooManyRequests` antes emitia “Muitas tentativas. Tente novamente mais tarde.”; agora usa o título inglês de RATE_LIMITED. Rate limit mantém 429/RATE_LIMITED e Retry-After (mínimo 1 segundo); limites de upload mantêm UPLOAD_PENDING_LIMIT/429. Indisponibilidade da aplicação mantém seus códigos/503 e cabeçalhos anteriores.
+
+### Upload por adesão explícita — #154
+
+`PhotoEndpoints.RefuseHeaders` mantém as regras/precedência e delega somente as duas recusas a
+`Media/PhotoValidationProblems.cs`. Sem um único valor exato codes-v1 no header Duora-Validation-Format,
+os literais acima continuam idênticos, inclusive com Accept-Language en-US. Com adesão, somente esses
+valores passam a PHOTO_BODY_EMPTY ou IDEMPOTENCY_KEY_INVALID e a resposta confirma codes-v1. Vary combina
+o seletor nos dois formatos, sem remover tokens ou `*`; cache e demais comportamentos permanecem.
+
+Os novos testes fixam os literais no produtor HTTP e cobrem a matriz em TestServer/Kestrel, schemas
+gerados/publicados, efeitos no PostgreSQL, ausência de objetos/entregas, precedência, limites, barreiras e
+idempotência. O ensaio Caddy usa a configuração versionada com endereço/certificados de teste; nenhuma
+policy de produção muda. O teste do cliente real usa transporte explicitamente simulado e capturas
+históricas para verificar parsing, fallback PT-BR/EN-US e ausência de retries. Não há cliente aderente ou
+tela de upload entregue; as mensagens específicas do ADR continuam propostas para esse futuro consumidor.
+Ver [relatório e limites](reports/2026-10-21-issue-154-opt-in.md).
 
 ## Auditoria das páginas
 

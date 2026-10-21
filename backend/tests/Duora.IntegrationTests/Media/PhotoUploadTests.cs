@@ -196,7 +196,10 @@ public sealed class PhotoUploadTests : IAsyncDisposable
 
         using var response = await MediaScenario.UploadContentAsync(browser, content, key);
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        Assert.Equal("Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.", (string?)body["errors"]!["Idempotency-Key"]![0]);
+        Assert.Single(body["errors"]!.AsObject());
+        Assert.Single(body["errors"]!["Idempotency-Key"]!.AsArray());
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
         Assert.Equal(0, _media.StoredObjectCount());
     }
@@ -263,7 +266,10 @@ public sealed class PhotoUploadTests : IAsyncDisposable
 
         using var response = await MediaScenario.UploadAsync(browser, []);
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        Assert.Equal("A foto está vazia.", (string?)body["errors"]!["body"]![0]);
+        Assert.Single(body["errors"]!.AsObject());
+        Assert.Single(body["errors"]!["body"]!.AsArray());
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
     }
 

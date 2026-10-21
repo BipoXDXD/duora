@@ -2801,6 +2801,8 @@ export interface paths {
                 header: {
                     /** @description Chave do cliente para repetir o envio sem duplicar: 1 a 64 caracteres [A-Za-z0-9_-]. */
                     "Idempotency-Key": string;
+                    /** @description Optional format of the two upload validation refusals. Only one exact codes-v1 value, after HTTP whitespace normalization, selects field codes. Missing, empty, unknown, differently cased, duplicate or comma-separated values keep the legacy strings. Does not enable uploads. */
+                    "Duora-Validation-Format"?: string;
                 };
                 path?: never;
                 cookie?: never;
@@ -2822,9 +2824,13 @@ export interface paths {
                         "application/json": components["schemas"]["PhotoUploadResponse"];
                     };
                 };
-                /** @description Bad Request */
+                /** @description Validation failed. For an empty declared body or an invalid Idempotency-Key, legacy Portuguese strings remain the default. An exact codes-v1 opt-in selects errors.body=[PHOTO_BODY_EMPTY] or errors.Idempotency-Key=[IDEMPOTENCY_KEY_INVALID], with the same HTTP 400, VALIDATION_FAILED, field and single-item array. Accept-Language does not change this format. Other refusals are unchanged. */
                 400: {
                     headers: {
+                        /** @description Exact codes-v1 confirmation, only on the two refusals when their errors contain field codes. Absent for the legacy format and all other responses; clients must require this confirmation before interpreting field codes. */
+                        "Duora-Validation-Format"?: string;
+                        /** @description Includes Duora-Validation-Format for both formats of these two refusals, preserving existing tokens and Vary: *. Cache-Control: no-store and Pragma: no-cache remain unchanged. */
+                        Vary?: string;
                         [name: string]: unknown;
                     };
                     content: {

@@ -156,9 +156,38 @@ JSON dos DTOs de entrada permanece `Disallow`. Os testes validam respostas reais
 o documento gerado no host e o artefato publicado, incluindo controles negativos de tipo e campo extra.
 Ver [implementação e evidências](../testing/reports/2026-10-21-issue-153-fix.md).
 
-As mensagens legadas e o comportamento de PT-BR/EN-US permanecem. A negociação e os códigos de validação
-propostos no [ADR-0034](../architecture/adr/0034-codigos-de-validacao-do-upload.md) pertencem à #154 e exigem
-implementação/revisão próprias; a presença destes campos no schema não ativa essa migração.
+As mensagens legadas e o comportamento de PT-BR/EN-US permanecem por padrão. A presença destes campos
+no schema não seleciona o formato codes-v1 da negociação abaixo.
+
+### Formato opt-in das duas validações de upload (#154)
+
+Somente `POST /api/v1/me/photos`: um único valor exato `Duora-Validation-Format: codes-v1`, após a
+normalização HTTP de espaços externos (SP/HTAB), seleciona os códigos. O nome do header é insensível a
+caixa; o valor é sensível. Ausência, vazio, desconhecido, caixa diferente, duplicatas ou lista por vírgula
+mantêm o legado, sem novo erro. `Accept-Language` não escolhe formato nem traduz valores da API.
+
+| Campo | Padrão legado, em ambos os idiomas | Valor solicitado com codes-v1 |
+|---|---|---|
+| `errors.body[0]` | `A foto está vazia.` | `PHOTO_BODY_EMPTY` |
+| `errors["Idempotency-Key"][0]` | `Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.` | `IDEMPOTENCY_KEY_INVALID` |
+
+As duas recusas preservam HTTP/status 400, VALIDATION_FAILED, type, título inglês, detail ausente,
+traceId e um único campo com array unitário. Combinam `Vary: Duora-Validation-Format` nos dois formatos,
+preservando valores existentes e `*`, no-store/no-cache. Só no formato codificado confirmam
+`Duora-Validation-Format: codes-v1`. Nunca confirmar em sucesso, outro erro ou legado; Retry-After não é
+acrescentado aos dois 400. O parâmetro e os headers de 400 são opcionais no OpenAPI/tipos gerados; não
+há enum novo em `errors` nem mudança nos schemas compartilhados.
+
+Isso não ativa upload nem muda Content-Type → comprimento → chave, limites, domínio ASCII da chave,
+idempotência, streaming, conta, CSRF, autenticação, CORS ou rate limit. UPLOAD_INCOMPLETE e
+IDEMPOTENCY_KEY_REUSED conservam seus significados. A SPA continua sem fluxo de upload e sem adesão
+automática; o alerta mantém fallback local nos dois idiomas. Um futuro consumidor precisa conservar e
+exigir a confirmação exata antes de interpretar pares de campo/código, sem retry de POST para descobrir
+capacidade. Sem confirmação (inclusive servidor antigo), usar fallback local seguro.
+
+Ver [ADR-0034](../architecture/adr/0034-codigos-de-validacao-do-upload.md) e
+[testes/compatibilidade/reversão](../testing/reports/2026-10-21-issue-154-opt-in.md). Adesão, ativação,
+retirada/default e deploy continuam decisões e entregas próprias.
 
 ## Preferência regional privada — issue #108, etapas 1 e 2
 

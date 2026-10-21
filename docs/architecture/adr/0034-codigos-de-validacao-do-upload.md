@@ -1,9 +1,34 @@
 # ADR-0034: Migração compatível das validações legadas de upload
 
-- **Status:** Proposed (2026-10-21); decisão para revisão, implementação pendente.
+- **Status:** Accepted (2026-10-21); suporte do servidor autorizado na #154, adesão e ativação separadas.
 - **Origem:** [issue #141](https://github.com/BipoXDXD/duora/issues/141), [PR #128](https://github.com/BipoXDXD/duora/pull/128) e [plano integrado pelo PR #145](../../superpowers/plans/2026-10-21-issue-141-upload-validation-codes.md).
 - **Revisar quando:** aparecer consumidor externo, negociação não atravessar intermediários/cliente gerado, houver proposta de retirada do legado ou mudança de idioma/fluxo de upload.
 - **Relação:** complementa ADR-0018, ADR-0022/0026 e ADR-0025; não substitui decisões aceitas.
+
+## Adendo de execução — 21/10/2026, issue #154
+
+O responsável solicitou explicitamente a implementação opt-in em PR separado, conforme este ADR, com
+testes de compatibilidade, legado padrão e sem alterar limites, segurança ou ativação. Essa instrução
+aceita a decisão de protocolo aqui especificada e autoriza somente a fatia do servidor. Não autoriza
+merge deste novo PR, deploy, ativação, adesão de clientes, troca de padrão ou retirada do legado.
+
+Os pré-requisitos foram concluídos separadamente: inventário inicial #152 (projeto em fase inicial,
+sem consumidores externos de upload, conforme o responsável) e fidelidade OpenAPI #153 integrada pelo
+PR #160 (`41b5059`). Nenhum consumidor real de POST de foto foi encontrado na SPA. Portanto, não se cria
+uma página ou um adaptador de produção para simular adoção; o cliente e o alerta existentes conservam
+o fallback local. As mensagens específicas da tabela abaixo continuam reservadas ao futuro consumidor.
+
+A implementação da #154 usa `Media/PhotoValidationProblems.cs` somente nas duas recusas de
+`PhotoEndpoints.RefuseHeaders`: um pedido exato e único seleciona codes-v1; os demais mantêm os literais.
+Ambos os formatos combinam Vary, e somente as recusas codificadas confirmam o formato. Regras de domínio,
+ordem dos returns, middleware e configuração permanecem. O seletor é opcional nos metadados code-first.
+
+[Relatório de implementação, testes e limites](../../testing/reports/2026-10-21-issue-154-opt-in.md).
+Os testes exercitam Kestrel, PostgreSQL e a configuração versionada do Caddy em infraestrutura sintética;
+os ensaios do cliente usam explicitamente transporte simulado e capturas históricas do servidor anterior.
+Isso não representa homologação de cliente aderente nem rollout. A retirada/default continua exigindo
+decisão própria e não recebe prazo. As evidências e frases sobre “esta entrega documental” nas seções
+originais abaixo descrevem a proposta anterior à autorização, não o estado desta implementação.
 
 ## Contexto e evidências
 
