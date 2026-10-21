@@ -313,6 +313,37 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
     }
 
+    [Fact]
+    public async Task BackwardClockDoesNotResolveAnExistingIncidentOrDeleteArtifacts()
+    {
+        await using var h = await Prepared();
+        h.Time.Advance(TimeSpan.FromHours(72));
+        var notices = new Notices();
+        await new CountryDatabaseHealthService(new(h.Source, h.Time), h.Validator, h.Root, notices, enabled: true).RunOnceAsync(Ct);
+        var wrongTime = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(h.Time.GetUtcNow().AddHours(-2));
+        var wrongStore = new CountryDatabaseOperationsStore(h.MaintenanceSource, wrongTime);
+        await new CountryDatabaseHealthService(wrongStore, h.Validator, h.Root, notices, enabled: true).RunOnceAsync(Ct);
+        await new CountryDatabaseRetentionService(wrongStore, h.Root, enabled: true).RunOnceAsync(Ct);
+        Assert.Equal(0L, await Count(h.Source,
+            "select count(*) from ops.country_database_notifications where code='Age' and recovered"));
+        Assert.Single(Directory.GetFiles(h.Root));
+        using var restarted = new ActiveCountryDatabase(h.Root, h.Validator, wrongTime);
+        Assert.False(await restarted.RefreshAsync(new(h.Source, wrongTime, TimeSpan.FromMinutes(2)), Ct));
+    }
+
+    [Fact]
+    public async Task InactiveIncidentAndEventMetadataAreRemovedAt90Days()
+    {
+        await using var h = await Prepared();
+        File.Delete(Path.Combine(h.Root, (await h.Store.ReadActiveAsync(Ct))!.Sha256 + ".mmdb"));
+        await new CountryDatabaseHealthService(new(h.Source, h.Time), h.Validator, h.Root, new Notices(), enabled: true).RunOnceAsync(Ct);
+        h.Time.Advance(TimeSpan.FromDays(90));
+        await new CountryDatabaseRetentionService(new(h.MaintenanceSource, h.Time), h.Root, enabled: true).RunOnceAsync(Ct);
+        Assert.Equal(0L, await Count(h.Source, "select count(*) from ops.country_database_incidents"));
+        Assert.Equal(0L, await Count(h.Source,
+            "select count(*) from ops.country_database_notifications where code='MissingBase'"));
+    }
+
     private async Task<CountryDatabasePipelineTests.Harness> Prepared()
     {
         var h = await CountryDatabasePipelineTests.Harness.Create(postgres);
