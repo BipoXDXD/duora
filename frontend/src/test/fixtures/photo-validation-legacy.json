@@ -1,0 +1,107 @@
+{
+  "source": "docs/testing/evidence/adr-0034/observations.json",
+  "base": "6ade44a8f4cf88be1b7250aeb7d26dce9d34f656",
+  "note": "Immutable sanitized historical HTTP 400 captures; local test fixture so the frontend build needs only frontend/. Not a live consumer or server.",
+  "responses": [
+    {
+      "name": "body-empty-pt",
+      "status": 400,
+      "body": {
+        "type": "urn:duora:problem:validation-failed",
+        "title": "The request contains invalid fields.",
+        "status": 400,
+        "errors": {
+          "body": ["A foto está vazia."]
+        },
+        "code": "VALIDATION_FAILED",
+        "traceId": "00-11111111111111111111111111111111-2222222222222222-00"
+      },
+      "headers": {
+        "Cache-Control": ["no-store"],
+        "Pragma": ["no-cache"],
+        "Content-Type": ["application/problem+json"]
+      },
+      "traceIdRedacted": true
+    },
+    {
+      "name": "body-empty-en",
+      "status": 400,
+      "body": {
+        "type": "urn:duora:problem:validation-failed",
+        "title": "The request contains invalid fields.",
+        "status": 400,
+        "errors": {
+          "body": ["A foto está vazia."]
+        },
+        "code": "VALIDATION_FAILED",
+        "traceId": "00-11111111111111111111111111111111-2222222222222222-00"
+      },
+      "headers": {
+        "Cache-Control": ["no-store"],
+        "Pragma": ["no-cache"],
+        "Content-Type": ["application/problem+json"]
+      },
+      "traceIdRedacted": true
+    },
+    {
+      "name": "key-missing",
+      "status": 400,
+      "body": {
+        "type": "urn:duora:problem:validation-failed",
+        "title": "The request contains invalid fields.",
+        "status": 400,
+        "errors": {
+          "Idempotency-Key": ["Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'."]
+        },
+        "code": "VALIDATION_FAILED",
+        "traceId": "00-11111111111111111111111111111111-2222222222222222-00"
+      },
+      "headers": {
+        "Cache-Control": ["no-store"],
+        "Pragma": ["no-cache"],
+        "Content-Type": ["application/problem+json"]
+      },
+      "traceIdRedacted": true
+    },
+    {
+      "name": "key-invalid",
+      "status": 400,
+      "body": {
+        "type": "urn:duora:problem:validation-failed",
+        "title": "The request contains invalid fields.",
+        "status": 400,
+        "errors": {
+          "Idempotency-Key": ["Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'."]
+        },
+        "code": "VALIDATION_FAILED",
+        "traceId": "00-11111111111111111111111111111111-2222222222222222-00"
+      },
+      "headers": {
+        "Cache-Control": ["no-store"],
+        "Pragma": ["no-cache"],
+        "Content-Type": ["application/problem+json"]
+      },
+      "traceIdRedacted": true
+    },
+    {
+      "name": "body-empty-optin-ignored",
+      "status": 400,
+      "body": {
+        "type": "urn:duora:problem:validation-failed",
+        "title": "The request contains invalid fields.",
+        "status": 400,
+        "errors": {
+          "body": ["A foto está vazia."]
+        },
+        "code": "VALIDATION_FAILED",
+        "traceId": "00-11111111111111111111111111111111-2222222222222222-00"
+      },
+      "headers": {
+        "Cache-Control": ["no-store"],
+        "Pragma": ["no-cache"],
+        "Content-Type": ["application/problem+json"]
+      },
+      "traceIdRedacted": true
+    }
+  ]
+}
