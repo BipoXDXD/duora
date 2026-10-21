@@ -42,7 +42,7 @@ public sealed class SecurityNoticeDispatchTests(PostgresFixture postgres)
         Assert.Contains(subjectLine + "\n", mail, StringComparison.Ordinal);
         Assert.Contains("em 2030-01-02 03:04 UTC", mail, StringComparison.Ordinal);
         Assert.Contains("on 2030-01-02 03:04 UTC", mail, StringComparison.Ordinal);
-        Assert.Contains($"{EmailOutboxHarness.PublicOrigin}/conta\n", mail, StringComparison.Ordinal);
+        Assert.Contains($"{EmailOutboxHarness.PublicOrigin}/account\n", mail, StringComparison.Ordinal);
     }
 
     public static TheoryData<SecurityChange, EmailLanguage> WrittenNotices()

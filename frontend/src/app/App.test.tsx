@@ -62,7 +62,7 @@ describe('idioma inicial', () => {
   it('a tag antiga en, guardada antes do ADR-0026, abre em en-US e é regravada', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en')
     useBrowserLanguages(['pt-BR'])
-    await renderAppAt('/entrar')
+    await renderAppAt('/login')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Sign in' })).toBeInTheDocument()
     expect(document.documentElement.lang).toBe('en-US')
@@ -72,7 +72,7 @@ describe('idioma inicial', () => {
   it('a escolha guardada vence o idioma do navegador', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en-US')
     useBrowserLanguages(['pt-BR'])
-    await renderAppAt('/entrar')
+    await renderAppAt('/login')
 
     expect(screen.getByRole('heading', { level: 1, name: 'Sign in' })).toBeInTheDocument()
     expect(document.title).toBe('Sign in · Duora')
@@ -90,7 +90,7 @@ describe('idioma inicial', () => {
 describe('seletor de idioma', () => {
   it('trocar para inglês atualiza textos, título, lang e guarda a escolha', async () => {
     useBrowserLanguages(['pt-BR'])
-    const { user } = await renderAppAt('/entrar')
+    const { user } = await renderAppAt('/login')
     expect(document.title).toBe('Entrar · Duora')
 
     await user.click(within(languageGroup()).getByRole('button', { name: 'English' }))
@@ -160,7 +160,7 @@ describe('seletor de idioma', () => {
 
   it('erro de validação já exibido muda de idioma junto com a interface', async () => {
     useBrowserLanguages(['pt-BR'])
-    const { user } = await renderAppAt('/entrar')
+    const { user } = await renderAppAt('/login')
     await user.click(screen.getByRole('button', { name: 'Entrar' }))
     expect(await screen.findByText('Informe seu e-mail.')).toBeInTheDocument()
 
@@ -190,7 +190,7 @@ describe('troca de identidade em outra aba (T-21)', () => {
       ),
       http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
     )
-    await renderAppAt('/conta')
+    await renderAppAt('/account')
     expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
 
     signedIn = false

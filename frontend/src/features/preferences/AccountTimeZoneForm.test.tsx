@@ -63,7 +63,7 @@ describe.each([
 ] as const)('explicit account zone / $locale', ({ locale, label, device, save, saved, reload }) => {
   it('starts unset, validates, requires Save for device fill, saves and removes without declaring languages', async () => {
     const api = useBackend(locale)
-    const { user, queryClient } = await renderApp('/conta/preferencias')
+    const { user, queryClient } = await renderApp('/account/preferences')
     const field = await screen.findByRole('combobox', { name: label })
     expect(field).toHaveValue('')
     await user.type(field, 'Mars/Olympus')
@@ -88,7 +88,7 @@ describe.each([
   })
   it('accepts a device alias and persists the server-supported IANA identifier', async () => {
     const api = useBackend(locale)
-    const { user } = await renderApp('/conta/preferencias')
+    const { user } = await renderApp('/account/preferences')
     await user.type(await screen.findByRole('combobox', { name: label }), 'Asia/Calcutta')
     await user.click(screen.getByRole('button', { name: save }))
     await screen.findByText(saved)
@@ -96,7 +96,7 @@ describe.each([
   })
   it('keeps a conflicting draft, reloads the version and saves only after another explicit action', async () => {
     const api = useBackend(locale)
-    const { user } = await renderApp('/conta/preferencias')
+    const { user } = await renderApp('/account/preferences')
     const field = await screen.findByRole('combobox', { name: label })
     await user.type(field, 'America/Sao_Paulo')
     api.state.timeZone = 'UTC'
@@ -131,7 +131,7 @@ it('does not apply a delayed save to another signed-in account', async () => {
       return HttpResponse.json({ timeZone: 'America/New_York', version: '1' })
     }),
   )
-  const { user, queryClient } = await renderApp('/conta/preferencias')
+  const { user, queryClient } = await renderApp('/account/preferences')
   await user.type(await screen.findByRole('combobox', { name: 'Fuso horário da conta (opcional)' }), 'America/New_York')
   await user.click(screen.getByRole('button', { name: 'Salvar fuso horário' }))
   await waitFor(() => {

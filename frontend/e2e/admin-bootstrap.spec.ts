@@ -66,8 +66,8 @@ async function mockBootstrapApi(page: Page, context: BrowserContext): Promise<un
 
 test('senha temporária → senha própria → MFA, inclusive reload e navegação direta', async ({ page, context }) => {
   const received = await mockBootstrapApi(page, context)
-  await page.goto('/conta/perfil')
-  await expect(page).toHaveURL(/trocar-senha-inicial$/)
+  await page.goto('/account/profile')
+  await expect(page).toHaveURL(/change-initial-password$/)
   await page.reload()
   await expect(page.getByLabel('Senha temporária')).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
@@ -75,7 +75,7 @@ test('senha temporária → senha própria → MFA, inclusive reload e navegaç�
   await page.getByLabel('Senha nova', { exact: true }).fill(' minha senha longa própria ')
   await page.getByLabel('Confirme a nova senha').fill(' minha senha longa própria ')
   await page.getByRole('button', { name: 'Salvar senha nova' }).click()
-  await expect(page).toHaveURL(/conta\/ativar-mfa$/)
+  await expect(page).toHaveURL(/account\/enable-mfa$/)
   expect(received).toEqual([{ currentPassword: 'SYNTHETIC-TEMPORARY', newPassword: ' minha senha longa própria ' }])
   await page.getByRole('button', { name: 'Configurar autenticador' }).click()
   await expect(page.getByText('SYNTHETICKEY')).toBeVisible()
@@ -87,7 +87,7 @@ test('senha temporária → senha própria → MFA, inclusive reload e navegaç�
   await expect(page.getByRole('status')).toBeFocused()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
   await page.getByRole('button', { name: 'Guardei os códigos, continuar' }).click()
-  await expect(page).toHaveURL(/conta$/)
+  await expect(page).toHaveURL(/account$/)
   await expect(page.getByText('synthetic-recovery')).toHaveCount(0)
 })
 
@@ -96,7 +96,7 @@ test.describe('jornada do bootstrap em inglês (navegador em en-US)', () => {
 
   test('initial password → own password → MFA, com axe em cada tela', async ({ page, context }) => {
     const received = await mockBootstrapApi(page, context)
-    await page.goto('/conta')
+    await page.goto('/account')
     await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
     await expect(page.getByRole('heading', { level: 1, name: 'Change your initial password' })).toBeVisible()
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
@@ -114,6 +114,6 @@ test.describe('jornada do bootstrap em inglês (navegador em en-US)', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Save your recovery codes' })).toBeVisible()
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
     await page.getByRole('button', { name: 'I saved the codes, continue' }).click()
-    await expect(page).toHaveURL(/conta$/)
+    await expect(page).toHaveURL(/account$/)
   })
 })

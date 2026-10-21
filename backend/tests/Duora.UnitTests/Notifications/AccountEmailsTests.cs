@@ -24,6 +24,7 @@ public sealed class AccountEmailsTests
             .Single(word => word.StartsWith("https://", StringComparison.Ordinal));
         Assert.DoesNotContain("01234567", link, StringComparison.Ordinal);
         Assert.Contains("token=code", link, StringComparison.Ordinal);
+        Assert.Equal("/confirm-email", new Uri(link).AbsolutePath);
     }
 
     [Fact]
@@ -35,7 +36,7 @@ public sealed class AccountEmailsTests
 
         Assert.Equal(Recipient, email.To);
         Assert.Contains(
-            "https://duora.example/confirmar-email#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
+            "https://duora.example/confirm-email#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
             email.TextBody,
             StringComparison.Ordinal);
     }
@@ -48,7 +49,7 @@ public sealed class AccountEmailsTests
         var email = emails.PasswordReset(Recipient, UserId, "tok-en_1", EmailLanguage.BrazilianPortuguese);
 
         Assert.Contains(
-            "https://duora.example/redefinir-senha#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
+            "https://duora.example/reset-password#userId=0199d700-7f20-7000-8000-000000000001&token=tok-en_1",
             email.TextBody,
             StringComparison.Ordinal);
     }
@@ -84,7 +85,7 @@ public sealed class AccountEmailsTests
         var email = emails.RegistrationAttemptOnExistingAccount(Recipient, EmailLanguage.BrazilianPortuguese);
 
         Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
-        Assert.Contains("https://duora.example/recuperar-senha", email.TextBody, StringComparison.Ordinal);
+        Assert.Contains("https://duora.example/forgot-password", email.TextBody, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -95,8 +96,8 @@ public sealed class AccountEmailsTests
         var email = emails.PendingRegistrationReminder(Recipient, EmailLanguage.BrazilianPortuguese);
 
         Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("confirmar-email", email.TextBody, StringComparison.Ordinal);
-        Assert.Contains("https://duora.example/cadastro", email.TextBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("confirm-email", email.TextBody, StringComparison.Ordinal);
+        Assert.Contains("https://duora.example/register", email.TextBody, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -107,7 +108,7 @@ public sealed class AccountEmailsTests
         var email = emails.PasswordResetForUnknownAddress(Recipient, EmailLanguage.BrazilianPortuguese);
 
         Assert.DoesNotContain("token=", email.TextBody, StringComparison.Ordinal);
-        Assert.Contains("https://duora.example/cadastro", email.TextBody, StringComparison.Ordinal);
+        Assert.Contains("https://duora.example/register", email.TextBody, StringComparison.Ordinal);
     }
 
     private static EmailAddress ParseEmail(string value) =>
