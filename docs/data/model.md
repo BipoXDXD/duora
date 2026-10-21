@@ -146,6 +146,8 @@ erDiagram
 
 ### identity.users
 
+Preferência de apresentação (issue #81, aprovação de 2026-10-21): `preferred_time_zone text null` e `time_zone_version bigint not null default 0`, privados do titular. Sem migração por idioma/residência. Escolha IANA suportada ou null explícito via recurso ETag/If-Match; versão independente de matching e segurança. Atualização Identity não sobrescreve estes campos. A migração aditiva é preservada em rollback. Avisos de credenciais capturam a escolha na outbox; referência UTC e datas civis permanecem intactas. Ver [contrato e rollout](../testing/event-time-zones.md).
+
 - **Colunas:** `id uuid`; `email text` (≤ 254), `normalized_email text`, `email_confirmed boolean`;
   `password_hash text`; `security_stamp text`, `concurrency_stamp text` (Identity);
   `two_factor_enabled boolean`; `lockout_end timestamptz`, `lockout_enabled boolean`,

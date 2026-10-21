@@ -85,6 +85,8 @@ internal static class IdentityModelConfiguration
         user.Property(u => u.CreatedAt);
         user.Property(u => u.PreferredLocale);
         user.Property(u => u.LocaleVersion).HasDefaultValue(0L);
+        user.Property(u => u.PreferredTimeZone).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
+        user.Property(u => u.TimeZoneVersion).HasDefaultValue(0L).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Ignore);
         user.Property(u => u.LastTotpStep);
         user.Property(u => u.TemporaryPasswordExpiresAt);
         user.Property(u => u.Email).HasMaxLength(EmailAddress.MaxLength);

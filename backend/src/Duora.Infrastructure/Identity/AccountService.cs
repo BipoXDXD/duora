@@ -280,7 +280,8 @@ public sealed class AccountService
             StoredAddress(user),
             user.Id,
             language,
-            _time.GetUtcNow()));
+            _time.GetUtcNow(),
+            user.PreferredTimeZone));
         await _db.SaveChangesAsync(cancellationToken);
         await check.CommitAsync(cancellationToken);
         return true;

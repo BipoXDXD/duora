@@ -1521,6 +1521,195 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/time-zone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        /** @description Strong version tag; send as If-Match when updating this resource. */
+                        ETag: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OwnTimeZoneResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header: {
+                    "If-Match": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateTimeZoneRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        /** @description Strong version tag; send as If-Match when updating this resource. */
+                        ETag: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OwnTimeZoneResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Failed */
+                412: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Required */
+                428: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/time-zone/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TimeZoneOptionsResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events": {
         parameters: {
             query?: never;
@@ -3002,6 +3191,7 @@ export interface components {
             mfaEnabled: boolean;
             roles: string[];
             preferredLocale?: null | string;
+            preferredTimeZone?: null | string;
         };
         /** @description Cadastro do TOTP (API-A11): mostrado uma vez, com `Cache-Control: no-store`. */
         MfaEnrollmentResponse: {
@@ -3047,6 +3237,10 @@ export interface components {
              * @enum {null|string}
              */
             subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
+        };
+        OwnTimeZoneResponse: {
+            timeZone: null | string;
+            version: string;
         };
         ParticipationResponse: {
             state: string;
@@ -3260,6 +3454,9 @@ export interface components {
         StartSelfieVerificationRequest: Record<string, never>;
         /** Format: binary */
         Stream: string;
+        TimeZoneOptionsResponse: {
+            timeZones: string[];
+        };
         UpdateLocaleRequest: {
             locale: null | string;
         };
@@ -3293,6 +3490,9 @@ export interface components {
              * @enum {null|string}
              */
             subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
+        };
+        UpdateTimeZoneRequest: {
+            timeZone: null | string;
         };
     };
     responses: never;
