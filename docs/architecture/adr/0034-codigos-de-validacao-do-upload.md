@@ -1,6 +1,6 @@
 # ADR-0034: Migração compatível das validações legadas de upload
 
-- **Status:** Proposed (2026-10-21); decisão para revisão, implementação pendente.
+- **Status:** Accepted (2026-10-21), por decisão explícita do responsável na #154; implementação delimitada autorizada, evidências em entrega própria.
 - **Origem:** [issue #141](https://github.com/BipoXDXD/duora/issues/141), [PR #128](https://github.com/BipoXDXD/duora/pull/128) e [plano integrado pelo PR #145](../../superpowers/plans/2026-10-21-issue-141-upload-validation-codes.md).
 - **Revisar quando:** aparecer consumidor externo, negociação não atravessar intermediários/cliente gerado, houver proposta de retirada do legado ou mudança de idioma/fluxo de upload.
 - **Relação:** complementa ADR-0018, ADR-0022/0026 e ADR-0025; não substitui decisões aceitas.
@@ -12,8 +12,8 @@ mensagens bilíngues, limites dos consumidores e critérios verificáveis. A con
 significa que a migração esteja implementada. Base desta conferência: `95d9da8a5552b631c49fdc87c189a313f74969cc`.
 Todos os caminhos abaixo são relativos à raiz do repositório nessa revisão.
 
-Escopo: API-M01 (`POST /api/v1/me/photos`), INV-06 (efeito único), INV-12 (limites da automação), T-16
-(upload seguro), T-06 (idempotência) e T-13 (CSRF). Alteram-se apenas documentos nesta entrega.
+Escopo da análise original: API-M01 (`POST /api/v1/me/photos`), INV-06 (efeito único), INV-12 (limites da automação), T-16
+(upload seguro), T-06 (idempotência) e T-13 (CSRF). A entrega original deste ADR foi exclusivamente documental; aceite e implementação posteriores não devem ser confundidos com essa análise.
 
 | Evidência | Constatação e limite |
 |---|---|
@@ -54,10 +54,10 @@ semântica das strings de errors.
 | Adesão explícita por requisição | Conserva o corpo legado para clientes existentes; permite retirar adesão sem migrar dados | Dois formatos, confirmação e testes de intermediários/clientes | Recomendada, conforme plano #145 |
 | Novo endpoint/versão | Separação explícita dos contratos | Duplica superfície, documentação e suporte para dois valores | Reserva se a negociação se mostrar inviável |
 
-## Decisão proposta
+## Decisão aceita
 
-Vamos manter o legado como padrão e oferecer `codes-v1` somente por adesão explícita, após autorização da
-implementação. Não haverá troca baseada em idioma, versão presumida do cliente ou estado global da conta.
+Vamos manter o legado como padrão e oferecer `codes-v1` somente por adesão explícita. O responsável aceitou a decisão e autorizou a implementação
+delimitada em 21/10/2026 ([registro na #154](https://github.com/BipoXDXD/duora/issues/154#issuecomment-6324737616)). Não haverá troca baseada em idioma, versão presumida do cliente ou estado global da conta.
 
 | Campo | Valor em codes-v1 | Semântica estável |
 |---|---|---|
@@ -114,9 +114,9 @@ uma tela inexistente. Até haver esse fluxo, o alerta atual continua exibindo o 
 mensagens específicas por campo como comportamento atual. Um teste de componente pode provar o adaptador
 sem criar uma página; E2E de upload depende da existência de um fluxo real.
 
-## Compliance: testes de contrato a implementar depois
+## Critérios de contrato da implementação
 
-Todos os cenários abaixo são **especificações futuras**, não testes executados nesta entrega.
+Os cenários abaixo são critérios de aceite. A publicação original do ADR não os executou; os resultados da implementação devem constar de relatório e CI próprios, sem presumir homologação por este documento.
 
 Para cada recusa alvo: autenticação/CSRF válidos e upload habilitado; conferir HTTP 400 e status do corpo
 400, `application/problem+json`, código principal `VALIDATION_FAILED`, type
@@ -191,7 +191,7 @@ de dados a desfazer. Ensaiar esse cenário antes da release e anexar evidência 
 - Trade-off: pequeno custo de protocolo por compatibilidade semântica; versionar endpoint se esse custo
   não puder ser sustentado pelos clientes/intermediários suportados.
 
-A implementação requer autorização posterior explícita que cite este ADR e o plano integrado. Ordem:
+A autorização explícita de implementação foi registrada na #154 em 21/10/2026, sob a instrução do responsável de concluir as issues. Ordem aprovada:
 
 1. Fixar baseline HTTP dos literais/precedência/efeitos em PhotoUploadTests e KestrelPhotoUploadTests,
    reaproveitando ProblemAssert; PostgreSQL real para efeitos transacionais.
@@ -202,6 +202,13 @@ A implementação requer autorização posterior explícita que cite este ADR e 
 4. Resolver em trabalho separado o inventário externo e a fidelidade de extensões no schema. Aprovar
    adoção/release e, somente após critérios próprios, propor retirada ou mudança do padrão.
 
-Executar checks exigidos por AGENTS.md/CI no SHA da implementação futura, incluindo contrato, segurança e
-suítes completas. Aprovação deste ADR não autoriza implementação, merge de código, ativação de upload ou
-deploy. A presente entrega é exclusivamente documental; não comprova esses testes futuros nem homologação.
+Executar checks exigidos por AGENTS.md/CI no SHA da implementação, incluindo contrato, segurança e
+suítes completas. O responsável autorizou push/merge após testes e checks aprovados; isso não autoriza
+ativação de upload, adesão de cliente, retirada do legado ou deploy como efeito desta issue. O registro
+documental do aceite não comprova execução de testes nem homologação operacional.
+
+A investigação de fidelidade citada no contexto foi resolvida separadamente pela #153/PR #160, commit
+`41b505955d629c6d058e7f592b0037c380798b53`: code/traceId opcionais nos dois schemas fechados,
+sem mudar runtime. O inventário #152 foi concluído para esta fase com confirmação do responsável de
+que não há consumidores externos. A SPA continua sem fluxo de upload. Essas evidências não dispensam
+os testes da negociação nem autorizam criar uma tela ou retirar o legado.

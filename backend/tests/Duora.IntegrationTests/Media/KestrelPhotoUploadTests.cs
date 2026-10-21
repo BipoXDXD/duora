@@ -19,38 +19,47 @@ namespace Duora.IntegrationTests.Media;
 /// HTTPS com certificado autoassinado gerado no teste, porque os cookies e o antiforgery exigem conexão segura.
 /// </summary>
 [Trait("Acceptance", "T-16")]
-public sealed class KestrelPhotoUploadTests : IAsyncLifetime
+public sealed partial class KestrelPhotoUploadTests : IAsyncLifetime
 {
     private readonly PostgresFixture _postgres;
-    private readonly DuoraWebFactory _accounts;
-    private readonly DuoraWebFactory _kestrel;
+    private DuoraWebFactory _accounts = null!;
+    private DuoraWebFactory _kestrel = null!;
+    private string _connectionString = "";
     private HttpClient? _http;
+    private Uri? _proxyBackend;
 
-    public KestrelPhotoUploadTests(PostgresFixture postgres)
+    public KestrelPhotoUploadTests(PostgresFixture postgres) => _postgres = postgres;
+
+    private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
+
+    public async ValueTask InitializeAsync()
     {
-        _postgres = postgres;
-        _accounts = new DuoraWebFactory(postgres.ConnectionString);
-        _kestrel = new DuoraWebFactory(postgres.ConnectionString)
+        // Each case owns its database so direct outbox counts also catch orphaned events and deliveries.
+        _connectionString = await _postgres.CreateMigratedDatabaseAsync(Cancellation);
+        _accounts = new DuoraWebFactory(_connectionString);
+        _kestrel = new DuoraWebFactory(_connectionString)
         {
             Settings = new Dictionary<string, string?>
             {
                 ["Media:MinUploadBytesPerSecond"] = "2000",
                 ["Media:MinUploadRateGracePeriod"] = "00:00:02",
+                // The test proxy reaches Kestrel through the loopback SSH bridge only.
+                ["ReverseProxy:KnownNetworks:0"] = "127.0.0.1/32",
             },
         };
-    }
-
-    private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
-
-    public ValueTask InitializeAsync()
-    {
         using var certificate = SelfSignedCertificate();
         var exported = X509CertificateLoader.LoadPkcs12(certificate.Export(X509ContentType.Pfx), password: null);
-        _kestrel.UseKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(exported)));
+        _kestrel.UseKestrel(kestrel =>
+        {
+            kestrel.Listen(IPAddress.Loopback, 0, listen => listen.UseHttps(exported));
+            // The edge talks HTTP to web in production; the synthetic bridge is restricted to loopback.
+            kestrel.Listen(IPAddress.Loopback, 0);
+        });
         _kestrel.StartServer();
         var addresses = _kestrel.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()
             ?? throw new InvalidOperationException("Kestrel sem endereço.");
-        var address = addresses.Addresses.Single();
+        var address = addresses.Addresses.Single(a => a.StartsWith("https://", StringComparison.Ordinal));
+        _proxyBackend = new Uri(addresses.Addresses.Single(a => a.StartsWith("http://", StringComparison.Ordinal)));
         var thumbprint = exported.Thumbprint;
         _http = new HttpClient(new SocketsHttpHandler
         {
@@ -68,7 +77,6 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
             BaseAddress = new Uri(address),
             Timeout = TimeSpan.FromSeconds(60),
         };
-        return ValueTask.CompletedTask;
     }
 
     public async ValueTask DisposeAsync()
@@ -90,8 +98,10 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
     }
 
-    [Fact]
-    public async Task AnotherRouteStillRefusesMoreThan32KiB()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnotherRouteStillRefusesMoreThan32KiB(bool codes)
     {
         var session = await SignInAsync();
         var json = "{\"email\":\"" + new string('a', (32 * 1024) + 1) + "\",\"password\":\"x\"}";
@@ -100,23 +110,33 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
         };
 
+        if (codes)
+        {
+            request.Headers.Add(PhotoValidationAssertions.Header, "codes-v1");
+        }
         using var response = await session.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        PhotoValidationAssertions.NoProtocolHeaders(response);
     }
 
-    [Fact]
-    public async Task ASlowBodyIsCutAndLeavesNoReservation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ASlowBodyIsCutAndLeavesNoReservation(bool codes)
     {
         // O cliente manda ~800 B/s por até 30 s: acima do padrão do Kestrel (240 B/s), abaixo dos 2000 B/s que a rota
         // fixa depois de 2 s. A reserva tem de sumir bem antes de o cliente parar: é a taxa da rota que corta.
         var session = await SignInAsync();
-        var media = new MediaScenario(_postgres, _kestrel);
+        var media = new MediaScenario(_connectionString, _kestrel);
         using var clientGivesUp = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
         clientGivesUp.CancelAfter(TimeSpan.FromSeconds(30));
-        var sending = session.SendIgnoringFailureAsync(
-            Upload(new SlowContent(totalBytes: 64 * 1024, chunk: 16, pause: TimeSpan.FromMilliseconds(20), clientGivesUp.Token)),
-            clientGivesUp.Token);
+        using var request = Upload(new SlowContent(totalBytes: 64 * 1024, chunk: 16, pause: TimeSpan.FromMilliseconds(20), clientGivesUp.Token));
+        if (codes)
+        {
+            request.Headers.Add(PhotoValidationAssertions.Header, "codes-v1");
+        }
+        var sending = session.SendIgnoringFailureAsync(request, clientGivesUp.Token);
 
         var reserved = await WaitUntilAsync(async () => (await media.UploadsOfAsync(session.UserId)).Count == 1, TimeSpan.FromSeconds(10));
         var released = reserved
@@ -136,29 +156,57 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
     [InlineData("empty", "en-US")]
     [InlineData("missing-key", "en-US")]
     [InlineData("invalid-key", "en-US")]
-    [InlineData("ignored-format", "en-US")]
+    [InlineData("codes-format", "en-US")]
+    [InlineData("codes-format", "pt-BR")]
+    [InlineData("codes-key", "en-US")]
+    [InlineData("duplicate-format", "en-US")]
+    [InlineData("list-format", "en-US")]
+    [InlineData("case-format", "en-US")]
+    [InlineData("empty-format", "en-US")]
+    [InlineData("unknown-format", "en-US")]
     [InlineData("unsupported-type", "en-US")]
     public async Task UploadRefusalsSatisfyTheGeneratedAndPublishedErrorSchemas(string scenario, string locale)
     {
         var session = await SignInAsync();
-        var empty = scenario is "empty" or "ignored-format";
+        var empty = scenario is "empty" or "codes-format" or "duplicate-format" or "list-format" or "case-format" or "empty-format" or "unknown-format";
         var content = new ByteArrayContent(empty ? [] : MediaScenario.JpegLike());
         content.Headers.ContentType = new MediaTypeHeaderValue(scenario == "unsupported-type" ? "text/html" : "image/jpeg");
         using var request = Upload(content);
         request.Headers.Add("Accept-Language", locale);
-        if (scenario is "missing-key" or "invalid-key")
+        if (scenario is "missing-key" or "invalid-key" or "codes-key")
         {
             request.Headers.Remove("Idempotency-Key");
-            if (scenario == "invalid-key")
+            if (scenario is "invalid-key" or "codes-key")
             {
                 request.Headers.Add("Idempotency-Key", "bad key");
             }
         }
-        if (scenario == "ignored-format")
+        if (scenario is "codes-format" or "codes-key")
         {
             request.Headers.Add("Duora-Validation-Format", "codes-v1");
         }
 
+        if (scenario == "duplicate-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "codes-v1");
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "codes-v1");
+        }
+        if (scenario == "list-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "codes-v1, codes-v1");
+        }
+        if (scenario == "case-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "CODES-V1");
+        }
+        if (scenario == "empty-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "");
+        }
+        if (scenario == "unknown-format")
+        {
+            request.Headers.TryAddWithoutValidation("Duora-Validation-Format", "unknown");
+        }
         using var response = await session.SendAsync(request);
 
         var unsupported = scenario == "unsupported-type";
@@ -172,18 +220,56 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
             var field = empty ? "body" : "Idempotency-Key";
             Assert.Equal([field], errors.Select(p => p.Key));
             Assert.Equal(
-                empty ? "A foto está vazia." : "Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.",
+                scenario == "codes-format" ? "PHOTO_BODY_EMPTY" : scenario == "codes-key" ? "IDEMPOTENCY_KEY_INVALID" : empty ? "A foto está vazia." : "Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.",
                 errors[field]![0]!.GetValue<string>());
             Assert.Single(errors[field]!.AsArray());
         }
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         Assert.Equal("no-cache", Assert.Single(response.Headers.Pragma).Name);
-        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
+        Assert.Equal(scenario is "codes-format" or "codes-key", response.Headers.Contains("Duora-Validation-Format"));
+        if (scenario is "codes-format" or "codes-key")
+        {
+            Assert.Equal("codes-v1", Assert.Single(response.Headers.GetValues("Duora-Validation-Format")));
+        }
+        if (!unsupported)
+        {
+            Assert.Contains("Duora-Validation-Format", response.Headers.Vary);
+        }
         Assert.False(response.Headers.Contains("Retry-After"));
-        var media = new MediaScenario(_postgres, _kestrel);
+        var media = new MediaScenario(_connectionString, _kestrel);
         Assert.Empty(await media.UploadsOfAsync(session.UserId));
         Assert.Equal(0, media.StoredObjectCount());
         await ProblemSchemaAssertions.MatchesUploadRefusalAsync(_kestrel, response, body);
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(false, "codes-v1")]
+    [InlineData(true, null)]
+    [InlineData(true, "codes-v1")]
+    public async Task NegotiationPreservesMissingAndExcessiveLengthOverRealHttps(bool excessive, string? selector)
+    {
+        var session = await SignInAsync();
+        using HttpContent content = excessive
+            ? new ByteArrayContent(MediaScenario.JpegLike((5 * 1024 * 1024) + 1))
+            : new StreamContent(new ForwardOnlyStream(MediaScenario.JpegLike()));
+        content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+        using var request = Upload(content);
+        // Let the server refuse the declared size before this client transmits a body it will not read.
+        request.Headers.ExpectContinue = true;
+        request.Headers.Remove("Idempotency-Key");
+        if (selector is not null)
+        {
+            request.Headers.Add("Duora-Validation-Format", selector);
+        }
+        using var response = await session.SendAsync(request);
+        await ProblemAssert.IsProblemAsync(response,
+            excessive ? HttpStatusCode.RequestEntityTooLarge : HttpStatusCode.LengthRequired,
+            excessive ? "PAYLOAD_TOO_LARGE" : "LENGTH_REQUIRED");
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
+        var media = new MediaScenario(_connectionString, _kestrel);
+        Assert.Empty(await media.UploadsOfAsync(session.UserId));
+        Assert.Equal(0, media.StoredObjectCount());
     }
 
     private static async Task<bool> WaitUntilAsync(Func<Task<bool>> condition, TimeSpan limit)
@@ -216,10 +302,10 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
         return request;
     }
 
-    private async Task<KestrelSession> SignInAsync()
+    private async Task<KestrelSession> SignInAsync(HttpClient? http = null)
     {
-        var account = await new IdentityScenario(_postgres, _accounts).CreateConfirmedAccountAsync();
-        var session = new KestrelSession(_http ?? throw new InvalidOperationException("Servidor não iniciado."), account.UserId);
+        var account = await new IdentityScenario(_connectionString, _accounts).CreateConfirmedAccountAsync();
+        var session = new KestrelSession(http ?? _http ?? throw new InvalidOperationException("Servidor não iniciado."), account.UserId);
         using (var csrf = await session.SendAsync(new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/csrf")))
         {
             Assert.Equal(HttpStatusCode.NoContent, csrf.StatusCode);
