@@ -1,0 +1,15 @@
+# Observador sem portas ou volumes; o executor externo gerencia o runtime.
+# Configure DUORA_OBSERVER_IMAGE com o digest imutável da edge da release aprovada.
+services:
+  deployment-observer:
+    image: ${DUORA_OBSERVER_IMAGE:?required immutable edge digest}
+    entrypoint: [/bin/sh, -c, 'exec sleep 2147483647']
+    user: '10001:10001'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 16m
+    pids_limit: 16
+    labels:
+      traefik.enable: 'false'
