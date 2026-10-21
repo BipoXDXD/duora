@@ -11,3 +11,7 @@
   som de prazo, comentário sobre escolhas ou recompensa por pessoas; nenhuma pista ou regra só em áudio.
 - **Limites:** até 120 caracteres por fala; WAV PCM mono 48 kHz para o transporte atual e AAC-LC 64 kbit/s para revisão.
 - **Revisão humana:** conteúdo, tradução, escuta, acessibilidade e aprovação final ainda pendentes.
+
+## Direção para novas tomadas
+
+Conforme ADR-0032, priorizar voz adulta e conversacional, pausas naturais e pronúncia fluente em cada idioma. Evitar cadência robótica, tom publicitário, teatralidade, sedução e urgência. A voz Sarah citada acima identifica o candidato anterior, não uma seleção obrigatória para novas tomadas. Escolher por escuta humana antes de aprovar o áudio.

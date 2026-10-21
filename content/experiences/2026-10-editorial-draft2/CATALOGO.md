@@ -15,7 +15,7 @@ Duas pessoas adultas exploram escolhas cotidianas ou constroem um passeio fictí
 | Campo | PT-BR | EN-US |
 |---|---|---|
 | Título | Constelação de Escolhas | Constellation of Choices |
-| Objetivo e transcrição de intro | Explore escolhas do dia a dia. Você pode pular qualquer cartão. As vozes desta experiência são geradas por IA. | Explore everyday choices. You can skip any card. The voices in this experience are AI-generated. |
+| Objetivo e transcrição de intro | Explore escolhas do dia a dia. Você pode pular qualquer cartão. | Explore everyday choices. You can skip any card. |
 
 ### small-pause
 
@@ -61,7 +61,7 @@ Duas pessoas adultas exploram escolhas cotidianas ou constroem um passeio fictí
 | Campo | PT-BR | EN-US |
 |---|---|---|
 | Título | Rotas Improváveis | Unlikely Routes |
-| Objetivo e transcrição de intro | Planejem um passeio por uma cidade em uma ilha imaginária. As vozes desta experiência são geradas por IA. | Plan a walk through a town on an imaginary island. The voices in this experience are AI-generated. |
+| Objetivo e transcrição de intro | Planejem um passeio por uma cidade em uma ilha imaginária. | Plan an outing through a town on an imaginary island. |
 | Exemplo e instrução pública | Cada pessoa recebe pistas diferentes. Compartilhe o que quiser no idioma combinado. Alternem as três escolhas. Depois, ambos confirmam a rota. Pedir revisão, se disponível, apaga toda a rota. Não há rota certa nem necessidade de informar localização real. | Each person gets different clues. Share what you want in your agreed language. Take turns making three choices. Then both confirm the route. Requesting a revision, if available, clears the whole route. There is no correct route or need to share a real location. |
 
 ### meeting-place
@@ -121,7 +121,7 @@ Textos editoriais para revisão junto da interface existente. Não são novos ca
 |---|---|---|---|
 | common / sound | public | O som é opcional. Todo o conteúdo necessário está disponível em texto. | Sound is optional. All content needed to play is available as text. |
 | common / exit | public | Você pode sair da sala a qualquer momento. Não precisa explicar o motivo. | You can leave the room at any time. You do not need to explain why. |
-| common / speaker | public | Narração da interface — voz gerada por IA. | Interface narration — AI-generated voice. |
+| common / speaker | public | Narração. | Narration. |
 | common / language | public | Usem o idioma combinado para conversar. O jogo não traduz a conversa. | Use your agreed language to talk. The game does not translate your conversation. |
 | constellation / cards | public | Escolha uma opção e confirme, ou pule. Conversar sobre o cartão é opcional. | Choose an option and confirm, or skip. Talking about the card is optional. |
 | constellation / privacy | public | Sua escolha fica privada até ambos escolherem. Se alguém pular, nenhuma escolha aparece. | Your choice stays private until both choose. If either person skips, neither choice is shown. |
@@ -141,12 +141,12 @@ A fala é a transcrição acima, sem adaptação durante a gravação. Somente a
 
 | Experiência | Idioma | Caracteres da fala | Descrição acessível |
 |---|---|---|---|
-| constellation | pt-BR | 110 | Constelação de Escolhas |
-| constellation | en-US | 96 | Constellation of Choices |
-| unlikely-routes | pt-BR | 105 | Rotas Improváveis |
-| unlikely-routes | en-US | 98 | Unlikely Routes |
+| constellation | pt-BR | 63 | Constelação de Escolhas |
+| constellation | en-US | 48 | Constellation of Choices |
+| unlikely-routes | pt-BR | 58 | Rotas Improváveis |
+| unlikely-routes | en-US | 53 | Unlikely Routes |
 
-Os avisos de IA integram o objetivo e a fala proposta para permanecerem disponíveis na introdução e junto da transcrição, sem mudar o contrato de Rotas. Essa redação pressupõe futura voz sintética; só deve acompanhar áudio produzido dessa forma. A identificação visual separada de narrador continua uma lacuna de interface.
+A narração apresenta apenas a experiência. A direção de voz é adulta e conversacional: pausas naturais, pronúncia fluente no idioma e calor discreto, sem tom robótico, publicitário ou teatral. A seleção depende de escuta humana. O rótulo editorial é “Narração” / “Narration”; não simula uma terceira pessoa presente.
 
 ## Produção e limites
 
@@ -161,7 +161,7 @@ O manifesto desta entrega usa valores nulos para fatos ainda inexistentes. Não 
 1. Responsável editorial: aceitar os temas e a utilidade das escolhas e pistas para duas pessoas adultas; decidir se os quatro cartões e três paradas formam o lote inicial.
 2. Revisores PT-BR e EN-US: confirmar naturalidade e equivalência semântica de cada par, inclusive nuances de encontro/gathering, gravura/print e mirante/lookout. A conferência automática não certifica tradução.
 3. Produto e acessibilidade: validar a compreensão da revelação bilateral, do pulo neutro, das pistas individuais e do reinício completo na revisão; testar com teclado, leitor de tela e som desligado.
-4. Produto: resolver a divergência entre o aviso de IA obrigatório no ADR e o candidato anterior que o omite. A proposta desta entrega inclui o aviso; a indicação de narrador separada exige tratamento na interface.
+4. Produto e produção: selecionar a interpretação mais natural em cada idioma por escuta, sem confundir naturalidade com origem humana ou aprovação do áudio.
 5. Produção e direitos: escolher voz, conferir licença e consentimento aplicável, aprovar escuta e correspondência literal dos quatro arquivos futuros.
 6. Após tudo acima, responsável autorizado: registrar pessoa revisora, data com fuso, digest dos textos, hashes dos áudios e ambiente de destino. Somente então considerar publicação administrativa com MFA. Nenhuma dessas aprovações foi registrada por esta tarefa.
 
