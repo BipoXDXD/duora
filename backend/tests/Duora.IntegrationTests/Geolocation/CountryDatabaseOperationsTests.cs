@@ -14,7 +14,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     {
         await using var h = await CountryDatabasePipelineTests.Harness.Create(postgres);
         var notices = new Notices();
-        var store = new CountryDatabaseOperationsStore(h.Source, h.Time);
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
         await new CountryDatabaseHealthService(store, h.Validator, h.Root, notices).RunOnceAsync(Ct);
         await new CountryDatabaseRetentionService(store, h.Root).RunOnceAsync(Ct);
         Assert.Equal(CountryDatabaseRecoveryOutcome.Disabled,
@@ -114,7 +114,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     {
         await using var h = await Prepared();
         var archive = new Archive();
-        var store = new CountryDatabaseOperationsStore(h.Source, h.Time);
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
         await new CountryDatabaseRetentionService(store, h.Root, archive, enabled: true).RunOnceAsync(Ct);
         var before = (await h.Store.ReadActiveAsync(Ct))!;
         Assert.Single(archive.Files);
@@ -134,7 +134,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     {
         await using var h = await Prepared();
         var archive = new Archive();
-        var store = new CountryDatabaseOperationsStore(h.Source, h.Time);
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
         await new CountryDatabaseRetentionService(store, h.Root, archive, enabled: true).RunOnceAsync(Ct);
         h.Time.Advance(TimeSpan.FromDays(7));
         Assert.Equal(CountryDatabaseRecoveryOutcome.Unavailable,
@@ -148,7 +148,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     {
         await using var h = await Prepared();
         var archive = new Archive();
-        var store = new CountryDatabaseOperationsStore(h.Source, h.Time);
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
         await new CountryDatabaseRetentionService(store, h.Root, archive, enabled: true).RunOnceAsync(Ct);
         var manifest = (await h.Store.ReadActiveAsync(Ct))!;
         var path = Path.Combine(h.Root, manifest.Sha256 + ".mmdb");
@@ -170,13 +170,13 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     public async Task ForgedManifestAndBackwardClockFailClosedAcrossServiceRestart()
     {
         await using var h = await Prepared();
-        var store = new CountryDatabaseOperationsStore(h.Source, h.Time);
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
         await new CountryDatabaseHealthService(store, h.Validator, h.Root, new Notices(), enabled: true).RunOnceAsync(Ct);
         // Simulate a restored host with a clock behind the persisted high-water mark.
         var earlier = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(h.Time.GetUtcNow().AddHours(-1));
         Assert.Equal(CountryDatabaseRecoveryOutcome.ClockInvalid,
             await new CountryDatabaseRecoveryService(new(h.Source, earlier), h.Validator, h.Root, enabled: true).RecoverAsync(Ct));
-        await using var q = h.Source.CreateCommand("update ops.country_database_versions set manifest=jsonb_set(manifest,'{License}','\"forged\"')");
+        await using var q = h.MaintenanceSource.CreateCommand("update ops.country_database_versions set manifest=jsonb_set(manifest,'{License}','\"forged\"')");
         await q.ExecuteNonQueryAsync(Ct); // Migrator-only tampering fixture; app cannot mutate manifests.
         Assert.Equal(CountryDatabaseRecoveryOutcome.ReviewRequired,
             await new CountryDatabaseRecoveryService(store, h.Validator, h.Root, enabled: true).RecoverAsync(Ct));
@@ -186,7 +186,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     public async Task RetentionEvictsFourteenthDayActiveAndPrunesOrphansWithoutExtendingMetadata()
     {
         await using var h = await Prepared();
-        var store = new CountryDatabaseOperationsStore(h.Source, h.Time);
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
         var archive = new Archive();
         var retention = new CountryDatabaseRetentionService(store, h.Root, archive, enabled: true);
         var manifest = (await h.Store.ReadActiveAsync(Ct))!;
@@ -220,9 +220,86 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
             Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
         }
         var archive = new Archive();
-        await new CountryDatabaseRetentionService(new(h.Source, h.Time), h.Root, archive, enabled: true).RunOnceAsync(Ct);
+        await new CountryDatabaseRetentionService(new(h.MaintenanceSource, h.Time), h.Root, archive, enabled: true).RunOnceAsync(Ct);
         Assert.Equal(14, Directory.GetFiles(h.Root, "*.mmdb").Length);
         Assert.Equal(2, archive.Files.Count);
+    }
+
+    [Fact]
+    public async Task UnapprovedAndTamperedArchiveCannotBecomeActive()
+    {
+        await using var h = await CountryDatabasePipelineTests.Harness.Create(postgres, approve: false);
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        Assert.Equal(CountryDatabaseUpdateOutcome.Failed, await h.Service.ExecuteAsync(lease, Ct));
+        var archive = new Archive();
+        var m = h.Validator.Validate(h.Payload, h.Time.GetUtcNow(), Ct);
+        archive.Files[m.Sha256] = h.Payload;
+        var recovery = new CountryDatabaseRecoveryService(new(h.MaintenanceSource, h.Time), h.Validator, h.Root, archive, enabled: true);
+        Assert.Equal(CountryDatabaseRecoveryOutcome.ReviewRequired, await recovery.RecoverAsync(Ct));
+        Assert.Null(await h.Store.ReadActiveAsync(Ct));
+        Assert.Empty(Directory.GetFiles(h.Root));
+    }
+
+    [Fact]
+    public async Task TamperedBackupIsRejectedWithoutPublishingAndLocalReaderIsRevoked()
+    {
+        await using var h = await Prepared();
+        var archive = new Archive();
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
+        await new CountryDatabaseRetentionService(store, h.Root, archive, enabled: true).RunOnceAsync(Ct);
+        var m = (await h.Store.ReadActiveAsync(Ct))!;
+        using var active = new ActiveCountryDatabase(h.Root, h.Validator, h.Time);
+        Assert.True(await active.RefreshAsync(h.Store, Ct));
+        File.Delete(Path.Combine(h.Root, m.Sha256 + ".mmdb"));
+        archive.Files[m.Sha256] = [0, 1];
+        Assert.Equal(CountryDatabaseRecoveryOutcome.ReviewRequired,
+            await new CountryDatabaseRecoveryService(store, h.Validator, h.Root, archive, enabled: true).RecoverAsync(Ct));
+        Assert.False(await active.RefreshAsync(h.Store, Ct));
+        Assert.Equal(CountryLookupStatus.Unavailable, active.Lookup(IPAddress.Parse("192.0.2.1")).Status);
+        Assert.Empty(Directory.GetFileSystemEntries(h.Root));
+    }
+
+    [Fact]
+    public async Task MaintenanceDoesNotDeleteInFlightDownloadsAndFencesLatePublisher()
+    {
+        await using var h = await Prepared();
+        h.Time.Advance(TimeSpan.FromDays(14));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Payload = SyntheticMmdb.Create(h.Time.GetUtcNow().AddHours(-1));
+        h.Send = async (_, ct) =>
+        {
+            started.SetResult();
+            await resume.Task.WaitAsync(ct);
+            return new(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(h.Payload) };
+        };
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        var pending = h.Service.ExecuteAsync(lease, Ct);
+        await started.Task.WaitAsync(Ct);
+        await new CountryDatabaseRetentionService(new(h.MaintenanceSource, h.Time), h.Root, enabled: true).RunOnceAsync(Ct);
+        Assert.Single(Directory.GetDirectories(h.Root));
+        resume.SetResult();
+        Assert.Equal(CountryDatabaseUpdateOutcome.LostLease, await pending);
+        Assert.Empty(Directory.GetFileSystemEntries(h.Root));
+        Assert.Null(await h.Store.ReadActiveAsync(Ct));
+    }
+
+    [Fact]
+    public async Task RecoveryDoesNotDowngradeToAnOlderApprovedBuildWhenNewestCopyIsMissing()
+    {
+        await using var h = await Prepared();
+        var archive = new Archive();
+        var store = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
+        await new CountryDatabaseRetentionService(store, h.Root, archive, enabled: true).RunOnceAsync(Ct);
+        h.Time.Advance(TimeSpan.FromDays(1));
+        h.Payload = SyntheticMmdb.Create(h.Time.GetUtcNow().AddHours(-1));
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
+        var newest = (await h.Store.ReadActiveAsync(Ct))!;
+        File.Delete(Path.Combine(h.Root, newest.Sha256 + ".mmdb"));
+        Assert.Equal(CountryDatabaseRecoveryOutcome.Unavailable,
+            await new CountryDatabaseRecoveryService(store, h.Validator, h.Root, archive, enabled: true).RecoverAsync(Ct));
+        Assert.Equal(newest, await h.Store.ReadActiveAsync(Ct));
     }
 
     private async Task<CountryDatabasePipelineTests.Harness> Prepared()

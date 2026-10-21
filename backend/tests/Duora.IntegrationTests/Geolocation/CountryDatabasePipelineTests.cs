@@ -123,6 +123,7 @@ public sealed class CountryDatabasePipelineTests(PostgresFixture postgres)
     {
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "duora-pipeline-" + Guid.NewGuid().ToString("N"));
         public NpgsqlDataSource Source { get; }
+        public NpgsqlDataSource MaintenanceSource { get; }
         public FakeTimeProvider Time { get; } = new(Now);
         public CountryDatabaseUpdateStore Store { get; }
         public CountryDatabaseArtifactValidator Validator { get; }
@@ -131,21 +132,28 @@ public sealed class CountryDatabasePipelineTests(PostgresFixture postgres)
         public byte[] Payload { get; set; } = SyntheticMmdb.Create(Now.AddHours(-1));
         public int Calls { get; private set; }
         public Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? Send { get; set; }
-        private Harness(NpgsqlDataSource source, bool approve)
+        private Harness(NpgsqlDataSource source, NpgsqlDataSource maintenanceSource, bool approve)
         {
             Source = source;
+            MaintenanceSource = maintenanceSource;
             Store = new(source, Time, TimeSpan.FromMinutes(2));
             Validator = new(new(SyntheticMmdb.DatabaseType, 1024 * 1024, 100), Time);
             Downloader = new(new Handler(this), new(1024 * 1024, TimeSpan.FromMinutes(10), new HashSet<string>(StringComparer.Ordinal)), "synthetic-token", Time);
             Service = new(Store, Downloader, Validator, Root, approve ? Validator.Validate(Payload, Now, Ct).Sha256 : null);
         }
         public void RebuildService(string approvedHash) => Service = new(Store, Downloader, Validator, Root, approvedHash);
-        public static async Task<Harness> Create(PostgresFixture postgres, bool approve = true) =>
-            new(NpgsqlDataSource.Create(await postgres.CreateMigratedDatabaseAsync(Ct)), approve);
+        public static async Task<Harness> Create(PostgresFixture postgres, bool approve = true)
+        {
+            var app = await postgres.CreateMigratedDatabaseAsync(Ct);
+            var maintenance = new NpgsqlConnectionStringBuilder(postgres.MigratorConnectionString)
+            { Database = new NpgsqlConnectionStringBuilder(app).Database };
+            return new(NpgsqlDataSource.Create(app), NpgsqlDataSource.Create(maintenance.ConnectionString), approve);
+        }
         public async ValueTask DisposeAsync()
         {
             Downloader.Dispose();
             await Source.DisposeAsync();
+            await MaintenanceSource.DisposeAsync();
             if (Directory.Exists(Root))
             { Directory.Delete(Root, true); }
         }
