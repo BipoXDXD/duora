@@ -1,0 +1,36 @@
+[Unit]
+Description=Outbound sanitized Duora snapshot over mutual TLS
+Requires=duora-telemetry-collect.service
+After=duora-telemetry-collect.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=duora-shipper
+Group=duora-shipper
+ExecStartPre=/usr/bin/python3 /opt/duora-telemetry/capacity.py --profile source --runtime
+ExecStart=/usr/bin/python3 /opt/duora-telemetry/telemetry_sender.py
+LoadCredential=ca.pem:/etc/duora-telemetry/secrets/source-ca.pem
+LoadCredential=cert.pem:/etc/duora-telemetry/secrets/source-cert.pem
+LoadCredential=key.pem:/etc/duora-telemetry/secrets/source-key.pem
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+CapabilityBoundingSet=
+InaccessiblePaths=-/etc/duora -/var/lib/duora -/var/run/docker.sock -/etc/duora-agent -/etc/duora-telemetry/secrets
+MemoryMax=64M
+MemorySwapMax=0
+CPUQuota=10%
+CPUWeight=25
+IOWeight=25
+TasksMax=16
+TimeoutStartSec=20

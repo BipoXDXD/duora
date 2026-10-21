@@ -311,13 +311,20 @@ public sealed partial class CredentialVerifier
     /// Espera em tempo real, não no <see cref="TimeProvider"/> da aplicação: o piso protege contra quem mede a
     /// resposta de fora, e um relógio falso em teste não pode congelá-lo.
     /// </summary>
-    private async Task WaitForFailureFloorAsync(long startedAt, CancellationToken cancellationToken)
+    private Task WaitForFailureFloorAsync(long startedAt, CancellationToken cancellationToken)
     {
         var floor = _timing.FailedLoginMinimumDuration + (_timing.FailedLoginJitter * Random.Shared.NextDouble());
-        var remaining = floor - Stopwatch.GetElapsedTime(startedAt);
-        if (remaining > TimeSpan.Zero)
+        return WaitForFailureFloorAsync(startedAt, floor, TimeProvider.System, cancellationToken);
+    }
+
+    internal static async Task WaitForFailureFloorAsync(
+        long startedAt, TimeSpan floor, TimeProvider time, CancellationToken cancellationToken)
+    {
+        // Task.Delay trunca frações de milissegundo. Arredonda para cima e confere o relógio
+        // monotônico depois de cada despertar: um timer concluído não prova que o piso passou.
+        while (floor - time.GetElapsedTime(startedAt) is var remaining && remaining > TimeSpan.Zero)
         {
-            await Task.Delay(remaining, cancellationToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds)), time, cancellationToken);
         }
     }
 }

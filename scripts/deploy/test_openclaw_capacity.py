@@ -77,9 +77,42 @@ class OpenClawBudgetTests(unittest.TestCase):
         self.assertIn('preflight.py', (ROOT / 'infra/openclaw/systemd/duora-agent.service').read_text())
         self.assertIn('--pull never', service['ExecStart'])
 
+    def test_remote_profile_budgets_match_isolated_units(self) -> None:
+        budget = runpy.run_path(str(ROOT / 'scripts/openclaw/capacity.py'))
+        source = unit('infra/openclaw/remote/source/duora-telemetry-collect.service', 'Service')
+        sender = unit('infra/openclaw/remote/source/duora-telemetry-send.service', 'Service')
+        receiver = unit('infra/openclaw/remote/gateway/duora-telemetry-receiver.service', 'Service')
+        self.assertEqual(memory_bytes(source['MemoryMax']), 128 * 1024**2)
+        self.assertEqual(memory_bytes(sender['MemoryMax']), 64 * 1024**2)
+        self.assertEqual(memory_bytes(receiver['MemoryMax']), 128 * 1024**2)
+        self.assertEqual(budget['SOURCE_REQUIRED_MIB'], 8512)
+        self.assertEqual(budget['REMOTE_REQUIRED_MIB'], 3456)
+        self.assertEqual(source['RestrictAddressFamilies'], 'AF_UNIX')
+        for service in (source, sender, receiver):
+            self.assertEqual(service['MemorySwapMax'], '0')
+            self.assertEqual(service['NoNewPrivileges'], 'yes')
+        for service in (sender, receiver, unit('infra/openclaw/systemd/duora-monitor.service', 'Service')):
+            # Fresh remote hosts intentionally lack product/agent paths. Existing paths still stay hidden.
+            self.assertTrue(all(path.startswith('-/') for path in service['InaccessiblePaths'].split()))
+        self.assertEqual(receiver['User'], 'duora-receiver')
+        self.assertEqual(sender['User'], 'duora-shipper')
+        self.assertEqual(sender['CapabilityBoundingSet'], '')
+        self.assertIn('/var/run/docker.sock', sender['InaccessiblePaths'])
+        self.assertIn('/var/run/docker.sock', receiver['InaccessiblePaths'])
+        self.assertIn('--runtime', sender['ExecStartPre'])
+        for path in ROOT.glob('infra/openclaw/remote/**/*.service'):
+            self.assertNotIn('Environment=SSLKEYLOGFILE', path.read_text())
+        installer = (ROOT / 'scripts/openclaw/install-remote.sh').read_text()
+        self.assertNotRegex(installer, r'systemctl (enable|start|restart)')
+        self.assertIn('--mode gateway', (ROOT / 'infra/openclaw/remote/gateway/observer.conf').read_text())
+
     def test_openclaw_python_regressions(self) -> None:
         subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s',
                         str(ROOT / 'scripts/openclaw'), '-p', 'test_*.py', '-v'], check=True)
+
+    def test_openclaw_types(self) -> None:
+        subprocess.run([sys.executable, '-m', 'pyright', '--pythonpath', sys.executable,
+                        str(ROOT / 'scripts/openclaw')], check=True)
 
     def test_mcp_stdio_regressions(self) -> None:
         subprocess.run(['node', '--test', str(ROOT / 'scripts/openclaw/test-mcp.mjs')], check=True)

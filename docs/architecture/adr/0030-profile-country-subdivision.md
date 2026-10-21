@@ -1,14 +1,22 @@
 # ADR-0030: País e subdivisão opcionais no perfil — expansão
 
-- **Status:** Proposed (2026-10-21), implementação para revisão humana
+- **Status:** Accepted (2026-10-21), expansão aditiva integrada pelo PR #110; sem implantação
 - **Origem:** issue #78, ADR-0026, API-P01/API-P02; escopo autorizado de implementação aditiva
 - **Revisar quando:** países de lançamento e fonte de manutenção forem decididos; antes do contract
 
-## Contexto e decisão proposta
+## Contexto e decisão
 
 Adotar a opção B da issue #78. Profiles é dono de `profiles.countries` e `profiles.subdivisions`, além das duas novas colunas do perfil. País ISO 3166-1 alfa-2 é opcional; subdivisão ISO 3166-2 de primeiro nível também. FK composta com MATCH SIMPLE (padrão PostgreSQL), FK de país, CHECK de presença de país e índice `(country_code, subdivision_code)` garantem integridade. Nenhuma cidade, endereço, coordenada, inferência de país ou serviço externo entra no fluxo.
 
 Esta expansão preserva somente o catálogo que já existe: BR e as 27 UFs. Não representa aprovação dos países de lançamento. `ProfileLocationCatalog` é o catálogo de compatibilidade desta release, usado na validação, OpenAPI e modelo EF; a migração contém um snapshot literal para não mudar retroativamente. O cliente usa o contrato gerado e os rótulos já traduzidos. A escolha definitiva entre snapshots versionados e catálogo administrado em banco permanece aberta. Não há endpoint nem permissão administrativa nova de catálogo. `duora_app` tem somente SELECT nas tabelas de referência; a migração e a reconciliação de privilégios revogam DML, que fica com o migrador.
+
+## Estado de implementação e validação (2026-10-21)
+
+A expansão foi integrada à `main` pelo [PR #110](https://github.com/BipoXDXD/duora/pull/110), no commit `d6de23fe76d2dbe763e43d19ade4e4cf08c297e1`. O [CI após o merge](https://github.com/BipoXDXD/duora/actions/runs/39551321634) aprovou os nove checks: backend, frontend, e2e, secret-scan, contract, supply-chain, ops e imagens AMD64/ARM64. A aceitação deste ADR se limita à expansão e ao catálogo de compatibilidade; países adicionais e a manutenção definitiva do catálogo continuam pendentes na [issue #78](https://github.com/BipoXDXD/duora/issues/78).
+
+O bloqueio inicial de vulnerabilidades do Pillow foi resolvido pelo [PR #107](https://github.com/BipoXDXD/duora/pull/107), incorporado antes do #110. O [CI da main após o #107](https://github.com/BipoXDXD/duora/actions/runs/39550420781) também passou nos nove checks. A falha local inicial de metadados de licenças não se reproduziu no CI; o gate remoto de licenças e os builds das imagens passaram. Isso não escolhe nem aprova a licença de uma futura fonte internacional do catálogo.
+
+Não houve implantação nem aplicação da migração em produção. Antes da implantação, ainda é necessário medir locks, backfill e indexação em volume sintético representativo e ensaiar a transição/rollback com preservação dos dados.
 
 ## Contrato de transição
 
@@ -44,8 +52,10 @@ Código único não representa país sem subdivisão sem misturar níveis. Texto
 
 Nenhuma escolha adicional é necessária para revisar esta expansão BR-only. Para ativar países internacionais, o responsável deve aprovar a lista e o nível de subdivisão permitido por país; servidor em Boston e idioma inglês não provam que EUA são mercado habilitado. Se EUA forem aprovados, o recorte recomendado é 50 estados + DC; territórios com ISO 3166-1 próprio precisam de decisão própria. Não foi aplicado.
 
+A revisão de elegibilidade e idade mínima por jurisdição mencionada na issue continua na lacuna J-05 do [mapa de dados](../../privacy/data-map.md#jurisdições-a-confirmar). Esta expansão não altera `age_band` nem resolve essa decisão ao habilitar a estrutura de localização.
+
 Para manutenção inicial, recomendamos snapshot versionado revisado a partir do ISO, com responsável e revisão nas alterações do padrão, enquanto os países forem poucos. Antes de adotar uma distribuição concreta, confirmar procedência/licença, versão, rótulos PT-BR/EN-US e política para códigos retirados (não apagar códigos ainda referenciados). O snapshot BR desta etapa deriva do catálogo já presente; não alega atualização mundial do ISO.
 
 ## Compliance
 
-Testes PostgreSQL reais cobrem backfill de todas as UFs/null com versão e timestamp preservados, FKs, ausência de país, valores desconhecidos, país somente e índice. Testes HTTP cobrem clientes legados/novos, null, conflitos e gravação condicional. SPA mantém minimização e revisão do conflito. OpenAPI/cliente regenerados e gate oasdiff conferem aditividade. Revisão humana obrigatória antes de merge e implantação.
+Testes PostgreSQL reais cobrem backfill de todas as UFs/null com versão e timestamp preservados, FKs, ausência de país, valores desconhecidos, país somente e índice. Testes HTTP cobrem clientes legados/novos, null, conflitos e gravação condicional. SPA mantém minimização e revisão do conflito. OpenAPI/cliente regenerados e gate oasdiff conferem aditividade. A integração foi autorizada pelo usuário após os gates aprovados. A revisão humana de futuras migrações, da etapa contract e da implantação permanece exigida pela política do projeto.
