@@ -14,6 +14,9 @@ public enum ParticipationOutcome { Done, Unavailable, Conflict, Invalid }
 public sealed class ParticipationOptions
 {
     public bool MatchingEnabled { get; set; } = true;
+
+    /// <summary>Optional cutover for subsequently published rounds. Null preserves V2; persisted rounds never change version.</summary>
+    public DateTimeOffset? RegionalMatchingStartsAt { get; set; }
 }
 
 public static class ParticipationServices
@@ -99,7 +102,9 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         {
             var round = Guid.CreateVersion7();
             var start = startsAt.AddMinutes((number - 1) * 12);
-            await Execute(connection, "insert into events.rounds(id,event_id,number,state,starts_at,deadline_at,seed) values($1,$2,$3,'Scheduled',$4,$5,$6)", ct, round, id, number, start, start.AddMinutes(12), Random.Shared.NextInt64());
+            var algorithm = options?.Value.RegionalMatchingStartsAt is { } cutover && start >= cutover
+                ? PairingAlgorithmVersion.GreedyByPriorityV3 : PairingAlgorithmVersion.GreedyByPriorityV2;
+            await Execute(connection, "insert into events.rounds(id,event_id,number,state,starts_at,deadline_at,seed,algorithm_version) values($1,$2,$3,'Scheduled',$4,$5,$6,$7)", ct, round, id, number, start, start.AddMinutes(12), Random.Shared.NextInt64(), (int)algorithm);
             await ScheduleAsync(connection, "build-round", round, start, ct);
             await ScheduleAsync(connection, "close-round", round, start.AddMinutes(12), ct);
         }
@@ -240,7 +245,8 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         DateTimeOffset starts;
         long seed;
         string state;
-        await using (var query = Command(connection, "select r.event_id,e.experience_version_id,r.starts_at,r.seed,r.state from events.rounds r join events.events e on e.id=r.event_id where r.id=$1 and e.state in ('Published','Running')", roundId))
+        PairingAlgorithmVersion algorithm;
+        await using (var query = Command(connection, "select r.event_id,e.experience_version_id,r.starts_at,r.seed,r.state,r.algorithm_version from events.rounds r join events.events e on e.id=r.event_id where r.id=$1 and e.state in ('Published','Running')", roundId))
         await using (var reader = await query.ExecuteReaderAsync(ct))
         {
             if (!await reader.ReadAsync(ct))
@@ -253,6 +259,7 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             starts = reader.GetFieldValue<DateTimeOffset>(2);
             seed = reader.GetInt64(3);
             state = reader.GetString(4);
+            algorithm = (PairingAlgorithmVersion)reader.GetInt32(5);
         }
         var now = Now;
         if (state != "Scheduled" || starts > now)
@@ -279,8 +286,12 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
                   array(select language_code from profiles.communication_languages l where l.user_id=u.id order by language_code),
                   (select count(*)::integer from events.rounds earlier where earlier.event_id=rg.event_id and earlier.starts_at < $3
                     and earlier.state in ('Inviting','Closed') and rg.checked_in_at<=earlier.starts_at
-                    and not exists(select 1 from events.pairing_participants pp where pp.round_id=earlier.id and pp.user_id=u.id))
+                    and not exists(select 1 from events.pairing_participants pp where pp.round_id=earlier.id and pp.user_id=u.id)),
+                  location.country_code, regional.mode,
+                  array(select country_code from profiles.regional_preference_countries rc where rc.user_id=u.id order by country_code)
                 from events.registrations rg join identity.users u on u.id=rg.user_id join profiles.preferences p on p.user_id=u.id
+                left join profiles.profiles location on location.user_id=u.id
+                left join profiles.regional_preferences regional on regional.user_id=u.id
                 where rg.event_id=$1 and rg.user_id=$2 and rg.state='CheckedIn'
                   and not exists(select 1 from events.pairing_participants pp where pp.user_id=u.id and pp.released_at is null)
                 """, eventId, user, starts);
@@ -290,8 +301,28 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
                 continue;
             }
 
+            var preferences = Preferences.Unrestricted;
+            if (algorithm == PairingAlgorithmVersion.GreedyByPriorityV3)
+            {
+                // Absence is pending, never an implicit unrestricted choice. Only declared country is projected.
+                if (reader.IsDBNull(6))
+                { continue; }
+                Dictionary<string, string> own = [];
+                Dictionary<string, IReadOnlySet<string>> accepted = [];
+                if (!reader.IsDBNull(5))
+                { own.Add("country", reader.GetString(5)); }
+                if (reader.GetString(6) == "countries")
+                {
+                    accepted.Add("country", reader.GetFieldValue<string[]>(7).ToHashSet(StringComparer.Ordinal));
+                }
+                else if (reader.GetString(6) != "unrestricted")
+                {
+                    throw new InvalidOperationException("Invalid stored regional mode.");
+                }
+                preferences = new Preferences(own, accepted);
+            }
             var locale = reader.GetString(1);
-            candidates.Add(new(user, reader.GetFieldValue<DateTimeOffset>(0), reader.GetInt32(4), Preferences.Unrestricted,
+            candidates.Add(new(user, reader.GetFieldValue<DateTimeOffset>(0), reader.GetInt32(4), preferences,
                 new CommunicationDeclaration(locale, reader.GetFieldValue<string[]>(3), reader.GetBoolean(2))));
             locales.Add(user, locale);
         }
@@ -315,7 +346,7 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             }
         }
 
-        var selected = PairSelector.Select(new(candidates, blocked, prior, new RoundSeed(seed), PairingAlgorithmVersion.GreedyByPriorityV2));
+        var selected = PairSelector.Select(new(candidates, blocked, prior, new RoundSeed(seed), algorithm));
         RoundsBuilt.Add(1);
         PairsBuilt.Add(selected.Pairs.Count);
         CandidatesWaiting.Add(selected.Unpaired.Count);
@@ -326,8 +357,8 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
             var agreement = selected.CommunicationAgreements[pair];
             await Execute(connection, """
                 insert into events.pairings(id,round_id,event_id,user_low,user_high,algorithm_version,communication_language,communication_policy_version,created_at)
-                values($1,$2,$3,$4,$5,2,$6,$7,$8)
-                """, ct, id, roundId, eventId, pair.UserLow, pair.UserHigh, agreement.Language, agreement.PolicyVersion, now);
+                values($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                """, ct, id, roundId, eventId, pair.UserLow, pair.UserHigh, (int)selected.AlgorithmVersion, agreement.Language, agreement.PolicyVersion, now);
             await Execute(connection, "insert into experiences.game_sessions(id,pairing_id,experience_version_id,state,invite_expires_at) values($1,$2,$3,'Invited',$4)", ct, room, id, contentId, now.AddSeconds(60));
             foreach (var user in new[] { pair.UserLow, pair.UserHigh })
             {
