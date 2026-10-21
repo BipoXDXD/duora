@@ -50,6 +50,18 @@ async function fillAndSubmit({ user }: RenderedApp, input: RegisterInput) {
 const accepted = () => new HttpResponse(null, { status: 202 })
 
 describe('tela de cadastro', () => {
+  it('does not claim English documents merely because the interface is English', async () => {
+    useAntiforgeryEndpoint()
+    const received = useRegisterEndpoint(accepted)
+    const { user } = await renderApp('/register', undefined, 'en-US')
+    await user.type(screen.getByLabelText('Email'), 'reader@example.com')
+    await user.type(screen.getByLabelText('Password'), 'long enough password')
+    for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument()
+    expect(received[0]?.body).toMatchObject({ acceptedTermsLocale: null, acceptedPrivacyLocale: null })
+  })
+
   it('usa autocomplete de e-mail e de senha nova', async () => {
     await renderApp('/register')
 
@@ -74,6 +86,8 @@ describe('tela de cadastro', () => {
           password: 'frase longa de senha',
           acceptedTermsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
           acceptedPrivacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
+          acceptedTermsLocale: null,
+          acceptedPrivacyLocale: null,
         },
         token: antiforgery.latestToken(),
       },

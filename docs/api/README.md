@@ -108,6 +108,21 @@ versão não duplica o efeito; outro corpo é inválido. Conflito de versão ret
 Autorização, elegibilidade, saída e bloqueios são revalidados antes de reconhecer um reenvio. A rota de
 ações de uma experiência não pode operar a outra.
 
+## Idioma do documento aceito (issue #103)
+
+API-A02 (`POST /api/v1/auth/register`) aceita `acceptedTermsLocale` e `acceptedPrivacyLocale`,
+independentes, opcionais e anuláveis. Valores exatos: `pt-BR`, `en-US` ou `null`; outros valores,
+inclusive caixa diferente, string vazia ou espaços, retornam 400 `VALIDATION_FAILED` com `INVALID_FORMAT`
+no campo correspondente, sem ecoar a entrada. O idioma acompanha a versão do respectivo documento.
+Omitido/null significa **desconhecido**; nunca se usa `Accept-Language`, preferência atual da conta ou
+locale da interface para completar o valor. Resposta 202 neutra, CSRF e limites permanecem.
+
+Os campos são aditivos: clientes antigos continuam funcionando e produzem idioma desconhecido.
+A SPA ainda contém apenas rótulos de versão; `REGISTRATION_DOCUMENTS` mantém locale null até a publicação
+identificada dos documentos da issue #9. A futura apresentação deve fornecer versão e locale do mesmo
+artefato e invalidar o aceite se trocar esse artefato; não basta copiar `useI18n().locale`.
+O servidor registra a declaração explícita do cliente; isso não prova leitura nem aprovação jurídica.
+Ver [evidência e validação](../testing/consent-document-locale.md).
 
 ## Fuso privado da conta (issue #81)
 

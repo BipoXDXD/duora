@@ -9,7 +9,9 @@ public sealed record RegisterRequest(
     string? Email,
     string? Password,
     string? AcceptedTermsVersion,
-    string? AcceptedPrivacyVersion);
+    string? AcceptedPrivacyVersion,
+    string? AcceptedTermsLocale = null,
+    string? AcceptedPrivacyLocale = null);
 
 public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 
