@@ -59,3 +59,17 @@ Para manutenção inicial, recomendamos snapshot versionado revisado a partir do
 ## Compliance
 
 Testes PostgreSQL reais cobrem backfill de todas as UFs/null com versão e timestamp preservados, FKs, ausência de país, valores desconhecidos, país somente e índice. Testes HTTP cobrem clientes legados/novos, null, conflitos e gravação condicional. SPA mantém minimização e revisão do conflito. OpenAPI/cliente regenerados e gate oasdiff conferem aditividade. A integração foi autorizada pelo usuário após os gates aprovados. A revisão humana de futuras migrações, da etapa contract e da implantação permanece exigida pela política do projeto.
+
+## Adendo de 2026-10-21 — recorte e fonte aprovados, ativação pendente
+
+O responsável aprovou explicitamente EUA e Brasil, ISO como referência, CLDR 48.2 como distribuição inicial e `Unicode-3.0` como licença, na continuação da issue #78. Este adendo registra a decisão posterior; as seções anteriores preservam o estado e as pendências da expansão integrada pelo PR #110.
+
+O recorte aprovado para a próxima etapa é `US` com 50 estados + Distrito de Columbia (51 subdivisões), e `BR` com as 27 UFs: dois países e 78 subdivisões de primeiro nível. Territórios com código próprio, como PR, GU e VI, não entram nesse recorte. País e subdivisão continuam opcionais; localização declarada não comprova residência, nacionalidade nem elegibilidade.
+
+A fonte escolhida é um snapshot versionado da [release CLDR 48.2](https://github.com/unicode-org/cldr/releases/tag/release-48-2), conferido contra [ISO 3166](https://www.iso.org/iso-3166-country-codes.html), com licença [Unicode-3.0](https://raw.githubusercontent.com/unicode-org/cldr/release-48-2/LICENSE). A implementação futura deve preservar origem, versão, hashes, avisos de copyright/permissão e alterações editoriais, e gerar os artefatos do produto a partir de uma fonte interna única. A política/licença é tratada em PR separado; seu escopo e a proveniência conferida ficam em [catalog-licenses.md](../../security/catalog-licenses.md).
+
+O CLDR não é uma lista pronta de países habilitados pelo produto: o importador futuro deve selecionar apenas o recorte aprovado, normalizar/conferir os códigos ISO e tratar códigos adicionais ou depreciados. Os rótulos portugueses da release consultada são provisórios e precisam de revisão editorial PT-BR/EN-US. Códigos ainda referenciados não devem ser apagados ou reatribuídos automaticamente. Outra release, fonte, licença ou ampliação de países exige nova revisão.
+
+O usuário não aprovou responsáveis nominais nem a cadência definitiva de manutenção. A revisão mensal de releases/avisos permanece recomendação. Continuam pendentes a designação técnica/editorial, a revisão dos rótulos, a elegibilidade/idade mínima por jurisdição (J-05), a implementação/inventário do snapshot, os ensaios operacionais e a etapa contract.
+
+**A aprovação não habilita países nem autoriza implantação.** O catálogo executável continua somente BR + 27 UFs. Seeds, tabelas, validações, OpenAPI e SPA não mudam por este adendo. A inclusão de US no produto depende de autorização posterior e PR de implementação/testes; a implantação depende de autorização própria. O plano de transição e rollback acima continua aplicável, inclusive a pausa de edições ao retornar ao binário antigo e a preservação de schema/dados.
