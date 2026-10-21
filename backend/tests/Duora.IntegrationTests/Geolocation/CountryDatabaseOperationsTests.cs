@@ -302,6 +302,17 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         Assert.Equal(newest, await h.Store.ReadActiveAsync(Ct));
     }
 
+    [Fact]
+    public async Task NextUpdateAfterActiveRetentionStillUsesApprovedProductBaseline()
+    {
+        await using var h = await Prepared();
+        h.Time.Advance(TimeSpan.FromDays(14));
+        await new CountryDatabaseRetentionService(new(h.MaintenanceSource, h.Time), h.Root, enabled: true).RunOnceAsync(Ct);
+        h.Payload = SyntheticMmdb.Create(h.Time.GetUtcNow().AddHours(-1));
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
+    }
+
     private async Task<CountryDatabasePipelineTests.Harness> Prepared()
     {
         var h = await CountryDatabasePipelineTests.Harness.Create(postgres);

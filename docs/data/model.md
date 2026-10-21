@@ -987,13 +987,31 @@ Protocolo e regras em [ADR-0021](../architecture/adr/0021-jobs-duraveis-e-leases
 Dono: Operations; classe P1, sem IPs consultados ou dados de participantes (ADR-0033, etapas 7–8).
 `country_database_versions`: SHA-256 hexadecimal PK e manifesto JSONB de até 8192 bytes, com hash correspondente.
 Manifesto registra produto/schema/licença/origem, tamanho, epoch de construção, primeiro download e validação.
-A role `duora_app` tem somente SELECT/INSERT: versões são imutáveis. Retenção da etapa 9 exigirá privilégio específico revisado.
+A role `duora_app` tem somente SELECT/INSERT: versões são imutáveis. Retenção da etapa 9 exige data source de manutenção separado, com privilégio específico ainda não provisionado.
 
 `country_database_state`: singleton boolean PK CHECK true, active_sha256 FK para versões, active_fencing_token >= 0,
 first_failure_at, last_attempt_at, last_error_code limitado a 64 caracteres e blocked. Ponteiro e geração são confirmados
 pela posse vigente do job. Ausência de ponteiro é válida e não ativa detector.
 `ops.jobs` admite `country-database-update` com índice parcial único por kind; agenda recorrente singleton,
 claims exclusivos e até quatro tentativas por ciclo. Nenhuma linha é semeada pela migração. Jobs anteriores mantêm seus consumidores.
+
+### Metadados operacionais da base — etapa 9
+
+Dono: Operations, classe P1. `country_database_approvals` (sha256 FK/PK, promoted_at) distingue versão aprovada
+de candidato; migração importa apenas a ativa previamente confirmada. `country_database_retired` (sha256 FK/PK,
+retired_at) impede readmissão/recuperação de arquivo excluído por retenção. Ambas append-only para duora_app;
+deletes de 90 dias são exclusivos da manutenção autorizada. Nenhum grant destrutivo é acrescentado à aplicação.
+
+`country_database_incidents`: code de catálogo fechado PK, severity 1/2, opened_at e last_notified_at.
+`country_database_notifications`: identity bigint PK, code fechado, severity 0/1/2, recovered, occurred_at,
+available_at, delivered_at, outbound e sha256 opcional. Histórico de promoção/recuperação é outbound=false;
+só incidentes entram no transporte futuro. Índice parcial de pendências; retenção por occurred_at em 90 dias.
+Não inclui dados de participante, IPs, endereço Gmail ou exceções/URLs do fornecedor.
+
+Estado singleton acrescenta last_observed_at (marca UTC persistida), review_required e repair_authorized.
+Recuperação/revogação incrementam geração e fencing do job na mesma transação, na ordem job → estado.
+Liberação humana grava ops.audit_events com OperatorName, referência opaca de revisão e geração esperada;
+o adaptador operacional de autenticação/autorização ainda não existe. Serviços estão desativados/não registrados.
 
 <a id="t-ops-idempotency-records"></a>
 

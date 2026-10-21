@@ -403,3 +403,18 @@ A decisão não comprova entrega de alertas, cobertura regional 24/7 ou conting�
 substituição/contingência, serviço/orçamento de armazenamento, homologação e os demais requisitos de G3/G5.
 Não altera os prazos de resposta aprovados, não provisiona serviço ou gasto e não autoriza ativar detector,
 atualizador, filtro regional ou EUA. A #108 permanece aberta.
+
+
+## Execução autorizada da etapa 9 — 21/10/2026
+
+O responsável autorizou implementar a preparação de alertas, retenção e recuperação e abrir PR, mantendo a
+issue #108 aberta. Serviços são explicitamente invocados, desativados por padrão e não registrados nos hosts.
+Foram preparados incidentes/notificações persistentes, retenção 14 versões/14 dias e registros 90 dias,
+contrato de cópia privada e recuperação validada/fenced com liberação humana auditada. Não existe adaptador
+real de armazenamento ou notificação. A retenção exige identidade de manutenção separada ainda não provisionada.
+
+O titular e seu Gmail privado permanecem designados; substituto, cobertura/contingência, transporte/entrega,
+armazenamento/orçamento e G2/G3/G5 seguem pendentes. Nenhum endereço privado é registrado no código.
+Sem base IPinfo real, ativação do detector/atualizador, alertas reais, implantação ou EUA habilitados.
+Testes pesados executam somente no CI; evidências efetivas ficam no PR e no relatório de validação.
+Consulte [o procedimento operacional](../../operations/ipinfo-country.md).
