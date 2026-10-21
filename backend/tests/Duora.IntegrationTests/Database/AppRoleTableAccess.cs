@@ -74,6 +74,8 @@ internal static class AppRoleTableAccess
             ["profiles.countries"] = AppTableAccess.ReadOnly,
             ["profiles.preferences"] = AppTableAccess.ReadWrite,
             ["profiles.profiles"] = AppTableAccess.ReadWrite,
+            ["profiles.regional_preferences"] = AppTableAccess.ReadWrite,
+            ["profiles.regional_preference_countries"] = AppTableAccess.ReadWrite,
             ["profiles.subdivisions"] = AppTableAccess.ReadOnly,
 
             // safety (dono: Safety)
