@@ -215,3 +215,9 @@ Isso não comprova instalação systemd, firewall, limites Linux, conectividade 
 real, imagem/config gateway ou recebimento no telefone. Esses ensaios e autorização de produção
 continuam pendentes. Fontes de semântica: [Python ssl](https://docs.python.org/3.12/library/ssl.html)
 e [systemd credentials](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html).
+
+## Plano e evidências de homologação
+
+O [plano de homologação](telemetry-homologation.md) organiza pré-requisitos e aceite das duas VPSs.
+A [validação local de 21/10/2026](telemetry-local-validation.md) registra testes e pendências;
+ela não comprova instalação, capacidade sustentada ou monitoramento operacional.
