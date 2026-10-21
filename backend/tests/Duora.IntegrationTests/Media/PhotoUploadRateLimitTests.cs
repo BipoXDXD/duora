@@ -7,8 +7,10 @@ namespace Duora.IntegrationTests.Media;
 [Trait("Acceptance", "T-16")]
 public sealed class PhotoUploadRateLimitTests(PostgresFixture postgres)
 {
-    [Fact]
-    public async Task TheAccountLimitAnswers429WithRetryAfterBeforeStoringAnything()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("codes-v1")]
+    public async Task TheAccountLimitAnswers429WithRetryAfterBeforeStoringAnything(string? selector)
     {
         await using var factory = Factory(perAccount: 2, perIp: 100);
         var media = new MediaScenario(postgres, factory);
@@ -20,10 +22,11 @@ public sealed class PhotoUploadRateLimitTests(PostgresFixture postgres)
             Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
         }
 
-        using var limited = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: 9));
+        using var limited = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(fill: 9), validationFormat: selector);
 
         await ProblemAssert.IsProblemAsync(limited, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
         ProblemAssert.RetryAfterSeconds(limited);
+        Assert.False(limited.Headers.Contains("Duora-Validation-Format"));
         Assert.Equal(2, (await media.UploadsOfAsync(account.UserId)).Count);
     }
 

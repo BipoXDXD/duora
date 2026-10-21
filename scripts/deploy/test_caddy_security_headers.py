@@ -17,6 +17,7 @@ Permissions-Policy exige mudá-la no mesmo PR (docs/operations/deploy.md, "Cabe�
 from __future__ import annotations
 
 import http.client
+import json
 import os
 import re
 import shutil
@@ -63,6 +64,20 @@ http://:8080 {{
     @conflicting path /api/conflicting-headers
     header @conflicting Content-Security-Policy "default-src * 'unsafe-inline' 'unsafe-eval'"
     header @conflicting Permissions-Policy "camera=*, microphone=*"
+    @upload path /api/v1/me/photos
+    handle @upload {{
+        header Content-Type application/problem+json
+        header Cache-Control no-store
+        header Pragma no-cache
+        header Vary "Accept-Encoding, Duora-Validation-Format"
+        header X-Validation-Request "{{http.request.header.Duora-Validation-Format}}"
+        @codes header X-Synthetic-Response codes
+        handle @codes {{
+            header Duora-Validation-Format codes-v1
+            respond `{{"errors":{{"body":["PHOTO_BODY_EMPTY"]}}}}` 400
+        }}
+        respond `{{"errors":{{"body":["A foto está vazia."]}}}}` 400
+    }}
     respond /api/unauthorized 401
     respond /api/forbidden 403
     respond /api/failure 500
@@ -221,6 +236,40 @@ class CaddySecurityHeadersTests(unittest.TestCase):
             return response.status, headers
         finally:
             connection.close()
+
+    def test_upload_validation_headers_and_bodies_survive_the_real_edge(self) -> None:
+        # The upstream is deliberately synthetic. Endpoint semantics are tested through Kestrel;
+        # this test exercises the repository's unchanged edge configuration in a real Caddy.
+        for opt_in, coded_response in [(False, False), (True, True), (True, False)]:
+            with self.subTest(opt_in=opt_in, coded_response=coded_response):
+                connection = http.client.HTTPSConnection("localhost", self.port, context=self.tls, timeout=5)
+                try:
+                    headers = {"Host": "localhost", "Content-Type": "image/jpeg"}
+                    if opt_in:
+                        headers["Duora-Validation-Format"] = "codes-v1"
+                    if coded_response:
+                        headers["X-Synthetic-Response"] = "codes"
+                    connection.request("POST", "/api/v1/me/photos", body=b"", headers=headers)
+                    response = connection.getresponse()
+                    received: dict[str, list[str]] = {}
+                    for name, value in response.getheaders():
+                        received.setdefault(name.lower(), []).append(value)
+                    self.assertEqual(400, response.status)
+                    self.assertEqual({"errors": {"body": ["PHOTO_BODY_EMPTY" if coded_response else "A foto está vazia."]}},
+                                     json.loads(response.read()))
+                    self.assertEqual(["codes-v1"] if coded_response else None,
+                                     received.get("duora-validation-format"))
+                    if opt_in:
+                        self.assertEqual(["codes-v1"], received.get("x-validation-request"))
+                    vary = [value.strip().lower() for line in received.get("vary", []) for value in line.split(",")]
+                    self.assertIn("duora-validation-format", vary)
+                    self.assertIn("accept-encoding", vary)
+                    self.assertEqual(["no-store"], received.get("cache-control"))
+                    self.assertEqual(["no-cache"], received.get("pragma"))
+                    self.assertNotIn("retry-after", received)
+                    self.assert_edge_policies("/api/v1/me/photos", received)
+                finally:
+                    connection.close()
 
     def assert_edge_policies(self, path: str, headers: dict[str, list[str]]) -> None:
         self.assertNotIn("server", headers)

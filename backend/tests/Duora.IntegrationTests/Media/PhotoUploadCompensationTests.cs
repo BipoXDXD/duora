@@ -38,16 +38,19 @@ public sealed class PhotoUploadCompensationTests : IAsyncDisposable
         _storeRoot.Delete(recursive: true);
     }
 
-    [Fact]
-    public async Task ATruncatedBodyIs400AndLeavesNoReservationNorObject()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("codes-v1")]
+    public async Task ATruncatedBodyIs400AndLeavesNoReservationNorObject(string? selector)
     {
         var account = await _media.Identity.CreateConfirmedAccountAsync();
         using var browser = await _media.Identity.SignedInBrowserAsync(account);
         var content = new TruncatedContent(MediaScenario.JpegLike(1000), declaredLength: 4000);
 
-        using var response = await MediaScenario.UploadContentAsync(browser, content, MediaScenario.NewKey());
+        using var response = await MediaScenario.UploadContentAsync(browser, content, MediaScenario.NewKey(), selector);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "UPLOAD_INCOMPLETE");
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
         await AssertNothingLeftAsync(account.UserId);
     }
 

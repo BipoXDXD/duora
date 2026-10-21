@@ -13,16 +13,19 @@ public sealed class PhotoUploadsDisabledTests(PostgresFixture postgres) : IAsync
 
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
-    [Fact]
-    public async Task UploadsAnswer503AndStoreNothing()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("codes-v1")]
+    public async Task UploadsAnswer503AndStoreNothing(string? selector)
     {
         var media = new MediaScenario(postgres, _factory);
         var account = await media.Identity.CreateConfirmedAccountAsync();
         using var browser = await media.Identity.SignedInBrowserAsync(account);
 
-        using var response = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike());
+        using var response = await MediaScenario.UploadAsync(browser, [], validationFormat: selector);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "MEDIA_UPLOADS_DISABLED");
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
         Assert.Empty(await media.UploadsOfAsync(account.UserId));
         Assert.Equal(0, media.StoredObjectCount());
     }

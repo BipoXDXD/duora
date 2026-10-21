@@ -187,6 +187,8 @@ public sealed class PhotoUploadTests : IAsyncDisposable
     [InlineData("")]
     [InlineData("chave com espaço")]
     [InlineData("../../quarantine")]
+    [InlineData("á")]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
     public async Task AnUploadWithoutAValidIdempotencyKeyIsRefused(string? key)
     {
         var account = await NewAccountAsync();
@@ -196,7 +198,11 @@ public sealed class PhotoUploadTests : IAsyncDisposable
 
         using var response = await MediaScenario.UploadContentAsync(browser, content, key);
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        var problem = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        var errors = problem["errors"]!.AsObject();
+        Assert.Equal(["Idempotency-Key"], errors.Select(pair => pair.Key));
+        Assert.Equal("Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.", Assert.Single(errors["Idempotency-Key"]!.AsArray())!.GetValue<string>());
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
         Assert.Equal(0, _media.StoredObjectCount());
     }
@@ -218,15 +224,18 @@ public sealed class PhotoUploadTests : IAsyncDisposable
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
     }
 
-    [Fact]
-    public async Task OneByteOverFiveMebibytesIs413BeforeAnythingIsStored()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("codes-v1")]
+    public async Task OneByteOverFiveMebibytesIs413BeforeAnythingIsStored(string? selector)
     {
         var account = await NewAccountAsync();
         using var browser = await SignInAsync(account);
 
-        using var response = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike((5 * 1024 * 1024) + 1));
+        using var response = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike((5 * 1024 * 1024) + 1), validationFormat: selector);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.RequestEntityTooLarge, "PAYLOAD_TOO_LARGE");
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
         Assert.Equal(0, _media.StoredObjectCount());
     }
@@ -241,17 +250,20 @@ public sealed class PhotoUploadTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
     }
 
-    [Fact]
-    public async Task AChunkedBodyWithoutContentLengthIs411()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("codes-v1")]
+    public async Task AChunkedBodyWithoutContentLengthIs411(string? selector)
     {
         var account = await NewAccountAsync();
         using var browser = await SignInAsync(account);
         var content = new StreamContent(new ForwardOnlyStream(MediaScenario.JpegLike()));
         content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
 
-        using var response = await MediaScenario.UploadContentAsync(browser, content, MediaScenario.NewKey());
+        using var response = await MediaScenario.UploadContentAsync(browser, content, MediaScenario.NewKey(), selector);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.LengthRequired, "LENGTH_REQUIRED");
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
     }
 
@@ -263,8 +275,13 @@ public sealed class PhotoUploadTests : IAsyncDisposable
 
         using var response = await MediaScenario.UploadAsync(browser, []);
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        var problem = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        var errors = problem["errors"]!.AsObject();
+        Assert.Equal(["body"], errors.Select(pair => pair.Key));
+        Assert.Equal("A foto está vazia.", Assert.Single(errors["body"]!.AsArray())!.GetValue<string>());
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
+        Assert.Equal(0, _media.StoredObjectCount());
     }
 
     [Fact]
@@ -369,20 +386,24 @@ public sealed class PhotoUploadTests : IAsyncDisposable
     }
 
     [Theory]
-    [InlineData("Restricted")]
-    [InlineData("Suspended")]
-    [InlineData("DeletionPending")]
-    public async Task ARestrictedAccountCannotUpload(string status)
+    [InlineData("Restricted", null)]
+    [InlineData("Suspended", null)]
+    [InlineData("DeletionPending", null)]
+    [InlineData("Restricted", "codes-v1")]
+    [InlineData("Suspended", "codes-v1")]
+    [InlineData("DeletionPending", "codes-v1")]
+    public async Task ARestrictedAccountCannotUpload(string status, string? selector)
     {
         var account = await NewAccountAsync();
         using var browser = await SignInAsync(account);
         await _media.ExecuteAsync("update identity.users set status = $2 where id = $1", account.UserId, status);
 
-        using var response = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike());
+        using var response = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike(), validationFormat: selector);
 
         Assert.True(
             response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
             $"Conta {status} recebeu {(int)response.StatusCode}.");
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
         Assert.Empty(await _media.UploadsOfAsync(account.UserId));
     }
 
