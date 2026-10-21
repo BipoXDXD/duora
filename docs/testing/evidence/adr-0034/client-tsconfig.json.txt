@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "module": "CommonJS",
+    "rootDir": "../..",
+    "outDir": "./ts-output",
+    "types": ["node"],
+    "typeRoots": ["../../duora/frontend/node_modules/@types"],
+    "paths": {
+      "@/*": ["../../duora/frontend/src/*"]
+    },
+    "noEmitOnError": true
+  },
+  "files": ["./frontend-probe.ts"]
+}

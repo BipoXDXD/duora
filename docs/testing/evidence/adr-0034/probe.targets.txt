@@ -1,0 +1,5 @@
+<Project>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Duora.IntegrationTests'">
+    <Compile Include="$(MSBuildThisFileDirectory)ValidationContractProbe.cs" />
+  </ItemGroup>
+</Project>

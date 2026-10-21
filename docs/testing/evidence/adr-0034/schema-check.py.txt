@@ -1,0 +1,39 @@
+import copy, importlib.metadata, json
+from pathlib import Path
+from jsonschema import Draft202012Validator
+root=Path(__file__).resolve().parent
+repo=root.parent.parent/'duora'
+doc=json.loads((repo/'docs/api/openapi.json').read_text())
+captures=root/'captures'
+result={'validator':'jsonschema '+importlib.metadata.version('jsonschema'),'dialect':'Draft 2020-12','openapi':doc['openapi'],'cases':[]}
+for name in ['body-empty-pt','body-empty-en','key-missing','key-invalid','body-empty-optin-ignored','type-unsupported']:
+ body=json.loads((captures/(name+'.json')).read_text())
+ key='ProblemDetails' if name=='type-unsupported' else 'HttpValidationProblemDetails'
+ schema=doc['components']['schemas'][key]
+ Draft202012Validator.check_schema(schema)
+ errors=list(Draft202012Validator(schema).iter_errors(body))
+ assert len(errors)==1 and errors[0].validator=='additionalProperties',(name,errors)
+ assert set(body)-set(schema['properties'])=={'code','traceId'}
+ stripped={k:v for k,v in body.items() if k not in ['code','traceId']}
+ assert Draft202012Validator(schema).is_valid(stripped)
+ declared=copy.deepcopy(schema)
+ declared['properties']['code']={'type':'string'}
+ declared['properties']['traceId']={'type':'string'}
+ assert Draft202012Validator(declared).is_valid(body)
+ assert not Draft202012Validator(declared).is_valid({**body,'unexpected':'x'})
+ assert not Draft202012Validator(declared).is_valid({**body,'code':123})
+ if key=='HttpValidationProblemDetails':
+  assert not Draft202012Validator(declared).is_valid({**body,'errors':{'body':[123]}})
+ opened=copy.deepcopy(schema); opened['additionalProperties']=True
+ assert Draft202012Validator(opened).is_valid({**body,'unexpected':'x'})
+ headers=json.loads((captures/(name+'.headers.json')).read_text())
+ assert headers['headers'].get('Duora-Validation-Format') is None
+ result['cases'].append({'name':name,'status':headers['status'],'schema':key,'publishedValid':False,'errors':[e.message for e in errors], 'withoutExtensionsValid':True,'inMemoryDeclaredExtensionsValid':True,'unknownMemberStillRejected':True})
+for key in ['HttpValidationProblemDetails','ProblemDetails']:
+ strict=json.loads((captures/(key+'-disallow.schema.json')).read_text())
+ loose=json.loads((captures/(key+'-skip.schema.json')).read_text())
+ assert strict.pop('additionalProperties') is False
+ assert strict==loose
+result['rootCauseControl']='Changing only UnmappedMemberHandling in cloned serializer options changes only additionalProperties false to absent; JsonExtensionData metadata exists but dynamic code/traceId names are not schema properties.'
+(root/'validation-results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+print(json.dumps(result,ensure_ascii=False,indent=2))
