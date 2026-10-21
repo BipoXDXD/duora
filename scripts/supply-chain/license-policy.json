@@ -44,6 +44,11 @@
       "package": "pillow",
       "license": "MIT-CMU",
       "reason": "Pillow 12.3.0, só no tooling offline de ilustrações (tools/visual/requirements.txt): processa as fontes PNG em WebP na máquina de quem gera; não é dependência do app e não vai para o bundle nem para as imagens. MIT-CMU (HPND) é permissiva, sem copyleft. Aprovada pelo responsável (delegação registrada na issue #9). Hoje o SBOM não cobre tools/visual, então esta exceção não casa com componente e aparece como aviso até o gate cobrir o tooling."
+    },
+    {
+      "package": "duora-location-catalog-cldr-48.2",
+      "license": "Unicode-3.0",
+      "reason": "Aprovada explicitamente pelo responsável em 2026-10-21, issue #78, somente para o futuro snapshot de localização derivado do CLDR release-48-2. A identidade inclui a versão porque as exceções atuais conferem nome e licença, não o campo version. Origem, hashes e obrigações em docs/security/catalog-licenses.md. Não autoriza outras versões/componentes nem dispensa avisos de copyright/permissão. Dados ainda não importados; nenhum país habilitado. O aviso de exceção sem uso é esperado até a incorporação e inventário auditáveis."
     }
   ],
   "missingLicenseAllowed": [
