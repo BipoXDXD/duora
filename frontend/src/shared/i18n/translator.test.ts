@@ -8,6 +8,15 @@ describe('createTranslator', () => {
     expect(createTranslator('en-US')('login.title')).toBe('Sign in')
   })
 
+  it.each([
+    ['pt-BR', 'Revisões restantes: 1.234', 'Opcional. Até 1.234 caracteres.'],
+    ['en-US', 'Revisions remaining: 1,234', 'Optional. Up to 1,234 characters.'],
+  ] as const)('formata quantidades pelo idioma %s com literais independentes', (locale, revisions, bio) => {
+    const t = createTranslator(locale)
+    expect(t('routes.revisionsRemaining', { count: 1234 })).toBe(revisions)
+    expect(t('profile.bioHint', { max: 1234 })).toBe(bio)
+  })
+
   it('interpola argumentos sem concatenar no código', () => {
     const t = createTranslator('en-US')
 

@@ -1,6 +1,6 @@
 # Datas e fusos de eventos — revisão da issue #81
 
-Base deste complemento: `d79321d`. As três escolhas de UX foram aprovadas em 2026-10-21 (adendo do ADR-0026). PR para revisão humana; sem merge automático e sem encerrar toda a issue #81.
+Registro histórico da primeira entrega (a conclusão do escopo atual consta no complemento final abaixo). Base daquele complemento: `d79321d`. As três escolhas de UX foram aprovadas em 2026-10-21 (adendo do ADR-0026). PR para revisão humana; sem merge automático e sem encerrar toda a issue #81.
 
 ## Escopo e contrato
 
@@ -67,3 +67,12 @@ O formulário não faz autosave. O botão do dispositivo preenche o rascunho; Sa
 - E2E também cobre preferência distinta do navegador e ambas as ocorrências repetidas com instantes intactos.
 
 Os resultados executados e os gates ainda pendentes são registrados no relatório de entrega/PR. Strings localizadas podem mudar após atualização de runtime; a revisão deve comparar saídas reais antes de atualizar os literais.
+
+
+## Complemento final da #81 — quantidades
+
+Os catálogos agora usam argumentos ICU `number` para quantidades (revisões restantes e limites de caracteres), passando pelo `Intl.NumberFormat` usado por `intl-messageformat`. Plurais já usam esse formatador para `#`. Códigos, versões legais, identificadores e horários previamente formatados não são tratados como quantidades. A troca de idioma recria o tradutor e escolhe os separadores correspondentes; os valores de domínio e limites não mudam.
+
+`translator.test.ts` compara os literais `1.234` em pt-BR e `1,234` em en-US para dois consumidores, sem calcular a expectativa com Intl. Os testes de datas/fusos listados acima permanecem intactos, inclusive DST, datas civis recusadas como instantes e preferência IANA validada pelo servidor.
+
+O escopo atual da #81 fica coberto pelas entregas de fusos já integradas e por este complemento. Cobrança e telefone não existem no produto atual: quando forem introduzidos, continuam obrigatórios valor em unidade mínima (`bigint`) com moeda ISO 4217 explícita na mesma linha, sem BRL implícito, e telefone E.164. Não foram criados módulos ou formatadores sem consumidor para simular a entrega desses recursos futuros. Nenhuma mudança de API, persistência, autenticação ou política de pareamento.
