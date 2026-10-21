@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from receiver import PROJECTS, validate_oci, validate_release
+from receiver import PROJECTS, receiver_digest, validate_oci, validate_release
 
 
 def requested(project: Any, sha: Any) -> Any:
@@ -90,7 +90,13 @@ def main() -> None:
     images = dict(pairs)
     if len(images) != len(pairs):
         raise ValueError("Duplicate image role")
-    release = {"version": 1, "project": project, "commit": sha, "images": images}
+    release = {
+        "version": 2,
+        "receiver_sha256": receiver_digest(),
+        "project": project,
+        "commit": sha,
+        "images": images,
+    }
     if project == "duora":
         publication = json.loads(Path(os.environ["PUBLICATION_FILE"]).read_text())
         release["duora"] = make_duora_manifest(publication, images, sha)
