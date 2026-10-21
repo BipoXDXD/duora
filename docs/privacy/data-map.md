@@ -10,7 +10,8 @@ Finalidades, categorias de dados por tabela, base legal, fornecedores e acessos 
 
 > **Público e jurisdição ([ADR-0026](../architecture/adr/0026-publico-idiomas-e-regiao-do-servidor.md), 2026-10-19).** O público principal do Duora **não é brasileiro**, e o
 > armazenamento fica nos EUA (VPS em Boston e backup no B2 US East); acessos de suporte e subprocessadores, a
-> confirmar (J-11). O Brasil é país provável (J-01); a
+> confirmar (J-11). O recorte inicial de produto aprovado em 2026-10-21 é EUA e Brasil (J-01 e adendo do
+> [ADR-0030](../architecture/adr/0030-profile-country-subdivision.md)); habilitação e liberação operacional seguem pendentes. A
 > aplicabilidade da LGPD, inclusive a quem está fora do Brasil, é a confirmar (J-02), e as referências à LGPD neste
 > mapa valem só se ela se aplicar. Para as demais jurisdições, as leis prováveis estão em [Jurisdições a confirmar](#jurisdições-a-confirmar),
 > como lacunas para o apoio jurídico, sem conclusão sobre aplicabilidade.
@@ -188,7 +189,7 @@ jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 
 | ID | Jurisdição | Leis prováveis (a confirmar) | Pergunta para o apoio jurídico | Onde toca o Duora |
 |---|---|---|---|---|
-| J-01 | Todas | — | **Decisão de produto, antes das outras:** em que países o Duora abre o cadastro? Sem essa lista, nenhuma das linhas abaixo pode ser fechada | Elegibilidade do cadastro, `region_code` (ADR-0026, proposta 1) |
+| J-01 | EUA e Brasil | — | **Recorte de produto aprovado em 2026-10-21:** EUA (50 estados + DC) e Brasil (27 UFs), conforme adendo do [ADR-0030](../architecture/adr/0030-profile-country-subdivision.md). Países ainda não habilitados por essa decisão; liberação operacional, análises de aplicabilidade e idade mínima das linhas seguintes permanecem pendentes | Elegibilidade do cadastro, país/subdivisão opcionais e campo legado de região (issue #78) |
 | J-02 | Brasil | LGPD; Marco Civil; ECA Digital (decisão do dono de 2026-10-16 mantida) | Escopo territorial (art. 3.º): a LGPD se aplica ao Duora pelo local do tratamento, pela oferta a pessoas no Brasil ou pela coleta no Brasil, e alcança também quem está fora do Brasil? Se se aplicar: com servidor e backup nos EUA, qual o enquadramento (transferência internacional, art. 33, ou coleta internacional, Res. CD/ANPD 19/2024) e a salvaguarda e quem é o encarregado (art. 41)? | Tabela de transferências acima; lacunas 1, 4, 5 e 6 |
 | J-03 | EUA, estados | Leis estaduais abrangentes de privacidade do consumidor (Califórnia CCPA/CPRA; Virgínia, Colorado, Connecticut, Texas, entre outras) | Os limiares de aplicabilidade (receita, número de residentes, venda de dados) alcançam o Duora? Preferências, vida afetiva e orientação são "dados sensíveis" com *opt-in*? Há avaliação de impacto obrigatória? Que direitos e prazos de resposta? | `profiles.preferences`, `social.decisions`, mensagens; direitos do titular; aviso de privacidade |
 | J-04 | EUA, estados | Washington My Health My Data Act e leis parecidas; leis de biometria (Illinois BIPA, Texas CUBI) | Algum dado do Duora cai em "dado de saúde do consumidor"? O método de verificação etária do fornecedor usa biometria ou estimativa facial e, se usar, que consentimento e retenção exige? | F-02 e fornecedor de verificação etária; fotos (não há tratamento biométrico previsto) |
