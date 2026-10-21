@@ -272,3 +272,14 @@ Antes de integrar qualquer PR: todos os checks exigidos — backend, frontend, e
 ## Resultado desta elaboração
 
 Plano revisado contra ADR-0033 e caminhos atuais do código; cinco riscos de revisão vinculados a testes nas etapas. Nenhum código de produto, configuração ou catálogo alterado. Exemplos de contratos/testes neste documento são especificações para execução posterior, não implementação. Nomes novos de arquivos são propostas; caminhos existentes foram verificados na base indicada. Não há designação de responsáveis ou canal, nem habilitação dos EUA.
+
+## Registro de execução de 21/10/2026 — somente etapas 1 e 2
+
+O responsável autorizou a implementação das etapas 1 e 2 e a abertura de PR. Essa autorização substitui,
+para essas duas etapas, a pendência de execução em G0; não autoriza executar etapas 3 a 10.
+
+A entrega para revisão adiciona modelo validado, migração aditiva com consistência diferida, API privada
+GET/PUT com versão regional própria, guarda compartilhada e contratos gerados. Não ativa filtro no matching,
+não altera a localização declarada, não cria UI/detector/atualizador e não habilita US. Titular, substituto
+e canal de alertas continuam pendentes. A issue permanece aberta; merge, aplicação da migração e implantação
+seguem os gates e autorizações próprios. O corpo das etapas conserva o plano original aprovado.
