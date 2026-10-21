@@ -438,9 +438,9 @@ Conteúdo vem de catálogo validado, não de avaliação de código ou scripts e
 
 Não retornar o objeto completo com `hidden: true`; se o dado não pode ser visto, ele não deve estar no payload. Revisão administrativa de uma experiência ativa publica uma nova versão, mas não altera sessões já iniciadas; isso vale para a mídia: mudar o texto de uma fala exige gerar o áudio de novo e publicar versão nova, e a sessão em andamento continua com os arquivos da versão antiga. Uma vulnerabilidade grave pode desativar a versão e abortar sessões com mensagem neutra.
 
-### 6.4. Conteúdo assistido por IA
+### 6.4. Preparação editorial do conteúdo
 
-A IA pode propor cartões, instruções, variações e testes **fora do fluxo ao vivo**. O pipeline valida schema, comprimento, linguagem, conteúdo proibido, direitos de uso e acessibilidade; depois exige aprovação editorial antes da publicação. O catálogo registra origem, modelo quando aplicável, revisão humana, licença e hash do conteúdo; cada asset de mídia registra também hash, ferramenta, modelo, id da tarefa de geração e, para voz feita a partir de voz humana, o consentimento e a licença da pessoa.
+Cartões, instruções, variações e testes são preparados **fora do fluxo ao vivo**. O pipeline valida schema, comprimento, linguagem, conteúdo proibido, direitos de uso e acessibilidade; depois exige aprovação editorial antes da publicação. O catálogo registra origem, modelo quando aplicável, revisão humana, licença e hash do conteúdo; cada asset de mídia registra também hash, ferramenta, modelo, id da tarefa de geração e, para voz feita a partir de voz humana, o consentimento e a licença da pessoa.
 
 Não enviar conversas, fotos, preferências íntimas ou denúncias reais a um agente de criação de conteúdo. O jogo deve funcionar normalmente com o fornecedor de IA indisponível.
 
@@ -453,7 +453,7 @@ Regras completas em [ADR-0027](../architecture/adr/0027-midia-das-experiencias-c
 | Cenário e personagem | Personagens permitidos, inclusive humanos estilizados; adultos, fictícios, diversos, sem casal-padrão nem estereótipo; nunca no lugar de avatar ou participante; sem texto na imagem | Revisão de conteúdo com o one pager; registro em `assets-licenses.md` |
 | Áudio pré-gerado | Mudo por padrão, ativado por gesto (WCAG 1.4.2); transcrição na tela (1.2.1); canais de música, ambiente e voz com volume próprio lembrado no aparelho; "Reduzir áudio"; ducking da trilha sob a voz | A11Y-04; teste de que nada toca antes do gesto |
 | Som e privacidade | Nenhum som reage ao prazo; decisão privada em silêncio ou som neutro; nenhum som de recompensa ligado a pessoas; nenhum som disparado por estado privado da outra pessoa | Revisão do manifesto; T-05 estendido a eventos de som |
-| Falas | Só do catálogo, pré-geradas e revisadas; nunca TTS ao vivo, nome de participante ou texto do chat (ADR-013); até 120 caracteres por fala em cada idioma; barks com variação; aviso claro de voz sintética na introdução da experiência e rótulo por fala; voz de referência humana só com consentimento e licença | Teste do manifesto |
+| Falas | Só do catálogo, pré-geradas e revisadas; nunca TTS ao vivo, nome de participante ou texto do chat (ADR-013); até 120 caracteres por fala em cada idioma; barks com variação; narração natural e identificação de quem fala, sem mensagem sobre o processo de criação na experiência (ADR-0032); voz de referência humana só com consentimento e licença | Teste do manifesto |
 | Versão | Mídia no manifesto da `ExperienceVersion`, com hash, origem, ferramenta, modelo, id da tarefa e licença; voz e transcrição em PT-BR e EN-US | T-09 estendido à mídia |
 | Peso | Orçamento por experiência (hipóteses no ADR-0027); áudio e 3D fora do caminho crítico do LCP; AAC-LC (`.m4a`) como formato obrigatório, por causa do Safari/iOS | Medição de build e de laboratório (13.5) |
 | 3D | Offline em WebP por padrão; tempo real por experiência, com orçamento e fallback 2D acessível; nenhuma ação exige arrastar ou girar | A11Y-04 |

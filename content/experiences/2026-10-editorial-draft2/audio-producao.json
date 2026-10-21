@@ -6,7 +6,6 @@
   "audioListened": false,
   "approvedBy": null,
   "approvedAt": null,
-  "origin": "ai_assisted_editorial_adaptation_of_repository_candidate",
   "assets": [
     {
       "experience": "constellation",
@@ -14,9 +13,9 @@
       "assetId": "constellation-draft2-intro-pt-br",
       "locale": "pt-BR",
       "visibility": "public",
-      "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. As vozes desta experiência são geradas por IA.",
+      "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
       "accessibleDescription": "Constelação de Escolhas",
-      "speakerLabel": "Narração da interface — voz gerada por IA.",
+      "speakerLabel": "Narração.",
       "productionStatus": "not_started",
       "targetFormat": {
         "container": "WAV",
@@ -27,7 +26,7 @@
         "maxDurationSeconds": 60,
         "maxBytes": 6291456
       },
-      "deliveryDirection": "Voz adulta, cordial e clara; ritmo natural, sem urgência, sedução ou imitação de pessoa real. Não acrescentar palavras, interjeições, música ou efeitos.",
+      "deliveryDirection": "Voz adulta e conversacional, com calor discreto, pausas naturais e pronúncia fluente em PT-BR. Evitar cadência robótica, tom publicitário, infantilização, sedução e urgência. Não imitar pessoa identificável. Não acrescentar palavras, música ou efeitos. Selecionar por escuta humana.",
       "provider": null,
       "model": null,
       "voiceId": null,
@@ -51,9 +50,9 @@
       "assetId": "constellation-draft2-intro-en-us",
       "locale": "en-US",
       "visibility": "public",
-      "transcript": "Explore everyday choices. You can skip any card. The voices in this experience are AI-generated.",
+      "transcript": "Explore everyday choices. You can skip any card.",
       "accessibleDescription": "Constellation of Choices",
-      "speakerLabel": "Interface narration — AI-generated voice.",
+      "speakerLabel": "Narration.",
       "productionStatus": "not_started",
       "targetFormat": {
         "container": "WAV",
@@ -64,7 +63,7 @@
         "maxDurationSeconds": 60,
         "maxBytes": 6291456
       },
-      "deliveryDirection": "Adult, warm, clear voice; natural pace, no urgency, seduction or imitation of a real person. Add no words, interjections, music or effects.",
+      "deliveryDirection": "Adult, conversational voice with understated warmth, natural pauses and fluent US English pronunciation. Avoid robotic cadence, advertising delivery, infantilization, seduction and urgency. Do not imitate an identifiable person. Add no words, music or effects. Select through human listening.",
       "provider": null,
       "model": null,
       "voiceId": null,
@@ -88,9 +87,9 @@
       "assetId": "unlikely-routes-draft2-intro-pt-br",
       "locale": "pt-BR",
       "visibility": "public",
-      "transcript": "Planejem um passeio por uma cidade em uma ilha imaginária. As vozes desta experiência são geradas por IA.",
+      "transcript": "Planejem um passeio por uma cidade em uma ilha imaginária.",
       "accessibleDescription": "Rotas Improváveis",
-      "speakerLabel": "Narração da interface — voz gerada por IA.",
+      "speakerLabel": "Narração.",
       "productionStatus": "not_started",
       "targetFormat": {
         "container": "WAV",
@@ -101,7 +100,7 @@
         "maxDurationSeconds": 60,
         "maxBytes": 6291456
       },
-      "deliveryDirection": "Voz adulta, cordial e clara; ritmo natural, sem urgência, sedução ou imitação de pessoa real. Não acrescentar palavras, interjeições, música ou efeitos.",
+      "deliveryDirection": "Voz adulta e conversacional, com calor discreto, pausas naturais e pronúncia fluente em PT-BR. Evitar cadência robótica, tom publicitário, infantilização, sedução e urgência. Não imitar pessoa identificável. Não acrescentar palavras, música ou efeitos. Selecionar por escuta humana.",
       "provider": null,
       "model": null,
       "voiceId": null,
@@ -125,9 +124,9 @@
       "assetId": "unlikely-routes-draft2-intro-en-us",
       "locale": "en-US",
       "visibility": "public",
-      "transcript": "Plan a walk through a town on an imaginary island. The voices in this experience are AI-generated.",
+      "transcript": "Plan an outing through a town on an imaginary island.",
       "accessibleDescription": "Unlikely Routes",
-      "speakerLabel": "Interface narration — AI-generated voice.",
+      "speakerLabel": "Narration.",
       "productionStatus": "not_started",
       "targetFormat": {
         "container": "WAV",
@@ -138,7 +137,7 @@
         "maxDurationSeconds": 60,
         "maxBytes": 6291456
       },
-      "deliveryDirection": "Adult, warm, clear voice; natural pace, no urgency, seduction or imitation of a real person. Add no words, interjections, music or effects.",
+      "deliveryDirection": "Adult, conversational voice with understated warmth, natural pauses and fluent US English pronunciation. Avoid robotic cadence, advertising delivery, infantilization, seduction and urgency. Do not imitate an identifiable person. Add no words, music or effects. Select through human listening.",
       "provider": null,
       "model": null,
       "voiceId": null,
