@@ -89,3 +89,11 @@ foram restauradas; o reforço acrescenta somente asserções nos testes.
 Os nove gates do repositório continuam exigidos. O relatório do PR registra comandos/resultados executados,
 commit e CI. Nenhum workflow ou scanner é reduzido. A reversão consiste em reverter os arquivos de teste e
 este inventário; não há migração, flag ou implantação.
+
+## Acompanhamento de falhas na revisão — #151
+
+A [matriz de releituras após conflito](preference-rereads.md) registra 24 novas execuções E2E para
+preferências, idioma, fuso e região: PUT 412/PRECONDITION_FAILED, revisão GET
+503/TEMPORARILY_UNAVAILABLE, recuperação explícita e novo envio com If-Match atualizado. Preserva as
+diferenças de bloqueio/rascunho de cada formulário e reforça o teste regional 412 em seu estado de erro.
+Os 174 E2E da #142 e o canário regional 429 permanecem, sem duplicação ou mudança funcional.
