@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import capacity
 
 
@@ -18,7 +18,7 @@ class CapacityTests(unittest.TestCase):
                 capacity.validate_memory(text)
 
     def test_runtime_requires_bounded_media_slice(self):
-        runner = unittest.mock.Mock(return_value='1073741824\n')
+        runner = Mock(return_value='1073741824\n')
         capacity.validate_media_slice(runner)
         for value in ('infinity\n', '0\n', '2147483648\n', ''):
             runner.return_value = value
