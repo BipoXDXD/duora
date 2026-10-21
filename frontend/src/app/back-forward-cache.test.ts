@@ -68,19 +68,17 @@ describe('reloadWhenRestoredFromBackForwardCache', () => {
 })
 
 describe('isPrivatePath', () => {
-  it.each([
-    '/',
-    '/criar-conta',
-    '/verifique-seu-email',
-    '/confirmar-email',
-    '/entrar',
-    '/esqueci-a-senha',
-    '/redefinir-senha',
-  ])('%s é pública', (pathname) => {
-    expect(isPrivatePath(pathname)).toBe(false)
-  })
+  it.each(['/', '/register', '/check-email', '/confirm-email', '/login', '/forgot-password', '/reset-password'])(
+    '%s é pública',
+    (pathname) => {
+      expect(isPrivatePath(pathname)).toBe(false)
+    },
+  )
 
-  it.each(['/conta', '/perfil', '/rota-nova', '/entrar/', '/ENTRAR'])('%s é privada (negar por padrão)', (pathname) => {
-    expect(isPrivatePath(pathname)).toBe(true)
-  })
+  it.each(['/account', '/perfil', '/rota-nova', '/login/', '/ENTRAR'])(
+    '%s é privada (negar por padrão)',
+    (pathname) => {
+      expect(isPrivatePath(pathname)).toBe(true)
+    },
+  )
 })

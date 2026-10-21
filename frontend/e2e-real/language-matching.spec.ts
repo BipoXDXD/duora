@@ -30,14 +30,14 @@ async function json<T>(page: Page, path: string): Promise<T> {
   return (await response.json()) as T
 }
 async function login(page: Page, account: Seed['accounts'][number]): Promise<void> {
-  await page.goto('/entrar')
+  await page.goto('/login')
   await page.getByLabel('Email', { exact: true }).fill(account.email)
   await page.getByLabel('Password', { exact: true }).fill(account.password)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Your account' })).toBeVisible()
 }
 async function declare(page: Page, language: 'English' | 'Portuguese', optIn: boolean): Promise<void> {
-  await page.goto('/conta/preferencias')
+  await page.goto('/account/preferences')
   const english = page.getByRole('checkbox', { name: 'English', exact: true })
   const portuguese = page.getByRole('checkbox', { name: 'Portuguese', exact: true })
   await english.setChecked(language === 'English')
@@ -134,7 +134,7 @@ test('real PostgreSQL: no common language, either participant declines, then loc
     }
 
     // Persist a different display locale without changing Bob's explicitly declared English.
-    await bob.goto('/conta/preferencias')
+    await bob.goto('/account/preferences')
     await bob.getByRole('combobox', { name: 'Interface and content language' }).selectOption('pt-BR')
     await bob.getByRole('button', { name: 'Save display language' }).click()
     await expect(bob.getByText('Idioma de exibição salvo.')).toBeVisible()

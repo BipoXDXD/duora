@@ -1,6 +1,6 @@
-import { Outlet, Route, Routes, useLocation } from 'react-router'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
 import { LandingPage } from '@/features/landing/LandingPage'
-import { paths } from '@/shared/paths'
+import { legacyPaths, paths } from '@/shared/paths'
 import { AreaErrorBoundary } from '@/shared/ui/error-boundary'
 import { AppLayout } from './AppLayout'
 import { lazyPage, type LazyPage } from './lazy-page'
@@ -49,6 +49,9 @@ const RequireSession = routePage(async () => {
 export function AppRoutes(): React.JSX.Element {
   return (
     <Routes>
+      {Object.entries(legacyPaths).map(([legacy, canonical]) => (
+        <Route key={legacy} path={legacy} element={<LegacyRedirect to={canonical} />} />
+      ))}
       <Route element={<AppLayout />}>
         <Route index element={<LandingPage />} />
         <Route element={<Area />}>
@@ -90,4 +93,12 @@ function Area(): React.JSX.Element {
 /** Tela da rota sob demanda; se o aviso de carregamento chegou a aparecer, ele cumpre o tempo mínimo. */
 function routePage(load: () => Promise<React.ComponentType>): LazyPage {
   return lazyPage(() => withFallbackMinimum(load))
+}
+
+/** Replace keeps the legacy entry out of history; credentials remain in the fragment until consumed. */
+function LegacyRedirect({ to }: { readonly to: string }): React.JSX.Element {
+  const location = useLocation()
+  const { search, hash } = location
+  const state: unknown = location.state
+  return <Navigate to={{ pathname: to, search, hash }} replace state={state} />
 }
