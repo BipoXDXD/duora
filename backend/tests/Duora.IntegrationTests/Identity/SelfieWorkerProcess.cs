@@ -5,17 +5,23 @@ using System.Threading.Channels;
 
 namespace Duora.IntegrationTests.Identity;
 
-internal sealed class SelfieWorkerProcess : IAsyncDisposable
+internal sealed partial class SelfieWorkerProcess : IAsyncDisposable
 {
     private readonly Process _process;
     private readonly Channel<Signal> _signals = Channel.CreateUnbounded<Signal>();
     private readonly List<Signal> _deferred = [];
     private readonly Task _output;
     private readonly Task<string> _error;
+    private readonly string? _containerName;
+    private readonly string? _cidFile;
+    private int _signalPid;
 
-    private SelfieWorkerProcess(Process process)
+    private SelfieWorkerProcess(Process process, string? containerName = null, string? cidFile = null)
     {
         _process = process;
+        _containerName = containerName;
+        _cidFile = cidFile;
+        _signalPid = containerName is null ? process.Id : 0;
         _output = ReadOutputAsync();
         _error = process.StandardError.ReadToEndAsync();
     }
@@ -79,7 +85,14 @@ internal sealed class SelfieWorkerProcess : IAsyncDisposable
     public async Task ForceKillAsync(CancellationToken ct)
     {
         Assert.False(_process.HasExited, "The worker must still be alive at the chosen interruption point.");
-        _process.Kill(entireProcessTree: true);
+        if (_containerName is not null)
+        {
+            await KillContainerAsync(ct);
+        }
+        else
+        {
+            _process.Kill(entireProcessTree: true);
+        }
         await _process.WaitForExitAsync(ct).WaitAsync(TimeSpan.FromSeconds(15), ct);
         Assert.NotEqual(0, _process.ExitCode);
         await _output;
@@ -99,7 +112,12 @@ internal sealed class SelfieWorkerProcess : IAsyncDisposable
         while (await _signals.Reader.WaitToReadAsync(deadline.Token))
         {
             var signal = await _signals.Reader.ReadAsync(deadline.Token);
-            Assert.Equal(Id, signal.Pid);
+            if (_signalPid == 0)
+            {
+                Assert.True(signal.Pid > 0);
+                _signalPid = signal.Pid;
+            }
+            Assert.Equal(_signalPid, signal.Pid);
             if (signal.Kind == kind)
             {
                 return signal;
@@ -128,7 +146,11 @@ internal sealed class SelfieWorkerProcess : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (!_process.HasExited)
+        if (_containerName is not null)
+        {
+            await RemoveContainerAsync();
+        }
+        else if (!_process.HasExited)
         {
             _process.Kill(entireProcessTree: true);
         }
@@ -136,7 +158,12 @@ internal sealed class SelfieWorkerProcess : IAsyncDisposable
         await _output;
         await _error;
         _process.Dispose();
+        if (_cidFile is not null)
+        {
+            File.Delete(_cidFile);
+        }
     }
 
-    private sealed record Signal(string Kind, int Pid, int Count);
+    private sealed record Signal(string Kind, int Pid, int Count, int Port = 0, int Starts = 0,
+        int Reads = 0, int Sessions = 0, bool FirstResponseWritten = false);
 }
