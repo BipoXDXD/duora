@@ -68,6 +68,11 @@ BACKUP_DB_HOST = "postgres"
 BACKUP_DB_ROLE = "duora_backup"  # papel sem superuser (infra/images/postgres/initdb/10-duora-roles.sh)
 # RPO proposto de 5 min (spec 18.1): WAL confirmado no repositório há mais tempo que isso é alerta.
 MAX_ARCHIVE_AGE_SECONDS = 300
+# O check pode terminar antes de o archiver publicar suas estatísticas compartilhadas. Releitura limitada,
+# nunca um RPO maior: seis consultas, com até cinco pausas de 1 s; cada SQL tem timeout próprio de 5 s.
+ARCHIVER_STATS_ATTEMPTS = 6
+ARCHIVER_STATS_POLL_SECONDS = 1
+ARCHIVER_STATS_QUERY_TIMEOUT_SECONDS = 5
 # Diferencial diário: um dia perdido ainda passa; dois seguidos alertam (o restore ficaria mais longo, RTO).
 MAX_BACKUP_AGE_HOURS = 48
 # Backup e stanza esperam o deploy em curso terminar (mesmo lock do duora-deploy) por até este tempo.
@@ -551,13 +556,22 @@ def _verify(run: Runner, container: str) -> None:
     info = _run_pgbackrest(run, container, ["info", "--output=json"], QUERY_TIMEOUT_SECONDS, capture=True)
     # Com o mesmo papel e a mesma senha (.pgpass) do pgBackRest, por TCP; --no-password: sem senha, falha em vez de
     # pedir no terminal. pg_stat_archiver é legível por qualquer papel.
-    archiver = _check(run(["docker", "exec", container, "psql", "--no-psqlrc", "--quiet", "--tuples-only",
-                           "--no-align", "--host", BACKUP_DB_HOST, "--username", BACKUP_DB_ROLE,
-                           "--dbname", "postgres", "--no-password", "--command", ARCHIVER_QUERY], capture=True),
-                      "leitura de pg_stat_archiver")
-    problems = backup_health_problems(info.stdout, parse_archiver_status(archiver.stdout))
-    if problems:
-        raise BackupError("backup/WAL não saudável:\n  - " + "\n  - ".join(problems))
+    for attempt in range(ARCHIVER_STATS_ATTEMPTS):
+        # Nova conexão/transação a cada leitura, sem reutilizar snapshot de estatísticas do psql.
+        archiver = _check(run(["docker", "exec", container, "psql", "--no-psqlrc", "--quiet", "--tuples-only",
+                               "--no-align", "--host", BACKUP_DB_HOST, "--username", BACKUP_DB_ROLE,
+                               "--dbname", "postgres", "--no-password", "--command", ARCHIVER_QUERY], capture=True,
+                              timeout_seconds=ARCHIVER_STATS_QUERY_TIMEOUT_SECONDS), "leitura de pg_stat_archiver")
+        status = parse_archiver_status(archiver.stdout)
+        repository_problems = _repository_problems(info.stdout, status.now)
+        problems = repository_problems + _archiving_problems(status)
+        if not problems:
+            break
+        # Só estatísticas válidas do archiver podem estar atrasadas. Repositório inválido, SQL com erro e
+        # resposta malformada falham imediatamente; WAL ainda degradado ao fim da janela continua bloqueando.
+        if repository_problems or attempt == ARCHIVER_STATS_ATTEMPTS - 1:
+            raise BackupError("backup/WAL não saudável:\n  - " + "\n  - ".join(problems))
+        time.sleep(ARCHIVER_STATS_POLL_SECONDS)
     _step("backup e WAL saudáveis")
 
 
