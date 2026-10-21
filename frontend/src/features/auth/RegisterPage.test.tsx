@@ -53,7 +53,7 @@ describe('tela de cadastro', () => {
   it('does not claim English documents merely because the interface is English', async () => {
     useAntiforgeryEndpoint()
     const received = useRegisterEndpoint(accepted)
-    const { user } = await renderApp('/criar-conta', undefined, 'en-US')
+    const { user } = await renderApp('/register', undefined, 'en-US')
     await user.type(screen.getByLabelText('Email'), 'reader@example.com')
     await user.type(screen.getByLabelText('Password'), 'long enough password')
     for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
