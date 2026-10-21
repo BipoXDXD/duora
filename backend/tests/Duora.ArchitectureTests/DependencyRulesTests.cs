@@ -117,9 +117,7 @@ public sealed class DependencyRulesTests
 
     private static bool IsBaseLibrary(string name) =>
         name is "netstandard" or "System"
-        || name.StartsWith("System.", StringComparison.Ordinal)
-        || (name.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal)
-            && name.EndsWith(".Abstractions", StringComparison.Ordinal));
+        || name.StartsWith("System.", StringComparison.Ordinal);
 
     /// <summary>
     /// Tipos que o compilador ou um source generator emitem (atributos embutidos, código do gerador de OpenAPI),

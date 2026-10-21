@@ -184,7 +184,7 @@ Credenciais temporárias de captura são emitidas em endpoint próprio, autentic
 - [ ] Aplicar deltas por arquivo sobre a main atual, sem trazer commits ancestrais de documentação do 87. Ler o AGENTS.md próprio do observador como instrução do componente, sem conceder acesso à produção.
 - [ ] Acrescentar testes de CPU/RAM por cenário antes de editar limites: postgres 2048 MiB; permanentes 5248 MiB; tetos web/postgres 1,5 CPU; worker 1; edge/backup 0,5. Pesos postgres/web 2048, edge 2048, worker 768, backup 512; migrador/restore fora do cenário normal. Monitor/gateway só podem ativar quando incluídos no cenário agregado e cabendo na margem real.
 - [ ] Validar mutações negativas em cópia temporária: memória acima do orçamento, serviço não contabilizado, CPU acima do host, privilégio ou socket Docker no observador. Repor arquivo após cada teste; nenhuma mudança no checkout original.
-- [ ] Rodar `python3 -m unittest discover -s scripts/telemetry -p 'test_*.py' -v`, `node --test scripts/telemetry/test-mcp.mjs`, suíte deploy em ambiente Python com requirements travado e Docker Compose config com valores sintéticos.
+- [ ] Rodar `python3 -m unittest discover -s scripts/telemetry -p 'test_*.py' -v`, `node --test registro operacional duora-operations-20261021`, suíte deploy em ambiente Python com requirements travado e Docker Compose config com valores sintéticos.
 - [ ] Não executar install/firewall/activate na máquina ou VPS, nem enviar Slack. Registrar carga/VPS/backup como pendentes, não aprovados. Commit independente de infraestrutura.
 
 ### Tarefa 8 — política linguística e fechamento

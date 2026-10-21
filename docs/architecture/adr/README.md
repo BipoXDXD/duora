@@ -20,7 +20,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0009](0009-uma-instancia-web-no-piloto.md) | Uma web ativa no piloto | Accepted | Disponibilidade/capacidade exigir backplane |
 | [0010](0010-object-storage-externo-leitura-via-api.md) | Object storage externo e leitura privada via API | Accepted | Egress/latência exigirem distribuição revisada |
 | [0011](0011-pgbackrest-wal-externo-restore-obrigatorio.md) | pgBackRest/WAL externo e restore obrigatório | Accepted | Volume/metas exigirem outra topologia |
-| [0012](0012-pareamento-deterministico-deterministico.md) | Pareamento determinístico com regras determinísticas | Accepted | Evidência de benefício com avaliação formal de risco |
+| [0012](0012-pareamento-deterministico.md) | Pareamento determinístico | Accepted | Evidência de benefício com avaliação formal de risco |
 | [0013](0013-producao-editorial-fora-do-runtime.md) | Produção editorial fora do runtime de partidas | Accepted | Caso concreto aprovado com fallback equivalente |
 | [0014](0014-automacao-com-gates.md) | Automação com gates para mudanças críticas | Accepted | Evidência para ampliar escopo de baixo risco |
 | [0015](0015-sem-kubernetes-redis-microsservicos.md) | Sem Kubernetes/Redis/microsserviços obrigatórios | Accepted | Necessidade medida |

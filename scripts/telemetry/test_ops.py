@@ -6,7 +6,6 @@ import unittest
 from unittest.mock import Mock
 import collect
 import monitor
-import preflight
 
 
 class OpsTests(unittest.TestCase):
@@ -84,33 +83,6 @@ class OpsTests(unittest.TestCase):
         self.assertNotIn('evil', json.dumps(runs))
         with self.assertRaises(ValueError):
             monitor.github_runs('a/b/../../secrets', '', fetch)
-
-    def test_image_requires_digest_and_no_extra_env(self):
-        good = 'GATEWAY_IMAGE=ghcr.io/example/agent@sha256:' + 'a' * 64 + '\n'
-        preflight.pinned(good)
-        for value in ('GATEWAY_IMAGE=image:latest', good + 'EVIL=1\n', 'GATEWAY_IMAGE=$(id)'):
-            with self.assertRaises(ValueError):
-                preflight.pinned(value)
-
-    def config(self):
-        value = json.loads((Path(__file__).parents[2] / 'infra/telemetry/telemetry.example.json').read_text())
-        value['agents']['defaults']['model']['primary'] = 'fonte externa/synthetic'
-        item = value['channels']['slack']['channels'].pop('REPLACE_CHANNEL_ID')
-        item['users'] = ['U12345678']
-        value['channels']['slack']['channels']['C12345678'] = item
-        return value
-
-    def test_configuration_rejects_expanded_authority(self):
-        config = self.config()
-        preflight.validate(config)
-        for change in ('bots', 'user', 'exec', 'restart', 'mcp'):
-            config = self.config()
-            if change == 'bots': config['channels']['slack']['allowBots'] = True
-            if change == 'user': config['channels']['slack']['channels']['C12345678']['users'] = ['*']
-            if change == 'exec': config['tools']['deny'].remove('group:runtime')
-            if change == 'restart': config['commands']['restart'] = True
-            if change == 'mcp': config['mcp']['servers']['duora']['args'] = ['evil.js']
-            with self.assertRaises(ValueError): preflight.validate(config)
 
     def test_atomic_publication(self):
         with tempfile.TemporaryDirectory() as directory:

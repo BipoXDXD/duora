@@ -5,19 +5,21 @@ using System.Reflection.Emit;
 namespace Duora.ArchitectureTests;
 
 /// <summary>
-/// ADR-0012: o pareamento é determinístico e usa exclusivamente regras determinísticas. A allowlist do Core em
-/// <see cref="DependencyRulesTests"/> não basta, porque aceita <c>Microsoft.Extensions.*.Abstractions</c> e
-/// <c>External.Provider.Abstractions</c> traz o <c>IChatClient</c>. Estes testes barram SDK de processamento externo no
-/// assembly do Core e, tipo a tipo, no módulo Matching, inclusive no corpo dos métodos.
+/// ADR-0012: o pareamento usa regras determinísticas e dependências aprovadas.
+/// A inspeção inclui assinaturas, atributos e corpos dos métodos.
 /// </summary>
 public sealed class MatchingDependencyBoundaryTests
 {
     private const string CoreAssembly = "Duora.Core";
     private const string MatchingNamespace = "Duora.Core.Matching";
-
-    /// <summary>Raízes de namespace e de assembly de clientes de processamento externo e processamento externo; vale a raiz e tudo abaixo dela.</summary>
-    private static readonly string[] ExternalDependencyRoots =
-        ["fonte externa", "fonte externa", "External.ProviderCloud", "Microsoft.fonte externa", "External.Provider"];
+    private static readonly HashSet<string> ApprovedAssemblies =
+    [
+        "Duora.Core", "System", "netstandard", "System.Private.CoreLib", "System.Runtime",
+        "System.Collections", "System.Collections.Concurrent", "System.Linq", "System.Memory",
+        "System.ObjectModel", "System.Security.Cryptography", "System.Text.Json",
+        "System.Text.RegularExpressions", "System.Collections.Immutable", "System.Net.Mail",
+        "System.Runtime.InteropServices",
+    ];
 
     private static readonly Dictionary<short, OpCode> OpCodesByValue = typeof(OpCodes)
         .GetFields(BindingFlags.Public | BindingFlags.Static)
@@ -28,15 +30,15 @@ public sealed class MatchingDependencyBoundaryTests
     [Fact]
     public void CoreReferencesOnlyApprovedAssemblies()
     {
-        var externalReferences = Assembly.Load(CoreAssembly).GetReferencedAssemblies()
+        var unapprovedReferences = Assembly.Load(CoreAssembly).GetReferencedAssemblies()
             .Select(reference => reference.Name ?? "")
-            .Where(IsExternalDependency)
+            .Where(IsUnapprovedAssembly)
             .ToList();
 
         Assert.True(
-            externalReferences.Count == 0,
-            $"ADR-0012: o Matching vive em {CoreAssembly}, que não pode referenciar SDK de processamento externo. Encontrado: "
-            + string.Join(", ", externalReferences));
+            unapprovedReferences.Count == 0,
+            $"ADR-0012: o Matching vive em {CoreAssembly}, que só pode referenciar dependências aprovadas. Encontrado: "
+            + string.Join(", ", unapprovedReferences));
     }
 
     [Fact]
@@ -44,14 +46,14 @@ public sealed class MatchingDependencyBoundaryTests
     {
         var violations = MatchingTypes()
             .SelectMany(type => DependenciesOf(type)
-                .Where(dependency => IsExternalDependency(dependency.Namespace ?? "") || IsExternalDependency(dependency.Assembly.GetName().Name ?? ""))
+                .Where(dependency => IsUnapprovedAssembly(dependency.Assembly.GetName().Name ?? ""))
                 .Select(dependency => $"{type.FullName} -> {dependency.FullName ?? dependency.Name}"))
             .Distinct()
             .ToList();
 
         Assert.True(
             violations.Count == 0,
-            "ADR-0012: o pareamento é determinístico e não usa cliente de processamento externo ou processamento externo. Dependências proibidas:"
+            "ADR-0012: o pareamento usa exclusivamente dependências aprovadas. Dependências proibidas:"
             + Environment.NewLine + string.Join(Environment.NewLine, violations));
     }
 
@@ -65,8 +67,39 @@ public sealed class MatchingDependencyBoundaryTests
         Assert.Contains(typeof(BinaryPrimitives), dependencies);
     }
 
-    private static bool IsExternalDependency(string name) =>
-        ExternalDependencyRoots.Any(root => name == root || name.StartsWith(root + ".", StringComparison.Ordinal));
+    [Theory]
+    [InlineData("External.Provider")]
+    [InlineData("Microsoft.Extensions.External.Abstractions")]
+    public void UnapprovedProvidersAreRejected(string name)
+    {
+        Assert.True(IsUnapprovedAssembly(name));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExternalDependencyIsDetectedInSignatureAndBody(bool signature)
+    {
+        var consumer = signature ? typeof(SignatureConsumer) : typeof(BodyConsumer);
+        var dependencies = DependenciesOf(consumer);
+        Assert.Contains(typeof(ExternalDependency), dependencies);
+        Assert.True(IsUnapprovedAssembly(typeof(ExternalDependency).Assembly.GetName().Name!));
+    }
+
+    private sealed class ExternalDependency;
+
+    private sealed class SignatureConsumer
+    {
+        public ExternalDependency? Value { get; }
+    }
+
+    private sealed class BodyConsumer
+    {
+        public static void Load() => GC.KeepAlive(new ExternalDependency());
+    }
+
+    private static bool IsUnapprovedAssembly(string name) =>
+        !ApprovedAssemblies.Contains(name);
 
     /// <summary>Inclui tipos aninhados e gerados (closures, state machines), onde mora o corpo de lambdas.</summary>
     private static List<Type> MatchingTypes()
@@ -121,8 +154,8 @@ public sealed class MatchingDependencyBoundaryTests
         attributes.Select(attribute => attribute.AttributeType);
 
     /// <summary>
-    /// Percorre o IL e resolve os tokens de tipo, campo e método. Uma referência a SDK de processamento externo só no corpo de um
-    /// método (um <c>new ChatClient(...)</c>) não aparece em nenhuma assinatura.
+    /// Percorre o IL e resolve os tokens de tipo, campo e método. Uma referência externa só no corpo de um
+    /// método (um <c>new ExternalClient(...)</c>) não aparece em nenhuma assinatura.
     /// </summary>
     private static IEnumerable<Type?> TypesReferencedInBody(MethodBase method)
     {
@@ -188,7 +221,7 @@ public sealed class MatchingDependencyBoundaryTests
     private static IEnumerable<Type> ParameterTypes(MethodBase method) =>
         method.GetParameters().Select(parameter => parameter.ParameterType);
 
-    /// <summary>Desce em arrays, ponteiros, referências e argumentos genéricos: <c>List&lt;ChatMessage&gt;</c> conta.</summary>
+    /// <summary>Desce em arrays, ponteiros, referências e argumentos genéricos: <c>List&lt;ExternalMessage&gt;</c> conta.</summary>
     private static void Add(HashSet<Type> found, IEnumerable<Type?> types)
     {
         foreach (var type in types)
