@@ -1062,6 +1062,85 @@
         }
       }
     },
+    "/api/v1/admin/route-experience-versions": {
+      "post": {
+        "tags": [
+          "RoutesCatalogEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRoutesCatalogRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogPublishedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/events": {
       "post": {
         "tags": [
@@ -1681,6 +1760,56 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RoomActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{roomId}/routes-actions": {
+      "post": {
+        "tags": [
+          "Participation"
+        ],
+        "parameters": [
+          {
+            "name": "roomId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutesActionRequest"
               }
             }
           },
@@ -2671,6 +2800,26 @@
         },
         "additionalProperties": false
       },
+      "ChosenStopResponse": {
+        "required": [
+          "stepId",
+          "prompt",
+          "optionLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "stepId": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "optionLabel": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CompleteSelfieVerificationRequest": {
         "type": "object",
         "additionalProperties": false
@@ -3149,10 +3298,58 @@
           },
           "version": {
             "type": "string"
+          },
+          "countryCode": {
+            "enum": [
+              "BR",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode."
+          },
+          "subdivisionCode": {
+            "enum": [
+              "BR-AC",
+              "BR-AL",
+              "BR-AM",
+              "BR-AP",
+              "BR-BA",
+              "BR-CE",
+              "BR-DF",
+              "BR-ES",
+              "BR-GO",
+              "BR-MA",
+              "BR-MG",
+              "BR-MS",
+              "BR-MT",
+              "BR-PA",
+              "BR-PB",
+              "BR-PE",
+              "BR-PI",
+              "BR-PR",
+              "BR-RJ",
+              "BR-RN",
+              "BR-RO",
+              "BR-RR",
+              "BR-RS",
+              "BR-SC",
+              "BR-SE",
+              "BR-SP",
+              "BR-TO",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request."
           }
         },
         "additionalProperties": false,
-        "description": "Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec\n8.1); `\"0\"` quando o perfil ainda não foi salvo. Nome, descrição e região vêm `null` enquanto não\npreenchidos. `RegionCode` é a UF em ISO 3166-2:BR (`BR-SP`)."
+        "description": "Perfil editável do titular (API-P01). `Version` é a mesma do header `ETag`, em string decimal (spec\n8.1); `\"0\"` quando o perfil ainda não foi salvo. Nome, descrição e região vêm `null` enquanto não\npreenchidos. CountryCode e SubdivisionCode são opcionais. RegionCode preserva a projeção legada de UF,\nou null para localização não informada ou somente país."
       },
       "ParticipationResponse": {
         "required": [
@@ -3335,6 +3532,42 @@
           "experienceVersionId": {
             "type": "string",
             "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PublishRoutesCatalogRequest": {
+        "required": [
+          "contentVersion",
+          "enUS",
+          "ptBR",
+          "audio",
+          "editorialApproved"
+        ],
+        "type": "object",
+        "properties": {
+          "contentVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "enUS": {
+            "$ref": "#/components/schemas/RoutesCatalogContentRequest"
+          },
+          "ptBR": {
+            "$ref": "#/components/schemas/RoutesCatalogContentRequest"
+          },
+          "audio": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CatalogAudioRequest"
+            }
+          },
+          "editorialApproved": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -3592,6 +3825,270 @@
             "items": {
               "$ref": "#/components/schemas/RoomAudioResponse"
             }
+          },
+          "routesGame": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoutesGameResponse"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoutesActionRequest": {
+        "required": [
+          "actionId",
+          "expectedVersion",
+          "type",
+          "stage",
+          "stepId",
+          "optionId"
+        ],
+        "type": "object",
+        "properties": {
+          "actionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedVersion": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "stage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "stepId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "optionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoutesCatalogClueRequest": {
+        "required": [
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoutesCatalogContentRequest": {
+        "required": [
+          "title",
+          "objective",
+          "example",
+          "stops",
+          "clueSets"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "example": {
+            "type": "string"
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoutesCatalogStopRequest"
+            }
+          },
+          "clueSets": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/RoutesCatalogClueRequest"
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoutesCatalogStopRequest": {
+        "required": [
+          "stepId",
+          "prompt",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "stepId": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OptionResponse"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoutesGameResponse": {
+        "required": [
+          "experienceId",
+          "rulesVersion",
+          "contentVersion",
+          "schemaVersion",
+          "resourceVersion",
+          "status",
+          "deadline",
+          "stage",
+          "title",
+          "objective",
+          "example",
+          "myClues",
+          "currentStop",
+          "isMyTurn",
+          "route",
+          "revisionsRemaining",
+          "awaitingPartner",
+          "availableActions"
+        ],
+        "type": "object",
+        "properties": {
+          "experienceId": {
+            "type": "string"
+          },
+          "rulesVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "contentVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "schemaVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "resourceVersion": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "deadline": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "example": {
+            "type": "string"
+          },
+          "myClues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "currentStop": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteStopResponse"
+              }
+            ]
+          },
+          "isMyTurn": {
+            "type": "boolean"
+          },
+          "route": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChosenStopResponse"
+            }
+          },
+          "revisionsRemaining": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "awaitingPartner": {
+            "type": "boolean"
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RouteStopResponse": {
+        "required": [
+          "stepId",
+          "prompt",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "stepId": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OptionResponse"
+            }
           }
         },
         "additionalProperties": false
@@ -3833,6 +4330,54 @@
               "string"
             ],
             "description": "UF em ISO 3166-2:BR, na forma canônica; null quando não informada."
+          },
+          "countryCode": {
+            "enum": [
+              "BR",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode."
+          },
+          "subdivisionCode": {
+            "enum": [
+              "BR-AC",
+              "BR-AL",
+              "BR-AM",
+              "BR-AP",
+              "BR-BA",
+              "BR-CE",
+              "BR-DF",
+              "BR-ES",
+              "BR-GO",
+              "BR-MA",
+              "BR-MG",
+              "BR-MS",
+              "BR-MT",
+              "BR-PA",
+              "BR-PB",
+              "BR-PE",
+              "BR-PI",
+              "BR-PR",
+              "BR-RJ",
+              "BR-RN",
+              "BR-RO",
+              "BR-RR",
+              "BR-RS",
+              "BR-SC",
+              "BR-SE",
+              "BR-SP",
+              "BR-TO",
+              null
+            ],
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request."
           }
         },
         "additionalProperties": false,
@@ -3858,6 +4403,9 @@
     },
     {
       "name": "Duora.Web"
+    },
+    {
+      "name": "RoutesCatalogEndpoints"
     },
     {
       "name": "Safety"

@@ -1,4 +1,4 @@
-# ADR-0030: Gateway OpenClaw separado com telemetria pública por mTLS
+# ADR-0031: Gateway OpenClaw separado com telemetria pública por mTLS
 
 - **Status:** Proposed (2026-10-21)
 - **Origem:** PR #97, orçamento KVM 2, INV-12/T-12, spec 14.3–14.4/15/19

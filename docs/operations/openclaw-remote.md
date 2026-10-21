@@ -4,7 +4,7 @@
 
 Perfil candidato à homologação, não instalado nem ativado. Complementa [openclaw.md](openclaw.md),
 sem reconstruir Slack, MCP, build da imagem, firewall do gateway ou rollback existentes.
-INV-12/T-12, ADR-0013/0014 e [ADR-0030](../architecture/adr/0030-openclaw-remoto-telemetria-mtls.md).
+INV-12/T-12, ADR-0013/0014 e [ADR-0031](../architecture/adr/0031-openclaw-remoto-telemetria-mtls.md).
 Nenhuma API do produto muda. Aceite: somente o emissor autorizado publica o contrato público; falhas
 não viram saúde; gateway continua sem caminho para administração/dados do Duora.
 
