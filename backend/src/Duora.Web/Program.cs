@@ -8,5 +8,10 @@ if (AdminCommand.IsInvocation(args))
     return await AdminCommand.RunAsync(args);
 }
 
+if (RetentionCommand.IsInvocation(args))
+{
+    return await RetentionCommand.RunAsync(args);
+}
+
 await DuoraWebApp.Build(args).RunAsync();
 return 0;
