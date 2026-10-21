@@ -16,7 +16,8 @@ DIGEST = "sha256:" + "b" * 64
 class ValidationTests(unittest.TestCase):
     def release(self, project: Any = "stillon") -> Any:
         return {
-            "version": 1,
+            "version": 2,
+            "receiver_sha256": r.receiver_digest(),
             "project": project,
             "commit": SHA,
             "images": {"app": "ghcr.io/bipoxdxd/stillon@" + DIGEST},
@@ -26,7 +27,11 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(r.validate_release(self.release(), "stillon", SHA)["commit"], SHA)
 
     def test_rejects_cross_project_mutable_refs_extra_fields(self) -> None:
-        for key, value in [("project", "duora"), ("commit", "c" * 40), ("extra", "shell")]:
+        for key, value in [
+            ("project", "duora"),
+            ("commit", "c" * 40),
+            ("extra", "shell"),
+        ]:
             data = self.release()
             data[key] = value
             with self.assertRaises(ValueError):

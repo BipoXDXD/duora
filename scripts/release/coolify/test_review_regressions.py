@@ -72,7 +72,9 @@ class ReviewRegressionTests(unittest.TestCase):
             self.assertEqual(path.read_text(), SHA + "\n")
             self.assertFalse(path.with_suffix(".next").exists())
 
-    def test_pending_intent_survives_lost_start_response_and_blocks_next_release(self) -> None:
+    def test_pending_intent_survives_lost_start_response_and_blocks_next_release(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temp:
             state = Path(temp)
             release = {
@@ -94,10 +96,10 @@ class ReviewRegressionTests(unittest.TestCase):
 
             with patch.object(r, "api", side_effect=fake_api):
                 with self.assertRaises(TimeoutError):
-                    r.deploy(release, {"app": "image"}, {"uuid": "resource"}, state)
+                    r.deploy(release, {"app": "image"}, {"uuid": "resource"}, state, {})
                 count = len(calls)
                 with self.assertRaises(ValueError):
-                    r.deploy(release, {"app": "other"}, {"uuid": "resource"}, state)
+                    r.deploy(release, {"app": "other"}, {"uuid": "resource"}, state, {})
                 self.assertEqual(len(calls), count)
             self.assertIsNone(json.loads((state / "pending.json").read_text())["deployment_uuid"])
 
@@ -106,7 +108,9 @@ class ReviewRegressionTests(unittest.TestCase):
             with (
                 self.subTest(status=status),
                 patch.object(
-                    r, "api", return_value={"count": 1, "deployments": [{"status": status}]}
+                    r,
+                    "api",
+                    return_value={"count": 1, "deployments": [{"status": status}]},
                 ),
                 self.assertRaises(ValueError),
             ):

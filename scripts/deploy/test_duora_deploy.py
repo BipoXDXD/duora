@@ -542,6 +542,17 @@ class DeployTests(unittest.TestCase):
         self.assertLess(runner.index_of("up --detach --wait postgres backup"), verify)
         self.assertLess(verify, runner.index_of("stop worker"))
 
+    def test_readiness_ignores_foreign_web_alias_on_shared_ingress_network(self) -> None:
+        # Another application's web alias returns 401 on the shared ingress network.
+        # The private Duora backend is healthy; reaching the foreign alias must not
+        # prevent the real deployment from recording its completed release.
+        runner = FakeRunner(fail_on="http://web:8080/health/ready")
+
+        self.run_deploy(runner)
+
+        current = json.loads((self.paths.state_dir / "current.json").read_text())
+        self.assertEqual(self.release.release_id, current["releaseId"])
+
     def test_unhealthy_backup_stops_deploy_before_stopping_anything(self) -> None:
         runner = FakeRunner(fail_on="duora-backup verify")
 
@@ -666,6 +677,15 @@ class DeployTests(unittest.TestCase):
         self.run_deploy(runner)
 
         self.assertEqual(3, sum("/health/ready" in " ".join(c) for c in runner.commands))
+
+    def test_readiness_uses_private_duora_alias(self) -> None:
+        runner = FakeRunner()
+
+        self.run_deploy(runner)
+
+        probes = [c for c in runner.commands if "/health/ready" in " ".join(c)]
+        self.assertEqual(1, len(probes))
+        self.assertEqual("http://duora-web:8080/health/ready", probes[0][-1])
 
     def test_readiness_timeout_fails_and_keeps_previous_release_current(self) -> None:
         self.paths.state_dir.mkdir(parents=True)

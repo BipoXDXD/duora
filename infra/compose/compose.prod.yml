@@ -225,7 +225,12 @@ services:
           create_host_path: false
     # edge: recebe o proxy do Caddy; data: fala com o banco. As fotos ficam no disco do host (bind mounts acima),
     # não num object storage externo (adendo do ADR-0010).
-    networks: [edge, data]
+    networks:
+      edge:
+        # O edge também pode alcançar o ingress compartilhado do Coolify. Um alias
+        # exclusivo impede que o DNS IPv6 de outro serviço chamado web seja usado.
+        aliases: [duora-web]
+      data: {}
     depends_on:
       postgres:
         condition: service_healthy

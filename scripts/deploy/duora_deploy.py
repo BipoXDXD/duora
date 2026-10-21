@@ -91,8 +91,9 @@ MEDIA_VERIFY_OK_FILE = ".media-verify-ok"
 MAX_MEDIA_VERIFY_AGE_HOURS = 30
 # Políticas de Media:Review que o boot do web aceita em Production (MediaReview.IsPermitted, ADR-0025 item 8). Vazia:
 # TechnicalOnly é a única política implementada e é recusada em Production, então qualquer valor derrubaria o web
-# depois da migração. Política nova entra aqui junto com o Worker registrando o pipeline de mídia (AddMediaUploads),
-# que hoje ele não registra (docs/operations/backup-restore.md, integração do upload com o Compose).
+# depois da migração. O Worker já registra o pipeline de mídia; uma política nova entra aqui quando aceita pelo
+# Web e pelo Worker em Production, preservando os demais gates de ativação do ADR-0025 e do runbook
+# docs/operations/backup-restore.md (integração do upload com o Compose).
 PRODUCTION_MEDIA_REVIEW_POLICIES: frozenset[str] = frozenset()
 
 
@@ -530,7 +531,7 @@ def _query(compose: list[str], run: Runner, sql: str, what: str = "leitura do hi
 def _wait_ready(compose: list[str], run: Runner, timeout_seconds: int, sleep: Callable[[float], None]) -> None:
     # O edge (Caddy, Alpine) tem wget e está na mesma rede do web; a saúde nunca passa pela borda pública.
     probe = compose + ["exec", "--no-TTY", "edge", "wget", "--quiet", "--spider", "--timeout=5",
-                       "http://web:8080/health/ready"]
+                       "http://duora-web:8080/health/ready"]
     attempts = max(1, timeout_seconds // READINESS_INTERVAL_SECONDS + 1)
     for attempt in range(attempts):
         if run(probe).returncode == 0:
