@@ -2742,7 +2742,8 @@
           "title",
           "startsAt",
           "checkInOpensAt",
-          "state"
+          "state",
+          "timeZone"
         ],
         "type": "object",
         "properties": {
@@ -2763,6 +2764,12 @@
           },
           "state": {
             "type": "string"
+          },
+          "timeZone": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
         "additionalProperties": false
@@ -3335,6 +3342,12 @@
           "experienceVersionId": {
             "type": "string",
             "format": "uuid"
+          },
+          "timeZone": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         },
         "additionalProperties": false

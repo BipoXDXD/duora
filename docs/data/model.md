@@ -398,7 +398,7 @@ erDiagram
 ### events.events
 
 - **Colunas:** `id`; `title text` (≤ 120); `state text` (`Draft`, `Published`, `CheckInOpen`, `Running`,
-  `Completed`, `Cancelled`); `starts_at timestamptz`; `time_zone text` (IANA, para apresentação);
+  `Completed`, `Cancelled`); `starts_at timestamptz`; `time_zone text` (IANA, para apresentação; nullable para legado sem fuso conhecido, nunca inferido do instante; ver [tratamento de apresentação](../testing/event-time-zones.md));
   `capacity int`; `confirmed_count int`; `next_waitlist_position bigint`; `experience_version_id uuid`;
   `parameter_set_id uuid`; `cancel_reason text`; `version bigint`.
 - **Horários derivados, sem coluna:** a abertura do check-in (`starts_at` menos a antecedência do conjunto de

@@ -2802,6 +2802,7 @@ export interface components {
             /** Format: date-time */
             checkInOpensAt: string;
             state: string;
+            timeZone: null | string;
         };
         GameResponse: {
             experienceId: string;
@@ -2946,6 +2947,7 @@ export interface components {
             capacity: number | string;
             /** Format: uuid */
             experienceVersionId: string;
+            timeZone?: null | string;
         };
         /** @description Reautenticação (API-A13): senha e, se a conta tem MFA, o código do autenticador. */
         ReauthenticateRequest: {
