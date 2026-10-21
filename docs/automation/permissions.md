@@ -55,8 +55,8 @@ estava falhando (spec 14.3).
 
 ## Operação automatizada (spec 14.4)
 
-Workflows determinísticos e runbooks restritos; nenhum "agente supervisor" com comando arbitrário. processamento externo pode
-explicar sinais, mas não improvisa exclusões, mudanças de firewall, restaurações ou sanções.
+Workflows determinísticos e runbooks restritos; nenhum "agente supervisor" com comando arbitrário. A análise de sinais
+não autoriza exclusões, mudanças de firewall, restaurações ou sanções fora dos runbooks aprovados.
 
 | Processo | Automação | Para e escala quando |
 |---|---|---|
