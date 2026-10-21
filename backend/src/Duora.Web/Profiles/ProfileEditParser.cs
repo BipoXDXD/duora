@@ -25,7 +25,29 @@ internal static class ProfileEditParser
         var displayName = ParseDisplayName(request.DisplayName, errors);
         var bio = ParseBio(request.Bio, errors);
         var region = ParseRegion(request.RegionCode, errors);
-        return errors.Count == 0 ? new ProfileEdit(displayName, bio, region) : null;
+        var location = ParseLocation(request, errors);
+        return errors.Count == 0 ? new ProfileEdit(displayName, bio, region, location) : null;
+    }
+
+    private static ProfileLocation? ParseLocation(UpdateProfileRequest request, Dictionary<string, string[]> errors)
+    {
+        if (!request.CountryCode.IsPresent && !request.SubdivisionCode.IsPresent)
+        {
+            return null;
+        }
+        if (request.RegionCode.IsPresent)
+        {
+            errors[RegionField] = ["CONFLICTING_LOCATION_FIELDS"];
+        }
+        if (!request.CountryCode.IsPresent)
+        {
+            errors["countryCode"] = ["COUNTRY_REQUIRED"];
+        }
+        if (!ProfileLocationCatalog.IsValid(request.CountryCode.Value, request.SubdivisionCode.Value))
+        {
+            errors["countryCode"] = ["INVALID_LOCATION"];
+        }
+        return new ProfileLocation(request.CountryCode.Value, request.SubdivisionCode.Value);
     }
 
     private static DisplayName? ParseDisplayName(PatchField<string> field, Dictionary<string, string[]> errors)

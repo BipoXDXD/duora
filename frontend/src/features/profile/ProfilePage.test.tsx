@@ -18,6 +18,8 @@ interface StoredProfile {
   displayName: string | null
   bio: string | null
   regionCode?: string | null
+  countryCode?: string | null
+  subdivisionCode?: string | null
   version: number
 }
 
@@ -34,6 +36,8 @@ function useProfileBackend(initial: StoredProfile = { displayName: null, bio: nu
     displayName: stored.displayName,
     bio: stored.bio,
     regionCode: stored.regionCode ?? null,
+    countryCode: stored.countryCode,
+    subdivisionCode: stored.subdivisionCode,
     version: String(stored.version),
   })
   server.use(
@@ -60,6 +64,11 @@ function useProfileBackend(initial: StoredProfile = { displayName: null, bio: nu
       }
       if (body.regionCode !== undefined) {
         stored.regionCode = body.regionCode
+      }
+      if (body.countryCode !== undefined) {
+        stored.countryCode = body.countryCode
+        stored.subdivisionCode = body.subdivisionCode ?? null
+        stored.regionCode = stored.subdivisionCode
       }
       stored.version += 1
       return HttpResponse.json(toJson(), { headers: { ETag: `"${String(stored.version)}"` } })
@@ -181,6 +190,23 @@ describe('perfil: edição', () => {
 })
 
 describe('perfil: região', () => {
+  it('permite somente país e limpar a localização sem conservar a UF antiga', async () => {
+    const backend = useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-SP', version: 1 })
+    const { user } = await renderApp('/conta/perfil')
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Região' }), '')
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+    expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'País' })).toHaveValue('BR')
+    expect(screen.getByRole('combobox', { name: 'Região' })).toHaveValue('')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'País' }), '')
+    await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+    await waitFor(() => {
+      expect(backend.patches).toHaveLength(2)
+    })
+    expect(backend.patches[1]).toEqual({ ifMatch: '"2"', body: { countryCode: null, subdivisionCode: null } })
+    expect(screen.getByRole('combobox', { name: 'Região' })).toHaveValue('')
+  })
+
   it('mostra a UF salva no select, com "Não informar" e as 27 UFs pelo nome', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, regionCode: 'BR-BA', version: 1 })
     await renderApp('/conta/perfil')
@@ -198,7 +224,8 @@ describe('perfil: região', () => {
 
   it('as UFs vêm em ordem alfabética do nome, depois de "Não informar"', async () => {
     useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
-    await renderApp('/conta/perfil')
+    const { user } = await renderApp('/conta/perfil')
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'País' }), 'BR')
 
     const region = await screen.findByRole('combobox', { name: 'Região' })
     const names = within(region)
@@ -233,15 +260,16 @@ describe('perfil: região', () => {
     expect(backend.patches).toEqual([{ ifMatch: '"1"', body: { displayName: 'Bia' } }])
   })
 
-  it('escolher uma UF manda só o código da região', async () => {
+  it('escolher uma UF manda o país e a subdivisão', async () => {
     const backend = useProfileBackend({ displayName: 'Ana', bio: null, version: 1 })
     const { user } = await renderApp('/conta/perfil')
 
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'País' }), 'BR')
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Região' }), 'Pernambuco')
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
 
     expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
-    expect(backend.patches).toEqual([{ ifMatch: '"1"', body: { regionCode: 'BR-PE' } }])
+    expect(backend.patches).toEqual([{ ifMatch: '"1"', body: { countryCode: 'BR', subdivisionCode: 'BR-PE' } }])
     expect(screen.getByRole('combobox', { name: 'Região' })).toHaveValue('BR-PE')
   })
 
@@ -253,7 +281,7 @@ describe('perfil: região', () => {
     await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
 
     expect(await screen.findByText('Perfil salvo.')).toBeInTheDocument()
-    expect(backend.patches).toEqual([{ ifMatch: '"1"', body: { regionCode: null } }])
+    expect(backend.patches).toEqual([{ ifMatch: '"1"', body: { countryCode: 'BR', subdivisionCode: null } }])
   })
 
   it('a ajuda diz que só o estado é guardado', async () => {

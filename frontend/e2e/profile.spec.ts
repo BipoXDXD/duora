@@ -32,6 +32,7 @@ test.describe('perfil próprio', () => {
 
     await page.getByLabel('Nome de exibição').fill('Ana')
     await page.getByLabel('Descrição curta').fill('Gosto de jogos cooperativos.')
+    await page.getByLabel('País', { exact: true }).selectOption('BR')
     await page.getByLabel('Região').selectOption({ label: 'Minas Gerais' })
     await page.getByRole('button', { name: 'Salvar perfil' }).click()
 

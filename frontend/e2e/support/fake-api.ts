@@ -37,10 +37,12 @@ interface FakeProfile {
   displayName: string | null
   bio: string | null
   regionCode: string | null
+  countryCode?: string | null
+  subdivisionCode?: string | null
   version: number
 }
 
-const PROFILE_FIELDS: readonly string[] = ['displayName', 'bio', 'regionCode']
+const PROFILE_FIELDS: readonly string[] = ['displayName', 'bio', 'regionCode', 'countryCode', 'subdivisionCode']
 
 /** Formato da UF em ISO 3166-2:BR; a lista exata das 27 é do servidor e do contrato, não deste dublê. */
 const REGION_CODE_FORMAT = /^BR-[A-Z]{2}$/
@@ -357,6 +359,13 @@ export class FakeDuoraApi {
       return problem(412, 'PRECONDITION_FAILED')
     }
     const changes: Partial<FakeProfile> = Object.fromEntries(entries)
+    if (changes.countryCode !== undefined) {
+      changes.subdivisionCode ??= null
+      changes.regionCode = changes.countryCode === 'BR' ? changes.subdivisionCode : null
+    } else if (changes.regionCode !== undefined) {
+      changes.countryCode = changes.regionCode === null ? null : 'BR'
+      changes.subdivisionCode = changes.regionCode
+    }
     Object.assign(profile, changes)
     profile.version += 1
     return profileResponse(profile)
@@ -409,6 +418,8 @@ function profileResponse(profile: FakeProfile): Fulfillment {
       displayName: profile.displayName,
       bio: profile.bio,
       regionCode: profile.regionCode,
+      countryCode: profile.countryCode,
+      subdivisionCode: profile.subdivisionCode,
       version: String(profile.version),
     }),
     headers: { ETag: `"${String(profile.version)}"` },
