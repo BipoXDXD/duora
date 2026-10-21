@@ -46,8 +46,7 @@ internal static class BlockEndpoints
         {
             return ApiProblems.Problem(
                 StatusCodes.Status400BadRequest,
-                ApiProblems.InvalidRequest,
-                "Esta operação não aceita corpo.");
+                ApiProblems.InvalidRequest);
         }
 
         return await blocks.BlockAsync(userId, targetUserId, cancellationToken) switch
@@ -55,12 +54,10 @@ internal static class BlockEndpoints
             BlockOutcome.Done => TypedResults.NoContent(),
             BlockOutcome.SelfBlock => ApiProblems.Problem(
                 StatusCodes.Status400BadRequest,
-                ApiProblems.SelfBlock,
-                "Não é possível bloquear a própria conta."),
+                ApiProblems.SelfBlock),
             BlockOutcome.AccountNotEligible => ApiProblems.Problem(
                 StatusCodes.Status403Forbidden,
-                ApiProblems.AccountNotEligible,
-                "A conta ainda não pode usar esta função."),
+                ApiProblems.AccountNotEligible),
             BlockOutcome.UnknownAccount => TypedResults.Unauthorized(),
             BlockOutcome.Busy => Unavailable(context),
             var outcome => throw new InvalidOperationException($"Resultado de bloqueio sem resposta: {outcome}."),
@@ -73,8 +70,7 @@ internal static class BlockEndpoints
         ApiProblems.SetRetryAfter(context, BusyRetryAfter);
         return ApiProblems.Problem(
             StatusCodes.Status503ServiceUnavailable,
-            ApiProblems.TemporarilyUnavailable,
-            "Não foi possível concluir agora. Tente de novo em instantes.");
+            ApiProblems.TemporarilyUnavailable);
     }
 
     private static bool HasBody(HttpRequest request) =>
