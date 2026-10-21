@@ -4,6 +4,7 @@ set -eu
 [ "$(id -u)" = 0 ] || { echo 'Run as administrator after reviewing this change.' >&2; exit 1; }
 [ "$#" = 1 ] && [ "$1" = --approve-install ] || { echo 'Required: --approve-install' >&2; exit 1; }
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
+python3 "$ROOT/scripts/openclaw/capacity.py"
 DEST=/opt/duora-agent
 [ ! -e "$DEST" ] || { echo 'Already installed; use the reviewed update procedure.' >&2; exit 1; }
 python3 -c "import shutil; assert shutil.disk_usage('/var/lib').free > 4 * 1024**3, 'Need >4 GiB free before reserving agent state'"
@@ -29,7 +30,7 @@ install -m 0755 "$ROOT"/scripts/openclaw/firewall.sh "$DEST/"
 install -m 0644 "$ROOT/infra/openclaw/compose.yml" "$DEST/compose.yml"
 install -m 0644 "$ROOT/infra/openclaw/workspace/AGENTS.md" "$DEST/workspace/AGENTS.md"
 install -m 0644 "$ROOT/infra/openclaw/openclaw.example.json" /etc/duora-agent/openclaw.json
-install -m 0644 "$ROOT/infra/openclaw/monitor.example.json" /etc/duora-observer/monitor.json
+install -m 0640 -o root -g duora-monitor "$ROOT/infra/openclaw/monitor.example.json" /etc/duora-observer/monitor.json
 install -m 0644 "$ROOT"/infra/openclaw/systemd/* /etc/systemd/system/
 systemctl daemon-reload
 systemctl start var-lib-duoraagent.mount
