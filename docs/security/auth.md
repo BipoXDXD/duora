@@ -640,3 +640,17 @@ O merge desta alteração de autenticação exige revisão humana e os gates do 
 Cadastro novo envia código de oito dígitos, válido por 15 minutos desde emissão explícita. Banco guarda hash e security stamp, exige senha, consome sob lock e invalida após cinco erros. O orçamento de três emissões por conta/hora permanece no banco após reinício e substituição de prova; excesso responde de forma neutra sem trocar senha/prova. Os limites HTTP continuam complementares. Links legados só valem se nunca houve código. Não registrar código, credenciais de captura nem frame em observabilidade.
 
 EligibleParticipant lê estado/email e Passed em selfie_verifications a cada requisição. Nenhuma evidência etária é consultada. Rotas selfie são do titular, com CSRF nas mutações e rejeição de campos desconhecidos. Complete não recebe resultado. Captura usa no-store e credenciais temporárias limitadas a StartFaceLivenessSession; não conceder Create/Get/Detect ao navegador. AWS não oferece aqui restrição de recurso por sessionId: a sessão é um identificador secreto e a emissão pertence ao titular; homologar IAM e risco residual antes do piloto.
+
+## Decisão de 21/10/2026 — avisos de recuperação (#68)
+
+O consumo bem-sucedido de um código de recuperação gera `RecoveryCodeUsedNotice`, na mesma transação da
+consumação e da auditoria. Falha, replay ou rollback não gera aviso nem consome o código. O payload contém
+apenas os campos usuais de aviso; nunca o código, hash, senha ou chave TOTP. O idioma e o fuso são snapshots
+explícitos da conta (sem locale salvo, fallback en-US); o texto de segurança continua bilíngue.
+
+Iniciar/reiniciar inscrição MFA não ativada continua apenas auditado. A ativação confirmada continua avisada.
+A14/A16 compartilham a cota por conta existente, inclusive entre sessões e endereços; rejeição por limite não
+muda credenciais, códigos nem outbox. Não há mudança de valores da cota ou aglutinação de avisos.
+
+O adaptador atual entrega arquivos de pickup. Testes de dispatcher validam esse adaptador; entrega SMTP real
+continua uma validação operacional externa, não uma propriedade comprovada por testes de pickup.

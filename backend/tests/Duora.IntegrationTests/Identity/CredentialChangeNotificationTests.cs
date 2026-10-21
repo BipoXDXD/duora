@@ -30,6 +30,39 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
 
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
+    [Theory]
+    [InlineData("pt-BR")]
+    [InlineData("en-US")]
+    public async Task ConsumingARecoveryCodeNotifiesOnceWithoutSecrets(string locale)
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        await Scenario.ScalarAsync("with changed as (update identity.users set preferred_locale=$2 where id=$1 returning id) select count(*) from changed", account.UserId, locale);
+        using var enrolled = await Scenario.SignedInBrowserAsync(account);
+        var mfa = await MfaScenario.EnableAsync(enrolled, _time);
+        using var browser = new Browser(_factory);
+        using var login = await MfaScenario.LoginAsync(browser, account, recoveryCode: mfa.RecoveryCodes[0]);
+        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        var notice = Assert.Single(await NoticesAsync(account.UserId), n => n.Kind == "RecoveryCodeUsedNotice");
+        Assert.Equal(account.Email, notice.To);
+        Assert.Equal(locale, notice.Language);
+        Assert.All(mfa.RecoveryCodes, code => Assert.DoesNotContain(code, notice.Payload, StringComparison.Ordinal));
+        Assert.DoesNotContain(mfa.SharedKey, notice.Payload, StringComparison.Ordinal);
+        using var replayBrowser = new Browser(_factory);
+        using var replay = await MfaScenario.LoginAsync(replayBrowser, account, recoveryCode: mfa.RecoveryCodes[0]);
+        Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
+        Assert.Single(await NoticesAsync(account.UserId), n => n.Kind == "RecoveryCodeUsedNotice");
+    }
+
+    [Fact]
+    public async Task StartingEnrollmentOnlyAuditsWithoutSendingANotice()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        await MfaScenario.StartEnrollmentAsync(browser);
+        Assert.Empty(await NoticesAsync(account.UserId));
+        Assert.Equal(1, await Scenario.ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='identity.mfa_enrollment_started'", account.UserId));
+    }
+
     [Fact]
     public async Task SecurityNoticeSnapshotsTheExplicitZoneBeforeAChangeOrRemoval()
     {
