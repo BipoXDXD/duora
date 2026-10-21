@@ -10,8 +10,9 @@ As respostas HTTP são interceptadas pelo Playwright; o bundle de produção exe
 classificação, mutações e traduções reais. Todos os novos cenários rodam em `pt-BR` e `en-US`, nos três
 projetos originais: Chromium, WebKit e mobile Chromium. Cada estado de erro exige:
 
+- confirmação de uma resposta canário efetivamente entregue pelo interceptor, evitando que uma falha genérica de outra origem satisfaça o cenário;
 - mensagem local esperada e `html lang` correto;
-- ausência do marcador de texto/HTML em `title`, `detail` e `errors` no texto e no HTML do DOM;
+- ausência do marcador de texto/HTML em `title`, `detail` e `errors` no texto e no HTML do documento inteiro, inclusive no título da aba;
 - ausência de execução de `<img ... onerror="window.CANARY=1">`;
 - zero violações nas verificações axe WCAG A/AA existentes, sem dispensar avaliação manual.
 
@@ -78,6 +79,12 @@ da mutação após 60 segundos causou falha nos dois idiomas, com duas gravaçõ
 O código de produção foi restaurado antes da execução final; nenhuma alteração funcional integra o PR.
 O relógio é instalado antes da navegação e o teste aguarda a estabilização da rede após o avanço para
 observar também o encadeamento assíncrono de atualização de CSRF e gravação.
+
+Na revisão final, uma prova local com a rota de gravação de preferências incorreta passou indevidamente
+antes do reforço do utilitário. Agora os testes exigem o recibo da resposta canário configurada: a mesma
+prova falha nos dois idiomas por ausência de entrega. Uma inserção temporária de CANARY no título da aba
+também é detectada pela inspeção do documento completo. Todas as alterações temporárias de produção
+foram restauradas; o reforço acrescenta somente asserções nos testes.
 
 Os nove gates do repositório continuam exigidos. O relatório do PR registra comandos/resultados executados,
 commit e CI. Nenhum workflow ou scanner é reduzido. A reversão consiste em reverter os arquivos de teste e

@@ -12,6 +12,10 @@ export interface Failure {
   readonly code: string
 }
 
+// Each test uses a fresh page and submits one failure before checking the alert.
+// The receipt prevents an unrelated generic error (for example a wrong URL) satisfying the test.
+const deliveredProblems = new WeakMap<Page, number>()
+
 export async function fulfillProblem(route: Route, failure: Failure): Promise<void> {
   await route.fulfill({
     status: failure.status,
@@ -27,13 +31,18 @@ export async function fulfillProblem(route: Route, failure: Failure): Promise<vo
       traceId: 'synthetic-canary',
     }),
   })
+  const page = route.request().frame().page()
+  deliveredProblems.set(page, (deliveredProblems.get(page) ?? 0) + 1)
 }
 
 export async function expectSafeError(page: Page, locale: Locale, message: string = GENERIC[locale]): Promise<void> {
   await expect(page.getByRole('alert')).toContainText(message)
+  await expect
+    .poll(() => deliveredProblems.get(page) ?? 0, { message: 'Expected one delivered canary response' })
+    .toBe(1)
   await expect(page.locator('html')).toHaveAttribute('lang', locale)
   await expect(page.locator('body')).not.toContainText('CANARY')
-  expect(await page.locator('body').innerHTML()).not.toContain('CANARY')
+  expect(await page.content()).not.toContain('CANARY')
   expect(await page.evaluate(() => Object.hasOwn(window, 'CANARY'))).toBe(false)
   expect(
     (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze())
