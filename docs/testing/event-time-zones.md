@@ -34,7 +34,7 @@ Node 24.21.0 / ICU 78.3 e WebKit 27.2:
 | en-US | America/Sao_Paulo | 8:00 PM GMT-3 | 8:00 PM São Paulo Time |
 | en-US | UTC | 11:00 PM UTC | 11:00 PM GMT+0 |
 
-Chromium 156.0.8078.4 coincidiu em `short`, mas em `shortGeneric` apresentou `19:00 Horário New York` e `8:00 PM Sao Paulo Time`. A tradução geográfica depende dos dados ICU/CLDR do navegador; não prometer uma grafia única entre runtimes.
+Chromium 156.0.8078.4 coincidiu em `short`, mas em `shortGeneric` apresentou `19:00 Horário New York` e `8:00 PM Sao Paulo Time`. No CI Linux (run 39564730497), WebKit também apresentou `Sao Paulo Time`, sem acento. Os testes E2E selecionam o literal pela plataforma e pelo navegador, mantendo igualdade do texto completo, datas, offsets e `datetime`; não calculam a expectativa com Intl. A tradução geográfica depende dos dados ICU/CLDR do navegador; não prometer uma grafia única entre runtimes.
 
 **Implementado após aprovação:** eventos usam `shortGeneric` + offset UTC do instante, em duas linhas quando os fusos diferem. UTC é mostrado uma só vez; fallback de nome para offset não duplica o deslocamento. Outros instantes continuam com `short` e respeitam a escolha salva quando existe. `dateStyle`/`timeStyle` não podem acompanhar `timeZoneName`; campos explícitos preservam o formato curto anterior.
 

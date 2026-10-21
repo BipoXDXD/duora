@@ -5,7 +5,8 @@ for (const locale of ['pt-BR', 'en-US']) {
     test.use({ locale, timezoneId: 'America/New_York' })
     test('event zone and browser zone survive the API boundary', async ({ page, browserName }) => {
       const ny = browserName === 'chromium' ? 'Horário New York' : 'Horário Nova York'
-      const sp = browserName === 'chromium' ? 'Sao Paulo Time' : 'São Paulo Time'
+      // WebKit uses platform ICU: macOS retains the accent; Linux and Chromium do not.
+      const sp = browserName === 'webkit' && process.platform === 'darwin' ? 'São Paulo Time' : 'Sao Paulo Time'
       await page.route('**/api/v1/me', (route) =>
         route.fulfill({
           json: {
