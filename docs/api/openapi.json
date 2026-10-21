@@ -3434,6 +3434,12 @@
                 "type": "string"
               }
             }
+          },
+          "code": {
+            "type": "string"
+          },
+          "traceId": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -3879,6 +3885,12 @@
               "null",
               "string"
             ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "traceId": {
+            "type": "string"
           }
         },
         "additionalProperties": false

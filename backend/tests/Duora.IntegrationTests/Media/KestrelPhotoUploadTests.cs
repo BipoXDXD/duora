@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Duora.IntegrationTests.Http;
 using Duora.IntegrationTests.Identity;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -128,6 +129,61 @@ public sealed class KestrelPhotoUploadTests : IAsyncLifetime
         Assert.True(released, "A reserva do corpo lento não foi desfeita.");
         Assert.True(cutBeforeTheClientGaveUp, "Quem encerrou foi o cliente, não a taxa mínima da rota.");
         Assert.Equal(0, media.StoredObjectCount());
+    }
+
+    [Theory]
+    [InlineData("empty", "pt-BR")]
+    [InlineData("empty", "en-US")]
+    [InlineData("missing-key", "en-US")]
+    [InlineData("invalid-key", "en-US")]
+    [InlineData("ignored-format", "en-US")]
+    [InlineData("unsupported-type", "en-US")]
+    public async Task UploadRefusalsSatisfyTheGeneratedAndPublishedErrorSchemas(string scenario, string locale)
+    {
+        var session = await SignInAsync();
+        var empty = scenario is "empty" or "ignored-format";
+        var content = new ByteArrayContent(empty ? [] : MediaScenario.JpegLike());
+        content.Headers.ContentType = new MediaTypeHeaderValue(scenario == "unsupported-type" ? "text/html" : "image/jpeg");
+        using var request = Upload(content);
+        request.Headers.Add("Accept-Language", locale);
+        if (scenario is "missing-key" or "invalid-key")
+        {
+            request.Headers.Remove("Idempotency-Key");
+            if (scenario == "invalid-key")
+            {
+                request.Headers.Add("Idempotency-Key", "bad key");
+            }
+        }
+        if (scenario == "ignored-format")
+        {
+            request.Headers.Add("Duora-Validation-Format", "codes-v1");
+        }
+
+        using var response = await session.SendAsync(request);
+
+        var unsupported = scenario == "unsupported-type";
+        var body = await ProblemAssert.IsProblemAsync(
+            response,
+            unsupported ? HttpStatusCode.UnsupportedMediaType : HttpStatusCode.BadRequest,
+            unsupported ? "UNSUPPORTED_MEDIA_TYPE" : "VALIDATION_FAILED");
+        if (!unsupported)
+        {
+            var errors = body["errors"]!.AsObject();
+            var field = empty ? "body" : "Idempotency-Key";
+            Assert.Equal([field], errors.Select(p => p.Key));
+            Assert.Equal(
+                empty ? "A foto está vazia." : "Obrigatório: de 1 a 64 caracteres entre letras, dígitos, '-' e '_'.",
+                errors[field]![0]!.GetValue<string>());
+            Assert.Single(errors[field]!.AsArray());
+        }
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Equal("no-cache", Assert.Single(response.Headers.Pragma).Name);
+        Assert.False(response.Headers.Contains("Duora-Validation-Format"));
+        Assert.False(response.Headers.Contains("Retry-After"));
+        var media = new MediaScenario(_postgres, _kestrel);
+        Assert.Empty(await media.UploadsOfAsync(session.UserId));
+        Assert.Equal(0, media.StoredObjectCount());
+        await ProblemSchemaAssertions.MatchesUploadRefusalAsync(_kestrel, response, body);
     }
 
     private static async Task<bool> WaitUntilAsync(Func<Task<bool>> condition, TimeSpan limit)

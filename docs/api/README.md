@@ -143,6 +143,23 @@ inclusive nomes como `constructor` e `__proto__`. O parser mantém os campos do 
 mas eles não são texto de interface. O [inventário e os testes](../testing/problem-details.md) registram
 produtores, títulos exatos e as duas mensagens legadas de upload em `errors`, preservadas por compatibilidade.
 
+### Fidelidade dos schemas de erro (issue #153)
+
+`ProblemDetails` e `HttpValidationProblemDetails` declaram `code` e `traceId` como strings opcionais no
+OpenAPI e nos tipos TypeScript gerados. O transformer específico descreve as extensões já emitidas pelo
+escritor de problemas; não modifica a serialização nem os payloads. A ausência continua permitida pelo
+schema: esta correção não estabelece obrigatoriedade nova para todas as rotas. Quando presentes, os dois
+campos devem ser strings, sem enumeração de códigos nem promessa adicional de formato da correlação.
+
+Ambos continuam com `additionalProperties: false`; `errors` mantém mapa de arrays de strings. A política
+JSON dos DTOs de entrada permanece `Disallow`. Os testes validam respostas reais de recusa do upload contra
+o documento gerado no host e o artefato publicado, incluindo controles negativos de tipo e campo extra.
+Ver [implementação e evidências](../testing/reports/2026-10-21-issue-153-fix.md).
+
+As mensagens legadas e o comportamento de PT-BR/EN-US permanecem. A negociação e os códigos de validação
+propostos no [ADR-0034](../architecture/adr/0034-codigos-de-validacao-do-upload.md) pertencem à #154 e exigem
+implementação/revisão próprias; a presença destes campos no schema não ativa essa migração.
+
 ## Preferência regional privada — issue #108, etapas 1 e 2
 
 `GET /api/v1/me/regional-preferences` retorna `mode`, `countryCodes` e `version`, com ETag e `no-store`.
