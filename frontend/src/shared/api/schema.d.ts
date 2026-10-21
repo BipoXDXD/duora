@@ -3426,6 +3426,8 @@ export interface components {
             errors?: {
                 [key: string]: string[];
             };
+            code?: string;
+            traceId?: string;
         };
         /**
          * @description Login (API-A04). Conta com MFA ativo manda também `twoFactorCode` (6 dígitos do autenticador) ou
@@ -3544,6 +3546,8 @@ export interface components {
             status?: null | number | string;
             detail?: null | string;
             instance?: null | string;
+            code?: string;
+            traceId?: string;
         };
         PublishCatalogRequest: {
             /** Format: int32 */

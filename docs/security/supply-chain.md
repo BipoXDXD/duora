@@ -104,6 +104,15 @@ licença pode mudar a cada versão (por isso a dispensa do SBOM é presa à vers
 
 ## Escopo do SBOM
 
+### Validação de contrato nos testes (#153)
+
+`Duora.IntegrationTests` referencia `JsonSchema.Net` 7.4.0, MIT, com `PrivateAssets=all`, para validar
+respostas reais contra JSON Schema 2020-12. As transitivas travadas JsonPointer.Net 5.3.1, Json.More.Net
+2.1.1 e Humanizer.Core 2.14.1 também declaram MIT nos nuspecs restaurados. São dependências de teste,
+incluídas no SBOM e nos gates existentes, sem exceção nova; não entram no produto. A versão MIT foi
+escolhida explicitamente, portanto atualizações precisam de nova conferência de licença e compatibilidade.
+[Justificativa, escopo e verificações](../testing/reports/2026-10-21-issue-153-fix.md).
+
 Os SBOMs descrevem as dependências declaradas no repositório, com as de desenvolvimento e teste incluídas,
 porque elas rodam no CI e entram no inventário de licenças. O SBOM da release, por imagem e por digest, entra
 com o gate de Release (spec 17.2), quando houver imagens.
