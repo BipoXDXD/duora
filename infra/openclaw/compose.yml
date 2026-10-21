@@ -8,7 +8,9 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    cpus: 1.0
+    cpus: 0.5
+    cpu_shares: 256
+    oom_score_adj: 500
     mem_limit: 1536m
     memswap_limit: 1536m
     pids_limit: 128
