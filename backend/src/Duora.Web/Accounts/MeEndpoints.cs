@@ -53,6 +53,7 @@ internal static class MeEndpoints
         HttpContext context,
         AccountService accounts,
         LocaleStore locales,
+        TimeZoneStore timeZones,
         CancellationToken cancellationToken)
     {
         if (DuoraClaims.ReadUserId(context.User) is not { } userId
@@ -68,7 +69,8 @@ internal static class MeEndpoints
             account.EmailConfirmed,
             account.MfaEnabled,
             account.Roles,
-            (await locales.GetOwnAsync(userId, cancellationToken))?.Locale));
+            (await locales.GetOwnAsync(userId, cancellationToken))?.Locale,
+            (await timeZones.GetOwnAsync(userId, cancellationToken))?.TimeZone));
     }
 
     private static async Task<Results<Ok<SessionListResponse>, UnauthorizedHttpResult>> ListSessionsAsync(

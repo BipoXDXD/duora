@@ -317,6 +317,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("preferred_locale");
 
+                    b.Property<string>("PreferredTimeZone")
+                        .HasColumnType("text")
+                        .HasColumnName("preferred_time_zone");
+
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text")
                         .HasColumnName("security_stamp");
@@ -330,6 +334,12 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("TemporaryPasswordExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("temporary_password_expires_at");
+
+                    b.Property<long>("TimeZoneVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("time_zone_version");
 
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean")

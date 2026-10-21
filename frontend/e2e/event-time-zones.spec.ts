@@ -3,7 +3,10 @@ import { expect, test } from '@playwright/test'
 for (const locale of ['pt-BR', 'en-US']) {
   test.describe(locale, () => {
     test.use({ locale, timezoneId: 'America/New_York' })
-    test('event zone and browser zone survive the API boundary', async ({ page }) => {
+    test('event zone and browser zone survive the API boundary', async ({ page, browserName }) => {
+      const ny = browserName === 'chromium' ? 'Horário New York' : 'Horário Nova York'
+      // WebKit uses platform ICU: macOS retains the accent; Linux and Chromium do not.
+      const sp = browserName === 'webkit' && process.platform === 'darwin' ? 'São Paulo Time' : 'Sao Paulo Time'
       await page.route('**/api/v1/me', (route) =>
         route.fulfill({
           json: {
@@ -54,14 +57,14 @@ for (const locale of ['pt-BR', 'en-US']) {
       await expect(times).toHaveText(
         locale === 'pt-BR'
           ? [
-              'Horário do evento: 16/10/2026, 20:00 BRT (16/10/2026, 19:00 GMT-4 no fuso do seu navegador)',
-              'Horário do evento: 01/11/2026, 01:30 GMT-5',
-              'Referência: 16/10/2026, 23:00 UTC; fuso do evento não informado (16/10/2026, 19:00 GMT-4 no fuso do seu navegador)',
+              `Horário do evento: 16/10/2026, 20:00 — BRT · UTC−03:00\nNo fuso do navegador: 16/10/2026, 19:00 — ${ny} · UTC−04:00`,
+              `Horário do evento: 01/11/2026, 01:30 — ${ny} · UTC−05:00`,
+              `Referência: 16/10/2026, 23:00 UTC; fuso do evento não informado\nNo fuso do navegador: 16/10/2026, 19:00 — ${ny} · UTC−04:00`,
             ]
           : [
-              'Event time: 10/16/26, 8:00 PM GMT-3 (10/16/26, 7:00 PM EDT in your browser’s time zone)',
-              'Event time: 11/1/26, 1:30 AM EST',
-              'Reference: 10/16/26, 11:00 PM UTC; event time zone not provided (10/16/26, 7:00 PM EDT in your browser’s time zone)',
+              `Event time: 10/16/26, 8:00 PM — ${sp} · UTC−03:00\nIn your browser’s time zone: 10/16/26, 7:00 PM — ET · UTC−04:00`,
+              'Event time: 11/1/26, 1:30 AM — ET · UTC−05:00',
+              'Reference: 10/16/26, 11:00 PM UTC; event time zone not provided\nIn your browser’s time zone: 10/16/26, 7:00 PM — ET · UTC−04:00',
             ],
       )
       await expect(times.first()).toHaveAttribute('datetime', '2026-10-16T23:00:00Z')

@@ -6,9 +6,25 @@ import type { Catalog } from './catalog'
  * and keep error messages just as neutral: they never reveal whether an email has an account.
  */
 export const en = {
+  'timeZone.loading': 'Loading time zone…',
+  'timeZone.label': 'Account time zone (optional)',
+  'timeZone.hint':
+    'Search by city or name. Leave empty to use your browser. This private preference does not change your residence, matches or event time zones. The device button only fills the field; Save confirms. Security notices include your saved time zone alongside a UTC reference.',
+  'timeZone.invalid': 'Select a valid time zone from the list or leave the field empty.',
+  'timeZone.device': 'Use this device’s time zone',
+  'timeZone.save': 'Save time zone',
+  'timeZone.saved': 'Time zone saved.',
+  'timeZone.conflict':
+    'Another tab changed your time zone. Reload the current version; your choice will be kept for review.',
+  'timeZone.reload': 'Reload current time zone',
+  'timeZone.reloaded': 'Current time zone: {zone}. Your choice has not been saved yet.',
+  'timeZone.unset': 'not set (use browser)',
   'dates.eventTime': 'Event time: {time}',
   'dates.eventZoneUnknown': 'Reference: {time}; event time zone not provided',
-  'dates.withBrowserTime': '{event} ({local} in your browser’s time zone)',
+  'dates.withBrowserTime': '{event}\nIn your browser’s time zone: {local}',
+  'dates.withPreferredTime': '{event}\nIn your saved time zone: {local}',
+  'dates.zoneUnsupported': 'Reference: {time}; this device does not recognize time zone {zone}',
+  'dates.withUnsupportedParticipant': '{event}\n{reference}',
   'routes.ownClues': 'Only you can see these clues.',
   'routes.deadline': 'Experience deadline: {deadline}.',
   'routes.acknowledge': 'Got it',
