@@ -74,7 +74,11 @@ cenário; as demais pausas usam os eventos públicos de diagnóstico do EF já e
   sem executar Docker ou substituir os resultados das suítes.
 
 Os nove gates do commit final continuam exigidos antes de declarar esta entrega integrada.
-A combinação com o PR #161 exige nova validação da árvore conjunta.
+A combinação com o PR #161 (main `bf97bbd`) foi conferida em árvore isolada. Os 23 casos focados
+(S3 e recuperação de COMMIT/container) passaram, zero ignorados. A primeira execução completa conjunta
+apresentou duas falhas de transporte S3 (connection reset), foi interrompida e será repetida com menor
+concorrência local; não há alegação de aprovação dessa rodada. Nenhum código de storage ou teste foi
+relaxado. A suíte completa e os nove checks continuam necessários na árvore final.
 
 ## Arquivos e reversão
 
