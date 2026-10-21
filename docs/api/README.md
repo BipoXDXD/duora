@@ -161,3 +161,11 @@ Esta fatia adiciona persistência e API; não ativa filtro no pareamento, UI de 
 atualizador ou US. O tratamento de `pending` no pareamento virá com as etapas 3/4 do plano, não neste PR.
 Responsáveis nominais e canal de alertas continuam pendentes. Aplicação da migração e implantação exigem
 revisão/autorização próprias; reversão mantém schema e dados e exige migração forward revisada.
+
+### Serialização da localização (issue #108, etapas 3–4)
+
+PATCH `/api/v1/me/profile` usa a guarda compartilhada com o pareamento para countryCode/subdivisionCode
+e regionCode, incluindo limpeza explícita. Omissão mantém localização e preferência/idiomas independentes.
+Conta e versão são revalidadas depois da espera: 403 para restrição, 412 para versão vencida e 503 com
+Retry-After para contenção/timeout, sem escrita parcial. Edição posterior à reserva não cancela a sala.
+Não há endpoint de detecção nesta entrega. [Corte V3 ainda inativo](../operations/regional-matching.md).
