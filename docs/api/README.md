@@ -123,3 +123,13 @@ identificada dos documentos da issue #9. A futura apresentação deve fornecer v
 artefato e invalidar o aceite se trocar esse artefato; não basta copiar `useI18n().locale`.
 O servidor registra a declaração explícita do cliente; isso não prova leitura nem aprovação jurídica.
 Ver [evidência e validação](../testing/consent-document-locale.md).
+
+## Fuso privado da conta (issue #81)
+
+`GET /me/time-zone`: `{timeZone: string|null, version: string}` + ETag. `PUT /me/time-zone` exige
+If-Match e campo `timeZone` obrigatório; null explícito remove. 428 sem precondição, 412 versão divergente,
+400/VALIDATION_FAILED (`errors.timeZone: [UNSUPPORTED_TIME_ZONE]`) para ID não suportado. Autorização do
+titular, CSRF e status Active/PendingEligibility; 503 em disputa de lock além do teto. Nenhum efeito em
+matching, residência ou segurança de login. `GET /me/time-zone/options` é autenticado e devolve
+`{timeZones: string[]}` (IANA do servidor mais UTC). `/me` acrescenta `preferredTimeZone` anulável;
+cliente sem campo continua usando o navegador. Não persistir detecção sem confirmação explícita.

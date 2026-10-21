@@ -88,6 +88,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             ["POST /api/v1/me/selfie-verifications/{id:guid}/complete"] = new { },
             ["PUT /api/v1/me/preferences"] = new { communicationLanguages = new[] { "en" }, allowDifferentDisplayLocales = false },
             ["PUT /api/v1/me/locale"] = new { locale = "en-US" },
+            ["PUT /api/v1/me/time-zone"] = new { timeZone = "America/New_York" },
             ["PUT /api/v1/events/{eventId:guid}/registration"] = null,
             ["POST /api/v1/events/{eventId:guid}/check-in"] = null,
             ["POST /api/v1/rooms/{roomId:guid}/accept"] = null,
@@ -189,6 +190,8 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 (select count(*) from identity.users where email = any($1)),
                 (select count(*) from identity.users where email = any($1) and email_confirmed),
                 (select string_agg(coalesce(password_hash, '') || security_stamp, ',' order by id)
+                   from identity.users where email = any($1)),
+                (select string_agg(coalesce(preferred_time_zone, '<unset>') || ':' || time_zone_version::text, ',' order by id)
                    from identity.users where email = any($1)),
                 (select count(*) from ops.outbox_events where payload->>'to' = any($1)),
                 (select count(*) from identity.login_sessions s join identity.users u on u.id = s.user_id

@@ -31,6 +31,26 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
     [Fact]
+    public async Task SecurityNoticeSnapshotsTheExplicitZoneBeforeAChangeOrRemoval()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        using var saved = await browser.PutAsync("/api/v1/me/time-zone", """{"timeZone":"America/New_York"}""",
+            new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = "\"0\"" }));
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        await MfaScenario.EnableAsync(browser, _time);
+        await browser.FetchCsrfTokenAsync();
+        using var removed = await browser.PutAsync("/api/v1/me/time-zone", """{"timeZone":null}""",
+            new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = "\"1\"" }));
+        Assert.Equal(HttpStatusCode.OK, removed.StatusCode);
+        var notice = Assert.Single(await NoticesAsync(account.UserId));
+        using var payload = JsonDocument.Parse(notice.Payload);
+        Assert.Equal("America/New_York", payload.RootElement.GetProperty("preferredTimeZone").GetString());
+        using var own = await browser.GetAsync("/api/v1/me/time-zone");
+        Assert.Null((await MfaScenario.ReadObjectAsync(own))["timeZone"]);
+    }
+
+    [Fact]
     public async Task EnablingMfaSendsOneNotice()
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
