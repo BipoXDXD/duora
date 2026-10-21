@@ -32,7 +32,8 @@ internal enum AccountEmailKind
 /// (<c>pt-BR</c> ou <c>en</c>) escolhida na requisição que pediu o e-mail. É um campo aditivo: payload gravado antes
 /// dele não o tem, e sem ele (ou com tag fora da allowlist) o e-mail sai no idioma padrão.
 /// </summary>
-internal sealed record AccountEmailRequested(AccountEmailKind Kind, string To, Guid UserId, string? Token, string? Language);
+internal sealed record AccountEmailRequested(AccountEmailKind Kind, string To, Guid UserId, string? Token, string? Language,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PreferredTimeZone = null);
 
 internal static class AccountEmailOutbox
 {
@@ -94,8 +95,9 @@ internal static class AccountEmailOutbox
         string to,
         Guid userId,
         EmailLanguage language,
-        DateTimeOffset now) =>
-        Create(new AccountEmailRequested(NoticeKinds[change], to, userId, Token: null, EmailLanguageTag.Format(language)), now);
+        DateTimeOffset now,
+        string? preferredTimeZone = null) =>
+        Create(new AccountEmailRequested(NoticeKinds[change], to, userId, Token: null, EmailLanguageTag.Format(language), preferredTimeZone), now);
 
     public static OutboxEvent Create(AccountEmailRequested message, DateTimeOffset now)
     {

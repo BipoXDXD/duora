@@ -52,26 +52,40 @@ public sealed class AccountEmails
         Compose(to, CatalogFor(language).PasswordResetForUnknownAddress(_publicOrigin.Resolve("/cadastro")));
 
     /// <summary>
-    /// Aviso ao titular de que uma credencial mudou (TM-21). Texto fixo: o único dado variável é o instante, em UTC e
-    /// com precisão de minuto, porque o e-mail não sabe o fuso de quem lê. Não há token: o link leva à área de
+    /// Aviso ao titular de que uma credencial mudou (TM-21). Referência UTC com precisão de minuto;
+    /// quando há escolha explícita, acrescenta o horário no fuso salvo na conta. Não há token: o link leva à área de
     /// sessões, onde quem não reconhece a mudança encerra as sessões e troca a senha. Sai em pt-BR e depois em en, no
     /// mesmo e-mail: quem recebe pode não ser quem fez a mudança, e o idioma da requisição seria o de quem a fez.
     /// </summary>
-    public TransactionalEmail SecurityNotice(EmailAddress to, SecurityChange change, DateTimeOffset occurredAt)
+    public TransactionalEmail SecurityNotice(EmailAddress to, SecurityChange change, DateTimeOffset occurredAt, string? preferredTimeZone = null)
     {
         if (!Enum.IsDefined(change))
         {
             throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida.");
         }
 
+        if (preferredTimeZone is not null && !TimeZones.IsSupported(preferredTimeZone))
+        {
+            throw new ArgumentException("Unsupported IANA time zone.", nameof(preferredTimeZone));
+        }
         var occurredAtUtc = occurredAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
         var sessionsLink = _publicOrigin.Resolve(SessionsPath);
         var portuguese = BrazilianPortugueseAccountEmails.Instance.SecurityNotice(change, occurredAtUtc, sessionsLink, _supportContact);
         var english = EnglishAccountEmails.Instance.SecurityNotice(change, occurredAtUtc, sessionsLink, _supportContact);
-        return new TransactionalEmail(
-            to,
-            $"{portuguese.Subject} / {english.Subject}",
-            portuguese.Body + LanguageSeparator + english.Body);
+        var ptBody = portuguese.Body;
+        var enBody = english.Body;
+        if (preferredTimeZone is not null and not "UTC")
+        {
+            var local = TimeZoneInfo.ConvertTime(occurredAt, TimeZoneInfo.FindSystemTimeZoneById(preferredTimeZone));
+            var delta = local.Offset;
+            var offset = delta == TimeSpan.Zero ? "UTC" : string.Create(CultureInfo.InvariantCulture,
+                $"UTC{(delta < TimeSpan.Zero ? "−" : "+")}{delta.Duration().Hours:00}:{delta.Duration().Minutes:00}");
+            var pt = local.ToString("dd/MM/yyyy, HH:mm", CultureInfo.InvariantCulture);
+            var en = local.ToString("M/d/yy, h:mm tt", CultureInfo.InvariantCulture);
+            ptBody += $"\n\nNo seu fuso salvo: {pt} — {preferredTimeZone} · {offset}";
+            enBody += $"\n\nIn your saved time zone: {en} — {preferredTimeZone} · {offset}";
+        }
+        return new TransactionalEmail(to, $"{portuguese.Subject} / {english.Subject}", ptBody + LanguageSeparator + enBody);
     }
 
     /// <summary>

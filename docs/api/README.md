@@ -107,3 +107,14 @@ O `actionId` do corpo identifica o reenvio, como na ação de Constelação. Rep
 versão não duplica o efeito; outro corpo é inválido. Conflito de versão retorna `409`; a SPA relê a sala.
 Autorização, elegibilidade, saída e bloqueios são revalidados antes de reconhecer um reenvio. A rota de
 ações de uma experiência não pode operar a outra.
+
+
+## Fuso privado da conta (issue #81)
+
+`GET /me/time-zone`: `{timeZone: string|null, version: string}` + ETag. `PUT /me/time-zone` exige
+If-Match e campo `timeZone` obrigatório; null explícito remove. 428 sem precondição, 412 versão divergente,
+400/VALIDATION_FAILED (`errors.timeZone: [UNSUPPORTED_TIME_ZONE]`) para ID não suportado. Autorização do
+titular, CSRF e status Active/PendingEligibility; 503 em disputa de lock além do teto. Nenhum efeito em
+matching, residência ou segurança de login. `GET /me/time-zone/options` é autenticado e devolve
+`{timeZones: string[]}` (IANA do servidor mais UTC). `/me` acrescenta `preferredTimeZone` anulável;
+cliente sem campo continua usando o navegador. Não persistir detecção sem confirmação explícita.
