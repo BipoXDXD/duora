@@ -119,8 +119,10 @@ return ApiProblems.Validation(new Dictionary<string, string[]> { [field] = [code
   Testcontainers para o Kestrel loopback; sem alterar configuração/infra de produto. Se infraestrutura local
   falhar, diagnosticar e registrar a causa sem dispensar a prova no CI.
 
-  Testar cliente antigo que não manda seletor com servidor novo; cliente aderente sintético lendo resposta e
-  confirmação; servidor antigo sem confirmação usando fixture histórica do diagnóstico e parser/alerta reais.
+  Testar cliente antigo que não manda seletor com servidor novo; sonda de cliente com respostas simuladas
+  com/sem confirmação; servidor antigo usando fixture histórica do diagnóstico e parser/alerta reais.
+  O ApiProblemError atual não transporta a confirmação: provar fallback/retry, sem alegar adoção ou leitura
+  de códigos por um adaptador futuro.
   Fallback PT-BR/EN-US deve continuar local, sem retry ou nova página. Não implementar adaptador de produção
   para fluxo inexistente. Regenerar tipos e compilar o frontend.
 
