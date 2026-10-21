@@ -15,6 +15,7 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
 
     internal async Task<CountryDatabaseOperationsSnapshot> ReadAsync(CancellationToken ct)
     {
+        var observedNow = UtcNow;
         await using var c = await source.OpenConnectionAsync(ct);
         await using var tx = await c.BeginTransactionAsync(ct);
         await Lock(c, ct);
@@ -48,7 +49,7 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
                 ((status='InFlight' and attempts>=4 and lease_expires_at<=$1) or
                  (status='Pending' and attempts=0 and last_error_code is not null and not s.blocked)))
             from ops.country_database_state s where singleton
-            """, UtcNow))
+            """, observedNow))
         await using (var r = await q.ExecuteReaderAsync(ct))
         {
             await r.ReadAsync(ct);
@@ -56,13 +57,13 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
             snapshot = new(r.GetInt64(0), versions.SingleOrDefault(v => v.Sha256 == hash),
                 r.IsDBNull(2) ? null : r.GetFieldValue<DateTimeOffset>(2), r.IsDBNull(3) ? null : r.GetString(3),
                 r.GetBoolean(4), r.GetBoolean(5), r.GetBoolean(6),
-                r.IsDBNull(7) ? UtcNow : r.GetFieldValue<DateTimeOffset>(7), r.GetBoolean(8), r.GetBoolean(9),
+                r.IsDBNull(7) ? observedNow : r.GetFieldValue<DateTimeOffset>(7), r.GetBoolean(8), r.GetBoolean(9),
                 approved, versions, retired);
         }
-        if (UtcNow >= snapshot.LastObserved)
-        {
-            await Execute(c, "update ops.country_database_state set last_observed_at=$1 where singleton", ct, UtcNow);
-        }
+        var highWater = new[] { snapshot.LastObserved, observedNow, snapshot.LastAttempt ?? observedNow }
+            .Concat(versions.Select(m => m.ValidatedAt)).Max();
+        snapshot = snapshot with { LastObserved = highWater };
+        await Execute(c, "update ops.country_database_state set last_observed_at=greatest(last_observed_at,$1) where singleton", ct, highWater);
         await tx.CommitAsync(ct);
         return snapshot;
     }
@@ -101,7 +102,7 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
         }
         foreach (var (code, old) in existing)
         {
-            if (!conditions.ContainsKey(code))
+            if (UtcNow >= snapshot.LastObserved && !conditions.ContainsKey(code))
             {
                 await Event(c, code, old.Severity, true, now, true, null, ct);
                 await Execute(c, "delete from ops.country_database_incidents where code=$1", ct, code);
@@ -224,7 +225,9 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
         await Lock(c, ct);
         if (!await Matches(c, snapshot.Generation, ct) || UtcNow < snapshot.LastObserved)
         { throw new InvalidOperationException("Maintenance snapshot is no longer valid."); }
-        foreach (var m in snapshot.Versions.Where(m => !keep.Contains(m.Sha256)))
+        var approvedHashes = snapshot.Approved.Select(m => m.Sha256).ToHashSet(StringComparer.Ordinal);
+        foreach (var m in snapshot.Versions.Where(m => !keep.Contains(m.Sha256)
+            && (approvedHashes.Contains(m.Sha256) || UtcNow - m.FirstDownloadedAt >= TimeSpan.FromDays(14))))
         {
             await Execute(c, "insert into ops.country_database_retired(sha256,retired_at) values($1,$2) on conflict do nothing", ct, m.Sha256, UtcNow);
         }
@@ -238,6 +241,8 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
         await Execute(c, """
             delete from ops.country_database_notifications where occurred_at<=$1;
             """, ct, UtcNow.AddDays(-90));
+        await Execute(c, "delete from ops.country_database_incidents where last_notified_at<=$1", ct, UtcNow.AddDays(-90));
+        await Execute(c, "update ops.country_database_incidents set opened_at=greatest(opened_at,$1)", ct, UtcNow.AddDays(-90));
         foreach (var m in snapshot.Versions.Where(m => m.FirstDownloadedAt <= UtcNow.AddDays(-90)))
         {
             await Execute(c, "delete from ops.country_database_approvals where sha256=$1", ct, m.Sha256);

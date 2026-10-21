@@ -136,9 +136,20 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
             { return CountryDatabasePromotion.InvalidManifest; }
         }
         var previous = await ReadActive(c, ct);
-        if (previous is null ? approvedInitialHash != manifest.Sha256
-            : previous.DatabaseType != manifest.DatabaseType || previous.Schema != manifest.Schema
-              || previous.Product != manifest.Product || previous.License != manifest.License || manifest.BuiltAt < previous.BuiltAt)
+        var baseline = previous;
+        if (baseline is null)
+        {
+            await using var q = Command(c, """
+                select v.manifest::text from ops.country_database_approvals a
+                join ops.country_database_versions v using(sha256)
+                order by (v.manifest->>'BuiltAt')::timestamptz desc,a.promoted_at desc,a.sha256 limit 1
+                """);
+            if (await q.ExecuteScalarAsync(ct) is string json)
+            { baseline = JsonSerializer.Deserialize<CountryDatabaseManifest>(json); }
+        }
+        if (baseline is null ? approvedInitialHash != manifest.Sha256
+            : baseline.DatabaseType != manifest.DatabaseType || baseline.Schema != manifest.Schema
+              || baseline.Product != manifest.Product || baseline.License != manifest.License || manifest.BuiltAt < baseline.BuiltAt)
         {
             return CountryDatabasePromotion.RequiresApproval;
         }
@@ -228,10 +239,10 @@ public sealed class CountryDatabaseUpdateStore(NpgsqlDataSource source, TimeProv
     {
         await using var c = await source.OpenConnectionAsync(ct);
         await using var q = Command(c, """
-            select s.active_fencing_token,case when s.review_required then null else v.manifest::text end
+            select s.active_fencing_token,case when s.review_required or s.last_observed_at>$1 then null else v.manifest::text end
             from ops.country_database_state s left join ops.country_database_versions v on v.sha256=s.active_sha256
             where s.singleton
-            """);
+            """, time.GetUtcNow());
         await using var r = await q.ExecuteReaderAsync(ct);
         return await r.ReadAsync(ct)
             ? (r.GetInt64(0), r.IsDBNull(1) ? null : JsonSerializer.Deserialize<CountryDatabaseManifest>(r.GetString(1)))

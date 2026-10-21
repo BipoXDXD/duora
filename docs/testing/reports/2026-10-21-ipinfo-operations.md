@@ -48,6 +48,24 @@ Também obrigatórios: frontend, e2e, contract, ops, secret-scan, supply-chain e
 O PR permanece em rascunho enquanto o head atual não tiver todos os nove checks verdes. Não foi executado
 localmente nenhum comando de build/teste/Docker; apenas leitura, edição, git diff --check e operações Git/GitHub.
 
+## Revisão e regressões
+
+Uma revisão independente de toda a branch, somente leitura e sem execução local, identificou quatro problemas
+ importantes: staging criado depois do snapshot de limpeza; recuperação ultrapassando alerta ainda não entregue;
+ escolha lexicográfica entre builds de mesmo epoch; storage lento impedindo monitor independente. Todos ganharam
+ testes de reprodução e entram na única rodada de correção. Nenhum achado menor foi adiado.
+
+O CI `39689986348` confirmou 3020/3023 testes backend, com três falhas novas esperadas (zero ignorados): relógio
+ gerando falsa recuperação, retenção de incidente antigo e atualização após exclusão da antiga ativa. Os outros
+ oito checks passaram nesse head. Isso é evidência RED, **não** aprovação do PR ou do head final.
+
+As decisões que a revisão não recertifica manualmente ficam explícitas: fluxos das etapas 3/6 não foram alterados
+ e seguem cobertos pelas suítes obrigatórias; operações reais, autenticação do operador, grants e SLA dependem de
+ G2/G3/G5; fallback para build anterior continua proibido; desempenho operacional e sucesso do head final só podem
+ ser afirmados com evidência adequada. Custo: ensaios de rollout e operação ainda necessários, sem certificação de
+ produção por testes sintéticos. Os quatro problemas conhecidos de baseline/relógio/retenção são verificados pelos
+ próprios testes de regressão e pelo CI, não pela suposição de que a revisão os resolveu.
+
 ## Limitações e pré-requisitos
 
 Titular e Gmail privado já designados; endereço não publicado. Substituto, cobertura, contingência, transporte e
