@@ -1,0 +1,59 @@
+import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
+import type { components } from '../../duora/frontend/src/shared/api/schema'
+import { parseProblemDetails } from '../../duora/frontend/src/shared/api/problem-details'
+import { ApiProblemError } from '../../duora/frontend/src/shared/api/api-errors'
+import { createApiClient } from '../../duora/frontend/src/shared/api/api-client'
+import { classifyRequestFailure } from '../../duora/frontend/src/shared/api/request-failure'
+
+type Validation = components['schemas']['HttpValidationProblemDetails']
+const structural = { title: 'synthetic', status: 400, errors: { body: ['A foto está vazia.'] }, code: 'VALIDATION_FAILED', traceId: 'synthetic' }
+const acceptedViaVariable: Validation = structural
+assert.equal(acceptedViaVariable.status, 400)
+const fresh: Validation = {
+  title: 'synthetic',
+  // @ts-expect-error generated validation type does not declare code
+  code: 'VALIDATION_FAILED',
+}
+assert.equal(fresh.title, 'synthetic')
+declare const generated: Validation
+if (false) {
+  // @ts-expect-error generated validation type does not expose code
+  void generated.code
+}
+const directory = process.env.DUORA_CAPTURE_DIR!
+for (const name of ['body-empty-pt', 'body-empty-en', 'key-missing', 'key-invalid', 'body-empty-optin-ignored', 'type-unsupported']) {
+  const raw = JSON.parse(readFileSync(directory + '/' + name + '.json', 'utf8')) as unknown
+  const status = name === 'type-unsupported' ? 415 : 400
+  const parsed = parseProblemDetails(raw, status)
+  assert.ok(parsed)
+  assert.equal(parsed.code, status === 415 ? 'UNSUPPORTED_MEDIA_TYPE' : 'VALIDATION_FAILED')
+  assert.ok(parsed.traceId)
+  if (status === 400) assert.ok(parsed.errors)
+  const classified = classifyRequestFailure(new ApiProblemError(parsed))
+  assert.equal(classified.kind, 'problem')
+  assert.equal('errors' in classified, false)
+  assert.equal('validationFormat' in classified, false)
+}
+console.log('PASS: six captured payloads accepted by actual parser; classifier drops errors; generated code property absent; structural assignment still compiles. No runtime schema validation supplied by generated types.')
+
+async function checkTransport() {
+  const raw = readFileSync(directory + '/body-empty-en.json', 'utf8')
+  const client = createApiClient({
+    origin: 'https://probe.invalid', readAntiforgeryToken: () => 'synthetic', readLocale: () => 'en-US', now: () => 0,
+    fetch: async request => {
+      assert.equal(request.headers.get('Duora-Validation-Format'), 'codes-v1')
+      assert.equal(request.headers.get('X-XSRF-TOKEN'), 'synthetic')
+      return new Response(raw, { status: 400, headers: { 'Content-Type': 'application/problem+json', 'Duora-Validation-Format': 'codes-v1' } })
+    },
+  })
+  await assert.rejects(client.fetch(new Request('https://probe.invalid/api/v1/me/photos', { method: 'POST', headers: { 'Duora-Validation-Format': 'codes-v1' } })), error => {
+    assert.ok(error instanceof ApiProblemError)
+    assert.ok(error.problem.errors)
+    assert.equal('headers' in error, false)
+    assert.equal('validationFormat' in error, false)
+    return true
+  })
+  console.log('PASS: current transport sends optional request header with session policy, but drops a synthetic response confirmation. This response is a transport-only mock, not a negotiated server.')
+}
+void checkTransport()
