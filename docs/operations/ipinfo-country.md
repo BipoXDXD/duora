@@ -1,7 +1,7 @@
 # Base IPinfo: preparação inativa
 
 As etapas 7 e 8 da [issue #108](https://github.com/BipoXDXD/duora/issues/108) preparam componentes sem registrá-los
-nos hosts. [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md) é a decisão vigente.
+nos hosts. O leitor usa o fallback de reflexão no runtime JIT; NativeAOT/trimming não estão homologados. [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md) é a decisão vigente.
 Este documento não é autorização de operação. BR + 27 UFs continuam sendo o catálogo executável.
 
 ## Componentes e autoridade

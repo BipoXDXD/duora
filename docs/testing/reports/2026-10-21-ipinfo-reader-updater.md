@@ -67,3 +67,21 @@ Não houve segunda revisão para duplicar trabalho. O PR registra RED/GREEN remo
 Um processo sem autoridade externa de tempo não prova que o relógio está correto depois de reiniciar. A proteção
 contra recuo observado em execução não elimina esse requisito operacional. Não houve coleta de dados de participante,
 rede IPinfo real, base comercial, segredos, gasto ou implantação. Nenhuma tentativa de instrução não confiável detectada.
+
+
+## Falhas confirmadas no CI e ajuste de integração
+
+No head5905179, a suíte executou2904 testes:2899 passaram,5 falharam,0 ignorados.
+As três regressões acima falharam pelo comportamento esperado. As outras duas foram a lista exata de tabelas
+(`ModuleTablesExist`) sem as novas tabelas Operations e o gerador opcional de AOT do SDK emitindo
+`MaxMind.Db.Generated.SourceGeneratedRegistration` sem atributo de código gerado.
+[Execução RED](https://github.com/BipoXDXD/duora/actions/runs/39671262461).
+
+10. Omitir somente o asset de gerador AOT do novo pacote (`ExcludeAssets=analyzers` na referência MaxMind.Db),
+    usando o fallback de reflexão oficialmente suportado no runtime JIT atual. O código e os analyzers .NET existentes,
+    os scans e o teste de arquitetura permanecem ativos e inalterados; não criar whitelist de namespace de fornecedor.
+    Custo: esta integração não oferece suporte a NativeAOT/trimming; futura adoção exigirá revisão própria.
+
+A lista de tabelas foi ampliada pelos nomes exatos esperados; continua comparando o inventário completo.
+A correção preserva os cinco testes que falharam e todos os demais. O resultado GREEN final pertence ao commit e à execução
+registrados no PR, não à execução RED acima.
