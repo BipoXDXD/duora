@@ -1110,6 +1110,55 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.RegionalPreferenceCountryRecord", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("CountryCode")
+                        .HasColumnType("text")
+                        .HasColumnName("country_code");
+
+                    b.HasKey("UserId", "CountryCode")
+                        .HasName("pk_regional_preference_countries");
+
+                    b.HasIndex("CountryCode")
+                        .HasDatabaseName("ix_regional_preference_countries_country_code");
+
+                    b.ToTable("regional_preference_countries", "profiles");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.RegionalPreferenceRecord", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("mode");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_regional_preferences");
+
+                    b.ToTable("regional_preferences", "profiles", t =>
+                        {
+                            t.HasCheckConstraint("ck_regional_preferences_mode", "mode IN ('countries', 'unrestricted')");
+
+                            t.HasCheckConstraint("ck_regional_preferences_version", "version >= 1");
+                        });
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Profiles.SubdivisionRecord", b =>
                 {
                     b.Property<string>("Code")
@@ -1652,6 +1701,33 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("CountryCode", "Code")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_profiles_subdivisions");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.RegionalPreferenceCountryRecord", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Profiles.CountryRecord", null)
+                        .WithMany()
+                        .HasForeignKey("CountryCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_regional_preference_countries_catalog");
+
+                    b.HasOne("Duora.Infrastructure.Profiles.RegionalPreferenceRecord", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_regional_preference_countries_preference");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Profiles.RegionalPreferenceRecord", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithOne()
+                        .HasForeignKey("Duora.Infrastructure.Profiles.RegionalPreferenceRecord", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_regional_preferences_users");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Profiles.SubdivisionRecord", b =>

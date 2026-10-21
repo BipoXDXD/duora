@@ -45,3 +45,15 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Private regional declarations use ordinary DML, never TRUNCATE (which bypasses row constraint triggers).
+DO $$
+BEGIN
+  IF to_regclass('profiles.regional_preferences') IS NOT NULL THEN
+    REVOKE TRUNCATE ON profiles.regional_preferences FROM duora_app;
+  END IF;
+  IF to_regclass('profiles.regional_preference_countries') IS NOT NULL THEN
+    REVOKE TRUNCATE ON profiles.regional_preference_countries FROM duora_app;
+  END IF;
+END
+$$;

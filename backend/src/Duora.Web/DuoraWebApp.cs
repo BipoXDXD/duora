@@ -54,6 +54,7 @@ internal static class DuoraWebApp
         {
             PatchFieldOpenApi.Configure(options);
             ProfileEndpoints.ConfigureOpenApi(options);
+            RegionalPreferenceEndpoints.ConfigureOpenApi(options);
         });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<System.Diagnostics.DistributedContextPropagator>(new InboundTraceContextDiscarded());
@@ -104,6 +105,7 @@ internal static class DuoraWebApp
         api.MapMeEndpoints();
         api.MapProfileEndpoints();
         api.MapPreferenceEndpoints();
+        api.MapRegionalPreferenceEndpoints();
         api.MapTimeZoneEndpoints();
         api.MapParticipationEndpoints();
         api.MapBlockEndpoints();

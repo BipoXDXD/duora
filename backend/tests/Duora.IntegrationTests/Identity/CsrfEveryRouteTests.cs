@@ -88,6 +88,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             ["POST /api/v1/me/selfie-verifications/{id:guid}/complete"] = new { },
             ["PUT /api/v1/me/preferences"] = new { communicationLanguages = new[] { "en" }, allowDifferentDisplayLocales = false },
             ["PUT /api/v1/me/locale"] = new { locale = "en-US" },
+            ["PUT /api/v1/me/regional-preferences"] = new { mode = "countries", countryCodes = new[] { "BR" } },
             ["PUT /api/v1/me/time-zone"] = new { timeZone = "America/New_York" },
             ["PUT /api/v1/events/{eventId:guid}/registration"] = null,
             ["POST /api/v1/events/{eventId:guid}/check-in"] = null,
@@ -197,6 +198,10 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 (select count(*) from identity.login_sessions s join identity.users u on u.id = s.user_id
                    where u.email = any($1) and s.revoked_at is null),
                 (select count(*) from profiles.profiles p join identity.users u on u.id = p.user_id
+                   where u.email = any($1)),
+                (select count(*) from profiles.regional_preferences p join identity.users u on u.id = p.user_id
+                   where u.email = any($1)),
+                (select count(*) from profiles.regional_preference_countries p join identity.users u on u.id = p.user_id
                    where u.email = any($1)),
                 (select count(*) from safety.blocks b join identity.users u on u.id = b.blocker_id
                    where u.email = any($1)),
