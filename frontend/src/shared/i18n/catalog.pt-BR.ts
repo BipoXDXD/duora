@@ -5,6 +5,9 @@
  * Mensagens de erro são neutras: não revelam se um e-mail tem conta (spec 8.2, API-A02 e A06).
  */
 export const ptBR = {
+  'dates.eventTime': 'Horário do evento: {time}',
+  'dates.eventZoneUnknown': 'Referência: {time}; fuso do evento não informado',
+  'dates.withBrowserTime': '{event} ({local} no fuso do seu navegador)',
   'routes.ownClues': 'Só você vê estas pistas.',
   'routes.deadline': 'Prazo da experiência: {deadline}.',
   'routes.acknowledge': 'Entendi',

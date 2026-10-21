@@ -7,6 +7,7 @@ export interface I18n {
   readonly t: Translate
   /** Instante (UTC na API) em data e hora curtas, no idioma ativo e no fuso de quem usa. */
   readonly formatDateTime: (instant: Date) => string
+  readonly formatEventDateTime: (instant: Date, eventTimeZone: string | null) => string
   /** Troca o idioma da interface e guarda a escolha como preferência. */
   readonly changeLocale: (locale: Locale) => void
 }
