@@ -2,9 +2,14 @@
 # Installs reviewed files only. Does not start services, read production secrets, or edit Duora policy.
 set -eu
 [ "$(id -u)" = 0 ] || { echo 'Run as administrator after reviewing this change.' >&2; exit 1; }
-[ "$#" = 1 ] && [ "$1" = --approve-install ] || { echo 'Required: --approve-install' >&2; exit 1; }
+PROFILE=colocated
+case "$*" in
+  --approve-install) ;;
+  '--approve-install --remote-gateway') PROFILE=remote-gateway ;;
+  *) echo 'Required: --approve-install [--remote-gateway]' >&2; exit 1 ;;
+esac
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
-python3 "$ROOT/scripts/openclaw/capacity.py"
+python3 "$ROOT/scripts/openclaw/capacity.py" --profile "$PROFILE"
 DEST=/opt/duora-agent
 [ ! -e "$DEST" ] || { echo 'Already installed; use the reviewed update procedure.' >&2; exit 1; }
 python3 -c "import shutil; assert shutil.disk_usage('/var/lib').free > 4 * 1024**3, 'Need >4 GiB free before reserving agent state'"
@@ -32,8 +37,14 @@ install -m 0644 "$ROOT/infra/openclaw/workspace/AGENTS.md" "$DEST/workspace/AGEN
 install -m 0644 "$ROOT/infra/openclaw/openclaw.example.json" /etc/duora-agent/openclaw.json
 install -m 0640 -o root -g duora-monitor "$ROOT/infra/openclaw/monitor.example.json" /etc/duora-observer/monitor.json
 install -m 0644 "$ROOT"/infra/openclaw/systemd/* /etc/systemd/system/
+if [ "$PROFILE" = remote-gateway ]; then
+  printf '%s\n' '{"profile":"remote-gateway"}' > /etc/duora-agent/profile.json
+  chmod 0644 /etc/duora-agent/profile.json
+fi
 systemctl daemon-reload
-systemctl start var-lib-duoraagent.mount
-chown 22001:22001 /var/lib/duoraagent
-chmod 0700 /var/lib/duoraagent
+if [ "$PROFILE" = colocated ]; then
+  systemctl start var-lib-duoraagent.mount
+  chown 22001:22001 /var/lib/duoraagent
+  chmod 0700 /var/lib/duoraagent
+fi
 printf '%s\n' 'Files installed; services NOT enabled. Provision credentials privately, pin the image and complete the runbook.'
