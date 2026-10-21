@@ -33,13 +33,36 @@ export function createTranslator(locale: Locale): Translate {
 
 /**
  * Data e hora curtas no padrão do idioma. Instantes chegam da API em UTC e são exibidos no fuso
- * de quem usa (spec 13.6); `timeZone` só é passado em teste.
+ * do navegador quando omitido (spec 13.6). Não recebe datas civis: não converter YYYY-MM-DD em Date.
  */
 export function createDateTimeFormatter(locale: Locale, timeZone?: string): (instant: Date) => string {
   const format = new Intl.DateTimeFormat(locale, {
-    dateStyle: 'short',
-    timeStyle: 'short',
+    // dateStyle/timeStyle não podem ser combinados com timeZoneName.
+    year: locale === 'en-US' ? '2-digit' : 'numeric',
+    month: locale === 'en-US' ? 'numeric' : '2-digit',
+    day: locale === 'en-US' ? 'numeric' : '2-digit',
+    hour: locale === 'en-US' ? 'numeric' : '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
     ...(timeZone === undefined ? {} : { timeZone }),
   })
   return (instant) => format.format(instant)
+}
+
+/** Fuso do evento explícito; o fuso do navegador é contexto de exibição, não preferência da conta. */
+export function createEventDateTimeFormatter(
+  locale: Locale,
+  participantTimeZone: string = new Intl.DateTimeFormat().resolvedOptions().timeZone,
+): (instant: Date, eventTimeZone: string | null) => string {
+  const t = createTranslator(locale)
+  const participantZone = new Intl.DateTimeFormat(locale, { timeZone: participantTimeZone }).resolvedOptions().timeZone
+  const participantFormat = createDateTimeFormatter(locale, participantZone)
+  return (instant, eventTimeZone) => {
+    const eventZone = new Intl.DateTimeFormat(locale, { timeZone: eventTimeZone ?? 'UTC' }).resolvedOptions().timeZone
+    const event = createDateTimeFormatter(locale, eventZone)(instant)
+    const primary = t(eventTimeZone === null ? 'dates.eventZoneUnknown' : 'dates.eventTime', { time: event })
+    return participantZone === eventZone
+      ? primary
+      : t('dates.withBrowserTime', { event: primary, local: participantFormat(instant) })
+  }
 }

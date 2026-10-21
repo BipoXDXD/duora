@@ -27,7 +27,7 @@ internal static class ParticipationEndpoints
             }
         });
         routes.MapGet("/events", async (ParticipationService service, CancellationToken ct) =>
-            (await service.EventsAsync(ct)).Select(e => new EventResponse(e.Id, e.Title, e.StartsAt, e.StartsAt.AddMinutes(-10), e.State)).ToArray());
+            (await service.EventsAsync(ct)).Select(e => new EventResponse(e.Id, e.Title, e.StartsAt, e.StartsAt.AddMinutes(-10), e.State, e.TimeZone)).ToArray());
         routes.MapPut("/events/{eventId:guid}/registration", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
             Result(await service.RegisterAsync(eventId, User(context), false, ct)));
         routes.MapPost("/events/{eventId:guid}/check-in", async (Guid eventId, HttpContext context, ParticipationService service, CancellationToken ct) =>
@@ -51,7 +51,7 @@ internal static class ParticipationEndpoints
                 ? Result(await service.RoutesActionAsync(roomId, User(context), request.ActionId, version, request.Type, request.Stage, request.StepId, request.OptionId, ct))
                 : Result(ParticipationOutcome.Invalid));
         api.MapPost("/admin/events", async (PublishEventRequest request, HttpContext context, ParticipationService service, CancellationToken ct) =>
-            await service.PublishAsync(request.Title, request.StartsAt, request.Capacity, request.ExperienceVersionId, User(context), ct) is { } id
+            await service.PublishAsync(request.Title, request.StartsAt, request.Capacity, request.ExperienceVersionId, User(context), ct, request.TimeZone) is { } id
                 ? Results.Created($"/api/v1/events/{id}", new { eventId = id }) : Result(ParticipationOutcome.Invalid))
             .RequireAuthorization(SessionAuthorization.AdministrativeSession)
             .RequireProductAdministrator().RequireRecentMfa().ProducesProblem(401).ProducesProblem(403);

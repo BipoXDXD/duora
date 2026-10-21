@@ -7,7 +7,7 @@ using static Duora.Infrastructure.Participation.ParticipationSql;
 
 namespace Duora.Infrastructure.Participation;
 
-public sealed record ParticipationEvent(Guid Id, string Title, DateTimeOffset StartsAt, string State);
+public sealed record ParticipationEvent(Guid Id, string Title, DateTimeOffset StartsAt, string State, string? TimeZone);
 public sealed record ParticipationStatus(string State, Guid? RoomId);
 public enum ParticipationOutcome { Done, Unavailable, Conflict, Invalid }
 
@@ -32,6 +32,8 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
     private static readonly Counter<long> RoundsBuilt = MatchingMeter.CreateCounter<long>("duora.matching.rounds");
     private static readonly Counter<long> PairsBuilt = MatchingMeter.CreateCounter<long>("duora.matching.pairs");
     private static readonly Counter<long> CandidatesWaiting = MatchingMeter.CreateCounter<long>("duora.matching.waiting_candidates");
+    private static readonly HashSet<string> EventTimeZones = TimeZoneInfo.GetSystemTimeZones()
+        .Where(zone => zone.HasIanaId).Select(zone => zone.Id).Append("UTC").ToHashSet(StringComparer.Ordinal);
     private bool MatchingEnabled => options?.Value.MatchingEnabled ?? true;
 
     private DateTimeOffset Now => PreciseClock.Truncate(time.GetUtcNow());
@@ -46,20 +48,20 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
     public async Task<IReadOnlyList<ParticipationEvent>> EventsAsync(CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
-        await using var command = Command(connection, "select id,title,starts_at,state from events.events where state in ('Published','Running') order by starts_at,id limit 100");
+        await using var command = Command(connection, "select id,title,starts_at,state,time_zone from events.events where state in ('Published','Running') order by starts_at,id limit 100");
         await using var reader = await command.ExecuteReaderAsync(ct);
         List<ParticipationEvent> result = [];
         while (await reader.ReadAsync(ct))
         {
-            result.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2), reader.GetString(3)));
+            result.Add(new(reader.GetGuid(0), reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2), reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4)));
         }
 
         return result;
     }
 
-    public async Task<Guid?> PublishAsync(string title, DateTimeOffset startsAt, int capacity, Guid contentId, Guid administrator, CancellationToken ct)
+    public async Task<Guid?> PublishAsync(string title, DateTimeOffset startsAt, int capacity, Guid contentId, Guid administrator, CancellationToken ct, string? timeZone = null)
     {
-        if (string.IsNullOrWhiteSpace(title) || title.Length > 120 || capacity is < 1 or > 100 || startsAt <= Now.AddMinutes(10))
+        if ((timeZone is not null && !EventTimeZones.Contains(timeZone)) || string.IsNullOrWhiteSpace(title) || title.Length > 120 || capacity is < 1 or > 100 || startsAt <= Now.AddMinutes(10))
         {
             return null;
         }
@@ -92,7 +94,7 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         }
 
         var id = Guid.CreateVersion7();
-        await Execute(connection, "insert into events.events(id,title,state,starts_at,capacity,experience_version_id) values($1,$2,'Published',$3,$4,$5)", ct, id, title, startsAt, capacity, contentId);
+        await Execute(connection, "insert into events.events(id,title,state,starts_at,capacity,experience_version_id,time_zone) values($1,$2,'Published',$3,$4,$5,$6)", ct, id, title, startsAt, capacity, contentId, (object?)timeZone ?? DBNull.Value);
         for (var number = 1; number <= 3; number++)
         {
             var round = Guid.CreateVersion7();

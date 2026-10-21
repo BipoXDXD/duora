@@ -50,6 +50,23 @@ def host_checks(snapshot, now):
     return {'observer:host-fresh': True, **checks}
 
 
+def remote_checks(product_path, gateway_path, now):
+    from telemetry import bounded_read, snapshot
+    try:
+        checks = host_checks(snapshot(bounded_read(product_path), now), now)
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
+        checks = {'observer:host-fresh': False}
+    try:
+        local = bounded_read(gateway_path)
+        if (set(local) != {'collected_at', 'checks'} or local['checks'] != {'service:gateway': True}
+                or type(local['collected_at']) not in (int, float)):
+            raise ValueError('invalid gateway state')
+        checks['service:gateway'] = host_checks(local, now)['observer:host-fresh']
+    except (OSError, ValueError, KeyError, TypeError):
+        checks['service:gateway'] = False
+    return checks
+
+
 def github_runs(repo, token, fetch=request):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):
         raise ValueError('invalid repository')
@@ -106,13 +123,18 @@ def main():
     if not 1 <= len(repos) <= 10:
         raise ValueError('configure 1..10 repositories')
     state.setdefault('monitoring_since', time.time() - 3600)
+    profile = os.environ.get('DUORA_MONITOR_PROFILE', 'colocated')
+    if profile not in ('colocated', 'remote-gateway'):
+        raise ValueError('invalid monitor profile')
     runs_by_repo = {}
     gh_checks = {}
     next_github = 0
     while True:
         now = time.time()
         try:
-            checks = host_checks(json.loads(Path('/var/lib/duora-observer/host.json').read_text()), now)
+            checks = (remote_checks('/var/lib/duora-remote/host.json', '/var/lib/duora-observer/host.json', now)
+                      if profile == 'remote-gateway' else
+                      host_checks(json.loads(Path('/var/lib/duora-observer/host.json').read_text()), now))
         except (OSError, ValueError):
             checks = {'observer:host-fresh': False}
         if now >= next_github:

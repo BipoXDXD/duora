@@ -1,0 +1,28 @@
+[Unit]
+Description=Fixed Duora source probes without gateway access
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /opt/duora-telemetry/collect.py --mode source
+StateDirectory=duora-telemetry
+StateDirectoryMode=0755
+UMask=0022
+ProtectSystem=strict
+ReadWritePaths=/var/lib/duora-telemetry
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=20%
+CPUWeight=25
+IOWeight=25
+TasksMax=16
+TimeoutStartSec=90
