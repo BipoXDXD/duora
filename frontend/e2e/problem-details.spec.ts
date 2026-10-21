@@ -1,3 +1,4 @@
+import { AxeBuilder } from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { FakeDuoraApi } from './support/fake-api.ts'
 
@@ -42,6 +43,10 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       expect(await page.locator('body').innerHTML()).not.toContain('CANARY')
       expect(await page.evaluate(() => Object.hasOwn(window, 'CANARY'))).toBe(false)
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
+      expect(
+        (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze())
+          .violations,
+      ).toEqual([])
     }
     async function login(page: Page): Promise<void> {
       await page.goto('/login')
