@@ -57,9 +57,9 @@ Regras para preencher:
   com pessoa real; contribui para a diversidade do elenco da experiência>
 - **Arte de referência:** <conceito, render ou placeholder interno>
 - **Voz:**
-  - descrição: <timbre, ritmo, energia, sotaque em cada idioma>
-  - referência: <sintética sem referência, ou voz humana de referência com consentimento e licença registrados>
-  - aviso: <"voz editorial" exibido junto da transcrição, se for>
+  - descrição: <timbre adulto, ritmo conversacional, pausas naturais, energia discreta e pronúncia fluente em cada idioma; seleção por escuta>
+  - referência: <sem referência pessoal, ou voz de referência com consentimento e licença registrados>
+  - rótulo público: <Narração ou nome do personagem fictício, sem mensagem sobre o processo de criação; ADR-0032>
 - **Falas de amostra (não finais):**
   - PT-BR: <até 120 caracteres>
   - EN-US: <até 120 caracteres>

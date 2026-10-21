@@ -2,7 +2,7 @@
   "contentVersion": 2,
   "enUS": {
     "title": "Constellation of Choices",
-    "objective": "Explore everyday choices. You can skip any card. The voices in this experience are Produção editorial.",
+    "objective": "Explore everyday choices. You can skip any card.",
     "cards": [
       {
         "cardId": "small-pause",
@@ -96,7 +96,7 @@
   },
   "ptBR": {
     "title": "Constelação de Escolhas",
-    "objective": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. As vozes desta experiência são de produção editorial.",
+    "objective": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
     "cards": [
       {
         "cardId": "small-pause",

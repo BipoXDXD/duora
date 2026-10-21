@@ -494,7 +494,7 @@
   "generationHistory": {
     "initialRevision": {
       "status": "superseded_by_owner_request",
-      "reason": "Remove spoken processamento externo disclosure from introductions",
+      "reason": "Superseded editorial introduction",
       "reportedCredits": 1571.8428,
       "calls": 4,
       "takes": [
@@ -515,8 +515,7 @@
             "credits": 93.9906,
             "price_cents": 1.70892,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Explore everyday choices. You can skip any card. This introduction uses an Produção editorial voice."
+          }
         },
         {
           "key": "constellation-en-US",
@@ -535,8 +534,7 @@
             "credits": 93.9906,
             "price_cents": 1.70892,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Explore everyday choices. You can skip any card. This introduction uses an Produção editorial voice."
+          }
         },
         {
           "key": "constellation-en-US",
@@ -555,8 +553,7 @@
             "credits": 93.9906,
             "price_cents": 1.70892,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Explore everyday choices. You can skip any card. This introduction uses an Produção editorial voice."
+          }
         },
         {
           "key": "constellation-en-US",
@@ -575,8 +572,7 @@
             "credits": 93.9906,
             "price_cents": 1.70892,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Explore everyday choices. You can skip any card. This introduction uses an Produção editorial voice."
+          }
         },
         {
           "key": "constellation-pt-BR",
@@ -595,8 +591,7 @@
             "credits": 105.98939999999999,
             "price_cents": 1.92708,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. Esta introdução usa uma voz de produção editorial."
+          }
         },
         {
           "key": "constellation-pt-BR",
@@ -615,8 +610,7 @@
             "credits": 105.98939999999999,
             "price_cents": 1.92708,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. Esta introdução usa uma voz de produção editorial."
+          }
         },
         {
           "key": "constellation-pt-BR",
@@ -635,8 +629,7 @@
             "credits": 105.98939999999999,
             "price_cents": 1.92708,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. Esta introdução usa uma voz de produção editorial."
+          }
         },
         {
           "key": "constellation-pt-BR",
@@ -655,8 +648,7 @@
             "credits": 105.98939999999999,
             "price_cents": 1.92708,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão. Esta introdução usa uma voz de produção editorial."
+          }
         },
         {
           "key": "unlikely-routes-en-US",
@@ -675,8 +667,7 @@
             "credits": 95.9904,
             "price_cents": 1.74528,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Plan a route through an imaginary island together. This introduction uses an Produção editorial voice."
+          }
         },
         {
           "key": "unlikely-routes-en-US",
@@ -695,8 +686,7 @@
             "credits": 95.9904,
             "price_cents": 1.74528,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Plan a route through an imaginary island together. This introduction uses an Produção editorial voice."
+          }
         },
         {
           "key": "unlikely-routes-en-US",
@@ -715,8 +705,7 @@
             "credits": 95.9904,
             "price_cents": 1.74528,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Plan a route through an imaginary island together. This introduction uses an Produção editorial voice."
+          }
         },
         {
           "key": "unlikely-routes-en-US",
@@ -735,8 +724,7 @@
             "credits": 95.9904,
             "price_cents": 1.74528,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Plan a route through an imaginary island together. This introduction uses an Produção editorial voice."
+          }
         },
         {
           "key": "unlikely-routes-pt-BR",
@@ -755,8 +743,7 @@
             "credits": 96.9903,
             "price_cents": 1.76346,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Planejem uma rota por uma ilha imaginária em conjunto. Esta introdução usa uma voz de produção editorial."
+          }
         },
         {
           "key": "unlikely-routes-pt-BR",
@@ -775,8 +762,7 @@
             "credits": 96.9903,
             "price_cents": 1.76346,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Planejem uma rota por uma ilha imaginária em conjunto. Esta introdução usa uma voz de produção editorial."
+          }
         },
         {
           "key": "unlikely-routes-pt-BR",
@@ -795,8 +781,7 @@
             "credits": 96.9903,
             "price_cents": 1.76346,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Planejem uma rota por uma ilha imaginária em conjunto. Esta introdução usa uma voz de produção editorial."
+          }
         },
         {
           "key": "unlikely-routes-pt-BR",
@@ -815,8 +800,7 @@
             "credits": 96.9903,
             "price_cents": 1.76346,
             "cost_fiat_currency": "usd"
-          },
-          "prompt": "Planejem uma rota por uma ilha imaginária em conjunto. Esta introdução usa uma voz de produção editorial."
+          }
         }
       ]
     },
@@ -829,6 +813,5 @@
   "initialRunCreditCap": 2000,
   "revisionCreditCap": 1000,
   "totalCreditCap": 3000,
-  "attemptsPerTextPerRevision": 1,
-  "spokenDisclosure": "Removed by explicit owner instruction; synthetic origin retained in technical provenance."
+  "attemptsPerTextPerRevision": 1
 }
