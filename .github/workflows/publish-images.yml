@@ -7,6 +7,14 @@ on:
       commit:
         required: true
         type: string
+      ci_run:
+        description: Already validated CI run, independently rechecked before publication
+        required: false
+        type: string
+      ci_attempt:
+        description: Exact attempt paired with ci_run
+        required: false
+        type: string
     secrets:
       SIXLABORS_LICENSE_KEY:
         required: true
@@ -55,6 +63,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_COMMIT: ${{ inputs.commit }}
+          CI_RUN: ${{ inputs.ci_run }}
+          CI_ATTEMPT: ${{ inputs.ci_attempt }}
         run: |
           test "$GITHUB_REF" = refs/heads/main
           python3 scripts/release/check_ci.py

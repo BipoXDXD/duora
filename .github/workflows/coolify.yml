@@ -64,6 +64,7 @@ jobs:
     outputs:
       commit: ${{ steps.gates.outputs.commit }}
       ci_run: ${{ steps.gates.outputs.ci_run }}
+      ci_attempt: ${{ steps.gates.outputs.ci_attempt }}
       eligible: ${{ steps.gates.outputs.eligible }}
     steps:
       # Use trusted main tooling for CI validation.
@@ -93,6 +94,8 @@ jobs:
     uses: ./.github/workflows/publish-images.yml
     with:
       commit: ${{ needs.gates.outputs.commit }}
+      ci_run: ${{ needs.gates.outputs.ci_run }}
+      ci_attempt: ${{ needs.gates.outputs.ci_attempt }}
     secrets:
       SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
 
