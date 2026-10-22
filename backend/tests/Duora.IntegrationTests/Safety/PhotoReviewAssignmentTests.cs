@@ -334,8 +334,13 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
                 await held.RollbackAsync(cleanup.Token);
             }
             await budget.CancelAsync();
-            try { await assignment.WaitAsync(cleanup.Token); }
-            catch (OperationCanceledException) when (budget.IsCancellationRequested && assignment.IsCompleted) { }
+            try
+            {
+                await assignment.WaitAsync(cleanup.Token);
+            }
+            catch (OperationCanceledException) when (budget.IsCancellationRequested && assignment.IsCompleted)
+            {
+            }
         }
         Assert.Equal(1, await ScalarAsync("select version from safety.photo_review_cases where id=$1", item.CaseId));
         Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_assignments where case_id=$1", item.CaseId));
@@ -368,8 +373,13 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
             barrier.Release();
             await budget.CancelAsync();
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            try { await Task.WhenAll(first, second).WaitAsync(cleanup.Token); }
-            catch (OperationCanceledException) when (budget.IsCancellationRequested && first.IsCompleted && second.IsCompleted) { }
+            try
+            {
+                await Task.WhenAll(first, second).WaitAsync(cleanup.Token);
+            }
+            catch (OperationCanceledException) when (budget.IsCancellationRequested && first.IsCompleted && second.IsCompleted)
+            {
+            }
         }
         Assert.Equal(2, await ScalarAsync("select version from safety.photo_review_cases where id=$1", firstCase.CaseId));
         Assert.Equal(2, await ScalarAsync("select version from safety.photo_review_cases where id=$1", secondCase.CaseId));
