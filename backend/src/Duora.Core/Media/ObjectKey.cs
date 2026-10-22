@@ -66,6 +66,13 @@ public readonly partial record struct ObjectKey
         return new(StorageArea.ReviewCandidates, $"{ReviewCandidatesPrefix}{generation:N}-{PhotoVariants.Name(variant)}");
     }
 
+    /// <summary>Unimplemented boundary for the separate, generation-owned promotion namespace.</summary>
+    public static ObjectKey ForPromotedDerivative(Guid generation, PhotoVariant variant)
+    {
+        _ = (generation, variant);
+        throw new NotImplementedException();
+    }
+
     /// <summary>Lê uma chave gravada pelo próprio sistema; qualquer outro formato é dado corrompido.</summary>
     public static ObjectKey Parse(string stored)
     {
