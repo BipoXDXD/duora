@@ -3537,7 +3537,7 @@ export interface components {
             rejectionCode: null | string;
         };
         /**
-         * @description Upload aceito. `Status`: Pending | Quarantined | Processing | Approved | Rejected | Deleted (spec 4.2); um
+         * @description Upload aceito. `Status`: Pending | Quarantined | Processing | Approved | Rejected | Deleted | AwaitingReview (spec 4.2); um
          *     envio novo responde Quarantined, e a repetição com a mesma chave responde o estado atual do primeiro.
          */
         PhotoUploadResponse: {

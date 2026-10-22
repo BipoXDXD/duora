@@ -755,7 +755,7 @@ namespace Duora.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OwnerId")
                         .HasDatabaseName("ix_uploads_pending_owner")
-                        .HasFilter("state IN ('Pending', 'Quarantined', 'Processing')");
+                        .HasFilter("state IN ('Pending', 'Quarantined', 'Processing', 'AwaitingReview')");
 
                     b.HasIndex("QuarantineKey")
                         .IsUnique()
@@ -773,11 +773,11 @@ namespace Duora.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_uploads_declared_content_type", "declared_content_type IN ('image/jpeg', 'image/png', 'image/webp')");
 
-                            t.HasCheckConstraint("ck_uploads_rejection_code", "(rejection_code IS NULL OR rejection_code IN ('UNSUPPORTED_FORMAT', 'TYPE_MISMATCH', 'TOO_MANY_PIXELS', 'ANIMATED', 'CORRUPT_IMAGE', 'PROCESSING_LIMIT')) AND (state <> 'Rejected' OR rejection_code IS NOT NULL) AND (rejection_code IS NULL OR state IN ('Rejected', 'Deleted'))");
+                            t.HasCheckConstraint("ck_uploads_rejection_code", "(rejection_code IS NULL OR rejection_code IN ('UNSUPPORTED_FORMAT', 'TYPE_MISMATCH', 'TOO_MANY_PIXELS', 'ANIMATED', 'CORRUPT_IMAGE', 'PROCESSING_LIMIT', 'PHOTO_REVIEW_REJECTED', 'PHOTO_REVIEW_EXPIRED', 'PHOTO_REVIEW_UNAVAILABLE')) AND (state <> 'Rejected' OR rejection_code IS NOT NULL) AND (rejection_code IS NULL OR state IN ('Rejected', 'Deleted'))");
 
                             t.HasCheckConstraint("ck_uploads_size_bytes", "size_bytes BETWEEN 1 AND 5242880");
 
-                            t.HasCheckConstraint("ck_uploads_state", "state IN ('Pending', 'Quarantined', 'Processing', 'Approved', 'Rejected', 'Deleted')");
+                            t.HasCheckConstraint("ck_uploads_state", "state IN ('Pending', 'Quarantined', 'Processing', 'Approved', 'Rejected', 'Deleted', 'AwaitingReview')");
 
                             t.HasCheckConstraint("ck_uploads_version", "version >= 1");
                         });

@@ -849,7 +849,7 @@ erDiagram
 Implementada na migration `Media` ([ADR-0025](../architecture/adr/0025-pipeline-de-fotos-imagesharp-s3-outbox.md)).
 
 - **Colunas:** `id`; `owner_id`; `state text` (`Pending`, `Quarantined`, `Processing`, `Approved`, `Rejected`,
-  `Deleted`); `client_key text` (≤ 64, `Idempotency-Key` do cliente); `quarantine_key text` (aleatória, gerada pelo
+  `Deleted`, `AwaitingReview`); `client_key text` (≤ 64, `Idempotency-Key` do cliente); `quarantine_key text` (aleatória, gerada pelo
   servidor); `declared_content_type text`; `size_bytes bigint`; `content_sha256 bytea` (SHA-256 dos bytes recebidos;
   nulo enquanto `Pending`); `created_at`, `abandon_after timestamptz` (24 h, spec 12.4); `rejection_code text`;
   `version bigint`.
@@ -857,11 +857,32 @@ Implementada na migration `Media` ([ADR-0025](../architecture/adr/0025-pipeline-
   dono); `UNIQUE (quarantine_key)`; FK `owner_id` `RESTRICT`; `CHECK (size_bytes BETWEEN 1 AND 5242880)` (5 MiB,
   spec 4.3); `CHECK` de estado, de tipo declarado (allowlist), do formato de `client_key`, do hash (32 bytes; ausente
   só em `Pending` e `Deleted`) e do código de rejeição (só em `Rejected`, mantido em `Deleted`).
-- **Índices:** `ix_uploads_pending_owner` em `(owner_id)` onde `state IN ('Pending', 'Quarantined', 'Processing')`
+- **Índices:** `ix_uploads_pending_owner` em `(owner_id)` onde `state IN ('Pending', 'Quarantined', 'Processing', 'AwaitingReview')`
   (teto de pendentes, spec 11.5); `ix_uploads_abandon_after` onde `state IN ('Pending', 'Quarantined')` (limpeza).
 - **Concorrência:** a reserva conta os pendentes e insere sob o lock de `media.upload_guards` (sem write skew; C14,
   teste `PendingUploadsPerAccountAreCapped`). Toda transição é `UPDATE` condicional por `state` e `version`.
 - **Classe:** P3.
+
+### safety.photo_review_cases — raiz preparada em M1
+
+Migração aditiva `MediaReviewReaders` (ADR-0035). Tabela SQL sob responsabilidade de Safety, ainda sem
+repositório, escritor ou seed: M2 gravará a raiz na mesma transação de AwaitingReview; M3 acrescentará
+atribuição, decisões e recurso. Não reutiliza reports de participantes.
+
+- **Colunas:** `id uuid`; `upload_id uuid`; `candidate_generation uuid`; `policy_version varchar(64)`;
+  `awaiting_review_at`, `review_deadline timestamptz`; `version bigint`.
+- **Constraints:** PK `id`, UNIQUE `upload_id`, FK para `media.uploads` RESTRICT, versão positiva, identificador
+  de versão da política fechado em letras/dígitos/ponto/hífen/sublinhado e prazo exato de 72 horas desde início
+  finito. A unicidade é da raiz; histórico de recurso será uma estrutura própria de M3, não outra raiz.
+- **Índice:** `(review_deadline, id)` para futura varredura limitada. Nenhum job de expiração é ativado por M1.
+- **Classe:** P3; só referências/versionamento/prazos, sem imagem, chaves de storage ou motivo sensível.
+- **Permissões:** DML comum de `duora_app`, coberto pela allowlist de privilégios; nenhuma nova permissão de
+  usuário/moderador ou endpoint. A aplicação não aplica migrações no startup.
+
+M1 acrescenta ao CHECK do upload os três resultados editoriais PHOTO_REVIEW_REJECTED/EXPIRED/UNAVAILABLE,
+separados de PhotoRejection técnico. A consulta de cota conta AwaitingReview mesmo antiga; tetos3/100 intactos.
+Leitores e replay preservam o valor explícito. Não existem escritores HumanReview nesta entrega.
+Ver [compatibilidade e reversão](../testing/reports/media-review-readers.md).
 
 ### media.media_assets
 

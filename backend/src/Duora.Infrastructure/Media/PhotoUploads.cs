@@ -177,12 +177,13 @@ public sealed partial class PhotoUploads
     }
 
     /// <summary>
-    /// Upload que ainda espera veredito e ocupa vaga: em quarentena, em processamento, ou reservado e ainda dentro do
-    /// prazo do streaming.
+    /// Upload que ainda espera veredito e ocupa vaga: quarentena, processamento, revisão humana, ou reserva dentro
+    /// do prazo do streaming. Espera editorial antiga só libera vaga após uma transição durável, nunca pelo relógio.
     /// </summary>
     private static Expression<Func<Upload, bool>> AwaitingVerdict(DateTimeOffset abandonedBefore) =>
         upload => upload.State == UploadState.Quarantined
             || upload.State == UploadState.Processing
+            || upload.State == UploadState.AwaitingReview
             || (upload.State == UploadState.Pending && upload.CreatedAt >= abandonedBefore);
 
     /// <summary>
