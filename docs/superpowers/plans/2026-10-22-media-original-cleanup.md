@@ -21,7 +21,7 @@
 
 - `backend/src/Duora.Infrastructure/Persistence/Migrations/20261022143000_OriginalCleanup.cs`: tabela SQL aditiva, sem seed e sem Down destrutivo.
 - `backend/src/Duora.Infrastructure/Media/OriginalCleanupQueue.cs`: `EnqueueAsync(DuoraDbContext, Guid, DateTimeOffset, CancellationToken)` exige transação aberta e lê a chave/estado no banco; `CompleteImmediateAsync` remove só a intenção exata após DELETE idempotente confirmado.
-- `backend/src/Duora.Infrastructure/Media/OriginalCleanupDispatcher.cs`: `DispatchOnceAsync(CancellationToken)` toma até 16 intenções por lease de 30 segundos, executa DELETE fora da transação e conclui por token/lease; em falha, reagenda até 15 minutos, sem expirar a obrigação.
+- `backend/src/Duora.Infrastructure/Media/OriginalCleanupDispatcher.cs`: `DispatchOnceAsync(CancellationToken)` toma uma intenção por lease de 60 segundos, impõe orçamento total de 15 segundos ao DELETE, executa fora da transação e conclui por token/lease; em falha, reagenda até 15 minutos, sem expirar a obrigação. O orçamento domina os timeouts/retries maiores do S3 e não há lote que envelheça antes do I/O.
 - `backend/src/Duora.Infrastructure/Media/MediaProcessingDispatcher.cs`: enqueue no commit de Approved/Rejected, tentativa imediata após commit, sem alterar o contrato do construtor nem a porta `IPhotoSanitizer` usada por S3.
 - `backend/src/Duora.Infrastructure/Media/MediaProcessingServiceCollectionExtensions.cs`: registra consumidor e sua configuração de disponibilidade a partir do provider de storage.
 - `backend/src/Duora.Worker/Media/OriginalCleanupService.cs` e uma inscrição em `WorkerHost.cs`: laço independente da admissão de uploads; provider Unset não consome. Não instala serviço nem altera configuração da VPS.
@@ -31,7 +31,7 @@
 
 - [ ] Acrescentar o teste `CommittedOriginalDeletionIsRetriedAfterRestartWithUploadsDisabled(bool approved)` à classe parcial MediaPipelineTests.
 - [ ] Receber upload pelo HTTP existente, recusar o DELETE do original e executar uma entrega técnica; confirmar Approved/Rejected e original ainda presente.
-- [ ] Reiniciar o Worker sobre o mesmo banco/storage, com upload desligado, e permitir DELETE; exigir original ausente em até 10 segundos e mesmo estado/asset/derivados. Um sanitizador contador no segundo host deve continuar com zero chamadas.
+- [ ] Conferir a intenção no PostgreSQL e descartar o primeiro host; reiniciar o Worker sobre o mesmo banco/storage, com upload desligado, e permitir DELETE. Exigir original ausente em até 10 segundos, intenção consumida e mesmo estado/asset/derivados. Um sanitizador contador no segundo host deve continuar com zero chamadas.
 - [ ] Push/PR de regressão; observar falha real na CI antes da implementação. Não alterar os testes/gates para fazê-la passar.
 
 ## Tarefa 2 — persistir e consumir a obrigação
@@ -45,8 +45,9 @@ create table media.original_cleanup (
   created_at timestamptz not null,
   available_at timestamptz not null,
   attempts integer not null default 0 check (attempts >= 0),
-  fencing_token bigint not null default 0 check (fencing_token >= 0),
+  fencing_token uuid null,
   lease_until timestamptz null,
+  check ((lease_until is null) = (fencing_token is null)),
   check (object_key ~ '^quarantine/[0-9a-f]{32}$')
 );
 create index ix_original_cleanup_available on media.original_cleanup(available_at, upload_id);
@@ -55,7 +56,7 @@ create index ix_original_cleanup_available on media.original_cleanup(available_a
 - [ ] Inserir intenção com `INSERT … SELECT` do upload em Approved/Rejected/Deleted/AwaitingReview e `ON CONFLICT DO NOTHING`; exigir transação do efeito.
 - [ ] Transformar Reject em transação curta de estado + intenção; acrescentar intenção à transação já existente de Approved.
 - [ ] Depois do commit, tentar DELETE e remover a intenção exata somente após sucesso. Falha não desfaz a decisão confirmada.
-- [ ] Claim por CTE com `FOR UPDATE SKIP LOCKED`, incrementar token/attempts e encerrar a transação antes do storage. Conclusão/reagendamento exigem token atual e lease válido; lease vencido pode ser retomado.
+- [ ] Claim individual por CTE com `FOR UPDATE SKIP LOCKED`, trocar tokenUUID aleatório/incrementar attempts e encerrar a transação antes do storage. A posse não se repete ao remover/recriar a linha (ABA). DELETE recebe token ligado ao shutdown e orçamento total de15s, inferior ao lease60s com margem SQL. Conclusão/reagendamento exigem token atual e lease válido; lease vencido pode ser retomado.
 - [ ] Capturar erro por tipo fechado no log, nunca mensagem, chave, conteúdo ou caminho do objeto. Cancelamento deixa lease expirar.
 - [ ] Consumidor não depende de Media:Review estar habilitada; provider ausente suspende o laço.
 
@@ -63,6 +64,7 @@ create index ix_original_cleanup_available on media.original_cleanup(available_a
 
 - [ ] PostgreSQL real: transação que volta atrás não deixa intenção; DELETE repetido de objeto já ausente é sucesso; dois consumidores não concluem a mesma posse.
 - [ ] Lease vencido/reclamado não aceita ACK/retry do token anterior; falha após remover o objeto e antes do ACK é recuperável sem tocar derivados.
+- [ ] DELETE lento/cancelado mantém intenção e libera posse somente por retry/expiração; orçamento é individual e domina RequestTimeout/retries do S3.
 - [ ] Rejeição e aprovação com falha de DELETE preservam o estado confirmado e a outbox; sanitizador não é chamado pelo cleanup.
 - [ ] Candidatos/derivados/catálogo e registros anteriores sem intenção não são varridos ou removidos.
 - [ ] Repetir o teste do binário publicado existente sobre a expansão aditiva e conferir a árvore/hash de todos os assets da base.
