@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/media-isolation.yml'
+      - '.github/workflows/media-release.yml'
       - 'scripts/media/**'
       - 'scripts/deploy/test_media_launcher.py'
       - 'infra/images/media-sanitizer/**'
@@ -15,6 +16,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/media-isolation.yml'
+      - '.github/workflows/media-release.yml'
       - 'scripts/media/**'
       - 'infra/images/media-sanitizer/**'
       - 'backend/src/Duora.MediaSanitizer/**'

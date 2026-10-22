@@ -43,6 +43,8 @@ nativos, antes de instalar os pré-requisitos. Usa APT e GPG reais, chave efême
 metadados assinados sintéticos e HTTP local; a instalação é simulada, com estado
 privado, sem alterar pacotes do host. As opções e os comandos são extraídos dos
 dois workflows; somente os pacotes são substituídos por um pacote sintético.
+Mudanças em qualquer um dos dois workflows disparam a prova de isolamento,
+inclusive quando somente `media-release.yml` muda; nenhuma publicação é disparada.
 
 - Controle negativo: update irrestrito consulta fonte herdada HTTP 403 e retorna
   100 antes do install, reproduzindo a classe de falha original.
