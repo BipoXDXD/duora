@@ -170,6 +170,28 @@ public sealed class WorkerHostTests
         Assert.Contains("LeaseDuration", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ConfiguredProcessingCannotStartWithoutTheRestrictedLauncher()
+    {
+        var root = Directory.CreateTempSubdirectory("duora-media-launcher-missing-");
+        try
+        {
+            using var host = BuildHost(
+                new CanaryConnectionString().Value,
+                logs: null,
+                "--Media:Review=TechnicalOnly",
+                "--Media:Storage:Provider=FileSystem",
+                $"--Media:Storage:FileSystemRoot={root.FullName}");
+            var error = await Assert.ThrowsAnyAsync<Exception>(
+                () => host.StartAsync(TestContext.Current.CancellationToken));
+            Assert.Contains("Launcher", error.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     private static IHost BuildHost(string connectionString, CapturingLoggerProvider? logs, params string[] overrides)
     {
         // Linha de comando tem a maior precedência: nada da máquina (env, user-secrets) interfere.

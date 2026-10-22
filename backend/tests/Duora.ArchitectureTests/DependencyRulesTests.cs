@@ -60,6 +60,12 @@ public sealed class DependencyRulesTests
     }
 
     [Fact]
+    public void TheOrchestratingWorkerDoesNotLoadAnImageDecoder()
+    {
+        Assert.DoesNotContain(ReferencesOf(Worker), name => name.StartsWith("SixLabors", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void TheWorkerReferencesTheImageDecoder()
     {
         // Sentinela da regra acima: se o nome do assembly mudar, ela passaria à toa.
