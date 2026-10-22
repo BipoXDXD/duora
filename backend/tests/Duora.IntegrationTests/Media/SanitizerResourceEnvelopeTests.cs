@@ -76,7 +76,12 @@ public sealed class SanitizerResourceEnvelopeTests
             // Measurements are observations. Candidate 512 MiB/50s/16+24 MiB caps are not pass thresholds here.
             summary.AppendLine("\nNo enforcement, startup/launcher benchmark, worst-case proof or production capacity approval. "
                 + "Input/output hashes, per-variant sizes and raw measurements are retained in the test output.\n");
-            if (Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY") is { Length: > 0 } target)
+            var summaryPath = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
+            if (Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true")
+            {
+                Assert.False(string.IsNullOrWhiteSpace(summaryPath), "GitHub Actions must retain all raw samples in the job summary.");
+            }
+            if (summaryPath is { Length: > 0 } target)
             {
                 raw.AppendLine("```\n</details>\n");
                 await File.AppendAllTextAsync(target, summary.ToString() + raw, ct);

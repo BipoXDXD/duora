@@ -1,0 +1,10 @@
+{
+  "$schema": "https://xunit.net/schema/current/xunit.testconfig.schema.json",
+  "xUnit": {
+    "showLiveOutput": true
+  },
+  "commandLineOptions": {
+    "output": "Detailed",
+    "show-live-output": "on"
+  }
+}
