@@ -1,4 +1,8 @@
 import unittest
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 import gate
 
@@ -52,6 +56,27 @@ class GateTests(unittest.TestCase):
         for sha in ["a" * 7, "--help", "a" * 40 + "\n"]:
             with self.assertRaises(ValueError):
                 gate.validate(self.ci_run, self.jobs, "stillon", sha)
+
+
+class SupersededReleaseTests(unittest.TestCase):
+    def test_superseded_release_is_successful_noop_before_any_ci_query(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / 'output'
+            env = {'RELEASE_PROJECT': 'duora', 'GITHUB_REPOSITORY': 'BipoXDXD/duora',
+                   'RELEASE_COMMIT': SHA, 'GITHUB_OUTPUT': str(output),
+                   'SKIP_SUPERSEDED': 'true'}
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                    gate, 'api', return_value={'sha': 'b' * 40}) as api:
+                gate.main()
+            self.assertIn('eligible=false', output.read_text())
+            self.assertEqual(api.call_count, 1)
+
+    def test_strict_callers_still_refuse_stale_commits(self):
+        with patch.dict(os.environ, {'RELEASE_PROJECT': 'duora',
+                'GITHUB_REPOSITORY': 'BipoXDXD/duora', 'RELEASE_COMMIT': SHA}, clear=True), \
+                patch.object(gate, 'api', return_value={'sha': 'b' * 40}):
+            with self.assertRaises(ValueError):
+                gate.main()
 
 
 if __name__ == "__main__":
