@@ -574,7 +574,7 @@ public sealed partial class MediaPipelineTests
         return await stage.StageAsync(uploadId, version, deadline, ReviewSanitized(), cancellationToken ?? Cancellation);
     }
 
-    private async Task<Dictionary<ObjectKey, byte[]>> CandidateBytesAsync(IObjectStore store, Guid uploadId)
+    private async Task<Dictionary<ObjectKey, byte[]>> CandidateBytesAsync(FileSystemObjectStore store, Guid uploadId)
     {
         var metadata = new List<(ObjectKey Key, byte[] Sha256, long Size)>();
         await using (var connection = await OpenAsync())
