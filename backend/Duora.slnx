@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Duora.Contracts/Duora.Contracts.csproj" />
     <Project Path="src/Duora.Core/Duora.Core.csproj" />
+    <Project Path="src/Duora.MediaProtocol/Duora.MediaProtocol.csproj" />
     <Project Path="src/Duora.Infrastructure/Duora.Infrastructure.csproj" />
     <Project Path="src/Duora.Web/Duora.Web.csproj" />
     <Project Path="src/Duora.Web.Identity/Duora.Web.Identity.csproj" />
