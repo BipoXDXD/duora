@@ -1,4 +1,5 @@
 using DotNet.Testcontainers.Configurations;
+using DotNet.Testcontainers.Networks;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -50,10 +51,14 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     private readonly PostgreSqlContainer _container;
 
-    public PostgresFixture()
+    public PostgresFixture() : this(null)
+    {
+    }
+
+    internal PostgresFixture(INetwork? network)
     {
         var images = Path.Combine(RepositoryRoot.Find(), "infra", "images", "postgres");
-        _container = new PostgreSqlBuilder(Image)
+        var builder = new PostgreSqlBuilder(Image)
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "initdb", "10-duora-roles.sh")),
                 InitdbScriptTarget, fileMode: Executable)
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "reconcile-privileges.sql")),
@@ -67,8 +72,12 @@ public sealed class PostgresFixture : IAsyncLifetime
             // A suíte sobe dezenas de hosts web em paralelo contra este servidor, cada um com o próprio pool do
             // Npgsql (conexões ociosas ficam abertas); com o padrão de 100 o pico já passava de 90 e os testes de
             // concorrência recebiam 53300. Vale só para o servidor de teste: produção segue o compose.prod.yml.
-            .WithCommand("-c", $"max_connections={MaxConnections}")
-            .Build();
+            .WithCommand("-c", $"max_connections={MaxConnections}");
+        if (network is not null)
+        {
+            builder = builder.WithNetwork(network).WithNetworkAliases("rollback-postgres");
+        }
+        _container = builder.Build();
     }
 
     /// <summary>Conexão da aplicação (<c>duora_app</c>) no banco compartilhado e migrado.</summary>

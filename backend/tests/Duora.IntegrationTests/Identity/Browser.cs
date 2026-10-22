@@ -20,9 +20,15 @@ internal sealed class Browser : IDisposable
         _http = factory.CreateDefaultClient(BaseAddress, new CookieContainerHandler(Cookies));
     }
 
+    internal Browser(HttpClient http, CookieContainer cookies)
+    {
+        _http = http;
+        Cookies = cookies;
+    }
+
     public CookieContainer Cookies { get; } = new();
 
-    public string? Cookie(string name) => Cookies.GetCookies(BaseAddress)[name]?.Value;
+    public string? Cookie(string name) => Cookies.GetCookies(_http.BaseAddress ?? BaseAddress)[name]?.Value;
 
     public async Task FetchCsrfTokenAsync()
     {
