@@ -1,7 +1,11 @@
+using System.Data.Common;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
 using Duora.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
@@ -203,6 +207,75 @@ public sealed partial class MediaPipelineTests
         Assert.Equal(0, await PromotionCountAsync("select count(*) from media.media_assets where upload_id=$1", await PromotionUploadAsync(request.CaseId)));
     }
 
+    [Fact]
+    public async Task PromotionRefusesACallersTransactionBeforeAnyStorageIo()
+    {
+        var (media, request) = await PromotionReadyCandidateAsync();
+        var store = new PromotionPreparationStore(media.Store);
+        await using var scope = Web.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<DuoraDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync(Cancellation);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new PhotoReviewPromotions(db, store, TimeProvider.System).PrepareAsync(request, Cancellation));
+
+        Assert.Empty(store.Opened);
+        Assert.Empty(store.Written);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UncertainPreparationCommitNeverIssuesAPut(bool afterCommit)
+    {
+        var (media, request) = await PromotionReadyCandidateAsync();
+        var store = new PromotionPreparationStore(media.Store);
+        var source = Web.Services.GetRequiredService<NpgsqlDataSource>();
+        var fault = new PromotionPreparationCommitFault(source.ConnectionString, request.CaseId, afterCommit);
+
+        Assert.IsType<ReviewPromotionResult.Unavailable>(await PreparePromotionAsync(request, store, interceptor: fault));
+
+        Assert.True(fault.Fired);
+        Assert.Equal(0, store.PutAttempts);
+        Assert.Empty(store.Opened);
+        Assert.Empty(store.Written);
+        Assert.Equal(afterCommit ? 1 : 0, await PromotionCountAsync("select count(*) from media.review_promotions where case_id=$1", request.CaseId));
+        Assert.Equal(afterCommit ? 3 : 0, await PromotionCountAsync("""
+            select count(*) from media.review_promotion_variants v join media.review_promotions p using(generation)
+            where p.case_id=$1
+            """, request.CaseId));
+        Assert.Equal(afterCommit ? 1 : 0, await PromotionCountAsync("""
+            select count(*) from media.review_promotions where case_id=$1
+              and writer_settled_at=created_at and committed_at is null
+            """, request.CaseId));
+        Assert.Equal(0, await PromotionCountAsync("select count(*) from media.media_assets where upload_id=$1", await PromotionUploadAsync(request.CaseId)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AConcurrentCleanupClaimOrAckPreventsTheFirstPut(bool cleanupAcknowledged)
+    {
+        var (media, request) = await PromotionReadyCandidateAsync();
+        var original = await CandidateBytesAsync(media.Store, await PromotionUploadAsync(request.CaseId));
+        var store = new PromotionPreparationStore(media.Store);
+        var source = Web.Services.GetRequiredService<NpgsqlDataSource>();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var fault = new CleanupBeforePromotionWriterBarrier(source.ConnectionString, request.CaseId, cleanupAcknowledged, clock);
+        var started = Stopwatch.GetTimestamp();
+
+        Assert.IsType<ReviewPromotionResult.Unavailable>(await PreparePromotionAsync(request, store, clock, fault));
+
+        Assert.True(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(14), "Cleanup refusal must precede the real 15-second budget.");
+        Assert.True(fault.Fired);
+        Assert.Equal(1, await PromotionCountAsync("select count(*) from media.review_promotions where case_id=$1 and prepare_deadline>$2",
+            request.CaseId, clock.GetUtcNow()));
+        Assert.Equal(0, store.PutAttempts);
+        Assert.Empty(store.Written);
+        Assert.Equal(0, await PromotionCountAsync("select count(*) from media.review_promotions where committed_at is not null"));
+        await AssertPromotionCandidateUnchangedAsync(media.Store, original);
+    }
+
     private async Task<(MediaScenario Media, ReviewPromotionRequest Request)> PromotionReadyCandidateAsync()
     {
         var (media, upload, version) = await ReviewReadyUploadAsync();
@@ -237,11 +310,19 @@ public sealed partial class MediaPipelineTests
     }
 
     private async Task<ReviewPromotionResult> PreparePromotionAsync(
-        ReviewPromotionRequest request, PromotionPreparationStore store, TimeProvider? time = null)
+        ReviewPromotionRequest request, PromotionPreparationStore store, TimeProvider? time = null, IInterceptor? interceptor = null)
     {
         await using var scope = Web.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<DuoraDbContext>();
-        return await new PhotoReviewPromotions(db, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
+        if (interceptor is null)
+        {
+            return await new PhotoReviewPromotions(db, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
+        }
+
+        var options = new DbContextOptionsBuilder<DuoraDbContext>().UseNpgsql(db.Database.GetConnectionString())
+            .AddInterceptors(interceptor).Options;
+        await using var injected = new DuoraDbContext(options);
+        return await new PhotoReviewPromotions(injected, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
     }
 
     private static async Task AssertPromotionCandidateUnchangedAsync(FileSystemObjectStore store, Dictionary<ObjectKey, byte[]> expected)
@@ -294,5 +375,94 @@ public sealed partial class MediaPipelineTests
 
         public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Preparation never deletes any asset or candidate.");
+    }
+
+    private sealed class PromotionPreparationCommitFault(string connectionString, Guid caseId, bool afterCommit) : DbTransactionInterceptor
+    {
+        internal bool Fired { get; private set; }
+
+        public override async ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction,
+            TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
+        {
+            if (!afterCommit && !Fired && await HasPromotionAsync(Assert.IsType<NpgsqlConnection>(transaction.Connection),
+                Assert.IsType<NpgsqlTransaction>(transaction), cancellationToken))
+            {
+                Fired = true;
+                throw new IOException("Synthetic failure before preparation commit");
+            }
+
+            return result;
+        }
+
+        public override async Task TransactionCommittedAsync(DbTransaction transaction,
+            TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+        {
+            if (!afterCommit || Fired)
+            {
+                return;
+            }
+
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            if (await HasPromotionAsync(connection, null, cancellationToken))
+            {
+                Fired = true;
+                throw new IOException("Synthetic lost preparation commit response");
+            }
+        }
+
+        private async Task<bool> HasPromotionAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
+        {
+            await using var command = new NpgsqlCommand("select exists(select 1 from media.review_promotions where case_id=$1)", connection, transaction);
+            command.Parameters.AddWithValue(caseId);
+            return await command.ExecuteScalarAsync(cancellationToken) is true;
+        }
+    }
+
+    private sealed class CleanupBeforePromotionWriterBarrier(
+        string connectionString, Guid caseId, bool acknowledged, TimeProvider time) : DbCommandInterceptor
+    {
+        internal bool Fired { get; private set; }
+
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            var compact = command.CommandText.Replace(" ", "", StringComparison.Ordinal).Replace("\n", "", StringComparison.Ordinal);
+            if (Fired || !compact.Contains("updatemedia.review_promotions", StringComparison.OrdinalIgnoreCase)
+                || !compact.Contains("writer_settled_at=null", StringComparison.OrdinalIgnoreCase))
+            {
+                return result;
+            }
+
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            var now = time.GetUtcNow();
+            await using (var claim = new NpgsqlCommand("""
+                update media.review_promotions set cleanup_requested_at=$2,cleanup_token=$3,cleanup_lease_until=$4
+                where case_id=$1 and committed_at is null and writer_settled_at is not null
+                  and cleanup_requested_at is null and prepare_deadline>$2
+                """, connection))
+            {
+                claim.Parameters.AddWithValue(caseId);
+                claim.Parameters.AddWithValue(now);
+                claim.Parameters.AddWithValue(Guid.NewGuid());
+                claim.Parameters.AddWithValue(now.AddMinutes(1));
+                Assert.Equal(1, await claim.ExecuteNonQueryAsync(cancellationToken));
+            }
+
+            if (acknowledged)
+            {
+                await using var ack = new NpgsqlCommand("""
+                    update media.review_promotions set last_cleanup_at=$2,deleted_at=$2,cleanup_token=null,cleanup_lease_until=null
+                    where case_id=$1 and writer_settled_at is not null and committed_at is null
+                    """, connection);
+                ack.Parameters.AddWithValue(caseId);
+                ack.Parameters.AddWithValue(now);
+                Assert.Equal(1, await ack.ExecuteNonQueryAsync(cancellationToken));
+            }
+
+            Fired = true;
+            return result;
+        }
     }
 }
