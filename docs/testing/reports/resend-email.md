@@ -43,3 +43,27 @@ Não houve instalação, migração ou publicação em produção, nem envio ext
 A revisão humana deve conferir especialmente configuração do remetente/segredo, janela de deduplicação,
 tratamento de respostas e a distinção entre aceite do provedor e entrega. Não foram identificadas instruções
 externas maliciosas. A CI do PR é a evidência autoritativa dos gates completos e deve terminar verde antes de merge.
+
+## Revalidação após atualização da main — 22/10/2026
+
+Branch atualizada sobre `f99456549baa85ae02127e50eda2d4de09d7c423`, sem conflitos. O `range-diff`
+confirmou que o patch Resend/MFA permaneceu idêntico no rebase. Restore com lockfile, build Debug,
+27 casos Resend e 140 testes frontend de autenticação passaram novamente. A CI dessa base executou
+3.222 testes de backend sem falhas/skips e aprovou os demais gates concluídos.
+
+Durante o E2E houve uma falha intermitente de T-19 (`profile.spec.ts`) que passou no retry. O helper
+retornava assim que o título aparecia, antes da leitura inicial do perfil. A simulação de edição por outra
+aba podia então anteceder a leitura da versão-base e impedir o conflito 412 que o teste pretendia criar.
+Uma cópia diagnóstica com atraso de um segundo apenas na primeira leitura reproduziu a ausência do alerta.
+A correção aguarda o campo de nome ficar visível antes de retornar do helper, sem pausas fixas, aumento de
+timeout ou mudança nas asserções de conflito, preservação do rascunho, releitura e reaplicação.
+
+A cópia diagnóstica corrigida passou em 10 repetições. A suíte de perfil original passou em 30 execuções
+(5 repetições dos 3 cenários, em Chromium e mobile Chromium), com `--retries=0`. Lint, Prettier e typecheck
+passaram. O teste original também havia passado em 20 repetições sem atraso, demonstrando por que a corrida
+precisou de uma leitura controlada para reprodução. A cópia e o atraso de diagnóstico não fazem parte do PR.
+Os logs e cópias para reprodução ficam na evidência local `outputs/duora-resend-main-sync` do chat.
+
+O E2E remoto também sofreu cancelamento após 19 min 15 s de download de pacotes Ubuntu; isso é separado da
+corrida no fixture. O resultado final dos nove gates do novo commit deve ser conferido na CI vinculada na
+descrição do PR. Nenhum workflow ou gate foi alterado. Nenhum merge, acesso à VPS ou deploy foi executado.
