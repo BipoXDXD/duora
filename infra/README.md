@@ -174,3 +174,12 @@ cada mudança de rede (spec 15.2), não a leitura das regras.
 Configuração separada em [`telemetry/`](telemetry/) e scripts em [`scripts/telemetry/`](../scripts/telemetry/).
 O [runbook gateway/Slack](../docs/operations/telemetry.md) documenta instalação, permissões, alertas, atualização,
 rollback e aceite real. Não altera o executor de deploy nem habilita serviços automaticamente.
+
+## Build local protegido
+
+`make image IMAGE=web` (também worker/migrator/edge/postgres) usa `scripts/docker-build.sh`:
+resolve a arquitetura pelo daemon Docker ativo, força a saída nativa e inspeciona o resultado.
+`make image-release IMAGE=web` exporta OCI com AMD64 e ARM64 para `.docker-artifacts/`, sem
+carregar uma variante estrangeira no Docker local. Não muda o manifesto nem o executor de deploy.
+Os testes de `scripts/deploy/test_docker_build.py` entram na descoberta existente do gate de infraestrutura.
+O CI existente continua usando runners nativos de ambas as arquiteturas.
