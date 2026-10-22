@@ -14,6 +14,8 @@ public sealed record SanitizerRequest(byte[] Nonce, PhotoFormat Format, byte[] C
 /// <summary>Bounded one-request/one-response wire contract. No decoder, transport or activation.</summary>
 public static class SanitizerProtocol
 {
+    private static readonly PhotoVariant[] VariantOrder = [PhotoVariant.Thumb, PhotoVariant.Card, PhotoVariant.Full];
+
     public static async Task<SanitizerRequest> ReadRequestAsync(Stream stream, CancellationToken cancellationToken)
     {
         var header = new byte[74];
@@ -78,7 +80,7 @@ public static class SanitizerProtocol
             ValidateDimensions(width, height);
             var variants = new List<SanitizedVariant>(3);
             long total = 0;
-            foreach (var kind in PhotoVariants.All)
+            foreach (var kind in VariantOrder)
             {
                 var frame = new byte[45];
                 await ReadExactlyAsync(stream, frame, cancellationToken);
@@ -93,7 +95,7 @@ public static class SanitizerProtocol
                 var content = new byte[length];
                 await ReadExactlyAsync(stream, content, cancellationToken);
                 Require(CryptographicOperations.FixedTimeEquals(frame.AsSpan(13, 32), SHA256.HashData(content)));
-                Require(PhotoFormats.Sniff(content) == PhotoFormat.WebP);
+                WebpEnvelope.Validate(content, frameWidth, frameHeight);
                 variants.Add(new(kind, content, frameWidth, frameHeight));
             }
             outcome = new SanitizeOutcome.Sanitized(format, width, height, variants);
@@ -193,12 +195,13 @@ public static class SanitizerProtocol
         for (var i = 0; i < 3; i++)
         {
             var variant = sanitized.Variants[i];
-            var kind = PhotoVariants.All[i];
+            var kind = VariantOrder[i];
             Require(variant.Kind == kind);
             Require((variant.Width, variant.Height) == PhotoVariants.Fit(sanitized.Width, sanitized.Height, PhotoVariants.MaxSide(kind)));
             Require(variant.Content.Length > 0 && variant.Content.Length <= request.Budget.VariantBytes);
             total += variant.Content.Length;
-            Require(total <= request.Budget.TotalBytes && PhotoFormats.Sniff(variant.Content) == PhotoFormat.WebP);
+            Require(total <= request.Budget.TotalBytes);
+            WebpEnvelope.Validate(variant.Content, variant.Width, variant.Height);
         }
     }
 

@@ -36,6 +36,13 @@ CorruptImage=5, ProcessingLimit=6. Não transportar decisões editoriais. O escr
 resultados incoerentes antes de começar uma resposta. O leitor confere framing, identidade, hash,
 assinatura WebP e dimensões declaradas; ele não decodifica imagens nem comprova a segurança do decoder.
 
+A saída esperada é o subconjunto estático lossy produzido pela configuração atual: um `VP8 `,
+precedido opcionalmente por `VP8X`/`ALPH` para transparência. O envelope deve consumir o RIFF inteiro,
+sem sobras, chunks repetidos/desconhecidos, animação, ICC, EXIF ou XMP. Dimensões do cabeçalho VP8
+e canvas devem concordar com o frame do protocolo. Essa inspeção estrutural não decodifica o
+bitstream comprimido e não substitui o isolamento. Referências: [container WebP](https://developers.google.com/speed/webp/docs/riff_container)
+e [cabeçalho VP8](https://datatracker.ietf.org/doc/html/rfc6386#section-9.1).
+
 stderr nunca entra em logs: drenar e descartar até o teto, recusar excesso. EOF pode bloquear;
 todas as operações recebem cancelamento, e o supervisor futuro deve matar e confirmar a unidade
 inteira. Uma resposta válida sozinha não permite publicação: S2/S3 exigem saída normal e término

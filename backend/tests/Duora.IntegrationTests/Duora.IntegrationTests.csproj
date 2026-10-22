@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../src/Duora.MediaProtocol/Duora.MediaProtocol.csproj" />
+    <ProjectReference Include="../../src/Duora.MediaSanitizer/Duora.MediaSanitizer.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\Duora.Infrastructure\Duora.Infrastructure.csproj" />
     <ProjectReference Include="../Duora.MediaBaselineHost/Duora.MediaBaselineHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../Duora.SelfieProcessHost/Duora.SelfieProcessHost.csproj" ReferenceOutputAssembly="false" />
