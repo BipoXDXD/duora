@@ -114,6 +114,37 @@ public sealed class SanitizerProtocolTests
     }
 
     [Fact]
+    public async Task AProducerKeepingThePipeOpenCannotPreventCallerCancellation()
+    {
+        using var requestTimeout = new CancellationTokenSource();
+        await using var request = new OpenTailStream(RequestVector(Request), requestTimeout);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => SanitizerProtocol.ReadRequestAsync(request, requestTimeout.Token));
+        using var responseTimeout = new CancellationTokenSource();
+        await using var response = new OpenTailStream(SuccessVector(Request), responseTimeout);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => SanitizerProtocol.ReadResponseAsync(response, Request, responseTimeout.Token));
+    }
+
+    [Fact]
+    public async Task InvalidResultsAreRejectedBeforeWritingAnyResponseBytes()
+    {
+        var variants = PhotoVariants.All.Select(kind => new SanitizedVariant(kind, WebpHeader(), 40, 20)).ToArray();
+        SanitizeOutcome[] invalid =
+        [
+            new SanitizeOutcome.Rejected((PhotoRejection)999),
+            new SanitizeOutcome.Sanitized(PhotoFormat.Png, 40, 20, variants),
+            new SanitizeOutcome.Sanitized(PhotoFormat.Jpeg, 40, 20, variants[..2]),
+            new SanitizeOutcome.Sanitized(PhotoFormat.Jpeg, 41, 20, variants),
+            new SanitizeOutcome.Sanitized(PhotoFormat.Jpeg, 40, 20, [variants[0], variants[0], variants[2]]),
+        ];
+        foreach (var outcome in invalid)
+        {
+            await using var output = new MemoryStream();
+            await Assert.ThrowsAsync<InvalidDataException>(() => SanitizerProtocol.WriteResponseAsync(output, Request, outcome, Ct));
+            Assert.Equal(0, output.Length);
+        }
+    }
+
+    [Fact]
     public async Task SuccessRequiresAllThreeOrderedFramesAndMatchesIndependentVector()
     {
         var request = Request;
@@ -292,6 +323,20 @@ public sealed class SanitizerProtocolTests
         {
             Assert.True(Position < Length, "Invalid lengths must be rejected before attempting payload reads.");
             return base.ReadAsync(buffer, cancellationToken);
+        }
+    }
+
+    private sealed class OpenTailStream(byte[] bytes, CancellationTokenSource timeout) : MemoryStream(bytes)
+    {
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (Position < Length)
+            {
+                return await base.ReadAsync(buffer, cancellationToken);
+            }
+            await timeout.CancelAsync();
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
         }
     }
 }
