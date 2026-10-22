@@ -17,7 +17,7 @@ export const ptBR = {
   'regionSuggestion.unavailable': 'A sugestão está indisponível. Escolha manualmente.',
   'regionSuggestion.disabled': 'A sugestão está desativada. Escolha manualmente.',
   'regional.activation':
-    'A preferência regional está em preparação. Salvar aqui ainda não restringe os pareamentos atuais. Sua escolha ficará registrada para a ativação do filtro.',
+    'Nas rodadas com filtro regional, a escolha de país é respeitada pelos dois participantes. Sem uma preferência salva, você não participa dessas rodadas. Rodadas publicadas antes da ativação mantêm as regras anteriores.',
   'regional.loading': 'Carregando preferência regional…',
   'regional.label': 'Preferência regional',
   'regional.hint':

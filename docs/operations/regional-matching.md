@@ -1,5 +1,19 @@
 # Pareamento regional: preparação do corte V3
 
+## Comunicação para a ativação BR+US
+
+O aviso da SPA descreve agora as rodadas com filtro regional: preferência explícita obrigatória,
+aceitação bilateral e preservação das regras das rodadas publicadas antes da ativação. O texto vale
+durante a transição e depois dela; não anuncia conversão de V2 ou mudança de escolhas salvas.
+Os formulários continuam aceitando BR, US, ambos ou ausência explícita de restrição. Sem preferência
+salva, a pessoa permanece pending e não participa de V3. País declarado, idiomas e preferência privada
+continuam independentes. Os testes PT-BR/EN-US conferem o aviso e o salvamento BR+US após recarregar.
+
+Esta alteração de comunicação não configura corte nem é evidência de aceite G4. Antes de ativar,
+seguir os pré-requisitos abaixo, conferir a release e o inventário vivos e registrar os resultados do
+ensaio autorizado e a autorização específica. Não enviar comunicação externa ou preencher preferências
+por inferência. O histórico da preparação anterior permanece nas seções seguintes.
+
 Esta entrega implementa somente as etapas 3 e 4 da [issue #108](https://github.com/BipoXDXD/duora/issues/108)
 e do [plano aprovado](../superpowers/plans/2026-10-21-issue-108-regional-implementation.md), conforme
 [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md). **Não ativa o filtro.**
