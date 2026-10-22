@@ -47,6 +47,8 @@ CONNECT no banco, USAGE em ops; SELECT/INSERT/UPDATE/DELETE somente nas tabelas 
 de notificações. Sem acesso aos schemas de participantes. Não herdar `duora_app` nem usar migrador.
 Pool manutenção fixo2; `Database:MaxPoolSize` do Worker deve ser8 ou menos. Novo journal tem DELETE por cascade
 somente na exclusão autorizada da notificação; a aplicação não pode apagar o pai nem o journal.
+O pg_hba da imagem permite esse login por SCRAM somente no banco `duora`. A regra não cria o papel nem concede
+acesso a tabelas; senha incorreta, outro banco e tentativa do app de assumir o papel continuam recusados.
 
 ## Entrega incerta
 

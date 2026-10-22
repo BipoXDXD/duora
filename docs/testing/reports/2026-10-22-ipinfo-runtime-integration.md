@@ -48,3 +48,19 @@ ensaio de ACL/exclusão no B2 real. MinIO não homologa o fornecedor. Browser n�
 CI completo, revisão humana da migração do journal e instalação continuam obrigatórios. G3/G5, cobertura/SLA,
 recuperação com cópia válida, cadência/precisão e ativação produtiva não estão aceitos por este relatório.
 Nenhuma tentativa de instrução não confiável foi detectada nos arquivos consumidos nesta continuação.
+
+## Pré-instalação e fornecedor real
+
+O titular aprovou a migração aditiva e a integração do PR204. Bucket B2 privado dedicado foi criado sem
+Object Lock nem replicação; a chave operacional é restrita ao bucket/prefixo e não administra contas. Segredo
+salvo fora do repositório no local indicado. O adaptador.NET real no VPS passou no B2: bytes/manifesto/atribuição,
+repetição sem nova versão, ACL privada, leitura anônima negada, acesso fora do prefixo negado e exclusão de
+todas as versões/marcadores/multipart de um artefato sintético. Backup original permaneceu intacto.
+
+A pré-instalação reproduziu uma lacuna do pg_hba real: conexão duora_geo_maintenance era recusada antes da
+senha. Novo teste na imagem produtiva anterior falhou por essa recusa (RED). Regra específica SCRAM no banco
+duora corrigiu a conexão, sem criar papel, herdar duora_app nem conceder acesso a tabelas.14/14 testes de
+privilégios passaram em PostgreSQL real descartável derivado da mesma imagem com somente essa regra alterada.
+Inclui senha incorreta, outro banco recusado, tabela não autorizada e SETROLE do app recusado. Os testes da
+imagem definitiva e demais gates continuam no CI normal. Configuração de volume/segredos foi preparada,
+mas ainda não aplicada. A publicação/ativação não é atestada por este relatório.
