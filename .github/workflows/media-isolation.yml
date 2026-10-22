@@ -47,6 +47,12 @@ jobs:
           set -euo pipefail
           actual=$(uname -m)
           case "${{ matrix.arch }}:$actual" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          sudo install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o "$RUNNER_TEMP/docker.asc"
+          fingerprint=$(gpg --show-keys --with-colons "$RUNNER_TEMP/docker.asc" | awk -F: '$1=="fpr" {print $10; exit}')
+          test "$fingerprint" = 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+          sudo install -m 0644 "$RUNNER_TEMP/docker.asc" /etc/apt/keyrings/duora-ci-docker.asc
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/duora-ci-docker.asc] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/duora-ci-docker.list >/dev/null
           sudo apt-get update -qq
           sudo apt-get install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
           sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
