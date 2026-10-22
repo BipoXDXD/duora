@@ -1,0 +1,36 @@
+# Template only. Requires reviewed profile/image/runtime and explicit installation approval.
+[Unit]
+Description=Duora restricted media launcher
+After=local-fs.target
+
+[Service]
+Type=simple
+User=duora-media-launcher
+Group=duora-media-client
+ExecStart=/usr/bin/python3 /opt/duora/media/run_launcher.py /etc/duora/media-launcher.json
+RuntimeDirectory=duora-media
+RuntimeDirectoryMode=0750
+StateDirectory=duora-media
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+TasksMax=64
+MemoryMax=256M
+LimitNOFILE=128
+TimeoutStopSec=20
+Restart=on-failure
+StandardOutput=null
+StandardError=null
+# No Install section: this template never activates itself.
