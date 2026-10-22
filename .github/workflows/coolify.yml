@@ -1,7 +1,9 @@
 name: Coolify release
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -19,8 +21,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: coolify-production
+  # PR checks cannot replace pending production releases. Keep queued CI completions.
+  group: ${{ github.event_name == 'pull_request' && format('coolify-pr-{0}', github.event.pull_request.number) || 'coolify-production' }}
   cancel-in-progress: false
+  queue: max
 
 defaults:
   run:
@@ -44,7 +48,14 @@ jobs:
           python3 scripts/release/coolify/assets.py
 
   gates:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions:
@@ -53,6 +64,7 @@ jobs:
     outputs:
       commit: ${{ steps.gates.outputs.commit }}
       ci_run: ${{ steps.gates.outputs.ci_run }}
+      eligible: ${{ steps.gates.outputs.eligible }}
     steps:
       # Use trusted main tooling for CI validation.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,25 +76,28 @@ jobs:
         id: gates
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_COMMIT: ${{ inputs.commit || github.sha }}
-          WAIT_FOR_CI: 'true'
+          RELEASE_COMMIT: ${{ inputs.commit || github.event.workflow_run.head_sha }}
+          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          SKIP_SUPERSEDED: 'true'
         run: python3 scripts/release/coolify/gate.py
       - name: Release tooling tests
         run: python3 -m unittest discover -s scripts/release/coolify -v
 
   images:
+    if: needs.gates.outputs.eligible == 'true'
     needs: gates
     permissions:
       contents: read
       actions: read
       packages: write
-    uses: BipoXDXD/duora/.github/workflows/publish-images.yml@4dd3fa044aecd81392e208c6f4c419be24164288
+    uses: ./.github/workflows/publish-images.yml
     with:
       commit: ${{ needs.gates.outputs.commit }}
     secrets:
       SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
 
   deploy:
+    if: needs.gates.outputs.eligible == 'true'
     needs: [gates, images]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -112,10 +127,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           printf '%s' "$GH_TOKEN" | crane auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Select publication from successful image attempt
+        id: publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/coolify/publication_artifact.py
       - name: Validated publication artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-amd64-${{ github.run_attempt }}
+          name: ${{ steps.publication.outputs.name }}
           path: ${{ runner.temp }}/publication
       - name: Configure project-bound publication key
         env:
@@ -128,11 +148,14 @@ jobs:
           printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/release-ssh/key"
           chmod 600 "$RUNNER_TEMP/release-ssh/key"
           printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/release-ssh/known_hosts"
-      - name: Refuse superseded main commit
+      - name: Skip superseded main commit
+        id: latest
         env:
           GH_TOKEN: ${{ github.token }}
+          SKIP_SUPERSEDED: 'true'
         run: python3 scripts/release/coolify/gate.py
       - name: Import verified OCI images and publish through Coolify
+        if: steps.latest.outputs.eligible == 'true'
         env:
           DEPLOY_KEY: ${{ runner.temp }}/release-ssh/key
           DEPLOY_KNOWN_HOSTS: ${{ runner.temp }}/release-ssh/known_hosts
