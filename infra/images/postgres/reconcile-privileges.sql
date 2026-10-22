@@ -93,3 +93,19 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Assignment history and confirmed command receipts are immutable, including on an existing database.
+DO $$
+DECLARE review_table text;
+BEGIN
+  FOREACH review_table IN ARRAY ARRAY['safety.photo_review_assignments','safety.photo_review_commands'] LOOP
+    IF to_regclass(review_table) IS NOT NULL THEN
+      EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON %s FROM duora_app', review_table);
+      IF has_table_privilege('duora_app', review_table, 'UPDATE')
+         OR has_table_privilege('duora_app', review_table, 'DELETE')
+         OR has_table_privilege('duora_app', review_table, 'TRUNCATE') THEN
+        RAISE EXCEPTION 'duora_app may not rewrite photo review assignment history';
+      END IF;
+    END IF;
+  END LOOP;
+END $$;

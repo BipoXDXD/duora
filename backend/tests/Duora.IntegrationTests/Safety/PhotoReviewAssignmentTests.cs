@@ -385,6 +385,56 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
         Assert.Equal(2, await ScalarAsync("select version from safety.photo_review_cases where id=$1", secondCase.CaseId));
     }
 
+    [Fact]
+    public async Task SessionExpiryWhileTheCaseRowIsLockedIsCheckedBeforeTheAssignmentEffect()
+    {
+        var actor = await ModeratorAsync(PhotoReviewCapability.Assign);
+        var reviewer = await ModeratorAsync(PhotoReviewCapability.Evidence, PhotoReviewCapability.Decide);
+        var item = await CaseAsync();
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(Ct);
+        await using var held = await connection.BeginTransactionAsync(Ct);
+        await using (var command = new NpgsqlCommand("select 1 from safety.photo_review_cases where id=$1 for update", connection, held))
+        {
+            command.Parameters.AddWithValue(item.CaseId);
+            Assert.NotNull(await command.ExecuteScalarAsync(Ct));
+        }
+        await using var db = Context();
+        await db.Database.OpenConnectionAsync(Ct);
+        var pid = ((NpgsqlConnection)db.Database.GetDbConnection()).ProcessID;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(10));
+        var assignment = new PhotoReviewAssignments(db, _time).AssignAsync(actor, item.CaseId, reviewer.UserId, 1, Key(), budget.Token);
+        try
+        {
+            await WaitForLockAsync(pid, assignment, budget.Token);
+            _time.Advance(TimeSpan.FromMinutes(10));
+            Assert.False(assignment.IsCompleted);
+            await held.CommitAsync(budget.Token);
+            Assert.IsType<PhotoReviewAssignmentResult.Forbidden>(await assignment);
+        }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            if (held.Connection is not null)
+            {
+                await held.RollbackAsync(cleanup.Token);
+            }
+            await budget.CancelAsync();
+            try
+            {
+                await assignment.WaitAsync(cleanup.Token);
+            }
+            catch (OperationCanceledException) when (budget.IsCancellationRequested && assignment.IsCompleted)
+            {
+            }
+        }
+        Assert.Equal(1, await ScalarAsync("select version from safety.photo_review_cases where id=$1", item.CaseId));
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_assignments where case_id=$1", item.CaseId));
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_commands where case_id=$1", item.CaseId));
+        Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_assigned'", item.CaseId));
+    }
+
     private async Task WaitForLockAsync(int pid, Task operation, CancellationToken cancellationToken)
     {
         await using var connection = new NpgsqlConnection(_connectionString);

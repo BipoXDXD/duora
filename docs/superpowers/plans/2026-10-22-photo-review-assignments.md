@@ -9,3 +9,9 @@ Execução da ADR-0035/media-review, após M3a. Serviço interno não registrado
 5. Negativos de ator UUID maior que titular/alvo, revogação entre fases/espera e atribuições cruzadas concorrentes comprovam a ordem. Nenhuma mudança em M3a que torne autorização permissiva. Revisão independente, todos os checks no head/base finais e publicação somente automática após merge autorizado.
 
 Não expor fila global de não atribuídos neste recorte: o filtro explícito precisa de contrato M5 e capacidade Assign específica. Decisões/recurso, retenção/restore e composição continuam M4/M6/M7. Luca Grimmer é responsável e principal; cobertura independente continua necessária para ativação. Nenhum grant real é criado por este plano.
+
+## Evidência antes do produto
+
+RED real em25f700a, CI39824303592/backend119983614407: build/formatação passaram;3314 testes,19 falhas somente nos novos cenários de atribuição,3295 aprovados,zero ignorados. be824c6(CA1861) e570a2a7(WHITESPACE) não foram contados como RED, pois pararam antes dos testes. Produto escrito somente depois dessa prova.
+
+Reautorizar também DEPOIS de todos os locks de negócio: sessão pode vencer enquanto aguarda a linha do caso. Teste adicional bloqueia root em conexão independente, observa esperaPG e avança relógio até idle_expires_at antes de liberar; exige Forbidden sem histórico/recibo/audit. Esse teste adicional não faz parte da contagem do RED anterior.
