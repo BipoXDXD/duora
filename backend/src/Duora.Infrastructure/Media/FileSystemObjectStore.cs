@@ -25,7 +25,10 @@ internal sealed class FileSystemObjectStore : IObjectStore
         _createMissingDirectories = createMissingDirectories;
     }
 
-    /// <summary>Diretórios das áreas sob a raiz, na ordem de <see cref="StorageArea"/>; são o prefixo das chaves.</summary>
+    /// <summary>
+    /// Montagens obrigatórias do pipeline legado. A montagem de review-candidates será validada separadamente
+    /// quando HumanReview estiver implementado; reconhecer suas chaves não habilita essa política.
+    /// </summary>
     public static IReadOnlyList<string> AreaDirectories { get; } = ["quarantine", "derivatives"];
 
     /// <summary>Verdadeiro se cada área da raiz tem o marcador da montagem.</summary>

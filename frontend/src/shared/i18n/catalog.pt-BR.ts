@@ -17,7 +17,7 @@ export const ptBR = {
   'regionSuggestion.unavailable': 'A sugestão está indisponível. Escolha manualmente.',
   'regionSuggestion.disabled': 'A sugestão está desativada. Escolha manualmente.',
   'regional.activation':
-    'A preferência regional está em preparação. Salvar aqui ainda não restringe os pareamentos atuais. Sua escolha ficará registrada para a ativação do filtro.',
+    'Nas rodadas com filtro regional, a escolha de país é respeitada pelos dois participantes. Sem uma preferência salva, você não participa dessas rodadas. Rodadas publicadas antes da ativação mantêm as regras anteriores.',
   'regional.loading': 'Carregando preferência regional…',
   'regional.label': 'Preferência regional',
   'regional.hint':
@@ -83,6 +83,11 @@ export const ptBR = {
   'participation.openRoom': 'Abrir convite ou sala',
   'participation.backToEvents': 'Voltar aos encontros',
   'participation.agreedLanguage': 'Idioma combinado: {language}',
+  'participation.timeWarnings': 'Avisos de prazo',
+  'participation.twoMinutes': 'Restam 2 minutos.',
+  'participation.thirtySeconds': 'Restam 30 segundos.',
+  'participation.expiredProgress': 'O prazo terminou. Veja abaixo o progresso realizado.',
+  'participation.timeRemaining': 'Tempo restante: {minutes, plural, one {# minuto} other {# minutos}}.',
   'participation.invitationDeadline': 'Responda até {deadline}. A sala só começa quando ambas as pessoas aceitarem.',
   'participation.accept': 'Aceitar convite',
   'participation.reject': 'Recusar convite',

@@ -74,8 +74,22 @@ describe.each([
     expect(
       screen.getByText(
         locale === 'pt-BR'
-          ? /Salvar aqui ainda não restringe os pareamentos atuais/
-          : /Saving here does not yet restrict current matches/,
+          ? /Nas rodadas com filtro regional, a escolha de país é respeitada pelos dois participantes/
+          : /In rounds with regional filtering, both participants.*country choices are respected/,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        locale === 'pt-BR'
+          ? /Sem uma preferência salva, você não participa dessas rodadas/
+          : /Without a saved preference, you cannot join these rounds/,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        locale === 'pt-BR'
+          ? /Rodadas publicadas antes da ativação mantêm as regras anteriores/
+          : /Rounds published before activation retain their previous rules/,
       ),
     ).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: save }))

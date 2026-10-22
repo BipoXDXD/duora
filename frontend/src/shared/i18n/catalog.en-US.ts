@@ -18,7 +18,7 @@ export const en = {
   'regionSuggestion.unavailable': 'Suggestion is unavailable. Choose manually.',
   'regionSuggestion.disabled': 'Suggestion is disabled. Choose manually.',
   'regional.activation':
-    'Regional preferences are being prepared. Saving here does not yet restrict current matches. Your choice will be recorded for activation of the filter.',
+    "In rounds with regional filtering, both participants' country choices are respected. Without a saved preference, you cannot join these rounds. Rounds published before activation retain their previous rules.",
   'regional.loading': 'Loading regional preference…',
   'regional.label': 'Regional preference',
   'regional.hint':
@@ -83,6 +83,11 @@ export const en = {
   'participation.openRoom': 'Open invitation or room',
   'participation.backToEvents': 'Back to events',
   'participation.agreedLanguage': 'Agreed language: {language}',
+  'participation.timeWarnings': 'Time warnings',
+  'participation.twoMinutes': '2 minutes remaining.',
+  'participation.thirtySeconds': '30 seconds remaining.',
+  'participation.expiredProgress': 'Time is up. Your progress is shown below.',
+  'participation.timeRemaining': 'Time remaining: {minutes, plural, one {# minute} other {# minutes}}.',
   'participation.invitationDeadline': 'Respond by {deadline}. The room starts only after both people accept.',
   'participation.accept': 'Accept invitation',
   'participation.reject': 'Decline invitation',

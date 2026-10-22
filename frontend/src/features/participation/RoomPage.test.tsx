@@ -13,6 +13,7 @@ const me = {
   roles: ['participant'],
 }
 const game = {
+  deadline: '2026-10-19T18:08:00Z',
   title: 'Um encontro',
   objective: 'Escolham juntos',
   currentCard: {

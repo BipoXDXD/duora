@@ -24,6 +24,8 @@ Cada runner nativo amd64/arm64:
 2. Executa Trivy com a política vigente e gera CycloneDX dessa imagem. Publica
    o mesmo objeto, sem rebuild, com tag candidata exclusiva por SHA/run/attempt/arquitetura.
 3. Pré-carrega seu digest imutável no daemon rootless dedicado do runner.
+   A conta dedicada cria a pasta de autenticação com modo 0700 em seu próprio
+   `/run/user/<uid>`; não depende de atravessar a área privada da conta do runner.
    Credenciais temporárias de registro são removidas antes do launcher; o
    decoder não recebe ambiente, configuração Docker, rede, storage ou segredo.
 4. Executa os 14 casos reais S2. As falhas provocadas usam o probe separado
@@ -110,3 +112,19 @@ recursos exclusivos e preservar os serviços existentes.
 Referências técnicas: [BuildKit secrets](https://docs.docker.com/build/building/secrets/),
 [imagetools inspect](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/)
 e [imagetools create](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/).
+
+### Armazenamento do runtime dedicado
+
+Os runners nativos configuram o daemon rootless dedicado com
+`features.containerd-snapshotter=false` e `storage-driver=overlay2` antes da primeira
+inicialização e verificam o driver efetivo. Esse backend mantém `.Id` como digest da
+configuração da imagem, exigido pela comparação entre a imagem examinada pelo scanner
+e a imagem pré-carregada para os testes. As verificações de digest, rootless, cgroups
+v2, systemd e seccomp continuam obrigatórias; não há fallback para outro backend.
+
+A homologação deve usar o mesmo backend no daemon dedicado. Em uma instalação já
+existente, confirme primeiro que esse daemon não contém containers, imagens ou volumes:
+[alterar o backend oculta os dados do armazenamento anterior](https://docs.docker.com/engine/storage/containerd/).
+A configuração pertence ao usuário exclusivo do sanitizador em
+`~/.config/docker/daemon.json`; nunca altere `/etc/docker/daemon.json` nem reinicie o
+daemon que mantém os outros serviços do host.

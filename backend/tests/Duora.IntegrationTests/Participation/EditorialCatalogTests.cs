@@ -121,6 +121,86 @@ public sealed class EditorialCatalogTests(PostgresFixture postgres)
         {
             Assert.Equal((string)approved["audio"]![0]!["enUS"]!["bytes"]!, Convert.ToBase64String((byte[])(await query.ExecuteScalarAsync(ct))!));
         }
+        await AssertExpiredProgress(service, source, clock, seed, room, kind, ct);
+    }
+
+    private static async Task AssertExpiredProgress(ParticipationService service, NpgsqlDataSource source,
+        FakeTimeProvider clock, ParticipationSeed seed, Guid room, string kind, CancellationToken ct)
+    {
+        if (kind == "constellation")
+        {
+            foreach (var user in new[] { seed.Alice, seed.Bob, seed.Alice })
+            {
+                var view = (await service.RoomAsync(room, user, ct))!;
+                var card = view.Game!.CurrentCard!;
+                Assert.Equal(ParticipationOutcome.Done, await service.ActionAsync(room, user, Guid.NewGuid(),
+                    view.Version, "choose-option", card.CardId, card.Options[0].OptionId, ct));
+            }
+        }
+        else
+        {
+            foreach (var stage in new[] { "Introduction", "Clues" })
+            {
+                foreach (var user in new[] { seed.Alice, seed.Bob })
+                {
+                    var view = (await service.RoomAsync(room, user, ct))!;
+                    Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, user, Guid.NewGuid(),
+                        view.Version, "acknowledge", stage, null, null, ct));
+                }
+            }
+            var viewBeforeChoice = (await service.RoomAsync(room, seed.Alice, ct))!;
+            var chooser = viewBeforeChoice.RoutesGame!.IsMyTurn ? seed.Alice : seed.Bob;
+            var stop = viewBeforeChoice.RoutesGame.CurrentStop!;
+            Assert.Equal(ParticipationOutcome.Done, await service.RoutesActionAsync(room, chooser, Guid.NewGuid(),
+                viewBeforeChoice.Version, "choose-option", null, stop.StepId, stop.Options[0].OptionId, ct));
+        }
+        var before = new[] { (await service.RoomAsync(room, seed.Alice, ct))!, (await service.RoomAsync(room, seed.Bob, ct))! };
+        clock.SetUtcNow((before[0].Game?.Deadline ?? before[0].RoutesGame!.Deadline).AddSeconds(1));
+        for (var count = 0; count < 30; count++)
+        {
+            var job = await service.ClaimJobAsync(ct);
+            if (job is null)
+            {
+                break;
+            }
+            Assert.True(await service.CompleteJobAsync(job, ct));
+        }
+        service = new ParticipationService(source, clock);
+        foreach (var (user, previous) in new[] { (seed.Alice, before[0]), (seed.Bob, before[1]) })
+        {
+            var expired = (await service.RoomAsync(room, user, ct))!;
+            Assert.Equal("Expired", expired.State);
+            Assert.Empty(expired.Audio);
+            Assert.Null(await service.AudioAsync(room, user, previous.Audio[0].AssetId, ct));
+            if (kind == "constellation")
+            {
+                Assert.NotNull(expired.Game);
+                Assert.Equal(previous.Game!.Revealed, expired.Game.Revealed);
+                Assert.Single(expired.Game.Revealed);
+                Assert.Null(expired.Game.MyAnswer);
+                Assert.Null(expired.Game.CurrentCard);
+                Assert.Empty(expired.Game.AvailableActions);
+                Assert.Equal(ParticipationOutcome.Unavailable, await service.ActionAsync(room, user, Guid.NewGuid(),
+                    expired.Version, "skip-card", "shared-table", null, ct));
+            }
+            else
+            {
+                Assert.NotNull(expired.RoutesGame);
+                Assert.Equal(previous.RoutesGame!.Route, expired.RoutesGame.Route);
+                Assert.Single(expired.RoutesGame.Route);
+                Assert.Equal(previous.RoutesGame.MyClues, expired.RoutesGame.MyClues);
+                Assert.Null(expired.RoutesGame.CurrentStop);
+                Assert.Empty(expired.RoutesGame.AvailableActions);
+                Assert.Equal(ParticipationOutcome.Unavailable, await service.RoutesActionAsync(room, user, Guid.NewGuid(),
+                    expired.Version, "confirm-route", null, null, null, ct));
+            }
+        }
+        Assert.Null(await service.RoomAsync(room, seed.Third, ct));
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await Execute(connection, "insert into safety.blocks(id,blocker_id,blocked_id,created_at) values($1,$2,$3,$4)",
+            ct, Guid.NewGuid(), seed.Alice, seed.Bob, clock.GetUtcNow());
+        Assert.Null(await service.RoomAsync(room, seed.Alice, ct));
+        Assert.Null(await service.RoomAsync(room, seed.Bob, ct));
     }
 
     private static JsonObject Read(string kind)

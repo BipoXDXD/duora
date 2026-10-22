@@ -60,10 +60,24 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
     const label = pt ? 'Preferência regional' : 'Regional preference'
     const saveLabel = pt ? 'Salvar preferência regional' : 'Save regional preference'
     const brazil = pt ? 'Brasil' : 'Brazil'
-    test('explicit country choice survives reload and leaves other resources untouched', async ({ page }) => {
+    test('explicit BR and US choice survives reload and leaves other resources untouched', async ({ page }) => {
       const state = await setup(page, locale)
       const field = page.getByRole('combobox', { name: label, exact: true })
       const save = page.getByRole('button', { name: saveLabel, exact: true })
+      await expect(
+        page.getByText(
+          pt
+            ? /Sem uma preferência salva, você não participa dessas rodadas/
+            : /Without a saved preference, you cannot join these rounds/,
+        ),
+      ).toBeVisible()
+      await expect(
+        page.getByText(
+          pt
+            ? /Rodadas publicadas antes da ativação mantêm as regras anteriores/
+            : /Rounds published before activation retain their previous rules/,
+        ),
+      ).toBeVisible()
       await expect(field).toHaveValue('pending')
       await save.click()
       expect(state.writes).toEqual([])
@@ -71,14 +85,18 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       await save.click()
       expect(state.writes).toEqual([])
       await page.getByRole('checkbox', { name: brazil, exact: true }).check()
+      await page.getByRole('checkbox', { name: pt ? 'Estados Unidos' : 'United States', exact: true }).check()
       await save.click()
       await expect(
         page.getByText(pt ? 'Preferência regional salva.' : 'Regional preference saved.', { exact: true }),
       ).toBeVisible()
-      expect(state.writes).toEqual([{ mode: 'countries', countryCodes: ['BR'] }])
+      expect(state.writes).toEqual([{ mode: 'countries', countryCodes: ['BR', 'US'] }])
       await page.reload()
       await expect(field).toHaveValue('countries')
       await expect(page.getByRole('checkbox', { name: brazil, exact: true })).toBeChecked()
+      await expect(
+        page.getByRole('checkbox', { name: pt ? 'Estados Unidos' : 'United States', exact: true }),
+      ).toBeChecked()
       await expect(page.getByRole('checkbox', { name: pt ? 'Inglês' : 'English', exact: true })).not.toBeChecked()
       await field.selectOption('unrestricted')
       await save.click()
