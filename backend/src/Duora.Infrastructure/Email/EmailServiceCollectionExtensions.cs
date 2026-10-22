@@ -11,14 +11,19 @@ public static class EmailServiceCollectionExtensions
 {
     /// <summary>
     /// Registra o consumidor da outbox de e-mail e o adaptador de envio. O host não sobe sem
-    /// <c>Email:PickupDirectory</c> nem com parâmetros de <c>Outbox</c> incoerentes.
+    /// configuração válida para o transporte escolhido nem com parâmetros de <c>Outbox</c> incoerentes.
     /// </summary>
     public static IServiceCollection AddTransactionalEmailDispatch(this IServiceCollection services)
     {
+        services.AddOptions<EmailTransportOptions>()
+            .BindConfiguration(EmailTransportOptions.Section)
+            .Validate(o => o.IsValid(), "Email: transporte inválido ou SMTP incompleto; TLS e autenticação são obrigatórios.")
+            .ValidateOnStart();
+
         services.AddOptions<PickupDirectoryOptions>()
             .BindConfiguration(PickupDirectoryOptions.Section)
-            .Validate(
-                o => !string.IsNullOrWhiteSpace(o.PickupDirectory),
+            .Validate<IOptions<EmailTransportOptions>>(
+                (o, transport) => transport.Value.UsesSmtp || !string.IsNullOrWhiteSpace(o.PickupDirectory),
                 "Email:PickupDirectory é obrigatório (docs/development/environment.md).")
             .ValidateOnStart();
 
@@ -30,7 +35,12 @@ public static class EmailServiceCollectionExtensions
                 "Outbox: SendTimeout deve ser menor ou igual a LeaseDuration / 2 (o lease é renovado antes de cada envio).")
             .ValidateOnStart();
 
-        services.AddSingleton<ITransactionalEmailSender, PickupDirectoryEmailSender>();
+        services.AddSingleton<PickupDirectoryEmailSender>();
+        services.AddSingleton<SmtpTransactionalEmailSender>();
+        services.AddSingleton<ITransactionalEmailSender>(provider =>
+            provider.GetRequiredService<IOptions<EmailTransportOptions>>().Value.UsesSmtp
+                ? provider.GetRequiredService<SmtpTransactionalEmailSender>()
+                : provider.GetRequiredService<PickupDirectoryEmailSender>());
         services.AddSingleton(provider => new OutboxDeliveryQueue(provider.GetRequiredService<NpgsqlDataSource>()));
         services.AddSingleton(provider => new TransactionalEmailDispatcher(
             provider.GetRequiredService<OutboxDeliveryQueue>(),

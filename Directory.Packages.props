@@ -18,6 +18,8 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.13" />
     <PackageVersion Include="MaxMind.Db" Version="5.2.0" />
+    <!-- SMTP/MIME with mandatory TLS; MailKit and MimeKit are MIT licensed. -->
+    <PackageVersion Include="MailKit" Version="4.18.1" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- Decoder de fotos, só no Duora.Worker (ADR-0025). Six Labors Split License: exceção presa à versão em
          scripts/supply-chain/license-policy.json; atualizar exige reler o LICENSE da versão nova. -->
@@ -30,6 +32,8 @@
   </ItemGroup>
 
   <ItemGroup Label="Pinos transitivos">
+    <!-- MimeKit's lower bound is vulnerable; keep the patched runtime line (GHSA-846f-f764-76mx). -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <!-- O provider Npgsql pede EF Core >= 10.0.4; fixar o mesmo patch do EF Core Design evita duas versões
          do EF Core no grafo (MSB3277) e traz as correções do último patch da linha 10. -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />

@@ -7,7 +7,8 @@ public sealed record TransactionalEmail(EmailAddress To, string Subject, string 
 
 /// <summary>
 /// Porta de envio de e-mail transacional. A chave de idempotência identifica o efeito (a entrega da outbox): um
-/// adaptador que a repassa ao provedor, ou a usa para deduplicar, evita duas cópias quando o envio é repetido.
+/// adaptador pode usá-la para deduplicar, conforme a garantia do provedor. SMTP usa um Message-ID estável para
+/// correlação, mas não oferece deduplicação garantida na janela entre aceite remoto e conclusão local.
 /// </summary>
 public interface ITransactionalEmailSender
 {
