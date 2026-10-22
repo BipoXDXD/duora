@@ -32,6 +32,12 @@ def request(content=b"synthetic", *, length=None, variant=16777216, total=251658
 
 
 class ProfileTests(unittest.TestCase):
+    def test_candidate_preserves_decoder_heap_policy(self):
+        # P174-4 preserves ImageSharp's allocator limit; it does not add a CLR heap limit.
+        # A whole-heap cap of 256 MiB can reject an input that the current decoder accepts.
+        args = Profile.from_dict(configuration(), 1002).create_args(JOB)
+        self.assertFalse(any("GCHeapHardLimit" in value for value in args))
+
     def test_job_cannot_choose_runtime_authority_or_resource_flags(self):
         for field in ["command", "mounts", "cpu", "memory", "environment", "image_override"]:
             with self.subTest(field=field), self.assertRaises(ValueError):
