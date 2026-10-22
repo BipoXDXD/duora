@@ -196,6 +196,17 @@ class SupervisorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("failed", result.code)
         self.assertEqual(b"", result.payload)
 
+    async def test_cleanup_cannot_turn_an_expired_attempt_into_success(self):
+        class SlowCleanupRuntime(RuntimeDouble):
+            async def remove(self, job_id):
+                await asyncio.sleep(0.1)
+                return True
+
+        self.supervisor.runtime = SlowCleanupRuntime()
+        result = await asyncio.wait_for(self.supervisor.run(JOB, request(), (16777216,25165824,65536,10)), 1)
+        self.assertNotEqual("exited", result.code)
+        self.assertEqual(b"", result.payload)
+
     async def test_startup_recovers_orphans_before_admitting_an_attempt(self):
         self.runtime.orphan = True
         await self.supervisor.recover()
