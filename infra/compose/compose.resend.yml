@@ -1,0 +1,14 @@
+# Opt-in operacional, somente após revisão e provisionamento pelo operador.
+# Usar junto de compose.prod.yml. Não muda volumes, banco, imagens ou receptor de release.
+services:
+  worker:
+    environment:
+      Email__Provider: Resend
+      Email__Resend__From: ${DUORA_EMAIL_FROM:?defina remetente de dominio verificado no Resend}
+    secrets:
+      - source: resend_api_key
+        target: Email__Resend__ApiKey
+
+secrets:
+  resend_api_key:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/resend_api_key

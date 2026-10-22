@@ -168,14 +168,17 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
         var security = scope.ServiceProvider.GetRequiredService<AccountSecurityService>();
         await using (await security.EnterLoginAsync(address, TestContext.Current.CancellationToken))
         {
+            // O timeout do runtime usa TickCount64 (ms); Stopwatch mantém o diagnóstico e o teto.
+            var startedAtMilliseconds = Environment.TickCount64;
             var waited = Stopwatch.StartNew();
             using var response = await IdentityScenario.LoginAsync(browser, email, "senha incorreta longa");
             waited.Stop();
+            var waitedMilliseconds = Environment.TickCount64 - startedAtMilliseconds;
 
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
             Assert.Equal(1, ProblemAssert.RetryAfterSeconds(response));
             Assert.Null(browser.Cookie("__Host-duora"));
-            Assert.True(waited.Elapsed >= TimeSpan.FromSeconds(1), $"Desistiu cedo: {waited.Elapsed}.");
+            Assert.True(waitedMilliseconds >= 1000, $"Desistiu cedo: {waitedMilliseconds} ms ({waited.Elapsed}).");
             Assert.True(waited.Elapsed < TimeSpan.FromSeconds(10), $"Esperou {waited.Elapsed}, além do prazo total.");
         }
     }
@@ -259,16 +262,19 @@ public sealed class LoginConcurrencyTests(PostgresFixture postgres)
 
         await using (await gate.EnterAsync(account.UserId, TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken))
         {
+            // O timeout do runtime usa TickCount64 (ms); Stopwatch mantém o diagnóstico e o teto.
+            var startedAtMilliseconds = Environment.TickCount64;
             var waited = Stopwatch.StartNew();
             var reauthentication = browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password });
             var finished = await Task.WhenAny(reauthentication, Task.Delay(QueueCeilingLimit, TestContext.Current.CancellationToken));
             Assert.True(finished == reauthentication, $"A reautenticação não desistiu em {QueueCeilingLimit}: a fila por UUID está sem teto.");
             using var response = await reauthentication;
             waited.Stop();
+            var waitedMilliseconds = Environment.TickCount64 - startedAtMilliseconds;
 
             await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
             Assert.Equal(1, ProblemAssert.RetryAfterSeconds(response));
-            Assert.True(waited.Elapsed >= TimeSpan.FromSeconds(1), $"Desistiu cedo: {waited.Elapsed}.");
+            Assert.True(waitedMilliseconds >= 1000, $"Desistiu cedo: {waitedMilliseconds} ms ({waited.Elapsed}).");
         }
     }
 

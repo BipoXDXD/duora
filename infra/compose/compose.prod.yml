@@ -256,8 +256,8 @@ services:
       Media__Storage__Provider: FileSystem
       Media__Storage__FileSystemRoot: /var/lib/duora-media
       Duora__PublicOrigin: https://${DUORA_DOMAIN:?defina DUORA_DOMAIN}
-      # PROVISÓRIO: ainda não há provedor de e-mail (pendência M3). O adaptador de desenvolvimento grava .eml no
-      # tmpfs, que some no restart: e-mails de conta não chegam a ninguém. Não abrir para participantes reais assim.
+      # Pickup é o padrão compatível, sem entrega externa. Ativação opt-in do Resend:
+      # compose.resend.yml e docs/operations/resend.md. Não abrir para participantes reais com pickup.
       Email__PickupDirectory: /tmp/duora-mail
     secrets:
       - source: duora_app_connection
