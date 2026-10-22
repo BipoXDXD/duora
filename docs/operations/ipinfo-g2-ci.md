@@ -138,6 +138,8 @@ Os metadados operacionais de 90 dias, archive/retention produtivos e réplicas f
   autorizados separadamente, comparar datas/hash e distinguir ausência de publicação de erro de acesso.
   Nenhum agendamento criado. Download repetido não renova validade.
 - **Recursos alvo e relógios:** medições são do processo JIT Linux AMD64 do runner, incluindo cópias/validação;
+  `AllocatedBytes` mede somente a fase após download, alocação do buffer original e hash; não representa
+  todas as alocações do ensaio. `PeakWorkingSetBytes` é o pico do processo, que inclui startup/JIT/download.
   não certificam Web/Worker/host de produção, relógio sincronizado, refresh concorrente em operação, NativeAOT,
   trimming, ARM64 ou Windows. Verificar relógios de Web/Worker/restart e capacidade no ambiente autorizado.
 - **Aceite do primeiro snapshot/perfil:** validação técnica e hash correspondente não equivalem à aprovação
