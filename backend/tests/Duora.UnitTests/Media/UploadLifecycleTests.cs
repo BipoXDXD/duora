@@ -16,6 +16,7 @@ public sealed class UploadLifecycleTests
         { UploadState.Processing, UploadState.Deleted },
         { UploadState.Approved, UploadState.Deleted },
         { UploadState.Rejected, UploadState.Deleted },
+        { UploadState.AwaitingReview, UploadState.Deleted },
     };
 
     [Theory]
@@ -57,7 +58,18 @@ public sealed class UploadLifecycleTests
     public void ThePendingStatesAreListedForTheDatabaseQuery()
     {
         Assert.Equal(
-            [UploadState.Pending, UploadState.Quarantined, UploadState.Processing],
+            [UploadState.Pending, UploadState.Quarantined, UploadState.Processing, UploadState.AwaitingReview],
             UploadLifecycle.PendingStates);
+    }
+
+    [Fact]
+    public void ReaderPreparationDoesNotEnableAnyReviewWriterOrImplicitApproval()
+    {
+        var awaiting = UploadState.AwaitingReview;
+        Assert.True(UploadLifecycle.CountsAsPending(awaiting));
+        Assert.All(Enum.GetValues<UploadState>(), from => Assert.False(UploadLifecycle.CanMove(from, awaiting)));
+        Assert.False(UploadLifecycle.CanMove(awaiting, UploadState.Approved));
+        Assert.False(UploadLifecycle.CanMove(awaiting, UploadState.Rejected));
+        Assert.False(Enum.TryParse<MediaReviewPolicy>("HumanReview", out _));
     }
 }

@@ -123,3 +123,10 @@ curto de estado/decisão/auditoria/outbox na unidade transacional existente. Nen
 ou espera humana sob locks; a ordem global acima permanece. Atribuição não concede leitura implícita,
 auditoria deve anteceder os bytes e recurso requer pessoa independente. Apenas contrato documental nesta
 etapa; persistência e capacidades administrativas permanecem para M1–M7.
+
+### Persistência preparada para revisão humana — M1
+
+Safety possui a raiz SQL `safety.photo_review_cases` (upload/geração/política/prazos/versão), ainda sem serviço
+que a grave. Media lê AwaitingReview e resultados editoriais no upload e os inclui nas cotas existentes.
+M2 fará a transação conjunta de espera/caso; M3 acrescentará decisão/recurso. Não há gravação direta de outro
+módulo por interface HTTP nem duplicação de reports. Ver [matriz M1](../testing/reports/media-review-readers.md).
