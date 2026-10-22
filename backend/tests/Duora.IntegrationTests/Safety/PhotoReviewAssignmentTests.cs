@@ -298,6 +298,7 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         budget.CancelAfter(TimeSpan.FromSeconds(10));
         var assignment = new PhotoReviewAssignments(db, _time).AssignAsync(actor, item.CaseId, reviewer.UserId, 1, Key(), budget.Token);
+        var lockReleased = false;
         try
         {
             await WaitForLockAsync(pid, assignment, budget.Token);
@@ -312,6 +313,7 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
             }
             Assert.False(assignment.IsCompleted);
             await held.CommitAsync(budget.Token);
+            lockReleased = true;
             var result = await assignment;
             if (change == "actor")
             {
@@ -329,7 +331,7 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
         finally
         {
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            if (held.Connection is not null)
+            if (!lockReleased)
             {
                 await held.RollbackAsync(cleanup.Token);
             }
@@ -405,18 +407,20 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         budget.CancelAfter(TimeSpan.FromSeconds(10));
         var assignment = new PhotoReviewAssignments(db, _time).AssignAsync(actor, item.CaseId, reviewer.UserId, 1, Key(), budget.Token);
+        var lockReleased = false;
         try
         {
             await WaitForLockAsync(pid, assignment, budget.Token);
             _time.Advance(TimeSpan.FromMinutes(10));
             Assert.False(assignment.IsCompleted);
             await held.CommitAsync(budget.Token);
+            lockReleased = true;
             Assert.IsType<PhotoReviewAssignmentResult.Forbidden>(await assignment);
         }
         finally
         {
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            if (held.Connection is not null)
+            if (!lockReleased)
             {
                 await held.RollbackAsync(cleanup.Token);
             }
