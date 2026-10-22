@@ -70,7 +70,7 @@ class Profile:
                 "--security-opt", "no-new-privileges", "--memory", "536870912", "--memory-swap", "536870912",
                 "--cpus", "1", "--pids-limit", "64", "--log-driver", "none", "--ipc", "none", "--cgroupns", "private",
                 "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16777216,uid=1654,gid=1654,mode=700",
-                "--env", "DOTNET_EnableDiagnostics=0", "--env", "DOTNET_GCHeapHardLimit=0x10000000",
+                "--env", "DOTNET_EnableDiagnostics=0",
                 "--interactive", "--entrypoint", "dotnet", self.image, "Duora.MediaSanitizer.dll"]
 
 
