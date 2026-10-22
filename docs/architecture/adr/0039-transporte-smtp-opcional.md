@@ -1,4 +1,4 @@
-# ADR-0038: Transporte SMTP opcional e limites de deduplicação
+# ADR-0039: Transporte SMTP opcional e limites de deduplicação
 
 - **Status:** Accepted para integração do transporte opcional (2026-10-22); SMTP em produção não autorizado
 - **Origem:** [#68](https://github.com/BipoXDXD/duora/issues/68), [PR #207](https://github.com/BipoXDXD/duora/pull/207), [ADR-0019](0019-implementacao-identidade-sessao-outbox.md), spec 10.6 e TM-21.
