@@ -5,10 +5,11 @@
 O transporte SMTP é opcional. `Email:Transport` continua `Pickup` por padrão; não há ativação de SMTP,
 alteração do Compose ou acesso a produção nesta mudança. Configuração: [environment.md](../development/environment.md).
 
-A prova externa de envio e recebimento permanece **pendente**: a conta Google escolhida não permite gerar
-senha de app por restrição de verificação telefônica. O usuário escolheu outro SMTP de homologação e está
-autenticando pelo helper local, sem credenciais no chat. A senha principal e a sessão do navegador não são
-credenciais SMTP. Nenhum resultado de protocolo sintético ou arquivo pickup comprova recebimento no Gmail.
+A prova de envio e recebimento SMTP foi concluída em 2026-10-22. A criação de uma conta dedicada ficou
+bloqueada na verificação Google; o usuário autorizou uma conta pessoal existente e forneceu a senha de app
+fora do chat. O teste usa somente um aviso sintético, sem ação sobre uma conta real do Duora. O remetente e o
+destinatário pertencem à mesma conta Gmail: isso comprova SMTP e leitura IMAP reais, não entrega entre
+provedores diferentes.
 
 A implementação usa MailKit/MimeKit 4.18.1 (MIT), com `System.Security.Cryptography.Pkcs` fixado em 10.0.13:
 o limite inferior do MimeKit admite uma versão vulnerável
@@ -58,7 +59,7 @@ credenciais sintéticas e certificado de uma autoridade temporária no runner. O
 ao final; o transporte não substitui a validação normal de certificados. Também há recusa de autenticação e
 de certificado não confiável antes de qualquer DATA.
 
-Para concluir a prova externa, autenticar uma conta de homologação autorizada fora do chat, rodar o Worker
+Para repetir a prova externa, autenticar uma conta de homologação autorizada fora do chat, rodar o Worker
 com a configuração SMTP e a mesma base descartável, e registrar somente os IDs, horários, resultado de
 aceite e hash do comprovante. Consultar na caixa autorizada apenas a mensagem sintética pelo `Message-ID`
 esperado, sem registrar conteúdo, tokens, credenciais ou mensagens pessoais. Não reutilizar o segredo do
@@ -95,7 +96,28 @@ Arquivos do produto alterados: `Directory.Packages.props`, referência e lockfil
 testes `SmtpTransportTests`/`SmtpProtocolTests`, comentários da porta/dispatcher e documentação de configuração.
 A infraestrutura remota de ensaio está no repositório privado separado; os workflows do produto não mudaram.
 
-Ainda não executados: envio externo autenticado e recebimento em caixa independente, teste de bounce,
+Ainda não executados: entrega entre provedores/contas distintos, teste de bounce,
 imagens históricas completas, release intermediária somente leitora e os gates integrais da CI do produto.
 Estes últimos continuam obrigatórios antes de merge. Nenhum deploy, migração de produção ou alteração dos
 monitores foi realizado. Nenhuma tentativa de instrução não confiável foi identificada nesta validação.
+
+## Comprovante de SMTP real
+
+[Execução remota 39803643878](https://github.com/BipoXDXD/duora-mail-validation-20261022/actions/runs/39803643878/job/119910972519),
+commit `585ffd0736ae5ab5e64b1a53962c8f183b0191bb` do repositório privado isolado. O workflow manual
+`external-smtp.yml` executou restore travado, build do Worker real e do probe, PostgreSQL descartável com
+papéis separados, produção do aviso `RecoveryCodeUsedNotice`, envio pelo Worker e conferência IMAP somente
+do `Message-ID` esperado. Não foi um envio por Python nem pelo monitor operacional.
+
+- Entrega sintética: `01a16432-df97-74e7-9d71-58ee6c028e64`.
+- Outbox: `Delivered`, uma tentativa, sem erro, payload limpo.
+- Aceite remoto registrado em `2026-10-22T15:20:20.794156Z` (12h20 de Brasília).
+- IMAP: exatamente uma mensagem correspondente encontrada com acesso somente leitura.
+- SHA-256 do recibo RFC 822: `55f551014c6e92aa25b2176c2d46724a1b1cf449aaf52d6b7802f279366a3513`.
+- Artefato sanitizado: `external-smtp-evidence`, ID `12437435763`, somente IDs, estados e hashes.
+- Worker parado e container removido no término; segredo temporário `SMTP_TEST_SETTINGS` excluído e
+  ausência conferida. Credenciais locais permanecem privadas conforme solicitado pelo usuário.
+
+O teste leu somente a mensagem sintética encontrada pelo identificador exato; não leu mensagens pessoais,
+não marcou como lida nem apagou mensagem. O e-mail do teste permanece na caixa para conferência do titular.
+Não houve produção, reinício de serviços, mudança dos monitores ou Docker no Mac.
