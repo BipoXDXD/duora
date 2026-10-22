@@ -98,7 +98,7 @@ END $$;
 DO $$
 DECLARE review_table text;
 BEGIN
-  FOREACH review_table IN ARRAY ARRAY['safety.photo_review_assignments','safety.photo_review_commands',
+  FOREACH review_table IN ARRAY ARRAY['media.review_promotion_variants','safety.photo_review_assignments','safety.photo_review_commands',
     'safety.photo_review_decision_commands','safety.photo_review_decision_variants','safety.photo_review_decisions',
     'safety.photo_review_evidence_accesses'] LOOP
     IF to_regclass(review_table) IS NOT NULL THEN

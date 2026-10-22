@@ -221,6 +221,7 @@ public sealed partial class MediaPipelineTests
 
         Assert.Empty(store.Opened);
         Assert.Empty(store.Written);
+        Assert.Equal(0, store.DeleteAttempts);
     }
 
     [Theory]
@@ -276,6 +277,105 @@ public sealed partial class MediaPipelineTests
         await AssertPromotionCandidateUnchangedAsync(media.Store, original);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AManifestLockWaitCannotExtendCandidateOrReviewDeadlines(bool reviewExpires)
+    {
+        var (media, request) = await PromotionReadyCandidateAsync();
+        var source = Web.Services.GetRequiredService<NpgsqlDataSource>();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        if (reviewExpires)
+        {
+            await using var connection = await OpenAsync();
+            await using var deadline = new NpgsqlCommand("select review_deadline from safety.photo_review_cases where id=$1", connection);
+            deadline.Parameters.AddWithValue(request.CaseId);
+            await using var reader = await deadline.ExecuteReaderAsync(Cancellation);
+            Assert.True(await reader.ReadAsync(Cancellation));
+            clock.SetUtcNow(reader.GetFieldValue<DateTimeOffset>(0).AddSeconds(-1));
+        }
+        else
+        {
+            await using var connection = await OpenAsync();
+            await using var retention = new NpgsqlCommand("update media.review_candidates set retention_until=$2 where generation=$1", connection);
+            retention.Parameters.AddWithValue(request.CandidateGeneration);
+            retention.Parameters.AddWithValue(clock.GetUtcNow().AddSeconds(1));
+            Assert.Equal(1, await retention.ExecuteNonQueryAsync(Cancellation));
+        }
+
+        var name = $"promotion-deadline-{Guid.NewGuid():N}";
+        var settings = new NpgsqlConnectionStringBuilder(source.ConnectionString) { ApplicationName = name };
+        var options = new DbContextOptionsBuilder<DuoraDbContext>().UseNpgsql(settings.ConnectionString).Options;
+        await using var injected = new DuoraDbContext(options);
+        var store = new PromotionPreparationStore(media.Store);
+        await using var held = await OpenAsync();
+        await using var transaction = await held.BeginTransactionAsync(Cancellation);
+        await using (var command = new NpgsqlCommand("""
+            select 1 from media.review_candidate_variants where generation=$1 and kind='card' for update
+            """, held, transaction))
+        {
+            command.Parameters.AddWithValue(request.CandidateGeneration);
+            await command.ExecuteNonQueryAsync(Cancellation);
+        }
+
+        var started = Stopwatch.GetTimestamp();
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        var preparation = new PhotoReviewPromotions(injected, store, clock).PrepareAsync(request, attempt.Token);
+        var released = false;
+        try
+        {
+            await WaitForPromotionLockAsync(name);
+            clock.Advance(TimeSpan.FromSeconds(2));
+            await transaction.CommitAsync(Cancellation);
+            released = true;
+            Assert.IsType<ReviewPromotionResult.Unavailable>(await preparation.WaitAsync(TimeSpan.FromSeconds(5), Cancellation));
+            Assert.True(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(14), "Candidate expiry must precede the preparation budget.");
+            Assert.Empty(store.Opened);
+            Assert.Equal(0, store.PutAttempts);
+            Assert.Equal(0, store.DeleteAttempts);
+            Assert.Equal(0, await PromotionCountAsync("select count(*) from media.review_promotions where case_id=$1", request.CaseId));
+            var activeClock = clock.GetUtcNow();
+            Assert.Equal(1, await PromotionCountAsync(reviewExpires
+                ? "select count(*) from safety.photo_review_cases r join media.review_candidates c on c.generation=r.candidate_generation where r.id=$1 and r.review_deadline<=$2 and c.retention_until>$2"
+                : "select count(*) from safety.photo_review_cases r join media.review_candidates c on c.generation=r.candidate_generation where r.id=$1 and c.retention_until<=$2 and r.review_deadline>$2",
+                request.CaseId, activeClock));
+        }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            if (!released)
+            {
+                await transaction.RollbackAsync(cleanup.Token);
+            }
+
+            await attempt.CancelAsync();
+            try
+            {
+                await preparation.WaitAsync(cleanup.Token);
+            }
+            catch (OperationCanceledException) when (preparation.IsCompleted && attempt.IsCancellationRequested)
+            {
+                // The cancelled operation has finished and has been observed before its context is disposed.
+            }
+        }
+    }
+
+    private async Task WaitForPromotionLockAsync(string applicationName)
+    {
+        var started = Stopwatch.GetTimestamp();
+        while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5))
+        {
+            if (await PromotionCountAsync("select count(*) from pg_stat_activity where application_name=$1 and wait_event_type='Lock'", applicationName) == 1)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(20), Cancellation);
+        }
+
+        Assert.Fail("Promotion never reached the controlled manifest lock.");
+    }
+
     private async Task<(MediaScenario Media, ReviewPromotionRequest Request)> PromotionReadyCandidateAsync()
     {
         var (media, upload, version) = await ReviewReadyUploadAsync();
@@ -316,13 +416,17 @@ public sealed partial class MediaPipelineTests
         var db = scope.ServiceProvider.GetRequiredService<DuoraDbContext>();
         if (interceptor is null)
         {
-            return await new PhotoReviewPromotions(db, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
+            var outcome = await new PhotoReviewPromotions(db, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
+            Assert.Equal(0, store.DeleteAttempts);
+            return outcome;
         }
 
         var options = new DbContextOptionsBuilder<DuoraDbContext>().UseNpgsql(db.Database.GetConnectionString())
             .AddInterceptors(interceptor).Options;
         await using var injected = new DuoraDbContext(options);
-        return await new PhotoReviewPromotions(injected, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
+        var result = await new PhotoReviewPromotions(injected, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
+        Assert.Equal(0, store.DeleteAttempts);
+        return result;
     }
 
     private static async Task AssertPromotionCandidateUnchangedAsync(FileSystemObjectStore store, Dictionary<ObjectKey, byte[]> expected)
@@ -346,6 +450,8 @@ public sealed partial class MediaPipelineTests
         internal int Reads { get; private set; }
 
         internal int PutAttempts { get; private set; }
+
+        internal int DeleteAttempts { get; private set; }
 
         public async Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken)
         {
@@ -373,8 +479,11 @@ public sealed partial class MediaPipelineTests
                 : inner.OpenReadAsync(key, cancellationToken);
         }
 
-        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) =>
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken)
+        {
+            DeleteAttempts++;
             throw new InvalidOperationException("Preparation never deletes any asset or candidate.");
+        }
     }
 
     private sealed class PromotionPreparationCommitFault(string connectionString, Guid caseId, bool afterCommit) : DbTransactionInterceptor
