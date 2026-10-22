@@ -97,9 +97,12 @@ testes `SmtpTransportTests`/`SmtpProtocolTests`, comentários da porta/dispatche
 A infraestrutura remota de ensaio está no repositório privado separado; os workflows do produto não mudaram.
 
 Ainda não executados: entrega entre provedores/contas distintos, teste de bounce,
-imagens históricas completas, release intermediária somente leitora e os gates integrais da CI do produto.
-Estes últimos continuam obrigatórios antes de merge. Nenhum deploy, migração de produção ou alteração dos
-monitores foi realizado. Nenhuma tentativa de instrução não confiável foi identificada nesta validação.
+imagens históricas completas e release intermediária somente leitora. São limites da homologação e
+pré-requisitos para essas operações, não autorizações de ativação. A CI integral da versão `065c5a8` passou
+nos nove checks na [execução 39805175092](https://github.com/BipoXDXD/duora/actions/runs/39805175092), incluindo
+3.203 testes do backend e 549 testes de navegação. A integração com alterações posteriores da `main` exige
+novamente os nove checks no head atualizado antes do merge. Nenhum deploy, migração de produção ou alteração
+dos monitores foi realizado neste ensaio. Nenhuma tentativa de instrução não confiável foi identificada.
 
 ## Comprovante de SMTP real
 

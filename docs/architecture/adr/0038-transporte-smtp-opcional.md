@@ -1,6 +1,6 @@
 # ADR-0038: Transporte SMTP opcional e limites de deduplicação
 
-- **Status:** Proposed; implementação e homologação isoladas, revisão humana e ativação pendentes
+- **Status:** Accepted para integração do transporte opcional (2026-10-22); SMTP em produção não autorizado
 - **Origem:** [#68](https://github.com/BipoXDXD/duora/issues/68), [PR #207](https://github.com/BipoXDXD/duora/pull/207), [ADR-0019](0019-implementacao-identidade-sessao-outbox.md), spec 10.6 e TM-21.
 - **Revisar quando:** Provedor, autenticação, semântica de retry, política de TLS ou garantia de deduplicação mudar.
 
@@ -12,9 +12,10 @@ aceitar a mensagem antes de o Worker perder a resposta ou falhar na conclusão l
 fencing protege as alterações no banco; não desfaz um efeito remoto já aceito.
 
 O responsável aprovou implementar transporte SMTP opcional e testes remotos descartáveis, sem produção.
-A aprovação do desenho e as evidências isoladas não equivalem à aprovação de ativação operacional.
+Em 2026-10-22, autorizou também a revisão final e o merge do PR #207 se aprovado, expressamente
+“sem ativar o SMTP em produção”. O aceite cobre o código opcional e a homologação; não habilitação operacional.
 
-## Decisão proposta
+## Decisão
 
 Preservar `Pickup` como padrão e adicionar `Email:Transport=Smtp`, sem alterar Compose/configuração de
 produção. MailKit/MimeKit 4.18.1 (MIT) fazem protocolo, MIME e autenticação; PKCS 10.0.13 é fixado para remover
@@ -30,7 +31,7 @@ falha de encerramento após esse aceite não deve causar retry. O SMTP continua 
 janela de aceite remoto sem confirmação local. `Message-ID` não é uma chave de idempotência garantida pelo
 provedor. `Delivered` significa aceite do servidor, não recebimento final, ausência de bounce ou leitura.
 
-Esta proposta substitui parcialmente apenas as afirmações irrestritas de deduplicação do ADR-0019 quando
+Este ADR substitui parcialmente apenas as afirmações irrestritas de deduplicação do ADR-0019 quando
 SMTP estiver selecionado. Pickup mantém sua deduplicação por arquivo; persistência transacional, leases,
 fencing, expiração e política de retry permanecem iguais. Não se aplica ao monitor operacional de e-mail.
 
@@ -53,4 +54,5 @@ O [relatório de homologação](../../testing/smtp-outbox-homologation.md) regis
 cenários com versões distintas contra PostgreSQL descartável e um aviso pelo Worker real com aceite Gmail e
 um recibo IMAP. Um envio observado uma vez não prova deduplicação nos retries nem entrega entre provedores.
 Os gates integrais da CI e revisão humana continuam obrigatórios antes de merge; esta proposta não autoriza
-deploy, habilitação de SMTP ou consulta de dados de produção.
+habilitação de SMTP ou consulta de dados de produção. A publicação automática aprovada segue os seus gates,
+sem ampliar a autorização de ativação.
