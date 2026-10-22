@@ -6,6 +6,9 @@ internal enum AppTableAccess
     /// <summary><c>SELECT</c>, <c>INSERT</c>, <c>UPDATE</c> e <c>DELETE</c>: o padrão dos default privileges.</summary>
     ReadWrite,
 
+    /// <summary><c>SELECT</c>, <c>INSERT</c> e <c>UPDATE</c>: preserva o journal e seu pai contra exclusão pelo app.</summary>
+    ReadWriteWithoutDelete,
+
     /// <summary>Catálogo mantido pelo migrador; a aplicação apenas lê.</summary>
     ReadOnly,
 
@@ -65,9 +68,10 @@ internal static class AppRoleTableAccess
             ["ops.__ef_migrations_history"] = AppTableAccess.None,
             ["ops.audit_events"] = AppTableAccess.AppendOnly,
             ["ops.country_database_approvals"] = AppTableAccess.AppendOnly,
+            ["ops.country_database_deliveries"] = AppTableAccess.ReadWriteWithoutDelete,
             ["ops.country_database_retired"] = AppTableAccess.AppendOnly,
             ["ops.country_database_incidents"] = AppTableAccess.ReadWrite,
-            ["ops.country_database_notifications"] = AppTableAccess.ReadWrite,
+            ["ops.country_database_notifications"] = AppTableAccess.ReadWriteWithoutDelete,
             ["ops.country_database_versions"] = AppTableAccess.AppendOnly,
             ["ops.country_database_state"] = AppTableAccess.ReadWrite,
             ["ops.outbox_deliveries"] = AppTableAccess.ReadWrite,
@@ -98,6 +102,7 @@ internal static class AppRoleTableAccess
     {
         AppTableAccess.ReadOnly => ["SELECT"],
         AppTableAccess.ReadWrite => ["SELECT", "INSERT", "UPDATE", "DELETE"],
+        AppTableAccess.ReadWriteWithoutDelete => ["SELECT", "INSERT", "UPDATE"],
         AppTableAccess.AppendOnly => ["SELECT", "INSERT"],
         AppTableAccess.None => [],
         _ => throw new ArgumentOutOfRangeException(nameof(access), access, "Acesso de tabela desconhecido."),

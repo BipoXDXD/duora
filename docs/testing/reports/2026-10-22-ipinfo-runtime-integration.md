@@ -26,10 +26,19 @@ nem credencial nos commits/artefatos de GitHub. Não houve build/teste pesado no
 
 ## Limites e prontidão
 
-Gmail foi inicialmente comprovado por teste SMTP e recepção IMAP. O ensaio posterior do adaptador.NET no servidor
-não confirmou envio; a mesma credencial passou a retornar Invalid credentials no IMAP do Mac. TCP/SMTP587 e465
-do servidor funcionam. Nenhum reenvio automático foi feito após resultado incerto. Nova credencial válida e
-reconciliação do identificador do teste são pré-requisitos de transporte operacional. Endereço privado omitido.
+Gmail foi comprovado pelo próprio adaptador.NET no servidor com a credencial válida fornecida posteriormente:
+SMTP aceitou a mensagem e uma consulta IMAP somente leitura confirmou seu Message-ID exato no INBOX.
+O titular confirmou a revogação da credencial anterior. Seu teste incerto foi reconciliado separadamente;
+ausência na caixa não foi tratada como prova de não envio. O novo teste tem identificador próprio e não
+habilitou os serviços produtivos. Endereço privado e senhas omitidos.
+
+CI completo anterior executou3220 testes:3217 passaram e três inventários falharam porque não incluíam a
+tabela nova nem a revogação de DELETE da notificação pai. O inventário de tabelas e a allowlist explícita de
+privilégios foram atualizados para conferir SELECT/INSERT/UPDATE sem DELETE em ambos; nenhum gate removido.
+Nova verificação remota após a atualização:149/149 passaram, zero falhas/ignorados, em1min14s. Inclui toda a
+suíte geolocalização e as classes AppRolePrivilegesTests e MigrationsTests. Filtros por classe repetidos no
+runner xUnit; a primeira tentativa com alternância em uma única expressão não selecionou testes e não foi
+contabilizada como sucesso.
 
 Bucket de backup existente tem Object Lock21dias e não pode cumprir a política IPinfo14dias. Chaves locais de
 provisionamento estão revogadas; chaves operacionais não podem criar buckets/chaves. Nenhum bucket, chave B2

@@ -1029,6 +1029,13 @@ available_at, delivered_at, outbound e sha256 opcional. Histórico de promoção
 só incidentes entram no transporte futuro. Índice parcial de pendências; retenção por occurred_at em 90 dias.
 Não inclui dados de participante, IPs, endereço Gmail ou exceções/URLs do fornecedor.
 
+Integração operacional (ADR-0038): `country_database_deliveries` usa notification_id como PK/FK com cascade
+para notificações, attempted_at obrigatório e accepted_at opcional, nunca anterior à tentativa. A reserva é
+persistida antes do SMTP; ausência de aceitação exige reconciliação humana. A role duora_app pode ler,
+inserir e atualizar, mas não apagar nem truncar o journal ou a notificação pai. Exclusões pela retenção
+autorizada usam a role de manutenção separada. O estado singleton acrescenta backup_failed boolean obrigatório,
+false por padrão, para conservar a falha de cópia entre reinícios; só uma cópia concluída limpa o sinal.
+
 Estado singleton acrescenta last_observed_at (marca UTC persistida), review_required e repair_authorized.
 A autorização de reparo não atravessa gerações: promoção/recuperação a consomem e um novo bloqueio a revoga.
 Recuperação/revogação incrementam geração e fencing do job na mesma transação, na ordem job → estado.
