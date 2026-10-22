@@ -148,6 +148,35 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ANewAssignmentInvalidatesAnAlreadyOpenedLeaseEvenIfTheReviewerIsTheSame(bool sameReviewer)
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var assigner = await ModeratorAsync(PhotoReviewCapability.Assign);
+        var replacement = sameReviewer ? reviewer : await ModeratorAsync(PhotoReviewCapability.Evidence, PhotoReviewCapability.Decide);
+        var opened = Assert.IsType<PhotoReviewEvidenceResult.Opened>(await new PhotoReviewEvidence(
+            Factory(), new FileSystemObjectStore(_root.FullName), _time).OpenAsync(reviewer, item.CaseId, PhotoVariant.Full, Ct));
+        await using var lease = opened.Lease;
+        Assert.Equal(8, await lease.ReadAsync(new byte[8], Ct));
+        await using (var assignment = Context())
+        {
+            Assert.IsType<PhotoReviewAssignmentResult.Assigned>(await new PhotoReviewAssignments(assignment, _time)
+                .AssignAsync(assigner, item.CaseId, replacement.UserId, 2, Key(), Ct));
+        }
+        await using (var proof = Context())
+        {
+            await using var transaction = await proof.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, Ct);
+            Assert.True(await new PhotoReviewAccess(proof, _time).AuthorizeAsync(reviewer, PhotoReviewCapability.Evidence, Ct));
+        }
+        var destination = Enumerable.Repeat((byte)0xa5, 8).ToArray();
+
+        await Assert.ThrowsAsync<PhotoReviewEvidenceRevokedException>(() => lease.ReadAsync(destination, Ct));
+
+        Assert.All(destination, value => Assert.Equal((byte)0xa5, value));
+    }
+
+    [Theory]
     [InlineData("grant")]
     [InlineData("owner")]
     public async Task StorageWaitKeepsSqlUnlockedAndReauthorizationDeniesTheRevokedRead(string change)
