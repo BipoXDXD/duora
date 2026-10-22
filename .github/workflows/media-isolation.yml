@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           actual=$(uname -m)
-          case '${{ matrix.arch }}:$actual' in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          case "${{ matrix.arch }}:$actual" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
           sudo apt-get update -qq
           sudo apt-get install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
           sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
