@@ -84,3 +84,18 @@ cd backend && dotnet test --solution Duora.slnx
 | [Fluxo de trabalho](docs/automation/workflow.md) | Etapas, Definition of Ready e Done |
 | [Fontes técnicas](docs/references/sources.yml) | Catálogo das 78 fichas de documentação |
 | [Ambiente](docs/development/environment.md) | Setup local e diagnóstico |
+
+## Builds Docker e arquitetura
+
+Use `make image` para construir e verificar imagens **nativas do daemon Docker ativo**.
+O comando ignora uma seleção antiga em `DOCKER_DEFAULT_PLATFORM`; não fixa o projeto em AMD64 ou ARM64.
+No Duora, selecione `IMAGE=web`, `worker`, `migrator`, `edge` ou `postgres` (padrão: `web`). O worker continua exigindo a licença da Six Labors como secret do BuildKit.
+
+`make image-release` exporta arquivos em `.docker-artifacts/` com **linux/amd64 e linux/arm64**,
+sem carregar uma imagem estrangeira sobre a tag local. `IMAGE_TAG=...` escolhe a tag dos artefatos.
+
+Para builds personalizados, use `scripts/docker-build.sh local -f CAMINHO -t IMAGEM CONTEXTO`.
+Para publicar quando autorizado, use `scripts/docker-build.sh publish -f CAMINHO -t REGISTRY/IMAGEM CONTEXTO`;
+o comando verifica as duas plataformas no registry. Não substitua estes comandos por um build
+AMD64 com `--load` no Mac: para uma entrega offline, use o modo `oci ARQUIVO.tar`.
+A verificação isolada é `scripts/docker-build.sh check IMAGEM` (local) ou `published REGISTRY/IMAGEM` (release).
