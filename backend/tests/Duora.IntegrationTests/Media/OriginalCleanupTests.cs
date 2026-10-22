@@ -165,7 +165,7 @@ public sealed partial class MediaPipelineTests
 
         var claims = await Task.WhenAll(first.ClaimAsync(Cancellation), second.ClaimAsync(Cancellation));
 
-        Assert.Single(claims.Where(claim => claim is not null));
+        Assert.Single(claims, claim => claim is not null);
     }
 
     [Fact]
