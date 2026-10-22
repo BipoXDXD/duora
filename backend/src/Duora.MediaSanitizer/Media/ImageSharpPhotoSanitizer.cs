@@ -8,7 +8,7 @@ using SixLabors.ImageSharp.Memory;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
-namespace Duora.Worker.Media;
+namespace Duora.MediaSanitizer.Media;
 
 /// <summary>Limites da sanitização (seção <c>Media:Processing</c>, ADR-0025).</summary>
 internal sealed class PhotoSanitizerOptions
@@ -54,7 +54,7 @@ internal sealed class ImageSharpPhotoSanitizer : IPhotoSanitizer
                 AllocationLimitMegabytes = options.MemoryLimitMegabytes,
                 SingleBufferAllocationLimitMegabytes = options.MemoryLimitMegabytes,
             }),
-            // Concorrência 1 também dentro de uma imagem: o Worker não disputa CPU com o resto do host.
+            // Concorrência 1 também dentro de uma imagem: o decoder não disputa CPU com o resto do host.
             MaxDegreeOfParallelism = 1,
         };
         _encoder = new WebpEncoder { FileFormat = WebpFileFormatType.Lossy, Quality = options.WebPQuality, SkipMetadata = true };

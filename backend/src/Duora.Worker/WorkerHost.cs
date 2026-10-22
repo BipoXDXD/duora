@@ -42,10 +42,10 @@ internal static class WorkerHost
         builder.Services.AddSelfieVerification();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
         builder.Services.AddMediaProcessing();
+        AddPhotoSanitizer(builder.Services);
         builder.Services.AddParticipation();
         builder.Services.AddHostedService<ParticipationJobService>();
         builder.Services.AddHostedService<RetentionJobService>();
-        AddPhotoSanitizer(builder.Services);
         builder.Services.AddHostedService<HeartbeatService>();
         builder.Services.AddHostedService<TransactionalEmailService>();
         builder.Services.AddHostedService<SelfieVerificationProviderService>();
@@ -55,19 +55,24 @@ internal static class WorkerHost
     }
 
     /// <summary>
-    /// O decoder de imagem só existe neste processo (ADR-0025). O lease da fila tem de passar do tempo máximo da
-    /// sanitização, senão outro worker retoma o upload enquanto o primeiro ainda decodifica.
+    /// ADR-0036: transporte sem decoder. O lease cobre transferência, execução, término e a margem de storage/commit.
     /// </summary>
     private static void AddPhotoSanitizer(IServiceCollection services)
     {
-        services.AddOptions<PhotoSanitizerOptions>()
+        services.AddOptions<IsolatedPhotoSanitizerOptions>()
             .BindConfiguration("Media:Processing:Sanitizer")
             .Validate(o => o.IsConsistent(), "Parâmetros de Media:Processing:Sanitizer incoerentes.")
             .Validate<IServiceProvider>(
-                (o, provider) => provider.MediaProcessingLease() > o.Timeout * 2,
-                "Media:Processing:LeaseDuration deve passar de duas vezes o timeout da sanitização.")
+                (o, provider) => provider.MediaProcessingLease() > o.TotalTimeout + o.StorageCommitMargin,
+                "Media:Processing:LeaseDuration deve cobrir o envelope completo e a margem de storage/commit.")
+            .Validate<IServiceProvider>(
+                (o, provider) => !provider.MediaProcessingEnabled() || o.IsConfigured(),
+                "Media:Processing:Sanitizer Launcher requer socket, UID e digest do perfil compatível.")
             .ValidateOnStart();
-        services.AddSingleton<IPhotoSanitizer>(provider =>
-            new ImageSharpPhotoSanitizer(provider.GetRequiredService<IOptions<PhotoSanitizerOptions>>().Value));
+        services.AddSingleton(provider => new IsolatedPhotoSanitizer(
+            provider.GetRequiredService<IOptions<IsolatedPhotoSanitizerOptions>>().Value,
+            provider.GetRequiredService<ILogger<IsolatedPhotoSanitizer>>()));
+        services.AddSingleton<IPhotoSanitizer>(provider => provider.GetRequiredService<IsolatedPhotoSanitizer>());
+        services.AddHostedService<MediaSanitizerReadiness>();
     }
 }
