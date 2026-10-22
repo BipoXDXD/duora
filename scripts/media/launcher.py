@@ -241,3 +241,14 @@ async def collect_bounded(stream, limit, *, discard=False):
         require(size <= limit)
         if not discard:
             output.extend(chunk)
+
+
+class ControlServer:
+    def __init__(self, profile, supervisor):
+        raise NotImplementedError
+
+    async def start(self):
+        raise NotImplementedError
+
+    async def close(self):
+        raise NotImplementedError

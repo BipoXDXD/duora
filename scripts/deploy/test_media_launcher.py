@@ -205,3 +205,51 @@ class SupervisorTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(collect_bounded(reader,64), 1)
         reader = asyncio.StreamReader(); reader.feed_data(b"x"*64); reader.feed_eof()
         self.assertEqual(b"x"*64, await collect_bounded(reader,64))
+
+
+class ControlSocketTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        from launcher import ControlServer, Supervisor
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        config = configuration()
+        config.update(control_socket=str(Path(self.directory.name)/"control.sock"),
+                      journal_directory=self.directory.name, worker_uid=os.geteuid(), control_gid=os.getegid())
+        self.profile = Profile.from_dict(config, 1002)
+        self.runtime = RuntimeDouble()
+        self.supervisor = Supervisor(self.profile, self.runtime, Journal(Path(self.directory.name), "c"*64))
+        await self.supervisor.recover()
+        self.server = ControlServer(self.profile, self.supervisor)
+        await self.server.start()
+        self.addAsyncCleanup(self.server.close)
+
+    async def exchange(self, data):
+        reader, writer = await asyncio.open_unix_connection(self.profile.control_socket)
+        writer.write(data); await writer.drain(); writer.write_eof()
+        response = await asyncio.wait_for(reader.read(), 2)
+        writer.close(); await writer.wait_closed()
+        return response
+
+    async def test_start_response_is_framed_and_contains_only_confirmed_exit_bytes(self):
+        response = await self.exchange(b"DMLC\x01\x01" + bytes.fromhex(JOB) + request())
+        self.assertEqual(b"DMLR\x01\x00" + bytes.fromhex(JOB), response[:22])
+        self.assertEqual(bytes.fromhex(self.profile.digest), response[22:54])
+        self.assertEqual(b"synthetic response", response[54:])
+
+    async def test_unknown_command_and_trailing_control_bytes_are_refused(self):
+        self.assertEqual(b"", await self.exchange(b"DMLC\x01\x04" + bytes.fromhex(JOB)))
+        self.assertEqual(b"", await self.exchange(b"DMLC\x01\x02" + bytes.fromhex(JOB) + b"x"))
+        self.assertFalse(self.runtime.started.is_set())
+
+    async def test_peer_identity_is_checked_before_reading_any_request(self):
+        from launcher import ControlServer
+        await self.server.close()
+        config = configuration(); config.update(control_socket=self.profile.control_socket,
+            journal_directory=self.directory.name, worker_uid=os.geteuid()+100, control_gid=os.getegid())
+        self.server = ControlServer(Profile.from_dict(config,1002), self.supervisor)
+        await self.server.start()
+        reader, writer = await asyncio.open_unix_connection(self.profile.control_socket)
+        self.assertEqual(b"", await asyncio.wait_for(reader.read(1), 1))
+        writer.close(); await writer.wait_closed()
+        self.assertFalse(self.runtime.started.is_set())
+        await self.server.close()
