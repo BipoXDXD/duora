@@ -34,7 +34,7 @@ public sealed class PhotoReviewDecisions : Migration
           primary key(decision_id,variant));
         create table safety.photo_review_decision_commands (
           actor_id uuid not null references identity.users(id) on delete restrict,
-          operation varchar(8) not null check (operation='reject'),
+          operation varchar(8) not null check (operation='decide'),
           key_hash bytea not null check (octet_length(key_hash)=32),
           case_id uuid not null references safety.photo_review_cases(id) on delete restrict,
           intent_sha256 bytea not null check (octet_length(intent_sha256)=32),

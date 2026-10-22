@@ -69,6 +69,7 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
         Assert.Equal("Rejected", proof.UploadState);
         Assert.Equal("PHOTO_REVIEW_REJECTED", proof.RejectionCode);
         Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decision_commands where case_id=$1", item.CaseId));
+        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decision_commands where case_id=$1 and operation='decide'", item.CaseId));
         var manifests = await db.Database.SqlQuery<ManifestProof>($"""
             select variant as "Variant",size_bytes as "SizeBytes",sha256 as "Sha256"
             from safety.photo_review_decision_variants where decision_id={proof.Id} order by variant

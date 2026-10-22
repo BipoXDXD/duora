@@ -210,7 +210,7 @@ internal sealed class PhotoReviewRejections
         await db.Database.ExecuteSqlAsync($"""
             insert into safety.photo_review_decision_commands(actor_id,operation,key_hash,case_id,intent_sha256,
               result_version,result_photo_version,created_at)
-            values({actor.UserId},'reject',{keyHash},{caseId},{intent},{caseVersion},{photoVersion},{now})
+            values({actor.UserId},'decide',{keyHash},{caseId},{intent},{caseVersion},{photoVersion},{now})
             """, cancellationToken);
         await new AuditTrail(db, _time).AppendAsync(new AuditRecord(AuditActorKind.Moderator, actor.UserId,
             AuditAction.PhotoReviewRejected, AuditTargetTypes.PhotoReviewDecision, id, targetVersion: caseVersion), cancellationToken);
@@ -282,7 +282,7 @@ internal sealed class PhotoReviewRejections
     {
         var receipt = await db.Database.SqlQuery<Receipt>($"""
             select case_id as "CaseId",intent_sha256 as "Intent",result_version as "CaseVersion",result_photo_version as "PhotoVersion"
-            from safety.photo_review_decision_commands where actor_id={actorId} and operation='reject' and key_hash={keyHash}
+            from safety.photo_review_decision_commands where actor_id={actorId} and operation='decide' and key_hash={keyHash}
             """).SingleOrDefaultAsync(cancellationToken);
         return receipt is null ? null : CryptographicOperations.FixedTimeEquals(receipt.Intent, intent)
             ? new PhotoReviewRejectionResult.Rejected(receipt.CaseId, receipt.CaseVersion, receipt.PhotoVersion)
