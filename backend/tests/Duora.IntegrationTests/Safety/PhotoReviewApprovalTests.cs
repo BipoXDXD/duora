@@ -659,6 +659,150 @@ public sealed class PhotoReviewApprovalTests(PostgresFixture postgres) : IAsyncL
         Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decision_commands where case_id=$1", item.CaseId));
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ApprovalReauthorizesAfterTheLowerOwnersGuardInBothPhases(bool finalPhase, bool revokeGrant)
+    {
+        var (reviewer, item) = await PreparedAsync(Guid.Parse("ffffffff-ffff-4fff-bfff-ffffffffffff"),
+            Guid.Parse("00000000-0000-4000-8000-000000000001"));
+        var candidateBefore = await CandidateMetadataAsync(item);
+        _time.Advance(TimeSpan.FromMinutes(4).Add(TimeSpan.FromSeconds(59)));
+        await using var locker = new NpgsqlConnection(_connectionString);
+        await locker.OpenAsync(Ct);
+        NpgsqlTransaction? held = null;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(10));
+        var observation = new OwnerGuardObservation(item.OwnerId) { Enabled = !finalPhase };
+        async Task HoldOwnerAsync()
+        {
+            held = await locker.BeginTransactionAsync(budget.Token);
+            await using var command = new NpgsqlCommand("select 1 from safety.user_guards where user_id=$1 for update", locker, held);
+            command.Parameters.AddWithValue(item.OwnerId);
+            Assert.NotNull(await command.ExecuteScalarAsync(budget.Token));
+        }
+
+        var store = new ApprovalStore(new FileSystemObjectStore(_root.FullName), afterPut: async key =>
+        {
+            if (finalPhase && key.Value.EndsWith("-full", StringComparison.Ordinal))
+            {
+                await HoldOwnerAsync();
+                observation.Enabled = true;
+            }
+        });
+        Task<PhotoReviewApprovalResult>? approval = null;
+        var released = false;
+        try
+        {
+            if (!finalPhase)
+            {
+                await HoldOwnerAsync();
+            }
+            approval = new PhotoReviewApprovals(Factory(observation), store, _time).ApproveAsync(reviewer,
+                item.CaseId, 2, PhotoReviewApprovalReason.MeetsPolicy, Key(), budget.Token);
+            var pid = await observation.Pid.Task.WaitAsync(TimeSpan.FromSeconds(5), budget.Token);
+            await WaitForOwnerGuardAsync(pid, locker.ProcessID, approval, budget.Token);
+            if (revokeGrant)
+            {
+                // This must finish while the owner is held: preauthorization cannot retain the actor's guard.
+                await GrantAsync(reviewer.UserId, PhotoReviewCapability.Decide, enabled: false);
+            }
+            else
+            {
+                // Only TOTP expires. Session idle/absolute, review/candidate and final promotion remain live.
+                _time.Advance(TimeSpan.FromSeconds(2));
+            }
+            Assert.False(approval.IsCompleted);
+            await held!.CommitAsync(budget.Token);
+            released = true;
+            Assert.IsType<PhotoReviewApprovalResult.Forbidden>(await approval);
+            Assert.Equal(finalPhase ? 3 : 0, store.PutAttempts);
+            Assert.Equal(0, store.DeleteAttempts);
+            await AssertNoApprovalAsync(item);
+            Assert.Equal(candidateBefore, await CandidateMetadataAsync(item));
+        }
+        finally
+        {
+            try
+            {
+                using var release = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                if (held is not null && !released)
+                {
+                    await held.RollbackAsync(release.Token);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    try
+                    {
+                        await budget.CancelAsync();
+                    }
+                    finally
+                    {
+                        if (approval is not null)
+                        {
+                            using var observationBudget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                            try
+                            {
+                                await approval.WaitAsync(observationBudget.Token);
+                            }
+                            catch (OperationCanceledException) when (approval.IsCompleted && approval.IsCanceled && budget.IsCancellationRequested)
+                            {
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    if (held is not null)
+                    {
+                        await held.DisposeAsync();
+                    }
+                }
+            }
+        }
+    }
+
+    private async Task WaitForOwnerGuardAsync(int pid, int blocker, Task operation, CancellationToken cancellationToken)
+    {
+        await using var observer = new NpgsqlConnection(_connectionString);
+        await observer.OpenAsync(cancellationToken);
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            await using var command = new NpgsqlCommand("select $2=any(pg_blocking_pids($1))", observer);
+            command.Parameters.AddWithValue(pid);
+            command.Parameters.AddWithValue(blocker);
+            if (await command.ExecuteScalarAsync(cancellationToken) is true)
+            {
+                return;
+            }
+            Assert.False(operation.IsCompleted, "Approval must actually wait on the held owner's lower guard.");
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        }
+        Assert.Fail("PostgreSQL did not observe approval blocked by the owner's guard.");
+    }
+
+    private sealed class OwnerGuardObservation(Guid owner) : DbCommandInterceptor
+    {
+        internal bool Enabled { get; set; }
+        internal TaskCompletionSource<int> Pid { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            if (Enabled && command.CommandText.Contains("from safety.user_guards", StringComparison.Ordinal)
+                && command.Parameters.Cast<DbParameter>().Any(parameter => parameter.Value is Guid id && id == owner))
+            {
+                Pid.TrySetResult(Assert.IsType<NpgsqlConnection>(command.Connection).ProcessID);
+            }
+            return ValueTask.FromResult(result);
+        }
+    }
+
     private Task<PhotoReviewApprovalResult> ApproveAsync(PhotoReviewActor actor, CaseData item, IdempotencyKey key,
         IObjectStore? store = null, long version = 2) => new PhotoReviewApprovals(Factory(), store ?? new FileSystemObjectStore(_root.FullName), _time)
         .ApproveAsync(actor, item.CaseId, version, PhotoReviewApprovalReason.MeetsPolicy, key, Ct);
@@ -807,11 +951,13 @@ public sealed class PhotoReviewApprovalTests(PostgresFixture postgres) : IAsyncL
         }
     }
 
-    private async Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedAsync()
+    private async Task<(PhotoReviewActor Reviewer, CaseData Item)> PreparedAsync(Guid? reviewerId = null, Guid? ownerId = null)
     {
         var assigner = await ModeratorAsync(PhotoReviewCapability.Assign);
-        var reviewer = await ModeratorAsync(PhotoReviewCapability.Evidence, PhotoReviewCapability.Decide);
-        var item = await CaseAsync();
+        var reviewer = await ActorAsync(AccountRoles.Moderator, reviewerId);
+        await GrantAsync(reviewer.UserId, PhotoReviewCapability.Evidence, enabled: true);
+        await GrantAsync(reviewer.UserId, PhotoReviewCapability.Decide, enabled: true);
+        var item = await CaseAsync(ownerId);
         await using var db = Context();
         Assert.IsType<PhotoReviewAssignmentResult.Assigned>(await new PhotoReviewAssignments(db, _time)
             .AssignAsync(assigner, item.CaseId, reviewer.UserId, 1, Key(), Ct));
