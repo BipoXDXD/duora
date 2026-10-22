@@ -90,7 +90,8 @@ internal static class SelfTest
 
     private static void Reject(Action action)
     {
-        try { action(); }
+        try
+        { action(); }
         catch (G2Failure) { return; }
         throw new InvalidOperationException("Invalid rehearsal profile was accepted.");
     }

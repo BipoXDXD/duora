@@ -32,14 +32,21 @@ internal static class Program
             var evidence = await G2Rehearsal.RunAsync(profile, mode, token, temporaryRoot);
             await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
             {
-                Status = "measured", GateAccepted = false, profile.Authorization,
+                Status = "measured",
+                GateAccepted = false,
+                profile.Authorization,
                 Commit = Environment.GetEnvironmentVariable("GITHUB_SHA"),
                 RunId = Environment.GetEnvironmentVariable("GITHUB_RUN_ID"),
                 Attempt = Environment.GetEnvironmentVariable("GITHUB_RUN_ATTEMPT"),
-                Product = IpinfoLiteSchema.Product, Schema = IpinfoLiteSchema.Schema,
-                Source = IpinfoLiteSchema.Source, License = IpinfoLiteSchema.License, Attribution = "IPinfo https://ipinfo.io",
-                Runtime = RuntimeInformation.FrameworkDescription, Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
-                Clock = "Runner UTC; not independently verified", Evidence = evidence,
+                Product = IpinfoLiteSchema.Product,
+                Schema = IpinfoLiteSchema.Schema,
+                Source = IpinfoLiteSchema.Source,
+                License = IpinfoLiteSchema.License,
+                Attribution = "IPinfo https://ipinfo.io",
+                Runtime = RuntimeInformation.FrameworkDescription,
+                Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                Clock = "Runner UTC; not independently verified",
+                Evidence = evidence,
             }));
             Console.WriteLine("G2 sanitized evidence recorded. G2 acceptance and operational activation remain pending.");
             return 0;

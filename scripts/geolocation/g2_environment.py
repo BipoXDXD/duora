@@ -17,7 +17,8 @@ def validate_environment(environment, policies):
     required = [rule for rule in environment.get("protection_rules", []) if rule.get("type") == "required_reviewers"]
     reviewers = [reviewer for rule in required for reviewer in rule.get("reviewers", [])]
     if (environment.get("name") != "g2-ipinfo-lite" or environment.get("can_admins_bypass") is not False
-            or not any(r.get("type") == "User" and r.get("reviewer", {}).get("login") == "BipoXDXD" for r in reviewers)
+            or len(required) != 1 or len(reviewers) != 1
+            or reviewers[0].get("type") != "User" or reviewers[0].get("reviewer", {}).get("login") != "BipoXDXD"
             or environment.get("deployment_branch_policy") != {"protected_branches": False, "custom_branch_policies": True}
             or policies.get("total_count") != 1
             or [(p.get("name"), p.get("type")) for p in policies.get("branch_policies", [])] != [("main", "branch")]):

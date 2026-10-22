@@ -45,6 +45,16 @@ class G2EnvironmentTests(unittest.TestCase):
         with self.assertRaises(GuardError):
             validate_environment(self.environment, self.policies)
 
+    def test_extra_reviewers_cannot_substitute_the_owner(self):
+        for extra in (
+            {"type": "User", "reviewer": {"login": "another-user"}},
+            {"type": "Team", "reviewer": {"slug": "another-team"}},
+        ):
+            invalid = copy.deepcopy(self.environment)
+            invalid["protection_rules"][0]["reviewers"].append(extra)
+            with self.assertRaises(GuardError):
+                validate_environment(invalid, self.policies)
+
     def test_production_and_unprotected_environments_are_rejected(self):
         for field, value in (("name", "production"), ("deployment_branch_policy", None)):
             invalid = copy.deepcopy(self.environment)

@@ -38,9 +38,10 @@ fallback para query, ampliar hosts ou encaminhar token ao CDN silenciosamente.
 2. **GitHub:** administrador para criar/configurar o ambiente exclusivo `g2-ipinfo-lite`, e permissão de escrita
    para despacho manual do workflow após integração. A preparação não cria ou modifica ambientes/segredos.
    Na conferência inicial só existia `production`; não reutilizá-lo para G2.
-3. **Proteção do ambiente:** revisão obrigatória pelo titular `BipoXDXD`, bypass administrativo desativado e
+3. **Proteção do ambiente:** lista de revisores contendo exclusivamente o titular `BipoXDXD`, bypass administrativo desativado e
    única regra de deployment branch `main` do tipo **branch**, sem tags/wildcards. O guard verifica esses
-   metadados por API antes de liberar o job com segredo. Sem substituto por decisão vigente; não presumir
+   metadados por API antes de liberar o job com segredo. Revisores extras são recusados, pois o GitHub exige
+   apenas um dos listados; incluí-los permitiria outra pessoa liberar o acesso. Sem substituto por decisão vigente; não presumir
    segundo aprovador. Com apenas o titular, bloquear autoaprovação tornaria o despacho pelo próprio titular
    impossível; essa opção precisa ser compatível com o operador escolhido, sem inventar outro responsável.
 4. **Segredo exclusivo do ambiente:** `G2_IPINFO_LITE_DOWNLOAD_TOKEN`. Não cadastrar no nível do repositório,
@@ -85,7 +86,8 @@ redirect. O template abaixo é deliberadamente inválido até as decisões; não
 
 Os tetos defensivos da ferramenta (bytes até `int.MaxValue`, 50 milhões de redes e até 600 segundos para
 execução do download/medição) limitam o harness; **não são limites operacionais homologados nem propostas de
-capacidade**. O job real inteiro tem timeout de 20 minutos incluindo restore/build. Uma execução excedente
+capacidade**. O cancelamento de 600s é cooperativo; hash/abertura de um leitor em andamento podem ultrapassar
+a janela antes da próxima verificação. O job real inteiro tem timeout de 20 minutos incluindo restore/build. Uma execução excedente
 falha; não aumentar timeout ou limites automaticamente para obter resultado verde.
 
 Hosts possíveis documentados: `ipinfo.io`, `dl.assets.ipinfo.io`, `dl.ipinfo.io`, `storage.googleapis.com`.
