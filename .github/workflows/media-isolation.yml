@@ -10,6 +10,7 @@ on:
       - 'backend/src/Duora.MediaSanitizer/**'
       - 'backend/src/Duora.MediaProtocol/**'
       - 'backend/src/Duora.Worker/Media/**'
+      - 'backend/tests/Duora.MediaIsolationProbe/**'
   push:
     branches: [main]
     paths:
@@ -19,6 +20,7 @@ on:
       - 'backend/src/Duora.MediaSanitizer/**'
       - 'backend/src/Duora.MediaProtocol/**'
       - 'backend/src/Duora.Worker/Media/**'
+      - 'backend/tests/Duora.MediaIsolationProbe/**'
 permissions:
   contents: read
 concurrency:
