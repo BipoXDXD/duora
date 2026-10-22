@@ -24,6 +24,8 @@ Cada runner nativo amd64/arm64:
 2. Executa Trivy com a política vigente e gera CycloneDX dessa imagem. Publica
    o mesmo objeto, sem rebuild, com tag candidata exclusiva por SHA/run/attempt/arquitetura.
 3. Pré-carrega seu digest imutável no daemon rootless dedicado do runner.
+   A conta dedicada cria a pasta de autenticação com modo 0700 em seu próprio
+   `/run/user/<uid>`; não depende de atravessar a área privada da conta do runner.
    Credenciais temporárias de registro são removidas antes do launcher; o
    decoder não recebe ambiente, configuração Docker, rede, storage ou segredo.
 4. Executa os 14 casos reais S2. As falhas provocadas usam o probe separado

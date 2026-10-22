@@ -191,9 +191,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          auth=$(mktemp -d "$RUNNER_TEMP/media-preload.XXXXXX")
+          # The runner's private workspace ancestors are not traversable by this UID.
+          auth=$(sudo -Hu duora-sanitizer-ci mktemp -d "/run/user/$LAUNCHER_UID/media-preload.XXXXXX")
           trap 'sudo rm -rf "$auth"' EXIT
-          sudo chown "$LAUNCHER_UID" "$auth"
           host="unix:///run/user/$LAUNCHER_UID/docker.sock"
           printf '%s' "$GH_TOKEN" | sudo -Hu duora-sanitizer-ci docker --config "$auth" --host "$host" \
             login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
