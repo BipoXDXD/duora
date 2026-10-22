@@ -1,0 +1,265 @@
+{
+  "version": "48.2",
+  "countries": [
+    "BR",
+    "US"
+  ],
+  "usSubdivisions": [
+    {
+      "code": "US-AK",
+      "en": "Alaska",
+      "pt-BR": "Alasca"
+    },
+    {
+      "code": "US-AL",
+      "en": "Alabama",
+      "pt-BR": "Alabama"
+    },
+    {
+      "code": "US-AR",
+      "en": "Arkansas",
+      "pt-BR": "Arkansas"
+    },
+    {
+      "code": "US-AZ",
+      "en": "Arizona",
+      "pt-BR": "Arizona"
+    },
+    {
+      "code": "US-CA",
+      "en": "California",
+      "pt-BR": "Califórnia"
+    },
+    {
+      "code": "US-CO",
+      "en": "Colorado",
+      "pt-BR": "Colorado"
+    },
+    {
+      "code": "US-CT",
+      "en": "Connecticut",
+      "pt-BR": "Connecticut"
+    },
+    {
+      "code": "US-DC",
+      "en": "Washington DC",
+      "pt-BR": "Washington"
+    },
+    {
+      "code": "US-DE",
+      "en": "Delaware",
+      "pt-BR": "Delaware"
+    },
+    {
+      "code": "US-FL",
+      "en": "Florida",
+      "pt-BR": "Flórida"
+    },
+    {
+      "code": "US-GA",
+      "en": "Georgia",
+      "pt-BR": "Geórgia"
+    },
+    {
+      "code": "US-HI",
+      "en": "Hawaii",
+      "pt-BR": "Havaí"
+    },
+    {
+      "code": "US-IA",
+      "en": "Iowa",
+      "pt-BR": "Iowa"
+    },
+    {
+      "code": "US-ID",
+      "en": "Idaho",
+      "pt-BR": "Idaho"
+    },
+    {
+      "code": "US-IL",
+      "en": "Illinois",
+      "pt-BR": "Illinois"
+    },
+    {
+      "code": "US-IN",
+      "en": "Indiana",
+      "pt-BR": "Indiana"
+    },
+    {
+      "code": "US-KS",
+      "en": "Kansas",
+      "pt-BR": "Kansas"
+    },
+    {
+      "code": "US-KY",
+      "en": "Kentucky",
+      "pt-BR": "Kentucky"
+    },
+    {
+      "code": "US-LA",
+      "en": "Louisiana",
+      "pt-BR": "Luisiana"
+    },
+    {
+      "code": "US-MA",
+      "en": "Massachusetts",
+      "pt-BR": "Massachusetts"
+    },
+    {
+      "code": "US-MD",
+      "en": "Maryland",
+      "pt-BR": "Maryland"
+    },
+    {
+      "code": "US-ME",
+      "en": "Maine",
+      "pt-BR": "Maine"
+    },
+    {
+      "code": "US-MI",
+      "en": "Michigan",
+      "pt-BR": "Michigan"
+    },
+    {
+      "code": "US-MN",
+      "en": "Minnesota",
+      "pt-BR": "Minnesota"
+    },
+    {
+      "code": "US-MO",
+      "en": "Missouri",
+      "pt-BR": "Missouri"
+    },
+    {
+      "code": "US-MS",
+      "en": "Mississippi",
+      "pt-BR": "Mississippi"
+    },
+    {
+      "code": "US-MT",
+      "en": "Montana",
+      "pt-BR": "Montana"
+    },
+    {
+      "code": "US-NC",
+      "en": "North Carolina",
+      "pt-BR": "Carolina do Norte"
+    },
+    {
+      "code": "US-ND",
+      "en": "North Dakota",
+      "pt-BR": "Dakota do Norte"
+    },
+    {
+      "code": "US-NE",
+      "en": "Nebraska",
+      "pt-BR": "Nebraska"
+    },
+    {
+      "code": "US-NH",
+      "en": "New Hampshire",
+      "pt-BR": "Nova Hampshire"
+    },
+    {
+      "code": "US-NJ",
+      "en": "New Jersey",
+      "pt-BR": "Nova Jérsia"
+    },
+    {
+      "code": "US-NM",
+      "en": "New Mexico",
+      "pt-BR": "Novo México"
+    },
+    {
+      "code": "US-NV",
+      "en": "Nevada",
+      "pt-BR": "Nevada"
+    },
+    {
+      "code": "US-NY",
+      "en": "New York",
+      "pt-BR": "Nova Iorque"
+    },
+    {
+      "code": "US-OH",
+      "en": "Ohio",
+      "pt-BR": "Ohio"
+    },
+    {
+      "code": "US-OK",
+      "en": "Oklahoma",
+      "pt-BR": "Oklahoma"
+    },
+    {
+      "code": "US-OR",
+      "en": "Oregon",
+      "pt-BR": "Oregon"
+    },
+    {
+      "code": "US-PA",
+      "en": "Pennsylvania",
+      "pt-BR": "Pensilvânia"
+    },
+    {
+      "code": "US-RI",
+      "en": "Rhode Island",
+      "pt-BR": "Rhode Island"
+    },
+    {
+      "code": "US-SC",
+      "en": "South Carolina",
+      "pt-BR": "Carolina do Sul"
+    },
+    {
+      "code": "US-SD",
+      "en": "South Dakota",
+      "pt-BR": "Dakota do Sul"
+    },
+    {
+      "code": "US-TN",
+      "en": "Tennessee",
+      "pt-BR": "Tennessee"
+    },
+    {
+      "code": "US-TX",
+      "en": "Texas",
+      "pt-BR": "Texas"
+    },
+    {
+      "code": "US-UT",
+      "en": "Utah",
+      "pt-BR": "Utah"
+    },
+    {
+      "code": "US-VA",
+      "en": "Virginia",
+      "pt-BR": "Virgínia"
+    },
+    {
+      "code": "US-VT",
+      "en": "Vermont",
+      "pt-BR": "Vermont"
+    },
+    {
+      "code": "US-WA",
+      "en": "Washington",
+      "pt-BR": "Washington²"
+    },
+    {
+      "code": "US-WI",
+      "en": "Wisconsin",
+      "pt-BR": "Wisconsin"
+    },
+    {
+      "code": "US-WV",
+      "en": "West Virginia",
+      "pt-BR": "Virgínia Ocidental"
+    },
+    {
+      "code": "US-WY",
+      "en": "Wyoming",
+      "pt-BR": "Wyoming"
+    }
+  ],
+  "notes": "US subset only: 50 states plus DC. Existing BR labels preserved. Portuguese CLDR labels are provisional; no editorial changes."
+}

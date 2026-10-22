@@ -446,3 +446,26 @@ it('keeps a saved undisclosed location because null cannot prove that the countr
   expect(screen.getByRole('combobox', { name: 'País' })).toHaveValue('')
   expect(api.patches).toEqual([])
 })
+
+it('edits US subdivisions and clears them when changing country', async () => {
+  const api = useProfileBackend({
+    displayName: 'Ana',
+    bio: null,
+    countryCode: 'US',
+    subdivisionCode: 'US-MA',
+    version: 1,
+  })
+  const { user } = await renderApp('/account/profile')
+  const country = await screen.findByRole('combobox', { name: 'País' })
+  const region = screen.getByRole('combobox', { name: 'Região' })
+  expect(region).toHaveValue('US-MA')
+  expect(within(region).getAllByRole('option')).toHaveLength(52)
+  expect(within(region).queryByRole('option', { name: 'São Paulo' })).not.toBeInTheDocument()
+  await user.selectOptions(region, 'US-DC')
+  await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
+  await waitFor(() => expect(api.patches).toHaveLength(1))
+  expect(api.patches[0]).toEqual({ ifMatch: '"1"', body: { countryCode: 'US', subdivisionCode: 'US-DC' } })
+  await user.selectOptions(country, 'BR')
+  expect(region).toHaveValue('')
+  expect(within(region).getAllByRole('option')).toHaveLength(28)
+})

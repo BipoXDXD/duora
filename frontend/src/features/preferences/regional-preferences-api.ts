@@ -5,11 +5,14 @@ import type { components } from '@/shared/api/schema'
 const schema = z
   .object({
     mode: z.enum(['pending', 'countries', 'unrestricted']),
-    countryCodes: z.array(z.literal('BR')),
+    countryCodes: z
+      .array(z.enum(['BR', 'US']))
+      .max(2)
+      .refine((codes) => new Set(codes).size === codes.length),
     version: z.string().regex(/^\d+$/),
   })
   .refine((value) =>
-    value.mode === 'countries' ? value.countryCodes.length === 1 : value.countryCodes.length === 0,
+    value.mode === 'countries' ? value.countryCodes.length > 0 : value.countryCodes.length === 0,
   ) satisfies z.ZodType<components['schemas']['OwnRegionalPreferencesResponse']>
 
 export type RegionalPreferences = z.output<typeof schema>
@@ -25,7 +28,7 @@ export async function fetchRegionalPreferences(signal?: AbortSignal): Promise<Re
 export async function saveRegionalPreferences(
   base: string,
   mode: 'countries' | 'unrestricted',
-  countryCodes: 'BR'[],
+  countryCodes: ('BR' | 'US')[],
 ): Promise<RegionalPreferences> {
   return schema.parse(
     await sendMutationForJson({

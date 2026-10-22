@@ -18,7 +18,7 @@ public sealed class RegionalPreferenceTests
 
     [Theory]
     [InlineData("countries", new string[0])]
-    [InlineData("countries", new[] { "US" })]
+    [InlineData("countries", new[] { "CA" })]
     [InlineData("countries", new[] { "BR", "BR" })]
     [InlineData("countries", new[] { "br" })]
     [InlineData("countries", new[] { "BR-SP" })]

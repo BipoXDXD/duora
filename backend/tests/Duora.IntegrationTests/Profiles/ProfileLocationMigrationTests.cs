@@ -82,11 +82,6 @@ public sealed class ProfileLocationMigrationTests(PostgresFixture postgres)
 
         await using var connection = new NpgsqlConnection(database.MigratorConnectionString);
         await connection.OpenAsync(Ct);
-        // Test-only second country: proves the composite FK, not just unknown-country validation.
-        await using (var seed = new NpgsqlCommand("insert into profiles.countries (code) values ('US'); insert into profiles.subdivisions (country_code, code) values ('US', 'US-MA')", connection))
-        {
-            await seed.ExecuteNonQueryAsync(Ct);
-        }
         foreach (var (country, subdivision, sqlState) in new (string?, string?, string?)[]
         {
             ("US", "BR-SP", PostgresErrorCodes.ForeignKeyViolation),

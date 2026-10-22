@@ -5,10 +5,10 @@ import { ptBR } from '@/shared/i18n/catalog.pt-BR'
 import { REGION_CODES, REGION_LABEL_KEYS } from './profile-region'
 
 describe('regiões do perfil', () => {
-  it('são as 27 UFs em ISO 3166-2:BR, sem repetição', () => {
-    expect(REGION_CODES).toHaveLength(27)
-    expect(new Set(REGION_CODES).size).toBe(27)
-    expect(REGION_CODES.every((code) => /^BR-[A-Z]{2}$/.test(code))).toBe(true)
+  it('são as 78 subdivisões de BR e US, sem repetição', () => {
+    expect(REGION_CODES).toHaveLength(78)
+    expect(new Set(REGION_CODES).size).toBe(78)
+    expect(REGION_CODES.every((code) => /^(BR|US)-[A-Z]{2}$/.test(code))).toBe(true)
   })
 
   it('cada UF tem nome nos dois catálogos', () => {
