@@ -16,6 +16,8 @@ internal abstract record ReviewCandidateStageResult
 /// </summary>
 internal sealed class PhotoReviewCandidates
 {
+    private readonly ReviewCandidateStageResult _unimplemented = new ReviewCandidateStageResult.LeaseLost();
+
     internal PhotoReviewCandidates(DuoraDbContext db, IObjectStore store, TimeProvider time, MediaProcessingOptions options)
     {
         ArgumentNullException.ThrowIfNull(db);
@@ -32,6 +34,6 @@ internal sealed class PhotoReviewCandidates
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult<ReviewCandidateStageResult>(new ReviewCandidateStageResult.LeaseLost());
+        return Task.FromResult(_unimplemented);
     }
 }
