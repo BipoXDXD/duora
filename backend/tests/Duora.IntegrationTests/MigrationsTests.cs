@@ -36,7 +36,7 @@ public sealed class MigrationsTests(PostgresFixture postgres)
                 "experiences.audio_assets", "experiences.experience_versions", "experiences.game_actions", "experiences.game_participants", "experiences.game_sessions",
                 "identity.age_verifications", "identity.consent_records", "identity.login_sessions", "identity.role_claims", "identity.roles", "identity.selfie_verifications",
                 "identity.user_claims", "identity.user_logins", "identity.user_roles", "identity.user_tokens",
-                "identity.users", "ops.audit_events", "ops.country_database_state", "ops.country_database_versions", "ops.jobs", "ops.outbox_deliveries", "ops.outbox_events", "ops.webhook_receipts",
+                "identity.users", "ops.audit_events", "ops.country_database_approvals", "ops.country_database_incidents", "ops.country_database_notifications", "ops.country_database_retired", "ops.country_database_state", "ops.country_database_versions", "ops.jobs", "ops.outbox_deliveries", "ops.outbox_events", "ops.webhook_receipts",
                 "profiles.communication_languages", "profiles.countries", "profiles.preferences", "profiles.profiles", "profiles.regional_preference_countries", "profiles.regional_preferences", "profiles.subdivisions",
                 "safety.blocks", "safety.user_guards",
             ],

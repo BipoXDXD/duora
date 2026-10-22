@@ -12,18 +12,26 @@ public sealed partial class CountryDatabaseUpdateService(
 {
     public async Task<CountryDatabaseUpdateOutcome> ExecuteAsync(CountryDatabaseUpdateLease lease, CancellationToken ct)
     {
+        string? publishedHash = null;
+        CountryDatabaseFileLock? publication = null;
         var attempt = Path.Combine(root, ".attempt-" + Guid.NewGuid().ToString("N"));
         try
         {
-            EnsurePrivateDirectory(root);
-            EnsurePrivateDirectory(attempt);
+            // Cleanup cannot enter between its ownership snapshot and creation of a newly leased staging directory.
+            await using (await store.LockFilesAsync(ct))
+            {
+                EnsurePrivateDirectory(root);
+                EnsurePrivateDirectory(attempt);
+            }
             var path = Path.Combine(attempt, "candidate.mmdb");
             var downloadedAt = await downloader.DownloadAsync(path, ct);
+            publication = await store.LockFilesAsync(ct);
             var manifest = await validator.ValidateFileAsync(path, downloadedAt, ct);
             // Durable first-download metadata precedes publication. A stale worker may not even admit a candidate.
             var canonical = await store.RecordCandidateAsync(lease, manifest, ct);
             if (canonical is null)
             { return CountryDatabaseUpdateOutcome.LostLease; }
+            publishedHash = canonical.Sha256;
             var target = Path.Combine(root, canonical.Sha256 + ".mmdb");
             try
             { File.Move(path, target, overwrite: false); }
@@ -50,11 +58,24 @@ public sealed partial class CountryDatabaseUpdateService(
         finally
         {
             try
-            { if (Directory.Exists(attempt)) { Directory.Delete(attempt, recursive: true); } }
+            {
+                if (publishedHash is not null && publication is not null
+                    && !await store.IsApprovedAsync(publishedHash, CancellationToken.None))
+                {
+                    File.Delete(Path.Combine(root, publishedHash + ".mmdb"));
+                }
+                if (Directory.Exists(attempt))
+                { Directory.Delete(attempt, recursive: true); }
+            }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
                 // Never leak a path/provider exception. A future operations sweep must reconcile crash/IO orphans.
                 LogCleanup(logger ?? NullLogger<CountryDatabaseUpdateService>.Instance);
+            }
+            finally
+            {
+                if (publication is not null)
+                { await publication.DisposeAsync(); }
             }
         }
     }
@@ -67,7 +88,7 @@ public sealed partial class CountryDatabaseUpdateService(
         return await store.FailAsync(lease, code, transient, retryAfter, ct) ? CountryDatabaseUpdateOutcome.Failed : CountryDatabaseUpdateOutcome.LostLease;
     }
 
-    private static void EnsurePrivateDirectory(string directory)
+    internal static void EnsurePrivateDirectory(string directory)
     {
         var existed = Directory.Exists(directory);
         Directory.CreateDirectory(directory);
