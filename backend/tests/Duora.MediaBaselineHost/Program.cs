@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Duora.Core.Media;
-using Duora.Worker.Media;
+using Duora.MediaSanitizer.Media;
 using SixLabors.ImageSharp;
 
 namespace Duora.MediaBaselineHost;

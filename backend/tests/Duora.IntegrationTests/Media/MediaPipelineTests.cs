@@ -21,13 +21,14 @@ namespace Duora.IntegrationTests.Media;
 /// lido por fora (banco, storage) e pela API. Banco próprio do teste, porque o consumidor pega qualquer entrega da fila.
 /// </summary>
 [Trait("Acceptance", "T-16")]
-public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetime
+public sealed partial class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetime
 {
     private string _connectionString = "";
     private DuoraWebFactory? _web;
     private IHost? _worker;
     private readonly List<IHost> _otherWorkers = [];
     private DirectoryInfo? _mail;
+    private readonly LauncherFixture _launcher = new();
 
     private DuoraWebFactory Web => _web ?? throw new InvalidOperationException("Teste não inicializado.");
 
@@ -38,6 +39,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         _connectionString = await postgres.CreateMigratedDatabaseAsync(Cancellation);
         _web = new DuoraWebFactory(_connectionString);
         _mail = Directory.CreateTempSubdirectory("duora-mail-");
+        await _launcher.StartAsync(Cancellation);
         _worker = WorkerBuilder().Build();
     }
 
@@ -45,6 +47,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
     {
         _worker?.Dispose();
         _otherWorkers.ForEach(worker => worker.Dispose());
+        await _launcher.DisposeAsync();
         if (_web is not null)
         {
             await _web.DisposeAsync();
@@ -492,6 +495,7 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         "--Media:Review=TechnicalOnly",
         "--Media:Storage:Provider=FileSystem",
         $"--Media:Storage:FileSystemRoot={Web.MediaRoot}",
+        .. _launcher.Arguments,
         .. extra,
     ]);
 
@@ -545,10 +549,10 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
 
     private Task<int> DispatchOnceAsync() => DispatchOnceAsync(_worker ?? throw new InvalidOperationException("Sem worker."));
 
-    private static async Task<int> DispatchOnceAsync(IHost worker)
+    private static async Task<int> DispatchOnceAsync(IHost worker, CancellationToken? cancellationToken = null)
     {
         await using var scope = worker.Services.CreateAsyncScope();
-        return await scope.ServiceProvider.GetRequiredService<MediaProcessingDispatcher>().DispatchOnceAsync(Cancellation);
+        return await scope.ServiceProvider.GetRequiredService<MediaProcessingDispatcher>().DispatchOnceAsync(cancellationToken ?? Cancellation);
     }
 
     private string DerivativePath(string quarantineKey, PhotoVariant variant) =>

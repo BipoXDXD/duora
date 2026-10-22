@@ -4,6 +4,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../Duora.MediaProtocol/Duora.MediaProtocol.csproj" />
     <ProjectReference Include="..\Duora.Core\Duora.Core.csproj" />
     <ProjectReference Include="..\Duora.Contracts\Duora.Contracts.csproj" />
     <ProjectReference Include="..\Duora.Infrastructure\Duora.Infrastructure.csproj" />
@@ -11,8 +12,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
-    <!-- Só o Worker decodifica imagem: o Web nunca carrega o decoder (ADR-0025, DependencyRulesTests). -->
-    <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 
   <ItemGroup>
