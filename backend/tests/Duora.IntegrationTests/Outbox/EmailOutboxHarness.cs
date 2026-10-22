@@ -47,7 +47,8 @@ internal sealed class EmailOutboxHarness : IAsyncDisposable
     public TransactionalEmailDispatcher StartWorker(
         string[]? extraArgs = null,
         Func<ITransactionalEmailSender, ITransactionalEmailSender>? decorateSender = null,
-        ILoggerProvider? logs = null)
+        ILoggerProvider? logs = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         string[] args =
         [
@@ -71,6 +72,7 @@ internal sealed class EmailOutboxHarness : IAsyncDisposable
             builder.Logging.AddProvider(logs);
         }
 
+        configureServices?.Invoke(builder.Services);
         var host = builder.Build();
         _hosts.Add(host);
         return host.Services.GetRequiredService<TransactionalEmailDispatcher>();

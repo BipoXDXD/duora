@@ -22,7 +22,8 @@ public sealed class ProfileLocationContractTests(PostgresFixture postgres) : IAs
             Assert.True(properties.ContainsKey("countryCode"));
             Assert.True(properties.ContainsKey("subdivisionCode"));
             Assert.Equal(RegionCode.All.Count + 1, properties["regionCode"].Enum!.Count);
-            Assert.Equal(2, properties["countryCode"].Enum!.Count); // BR + null, never US.
+            Assert.Equal(3, properties["countryCode"].Enum!.Count); // BR, US and null.
+            Assert.Equal(79, properties["subdivisionCode"].Enum!.Count);
             Assert.DoesNotContain("countryCode", schema.Required ?? new HashSet<string>());
             Assert.DoesNotContain("subdivisionCode", schema.Required ?? new HashSet<string>());
         }

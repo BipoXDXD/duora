@@ -75,7 +75,7 @@ public sealed class RegionalPreferenceTests(PostgresFixture postgres) : IAsyncDi
     [InlineData("""{}""")]
     [InlineData("""{"mode":"pending","countryCodes":[]}""")]
     [InlineData("""{"mode":"countries","countryCodes":[]}""")]
-    [InlineData("""{"mode":"countries","countryCodes":["US"]}""")]
+    [InlineData("""{"mode":"countries","countryCodes":["CA"]}""")]
     [InlineData("""{"mode":"countries","countryCodes":["BR","BR"]}""")]
     [InlineData("""{"mode":"countries","countryCodes":[null]}""")]
     [InlineData("""{"mode":"unrestricted","countryCodes":["BR"]}""")]

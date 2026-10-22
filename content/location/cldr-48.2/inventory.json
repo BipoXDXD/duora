@@ -1,0 +1,13 @@
+{
+  "name": "duora-location-catalog-cldr-48.2",
+  "version": "48.2",
+  "license": "Unicode-3.0",
+  "source": "https://github.com/unicode-org/cldr/tree/release-48-2",
+  "sources": {
+    "LICENSE": "b49d0e9f8ead51ca8b7df6fec89cc3ae6809198b4b9d43c74216da0118f23f5b",
+    "common/validity/subdivision.xml": "93b12c9d55938266c96d44a7ccbb66800afeef4f9dd48b0dc16edfab89833d95",
+    "common/subdivisions/en.xml": "997a14da1144bb66f36a829db1783afe41f7529e33070afbe964bdd8e387b1d2",
+    "common/subdivisions/pt.xml": "90184154e43949ea9e4d61a4570726addcad6f1cf0b12ef638f6ddb1fd7e422b"
+  },
+  "snapshotSha256": "121992d82d2a3600d87fcd19e746b221694222e56e83bf820112291473297467"
+}

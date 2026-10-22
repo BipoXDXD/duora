@@ -8,7 +8,7 @@ const capabilitySchema = z.object({ enabled: z.boolean() }) satisfies z.ZodType<
 const resultSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('detected'),
-    countryCode: z.literal('BR'),
+    countryCode: z.enum(['BR', 'US']),
     observedAt: z.iso.datetime({ offset: true }),
   }),
   z.object({

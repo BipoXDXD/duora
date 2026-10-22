@@ -11,6 +11,25 @@ public sealed class CountryDatabasePipelineTests(PostgresFixture postgres)
     private static readonly DateTimeOffset Now = new(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task RefreshDoesNotReopenTheSameCommittedMemorySnapshotButStillHonorsRevocation()
+    {
+        await using var h = await Harness.Create(postgres);
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        Assert.Equal(CountryDatabaseUpdateOutcome.Promoted, await h.Service.ExecuteAsync(lease, Ct));
+        using var active = new ActiveCountryDatabase(h.Root, h.Validator, h.Time);
+        Assert.True(await active.RefreshAsync(h.Store, Ct));
+        var manifest = Assert.IsType<CountryDatabaseManifest>(await h.Store.ReadActiveAsync(Ct));
+        File.Delete(Path.Combine(h.Root, manifest.Sha256 + ".mmdb"));
+        Assert.True(await active.RefreshAsync(h.Store, Ct));
+        Assert.Equal(CountryLookupStatus.Detected, active.Lookup(IPAddress.Parse("192.0.2.1")).Status);
+        var operations = new CountryDatabaseOperationsStore(h.MaintenanceSource, h.Time);
+        var snapshot = await operations.ReadAsync(Ct);
+        Assert.True(await operations.HoldAsync(snapshot.Generation, Ct));
+        Assert.False(await active.RefreshAsync(h.Store, Ct));
+        Assert.Equal(CountryLookupStatus.Unavailable, active.Lookup(IPAddress.Parse("192.0.2.1")).Status);
+    }
+
+    [Fact]
     public async Task CompleteCommittedArtifactSurvivesRestartAndLookupMakesNoNetworkCall()
     {
         await using var h = await Harness.Create(postgres);

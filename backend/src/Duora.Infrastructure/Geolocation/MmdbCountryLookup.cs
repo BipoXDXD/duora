@@ -2,7 +2,7 @@ using System.Net;
 
 namespace Duora.Infrastructure.Geolocation;
 
-/// <summary>Local-only adapter. Not registered in Web; even explicit construction is disabled by default.</summary>
+/// <summary>Local-only adapter, explicitly registered only when detector configuration is enabled.</summary>
 public sealed class MmdbCountryLookup(ActiveCountryDatabase database, bool enabled = false) : ICountryLookup
 {
     public bool Enabled => enabled;

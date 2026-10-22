@@ -22,6 +22,8 @@ async function openProfile(page: Page): Promise<FakeDuoraApi> {
   await page.getByRole('button', { name: 'Entrar' }).click()
   await page.getByRole('link', { name: 'Editar perfil' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Seu perfil' })).toBeVisible()
+  // O título aparece antes da leitura do perfil; a outra aba só pode alterar depois da versão-base.
+  await expect(page.getByLabel('Nome de exibição')).toBeVisible()
   return api
 }
 

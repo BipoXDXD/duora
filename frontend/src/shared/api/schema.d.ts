@@ -3499,12 +3499,12 @@ export interface components {
              * @description ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode.
              * @enum {null|string}
              */
-            countryCode?: "BR" | null;
+            countryCode?: "BR" | "US" | null;
             /**
              * @description Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request.
              * @enum {null|string}
              */
-            subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
+            subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | "US-AK" | "US-AL" | "US-AR" | "US-AZ" | "US-CA" | "US-CO" | "US-CT" | "US-DC" | "US-DE" | "US-FL" | "US-GA" | "US-HI" | "US-IA" | "US-ID" | "US-IL" | "US-IN" | "US-KS" | "US-KY" | "US-LA" | "US-MA" | "US-MD" | "US-ME" | "US-MI" | "US-MN" | "US-MO" | "US-MS" | "US-MT" | "US-NC" | "US-ND" | "US-NE" | "US-NH" | "US-NJ" | "US-NM" | "US-NV" | "US-NY" | "US-OH" | "US-OK" | "US-OR" | "US-PA" | "US-RI" | "US-SC" | "US-SD" | "US-TN" | "US-TX" | "US-UT" | "US-VA" | "US-VT" | "US-WA" | "US-WI" | "US-WV" | "US-WY" | null;
         };
         OwnRegionalPreferencesResponse: {
             /**
@@ -3513,7 +3513,7 @@ export interface components {
              */
             mode: "pending" | "countries" | "unrestricted";
             /** @description Enabled ISO country codes. Countries mode requires a nonempty list; unrestricted requires an empty list. */
-            countryCodes: "BR"[];
+            countryCodes: ("BR" | "US")[];
             version: string;
         };
         OwnTimeZoneResponse: {
@@ -3777,12 +3777,12 @@ export interface components {
              * @description ISO 3166-1 alpha-2. Location replacement; null clears location. Omitted subdivision means country only. Do not mix with regionCode.
              * @enum {null|string}
              */
-            countryCode?: "BR" | null;
+            countryCode?: "BR" | "US" | null;
             /**
              * @description Optional first-level ISO 3166-2 subdivision. On PATCH requires countryCode in the same request.
              * @enum {null|string}
              */
-            subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | null;
+            subdivisionCode?: "BR-AC" | "BR-AL" | "BR-AM" | "BR-AP" | "BR-BA" | "BR-CE" | "BR-DF" | "BR-ES" | "BR-GO" | "BR-MA" | "BR-MG" | "BR-MS" | "BR-MT" | "BR-PA" | "BR-PB" | "BR-PE" | "BR-PI" | "BR-PR" | "BR-RJ" | "BR-RN" | "BR-RO" | "BR-RR" | "BR-RS" | "BR-SC" | "BR-SE" | "BR-SP" | "BR-TO" | "US-AK" | "US-AL" | "US-AR" | "US-AZ" | "US-CA" | "US-CO" | "US-CT" | "US-DC" | "US-DE" | "US-FL" | "US-GA" | "US-HI" | "US-IA" | "US-ID" | "US-IL" | "US-IN" | "US-KS" | "US-KY" | "US-LA" | "US-MA" | "US-MD" | "US-ME" | "US-MI" | "US-MN" | "US-MO" | "US-MS" | "US-MT" | "US-NC" | "US-ND" | "US-NE" | "US-NH" | "US-NJ" | "US-NM" | "US-NV" | "US-NY" | "US-OH" | "US-OK" | "US-OR" | "US-PA" | "US-RI" | "US-SC" | "US-SD" | "US-TN" | "US-TX" | "US-UT" | "US-VA" | "US-VT" | "US-WA" | "US-WI" | "US-WV" | "US-WY" | null;
         };
         UpdateRegionalPreferencesRequest: {
             /**
@@ -3791,7 +3791,7 @@ export interface components {
              */
             mode: "countries" | "unrestricted";
             /** @description Enabled ISO country codes. Countries mode requires a nonempty list; unrestricted requires an empty list. */
-            countryCodes: "BR"[];
+            countryCodes: ("BR" | "US")[];
         };
         UpdateTimeZoneRequest: {
             timeZone: null | string;

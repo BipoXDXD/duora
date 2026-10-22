@@ -225,3 +225,5 @@ dotnet run --project src/Duora.Worker
 | `GET /health/live` | Processo responde. Não consulta dependências. |
 | `GET /health/ready` | Inclui o banco: 503 quando ele recusa a conexão ou não responde em 3 s. |
 | `GET /openapi/v1.json` | Documento OpenAPI, só em `Development`. |
+
+Transporte externo opt-in: [Resend e homologação descartável](../operations/resend.md). O desenvolvimento continua usando pickup por padrão.

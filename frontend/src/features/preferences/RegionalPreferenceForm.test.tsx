@@ -212,7 +212,7 @@ it('ignores A after B, discards a canceled observation and never changes a saved
   await user.click(button)
   await aStarted
   await user.click(button)
-  await screen.findByText('Brasil pré-selecionado neste rascunho. Confira e salve para confirmar.')
+  await screen.findByText('País sugerido pré-selecionado neste rascunho. Confira e salve para confirmar.')
   await act(async () => {
     finishA()
     await aPending
@@ -326,4 +326,22 @@ it('a capability failure removes the action and invalidates an in-flight observa
   })
   expect(screen.getByRole('combobox', { name: 'Preferência regional' })).toHaveValue('pending')
   expect(api.writes).toEqual([])
+})
+
+it('saves US independently and both enabled countries without inferring Brazil', async () => {
+  const api = useBackend()
+  const { user } = await renderApp('/account/preferences')
+  await user.selectOptions(await screen.findByRole('combobox', { name: 'Preferência regional' }), 'countries')
+  await user.click(screen.getByRole('checkbox', { name: 'Estados Unidos' }))
+  await user.click(screen.getByRole('button', { name: 'Salvar preferência regional' }))
+  await waitFor(() => {
+    expect(api.writes).toHaveLength(1)
+  })
+  expect(api.writes[0]).toEqual({ mode: 'countries', countryCodes: ['US'] })
+  await user.click(screen.getByRole('checkbox', { name: 'Brasil' }))
+  await user.click(screen.getByRole('button', { name: 'Salvar preferência regional' }))
+  await waitFor(() => {
+    expect(api.writes).toHaveLength(2)
+  })
+  expect(api.writes[1]).toEqual({ mode: 'countries', countryCodes: ['BR', 'US'] })
 })

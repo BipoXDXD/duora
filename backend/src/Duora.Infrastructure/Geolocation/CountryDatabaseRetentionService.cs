@@ -2,18 +2,20 @@ using System.Security.Cryptography;
 
 namespace Duora.Infrastructure.Geolocation;
 
+public enum CountryDatabaseRetentionOutcome { Disabled, ClockInvalid, LocalOnly, Unavailable, IntegrityHold, Completed }
+
 /// <summary>Explicit maintenance only. No scheduler or separate storage is configured by this component.</summary>
 public sealed class CountryDatabaseRetentionService(CountryDatabaseOperationsStore store, string root,
     ICountryDatabaseArchive? archive = null, bool enabled = false)
 {
-    public async Task RunOnceAsync(CancellationToken ct)
+    public async Task<CountryDatabaseRetentionOutcome> RunOnceAsync(CancellationToken ct)
     {
         if (!enabled)
-        { return; }
+        { return CountryDatabaseRetentionOutcome.Disabled; }
         await using var files = await store.LockFilesAsync(ct);
         var s = await store.ReadAsync(ct);
         if (store.UtcNow < s.LastObserved)
-        { return; }
+        { return CountryDatabaseRetentionOutcome.ClockInvalid; }
         var keep = await store.RetireAsync(s, ct);
         // Reader handles own immutable memory, not these disk files. Existing lookups never use an unlinked handle.
         if (Directory.Exists(root))
@@ -31,7 +33,7 @@ public sealed class CountryDatabaseRetentionService(CountryDatabaseOperationsSto
             }
         }
         if (archive is null)
-        { return; }
+        { return CountryDatabaseRetentionOutcome.LocalOnly; }
         var copies = s.Approved.Where(m => keep.Contains(m.Sha256))
             .OrderByDescending(m => m.Sha256 == s.Active?.Sha256).ThenByDescending(m => m.BuiltAt).Take(2).ToArray();
         var copyHashes = copies.Select(m => m.Sha256).ToHashSet(StringComparer.Ordinal);
@@ -45,15 +47,16 @@ public sealed class CountryDatabaseRetentionService(CountryDatabaseOperationsSto
         {
             var path = Path.Combine(root, m.Sha256 + ".mmdb");
             if (!File.Exists(path))
-            { continue; }
+            { return CountryDatabaseRetentionOutcome.Unavailable; }
             await using var file = File.OpenRead(path);
             if (file.Length != m.SizeBytes || Convert.ToHexStringLower(await SHA256.HashDataAsync(file, ct)) != m.Sha256)
             {
                 await store.HoldAsync(s.Generation, ct);
-                return;
+                return CountryDatabaseRetentionOutcome.IntegrityHold;
             }
             file.Position = 0;
             await archive.PutAsync(m, file, ct);
         }
+        return CountryDatabaseRetentionOutcome.Completed;
     }
 }
