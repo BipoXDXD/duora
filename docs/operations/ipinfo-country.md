@@ -1,8 +1,22 @@
 # Base IPinfo: preparação inativa
 
 As etapas 7, 8 e 9 da [issue #108](https://github.com/BipoXDXD/duora/issues/108) preparam componentes sem registrá-los
-nos hosts. O leitor usa o fallback de reflexão no runtime JIT; NativeAOT/trimming não estão homologados. [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md) é a decisão vigente.
+nos hosts. O leitor usa o fallback de reflexão no runtime JIT; NativeAOT/trimming não estão homologados. [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md) rege a arquitetura, com a troca de produto no ADR-0037 abaixo.
 Este documento não é autorização de operação. BR + 27 UFs continuam sendo o catálogo executável.
+
+## Direção vigente — IPinfo Lite (22/10/2026)
+
+O [ADR-0037](../architecture/adr/0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) substitui a escolha de produto
+anterior por IPinfo Lite `ipinfo_lite.mmdb` / CC BY-SA 4.0. O ADR-0033 mantém as demais decisões.
+Os componentes descritos abaixo ainda usam `country.mmdb`, sua fonte e seu schema. Não aceitam Lite por
+renomeação: downloader/manifesto/validador/leitor precisam de adaptação e testes em PR próprio antes de G2 real.
+No Lite, o código ISO é `country_code`, e `country` é nome. O Duora utilizará apenas a projeção de país;
+ASN e demais campos não viram atributos de participantes, filtros ou logs por consulta. O MMDB bruto contém
+campos adicionais e permanece sujeito a armazenamento privado e à retenção aprovada.
+
+Seguir o [plano de homologação atualizado](../superpowers/plans/2026-10-22-issue-108-operational-homologation.md)
+para obter aceite do perfil e primeiro hash Lite. Este runbook não atesta compatibilidade nem homologa a base.
+Sem download ou ativação nesta mudança; detector/atualizador/monitor seguem desligados, sem EUA/alertas reais.
 
 ## Componentes e autoridade
 
@@ -25,7 +39,7 @@ pode continuar somente enquanto admissível. Redownload conserva datas originais
 
 ## Pré-requisitos antes de qualquer ativação
 
-- G2: homologar acesso autorizado ao country.mmdb real, formato e tipo exato, epoch confiável, schema, cadência e limites
+- G2: adaptar o contrato para Lite e homologar acesso autorizado ao `ipinfo_lite.mmdb` real, formato e tipo exato, epoch confiável, schema, cadência e limites
   do fornecedor. A biblioteca MaxMind.Db 5.2.0/Apache-2.0 já foi aprovada; isso não homologa os dados.
 - Definir explicitamente MaxBytes, Timeout, MaxNetworks e hosts HTTPS permitidos. Não há defaults operacionais.
   O perfil sintético dos testes não pode ser usado como configuração real. Redirecionamentos são limitados a três;
@@ -136,7 +150,7 @@ mantém schema aditivo e serviços desligados. A #108 permanece aberta e US pert
 
 - [MaxMind.Db 5.2.0](https://www.nuget.org/packages/MaxMind.Db/5.2.0) e [licença do leitor](https://github.com/maxmind/MaxMind-DB-Reader-dotnet/blob/v5.2.0/LICENSE).
 - [Formato MaxMind DB](https://maxmind.github.io/MaxMind-DB/).
-- [IPinfo Lite e exportações](https://ipinfo.io/developers/ipinfo-lite-database): não substitui a homologação de country.mmdb.
+- [IPinfo Lite e exportações](https://ipinfo.io/developers/ipinfo-lite-database): fonte do produto planejado no ADR-0037; não substitui a homologação de G2.
 
 
 ## Homologação técnica e reversão — etapa 10
