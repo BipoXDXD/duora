@@ -20,6 +20,7 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("duora-review-assignment-");
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly string[] SummaryFields = ["awaitingReviewAt", "caseId", "reviewDeadline", "state", "version"];
     private string _connectionString = "";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -232,7 +233,7 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
         {
             var text = JsonSerializer.Serialize(row, Json);
             using var document = JsonDocument.Parse(text);
-            Assert.Equal(new[] { "awaitingReviewAt", "caseId", "reviewDeadline", "state", "version" },
+            Assert.Equal(SummaryFields,
                 document.RootElement.EnumerateObject().Select(property => property.Name).Order());
             Assert.DoesNotContain("quarantine", text, StringComparison.Ordinal);
             Assert.DoesNotContain("review-candidates", text, StringComparison.Ordinal);
