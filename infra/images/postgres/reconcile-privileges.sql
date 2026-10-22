@@ -98,7 +98,9 @@ END $$;
 DO $$
 DECLARE review_table text;
 BEGIN
-  FOREACH review_table IN ARRAY ARRAY['safety.photo_review_assignments','safety.photo_review_commands','safety.photo_review_evidence_accesses'] LOOP
+  FOREACH review_table IN ARRAY ARRAY['safety.photo_review_assignments','safety.photo_review_commands',
+    'safety.photo_review_decision_commands','safety.photo_review_decision_variants','safety.photo_review_decisions',
+    'safety.photo_review_evidence_accesses'] LOOP
     IF to_regclass(review_table) IS NOT NULL THEN
       EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON %s FROM duora_app', review_table);
       IF has_table_privilege('duora_app', review_table, 'UPDATE')
