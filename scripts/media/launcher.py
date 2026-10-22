@@ -8,6 +8,7 @@ import math
 import os
 import re
 import stat
+import socket
 import struct
 import time
 from dataclasses import asdict, dataclass
@@ -243,12 +244,85 @@ async def collect_bounded(stream, limit, *, discard=False):
             output.extend(chunk)
 
 
+CONTROL_CODES = {"exited": 0, "busy": 1, "duplicate": 2, "cancelled": 3, "failed": 4,
+                 "unknown": 5, "running": 6, "finished": 7, "blocked": 8}
+
+
 class ControlServer:
+    """Only three binary operations; kernel peer UID checked before reading the header."""
     def __init__(self, profile, supervisor):
-        raise NotImplementedError
+        self.profile = profile
+        self.supervisor = supervisor
+        self.server = None
+        self.tasks = set()
+        self.clients = 0
 
     async def start(self):
-        raise NotImplementedError
+        path = Path(self.profile.control_socket)
+        parent = path.parent.lstat()
+        require(stat.S_ISDIR(parent.st_mode) and parent.st_uid == os.geteuid() and parent.st_mode & 0o022 == 0)
+        require(path.parent.resolve() == path.parent)
+        if path.exists() or path.is_symlink():
+            previous = path.lstat()
+            require(stat.S_ISSOCK(previous.st_mode) and previous.st_uid == os.geteuid())
+            path.unlink()
+        self.server = await asyncio.start_unix_server(self.handle, path=str(path), backlog=8, limit=65536)
+        os.chown(path, -1, self.profile.control_gid)
+        os.chmod(path, 0o660)
+
+    async def handle(self, reader, writer):
+        task = asyncio.current_task()
+        self.tasks.add(task)
+        self.clients += 1
+        try:
+            peer = writer.get_extra_info("socket")
+            _, uid, _ = struct.unpack("3i", peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            if uid != self.profile.worker_uid or self.clients > 8:
+                return
+            began = time.monotonic()
+            async with asyncio.timeout(50):
+                header = await reader.readexactly(22)
+                require(header[:5] == b"DMLC\x01" and header[5] in (1, 2, 3))
+                job_id = header[6:22].hex()
+                job_name(job_id)
+                if header[5] == 1:
+                    if self.supervisor.blocked:
+                        outcome = Outcome("blocked")
+                    elif self.supervisor.lock.locked():
+                        outcome = Outcome("busy")
+                    else:
+                        wire, budget = await read_start(reader)
+                        remaining = budget[3] - int((time.monotonic()-began)*1000)
+                        require(remaining > 0)
+                        outcome = await self.supervisor.run(job_id, wire, (*budget[:3],remaining))
+                else:
+                    require(not await reader.read(1))
+                    if header[5] == 3:
+                        self.supervisor.cancel(job_id)
+                    outcome = Outcome(self.supervisor.status(job_id))
+                writer.write(b"DMLR\x01" + bytes([CONTROL_CODES[outcome.code]]) + bytes.fromhex(job_id)
+                             + bytes.fromhex(self.profile.digest) + outcome.payload)
+                await writer.drain()
+        except (ValueError, OSError, asyncio.IncompleteReadError, TimeoutError, asyncio.CancelledError):
+            # No original bytes, paths, error details or stack traces are logged.
+            pass
+        finally:
+            self.clients -= 1
+            self.tasks.discard(task)
+            writer.close()
+            try:
+                await asyncio.wait_for(writer.wait_closed(), 1)
+            except (OSError, TimeoutError):
+                pass
 
     async def close(self):
-        raise NotImplementedError
+        if self.server is None:
+            return
+        self.server.close()
+        tasks = list(self.tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await self.server.wait_closed()
+        self.server = None
+        Path(self.profile.control_socket).unlink(missing_ok=True)
