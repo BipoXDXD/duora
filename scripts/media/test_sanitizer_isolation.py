@@ -223,7 +223,8 @@ class Proof:
             self.docker(*arguments)
             try:
                 payload=self.docker("start","--attach","--interactive",job_name(job),wire=self.wire(job,b"inspect"))
-                assert json.loads(payload)["rootReadOnly"] is False
+                observation=json.loads(payload)
+                assert observation["rootReadOnly"] is False and observation["rootMountReadOnly"] is False
                 self.report["writableRootNegativeControl"]=True
             finally: self.docker("rm","--force",job_name(job))
             self.assert_empty()
@@ -234,7 +235,7 @@ class Proof:
             assert code==0
             data=json.loads(payload)
             for key in ["nonRoot","noCapabilities","noPrivileges","seccomp","noSecrets","noStorage","noDockerSocket",
-                        "rootReadOnly","tmpfsBounded","noExec","noNetwork","noDns"]:assert data[key],key
+                        "rootReadOnly","rootMountReadOnly","tmpfsBounded","noExec","noNetwork","noDns"]:assert data[key],key
             assert (data["memory"],data["swap"],data["cpu"],data["pids"])==("536870912","0","100000 100000","64")
             self.report["effectiveControls"]=data;self.assert_empty()
         self.case("effective-cgroups-network-dns-storage-secrets-readonly-tmpfs-seccomp",inspect)

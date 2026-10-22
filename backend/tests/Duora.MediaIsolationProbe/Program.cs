@@ -70,6 +70,10 @@ internal static class Program
         }
         if (mode != "inspect") { return 64; }
         var status = await File.ReadAllTextAsync("/proc/self/status");
+        var rootMount = (await File.ReadAllLinesAsync("/proc/self/mountinfo"))
+            .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Single(fields => fields.Length >= 6 && fields[4] == "/");
+        var rootMountReadOnly = rootMount[5].Split(',').Contains("ro", StringComparer.Ordinal);
         var rootReadOnly = false;
         try { await File.WriteAllTextAsync("/app/forbidden", "synthetic"); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { rootReadOnly = true; }
@@ -112,7 +116,7 @@ internal static class Program
             noSecrets = !Directory.Exists("/run/secrets") && Environment.GetEnvironmentVariable("CANARY_SECRET") is null,
             noStorage = !Directory.Exists("/media/quarantine") && !Directory.Exists("/media/derivatives") && !Directory.Exists("/var/lib/duora"),
             noDockerSocket = !File.Exists("/var/run/docker.sock"),
-            rootReadOnly, tmpfsBounded, noExec, noNetwork, noDns,
+            rootReadOnly, rootMountReadOnly, tmpfsBounded, noExec, noNetwork, noDns,
         };
         await Console.OpenStandardOutput().WriteAsync(JsonSerializer.SerializeToUtf8Bytes(result));
         return 0;
