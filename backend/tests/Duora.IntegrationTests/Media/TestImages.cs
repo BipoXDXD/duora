@@ -325,7 +325,9 @@ internal static class TestImages
         using var stream = new MemoryStream();
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
         {
-            using var entry = new StreamWriter(archive.CreateEntry("leia.txt").Open());
+            var file = archive.CreateEntry("leia.txt");
+            file.LastWriteTime = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            using var entry = new StreamWriter(file.Open());
             entry.Write(ZipCanary);
         }
 

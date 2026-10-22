@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -13,6 +14,18 @@ namespace Duora.IntegrationTests.Media;
 public sealed class SanitizerResourceEnvelopeTests
 {
     [Fact]
+    public void SyntheticZipHasAFixedTimestampForReproducibleInputHashes()
+    {
+        var input = TestImages.JpegZipPolyglot();
+        var offset = input.AsSpan().IndexOf("PK\u0003\u0004"u8);
+        Assert.True(offset >= 0);
+        using var stream = new MemoryStream(input[offset..]);
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
+        Assert.Equal(new DateTime(2000, 1, 1), Assert.Single(zip.Entries).LastWriteTime.DateTime);
+        Assert.Equal(input, TestImages.JpegZipPolyglot());
+    }
+
+    [Fact]
     public async Task CurrentSanitizerHasRepeatableSyntheticResultsAndIsolatedProcessMeasurements()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -23,6 +36,7 @@ public sealed class SanitizerResourceEnvelopeTests
             + "RSS includes child runtime/input; cgroup values are shared runner context, not attributed to the child.\n\n"
             + "| Case | Input bytes | Result | Max elapsed ms | Max RSS bytes | Total output bytes |\n"
             + "|---|---:|---|---:|---:|---:|\n");
+        var raw = new StringBuilder("\n<details><summary>Raw synthetic samples (JSONL)</summary>\n\n```jsonl\n");
         var pids = new HashSet<int>();
         try
         {
@@ -48,7 +62,9 @@ public sealed class SanitizerResourceEnvelopeTests
                     Assert.Equal(item.RejectionCode, result.GetProperty("RejectionCode").GetString());
                     Assert.Equal(item.RejectionCode is null ? "Sanitized" : "Rejected", result.GetProperty("Outcome").GetString());
                     ValidateVariants(item, result);
-                    TestContext.Current.TestOutputHelper!.WriteLine($"sanitizer-baseline case={item.Name} seed={SanitizerBaselineCorpus.Seed} {result.GetRawText()}");
+                    var record = JsonSerializer.Serialize(new { Case = item.Name, Seed = SanitizerBaselineCorpus.Seed, Sample = result });
+                    raw.AppendLine(record);
+                    TestContext.Current.TestOutputHelper!.WriteLine($"sanitizer-baseline {record}");
                 }
                 var total = first.GetProperty("Variants").EnumerateArray().Sum(v => v.GetProperty("Bytes").GetInt64());
                 var elapsed = Math.Max(first.GetProperty("SanitizerElapsedMilliseconds").GetDouble(), second.GetProperty("SanitizerElapsedMilliseconds").GetDouble());
@@ -62,7 +78,8 @@ public sealed class SanitizerResourceEnvelopeTests
                 + "Input/output hashes, per-variant sizes and raw measurements are retained in the test output.\n");
             if (Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY") is { Length: > 0 } target)
             {
-                await File.AppendAllTextAsync(target, summary.ToString(), ct);
+                raw.AppendLine("```\n</details>\n");
+                await File.AppendAllTextAsync(target, summary.ToString() + raw, ct);
             }
         }
         finally

@@ -47,6 +47,11 @@ API-M01 mantém request/headers/202/Location atuais; replay devolve a mesma phot
 Idempotency-Key igual com bytes diferentes continua 409. A negociação ADR-0034 continua restrita aos campos
 já definidos de validação de upload; **PHOTO_REVIEW_* são resultados do processamento, fora de errors**.
 
+API-M02 futura responde também com **ETag forte e opaco da versão do upload/foto**, inclusive para Rejected
+e Deleted enquanto o registro existir. Esse é o valor de If-Match para criar recurso ou excluir a foto;
+não usar versão do perfil, do caso ou de recurso ainda inexistente. API-M01/replay pode devolver o mesmo
+ETag da foto, mas API-M02 é a fonte obrigatória para reler a versão após conflito.
+
 API-M02 futura mantém os campos atuais e acrescenta `assetId` nullable: só tem valor se status Approved e
 existir asset final autorizado. Caso, revisor, evidência, motivo interno, chaves de arquivo e URLs não aparecem.
 
@@ -99,11 +104,16 @@ recebem leitura de fotos por serem privilegiados. Atribuição, leitura, decisã
 capacidades explícitas; recurso exige revisor diferente de quem tomou a decisão anterior. A ausência de
 nomes/cobertura continua gate de ativação; não preencher responsáveis a partir do titular de suporte/região.
 
-ETag do caso e do pedido de recurso é forte, opaco e versionado pelo servidor; não reutilizar ETag de perfil.
-Mutações de caso e exclusão usam a versão do objeto que alteram, não versão enviada de outro recurso.
+ETag do caso vem do GET administrativo do caso e é consumido pelas mutações administrativas. GET do
+protocolo de recurso devolve ETag próprio para esse recurso; não substitui o ETag da foto. POST de recurso
+e DELETE consomem o ETag da foto obtido em API-M02. Não reutilizar tags entre recursos ou de perfil.
 Sem If-Match:428; formato inválido:400; versão vencida:412, sem efeito. Repetição da mesma chave/corpo retorna
 resultado já confirmado, mesmo que sua versão anterior já tenha avançado; chave com intenção diferente:409.
 Revisão/exclusão concorrentes revalidam guardas e versão no commit; somente a intenção vencedora produz efeito.
+Autenticação/CSRF e presença/sintaxe dos headers continuam obrigatórias no replay. Depois dessa validação,
+a mesma chave/intenção confirmada retorna o resultado salvo antes de comparar a versão atual. DELETE204
+devolve ETag da foto após o efeito; Deleted próprio com chave nova só retorna204 se If-Match atual for
+válido. Tag vencida dá412 e ausência dá428 também nessa situação; após expurgo da linha vale404 uniforme.
 
 Sessão ausente:401; papel/capacidade ausente antes de localizar caso:403; caso/foto fora do escopo:404 uniforme;
 estado incompatível/recurso duplicado divergente:409; corpo inválido:400; limitação:429 + Retry-After;
