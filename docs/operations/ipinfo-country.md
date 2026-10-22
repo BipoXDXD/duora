@@ -8,15 +8,24 @@ Este documento não é autorização de operação. BR + 27 UFs continuam sendo 
 
 O [ADR-0037](../architecture/adr/0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) substitui a escolha de produto
 anterior por IPinfo Lite `ipinfo_lite.mmdb` / CC BY-SA 4.0. O ADR-0033 mantém as demais decisões.
-Os componentes descritos abaixo ainda usam `country.mmdb`, sua fonte e seu schema. Não aceitam Lite por
-renomeação: downloader/manifesto/validador/leitor precisam de adaptação e testes em PR próprio antes de G2 real.
-No Lite, o código ISO é `country_code`, e `country` é nome. O Duora utilizará apenas a projeção de país;
+A adaptação inativa do [PR #183](https://github.com/BipoXDXD/duora/pull/183) troca explicitamente
+produto/fonte/schema e leitura. O contrato é `ipinfo_lite.mmdb`, `ipinfo-lite-country-v1` e origem
+`https://ipinfo.io/data/ipinfo_lite.mmdb`. Não admite `country.mmdb` por renomeação, metadados antigos ou fallback.
+Os limites e o `DatabaseType` real continuam exigindo perfil G2 explícito, sem defaults operacionais.
+No Lite, o código ISO é `country_code`, e `country` é nome. O Duora utiliza apenas a projeção de país;
 ASN e demais campos não viram atributos de participantes, filtros ou logs por consulta. O MMDB bruto contém
 campos adicionais e permanece sujeito a armazenamento privado e à retenção aprovada.
 
 Seguir o [plano de homologação atualizado](../superpowers/plans/2026-10-22-issue-108-operational-homologation.md)
 para obter aceite do perfil e primeiro hash Lite. Este runbook não atesta compatibilidade nem homologa a base.
 Sem download ou ativação nesta mudança; detector/atualizador/monitor seguem desligados, sem EUA/alertas reais.
+
+A validação percorre redes IPv4/IPv6 com limites explícitos e recusa código ausente, malformado ou não
+reconhecido pelo mapeamento conservador BCL, tipos divergentes e campos fora do schema documentado. Campos
+adicionais conhecidos permanecem strings opcionais ignoradas na projeção; o nome nunca é fallback para código.
+A identidade completa do manifesto é obrigatória na construção. JSON sem produto/fonte/schema/licença não
+herda a escolha Lite e não é admissível; cópias antigas não recebem novo rótulo ou aprovação implicitamente.
+Os testes usam somente MMDBs inventados; não comprovam acesso, precisão ou compatibilidade de base real.
 
 ## Componentes e autoridade
 
@@ -39,7 +48,7 @@ pode continuar somente enquanto admissível. Redownload conserva datas originais
 
 ## Pré-requisitos antes de qualquer ativação
 
-- G2: adaptar o contrato para Lite e homologar acesso autorizado ao `ipinfo_lite.mmdb` real, formato e tipo exato, epoch confiável, schema, cadência e limites
+- G2: revisar a adaptação inativa Lite e homologar acesso autorizado ao `ipinfo_lite.mmdb` real, formato e tipo exato, epoch confiável, schema, cadência e limites
   do fornecedor. A biblioteca MaxMind.Db 5.2.0/Apache-2.0 já foi aprovada; isso não homologa os dados.
 - Definir explicitamente MaxBytes, Timeout, MaxNetworks e hosts HTTPS permitidos. Não há defaults operacionais.
   O perfil sintético dos testes não pode ser usado como configuração real. Redirecionamentos são limitados a três;

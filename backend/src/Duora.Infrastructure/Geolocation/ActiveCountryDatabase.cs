@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using Duora.Core.Geolocation;
 using MaxMind.Db;
@@ -88,14 +87,9 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
             }
             try
             {
-                var code = _reader.Find<CountryEntry>(address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address)?.Country;
-                if (code is not { Length: 2 } || code.Any(c => !char.IsAsciiLetterUpper(c)))
+                var code = _reader.Find<CountryEntry>(address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address)?.CountryCode;
+                if (!IpinfoLiteSchema.IsCountryCode(code))
                 { return new(CountryLookupStatus.Unknown); }
-                // A conservative BCL mapping, using only the explicit code, never the UI/server culture.
-                if (!string.Equals(new RegionInfo(code).TwoLetterISORegionName, code, StringComparison.Ordinal))
-                {
-                    return new(CountryLookupStatus.Unknown);
-                }
                 return new(CountryLookupStatus.Detected, code);
             }
             catch (ArgumentException) { return new(CountryLookupStatus.Unknown); }
@@ -131,7 +125,7 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
     internal sealed class CountryEntry
     {
         [Constructor]
-        public CountryEntry([MapKey("country")] string country) => Country = country;
-        public string Country { get; }
+        public CountryEntry([MapKey("country_code")] string countryCode) => CountryCode = countryCode;
+        public string CountryCode { get; }
     }
 }
