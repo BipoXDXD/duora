@@ -96,7 +96,7 @@ public sealed partial class MediaProcessingDispatcher
 
     /// <summary>
     /// Processa no máximo um upload e devolve quantas entregas tomou ou encerrou no claim (0 ou 1). Sem heartbeat: o
-    /// lote é de um, o lease passa de duas vezes o prazo da sanitização (conferido no boot) e o efeito no storage é
+    /// lote é de um, o lease cobre o envelope completo e margem de storage/commit (conferido no boot) e o efeito no storage é
     /// protegido pela versão do upload, não pelo lease.
     /// </summary>
     public async Task<int> DispatchOnceAsync(CancellationToken cancellationToken)

@@ -38,4 +38,8 @@ public static class MediaProcessingServiceCollectionExtensions
     /// <summary>Lease do consumidor, para o host conferir que ele cobre o tempo máximo da sanitização.</summary>
     public static TimeSpan MediaProcessingLease(this IServiceProvider provider) =>
         provider.GetRequiredService<IOptions<MediaProcessingOptions>>().Value.LeaseDuration;
+
+    /// <summary>Allows the host to require launcher readiness only when processing is configured.</summary>
+    public static bool MediaProcessingEnabled(this IServiceProvider provider) =>
+        provider.GetRequiredService<IOptions<MediaOptions>>().Value.UploadsEnabled;
 }

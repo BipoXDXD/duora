@@ -3,8 +3,8 @@
   "reviewStatus": "pending_human_review",
   "planAtGeneration": "Active subscription recorded in duora-editorial-20261021; rights review remains pending.",
   "voiceId": "EXAVITQu4vr4xnSDxMaL",
-  "reportedCredits": 2431.7568,
-  "generationCalls": 8,
+  "reportedCredits": 2723.7276,
+  "generationCalls": 10,
   "allTakes": [
     {
       "key": "constellation-en-US",
@@ -277,6 +277,46 @@
       },
       "prompt": "Planejem uma rota por uma ilha imaginária em conjunto.",
       "revision": "spoken-disclosure-removed-by-owner-request"
+    },
+    {
+      "key": "constellation-pt-BR",
+      "take": 5,
+      "generationId": "TmGvh4AVmGZjqZuxO751",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "modelId": "eleven_v4",
+      "flowId": "oANWQrVadt2Qb5hY1R1l",
+      "nodeId": "ZKuE8Y6XNfD4tndmJadb",
+      "createdAtUnixMs": 1792667287436,
+      "durationSeconds": 4.64,
+      "price": {
+        "credits": 65.99340000000001,
+        "price_cents": 1.19988,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "synthesisPrompt": "/esˈplɔɾi/ escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "promptMeaning": "Visible transcript; synthesisPrompt preserves the actual IPA input.",
+      "revision": "explore-pronunciation-same-sarah"
+    },
+    {
+      "key": "constellation-pt-BR",
+      "take": 6,
+      "generationId": "FlIwZqwrAUDxEQMCndIK",
+      "voiceId": "EXAVITQu4vr4xnSDxMaL",
+      "modelId": "eleven_v4",
+      "flowId": "oANWQrVadt2Qb5hY1R1l",
+      "nodeId": "ZKuE8Y6XNfD4tndmJadb",
+      "createdAtUnixMs": 1792667287488,
+      "durationSeconds": 4.48,
+      "price": {
+        "credits": 65.99340000000001,
+        "price_cents": 1.19988,
+        "cost_fiat_currency": "usd"
+      },
+      "prompt": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "synthesisPrompt": "/esˈplɔɾi/ escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "promptMeaning": "Visible transcript; synthesisPrompt preserves the actual IPA input.",
+      "revision": "explore-pronunciation-same-sarah"
     }
   ],
   "assets": [
@@ -317,34 +357,36 @@
       "key": "constellation-pt-BR",
       "locale": "pt-BR",
       "cueId": "intro",
-      "selectedTake": 1,
-      "generationId": "Q8M7IHElWIFVklZyaRpt",
+      "selectedTake": 5,
+      "generationId": "TmGvh4AVmGZjqZuxO751",
       "sourceFormat": "mp3",
-      "sourceSha256": "7b5ade48bfab1ffd019f0ce75e32a49f93dfbedc75eff57b0a0358c972993af9",
+      "sourceSha256": "b7c085472083802ddad3e69010b6e441953976aec087538a83a1224061e249ce",
       "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
       "wav": {
-        "path": "audio/43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc.wav",
-        "sha256": "43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc",
-        "bytes": 430124,
+        "path": "audio/11eb2c2d46cdb92ec7aca97d3d42c92185558bf6f3c20fe6762bf400ad5d8713.wav",
+        "sha256": "11eb2c2d46cdb92ec7aca97d3d42c92185558bf6f3c20fe6762bf400ad5d8713",
+        "bytes": 445484,
         "sampleRate": 48000,
         "channels": 1,
         "format": "PCM signed16 little-endian canonical WAV",
-        "durationSeconds": 4.48,
-        "integratedLufs": -16.62,
-        "truePeakDbtp": -1.5
+        "integratedLufs": -16.69,
+        "truePeakDbtp": -1.5,
+        "durationSeconds": 4.64
       },
       "aac": {
-        "path": "audio/f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f.m4a",
-        "sha256": "f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f",
-        "bytes": 38060,
-        "format": "AAC-LC MP4",
+        "path": "audio/c05bdd924aa7a641c3a17d09aed837b0e84a77fe6a7c708f8df11b40166a8fc5.m4a",
+        "sha256": "c05bdd924aa7a641c3a17d09aed837b0e84a77fe6a7c708f8df11b40166a8fc5",
+        "bytes": 39447,
         "sampleRate": 48000,
         "channels": 1,
-        "bitrate": 64000,
-        "integratedLufs": -16.64,
-        "truePeakDbtp": -1.39
+        "format": "AAC-LC MP4",
+        "integratedLufs": -16.75,
+        "truePeakDbtp": -1.38,
+        "bitrate": 64000
       },
-      "processing": "FFmpeg two-pass loudnorm -16 LUFS target / -1.5 dBTP; mono48000 PCM; WAV header written by Python wave; AAC-LC encoded once from same normalized PCM source."
+      "processing": "FFmpeg two-pass loudnorm -16 LUFS target / -1.5 dBTP; mono48000 PCM; WAV header written by Python wave; AAC-LC encoded once from same normalized PCM source.",
+      "modelId": "eleven_v4",
+      "synthesisPrompt": "/esˈplɔɾi/ escolhas do dia a dia. Você pode pular qualquer cartão."
     },
     {
       "key": "unlikely-routes-en-US",
@@ -666,11 +708,90 @@
       "reason": "Introductions without spoken processamento externo disclosure, per owner instruction",
       "reportedCredits": 859.914,
       "calls": 4
+    },
+    "pronunciationRevision20261022": {
+      "reason": "Human requested natural Explore pronunciation, same original Sarah voice.",
+      "supersededAsset": {
+        "key": "constellation-pt-BR",
+        "locale": "pt-BR",
+        "cueId": "intro",
+        "selectedTake": 1,
+        "generationId": "Q8M7IHElWIFVklZyaRpt",
+        "sourceFormat": "mp3",
+        "sourceSha256": "7b5ade48bfab1ffd019f0ce75e32a49f93dfbedc75eff57b0a0358c972993af9",
+        "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+        "wav": {
+          "path": "audio/43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc.wav",
+          "sha256": "43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc",
+          "bytes": 430124,
+          "sampleRate": 48000,
+          "channels": 1,
+          "format": "PCM signed16 little-endian canonical WAV",
+          "durationSeconds": 4.48,
+          "integratedLufs": -16.62,
+          "truePeakDbtp": -1.5
+        },
+        "aac": {
+          "path": "audio/f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f.m4a",
+          "sha256": "f24ffa18ee6c2a801680ffeb22fe0232456512e727b7b298e516aedff420235f",
+          "bytes": 38060,
+          "format": "AAC-LC MP4",
+          "sampleRate": 48000,
+          "channels": 1,
+          "bitrate": 64000,
+          "integratedLufs": -16.64,
+          "truePeakDbtp": -1.39
+        },
+        "processing": "FFmpeg two-pass loudnorm -16 LUFS target / -1.5 dBTP; mono48000 PCM; WAV header written by Python wave; AAC-LC encoded once from same normalized PCM source."
+      },
+      "acceptedVoiceTakes": [
+        "TmGvh4AVmGZjqZuxO751",
+        "FlIwZqwrAUDxEQMCndIK"
+      ],
+      "rejectedVoiceAttempt": {
+        "voiceId": "mmTLZX6tO1YdiYVoUVN5",
+        "status": "rejected_by_owner_voice_change",
+        "takes": [
+          {
+            "id": "SeEYfGw987uMf6Z4wdGE",
+            "status": "completed",
+            "model_id": "eleven_v4",
+            "modality": "audio",
+            "prompt": "[conversational] Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+            "duration_secs": 4.56,
+            "created_at_unix_ms": 1792667079978,
+            "price": {
+              "credits": 79.99199999999999,
+              "price_cents": 1.4544,
+              "cost_fiat_currency": "usd"
+            }
+          },
+          {
+            "id": "T0E26j8uFy0EeoG6RkQt",
+            "status": "completed",
+            "model_id": "eleven_v4",
+            "modality": "audio",
+            "prompt": "[conversational] Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+            "duration_secs": 4.48,
+            "created_at_unix_ms": 1792667080019,
+            "price": {
+              "credits": 79.99199999999999,
+              "price_cents": 1.4544,
+              "cost_fiat_currency": "usd"
+            }
+          }
+        ],
+        "reportedCredits": 159.98399999999998
+      },
+      "calls": 2,
+      "reportedCredits": 291.9708,
+      "transcriptUnchanged": true,
+      "formalApproval": "pending_digest_binding"
     }
   },
   "initialRunCreditCap": 2000,
   "revisionCreditCap": 1000,
   "totalCreditCap": 3000,
-  "attemptsPerTextPerRevision": 1,
+  "attemptsPerTextPerRevision": 2,
   "sourceRecord": "duora-editorial-20261021"
 }
