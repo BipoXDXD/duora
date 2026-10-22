@@ -6,20 +6,26 @@ namespace Duora.IntegrationTests.Geolocation;
 /// <summary>Builds tiny MMDBs from invented documentation networks. No vendor database or participant data.</summary>
 internal static class SyntheticMmdb
 {
-    public const string DatabaseType = "synthetic-ipinfo-country";
-    public const string LiteDatabaseType = "synthetic-ipinfo-lite";
+    public const string DatabaseType = "synthetic-ipinfo-lite";
+    public const string LiteDatabaseType = DatabaseType;
     private static readonly string[] Languages = ["en"];
     private static readonly byte[] Marker = [0xab, 0xcd, 0xef];
 
-    public static byte[] Create(DateTimeOffset builtAt, string type = DatabaseType, string country = "BR", bool extraAsn = false)
+    public static byte[] Create(DateTimeOffset builtAt, string type = DatabaseType, string country = "BR", bool unknownField = false) =>
+        CreateLite(builtAt, type, map =>
+        {
+            map["country_code"] = country;
+            if (unknownField)
+            { map["unexpected"] = "synthetic"; }
+        });
+
+    public static byte[] CreateLegacy(DateTimeOffset builtAt, string type)
     {
         var maps = new[]
         {
-            new Dictionary<string, object> { ["country"] = country },
+            new Dictionary<string, object> { ["country"] = "BR" },
             new Dictionary<string, object> { ["country"] = "US" },
         };
-        if (extraAsn)
-        { maps[0]["asn"] = "AS0"; }
         return Build(builtAt, type, maps);
     }
 

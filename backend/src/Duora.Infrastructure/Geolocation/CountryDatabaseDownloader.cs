@@ -15,7 +15,7 @@ public sealed class CountryDatabaseUpdateException(string code, bool transient, 
 /// <summary>Private client without factory logging; no automatic redirect, cookie or decompression.</summary>
 public sealed class CountryDatabaseDownloader : IDisposable
 {
-    private static readonly Uri Source = new("https://ipinfo.io/data/free/country.mmdb");
+    private static readonly Uri Source = new(IpinfoLiteSchema.Source);
     private readonly HttpClient _client;
     private readonly CountryDatabaseDownloadOptions _options;
     private readonly string _token;

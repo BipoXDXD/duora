@@ -54,6 +54,8 @@ public sealed class IpinfoLiteContractTests
     [InlineData("br")]
     [InlineData("BR ")]
     [InlineData("BRA")]
+    [InlineData("1R")]
+    [InlineData("ΒR")]
     [InlineData("ZZ")]
     [InlineData("UK")]
     public void MissingMalformedOrNonIsoCountryCodeRejectsTheWholeArtifact(string? code)
@@ -100,7 +102,7 @@ public sealed class IpinfoLiteContractTests
     public void LegacyRecordsAreRejectedEvenWithAnApprovedLiteDatabaseType()
     {
         using var h = new Harness();
-        var bytes = SyntheticMmdb.Create(Now.AddHours(-1), type: SyntheticMmdb.LiteDatabaseType);
+        var bytes = SyntheticMmdb.CreateLegacy(Now.AddHours(-1), type: SyntheticMmdb.LiteDatabaseType);
         Assert.Equal("Schema", Assert.Throws<CountryDatabaseValidationException>(() => h.Validator.Validate(bytes, Now, Ct)).Code);
     }
 
