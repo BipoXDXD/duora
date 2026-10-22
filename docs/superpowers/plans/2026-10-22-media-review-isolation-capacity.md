@@ -10,7 +10,7 @@
 
 **Spec:** ADR-0035, ADR-0036 e adendo do ADR-0025, consolidados pelo PR #178; docs/product/spec.md 12.3/12.5; docs/operations/capacity.md; issues #173/#174/#86/#69. O plano não modifica decisões aceitas nem escolhe host, equipe ou ativação.
 
-**Estado:** plano preparado em 22/10/2026. A autorização deste turno cobre integrar #178 e preparar este documento. Nenhuma tarefa de implementação abaixo foi executada ou autorizada por este plano. Base consolidada: PR#178 integrado em e77ed54b65251921b8902139556d073e73382729, head804304e927fbb0a6f6ebd9ac61bcb6a73d2e7395; CI39724832098 nove jobs aprovados. Árvore completa integrada idêntica à testada.
+**Estado:** plano preparado em 22/10/2026. O registro original autorizou integrar #178 e preparar este documento. Posteriormente o responsável autorizou somente a primeira etapa M0/S0 e seu merge após nove checks, executada no PR#181. O plano por si só não autoriza as etapas seguintes. Base consolidada: PR#178 integrado em e77ed54b65251921b8902139556d073e73382729, head804304e927fbb0a6f6ebd9ac61bcb6a73d2e7395; CI39724832098 nove jobs aprovados. Árvore completa integrada idêntica à testada.
 
 ## Global Constraints
 
@@ -232,3 +232,13 @@ M0 e S0 primeiro: congelar o contrato de revisão e obter números do sanitizado
 ## Autorrevisão do plano
 
 Cobertura: 7 escolhasP173, 6 escolhasP174 e critérios da#86 mapeados às tarefas. Cinco condições do Review Focus têm testes atribuídos. Novos projetos/arquivos estão explicitamente propostos; nenhum é tratado como existente. Interfaces concretas futuras dependem do congelamento documental M0/S1, preservando a porta existente. Sem alteração executável, limite de produção, rollout ou teste realizado por este plano.
+
+## Execução da primeira etapa — M0/S0, 22/10/2026
+
+Recorte autorizado no PR#181: contrato documental docs/api/media-review.md e caracterização do sanitizador
+atual com18entradas sintéticas/36processos, sem código de produção. Helper em backend/tests vincula a
+fonte existente do Worker; não é extração de S1 nem sandbox. O perfil JSON continua candidato. Evidências
+e resultados efetivos ficam no PR, logs/resumo e registro de conclusão, sem inferir aprovação deste plano.
+As lacunas de revisão do recorte foram corrigidas: ETag próprio da foto obtido no status para recurso/
+exclusão, amostras completas retidas em execução aprovada e ZIP de timestamp fixo. M1 em diante exige
+novo recorte autorizado; nenhuma ativação de serviços decorre de M0/S0.

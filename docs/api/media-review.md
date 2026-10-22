@@ -82,8 +82,9 @@ ser inferidos de status, mensagens, URL ou headers.
 
 ## Contratos HTTP futuros
 
-Prefixos `/api/v1`; respostas privadas têm `Cache-Control: no-store`. Mutações usam antiforgery existente,
-JSON estrito, `Idempotency-Key` e versão esperada. A identidade vem da sessão, nunca do corpo.
+Prefixos `/api/v1`; respostas privadas têm `Cache-Control: no-store`. As novas mutações usam antiforgery
+existente, `Idempotency-Key` e versão esperada. Operações com JSON recusam campos desconhecidos; DELETE
+não recebe corpo, e API-M01 preserva o corpo binário atual. A identidade vem da sessão, nunca do corpo.
 Listas são paginadas por cursor opaco; 50 itens por padrão, no máximo 100, sem contagem global ou thumbnails.
 Esses tetos de paginação são detalhes de contrato, não aumento da cota de fotos 3/100.
 
@@ -107,6 +108,7 @@ nomes/cobertura continua gate de ativação; não preencher responsáveis a part
 ETag do caso vem do GET administrativo do caso e é consumido pelas mutações administrativas. GET do
 protocolo de recurso devolve ETag próprio para esse recurso; não substitui o ETag da foto. POST de recurso
 e DELETE consomem o ETag da foto obtido em API-M02. Não reutilizar tags entre recursos ou de perfil.
+If-Match deve conter uma única tag forte: não aceitar wildcard, tag fraca ou lista para contornar a versão.
 Sem If-Match:428; formato inválido:400; versão vencida:412, sem efeito. Repetição da mesma chave/corpo retorna
 resultado já confirmado, mesmo que sua versão anterior já tenha avançado; chave com intenção diferente:409.
 Revisão/exclusão concorrentes revalidam guardas e versão no commit; somente a intenção vencedora produz efeito.

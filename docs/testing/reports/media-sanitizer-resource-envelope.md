@@ -47,8 +47,10 @@ exige que uma saída válida alcance o teto candidato. Encoder/versão, parâmet
 
 ## Resultado remoto
 
-Ainda não atestado neste arquivo inicial. O PR registrará head exato, run e resultados reais; uma execução
-será vinculada após os checks. Não executar build/restore/Docker/testes no Mac para preencher esta seção.
+A evidência versionada desta execução fica no [PR #181](https://github.com/BipoXDXD/duora/pull/181):
+head/run exatos, resultados, tabela por caso e amostras brutas nos comentários de conclusão. Os mesmos
+JSONL ficam no log e no resumo do job backend. Este arquivo especifica o método; somente resultados reais
+registrados no PR atestam a medição. Não executar build/restore/Docker/testes no Mac para obter esses dados.
 Startup/transferência/cleanup do sandbox, overhead do launcher/daemon rootless, diferenças GC do Worker real,
 enforcement e host/release escolhido são entregas S1–S3/C1–C2, não medidas deste baseline.
 
