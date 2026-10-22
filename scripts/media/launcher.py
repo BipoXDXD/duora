@@ -35,6 +35,10 @@ def private_directory(path: Path) -> None:
     require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid() and info.st_mode & 0o077 == 0)
 
 
+def acquire_runtime_lock(runtime_socket: str) -> int:
+    raise NotImplementedError
+
+
 @dataclass(frozen=True)
 class Profile:
     image: str
@@ -179,6 +183,8 @@ class Supervisor:
             return Outcome("busy")
         require(wire[5:21].hex() == job_id)
         async with self.lock:
+            deadline = time.monotonic() + budget[3]/1000
+            cleanup_margin = min(10.0, budget[3]/5000)
             try:
                 self.journal.reserve(job_id, time.time() + budget[3]/1000)
             except (OSError, ValueError):
@@ -188,7 +194,8 @@ class Supervisor:
             payload = b""
             state = "failed"
             try:
-                async with asyncio.timeout(budget[3]/1000):
+                # Reserve cleanup time inside the caller's total envelope, never after it.
+                async with asyncio.timeout_at(deadline - cleanup_margin):
                     payload = await self.runtime.execute(job_id, wire, budget)
                     if await self.runtime.inspect_exit(job_id) == 0:
                         state = "finished"
@@ -197,10 +204,10 @@ class Supervisor:
             except (OSError, ValueError, TimeoutError):
                 state = "failed"
             finally:
-                # The independent cleanup budget is never the already-cancelled job deadline.
                 try:
-                    async with asyncio.timeout(10):
+                    async with asyncio.timeout_at(deadline):
                         removed = await self.runtime.remove(job_id)
+                    removed = removed and time.monotonic() < deadline
                 except (OSError, ValueError, TimeoutError, asyncio.CancelledError):
                     removed = False
                 if not removed:
