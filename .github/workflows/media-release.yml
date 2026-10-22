@@ -153,6 +153,11 @@ jobs:
           sudo apt-get install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
           sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
           uid=$(id -u duora-sanitizer-ci)
+          # Keep image IDs as config digests in the dedicated rootless daemon.
+          # Docker 29's containerd store reports manifest digests instead.
+          sudo -Hu duora-sanitizer-ci mkdir -p /home/duora-sanitizer-ci/.config/docker
+          printf '%s\n' '{"features":{"containerd-snapshotter":false},"storage-driver":"overlay2"}' | \
+            sudo -Hu duora-sanitizer-ci tee /home/duora-sanitizer-ci/.config/docker/daemon.json >/dev/null
           sudo mkdir -p /etc/systemd/system/user@.service.d
           echo -e '[Service]\nDelegate=cpu cpuset io memory pids' | sudo tee /etc/systemd/system/user@.service.d/duora-ci.conf >/dev/null
           sudo systemctl daemon-reload
@@ -182,6 +187,7 @@ jobs:
           import json, sys
           data=json.load(open(sys.argv[1]))
           assert data['CgroupVersion']=='2' and data['CgroupDriver']=='systemd'
+          assert data['Driver']=='overlay2'
           assert any('rootless' in item for item in data['SecurityOptions'])
           assert any('seccomp' in item and 'unconfined' not in item for item in data['SecurityOptions'])
           PY
@@ -191,9 +197,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          auth=$(mktemp -d "$RUNNER_TEMP/media-preload.XXXXXX")
+          # The runner's private workspace ancestors are not traversable by this UID.
+          auth=$(sudo -Hu duora-sanitizer-ci mktemp -d "/run/user/$LAUNCHER_UID/media-preload.XXXXXX")
           trap 'sudo rm -rf "$auth"' EXIT
-          sudo chown "$LAUNCHER_UID" "$auth"
           host="unix:///run/user/$LAUNCHER_UID/docker.sock"
           printf '%s' "$GH_TOKEN" | sudo -Hu duora-sanitizer-ci docker --config "$auth" --host "$host" \
             login ghcr.io --username "$GITHUB_ACTOR" --password-stdin

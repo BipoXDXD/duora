@@ -11,6 +11,9 @@ public enum StorageArea
 
     /// <summary>Variantes reencodadas de fotos aprovadas.</summary>
     Derivatives,
+
+    /// <summary>Derivados sanitizados privados de uma tentativa de revisão, nunca publicáveis por esta área.</summary>
+    ReviewCandidates,
 }
 
 /// <summary>
@@ -22,6 +25,7 @@ public readonly partial record struct ObjectKey
 {
     private const string QuarantinePrefix = "quarantine/";
     private const string DerivativesPrefix = "derivatives/";
+    private const string ReviewCandidatesPrefix = "review-candidates/";
 
     private ObjectKey(StorageArea area, string value)
     {
@@ -52,6 +56,16 @@ public readonly partial record struct ObjectKey
         return new(StorageArea.Derivatives, $"{DerivativesPrefix}{token}-{PhotoVariants.Name(variant)}");
     }
 
+    /// <summary>
+    /// Chave privada de uma geração criada pelo servidor para uma tentativa, sem reutilizar a chave do original.
+    /// Quem prepara o candidato gera o UUID aleatório; não recebe um identificador público ou valor do cliente.
+    /// </summary>
+    public static ObjectKey ForReviewCandidate(Guid generation, PhotoVariant variant)
+    {
+        ArgumentOutOfRangeException.ThrowIfEqual(generation, Guid.Empty);
+        return new(StorageArea.ReviewCandidates, $"{ReviewCandidatesPrefix}{generation:N}-{PhotoVariants.Name(variant)}");
+    }
+
     /// <summary>Lê uma chave gravada pelo próprio sistema; qualquer outro formato é dado corrompido.</summary>
     public static ObjectKey Parse(string stored)
     {
@@ -66,10 +80,21 @@ public readonly partial record struct ObjectKey
             return new ObjectKey(StorageArea.Derivatives, stored);
         }
 
+        if (ReviewCandidateKey().IsMatch(stored))
+        {
+            return new ObjectKey(StorageArea.ReviewCandidates, stored);
+        }
+
         throw new FormatException("Chave de objeto fora do formato gerado pelo servidor.");
     }
 
-    public override string ToString() => Area == StorageArea.Quarantine ? "ObjectKey(quarantine)" : "ObjectKey(derivatives)";
+    public override string ToString() => Area switch
+    {
+        StorageArea.Quarantine => "ObjectKey(quarantine)",
+        StorageArea.Derivatives => "ObjectKey(derivatives)",
+        StorageArea.ReviewCandidates => "ObjectKey(review-candidates)",
+        _ => "ObjectKey(invalid)",
+    };
 
     private static string RandomToken() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
 
@@ -79,4 +104,7 @@ public readonly partial record struct ObjectKey
 
     [GeneratedRegex(@"\Aderivatives/[0-9a-f]{32}-(thumb|card|full)\z", RegexOptions.CultureInvariant)]
     private static partial Regex DerivativeKey();
+
+    [GeneratedRegex(@"\Areview-candidates/(?!0{32}-)[0-9a-f]{32}-(thumb|card|full)\z", RegexOptions.CultureInvariant)]
+    private static partial Regex ReviewCandidateKey();
 }

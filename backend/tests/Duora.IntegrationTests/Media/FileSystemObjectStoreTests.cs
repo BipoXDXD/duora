@@ -23,6 +23,28 @@ public sealed class FileSystemObjectStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ExistingLegacyMountsNeverCauseACandidateToFallBackToAnotherArea()
+    {
+        foreach (var area in FileSystemObjectStore.AreaDirectories)
+        {
+            var directory = _root.CreateSubdirectory(area);
+            await File.WriteAllTextAsync(Path.Combine(directory.FullName, FileSystemObjectStore.AreaMarkerFileName),
+                "synthetic test mount", TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(FileSystemObjectStore.HasMountedAreas(_root.FullName));
+        var store = new FileSystemObjectStore(_root.FullName, createMissingDirectories: false);
+        using var content = new MemoryStream([1, 2, 3]);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.PutAsync(
+            ObjectKey.ForReviewCandidate(Guid.NewGuid(), PhotoVariant.Card), content, content.Length,
+            "image/webp", TestContext.Current.CancellationToken));
+
+        Assert.False(Directory.Exists(Path.Combine(_root.FullName, "review-candidates")));
+        Assert.All(_root.EnumerateFiles("*", SearchOption.AllDirectories), file =>
+            Assert.Equal(FileSystemObjectStore.AreaMarkerFileName, file.Name));
+    }
+
+    [Fact]
     public async Task ARootWithATrailingSeparatorStoresAndReadsBack()
     {
         var store = new FileSystemObjectStore(_root.FullName + Path.DirectorySeparatorChar);

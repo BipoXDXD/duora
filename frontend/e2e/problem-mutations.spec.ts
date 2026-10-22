@@ -32,6 +32,7 @@ async function roomPage(page: Page, locale: Locale, scenario: { state: string; g
               prompt: locale === 'pt-BR' ? 'Qual caminho?' : 'Which path?',
               options: [{ optionId: 'one', label: locale === 'pt-BR' ? 'Caminho sintético' : 'Synthetic path' }],
             },
+            deadline: '2026-10-22T18:00:00Z',
             awaitingPartner: false,
             revealed: [],
             passed: [],

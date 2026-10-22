@@ -16,7 +16,7 @@ export function RoutesGamePanel({
   readonly busy: boolean
   readonly onAction: (action: RoutesAction) => void
 }): React.JSX.Element {
-  const { t, formatDateTime } = useI18n()
+  const { t } = useI18n()
   const can = (type: RoutesAction['type']) =>
     active && game.status === 'Active' && !busy && game.availableActions.includes(type)
   const stage = game.stage
@@ -24,7 +24,6 @@ export function RoutesGamePanel({
     <section lang={locale} className="flex flex-col gap-4">
       <h2 className="text-xl font-semibold">{game.title}</h2>
       <p>{game.objective}</p>
-      <p>{t('routes.deadline', { deadline: formatDateTime(new Date(game.deadline)) })}</p>
       <h3 className="font-semibold">{t(`routes.stage.${stage}`)}</h3>
       {stage === 'Introduction' ? (
         <p>{game.example}</p>
@@ -98,7 +97,7 @@ export function RoutesGamePanel({
           </Button>
         </>
       ) : null}
-      {stage === 'Conclusion' ? <p>{t('routes.conclusion')}</p> : null}
+      {stage === 'Conclusion' && game.status !== 'Expired' ? <p>{t('routes.conclusion')}</p> : null}
     </section>
   )
 }
