@@ -220,6 +220,40 @@ public sealed class SanitizerProtocolTests
         [.. "RIFF"u8, 24, 0, 0, 0, .. "WEBPVP8 "u8, 12, 0, 0, 0, 16, 0, 0, 0x9d, 1, 0x2a, 40, 0, 20, 0, 0, 0];
 
     [Fact]
+    public async Task ExtendedAlphaEnvelopePreservesAllThreeFrames()
+    {
+        var payload = AlphaEnvelope();
+        await using var input = new MemoryStream(SuccessVector(Request, payload));
+        var result = Assert.IsType<SanitizeOutcome.Sanitized>(await SanitizerProtocol.ReadResponseAsync(input, Request, Ct));
+        Assert.Equal(3, result.Variants.Count);
+        Assert.All(result.Variants, variant => Assert.Equal(payload, variant.Content));
+    }
+
+    [Theory]
+    [InlineData(20, 0)] // ALPH without the advertised alpha flag.
+    [InlineData(20, 18)] // Animation cannot accompany a static candidate.
+    [InlineData(21, 1)] // Reserved VP8X bits.
+    [InlineData(24, 40)] // Canvas width differs from the frame.
+    [InlineData(34, 0)] // Missing alpha payload.
+    [InlineData(38, 192)] // Reserved ALPH bits.
+    [InlineData(38, 2)] // Unknown alpha compression.
+    public async Task ExtendedAlphaEnvelopeRejectsInconsistentOrUnknownFields(int offset, byte value)
+    {
+        var payload = AlphaEnvelope();
+        payload[offset] = value;
+        await using var input = new MemoryStream(SuccessVector(Request, payload));
+        await Assert.ThrowsAsync<InvalidDataException>(() => SanitizerProtocol.ReadResponseAsync(input, Request, Ct));
+    }
+
+    private static byte[] AlphaEnvelope()
+    {
+        byte[] payload = [.. "RIFF"u8, 0, 0, 0, 0, .. "WEBPVP8X"u8, 10, 0, 0, 0,
+            16, 0, 0, 0, 39, 0, 0, 19, 0, 0, .. "ALPH"u8, 2, 0, 0, 0, 0, 64, .. WebpHeader()[12..]];
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4), (uint)(payload.Length - 8));
+        return payload;
+    }
+
+    [Fact]
     public async Task DuplicateFrameKindsCannotSatisfyTheThreeFrameRequirement()
     {
         var bytes = SuccessVector(Request);

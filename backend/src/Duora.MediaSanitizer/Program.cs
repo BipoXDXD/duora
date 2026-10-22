@@ -31,6 +31,11 @@ internal static class Program
             await SanitizerProtocol.WriteResponseAsync(output, request, outcome, timeout.Token);
             return 0;
         }
+        catch (InvalidDataException)
+        {
+            // InvalidDataException is not an IOException. Malformed protocol data must also stay silent.
+            return 65;
+        }
         catch (IOException)
         {
             // No bytes, paths or exception details on stderr. No response is accepted without confirmed exit 0.
