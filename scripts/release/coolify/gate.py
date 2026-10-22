@@ -52,6 +52,10 @@ REQUIRED = {
 LEGACY_SKIPS = {"Deploy na VPS", "Jornadas na VPS (pós-deploy)"}
 
 
+class PendingJobView(ValueError):
+    """A valid, terminal run whose job snapshot has not converged yet."""
+
+
 def validate(run: Any, jobs: Any, project: Any, commit: Any) -> Any:
     if not isinstance(commit, str) or not re.fullmatch("[0-9a-f]{40}", commit):
         raise ValueError("Full lowercase SHA required")
@@ -69,13 +73,19 @@ def validate(run: Any, jobs: Any, project: Any, commit: Any) -> Any:
     allowed = REQUIRED[project] | (LEGACY_SKIPS if project == "goblinshift" else set())
     if len(names) != len(set(names)) or set(names) != allowed:
         raise ValueError("Missing, extra or duplicated CI gate")
+    pending = False
     for job in jobs:
         if job.get("status") != "completed":
-            raise ValueError("CI gate still running")
+            if job.get("status") not in {"queued", "in_progress"} or job.get("conclusion") is not None:
+                raise ValueError("Invalid pending CI gate")
+            pending = True
+            continue
         if job["name"] in REQUIRED[project] and job.get("conclusion") != "success":
             raise ValueError("Required gate did not succeed")
         if job["name"] not in REQUIRED[project] and job.get("conclusion") != "skipped":
             raise ValueError("Legacy deploy must remain disabled")
+    if pending:
+        raise PendingJobView("CI gate still running")
     return commit
 
 
@@ -111,6 +121,35 @@ def current_main(repository: str, commit: str) -> bool:
     return False
 
 
+def completed_job_view(run: Any, project: str, commit: str) -> Any:
+    """Wait only for a coherent job view, never for a failed gate to become green."""
+    run_id, attempt = run.get("id"), run.get("run_attempt")
+    if type(run_id) is not int or run_id <= 0 or type(attempt) is not int or attempt <= 0:
+        raise ValueError("Invalid CI run identity")
+    repository = REPOSITORIES[project]
+    # Authenticated GitHub job responses advertise a 60-second cache lifetime.
+    # Bound consistency recovery to two such lifetimes; every gate stays mandatory.
+    deadline = time.monotonic() + 120
+    while True:
+        result = api(f"repos/{repository}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
+        if (not isinstance(result, dict) or not isinstance(result.get("jobs"), list)
+                or type(result.get("total_count")) is not int
+                or result["total_count"] != len(result["jobs"])):
+            raise ValueError("Incomplete CI gate response")
+        try:
+            validate(run, result["jobs"], project, commit)
+            return run
+        except PendingJobView:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("CI job view did not settle before release timeout") from None
+            time.sleep(min(5, remaining))
+            refreshed = api(f"repos/{repository}/actions/runs/{run_id}")
+            if refreshed.get("id") != run_id or refreshed.get("run_attempt") != attempt:
+                raise ValueError("CI run or attempt changed during gate verification")
+            run = refreshed
+
+
 def main() -> None:
     project = os.environ["RELEASE_PROJECT"]
     repository = REPOSITORIES[project]
@@ -138,12 +177,7 @@ def main() -> None:
         if time.monotonic() >= deadline:
             raise ValueError("CI did not finish before release timeout")
         time.sleep(10)
-    result = api(
-        f"repos/{repository}/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100"
-    )
-    if result["total_count"] != len(result["jobs"]):
-        raise ValueError("Incomplete CI gate response")
-    validate(run, result["jobs"], project, commit)
+    run = completed_job_view(run, project, commit)
     if not current_main(repository, commit):
         return
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
