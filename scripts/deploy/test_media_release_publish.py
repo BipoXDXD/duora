@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import copy
-import importlib
 from pathlib import Path
 import sys
 import unittest
@@ -12,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/media"))
 sys.path.insert(0, str(ROOT / "scripts/release"))
 from check_ci import REQUIRED_JOBS
+import release_publish
 
 COMMIT = "a" * 40
 REPOSITORY = "BipoXDXD/duora"
@@ -46,9 +46,7 @@ class MediaReleasePublicationTests(unittest.TestCase):
         }
 
     def publisher(self):
-        self.assertTrue((ROOT / "scripts/media/release_publish.py").is_file(),
-                        "Trusted S4 publication is not implemented")
-        return importlib.import_module("release_publish")
+        return release_publish
 
     def validate_context(self):
         return self.publisher().validate_context(self.context, COMMIT, self.ci, self.jobs)

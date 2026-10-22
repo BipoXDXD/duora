@@ -1,0 +1,265 @@
+# Dedicated licensed candidate publication. Never installs or activates on application hosts.
+name: Publish media sanitizer candidate
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Exact current main SHA with all nine CI gates successful
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/media-release.yml'
+      - 'scripts/media/release_publish.py'
+      - 'scripts/media/release_contract.py'
+      - 'scripts/deploy/test_media_release*.py'
+      - 'infra/images/media-sanitizer/Dockerfile'
+permissions:
+  contents: read
+concurrency:
+  group: media-release-${{ github.event.inputs.commit || github.ref }}
+  cancel-in-progress: false
+env:
+  TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      commit: ${{ steps.gates.outputs.commit }}
+      ci_run: ${{ steps.gates.outputs.ci_run }}
+      ci_attempt: ${{ steps.gates.outputs.ci_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Candidate contract and publication boundary tests
+        run: python3 -m unittest discover -s scripts/deploy -p 'test_media_release*.py' -v
+      - name: Exact trusted main and nine CI gates
+        id: gates
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+        run: python3 scripts/media/release_publish.py gate
+  native:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: verify
+    name: licensed (${{ matrix.arch }})
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+      CI_RUN: ${{ needs.verify.outputs.ci_run }}
+      CI_ATTEMPT: ${{ needs.verify.outputs.ci_attempt }}
+      ARCHITECTURE: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.verify.outputs.commit }}
+      - name: Build licensed Release once
+        env:
+          SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SIXLABORS_LICENSE_KEY"
+          case "$ARCHITECTURE:$(uname -m)" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          docker buildx build --file infra/images/media-sanitizer/Dockerfile --target sanitizer-release \
+            --platform "linux/$ARCHITECTURE" --secret id=sixlabors_license,env=SIXLABORS_LICENSE_KEY \
+            --label "org.opencontainers.image.source=https://github.com/BipoXDXD/duora" \
+            --label "org.opencontainers.image.revision=$RELEASE_COMMIT" --tag duora-media-sanitizer:licensed --load .
+          config=$(docker image inspect duora-media-sanitizer:licensed --format '{{.Id}}')
+          [[ "$config" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "SANITIZER_CONFIG=$config" >> "$GITHUB_ENV"
+      - name: License absent from history and every image layer
+        env:
+          SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
+        run: python3 scripts/supply-chain/check_image_secret.py duora-media-sanitizer:licensed SIXLABORS_LICENSE_KEY
+      - name: Scan exact image and generate CycloneDX
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            -v "$GITHUB_WORKSPACE/.trivyignore:/trivyignore:ro" "$TRIVY_IMAGE" image \
+            --severity HIGH,CRITICAL --ignore-unfixed --ignorefile /trivyignore --exit-code 1 duora-media-sanitizer:licensed
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v "$RUNNER_TEMP:/out" \
+            "$TRIVY_IMAGE" image --format cyclonedx --output /out/media-sbom.cdx.json duora-media-sanitizer:licensed
+      - name: Publish scanned native candidate without rebuild
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/media/release_publish.py gate
+          auth=$(mktemp -d "$RUNNER_TEMP/media-publish.XXXXXX")
+          trap 'rm -rf "$auth"' EXIT
+          printf '%s' "$GH_TOKEN" | docker --config "$auth" login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          tag="ghcr.io/bipoxdxd/duora-media-sanitizer:native-$RELEASE_COMMIT-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCHITECTURE"
+          docker tag duora-media-sanitizer:licensed "$tag"
+          docker --config "$auth" push "$tag"
+          reference=$(docker image inspect "$tag" --format '{{index .RepoDigests 0}}')
+          [[ "$reference" =~ ^ghcr\.io/bipoxdxd/duora-media-sanitizer@sha256:[0-9a-f]{64}$ ]]
+          echo "SANITIZER_IMAGE=$reference" >> "$GITHUB_ENV"
+      - name: Native architecture and dedicated rootless prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(uname -m)
+          case "${{ matrix.arch }}:$actual" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          sudo install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o "$RUNNER_TEMP/docker.asc"
+          fingerprint=$(gpg --show-keys --with-colons "$RUNNER_TEMP/docker.asc" | awk -F: '$1=="fpr" {print $10; exit}')
+          test "$fingerprint" = 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+          sudo install -m 0644 "$RUNNER_TEMP/docker.asc" /etc/apt/keyrings/duora-ci-docker.asc
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/duora-ci-docker.asc] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/duora-ci-docker.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
+          sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
+          uid=$(id -u duora-sanitizer-ci)
+          sudo mkdir -p /etc/systemd/system/user@.service.d
+          echo -e '[Service]\nDelegate=cpu cpuset io memory pids' | sudo tee /etc/systemd/system/user@.service.d/duora-ci.conf >/dev/null
+          sudo systemctl daemon-reload
+          # Ubuntu hosted-runner user namespaces only; the Mac and application hosts are never touched.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo loginctl enable-linger duora-sanitizer-ci
+          sudo systemctl start "user@$uid.service"
+          sudo -Hu duora-sanitizer-ci env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            systemctl --user set-environment XDG_RUNTIME_DIR="/run/user/$uid" HOME=/home/duora-sanitizer-ci \
+              XDG_CONFIG_HOME=/home/duora-sanitizer-ci/.config XDG_DATA_HOME=/home/duora-sanitizer-ci/.local/share DOCKER_CONFIG=/home/duora-sanitizer-ci/.docker
+          if ! sudo -Hu duora-sanitizer-ci env -i PATH=/usr/bin:/bin HOME=/home/duora-sanitizer-ci USER=duora-sanitizer-ci LOGNAME=duora-sanitizer-ci XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" dockerd-rootless-setuptool.sh install --force; then
+            # Only service startup diagnostics on this synthetic runner; preserve the failed gate.
+            sudo -Hu duora-sanitizer-ci env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+              journalctl --user --unit docker.service --no-pager -n 80 || true
+            exit 1
+          fi
+          for attempt in $(seq 1 30); do
+            if sudo -Hu duora-sanitizer-ci docker --host "unix:///run/user/$uid/docker.sock" info >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          sudo chmod 600 "/run/user/$uid/docker.sock"
+          echo "LAUNCHER_UID=$uid" >> "$GITHUB_ENV"
+          echo "WORKER_UID=$(id -u)" >> "$GITHUB_ENV"
+          sudo -Hu duora-sanitizer-ci docker --host "unix:///run/user/$uid/docker.sock" info --format '{{json .}}' > "$RUNNER_TEMP/rootless-info.json"
+          python3 - "$RUNNER_TEMP/rootless-info.json" <<'PY'
+          import json, sys
+          data=json.load(open(sys.argv[1]))
+          assert data['CgroupVersion']=='2' and data['CgroupDriver']=='systemd'
+          assert any('rootless' in item for item in data['SecurityOptions'])
+          assert any('seccomp' in item and 'unconfined' not in item for item in data['SecurityOptions'])
+          PY
+      - name: Preload immutable image outside launcher without retained credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth=$(mktemp -d "$RUNNER_TEMP/media-preload.XXXXXX")
+          trap 'sudo rm -rf "$auth"' EXIT
+          sudo chown "$LAUNCHER_UID" "$auth"
+          host="unix:///run/user/$LAUNCHER_UID/docker.sock"
+          printf '%s' "$GH_TOKEN" | sudo -Hu duora-sanitizer-ci docker --config "$auth" --host "$host" \
+            login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          sudo -Hu duora-sanitizer-ci docker --config "$auth" --host "$host" pull "$SANITIZER_IMAGE"
+          actual=$(sudo -Hu duora-sanitizer-ci docker --config "$auth" --host "$host" image inspect "$SANITIZER_IMAGE" --format '{{.Id}}')
+          test "$actual" = "$SANITIZER_CONFIG"
+      - name: Native S2 fault matrix and exact licensed sanitizer
+        id: proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env GITHUB_ACTIONS=true python3 scripts/media/test_sanitizer_isolation.py \
+            --launcher-uid "$LAUNCHER_UID" --worker-uid "$WORKER_UID" \
+            --sanitizer-image "$SANITIZER_IMAGE" --sanitizer-config "$SANITIZER_CONFIG" \
+            --tested-profile "$RUNNER_TEMP/media-tested-profile.json" --report "$RUNNER_TEMP/media-release-isolation.json"
+      - name: Assemble and verify pinned candidate bundle
+        env:
+          NATIVE_BUNDLE_DIR: ${{ runner.temp }}/media-native/bundle
+          TESTED_PROFILE: ${{ runner.temp }}/media-tested-profile.json
+          ISOLATION_REPORT: ${{ runner.temp }}/media-release-isolation.json
+          SANITIZER_SBOM: ${{ runner.temp }}/media-sbom.cdx.json
+        run: |
+          mkdir "$RUNNER_TEMP/media-native"
+          python3 scripts/media/release_publish.py bundle
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: media-native-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/media-native/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Native diagnostic proof
+        if: ${{ always() && (steps.proof.outcome == 'success' || steps.proof.outcome == 'failure') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: media-release-proof-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/media-release-isolation.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Dispose dedicated runtime
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          uid=$(id -u duora-sanitizer-ci 2>/dev/null) || exit 0
+          sudo -Hu duora-sanitizer-ci env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            systemctl --user stop docker.service || true
+          sudo loginctl terminate-user duora-sanitizer-ci || true
+  indexes:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: [verify, native]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    env:
+      RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+      CI_RUN: ${{ needs.verify.outputs.ci_run }}
+      CI_ATTEMPT: ${{ needs.verify.outputs.ci_attempt }}
+      NATIVE_CANDIDATES: ${{ runner.temp }}/native-candidates
+      RELEASE_BUNDLE_DIR: ${{ runner.temp }}/media-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.verify.outputs.commit }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: media-native-amd64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-candidates/amd64
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: media-native-arm64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-candidates/arm64
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Verify both proven native digests and publish candidate index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/media/release_publish.py indexes
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: media-sanitizer-candidate-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/media-release/
+          if-no-files-found: error
+          retention-days: 90
