@@ -128,3 +128,25 @@ O ensaio novo caracteriza contratos já implementados; não modifica código de 
 Mede expansão e contenção no PostgreSQL real do CI. Não executa binário antigo nem prova throughput de matching,
 precisão IPinfo, transporte de alertas ou capacidade do host. Esses aceites permanecem nos gates operacionais.
 Todos os nove jobs obrigatórios devem passar no mesmo head; [resultados e limitações](reports/2026-10-22-regional-homologation.md).
+
+
+## Adaptação inativa IPinfo Lite — ADR-0037
+
+O [PR #183](https://github.com/BipoXDXD/duora/pull/183) adapta o contrato sem registrar serviços, alterar o
+catálogo ou usar a base real. A escolha segue o [ADR-0037](../architecture/adr/0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md).
+A identidade lógica `ipinfo-lite-country-v1` não é o `DatabaseType` do MMDB: o tipo real segue pendente de G2.
+
+| Comportamento | Evidência automatizada |
+|---|---|
+| Origem Lite fixa, Bearer só na primeira requisição, sem token na query ou encaminhamento em redirects | CountryDatabaseDownloadTests |
+| `country_code` como autoridade; IPv4/IPv6/mapeado, nome divergente e ASN sem projeção | IpinfoLiteContractTests |
+| Código ausente/inválido, tipo não textual, campo desconhecido ou schema antigo recusados | IpinfoLiteContractTests e CountryDatabaseReaderTests |
+| Identidade Lite explícita, JSON incompleto e metadados antigos não admissíveis | IpinfoLiteContractTests |
+| Metadados antigos não admitem promoção, saúde normal nem recuperação | CountryDatabaseUpdateTests e CountryDatabaseOperationsTests |
+| Lease, fencing, bytes/hash/epoch, idade, concorrência, recuperação/retenção continuam no contrato Lite | Suíte Geolocation com SyntheticMmdb Lite; CountryDatabasePipelineTests |
+| Contrato HTTP continua disabled/unsupported e catálogo executável não expande | RegionDetectionTests e testes de catálogo existentes |
+
+Fixtures são produzidas pelo próprio teste, em redes reservadas; os códigos US não habilitam país no produto.
+Dados adicionais existem no artefato bruto sob retenção privada, mas não no resultado/manifesto por consulta.
+Nenhum token, IP de participante, requisição à IPinfo ou notificador real é usado. Testes pesados somente no
+CI. G2 e G3/G4/G5 continuam pendentes de evidências/aprovações próprias; a #108 permanece aberta.
