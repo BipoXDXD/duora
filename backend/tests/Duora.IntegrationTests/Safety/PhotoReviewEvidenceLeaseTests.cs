@@ -46,15 +46,30 @@ public sealed class PhotoReviewEvidenceLeaseTests
     }
 
     [Fact]
+    public async Task AnAuthorizationInfrastructureFailureAlsoClearsPrivateBytesBeforeReturning()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(128);
+        var destination = Enumerable.Repeat((byte)0xa5, 32).ToArray();
+        await using var lease = new PhotoReviewEvidenceLease(bytes, _ => throw new IOException("Synthetic authorization commit failure"));
+
+        await Assert.ThrowsAsync<IOException>(() => lease.ReadAsync(destination, Ct));
+
+        Assert.All(destination, value => Assert.Equal((byte)0xa5, value));
+        Assert.All(bytes, value => Assert.Equal((byte)0, value));
+    }
+
+    [Fact]
     public async Task DisposeCancelsAndObservesAnActiveAuthorizationBeforeClearingItsBuffer()
     {
         var bytes = RandomNumberGenerator.GetBytes(128);
         var destination = Enumerable.Repeat((byte)0xa5, 32).ToArray();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finished = false;
+        var checks = 0;
         using var fallback = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         var lease = new PhotoReviewEvidenceLease(bytes, async cancellationToken =>
         {
+            Interlocked.Increment(ref checks);
             entered.TrySetResult();
             using var stopped = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, fallback.Token);
             try
@@ -68,16 +83,25 @@ public sealed class PhotoReviewEvidenceLeaseTests
             }
         });
         var reading = lease.ReadAsync(destination, Ct);
+        var queuedDestination = Enumerable.Repeat((byte)0xa5, 8).ToArray();
+        Task<int>? queued = null;
         Task? firstDispose = null;
         Task? secondDispose = null;
         try
         {
             Assert.Same(entered.Task, await Task.WhenAny(entered.Task, reading).WaitAsync(TimeSpan.FromSeconds(5), Ct));
+            queued = lease.ReadAsync(queuedDestination, Ct);
+            Assert.Equal(1, checks);
             firstDispose = lease.DisposeAsync().AsTask();
             secondDispose = lease.DisposeAsync().AsTask();
             await Task.WhenAll(firstDispose, secondDispose).WaitAsync(TimeSpan.FromSeconds(5), Ct);
             Assert.True(reading.IsCompleted);
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reading);
+            Assert.True(queued.IsCompleted);
+            var queuedFailure = await Record.ExceptionAsync(() => queued);
+            Assert.True(queuedFailure is OperationCanceledException or ObjectDisposedException);
+            Assert.All(queuedDestination, value => Assert.Equal((byte)0xa5, value));
+            Assert.Equal(1, checks);
             Assert.True(finished);
             Assert.All(bytes, value => Assert.Equal((byte)0, value));
             Assert.All(destination, value => Assert.Equal((byte)0xa5, value));
@@ -90,12 +114,15 @@ public sealed class PhotoReviewEvidenceLeaseTests
             await Task.WhenAll(firstDispose, secondDispose ?? firstDispose).WaitAsync(cleanup.Token);
             try
             {
-                await reading.WaitAsync(cleanup.Token);
+                await Task.WhenAll(reading, queued ?? reading).WaitAsync(cleanup.Token);
             }
-            catch (OperationCanceledException) when (reading.IsCompleted)
+            catch (OperationCanceledException) when (reading.IsCompleted && (queued?.IsCompleted ?? true))
             {
             }
-            catch (PhotoReviewEvidenceRevokedException) when (reading.IsCompleted)
+            catch (PhotoReviewEvidenceRevokedException) when (reading.IsCompleted && (queued?.IsCompleted ?? true))
+            {
+            }
+            catch (ObjectDisposedException) when (reading.IsCompleted && (queued?.IsCompleted ?? true))
             {
             }
         }

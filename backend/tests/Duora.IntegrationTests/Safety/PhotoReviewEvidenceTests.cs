@@ -30,14 +30,17 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         return ValueTask.CompletedTask;
     }
 
-    [Fact]
-    public async Task EvidenceIsAuditedBeforeDeliveryAndReadsOnlyTheSanitizedVariantThroughIndependentContexts()
+    [Theory]
+    [InlineData(PhotoVariant.Thumb)]
+    [InlineData(PhotoVariant.Card)]
+    [InlineData(PhotoVariant.Full)]
+    public async Task EvidenceIsAuditedBeforeDeliveryAndReadsOnlyTheSanitizedVariantThroughIndependentContexts(PhotoVariant variant)
     {
         var (reviewer, item) = await PreparedAsync();
         var store = new CountingStore(new FileSystemObjectStore(_root.FullName));
         var factory = Factory();
         var opened = Assert.IsType<PhotoReviewEvidenceResult.Opened>(
-            await new PhotoReviewEvidence(factory, store, _time).OpenAsync(reviewer, item.CaseId, PhotoVariant.Full, Ct));
+            await new PhotoReviewEvidence(factory, store, _time).OpenAsync(reviewer, item.CaseId, variant, Ct));
         await using var lease = opened.Lease;
         Assert.Equal(1, await ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_evidence_viewed'", item.CaseId));
         var beforeReads = factory.Contexts.Count;
@@ -58,6 +61,7 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         Assert.All(factory.Contexts, context => Assert.Throws<ObjectDisposedException>(() => context.Set<Upload>().Any()));
         Assert.Single(store.Opened);
         Assert.Equal(StorageArea.ReviewCandidates, store.Opened[0].Area);
+        Assert.EndsWith("-" + PhotoVariants.Name(variant), store.Opened[0].Value, StringComparison.Ordinal);
         Assert.DoesNotContain(store.Opened, key => key.Area is StorageArea.Quarantine or StorageArea.Derivatives);
         Assert.Equal(0, await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", item.UploadId));
     }
@@ -69,8 +73,9 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         var assigner = await ModeratorAsync(PhotoReviewCapability.Assign);
         var foreign = await ModeratorAsync(PhotoReviewCapability.Evidence, PhotoReviewCapability.Decide);
         var store = new CountingStore(new FileSystemObjectStore(_root.FullName));
+        var denied = new PhotoReviewEvidence(Factory(new RefuseCaseLookup()), store, _time);
+        Assert.IsType<PhotoReviewEvidenceResult.Forbidden>(await denied.OpenAsync(assigner, item.CaseId, PhotoVariant.Full, Ct));
         var service = new PhotoReviewEvidence(Factory(), store, _time);
-        Assert.IsType<PhotoReviewEvidenceResult.Forbidden>(await service.OpenAsync(assigner, item.CaseId, PhotoVariant.Full, Ct));
         Assert.IsType<PhotoReviewEvidenceResult.NotFound>(await service.OpenAsync(foreign, item.CaseId, PhotoVariant.Full, Ct));
         Assert.IsType<PhotoReviewEvidenceResult.NotFound>(await service.OpenAsync(reviewer, Guid.NewGuid(), PhotoVariant.Full, Ct));
         Assert.Empty(store.Opened);
@@ -209,6 +214,7 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
             await canceled.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => opening.WaitAsync(TimeSpan.FromSeconds(5), Ct));
             Assert.True(opening.IsCompleted);
+            Assert.True(store.Finished.Task.IsCompleted);
             Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_evidence_viewed'", item.CaseId));
         }
         finally
@@ -495,6 +501,7 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
     private sealed class BlockingStore(IObjectStore inner) : IObjectStore
     {
         internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal void Release() => _released.TrySetResult();
         public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken) =>
@@ -503,8 +510,15 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         public async Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken)
         {
             Entered.TrySetResult();
-            await _released.Task.WaitAsync(cancellationToken);
-            return await inner.OpenReadAsync(key, cancellationToken);
+            try
+            {
+                await _released.Task.WaitAsync(cancellationToken);
+                return await inner.OpenReadAsync(key, cancellationToken);
+            }
+            finally
+            {
+                Finished.TrySetResult();
+            }
         }
     }
 
@@ -531,6 +545,16 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
                 throw new IOException("Synthetic lost response after chunk authorization commit");
             }
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RefuseCaseLookup : DbCommandInterceptor
+    {
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            Assert.DoesNotContain("safety.photo_review_cases", command.CommandText, StringComparison.Ordinal);
+            return ValueTask.FromResult(result);
         }
     }
 
