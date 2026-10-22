@@ -100,6 +100,17 @@ def api(path: Any) -> Any:
         connection.close()
 
 
+def current_main(repository: str, commit: str) -> bool:
+    if api(f"repos/{repository}/commits/main")["sha"] == commit:
+        return True
+    if os.environ.get("SKIP_SUPERSEDED") != "true":
+        raise ValueError("Superseded main commit; refusing stale deployment")
+    with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+        output.write("eligible=false\n")
+    print("Release superseded by newer main; no images or deployment requested")
+    return False
+
+
 def main() -> None:
     project = os.environ["RELEASE_PROJECT"]
     repository = REPOSITORIES[project]
@@ -108,8 +119,8 @@ def main() -> None:
     commit = os.environ.get("RELEASE_COMMIT", "")
     if not re.fullmatch("[0-9a-f]{40}", commit):
         raise ValueError("Full commit required")
-    if api(f"repos/{repository}/commits/main")["sha"] != commit:
-        raise ValueError("Superseded main commit; refusing stale deployment")
+    if not current_main(repository, commit):
+        return
     run_id = os.environ.get("CI_RUN_ID", "")
     deadline = time.monotonic() + (1800 if os.environ.get("WAIT_FOR_CI") == "true" else 0)
     while True:
@@ -133,8 +144,10 @@ def main() -> None:
     if result["total_count"] != len(result["jobs"]):
         raise ValueError("Incomplete CI gate response")
     validate(run, result["jobs"], project, commit)
+    if not current_main(repository, commit):
+        return
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-        output.write(f"commit={commit}\nci_run={run['id']}\nci_attempt={run['run_attempt']}\n")
+        output.write(f"eligible=true\ncommit={commit}\nci_run={run['id']}\nci_attempt={run['run_attempt']}\n")
     print(f"Exact main commit {commit}: every required CI gate succeeded")
 
 
