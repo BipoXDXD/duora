@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import os
 import signal
@@ -11,14 +10,14 @@ import sys
 from pathlib import Path
 
 from docker_runtime import DockerRuntime
-from launcher import ControlServer, Journal, Profile, private_directory, require
+from launcher import ControlServer, Journal, Profile, acquire_runtime_lock, private_directory, require
 
 
 async def serve(profile):
     private_directory(Path(profile.journal_directory))
-    lock = os.open(Path(profile.journal_directory)/"launcher.lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    # Authority belongs to the daemon, not to a caller-selected profile or journal.
+    lock = acquire_runtime_lock(profile.runtime_socket)
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         from launcher import Supervisor
         supervisor = Supervisor(profile, DockerRuntime(profile), Journal(Path(profile.journal_directory),profile.digest))
         await supervisor.recover()

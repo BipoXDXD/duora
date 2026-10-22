@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import hashlib
 import json
 import math
@@ -36,7 +37,20 @@ def private_directory(path: Path) -> None:
 
 
 def acquire_runtime_lock(runtime_socket: str) -> int:
-    raise NotImplementedError
+    directory = Path(runtime_socket).parent
+    private_directory(directory)
+    require(directory.resolve() == directory)
+    descriptor = os.open(directory / "duora-media-launcher.lock",
+                         os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
+                and info.st_mode & 0o077 == 0 and info.st_nlink == 1)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
 @dataclass(frozen=True)

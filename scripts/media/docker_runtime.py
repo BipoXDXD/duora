@@ -12,7 +12,13 @@ from launcher import LABEL, collect_bounded, job_name, private_directory, requir
 
 
 def validate_runtime_security(info):
-    raise NotImplementedError
+    require(info["CgroupDriver"] == "systemd" and info["CgroupVersion"] == "2")
+    security = info["SecurityOptions"]
+    require(isinstance(security, list) and "name=rootless" in security
+            and "name=seccomp,profile=builtin" in security)
+    require(all(isinstance(option, str) and
+                (not option.startswith("name=seccomp") or option == "name=seccomp,profile=builtin")
+                for option in security))
 
 
 class DockerRuntime:
@@ -72,10 +78,7 @@ class DockerRuntime:
         socket_info = Path(self.profile.runtime_socket).lstat()
         require(stat.S_ISSOCK(socket_info.st_mode) and socket_info.st_uid == os.geteuid() and socket_info.st_mode & 0o077 == 0)
         info = json.loads(await self.command("info", "--format", "{{json .}}"))
-        require(info["CgroupDriver"] == "systemd" and info["CgroupVersion"] == "2")
-        security = info["SecurityOptions"]
-        require(any("rootless" in option for option in security))
-        require(any("seccomp" in option and "unconfined" not in option for option in security))
+        validate_runtime_security(info)
         image = json.loads(await self.command("image", "inspect", self.profile.image))
         require(len(image) == 1 and image[0]["Config"].get("Volumes") in (None, {}))
         # Reject a shared daemon instead of touching another application's objects.
