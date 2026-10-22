@@ -408,3 +408,12 @@ limitada a testes de ensaio sintético e documentação: [relatório](../../test
 Não autoriza implantação, corte V3, detector/atualizador, alertas reais ou EUA. #108 permanece aberta.
 G2/G3/G4/G5 mantêm os aceites operacionais explícitos no roteiro; titular/Gmail privado já designados e sem
 substituto por enquanto. O plano histórico acima não substitui essas decisões posteriores.
+
+
+## Continuidade aprovada — homologação operacional, 22/10/2026
+
+Após a integração técnica das etapas 1–10 no PR #177, o responsável aprovou o
+[plano de homologação operacional G2/G3/G4/G5](2026-10-22-issue-108-operational-homologation.md)
+e sua publicação documental. O plano relaciona evidências e autorizações ainda necessárias, sem dar
+aceite operacional ou liberar execução. Detector/atualizador/monitor e corte V3 continuam desativados;
+nenhum EUA ou alerta real. Titular e Gmail privado preservados, sem substituto por enquanto; #108 aberta.
