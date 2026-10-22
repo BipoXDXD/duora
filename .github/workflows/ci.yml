@@ -142,6 +142,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Hosted Ubuntu uses this mirror list. Keep all signed Ubuntu sources and prefer the upstream archive.
+      - name: Preferir archive Ubuntu para dependências dos navegadores
+        run: |
+          test -f /etc/apt/apt-mirrors.txt
+          printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://security.ubuntu.com/ubuntu/\tpriority:2\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:3\n' \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+
       # Navegadores não vão para o cache: --with-deps instala pacotes do sistema que o cache não restauraria.
       - name: Instalar navegadores do Playwright
         run: pnpm exec playwright install --with-deps chromium webkit
