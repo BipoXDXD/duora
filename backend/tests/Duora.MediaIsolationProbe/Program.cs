@@ -110,7 +110,7 @@ internal static class Program
             noPrivileges = status.Contains("NoNewPrivs:\t1", StringComparison.Ordinal),
             seccomp = status.Contains("Seccomp:\t2", StringComparison.Ordinal),
             noSecrets = !Directory.Exists("/run/secrets") && Environment.GetEnvironmentVariable("CANARY_SECRET") is null,
-            noStorage = !Directory.Exists("/media") && !Directory.Exists("/quarantine") && !Directory.Exists("/derivatives"),
+            noStorage = !Directory.Exists("/media/quarantine") && !Directory.Exists("/media/derivatives") && !Directory.Exists("/var/lib/duora"),
             noDockerSocket = !File.Exists("/var/run/docker.sock"),
             rootReadOnly, tmpfsBounded, noExec, noNetwork, noDns,
         };
