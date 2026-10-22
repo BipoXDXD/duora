@@ -25,6 +25,13 @@ A revisão humana e a escuta final continuam pendentes. O empacotador não autor
 a aprovação precisa conter revisor, data, digest exato do catálogo, direitos verificados e confirmação de
 escuta. Qualquer alteração textual invalida uma aprovação vinculada ao digest anterior.
 
+Em 22/10/2026, o responsável aceitou uma correção da pronúncia de **Explore** na introdução PT-BR de
+Constelação, conservando Sarah e `eleven_v4`. A nova fonte é a tomada `TmGvh4AVmGZjqZuxO751`;
+o manifesto registra seus novos WAV/AAC e preserva os hashes anteriores no histórico. Uma tentativa com
+outra voz foi rejeitada, sem adoção de seus arquivos. A nova mídia altera o digest de Constelação; o aceite
+da voz e a concordância declarada com o checklist ficam distintos da vinculação formal ao novo digest,
+dos registros de direitos e das evidências assistivas. Não houve publicação administrativa.
+
 Para novos materiais, confirmar autorização de qualquer voz de referência. Não enviar dados de participantes
 à produção editorial. Respeitar teto de créditos por execução e de tentativas por asset, além de limites e
 intervalos informados pelo fornecedor.

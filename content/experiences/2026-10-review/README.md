@@ -29,7 +29,35 @@ sem inventar numeração. A tabela de [licenças](../../../docs/design/assets-li
 as fontes e os termos consultados. A disponibilidade futura da voz padrão tem limite informado pelo fornecedor;
 os arquivos offline fixados por hash permanecem necessários para preservar versões publicadas.
 
-## Ajustes textuais R1/R2 — 22/10/2026
+## Correção de pronúncia — 22/10/2026
+
+A introdução PT-BR de Constelação mantém a voz Sarah (`EXAVITQu4vr4xnSDxMaL`) e o modelo `eleven_v4`.
+Somente o primeiro vocábulo recebeu orientação fonética na síntese: `/esˈplɔɾi/` representa a palavra
+visível **Explore**. Objetivo, transcrição, descrição acessível, cartões, opções, IDs e regras não mudaram.
+O responsável aceitou a voz original com a correção; uma tentativa com outra voz foi rejeitada e não compõe
+os assets. Os outros três áudios e todo o catálogo de Rotas permanecem iguais.
+
+Os novos WAV/AAC são derivados da tomada `TmGvh4AVmGZjqZuxO751`. Os arquivos anteriores são preservados
+por hash para histórico, sem uso no candidato atual. O manifesto registra fonte, alias de síntese, tomadas,
+custo e arquivo substituído. Consumo acumulado informado: 2.723,7276 créditos, dentro do teto de 3.000.
+
+| Catálogo | SHA-256 atual para vincular a revisão |
+|---|---|
+| Constelação | `1b102ddd60b6ef7cb690a228a2cd57751f04c5a5fa66f9ffd8f7b932f9275cd9` |
+| Rotas Improváveis, inalterado | `21201dc55c18179c5e0e268dbc7bef12176766a49863a08b276dcf0ec45b4d0d` |
+
+O Scribe retornou o alias IPA na primeira palavra. `transcription-check.json` preserva esse texto bruto,
+`exactRawMatch: false`, a transformação explícita apenas desse prefixo para **Explore** e o resultado
+normalizado. `exactMatch` nessa linha compara o texto **após essa transformação**; não afirma igualdade
+literal do retorno bruto nem valida naturalidade. A escuta e o aceite da voz foram informados pelo responsável.
+
+A declaração de concordância com o checklist não foi convertida em evidências de testes assistivos ou
+direitos não anexadas, nem em aprovação do novo digest. `review` continua pendente e o empacotamento sem
+aprovação continua com `editorialApproved: false`. A issue #101 está encerrada administrativamente.
+Nenhuma publicação administrativa é executada por esta correção. O pacote anterior de revisão continua
+identificando seu snapshot original; não substituir seus arquivos silenciosamente.
+
+## Histórico dos ajustes textuais R1/R2 — 22/10/2026
 
 R1 esclarece as instruções de Rotas nos dois idiomas: uma opção por etapa, turnos alternados,
 confirmação individual e compartilhamento opcional de pistas, sem avaliação de compatibilidade ou dados reais.
@@ -39,13 +67,13 @@ descrições acessíveis, hashes de áudio e manifesto não foram alterados. R3,
 
 Digests recalculados pelo empacotador, após R1/R2:
 
-| Catálogo | SHA-256 para futura aprovação |
+| Catálogo | SHA-256 histórico após R1/R2 |
 |---|---|
 | Constelação | `15bd133630689f9121705c06d9bbb9c00eddaccf8b69e17822222fdac979b645` |
 | Rotas Improváveis | `21201dc55c18179c5e0e268dbc7bef12176766a49863a08b276dcf0ec45b4d0d` |
 
-Os digests anteriores registrados na issue #101 identificam os candidatos anteriores a estes ajustes.
-Uma futura aprovação precisa corresponder aos novos digests. **A aprovação editorial continua pendente**:
+O digest de Constelação desta tabela foi substituído pela correção de pronúncia acima. O de Rotas permanece
+atual. Para futura aprovação, usar a tabela da correção de pronúncia. **A aprovação editorial continua pendente**:
 `review.status: pending_human_review`, sem pessoa ou data de aprovação, e empacotamento sem aprovação
 continua gerando `editorialApproved: false`. Escuta humana dos quatro áudios, avaliação assistiva e
 conferência de direitos continuam pendentes. Estes ajustes não publicam conteúdo nem encerram a issue #101.

@@ -18,12 +18,21 @@
       "allCompleted": true,
       "hasFailures": false,
       "generationIds": [
-        "3Y2bpzds6T0JsAQdbGMi"
+        "BMupDU6GQWOBGzxEQyLV"
       ],
       "credits": 0,
       "expected": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
       "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
-      "exactMatch": true
+      "exactMatch": true,
+      "sourceGenerationId": "TmGvh4AVmGZjqZuxO751",
+      "rawTranscript": "/esˈplɔɾi/ escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "exactRawMatch": false,
+      "normalization": {
+        "from": "/esˈplɔɾi/",
+        "to": "Explore",
+        "position": "leading word only",
+        "reason": "Synthesis-only pronunciation alias returned by Scribe. exactMatch compares the normalized visible transcript; raw mismatch is preserved."
+      }
     },
     {
       "key": "unlikely-routes-en-US",
@@ -50,5 +59,19 @@
       "exactMatch": true
     }
   ],
-  "sourceRecord": "duora-editorial-20261021"
+  "sourceRecord": "duora-editorial-20261021",
+  "history": [
+    {
+      "key": "constellation-pt-BR",
+      "allCompleted": true,
+      "hasFailures": false,
+      "generationIds": [
+        "3Y2bpzds6T0JsAQdbGMi"
+      ],
+      "credits": 0,
+      "expected": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
+      "exactMatch": true
+    }
+  ]
 }
