@@ -42,7 +42,27 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         var opened = Assert.IsType<PhotoReviewEvidenceResult.Opened>(
             await new PhotoReviewEvidence(factory, store, _time).OpenAsync(reviewer, item.CaseId, variant, Ct));
         await using var lease = opened.Lease;
-        Assert.Equal(1, await ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_evidence_viewed'", item.CaseId));
+        Assert.Equal(1, await ScalarAsync("select count(*) from ops.audit_events e join safety.photo_review_evidence_accesses a on a.id=e.target_id where a.case_id=$1 and e.target_type='photo_review_access' and e.action='safety.photo_review_evidence_viewed'", item.CaseId));
+        await using (var proof = Context())
+        {
+            var access = await proof.Database.SqlQuery<AccessProof>($"""
+                select a.id as "Id",a.actor_id as "ActorId",a.case_version as "CaseVersion",a.policy_version as "PolicyVersion",
+                  a.candidate_generation as "Generation",r.candidate_generation as "CurrentGeneration",a.variant as "Variant",
+                  a.variant_sha256 as "Sha256",e.actor_id as "AuditActorId",e.target_version as "AuditVersion"
+                from safety.photo_review_evidence_accesses a join safety.photo_review_cases r on r.id=a.case_id
+                join ops.audit_events e on e.target_id=a.id and e.target_type='photo_review_access'
+                where a.case_id={item.CaseId} and e.action='safety.photo_review_evidence_viewed'
+                """).SingleAsync(Ct);
+            Assert.NotEqual(Guid.Empty, access.Id);
+            Assert.Equal(reviewer.UserId, access.ActorId);
+            Assert.Equal(reviewer.UserId, access.AuditActorId);
+            Assert.Equal(2, access.CaseVersion);
+            Assert.Equal(access.CaseVersion, access.AuditVersion);
+            Assert.Equal("human-review-v1", access.PolicyVersion);
+            Assert.Equal(access.CurrentGeneration, access.Generation);
+            Assert.Equal(PhotoVariants.Name(variant), access.Variant);
+            Assert.Equal(SHA256.HashData(TestImages.WebP(64, 32)), access.Sha256);
+        }
         var beforeReads = factory.Contexts.Count;
         var bytes = new byte[8];
         using var delivered = new MemoryStream();
@@ -97,8 +117,37 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         var (reviewer, item) = await PreparedAsync();
         var service = new PhotoReviewEvidence(Factory(new RefuseEvidenceAudit()), new FileSystemObjectStore(_root.FullName), _time);
         await Assert.ThrowsAsync<IOException>(() => service.OpenAsync(reviewer, item.CaseId, PhotoVariant.Full, Ct));
-        Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_evidence_viewed'", item.CaseId));
+        Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events e join safety.photo_review_evidence_accesses a on a.id=e.target_id where a.case_id=$1 and e.target_type='photo_review_access' and e.action='safety.photo_review_evidence_viewed'", item.CaseId));
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_evidence_accesses where case_id=$1", item.CaseId));
         Assert.Equal(0, await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", item.UploadId));
+    }
+
+    [Fact]
+    public async Task AnAccessRecordInsertFailureNeverCreatesAnAuditOrEvidenceLease()
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var service = new PhotoReviewEvidence(Factory(new RefuseAccessInsert()), new FileSystemObjectStore(_root.FullName), _time);
+
+        await Assert.ThrowsAsync<IOException>(() => service.OpenAsync(reviewer, item.CaseId, PhotoVariant.Full, Ct));
+
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_evidence_accesses where case_id=$1", item.CaseId));
+        Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_type='photo_review_access'"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AFailedOrAmbiguousAccessCommitNeverReturnsALease(bool afterCommit)
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var failure = new RefuseAccessCommit(_connectionString, item.CaseId, afterCommit);
+        var service = new PhotoReviewEvidence(Factory(failure), new FileSystemObjectStore(_root.FullName), _time);
+
+        await Assert.ThrowsAsync<IOException>(() => service.OpenAsync(reviewer, item.CaseId, PhotoVariant.Full, Ct));
+
+        Assert.True(failure.Fired);
+        Assert.Equal(afterCommit ? 1L : 0L, await ScalarAsync("select count(*) from safety.photo_review_evidence_accesses where case_id=$1", item.CaseId));
+        Assert.Equal(afterCommit ? 1L : 0L, await ScalarAsync("select count(*) from ops.audit_events where target_type='photo_review_access'"));
     }
 
     [Theory]
@@ -208,7 +257,7 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
             {
                 Assert.IsType<PhotoReviewEvidenceResult.NotFound>(result);
             }
-            Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_evidence_viewed'", item.CaseId));
+            Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events e join safety.photo_review_evidence_accesses a on a.id=e.target_id where a.case_id=$1 and e.target_type='photo_review_access' and e.action='safety.photo_review_evidence_viewed'", item.CaseId));
         }
         finally
         {
@@ -244,7 +293,7 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => opening.WaitAsync(TimeSpan.FromSeconds(5), Ct));
             Assert.True(opening.IsCompleted);
             Assert.True(store.Finished.Task.IsCompleted);
-            Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_evidence_viewed'", item.CaseId));
+            Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events e join safety.photo_review_evidence_accesses a on a.id=e.target_id where a.case_id=$1 and e.target_type='photo_review_access' and e.action='safety.photo_review_evidence_viewed'", item.CaseId));
         }
         finally
         {
@@ -293,7 +342,7 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
             .OpenAsync(reviewer, item.CaseId, PhotoVariant.Full, Ct);
 
         Assert.IsType<PhotoReviewEvidenceResult.Unavailable>(result);
-        Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_evidence_viewed'", item.CaseId));
+        Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events e join safety.photo_review_evidence_accesses a on a.id=e.target_id where a.case_id=$1 and e.target_type='photo_review_access' and e.action='safety.photo_review_evidence_viewed'", item.CaseId));
         Assert.Equal(0, await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", item.UploadId));
     }
 
@@ -319,6 +368,14 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
 
             Assert.Equal(TestImages.WebP(64, 32).Take(8), firstBytes);
             Assert.Equal(firstBytes, secondBytes);
+            Assert.Equal(2, await ScalarAsync("select count(*) from safety.photo_review_evidence_accesses where case_id=$1", item.CaseId));
+            Assert.Equal(2, await ScalarAsync("select count(distinct id) from safety.photo_review_evidence_accesses where case_id=$1", item.CaseId));
+            Assert.Equal(1, await ScalarAsync("select count(distinct occurred_at) from safety.photo_review_evidence_accesses where case_id=$1", item.CaseId));
+            Assert.Equal(2, await ScalarAsync("""
+                select count(*) from safety.photo_review_evidence_accesses a where a.case_id=$1 and
+                  (select count(*) from ops.audit_events e where e.target_id=a.id and e.target_type='photo_review_access'
+                    and e.action='safety.photo_review_evidence_viewed' and e.target_version=a.case_version and e.actor_id=a.actor_id)=1
+                """, item.CaseId));
             Assert.Equal(factory.Contexts.Count, factory.Contexts.Select(context => context.ContextId.InstanceId).Distinct().Count());
             Assert.All(factory.Contexts, context => Assert.Throws<ObjectDisposedException>(() => context.Set<Upload>().Any()));
         }
@@ -344,6 +401,89 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
             }
             await Task.WhenAll(leases.Distinct().Select(lease => lease.DisposeAsync().AsTask())).WaitAsync(cleanup.Token);
         }
+    }
+
+    [Fact]
+    public async Task ASessionThatExpiresDuringTheOwnersGuardWaitCannotReleaseTheNextChunk()
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var application = "duora-evidence-wait-" + Guid.NewGuid().ToString("N");
+        var connectionString = new NpgsqlConnectionStringBuilder(_connectionString) { ApplicationName = application }.ConnectionString;
+        var options = new DbContextOptionsBuilder<DuoraDbContext>();
+        options.UseDuoraNpgsql(connectionString);
+        var opened = Assert.IsType<PhotoReviewEvidenceResult.Opened>(await new PhotoReviewEvidence(
+            new ContextFactory(options.Options), new FileSystemObjectStore(_root.FullName), _time)
+            .OpenAsync(reviewer, item.CaseId, PhotoVariant.Full, Ct));
+        var lease = opened.Lease;
+        try
+        {
+            Assert.Equal(8, await lease.ReadAsync(new byte[8], Ct));
+            await using var owner = new NpgsqlConnection(_connectionString);
+            await owner.OpenAsync(Ct);
+            await using var held = await owner.BeginTransactionAsync(Ct);
+            await using (var command = new NpgsqlCommand("select 1 from safety.user_guards where user_id=$1 for update", owner, held))
+            {
+                command.Parameters.AddWithValue(item.OwnerId);
+                Assert.NotNull(await command.ExecuteScalarAsync(Ct));
+            }
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+            budget.CancelAfter(TimeSpan.FromSeconds(10));
+            var destination = Enumerable.Repeat((byte)0xa5, 8).ToArray();
+            var reading = lease.ReadAsync(destination, budget.Token);
+            var lockReleased = false;
+            try
+            {
+                await WaitForApplicationLockAsync(application, reading, budget.Token);
+                _time.Advance(TimeSpan.FromMinutes(10));
+                await held.CommitAsync(budget.Token);
+                lockReleased = true;
+
+                await Assert.ThrowsAsync<PhotoReviewEvidenceRevokedException>(() => reading);
+
+                Assert.All(destination, value => Assert.Equal((byte)0xa5, value));
+            }
+            finally
+            {
+                using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                if (!lockReleased)
+                {
+                    await held.RollbackAsync(cleanup.Token);
+                }
+                await budget.CancelAsync();
+                try
+                {
+                    await reading.WaitAsync(cleanup.Token);
+                }
+                catch (OperationCanceledException) when (reading.IsCompleted)
+                {
+                }
+                catch (PhotoReviewEvidenceRevokedException) when (reading.IsCompleted)
+                {
+                }
+            }
+        }
+        finally
+        {
+            await lease.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private async Task WaitForApplicationLockAsync(string application, Task operation, CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            await using var command = new NpgsqlCommand("select exists(select 1 from pg_stat_activity where application_name=$1 and wait_event_type='Lock')", connection);
+            command.Parameters.AddWithValue(application);
+            if (await command.ExecuteScalarAsync(cancellationToken) is true)
+            {
+                return;
+            }
+            Assert.False(operation.IsCompleted, "The evidence read must actually wait for the owner's guard.");
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        }
+        Assert.Fail("The database did not observe the evidence read waiting on the owner guard.");
     }
 
     [Fact]
@@ -488,14 +628,20 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         await command.ExecuteNonQueryAsync(Ct);
     }
 
-    private async Task<long> ScalarAsync(string sql, Guid id)
+    private async Task<long> ScalarAsync(string sql, Guid? id = null)
     {
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(Ct);
         await using var command = new NpgsqlCommand(sql, connection) { CommandTimeout = 2 };
-        command.Parameters.AddWithValue(id);
+        if (id.HasValue)
+        {
+            command.Parameters.AddWithValue(id.Value);
+        }
         return Convert.ToInt64(await command.ExecuteScalarAsync(Ct), System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    private sealed record AccessProof(Guid Id, Guid ActorId, long CaseVersion, string PolicyVersion, Guid Generation,
+        Guid CurrentGeneration, string Variant, byte[] Sha256, Guid AuditActorId, long AuditVersion);
 
     private sealed record CaseData(Guid CaseId, Guid OwnerId, Guid UploadId, long UploadVersion,
         DateTimeOffset AwaitingReviewAt, DateTimeOffset ReviewDeadline);
@@ -574,6 +720,62 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
                 throw new IOException("Synthetic lost response after chunk authorization commit");
             }
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RefuseAccessInsert : DbCommandInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("insert into safety.photo_review_evidence_accesses", StringComparison.Ordinal))
+            {
+                throw new IOException("Synthetic structured evidence access refusal");
+            }
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class RefuseAccessCommit(string connectionString, Guid caseId, bool afterCommit) : DbTransactionInterceptor
+    {
+        internal bool Fired { get; private set; }
+        public override async ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction,
+            TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
+        {
+            if (!afterCommit && !Fired && await HasAccessAuditAsync(
+                Assert.IsType<NpgsqlConnection>(transaction.Connection), Assert.IsType<NpgsqlTransaction>(transaction), cancellationToken))
+            {
+                Fired = true;
+                throw new IOException("Synthetic failure before evidence access commit");
+            }
+            return result;
+        }
+
+        public override async Task TransactionCommittedAsync(DbTransaction transaction,
+            TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+        {
+            if (!afterCommit || Fired)
+            {
+                return;
+            }
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            if (await HasAccessAuditAsync(connection, null, cancellationToken))
+            {
+                Fired = true;
+                throw new IOException("Synthetic lost response after evidence access commit");
+            }
+        }
+
+        private async Task<bool> HasAccessAuditAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
+        {
+            await using var command = new NpgsqlCommand("""
+                select exists(select 1 from safety.photo_review_evidence_accesses a join ops.audit_events e
+                  on e.target_id=a.id and e.target_type='photo_review_access'
+                  where a.case_id=$1 and e.action='safety.photo_review_evidence_viewed')
+                """, connection, transaction);
+            command.Parameters.AddWithValue(caseId);
+            return await command.ExecuteScalarAsync(cancellationToken) is true;
         }
     }
 
