@@ -16,7 +16,7 @@ public sealed class RegionalPreferenceMigrationTests(PostgresFixture postgres)
     [InlineData("countries", "", PostgresErrorCodes.CheckViolation)]
     [InlineData("unrestricted", "insert into profiles.regional_preference_countries values (@user_id,'BR');", PostgresErrorCodes.CheckViolation)]
     [InlineData("pending", "", PostgresErrorCodes.CheckViolation)]
-    [InlineData("countries", "insert into profiles.regional_preference_countries values (@user_id,'US');", PostgresErrorCodes.ForeignKeyViolation)]
+    [InlineData("countries", "insert into profiles.regional_preference_countries values (@user_id,'CA');", PostgresErrorCodes.ForeignKeyViolation)]
     [InlineData("countries", "insert into profiles.regional_preference_countries values (@user_id,'BR'),(@user_id,'BR');", PostgresErrorCodes.UniqueViolation)]
     public async Task DatabaseRejectsInvalidConfirmedPreferences(string mode, string children, string state)
     {
@@ -183,7 +183,7 @@ public sealed class RegionalPreferenceMigrationTests(PostgresFixture postgres)
         Assert.Equal("BR|BR-SP|7|3|pt", reader.GetString(0));
         Assert.True(reader.GetBoolean(1));
         Assert.Equal(0L, reader.GetInt64(2));
-        Assert.Equal("BR", reader.GetString(3));
+        Assert.Equal("BR,US", reader.GetString(3));
         await using var source = NpgsqlDataSource.Create(db.AppConnectionString);
         foreach (var legacy in new[] { user, noProfile, noLocation })
         {

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { apiClient, sendMutationForJson } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
-import { isRegionCode } from './profile-region'
+import { isCountryCode, isRegionCode } from './profile-region'
 
 type OwnProfileResponse = components['schemas']['OwnProfileResponse']
 type UpdateProfileRequest = components['schemas']['UpdateProfileRequest']
@@ -19,7 +19,11 @@ const ownProfileSchema = z
     regionCode: z
       .string()
       .nullable()
-      .transform((code) => (code !== null && isRegionCode(code) ? code : null)),
+      .transform((code) =>
+        code !== null && code.startsWith('BR-') && isRegionCode(code)
+          ? (code as OwnProfileResponse['regionCode'])
+          : null,
+      ),
     countryCode: z.string().nullable().optional(),
     subdivisionCode: z.string().nullable().optional(),
     version: z.string().regex(/^\d+$/),
@@ -32,8 +36,8 @@ const ownProfileSchema = z
         ? profile.regionCode === null
           ? null
           : ('BR' as const)
-        : profile.countryCode === 'BR'
-          ? ('BR' as const)
+        : profile.countryCode !== null && isCountryCode(profile.countryCode)
+          ? profile.countryCode
           : null,
     subdivisionCode:
       profile.subdivisionCode === undefined

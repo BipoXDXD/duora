@@ -19,7 +19,8 @@ public sealed class RegionalPreferenceContractTests(PostgresFixture postgres) : 
         Assert.Equal(2, request.Properties!["mode"].Enum?.Count);
         Assert.Contains("mode", request.Required!);
         Assert.Contains("countryCodes", request.Required!);
-        Assert.Single(request.Properties["countryCodes"].Items!.Enum!);
+        Assert.Equal(2, request.Properties["countryCodes"].Items!.Enum!.Count);
+        Assert.Equal("US", request.Properties["countryCodes"].Items!.Enum![1]!.GetValue<string>());
         Assert.Equal("BR", request.Properties["countryCodes"].Items!.Enum![0]!.GetValue<string>());
         var put = document.Paths["/api/v1/me/regional-preferences"].Operations![HttpMethod.Put];
         Assert.Contains(put.Parameters!, p => p.Name == "If-Match" && p.Required);

@@ -1026,6 +1026,10 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         new
                         {
                             Code = "BR"
+                        },
+                        new
+                        {
+                            Code = "US"
                         });
                 });
 
@@ -1313,6 +1317,261 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         {
                             Code = "BR-TO",
                             CountryCode = "BR"
+                        },
+                        new
+                        {
+                            Code = "US-AK",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-AL",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-AR",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-AZ",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-CA",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-CO",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-CT",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-DC",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-DE",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-FL",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-GA",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-HI",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-IA",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-ID",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-IL",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-IN",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-KS",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-KY",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-LA",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-MA",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-MD",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-ME",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-MI",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-MN",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-MO",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-MS",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-MT",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-NC",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-ND",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-NE",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-NH",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-NJ",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-NM",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-NV",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-NY",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-OH",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-OK",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-OR",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-PA",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-RI",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-SC",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-SD",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-TN",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-TX",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-UT",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-VA",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-VT",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-WA",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-WI",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-WV",
+                            CountryCode = "US"
+                        },
+                        new
+                        {
+                            Code = "US-WY",
+                            CountryCode = "US"
                         });
                 });
 

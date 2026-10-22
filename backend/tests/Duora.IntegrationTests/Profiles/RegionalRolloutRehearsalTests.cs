@@ -88,8 +88,8 @@ public sealed class RegionalRolloutRehearsalTests(PostgresFixture postgres)
         Assert.True(await reader.ReadAsync(ct));
         Assert.Equal(10000L, reader.GetInt64(0));
         Assert.Equal(10000L, reader.GetInt64(1));
-        Assert.Equal("BR", reader.GetString(2));
-        Assert.Equal(27L, reader.GetInt64(3));
+        Assert.Equal("BR,US", reader.GetString(2));
+        Assert.Equal(78L, reader.GetInt64(3));
         // Preserve successful measurements in the CI job summary without changing workflow or product logging.
         var summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
         if (!string.IsNullOrEmpty(summary))

@@ -64,7 +64,7 @@ public sealed class RegionDetectionTests(PostgresFixture postgres)
     [InlineData("8.8.8.8", "1.1.1.1", "BR", "detected")]
     [InlineData("172.30.10.2", "8.8.8.8", "BR", "detected")]
     [InlineData("172.30.10.2", "1.1.1.1, 8.8.8.8", "BR", "unknown")]
-    [InlineData("8.8.8.8", null, "US", "unsupported")]
+    [InlineData("8.8.8.8", null, "CA", "unsupported")]
     [InlineData("8.8.8.8", null, null, "unknown")]
     [InlineData(null, null, "BR", "unknown")]
     [InlineData("127.0.0.1", null, "BR", "unknown")]
