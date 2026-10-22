@@ -68,10 +68,12 @@ public sealed class SmtpProtocolTests
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["Email:Transport"] = "Smtp", ["Email:Smtp:Host"] = "localhost",
+            ["Email:Transport"] = "Smtp",
+            ["Email:Smtp:Host"] = "localhost",
             ["Email:Smtp:Port"] = server.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["Email:Smtp:Security"] = startTls ? "StartTls" : "SslOnConnect",
-            ["Email:Smtp:Username"] = "synthetic", ["Email:Smtp:Password"] = "synthetic-test-only",
+            ["Email:Smtp:Username"] = "synthetic",
+            ["Email:Smtp:Password"] = "synthetic-test-only",
             ["Email:Smtp:From"] = "sender@example.invalid",
         }).Build();
         var services = new ServiceCollection().AddLogging().AddSingleton<IConfiguration>(config);
@@ -234,7 +236,10 @@ public sealed class SmtpProtocolTests
             await _stop.CancelAsync();
             _listener.Stop();
             _crlListener.Stop();
-            try { using var message = await Result; }
+            try
+            {
+                using var message = await Result;
+            }
             catch (Exception error) when (error is IOException or AuthenticationException or OperationCanceledException) { }
             finally
             {
@@ -245,15 +250,24 @@ public sealed class SmtpProtocolTests
                 catch (OperationCanceledException) when (_stop.IsCancellationRequested)
                 {
                 }
-                if (_trusted)
+                finally
                 {
-                    using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
-                    store.Open(OpenFlags.ReadWrite);
-                    store.Remove(_root);
+                    try
+                    {
+                        if (_trusted)
+                        {
+                            using var store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+                            store.Open(OpenFlags.ReadWrite);
+                            store.Remove(_root);
+                        }
+                    }
+                    finally
+                    {
+                        _root.Dispose();
+                        _leaf.Dispose();
+                        _stop.Dispose();
+                    }
                 }
-                _root.Dispose();
-                _leaf.Dispose();
-                _stop.Dispose();
             }
         }
     }

@@ -160,3 +160,10 @@ O smoke local da release (`scripts/deploy/smoke_local.py`) sobe o Worker na imag
 - Nomes snake_case nos schemas `identity` e `ops`: `MigrationsTests.PhysicalNamesAreSnakeCase`.
 - Rotas fora da allowlist pública exigem sessão: `EndpointAuthorizationTests`.
 - Revisão humana obrigatória (autenticação, [permissions.md](../../automation/permissions.md)).
+
+## Proposta de revisão: transporte SMTP
+
+A [proposta ADR-0038](0038-transporte-smtp-opcional.md) limita ao adaptador pickup as afirmações de deduplicação
+local deste registro. No SMTP, Message-ID estável permite correlação e não elimina a janela entre aceite
+remoto e confirmação/commit local. O transporte opcional está em revisão, sem ativação em produção; evidências
+e limites estão no relatório de homologação referenciado pela proposta.
