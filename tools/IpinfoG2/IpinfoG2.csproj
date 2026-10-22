@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MaxMind.Db" ExcludeAssets="analyzers" />
+    <!-- Compile the reviewed implementation, without starting Web/Worker or duplicating its contract. -->
+    <Compile Include="../../backend/src/Duora.Infrastructure/Geolocation/CountryDatabaseDownloader.cs" Link="Shared/CountryDatabaseDownloader.cs" />
+    <Compile Include="../../backend/src/Duora.Infrastructure/Geolocation/CountryDatabaseArtifactValidator.cs" Link="Shared/CountryDatabaseArtifactValidator.cs" />
+    <Compile Include="../../backend/src/Duora.Infrastructure/Geolocation/CountryDatabaseManifest.cs" Link="Shared/CountryDatabaseManifest.cs" />
+    <Compile Include="../../backend/src/Duora.Infrastructure/Geolocation/IpinfoLiteSchema.cs" Link="Shared/IpinfoLiteSchema.cs" />
+    <Compile Include="../../backend/src/Duora.Core/Geolocation/DatabaseAgePolicy.cs" Link="Shared/DatabaseAgePolicy.cs" />
+    <Compile Include="../../backend/tests/Duora.IntegrationTests/Geolocation/SyntheticMmdb.cs" Link="SyntheticMmdb.cs" />
+  </ItemGroup>
+  <Target Name="UseMaxMindJitReader" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Analyzer Remove="@(Analyzer)" Condition="'%(Analyzer.Filename)' == 'MaxMind.Db.SourceGenerator'" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -16,6 +16,11 @@ internal static class IpinfoLiteSchema
     {
         if (code is not { Length: 2 } || !char.IsAsciiLetterUpper(code[0]) || !char.IsAsciiLetterUpper(code[1]))
         { return false; }
+        // ISO 3166-1 EH has no culture in the Linux ICU runtime. Country validity must not
+        // require a locale to exist. Keep the explicit exception narrow; unsupported countries
+        // remain unavailable to profile/preference catalogs.
+        if (code == "EH")
+        { return true; }
         // At most 26 * 26 entries; do not allocate RegionInfo for every network in the database.
         return CountryCodes.GetOrAdd(code, static value =>
         {
