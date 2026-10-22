@@ -13,6 +13,10 @@ on:
       - 'scripts/media/release_publish.py'
       - 'scripts/media/release_contract.py'
       - 'scripts/deploy/test_media_release*.py'
+      - 'scripts/deploy/test_media_native_corpus.py'
+      - 'scripts/media/test_sanitizer_isolation.py'
+      - 'backend/tests/Duora.IntegrationTests/Media/Native*Corpus*.cs'
+      - 'backend/tests/Duora.IntegrationTests/Media/SanitizerResourceEnvelopeTests.cs'
       - 'infra/images/media-sanitizer/Dockerfile'
 permissions:
   contents: read
@@ -39,7 +43,9 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && 'refs/heads/main' || github.sha }}
       - name: Candidate contract and publication boundary tests
-        run: python3 -m unittest discover -s scripts/deploy -p 'test_media_release*.py' -v
+        run: |
+          python3 -m unittest discover -s scripts/deploy -p 'test_media_release*.py' -v
+          python3 -m unittest discover -s scripts/deploy -p 'test_media_native_corpus.py' -v
       - name: Exact trusted main and nine CI gates
         id: gates
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -75,6 +81,18 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.verify.outputs.commit }}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Build synthetic corpus instrumentation without secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          project=backend/tests/Duora.IntegrationTests/Duora.IntegrationTests.csproj
+          dotnet restore "$project" --locked-mode
+          dotnet build "$project" --no-restore
+          echo "CORPUS_DOTNET=$(readlink -f "$(command -v dotnet)")" >> "$GITHUB_ENV"
+          echo "CORPUS_ASSEMBLY=$GITHUB_WORKSPACE/backend/tests/Duora.IntegrationTests/bin/Debug/net10.0/Duora.IntegrationTests.dll" >> "$GITHUB_ENV"
       - name: Build licensed Release once
         env:
           SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
@@ -190,7 +208,15 @@ jobs:
           sudo env GITHUB_ACTIONS=true python3 scripts/media/test_sanitizer_isolation.py \
             --launcher-uid "$LAUNCHER_UID" --worker-uid "$WORKER_UID" \
             --sanitizer-image "$SANITIZER_IMAGE" --sanitizer-config "$SANITIZER_CONFIG" \
+            --corpus-dotnet "$CORPUS_DOTNET" --corpus-assembly "$CORPUS_ASSEMBLY" \
+            --corpus-report "$RUNNER_TEMP/media-native-corpus.json" \
             --tested-profile "$RUNNER_TEMP/media-tested-profile.json" --report "$RUNNER_TEMP/media-release-isolation.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: media-native-corpus-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/media-native-corpus.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Assemble and verify pinned candidate bundle
         env:
           NATIVE_BUNDLE_DIR: ${{ runner.temp }}/media-native/bundle

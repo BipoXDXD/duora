@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Duora.Core.Media;
+using worker::Duora.Worker.Media;
 
 namespace Duora.IntegrationTests.Media;
 
@@ -29,6 +30,18 @@ public sealed class SanitizerResourceEnvelopeTests
     public async Task CurrentSanitizerHasRepeatableSyntheticResultsAndIsolatedProcessMeasurements()
     {
         var ct = TestContext.Current.CancellationToken;
+        var native = NativeCorpusOptions.Read(Environment.GetEnvironmentVariable);
+        using var isolated = native is null ? null : new IsolatedPhotoSanitizer(new IsolatedPhotoSanitizerOptions
+        {
+            LauncherSocket = native.Socket,
+            LauncherUid = native.LauncherUid,
+            ProfileSha256 = native.ProfileSha256,
+        });
+        if (isolated is not null)
+        {
+            await isolated.EnsureReadyAsync(ct);
+        }
+        var nativeSamples = new List<object>();
         var folder = Path.Combine(Path.GetTempPath(), $"duora-media-baseline-{Guid.NewGuid():N}");
         Directory.CreateDirectory(folder);
         var summary = new StringBuilder("\n## Current sanitizer baseline (synthetic, not sandbox homologation)\n\n"
@@ -69,9 +82,49 @@ public sealed class SanitizerResourceEnvelopeTests
                 var total = first.GetProperty("Variants").EnumerateArray().Sum(v => v.GetProperty("Bytes").GetInt64());
                 var elapsed = Math.Max(first.GetProperty("SanitizerElapsedMilliseconds").GetDouble(), second.GetProperty("SanitizerElapsedMilliseconds").GetDouble());
                 var peak = Math.Max(first.GetProperty("PeakWorkingSetBytes").GetInt64(), second.GetProperty("PeakWorkingSetBytes").GetInt64());
+                if (isolated is not null)
+                {
+                    var timer = Stopwatch.StartNew();
+                    var actual = await isolated.SanitizeAsync(item.Format, input, ct);
+                    timer.Stop();
+                    NativeSanitizerCorpus.AssertEquivalent(item, first, actual);
+                    nativeSamples.Add(new
+                    {
+                        name = item.Name,
+                        inputBytes = input.Length,
+                        inputSha256 = Convert.ToHexStringLower(SHA256.HashData(input)),
+                        milliseconds = timer.Elapsed.TotalMilliseconds,
+                        baseline = first,
+                        outcome = actual is SanitizeOutcome.Sanitized ? "Sanitized" : "Rejected",
+                        rejectionCode = (actual as SanitizeOutcome.Rejected) is { } rejected ? PhotoRejections.Code(rejected.Reason) : null,
+                        width = (actual as SanitizeOutcome.Sanitized)?.Width,
+                        height = (actual as SanitizeOutcome.Sanitized)?.Height,
+                        variants = (actual as SanitizeOutcome.Sanitized)?.Variants.Select(v => new
+                        {
+                            kind = PhotoVariants.Name(v.Kind),
+                            bytes = v.Content.Length,
+                            sha256 = Convert.ToHexStringLower(SHA256.HashData(v.Content)),
+                            width = v.Width,
+                            height = v.Height,
+                        }).ToArray(),
+                    });
+                }
                 summary.AppendLine(CultureInfo.InvariantCulture,
                     $"| {item.Name} | {input.Length} | {item.RejectionCode ?? "Sanitized"} | {elapsed:F3} | {peak} | {total} |");
                 File.Delete(file);
+            }
+            if (native is not null)
+            {
+                Assert.Equal(18, SanitizerBaselineCorpus.Cases.Count);
+                Assert.Equal(18, nativeSamples.Count);
+                await using var report = new FileStream(native.Report, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                await JsonSerializer.SerializeAsync(report, new
+                {
+                    schema = 1,
+                    profileSha256 = native.ProfileSha256,
+                    complete = true,
+                    cases = nativeSamples,
+                }, cancellationToken: ct);
             }
             // Measurements are observations. Candidate 512 MiB/50s/16+24 MiB caps are not pass thresholds here.
             summary.AppendLine("\nNo enforcement, startup/launcher benchmark, worst-case proof or production capacity approval. "
@@ -161,3 +214,5 @@ public sealed class SanitizerResourceEnvelopeTests
         }
     }
 }
+extern alias worker;
+

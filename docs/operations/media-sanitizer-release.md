@@ -31,6 +31,14 @@ Cada runner nativo amd64/arm64:
    template systemd restrito. O relatório distingue ambos, registra o config ID
    Release, sua referência imutável e o pin do perfil efetivamente ensaiado no
    serviço. Não afirma executar modos artificiais de falha dentro do decoder.
+   No serviço restrito e com esse mesmo pin, a instrumentação de testes chama
+   o adaptador real do Worker para os18vetores sintéticos S0. Compara resultado,
+   rejeição, formato, dimensões orientadas, três variantes ordenadas, tamanhos e
+   hashes com dois processos baseline frescos; identifica os WebP para conferir
+   dimensões e ausência de EXIF/XMP/IPTC/ICC/CICP. A geração e a identificação
+   são instrumentação no runner, fora do processo Worker de produção; o decode
+   candidato usa a imagem Release com os limites existentes. Uma diferença,
+   configuração parcial ou relatório incompleto faz a qualificação falhar.
 5. Gera o pacote e valida seu manifesto/pin com o verificador S4. O artefato
    nativo só é enviado após sucesso; relatórios diagnósticos de falha não o substituem.
 
@@ -63,6 +71,11 @@ O perfil ensaiado contém UID/GID/sockets/paths do runner e não serve como perf
 universal. Para instalação/homologação, ainda faltam host isolado selecionado,
 janela e orçamento autorizados, pin do perfil daquele host e ensaio da release
 selecionada com dados sintéticos, recursos efetivos e backup concorrente (#86).
+O artefato adicional `media-native-corpus-<arquitetura>-<attempt>` preserva os18
+resultados sintéticos por90dias, no mesmo workflow/attempt. Ele não amplia o
+manifesto fechado de oito arquivos nem substitui a proveniência e os gates do
+pacote. O processo de instrumentação tem prazo externo de20minutos e limpeza
+de seu grupo; isso não amplia o prazo por foto ou o orçamento do sandbox.
 Também permanecem limpeza durável do original, segurança/recuperação operacional
 e aceite dos candidatos P174-3/4. A #174 fica aberta enquanto houver qualquer
 critério pendente. Publicar não autoriza instalação, processamento de dados
