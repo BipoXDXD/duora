@@ -4,7 +4,7 @@ Esta entrega implementa somente as etapas 3 e 4 da [issue #108](https://github.c
 e do [plano aprovado](../superpowers/plans/2026-10-21-issue-108-regional-implementation.md), conforme
 [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md). **Não ativa o filtro.**
 Não implementa detector, leitor MMDB, atualização, UI ou habilitação internacional. Catálogo BR + 27 UFs.
-Titular, substituto e canal de alertas permanecem pendentes; isto não declara operação pronta.
+Este parágrafo descreve a entrega histórica 3–4; o estado integrado e as designações vigentes estão abaixo.
 
 ## Versões e corte futuro
 
@@ -36,7 +36,7 @@ anterior é reescrita pela migração `RegionalMatchingV3`; o default PostgreSQL
   não fornece a UI nem ativa o bloqueio regional nas rodadas V2 existentes.
 - Revisão humana dos testes de concorrência, privilégios, compatibilidade e do inventário de rodadas;
   autorização específica para migração, implantação e ativação (G4). Detector não é requisito do fluxo manual.
-- G2/G3/G5 continuam impedindo operação da base/detector. Nomes, substituto e canal não foram designados.
+- G2/G3/G5 continuam impedindo operação da base/detector; designações vigentes no roteiro abaixo.
 
 ## Concorrência e falhas
 
@@ -77,3 +77,55 @@ As cotas reiniciam com o processo e supõem a única instância web do ADR-0009.
 
 Responsáveis nominais, substituto e canal de alertas continuam pendentes. Etapas 7–10 e G2–G5 não são
 satisfeitos por estes endpoints/UI. Nenhum corte V3, país adicional ou mudança operacional é ativado aqui.
+
+
+## Homologação e release — etapa 10
+
+Este é o estado integrado que sucede as notas históricas anteriores. Interface manual, API, V3 e componentes
+inativos de MMDB/operação já estão implementados. Nenhum corte, detector, atualizador ou alerta real é ativado.
+Titular: proprietário; destino: Gmail privado, sem publicar endereço; sem substituto por decisão expressa.
+Contingência/cobertura, transporte comprovado e armazenamento/orçamento continuam pendentes (G3).
+
+### Sequência proposta, somente após aprovação de release
+
+1. Revisar evidências do **head exato** nos nove jobs do CI e o ensaio de migração/locks sintético. No ambiente
+   de homologação autorizado, repetir com volume representativo e registrar duração, waits e limites acordados.
+   O CI com 10.000 perfis não aprova capacidade de produção. Verificar privilégios pelo inventário existente.
+2. Registrar versão/digest de servidor, worker e SPA, schema atual/alvo, instante UTC com offset proposto,
+   inventário de rodadas V2 futuras, responsável e autorização G4. **Nenhum instante é escolhido neste PR.**
+3. Pausar novos pares por `Participation__MatchingEnabled=false`, drenar trabalhos e retirar todos os binários
+   sem guardas/V3. Aplicar somente expansão revisada pelo executor autorizado; em contenção abortar e investigar,
+   sem loops ilimitados. Entregar servidor/worker compatíveis antes da SPA e verificar endpoints privados.
+4. Entregar a interface manual existente. Comunicar em PT-BR/EN-US que país declarado é opcional e separado do
+   país desejado; solicitar escolha explícita em preferências. Não converter perfis antigos, locale ou idiomas
+   em consentimento. Pending impede novas reservas V3; salvamentos de perfil e preferência têm ETags independentes.
+   Texto proposto: “Escolha sua preferência de país para participar das novas rodadas. Sua localização e seus
+   idiomas não serão alterados.” / “Choose your country preference to join new rounds. Your location and
+   languages will not change.” Revisar comunicação e concluir configuração antes do corte, sem cadastro automático.
+5. Antes da ativação, atualizar em PR próprio o aviso atual da SPA de que salvar ainda não restringe os pares:
+   ele não pode continuar afirmando isso com V3 ativo. Homologar o texto PT-BR/EN-US e o comportamento E2E
+   para o estado real do corte, sem sugerir que rodadas V2 históricas foram reclassificadas.
+   Resolver rodadas V2 futuras por conclusão ou cancelamento/republicação administrativos revisados. Só então
+   autorizar/configurar `Participation:RegionalMatchingStartsAt` e retomar novos pares. Publicação posterior à
+   configuração usa início >= corte para V3; rodadas já publicadas conservam a versão. Não alterar linhas por SQL.
+6. Conferir comportamento manual, pending, compatibilidade bilateral e reservas já confirmadas. Detector pode
+   permanecer desligado indefinidamente; filtro não depende de G2/G3/G5. G4 e autorização continuam necessários.
+
+### Reversão e critérios de interrupção
+
+- Detector indisponível: manter/desligar somente sugestão, conservar formulário manual e escolhas. Atualmente
+  só há registro `DisabledCountryLookup`; ativação futura exige PR de integração, não um flag já disponível.
+- Defeito de filtro/concorrência ou consumidores incompatíveis: pausar novos pares com MatchingEnabled,
+  drenar operações e corrigir para frente. Reservas confirmadas não são desfeitas implicitamente.
+- Recuo de release: pausar também escritas incompatíveis, manter schema, preferências e versões. Avaliar ADR-0030
+  antes de permitir binário antigo; ensaio de recusa de Down não equivale a homologação de binário antigo.
+- Nunca remover corte para executar V2 irrestrito, apagar preferências, relaxar filtros por espera ou reduzir
+  gates. Preservar evidências sanitizadas sem dados individuais.
+
+### Aceites ainda necessários
+
+G2: base real/schema/epoch/cadência/acesso/limites/primeiro hash e relógios. G3: contingência/cobertura, identidade
+mínima de manutenção, storage/orçamento/ACLs e transporte/deduplicação/entrega no canal designado. G4: revisão
+humana do ensaio, capacidade do ambiente, consumidores, comunicação e inventário/corte. G5: recuperação/alertas
+reais em ambiente autorizado, atribuição e autorização específica de implantação/detecção. Não enviar alertas
+para satisfazer esses gates neste PR. #108 continua aberta; habilitação dos EUA pertence à #78.

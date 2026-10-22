@@ -106,3 +106,25 @@ atualizador ativado, alerta real enviado ou país habilitado. #108 aberta. Ver [
 A regressão de liberação humana verifica que autorização de reparo não passa a uma promoção posterior.
 Casos de manifesto adulterado abrangem origem, tipo inválido e cronologia de primeiro download, com alerta e bloqueio;
 a validação estrutural é compartilhada entre admissão, monitor e recuperação, preservando o corte de 168h.
+
+
+## Homologação integrada — etapa 10
+
+| Requisito / invariante | Evidência executável (suíte existente salvo indicação) |
+|---|---|
+| INV-01: conta/idiomas/consentimento continuam obrigatórios | `RegionalMatchingTests.V3KeepsAllOtherEligibilityFilters`; `RegionalPreferenceGuardTests.AccountAndVersionAreRecheckedAfterAcquiringTheSharedGuard` |
+| INV-02: reserva única concorrente | `RegionalMatchingTests.ConcurrentCoordinatorsAndOverlappingV3EventsReserveOnlyOnce` |
+| INV-03: bloqueio e localização serializados | `V3KeepsAllOtherEligibilityFilters` (block); `EditsCommittedBeforeGuardsAreObservedAndLaterEditsPreserveConfirmedRooms` (modern/legacy/preference) |
+| INV-05: preferência privada e sugestão sem efeitos | `RegionalPreferenceContractTests`, `RegionDetectionTests` (autorização, snapshots e logs); `ProfilePage.test.tsx`; `regional-preferences.spec.ts` |
+| INV-06: versão, concorrência e retry | `RegionalPreferenceTests`, `RegionalPreferenceGuardTests`, `RegionalPreferenceTimeoutTests`; `PersistedV3UsesExplicitChoicesAndDeclaredCountries` |
+| País bilateral, desconhecido/pending, subdivisão e histórico | `RegionalMatchingTests`; testes unitários de Profiles e Matching; sem relaxamento por espera |
+| Migração/locks/volume e reversão preservadora | Novo `RegionalRolloutRehearsalTests` (10.000 perfis); `RegionalMatchingMigrationTests`; `AppRolePrivilegesTests` |
+| Corte persistido e reinício | `CutoverOnlyLabelsNewRoundsAndNeverReinterpretsAnExistingRound`; execução V3 com serviço sem corte configurado |
+| Fluxo manual e conflito independente, dois idiomas | `ProfilePage.test.tsx`, `profile-form.test.ts`, `profile-location.test.ts`, `regional-preferences.spec.ts`, `profile.spec.ts` |
+| Proxy confiável, IP desconhecido/VPN, disabled, no-store | `RegionDetectionTests`: VPN não tem bypass nem precisão garantida; somente sugestão, nunca identidade |
+| Atualização/alertas/retenção/recuperação inativos | `CountryDatabaseReaderTests`, `CountryDatabasePipelineTests`, `CountryDatabaseWorkerTests`, `CountryDatabaseOperationsTests`; rede/notifier/archive sintéticos |
+
+O ensaio novo caracteriza contratos já implementados; não modifica código de produção para fabricar falha.
+Mede expansão e contenção no PostgreSQL real do CI. Não executa binário antigo nem prova throughput de matching,
+precisão IPinfo, transporte de alertas ou capacidade do host. Esses aceites permanecem nos gates operacionais.
+Todos os nove jobs obrigatórios devem passar no mesmo head; [resultados e limitações](reports/2026-10-22-regional-homologation.md).

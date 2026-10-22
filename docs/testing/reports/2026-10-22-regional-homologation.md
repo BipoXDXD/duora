@@ -1,0 +1,47 @@
+# Homologação técnica regional — etapa 10 da #108
+
+Base de trabalho: `ad133bb57c63af99f70122be048d05af0459a55b` (etapa 9 integrada).
+Escopo: documentação de contratos/dados/privacidade, matriz de invariantes e roteiro de implantação/reversão;
+novo ensaio PostgreSQL com 10.000 contas/perfis, contenção da migração, retry e recusa de Down preservando escolhas.
+Nenhum código de produto, configuração, dependência, migração, seed ou workflow alterado.
+
+## Verificação
+
+Local: `git diff --check`, leitura de diff/caminhos e revisão. Nenhum build, restore, Docker ou teste pesado local.
+CI: os nove jobs existentes executam restore/build/format/test backend, frontend, e2e, contract, ops, secret-scan,
+supply-chain e imagens AMD64/ARM64. Resultado do head será registrado no PR após a execução; esta frase não
+é evidência de aprovação. O teste emite `regional-rehearsal rows=10000 lock-timeout-ms=...` e `expansion-ms=...`
+no output xUnit e conserva as medições bem-sucedidas no resumo do job CI (`GITHUB_STEP_SUMMARY`). A duração inclui EF/processo, não mede exclusivamente tempo de lock nem SLA de produção.
+
+## Limites e decisões de execução
+
+- Teste de caracterização de contratos já implementados; não há comportamento novo de produção nem RED/GREEN fabricado.
+- Volume de 10.000 perfis sintéticos é reproduzível e limitado ao CI; não comprova lotação/throughput ou capacidade do host real.
+- Reversão ensaia recusa de Down e preservação de dados, não execução de binário antigo. Recuo operacional exige pausa e revisão própria.
+- G2/G3/G4/G5 e autorizações de ativação continuam pendentes conforme o runbook; CI não homologa IPinfo/Gmail/storage/SLA.
+- Sem mudanças protegidas, coleta adicional, EUA, detector/atualizador ativos, alerta real ou fechamento da issue.
+- Nenhuma tentativa de instrução não confiável identificada.
+
+As decisões evitam confundir homologação técnica com aceite operacional; o custo é manter a ativação bloqueada
+até ensaios e aprovações específicos. Titular e Gmail privado preservados; não publicar endereço; ausência de
+substituto/contingência/cobertura permanece limitação expressa.
+
+## Revisão independente
+
+Revisão somente de leitura do conjunto da branch: nenhum defeito crítico ou importante no ensaio identificado.
+Omissão do aviso pré-ativação da SPA foi reclassificada pelo autor como requisito importante de release: manter
+o texto de que a preferência ainda não restringe pares depois de ativar V3 informaria o usuário incorretamente.
+O runbook agora exige atualização em PR próprio e homologação PT-BR/EN-US/E2E antes do corte; sem alteração de
+runtime nesta entrega. Custo da decisão: mais um pré-requisito de G4, evitando comunicação falsa no rollout.
+
+A revisão não certifica capacidade de produção, base/canal/storage reais, SLA, relógios ou binário antigo;
+essas exclusões são aceitas por dependerem de gates e autorização separados. A caracterização sem produto novo
+não exige fabricar RED/GREEN. O CI continua sendo evidência separada, não inferida da revisão. Sem menores adiados.
+
+## Primeiro resultado remoto e correção do ensaio
+
+CI [39720914934](https://github.com/BipoXDXD/duora/actions/runs/39720914934), head `4bb0c3e`:
+backend 3.034 testes, 3.033 aprovados, uma falha, zero ignorados. A falha do ensaio foi a expectativa de
+`PostgresException` direta; EF/Npgsql encapsula o timeout `55P03` em `InvalidOperationException`. A asserção
+foi corrigida para exigir o wrapper e a causa PostgreSQL exata, mantendo o SQLSTATE, atomicidade e todos os
+checks de preservação. Não houve alteração de produto nem redução de gate. Execução final será ligada no PR.

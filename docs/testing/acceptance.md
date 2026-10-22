@@ -102,3 +102,12 @@ rejeição de open redirect e remoção de credenciais da URL/histórico/storage
 e `login-state.test.ts` cobrem aliases e validação do estado do navegador. A suíte existente de
 privacidade de sessão mantém T-14/T-21; os testes HTTP mantêm T-13 e autorização no servidor.
 Inventário, contrato de e-mail e rollback: [spa-routes.md](../architecture/spa-routes.md).
+
+
+## Evidências regionais integradas — #108 / ADR-0033 / etapa 10
+
+As linhas históricas T-01 a T-28 não são reclassificadas por esta entrega. Para o recorte regional, a
+[matriz atualizada](regional-matching.md#homologação-integrada--etapa-10) relaciona INV-01/02/03/05/06 a testes
+concretos de domínio, PostgreSQL, HTTP, frontend/E2E e operação. O
+[relatório de homologação](reports/2026-10-22-regional-homologation.md) separa execução remota, limites de volume,
+gates técnicos e aceite operacional. Testes sintéticos não aprovam ativação nem encerram #108.
