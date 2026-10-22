@@ -10,6 +10,7 @@ from collections.abc import Callable
 def wait_for_edge(request: Callable[[str], subprocess.CompletedProcess[str]], *,
                   sleep: Callable[[float], None] = time.sleep,
                   now: Callable[[], float] = time.monotonic) -> None:
+    # Janela de novas sondas; cada request conserva o próprio timeout de transporte.
     deadline = now() + 30
     while now() < deadline:
         health = request("http://127.0.0.1:8081/healthz")

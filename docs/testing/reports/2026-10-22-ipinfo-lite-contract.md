@@ -28,6 +28,9 @@
 - Regressão leve da fixture Caddy: `PYTHONPATH=scripts/deploy python3 -m unittest test_caddy_readiness -v`.
   A condição antiga reproduziu duas falhas em três casos; após exigir HTTP e HTTPS com resposta do upstream
   privado, **3/3 passaram**, sem Docker, rede ou espera real. A integração Caddy real continua obrigatória no CI.
+  Revisão do delta identificou um `import time` ainda necessário ao outro teste da classe; restaurado.
+  Observação menor preservada: 30s é a janela para iniciar sondas; o timeout individual de transporte pode
+  levar uma sonda já iniciada além dela, como ocorria antes para HTTP. Não é SLA nem mudança em produção.
 - **Resultados finais:** consultar os [checks do PR #183](https://github.com/BipoXDXD/duora/pull/183/checks)
   e o registro final do head exato no PR. Este arquivo registra o ciclo inicial; não antecipa resultado
   de uma execução ainda em andamento nem transfere evidência entre commits.
