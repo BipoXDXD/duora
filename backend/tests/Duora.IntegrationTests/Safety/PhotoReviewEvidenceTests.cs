@@ -134,6 +134,21 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_type='photo_review_access'"));
     }
 
+    [Fact]
+    public async Task StorageDisposalFailureClearsThePrivateReadBufferAndNeverAuditsDelivery()
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var store = new FailDisposalStore(TestImages.WebP(64, 32));
+        var service = new PhotoReviewEvidence(Factory(), store, _time);
+
+        await Assert.ThrowsAsync<IOException>(() => service.OpenAsync(reviewer, item.CaseId, PhotoVariant.Full, Ct));
+
+        Assert.False(store.Stream.Captured.IsEmpty);
+        Assert.All(store.Stream.Captured.ToArray(), value => Assert.Equal((byte)0, value));
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_evidence_accesses where case_id=$1", item.CaseId));
+        Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_type='photo_review_access'"));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -279,8 +294,10 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         }
     }
 
-    [Fact]
-    public async Task CallerCancellationObservesTheStorageReadAndNeverAuditsOrReturnsBytes()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CallerOrStorageBudgetCancellationObservesTheReadAndNeverAuditsOrReturnsBytes(bool cancelCaller)
     {
         var (reviewer, item) = await PreparedAsync();
         var store = new BlockingStore(new FileSystemObjectStore(_root.FullName));
@@ -289,8 +306,15 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         try
         {
             Assert.Same(store.Entered.Task, await Task.WhenAny(store.Entered.Task, opening).WaitAsync(TimeSpan.FromSeconds(5), Ct));
-            await canceled.CancelAsync();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => opening.WaitAsync(TimeSpan.FromSeconds(5), Ct));
+            if (cancelCaller)
+            {
+                await canceled.CancelAsync();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => opening.WaitAsync(TimeSpan.FromSeconds(5), Ct));
+            }
+            else
+            {
+                Assert.IsType<PhotoReviewEvidenceResult.Unavailable>(await opening.WaitAsync(TimeSpan.FromSeconds(20), Ct));
+            }
             Assert.True(opening.IsCompleted);
             Assert.True(store.Finished.Task.IsCompleted);
             Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events e join safety.photo_review_evidence_accesses a on a.id=e.target_id where a.case_id=$1 and e.target_type='photo_review_access' and e.action='safety.photo_review_evidence_viewed'", item.CaseId));
@@ -705,6 +729,33 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) =>
             Task.FromResult<Stream?>(bytes is null ? null : new MemoryStream(bytes, writable: false));
+    }
+
+    private sealed class FailDisposalStore(byte[] bytes) : IObjectStore
+    {
+        internal FailingDisposalStream Stream { get; } = new(bytes);
+        public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) => Task.FromResult<Stream?>(Stream);
+    }
+
+    private sealed class FailingDisposalStream(byte[] bytes) : MemoryStream(bytes, writable: false)
+    {
+        internal Memory<byte> Captured { get; private set; }
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (Captured.IsEmpty)
+            {
+                Captured = buffer;
+            }
+            return base.ReadAsync(buffer, cancellationToken);
+        }
+        public override async ValueTask DisposeAsync()
+        {
+            await base.DisposeAsync();
+            throw new IOException("Synthetic storage disposal failure");
+        }
     }
 
     private sealed class LoseChunkCommitResponse : DbTransactionInterceptor

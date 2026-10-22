@@ -31,6 +31,8 @@ internal sealed record AuditAction
 
     public static readonly AuditAction PhotoReviewAssigned = new("safety.photo_review_assigned");
 
+    public static readonly AuditAction PhotoReviewEvidenceViewed = new("safety.photo_review_evidence_viewed");
+
     public static readonly AuditAction PhotoReviewPermissionGranted = new("safety.photo_review_permission_granted");
 
     public static readonly AuditAction PhotoReviewPermissionRevoked = new("safety.photo_review_permission_revoked");
@@ -142,6 +144,8 @@ internal static class AuditTargetTypes
     public const string LoginSession = "login_session";
 
     public const string PhotoReviewCase = "photo_review_case";
+
+    public const string PhotoReviewEvidenceAccess = "photo_review_access";
 
     public const string PhotoReviewGrant = "photo_review_grant";
 }
