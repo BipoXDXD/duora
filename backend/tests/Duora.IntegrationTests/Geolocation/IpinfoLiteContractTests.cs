@@ -18,6 +18,10 @@ public sealed class IpinfoLiteContractTests
         // A misleading country name must never become the ISO code.
         var bytes = SyntheticMmdb.CreateLite(Now.AddHours(-1), configure: map => map["country"] = "US");
         var manifest = h.Validator.Validate(bytes, Now, Ct);
+        Assert.Equal("ipinfo_lite.mmdb", manifest.Product);
+        Assert.Equal("ipinfo-lite-country-v1", manifest.Schema);
+        Assert.Equal("https://ipinfo.io/data/ipinfo_lite.mmdb", manifest.Source);
+        Assert.Equal("CC-BY-SA-4.0", manifest.License);
         h.Save(manifest, bytes);
         Assert.True(h.Active.TryReplace(manifest, Ct));
         foreach (var address in new[] { "192.0.2.1", "2001:db8::1", "::ffff:192.0.2.1" })
@@ -57,8 +61,10 @@ public sealed class IpinfoLiteContractTests
         using var h = new Harness();
         var bytes = SyntheticMmdb.CreateLite(Now.AddHours(-1), configure: map =>
         {
-            if (code is null) { map.Remove("country_code"); }
-            else { map["country_code"] = code; }
+            if (code is null)
+            { map.Remove("country_code"); }
+            else
+            { map["country_code"] = code; }
         });
         var error = Assert.Throws<CountryDatabaseValidationException>(() => h.Validator.Validate(bytes, Now, Ct));
         Assert.Equal("Schema", error.Code);
@@ -101,11 +107,7 @@ public sealed class IpinfoLiteContractTests
     [Fact]
     public void LiteManifestIdentityIsExplicitAndLegacyManifestCannotBeReused()
     {
-        var manifest = new CountryDatabaseManifest(new string('a', 64), 100, Now.AddHours(-1), Now, Now, SyntheticMmdb.LiteDatabaseType);
-        Assert.Equal("ipinfo_lite.mmdb", manifest.Product);
-        Assert.Equal("ipinfo-lite-country-v1", manifest.Schema);
-        Assert.Equal("https://ipinfo.io/data/ipinfo_lite.mmdb", manifest.Source);
-        Assert.Equal("CC-BY-SA-4.0", manifest.License);
+        var manifest = Manifest();
         Assert.True(manifest.IsAdmissible(Now));
         Assert.False((manifest with { Product = "country.mmdb" }).IsAdmissible(Now));
         Assert.False((manifest with { Schema = "ipinfo-country-v1" }).IsAdmissible(Now));
@@ -121,11 +123,15 @@ public sealed class IpinfoLiteContractTests
     [InlineData("License")]
     public void MissingPersistedIdentityDoesNotInheritCurrentProductDefaults(string field)
     {
-        var manifest = new CountryDatabaseManifest(new string('a', 64), 100, Now.AddHours(-1), Now, Now, SyntheticMmdb.LiteDatabaseType);
+        var manifest = Manifest();
         var json = JsonNode.Parse(JsonSerializer.Serialize(manifest))!.AsObject();
         json.Remove(field);
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CountryDatabaseManifest>(json.ToJsonString()));
+        var parsed = Assert.IsType<CountryDatabaseManifest>(JsonSerializer.Deserialize<CountryDatabaseManifest>(json.ToJsonString()));
+        Assert.False(parsed.IsAdmissible(Now));
     }
+
+    private static CountryDatabaseManifest Manifest() => new(new string('a', 64), 100, Now.AddHours(-1), Now, Now,
+        SyntheticMmdb.LiteDatabaseType, "ipinfo_lite.mmdb", "ipinfo-lite-country-v1", "CC-BY-SA-4.0", "https://ipinfo.io/data/ipinfo_lite.mmdb");
 
     private sealed class Harness : IDisposable
     {
