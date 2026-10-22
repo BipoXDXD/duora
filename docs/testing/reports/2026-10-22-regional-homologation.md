@@ -37,3 +37,11 @@ runtime nesta entrega. Custo da decisão: mais um pré-requisito de G4, evitando
 A revisão não certifica capacidade de produção, base/canal/storage reais, SLA, relógios ou binário antigo;
 essas exclusões são aceitas por dependerem de gates e autorização separados. A caracterização sem produto novo
 não exige fabricar RED/GREEN. O CI continua sendo evidência separada, não inferida da revisão. Sem menores adiados.
+
+## Primeiro resultado remoto e correção do ensaio
+
+CI [39720914934](https://github.com/BipoXDXD/duora/actions/runs/39720914934), head `4bb0c3e`:
+backend 3.034 testes, 3.033 aprovados, uma falha, zero ignorados. A falha do ensaio foi a expectativa de
+`PostgresException` direta; EF/Npgsql encapsula o timeout `55P03` em `InvalidOperationException`. A asserção
+foi corrigida para exigir o wrapper e a causa PostgreSQL exata, mantendo o SQLSTATE, atomicidade e todos os
+checks de preservação. Não houve alteração de produto nem redução de gate. Execução final será ligada no PR.

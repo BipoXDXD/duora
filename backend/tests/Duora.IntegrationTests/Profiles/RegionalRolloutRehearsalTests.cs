@@ -45,8 +45,9 @@ public sealed class RegionalRolloutRehearsalTests(PostgresFixture postgres)
         {
             await Execute(connection, "lock table identity.users in access exclusive mode", ct);
             await using var blocked = PostgresFixture.CreateDbContext(bounded.ConnectionString);
-            var error = await Assert.ThrowsAsync<PostgresException>(() => blocked.GetService<IMigrator>()
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => blocked.GetService<IMigrator>()
                 .MigrateAsync("20261021160000_RegionalPreferences", cancellationToken: ct));
+            var error = Assert.IsType<PostgresException>(failure.GetBaseException());
             Assert.Equal(PostgresErrorCodes.LockNotAvailable, error.SqlState);
             lockWaitMilliseconds = timer.ElapsedMilliseconds;
             TestContext.Current.TestOutputHelper!.WriteLine($"regional-rehearsal rows=10000 lock-timeout-ms={lockWaitMilliseconds}");
