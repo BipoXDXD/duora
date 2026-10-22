@@ -120,7 +120,18 @@ public sealed partial class MediaPipelineTests
         {
             await remove.ExecuteNonQueryAsync(Cancellation);
         }
-        await ExpireMediaLeaseAsync(photoId);
+        if (afterCommit)
+        {
+            await ExpireMediaLeaseAsync(photoId);
+        }
+        else
+        {
+            // The failed asset transaction was already retried: Pending has no lease to expire.
+            await ExecuteAsync("""
+                update ops.outbox_deliveries set available_at = now() - interval '1 minute'
+                where outbox_event_id in (select id from ops.outbox_events where resource_id = $1)
+                """, photoId);
+        }
         var restarted = StartWorker(services => { });
         Assert.Equal(1, await DispatchOnceAsync(restarted));
         Assert.Equal(1, await CountAsync("select count(*) from media.media_assets where upload_id = $1", photoId));
