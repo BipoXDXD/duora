@@ -161,6 +161,13 @@ O smoke local da release (`scripts/deploy/smoke_local.py`) sobe o Worker na imag
 - Rotas fora da allowlist pública exigem sessão: `EndpointAuthorizationTests`.
 - Revisão humana obrigatória (autenticação, [permissions.md](../../automation/permissions.md)).
 
+## Revisão: transporte SMTP opcional
+
+O [ADR-0039](0039-transporte-smtp-opcional.md) limita ao adaptador pickup as afirmações de deduplicação
+local deste registro. No SMTP, Message-ID estável permite correlação e não elimina a janela entre aceite
+remoto e confirmação/commit local. O aceite cobre a integração do transporte opcional, sem ativação em produção; evidências
+e limites estão no relatório de homologação referenciado pelo ADR.
+
 ## Revisão: transporte Resend (22/10/2026)
 
 O adaptador opt-in Resend implementa a porta de envio existente sem mudar a transação de conta, schemas,
