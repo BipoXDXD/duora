@@ -244,7 +244,7 @@ public sealed partial class MediaPipelineTests
         return await new PhotoReviewPromotions(db, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
     }
 
-    private async Task AssertPromotionCandidateUnchangedAsync(FileSystemObjectStore store, Dictionary<ObjectKey, byte[]> expected)
+    private static async Task AssertPromotionCandidateUnchangedAsync(FileSystemObjectStore store, Dictionary<ObjectKey, byte[]> expected)
     {
         foreach (var (key, bytes) in expected)
         {
