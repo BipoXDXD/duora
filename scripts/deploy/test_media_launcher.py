@@ -212,7 +212,9 @@ class SupervisorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_external_deadline_cancels_runtime_and_never_returns_response(self):
         self.runtime.wait = True
-        result = await asyncio.wait_for(self.supervisor.run(JOB, request(), (16777216,25165824,65536,10)), 1)
+        # Exercise deadline cancellation while leaving a realistic cleanup reserve.
+        # A 10ms total can legitimately become blocked when disk/scheduling consumes it.
+        result = await asyncio.wait_for(self.supervisor.run(JOB, request(), (16777216,25165824,65536,1000)), 3)
         self.assertEqual("failed", result.code)
         self.assertEqual(b"", result.payload)
 

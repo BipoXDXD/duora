@@ -16,6 +16,7 @@ import struct
 import subprocess
 import tempfile
 import time
+import sys
 import zlib
 from pathlib import Path
 
@@ -70,8 +71,8 @@ class Proof:
         self.events = []
         self.report = {"architecture":platform.machine(),"candidateOnly":True,"cases":[],"complete":False}
 
-    def docker(self, *args):
-        return subprocess.check_output(["runuser","-u",self.user,"--","docker","--host",self.host,*args],timeout=60)
+    def docker(self, *args, wire=None):
+        return subprocess.check_output(["runuser","-u",self.user,"--","docker","--host",self.host,*args],input=wire,timeout=60)
 
     def build(self):
         self.images = {}
@@ -209,7 +210,25 @@ class Proof:
             self.profile=previous
 
     def run(self):
-        self.build();self.start(self.images["isolation-probe"])
+        self.build()
+        def writable_root_control():
+            # Same immutable probe/profile, changing only rootfs RO. This must
+            # falsify the probe even though /app remains root-owned (DAC denied).
+            sys.path.insert(0,str(REPO/"scripts/media"))
+            from launcher import Profile, job_name
+            self.profile["image"]=self.images["isolation-probe"]
+            profile=Profile.from_dict(self.profile,self.args.launcher_uid)
+            job=os.urandom(16).hex()
+            arguments=profile.create_args(job); arguments.remove("--read-only")
+            self.docker(*arguments)
+            try:
+                payload=self.docker("start","--attach","--interactive",job_name(job),wire=self.wire(job,b"inspect"))
+                assert json.loads(payload)["rootReadOnly"] is False
+                self.report["writableRootNegativeControl"]=True
+            finally: self.docker("rm","--force",job_name(job))
+            self.assert_empty()
+        self.case("writable-root-negative-control-rejects-dac-false-positive",writable_root_control)
+        self.start(self.images["isolation-probe"])
         def inspect():
             code,payload=self.exchange(os.urandom(16).hex(),b"inspect")
             assert code==0
