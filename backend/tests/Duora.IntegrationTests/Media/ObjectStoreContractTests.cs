@@ -37,10 +37,14 @@ public sealed class S3ObjectStoreContractTests(MinioFixture minio) : ObjectStore
 {
     protected override IObjectStore Store { get; } = new S3ObjectStore(minio.Options, NullLogger<S3ObjectStore>.Instance);
 
-    [Fact]
-    public async Task ObjectsLandInTheConfiguredBucketUnderTheKeyAndNeverPublic()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ObjectsLandInTheConfiguredBucketUnderTheKeyAndNeverPublic(bool reviewCandidate)
     {
-        var key = ObjectKey.NewQuarantine();
+        var key = reviewCandidate
+            ? ObjectKey.ForReviewCandidate(Guid.NewGuid(), PhotoVariant.Card)
+            : ObjectKey.NewQuarantine();
         await PutAsync(key, [1, 2, 3]);
 
         using var client = minio.CreateClient();
@@ -49,6 +53,11 @@ public sealed class S3ObjectStoreContractTests(MinioFixture minio) : ObjectStore
             TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(acl.Grants, grant => grant.Grantee.URI?.Contains("AllUsers", StringComparison.Ordinal) == true);
+        Assert.DoesNotContain(acl.Grants, grant => grant.Grantee.URI?.Contains("AuthenticatedUsers", StringComparison.Ordinal) == true);
+        using var anonymous = new HttpClient();
+        using var response = await anonymous.GetAsync(
+            $"{minio.Options.ServiceUrl}/{MinioFixture.Bucket}/{key.Value}", TestContext.Current.CancellationToken);
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
