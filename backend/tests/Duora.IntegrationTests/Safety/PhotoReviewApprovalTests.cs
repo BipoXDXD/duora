@@ -10,6 +10,8 @@ using Duora.Infrastructure.Safety;
 using Duora.IntegrationTests.Media;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -563,6 +565,98 @@ public sealed class PhotoReviewApprovalTests(PostgresFixture postgres) : IAsyncL
 
             Assert.True(await gc.CompleteSweepAsync(claim, cancellationToken));
         }
+    }
+
+    [Fact]
+    public async Task ApprovalExpansionPreservesAnExistingRejectionItsReceiptAndReplay()
+    {
+        var database = await postgres.CreateEmptyDatabaseAsync(Ct);
+        await using (var before = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
+        {
+            await before.GetService<IMigrator>().MigrateAsync("20261022210000_PrivateReviewPromotions", cancellationToken: Ct);
+        }
+
+        _connectionString = database.AppConnectionString;
+        var (reviewer, item) = await PreparedAsync();
+        var key = Key();
+        var first = Assert.IsType<PhotoReviewRejectionResult.Rejected>(await new PhotoReviewRejections(Factory(),
+            new FileSystemObjectStore(_root.FullName), _time).RejectAsync(reviewer, item.CaseId, 2,
+                PhotoReviewRejectionReason.DoesNotMeetPolicy, key, Ct));
+        var previous = await DecisionHistoryAsync(item);
+        await using (var after = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
+        {
+            await after.GetService<IMigrator>().MigrateAsync("20261022220000_PhotoReviewApprovals", cancellationToken: Ct);
+        }
+
+        Assert.Equal(previous, await DecisionHistoryAsync(item));
+        var noStorage = new ApprovalStore(new FileSystemObjectStore(_root.FullName), refuseAll: true);
+        Assert.Equal(first, await new PhotoReviewRejections(Factory(), noStorage, _time).RejectAsync(reviewer,
+            item.CaseId, 1, PhotoReviewRejectionReason.DoesNotMeetPolicy, key, Ct));
+        Assert.IsType<PhotoReviewApprovalResult.KeyReused>(await ApproveAsync(reviewer, item, key, noStorage, version: 1));
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from safety.photo_review_decision_commands
+            where case_id=$1 and result_decision='reject' and result_asset_id is null
+            """, item.CaseId));
+        Assert.Equal(0, noStorage.PutAttempts);
+        Assert.Empty(noStorage.Opened);
+        var (nextReviewer, nextItem) = await PreparedAsync();
+        Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(nextReviewer, nextItem, Key()));
+        Assert.Equal(previous, await DecisionHistoryAsync(item));
+    }
+
+    private async Task<string[]> DecisionHistoryAsync(CaseData item)
+    {
+        await using var db = Context();
+        var decision = await db.Database.SqlQuery<string>($"""
+            select to_jsonb(d)::text as "Value" from safety.photo_review_decisions d where case_id={item.CaseId}
+            """).SingleAsync(Ct);
+        var receipt = await db.Database.SqlQuery<string>($"""
+            select (to_jsonb(c)-'result_decision'-'result_asset_id')::text as "Value"
+            from safety.photo_review_decision_commands c where case_id={item.CaseId}
+            """).SingleAsync(Ct);
+        return [decision, receipt];
+    }
+
+    [Fact]
+    public async Task ApprovalConstraintsRejectMismatchedReasonsRetentionAndReceiptAssets()
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var approved = Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, Key()));
+        foreach (var (decision, reason, hours) in new[]
+        {
+            ("approve", "does_not_meet_policy", 24),
+            ("reject", "meets_policy", 168),
+            ("approve", "meets_policy", 168),
+            ("reject", "does_not_meet_policy", 24),
+            ("unknown", "meets_policy", 24),
+        })
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync("""
+                insert into safety.photo_review_decisions(id,case_id,case_version,actor_id,decision,reason_code,
+                  candidate_generation,policy_version,decided_at,candidate_retention_until_snapshot,history_retain_until)
+                select $2,case_id,99,actor_id,$3,$4,candidate_generation,policy_version,decided_at,
+                  decided_at+($5::integer*interval '1 hour'),history_retain_until
+                from safety.photo_review_decisions where case_id=$1
+                """, item.CaseId, Guid.NewGuid(), decision, reason, hours));
+            Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+        }
+
+        foreach (var (decision, asset) in new (string Decision, Guid? Asset)[]
+        {
+            ("approve", null), ("approve", Guid.Empty), ("reject", approved.AssetId), ("unknown", approved.AssetId),
+        })
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync("""
+                insert into safety.photo_review_decision_commands(actor_id,operation,key_hash,case_id,intent_sha256,
+                  result_version,result_photo_version,created_at,result_decision,result_asset_id)
+                select actor_id,operation,$2,case_id,intent_sha256,result_version,result_photo_version,created_at,$3,$4::uuid
+                from safety.photo_review_decision_commands where case_id=$1
+                """, item.CaseId, RandomNumberGenerator.GetBytes(32), decision, (object?)asset ?? DBNull.Value));
+            Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+        }
+
+        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1", item.CaseId));
+        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decision_commands where case_id=$1", item.CaseId));
     }
 
     private Task<PhotoReviewApprovalResult> ApproveAsync(PhotoReviewActor actor, CaseData item, IdempotencyKey key,
