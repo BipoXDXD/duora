@@ -13,8 +13,8 @@ public abstract record SanitizeOutcome
 }
 
 /// <summary>
-/// Porta do decoder de imagem (ADR-0025). A implementação vive só no Worker, porque é o processo que aceita o risco de
-/// decodificar entrada hostil; o Web nunca a carrega. Rejeição é resultado, não exceção: entrada ruim não derruba a fila.
+/// Porta da sanitização (ADR-0036). O Worker transporta bytes para o executável isolado, único processo que carrega
+/// o decoder. Rejeição técnica é resultado; falha de transporte segue retry limitado, sem fallback local.
 /// </summary>
 public interface IPhotoSanitizer
 {

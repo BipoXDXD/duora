@@ -209,9 +209,9 @@
         "assetId": "constellation-v1-intro-pt",
         "transcript": "Explore escolhas do dia a dia. Você pode pular qualquer cartão.",
         "accessibleDescription": "Constelação de Escolhas",
-        "provenance": "Registro editorial duora-editorial-20261021; mídia fixada por SHA-256; revisão editorial pendente.",
-        "sha256": "43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc",
-        "path": "audio/43cac8cae1d55dd7f3d00e0ea92997e86c85dbebb94ef29a7661a717481f63cc.wav"
+        "provenance": "Registro editorial duora-editorial-20261021; mídia fixada por SHA-256; revisão editorial pendente. Pronunciation revision 2026-10-22: same Sarah voice/model, Explore with synthesis-only IPA; generation TmGvh4AVmGZjqZuxO751; sourceRecord duora-editorial-20261021.",
+        "sha256": "11eb2c2d46cdb92ec7aca97d3d42c92185558bf6f3c20fe6762bf400ad5d8713",
+        "path": "audio/11eb2c2d46cdb92ec7aca97d3d42c92185558bf6f3c20fe6762bf400ad5d8713.wav"
       }
     }
   ]

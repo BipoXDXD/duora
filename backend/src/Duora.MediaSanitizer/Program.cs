@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using Duora.MediaProtocol;
-using Duora.Worker.Media;
+using Duora.MediaSanitizer.Media;
 
 namespace Duora.MediaSanitizer;
 

@@ -32,15 +32,6 @@
           "Microsoft.Extensions.Options": "10.0.13"
         }
       },
-      "SixLabors.ImageSharp": {
-        "type": "Direct",
-        "requested": "[4.1.3, )",
-        "resolved": "4.1.3",
-        "contentHash": "VzzKPgdC0ZupEg937iKpg2cEGXudnFyQRwiHfIvtCKSlFUaxVbLjW3AztDhyk06z+4NzD7IAlMf7fqU57WXyBQ==",
-        "dependencies": {
-          "System.IO.Hashing": "8.0.0"
-        }
-      },
       "AWSSDK.Core": {
         "type": "Transitive",
         "resolved": "4.0.102.11",
@@ -366,11 +357,6 @@
         "resolved": "10.0.13",
         "contentHash": "DkNjtQyPR5Ud/zHnWHdsOuKbFRL9nIC92Q76z0NmHVDoQm40toLtsGFTIWq7toBoVa6fo/DInL3PLxY3Asixyw=="
       },
-      "System.IO.Hashing": {
-        "type": "Transitive",
-        "resolved": "8.0.0",
-        "contentHash": "ne1843evDugl0md7Fjzy6QjJrzsjh46ZKbhf8GwBXb5f/gw97J4bxMs0NQKifDuThh/f0bZ0e62NPl1jzTuRqA=="
-      },
       "duora.contracts": {
         "type": "Project"
       },
@@ -503,6 +489,12 @@
           "Microsoft.EntityFrameworkCore": "[10.0.4, 11.0.0)",
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.4, 11.0.0)",
           "Npgsql": "10.0.3"
+        }
+      },
+      "duora.mediaprotocol": {
+        "type": "Project",
+        "dependencies": {
+          "Duora.Core": "[1.0.0, )"
         }
       }
     }
