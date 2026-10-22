@@ -65,7 +65,8 @@ jobs:
           sudo loginctl enable-linger duora-sanitizer-ci
           sudo systemctl start "user@$uid.service"
           sudo -Hu duora-sanitizer-ci env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
-            systemctl --user set-environment XDG_RUNTIME_DIR="/run/user/$uid" HOME=/home/duora-sanitizer-ci
+            systemctl --user set-environment XDG_RUNTIME_DIR="/run/user/$uid" HOME=/home/duora-sanitizer-ci \
+              XDG_CONFIG_HOME=/home/duora-sanitizer-ci/.config XDG_DATA_HOME=/home/duora-sanitizer-ci/.local/share DOCKER_CONFIG=/home/duora-sanitizer-ci/.docker
           if ! sudo -Hu duora-sanitizer-ci env -i PATH=/usr/bin:/bin HOME=/home/duora-sanitizer-ci USER=duora-sanitizer-ci LOGNAME=duora-sanitizer-ci XDG_RUNTIME_DIR="/run/user/$uid" \
             DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" dockerd-rootless-setuptool.sh install --force; then
             # Only service startup diagnostics on this synthetic runner; preserve the failed gate.
