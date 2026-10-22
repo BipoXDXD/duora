@@ -137,6 +137,7 @@ rode os dois a partir de `backend/`, como nos comandos deste arquivo.
 | `Duora:PublicOrigin` | `https://localhost:5173` | Links dos e-mails e origem aceita no CSRF |
 | `DataProtection:KeysDirectory` (Web) | `../.local/dataprotection-keys` | Key ring; apagá-lo derruba as sessões abertas |
 | `Email:PickupDirectory` (Worker) | `../.local/mail` | Cada e-mail de conta vira um `.eml` com o link de confirmação ou de redefinição |
+| `Email:Provider` (Worker) | `PickupDirectory` (padrão) | `Resend` e `Smtp` selecionam o envio externo; a seleção não muda o produtor da outbox |
 | `Media:Review` (Web e Worker) | `TechnicalOnly` | Liga o upload de fotos com aprovação só técnica (dados sintéticos; o boot a recusa em Production, ADR-0025) |
 | `Media:Storage:Provider` e `Media:Storage:FileSystemRoot` (Web e Worker) | `FileSystem`, `../.local/media` | Quarentena e derivados num diretório local, o mesmo nos dois processos; em Production, `FileSystem` num diretório absoluto já montado nos dois, no disco da VPS (adendo do ADR-0010); o adaptador `S3` existe, mas não é o de produção |
 
@@ -150,6 +151,29 @@ ignorado e o rate limit por IP vê só o IP do proxy. Os e-mails só
 saem com o Worker rodando: o Web grava na outbox e o Worker entrega.
 
 ## Outbox de e-mail
+
+O transporte `PickupDirectory` exige `Email:PickupDirectory` e continua sendo o padrão. Para um ensaio SMTP isolado,
+configure `Email:Provider=Smtp` e as chaves abaixo no Worker. Não há ativação SMTP no Compose de produção.
+
+| Chave | Regra |
+|---|---|
+| `Email:Smtp:Host` | Host do provedor, sem esquema nem caminho |
+| `Email:Smtp:Port` | Porta explícita entre 1 e 65535; padrão 587 |
+| `Email:Smtp:Security` | `StartTls` obrigatório (padrão) ou `SslOnConnect`; TLS oportunista e texto claro são recusados |
+| `Email:Smtp:Username` | Usuário exclusivo da homologação |
+| `Email:Smtp:Password` | Segredo exclusivo, fornecido por arquivo `Email__Smtp__Password` no `SecretsDirectory` |
+| `Email:Smtp:From` | Endereço simples do remetente autorizado pelo provedor |
+
+Não coloque credenciais no repositório, na linha de comando, no chat ou nos comprovantes. Os certificados são
+validados normalmente. O cancelamento e `Outbox:SendTimeout` limitam conexão, autenticação e envio; os limites
+de lease continuam obrigatórios. A configuração SMTP dispensa o diretório pickup e falha na inicialização
+se estiver incompleta. Sem `Email:Provider=Smtp`, as chaves SMTP não ativam envio externo.
+
+O `Message-ID` tem a forma `duora-<delivery-id-sem-hífens>@<domínio-do-remetente>` e permanece igual no retry.
+Ele permite correlação; SMTP não garante deduplicação quando o servidor aceita a mensagem e o worker perde
+a resposta ou falha antes de concluir a entrega no banco. `Delivered` por SMTP significa aceite do servidor,
+não chegada à caixa de entrada nem ausência de bounce. A prova externa exige conferir a mensagem sintética
+na caixa autorizada por esse identificador. Veja [o ensaio isolado](../testing/smtp-outbox-homologation.md).
 
 O worker valida `Outbox:SendTimeout ≤ Outbox:LeaseDuration / 2` no boot.
 Padrões do e-mail: lote de 10, envio de 30 s, lease de 2 min e `MaxAttempts=8`. O lote não entra na conta:
