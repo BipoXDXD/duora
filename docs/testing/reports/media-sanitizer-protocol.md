@@ -16,6 +16,12 @@ O Worker ainda registra o sanitizador atual; a remoção ocorre somente na S3, a
   Os 42 casos iniciais passaram. Dez falhas demonstram aceitação indevida de metadados/framing de imagem;
   uma demonstra ausência do executável separado. Implementação posterior adiciona essas duas partes.
   Resultados finais serão registrados no head efetivamente validado.
+- Head `7223ea17057fbf9b61255b13aefa9cd081b9abda`, [CI39744694379](https://github.com/BipoXDXD/duora/actions/runs/39744694379):
+  backend 3.129 testes, 3.126 passaram, três falhas e zero ignorados. As três falhas reproduzem
+  entrada vazia, hash inválido e orçamento de saída insuficiente: o executável encerrava com 134,
+  em vez de 65, porque `InvalidDataException` não deriva de `IOException`. O corpus completo e
+  o PNG transparente passaram, preservando bytes e alpha. A correção trata a exceção explicitamente;
+  os mesmos testes exigem código 65 e nenhum byte em stdout/stderr. CI final inclui a main após #184.
 
 Nenhum restore, build, instalação, Docker ou teste pesado local. `git diff --check` é a verificação
 local leve; todos os testes executáveis pertencem ao GitHub Actions. Nenhuma issue concluída por este registro.
