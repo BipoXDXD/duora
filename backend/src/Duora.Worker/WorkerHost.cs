@@ -1,6 +1,7 @@
 using Duora.Core.Media;
 using Duora.Infrastructure;
 using Duora.Infrastructure.Email;
+using Duora.Infrastructure.Geolocation;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Media;
 using Duora.Infrastructure.Participation;
@@ -25,6 +26,18 @@ internal static class WorkerHost
 
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddInfrastructure(builder.Configuration, ConnectionShare.Worker);
+        var countryDatabase = builder.Services.AddCountryDatabaseRuntime(builder.Configuration, worker: true);
+        if (countryDatabase.UpdaterEnabled)
+        {
+            builder.Services.AddHostedService(p => new CountryDatabaseUpdateWorker(p.GetRequiredService<CountryDatabaseUpdateStore>(),
+                p.GetRequiredService<CountryDatabaseUpdateService>(), p.GetRequiredService<TimeProvider>(),
+                p.GetRequiredService<IOptions<CountryDatabaseRuntimeOptions>>().Value.LeaseDuration, enabled: true,
+                p.GetRequiredService<ILogger<CountryDatabaseUpdateWorker>>()));
+        }
+        if (countryDatabase.MonitorEnabled)
+        { builder.Services.AddHostedService<CountryDatabaseHealthWorker>(); }
+        if (countryDatabase.RetentionEnabled)
+        { builder.Services.AddHostedService<CountryDatabaseRetentionWorker>(); }
         builder.Services.AddTransactionalEmailDispatch();
         builder.Services.AddSelfieVerification();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);

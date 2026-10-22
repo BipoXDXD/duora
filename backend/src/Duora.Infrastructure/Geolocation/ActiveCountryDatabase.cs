@@ -31,6 +31,12 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
             }
             return false;
         }
+        lock (_gate)
+        {
+            if (!_disposed && snapshot.Generation == _generation && snapshot.Manifest == _manifest
+                && _reader is not null && ObserveClock(out var now) && snapshot.Manifest.IsAdmissible(now))
+            { return true; }
+        }
         return TryReplace(new CountryDatabaseSnapshot(snapshot.Generation, snapshot.Manifest), ct);
     }
 

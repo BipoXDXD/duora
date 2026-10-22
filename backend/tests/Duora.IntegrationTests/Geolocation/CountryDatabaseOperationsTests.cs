@@ -28,6 +28,22 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task BackupFailureSurvivesStoreRestartAndNotifiesOnlyOneRecovery()
+    {
+        await using var h = await Prepared();
+        var notices = new Notices();
+        await new CountryDatabaseOperationsStore(h.Source, h.Time).RecordBackupFailureAsync(true, Ct);
+        CountryDatabaseHealthService Monitor() => new(new(h.Source, h.Time), h.Validator, h.Root, notices, enabled: true);
+        await Monitor().RunOnceAsync(Ct);
+        await Monitor().RunOnceAsync(Ct);
+        Assert.Single(notices.Items, n => n.Code == "Backup" && !n.Recovered);
+        await new CountryDatabaseOperationsStore(h.Source, h.Time).RecordBackupFailureAsync(false, Ct);
+        await Monitor().RunOnceAsync(Ct);
+        await Monitor().RunOnceAsync(Ct);
+        Assert.Single(notices.Items, n => n.Code == "Backup" && n.Recovered);
+    }
+
+    [Fact]
     public async Task AgeThresholdsDeduplicateAcrossRestartRemindDailyAndNotifyRecovery()
     {
         await using var h = await Prepared();
