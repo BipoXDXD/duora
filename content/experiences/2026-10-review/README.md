@@ -29,6 +29,27 @@ sem inventar numeração. A tabela de [licenças](../../../docs/design/assets-li
 as fontes e os termos consultados. A disponibilidade futura da voz padrão tem limite informado pelo fornecedor;
 os arquivos offline fixados por hash permanecem necessários para preservar versões publicadas.
 
+## Ajustes textuais R1/R2 — 22/10/2026
+
+R1 esclarece as instruções de Rotas nos dois idiomas: uma opção por etapa, turnos alternados,
+confirmação individual e compartilhamento opcional de pistas, sem avaliação de compatibilidade ou dados reais.
+R2 esclarece a opção de gravura do cartão `curiosity`, opção `print`, nos dois idiomas.
+IDs, estrutura, ordem, regras, versão candidata e áudios permanecem iguais. Objetivos, transcrições,
+descrições acessíveis, hashes de áudio e manifesto não foram alterados. R3, R4 e R5 não foram aplicadas.
+
+Digests recalculados pelo empacotador, após R1/R2:
+
+| Catálogo | SHA-256 para futura aprovação |
+|---|---|
+| Constelação | `15bd133630689f9121705c06d9bbb9c00eddaccf8b69e17822222fdac979b645` |
+| Rotas Improváveis | `21201dc55c18179c5e0e268dbc7bef12176766a49863a08b276dcf0ec45b4d0d` |
+
+Os digests anteriores registrados na issue #101 identificam os candidatos anteriores a estes ajustes.
+Uma futura aprovação precisa corresponder aos novos digests. **A aprovação editorial continua pendente**:
+`review.status: pending_human_review`, sem pessoa ou data de aprovação, e empacotamento sem aprovação
+continua gerando `editorialApproved: false`. Escuta humana dos quatro áudios, avaliação assistiva e
+conferência de direitos continuam pendentes. Estes ajustes não publicam conteúdo nem encerram a issue #101.
+
 ## Empacotar para revisão
 
 A partir da raiz do repositório:
