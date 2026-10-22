@@ -64,8 +64,13 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo loginctl enable-linger duora-sanitizer-ci
           sudo systemctl start "user@$uid.service"
-          sudo -Hu duora-sanitizer-ci env -i PATH=/usr/bin:/bin HOME=/home/duora-sanitizer-ci USER=duora-sanitizer-ci LOGNAME=duora-sanitizer-ci XDG_RUNTIME_DIR="/run/user/$uid" \
-            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" dockerd-rootless-setuptool.sh install --force
+          if ! sudo -Hu duora-sanitizer-ci env -i PATH=/usr/bin:/bin HOME=/home/duora-sanitizer-ci USER=duora-sanitizer-ci LOGNAME=duora-sanitizer-ci XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" dockerd-rootless-setuptool.sh install --force; then
+            # Only service startup diagnostics on this synthetic runner; preserve the failed gate.
+            sudo -Hu duora-sanitizer-ci env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+              journalctl --user --unit docker.service --no-pager -n 80 || true
+            exit 1
+          fi
           for attempt in $(seq 1 30); do
             if sudo -Hu duora-sanitizer-ci docker --host "unix:///run/user/$uid/docker.sock" info >/dev/null 2>&1; then break; fi
             sleep 2
