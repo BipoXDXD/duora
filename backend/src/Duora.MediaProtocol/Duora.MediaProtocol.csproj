@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Duora.Core/Duora.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -137,6 +137,12 @@
       },
       "duora.core": {
         "type": "Project"
+      },
+      "duora.mediaprotocol": {
+        "type": "Project",
+        "dependencies": {
+          "Duora.Core": "[1.0.0, )"
+        }
       }
     }
   }

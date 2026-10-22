@@ -672,6 +672,12 @@
         "dependencies": {
           "System.IO.Hashing": "8.0.0"
         }
+      },
+      "duora.mediaprotocol": {
+        "type": "Project",
+        "dependencies": {
+          "Duora.Core": "[1.0.0, )"
+        }
       }
     }
   }

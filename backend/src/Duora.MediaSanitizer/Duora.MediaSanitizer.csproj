@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Duora.Core/Duora.Core.csproj" />
+    <ProjectReference Include="../Duora.MediaProtocol/Duora.MediaProtocol.csproj" />
+    <PackageReference Include="SixLabors.ImageSharp" />
+    <!-- S1 uses the same source; moving it and removing the Worker decoder are an atomic S3 change. -->
+    <Compile Include="../Duora.Worker/Media/ImageSharpPhotoSanitizer.cs" Link="Media/ImageSharpPhotoSanitizer.cs" />
+  </ItemGroup>
+</Project>
