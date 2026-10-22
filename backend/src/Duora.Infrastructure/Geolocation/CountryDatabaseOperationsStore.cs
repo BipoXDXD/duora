@@ -50,7 +50,7 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
               exists(select 1 from ops.jobs where kind='country-database-update' and status='InFlight' and lease_expires_at>$1),
               exists(select 1 from ops.jobs where kind='country-database-update' and
                 ((status='InFlight' and attempts>=4 and lease_expires_at<=$1) or
-                 (status='Pending' and attempts=0 and last_error_code is not null and not s.blocked)))
+                 (status='Pending' and attempts=0 and last_error_code is not null and not s.blocked))),s.backup_failed
             from ops.country_database_state s where singleton
             """, observedNow))
         await using (var r = await q.ExecuteReaderAsync(ct))
@@ -60,7 +60,7 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
             snapshot = new(r.GetInt64(0), versions.SingleOrDefault(v => v.Sha256 == hash),
                 r.IsDBNull(2) ? null : r.GetFieldValue<DateTimeOffset>(2), r.IsDBNull(3) ? null : r.GetString(3),
                 r.GetBoolean(4), r.GetBoolean(5), r.GetBoolean(6),
-                r.IsDBNull(7) ? observedNow : r.GetFieldValue<DateTimeOffset>(7), r.GetBoolean(8), r.GetBoolean(9),
+                r.IsDBNull(7) ? observedNow : r.GetFieldValue<DateTimeOffset>(7), r.GetBoolean(8), r.GetBoolean(9), r.GetBoolean(10),
                 approved, versions, retired);
         }
         var highWater = new[] { snapshot.LastObserved, observedNow, snapshot.LastAttempt ?? observedNow }
@@ -149,6 +149,15 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
                 return;
             }
         }
+    }
+
+    public async Task RecordBackupFailureAsync(bool failed, CancellationToken ct)
+    {
+        await using var c = await source.OpenConnectionAsync(ct);
+        await Execute(c, """
+            insert into ops.country_database_state(singleton,backup_failed) values(true,$1)
+            on conflict(singleton) do update set backup_failed=excluded.backup_failed
+            """, ct, failed);
     }
 
     internal async Task<bool> HoldAsync(long generation, CancellationToken ct)

@@ -222,6 +222,35 @@ class AppRolePrivilegesTests(unittest.TestCase):
         self.assertEqual("0", self.superuser_query(
             "select count(*) from pg_hba_file_rules where auth_method = 'trust' or error is not null"))
 
+    def test_geo_maintenance_uses_password_only_on_duora_without_app_membership(self) -> None:
+        _run(self._psql_superuser() + ["--command", """
+            CREATE ROLE duora_geo_maintenance LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE
+                NOREPLICATION NOBYPASSRLS PASSWORD 'maintenance-synthetic';
+            GRANT CONNECT ON DATABASE duora TO duora_geo_maintenance;
+            """])
+
+        def connect(password: str, database: str, sql: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["docker", "exec", "--env", f"PGPASSWORD={password}", self.container, "psql",
+                 "--no-psqlrc", "-v", "ON_ERROR_STOP=1", "--host", "127.0.0.1",
+                 "--username", "duora_geo_maintenance", "--dbname", database,
+                 "--tuples-only", "--no-align", "--command", sql],
+                capture_output=True, text=True, check=False)
+
+        allowed = connect("maintenance-synthetic", "duora", "select current_user")
+        self.assertEqual(0, allowed.returncode, allowed.stderr)
+        self.assertEqual("duora_geo_maintenance", allowed.stdout.strip())
+        wrong_password = connect("incorrect-synthetic", "duora", "select 1")
+        self.assertNotEqual(0, wrong_password.returncode)
+        self.assertIn("password authentication failed", wrong_password.stderr)
+        other_database = connect("maintenance-synthetic", "postgres", "select 1")
+        self.assertNotEqual(0, other_database.returncode)
+        self.assertIn("pg_hba.conf rejects connection", other_database.stderr)
+        forbidden_table = connect("maintenance-synthetic", "duora", "select * from rooms.rooms")
+        self.assertNotEqual(0, forbidden_table.returncode)
+        self.assertIn("permission denied", forbidden_table.stderr)
+        self.assert_denied("set role duora_geo_maintenance")
+
     def test_backup_role_is_not_superuser_and_has_only_backup_privileges(self) -> None:
         self.assertEqual("f|f|f|f", self.superuser_query(
             "select rolsuper, rolcreaterole, rolcreatedb, rolreplication from pg_roles "

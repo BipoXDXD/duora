@@ -29,19 +29,20 @@ export function RegionalPreferenceSection(): React.JSX.Element {
 }
 
 function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPreferences }): React.JSX.Element {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const account = useAccount()
   const queries = useQueryClient()
   const [base, setBase] = useState(initial)
   const manuallyEdited = useRef(false)
   const [mode, setMode] = useState(initial.mode)
-  const [brazil, setBrazil] = useState(initial.countryCodes.includes('BR'))
+  const [countries, setCountries] = useState(initial.countryCodes)
   const [invalid, setInvalid] = useState(false)
   const [reloaded, setReloaded] = useState(false)
   const save = useMutation({
     mutationFn: () => {
-      if (mode === 'pending' || (mode === 'countries' && !brazil)) throw new Error('Explicit regional choice required')
-      return saveRegionalPreferences(base.version, mode, mode === 'countries' ? ['BR'] : [])
+      if (mode === 'pending' || (mode === 'countries' && countries.length === 0))
+        throw new Error('Explicit regional choice required')
+      return saveRegionalPreferences(base.version, mode, mode === 'countries' ? countries : [])
     },
     onSuccess: (value) => {
       if (queries.getQueryData<Me>(meQueryKey)?.id !== account.id) return
@@ -74,7 +75,7 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
       className="flex flex-col gap-4 border-t border-border pt-6"
       onSubmit={(event) => {
         event.preventDefault()
-        if (mode === 'pending' || (mode === 'countries' && !brazil)) {
+        if (mode === 'pending' || (mode === 'countries' && countries.length === 0)) {
           setInvalid(true)
           return
         }
@@ -106,21 +107,26 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
       {mode === 'countries' ? (
         <fieldset disabled={busy}>
           <legend className="font-semibold">{t('regional.acceptedCountries')}</legend>
-          <CheckboxField
-            label={t('regional.brazil')}
-            checked={brazil}
-            onChange={(event) => {
-              setBrazil(event.target.checked)
-              edited()
-            }}
-          />
+          {(['BR', 'US'] as const).map((country) => (
+            <CheckboxField
+              key={country}
+              label={new Intl.DisplayNames([locale], { type: 'region' }).of(country) ?? country}
+              checked={countries.includes(country)}
+              onChange={(event) => {
+                setCountries((current) =>
+                  event.target.checked ? [...current, country].sort() : current.filter((code) => code !== country),
+                )
+                edited()
+              }}
+            />
+          ))}
         </fieldset>
       ) : null}
       <RegionSuggestion
-        onCountry={() => {
+        onCountry={(country) => {
           if (manuallyEdited.current || base.mode !== 'pending' || busy || conflict) return false
           setMode('countries')
-          setBrazil(true)
+          setCountries([country])
           setInvalid(false)
           return true
         }}
@@ -146,13 +152,12 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
       {reloaded ? (
         <Alert variant="info">
           {t('regional.reloaded', {
-            choice: t(
+            choice:
               base.mode === 'countries'
-                ? 'regional.brazil'
-                : base.mode === 'unrestricted'
-                  ? 'regional.unrestricted'
-                  : 'regional.choose',
-            ),
+                ? base.countryCodes
+                    .map((code) => new Intl.DisplayNames([locale], { type: 'region' }).of(code) ?? code)
+                    .join(', ')
+                : t(base.mode === 'unrestricted' ? 'regional.unrestricted' : 'regional.choose'),
           })}
         </Alert>
       ) : null}

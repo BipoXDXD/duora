@@ -1,4 +1,8 @@
-# Base IPinfo: preparação inativa
+# Base IPinfo: componentes e integração
+
+A integração opt-in é descrita em [ipinfo-runtime.md](ipinfo-runtime.md) e no ADR-0038. As seções abaixo
+registram a preparação e seus pré-requisitos; sua existência não comprova ativação. A configuração e os
+adaptadores reais agora existem, mas exigem instalação, ensaios e evidência de operação.
 
 As etapas 7, 8 e 9 da [issue #108](https://github.com/BipoXDXD/duora/issues/108) preparam componentes sem registrá-los
 nos hosts. O leitor usa o fallback de reflexão no runtime JIT; NativeAOT/trimming não estão homologados. [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md) rege a arquitetura, com a troca de produto no ADR-0037 abaixo.
@@ -33,9 +37,8 @@ Os testes usam somente MMDBs inventados; não comprovam acesso, precisão ou com
 
 ## Componentes e autoridade
 
-`MmdbCountryLookup` lê somente país, localmente. Web mantém `DisabledCountryLookup`; não existe opção de configuração
-que troque esse registro. `CountryDatabaseUpdateWorker` tem enabled=false por padrão e não consta de WorkerHost.
-Instanciar esses componentes requer integração futura explícita. Nenhum lookup grava país/IP, perfil, preferência ou idiomas.
+`MmdbCountryLookup` lê somente país, localmente. Web mantém `DisabledCountryLookup` por padrão. `CountryDatabase:DetectorEnabled` registra o leitor e seu refresh.
+WorkerHost registra atualizador, monitor e retenção apenas nas flags próprias descritas no runbook de runtime. Nenhum lookup grava país/IP, perfil, preferência ou idiomas.
 
 Operations controla `ops.jobs` (kind exclusivo), `ops.country_database_state` (ponteiro, geração, bloqueio, ciclo) e
 `ops.country_database_versions` (SHA-256 e manifesto append-only). A migração é aditiva, preserva kinds anteriores e não
@@ -95,7 +98,7 @@ a cada 24h, sem repetir por poll/restart. A fila reserva entrega por 15 minutos 
 invocação. Eventos pendentes do mesmo incidente preservam ordem, inclusive após falha de envio; recuperação não
 ultrapassa aviso/indisponibilidade ainda sem confirmação. `ICountryDatabaseNotifier` exige deduplicação pelo Id durável: uma queda depois do envio e antes do
 commit pode repetir a chamada com o mesmo Id. Falha não registra detalhes do transporte e mantém retry limitado.
-O único adaptador está nos testes; não há SMTP, Gmail API, credencial, endereço ou envio real. O Gmail privado
+A integração opt-in acrescenta transporte SMTP Gmail com journal durável; instalação e entrega operacional exigem evidências próprias. O Gmail privado
 escolhido pelo titular continua sendo o destino autorizado, **não um canal operacional comprovado**.
 
 ## Retenção e cópia privada
@@ -126,8 +129,7 @@ Os testes usam o migrador somente no PostgreSQL descartável para simular essa c
 prazos. Empates de epoch seguem a ordem durável de promoção, nunca a ordem lexicográfica do hash;
 a ativa tem prioridade na cópia, junto da anterior distinta. O adaptador futuro deve reter manifesto original, atribuição IPinfo/CC BY-SA 4.0 e excluir todas as versões,
 réplicas e uploads incompletos de cada chave removida; não incluir credenciais nem bases em backup geral duradouro.
-Serviço, orçamento, limites, timeouts, ACLs e demonstração de exclusão/entrega permanecem pendentes. Só existe
-adaptador sintético em memória nos testes; **nenhum armazenamento fora do host foi contratado ou provisionado**.
+Serviço, orçamento, limites, timeouts, ACLs e demonstração de exclusão/entrega permanecem pendentes. Existe adaptador S3 com retenção de versões e multipart, além do sintético nos testes; **nenhum armazenamento fora do host foi contratado ou provisionado**.
 
 ## Recuperação e liberação humana
 

@@ -100,3 +100,5 @@ Efeito sobre superfícies de ataque, segredos, dados pessoais, backup, deploy e 
 Como a decisão é verificada: teste de arquitetura, gate de CI, teste de aceite (T-NN) ou revisão manual.
 Itens ainda não implementados indicam o marco previsto.
 ```
+
+- [0038 — Integração operacional IPinfo e alertas Gmail](0038-integracao-ipinfo-e-alertas-gmail.md) (Proposed).

@@ -71,3 +71,12 @@ BEGIN
     REVOKE UPDATE, DELETE, TRUNCATE ON ops.country_database_versions FROM duora_app;
   END IF;
 END $$;
+
+-- Operational SMTP journal: parent deletion must not bypass the delivery evidence ACL by cascade.
+DO $$
+BEGIN
+  IF to_regclass('ops.country_database_deliveries') IS NOT NULL THEN
+    REVOKE DELETE, TRUNCATE ON ops.country_database_deliveries,ops.country_database_notifications FROM duora_app;
+  END IF;
+END
+$$;
