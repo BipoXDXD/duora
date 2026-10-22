@@ -1,5 +1,8 @@
 # Plano de implementação regional do Duora — issue 108
 
+> **Leitura atual:** a [direção vigente de 22/10](#direção-vigente-em-22102026--mudança-para-ipinfo-lite)
+> e o plano operacional prevalecem sobre o cabeçalho histórico abaixo.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task after explicit authorization. Steps use checkbox (`- [ ]`) syntax for tracking. This delivery is planning only.
 
 **Goal:** implementar futuramente declaração/preferência regional por país, filtro bilateral e sugestão opcional por IP, conforme ADR-0033, sem ativar países adicionais.
@@ -11,6 +14,25 @@
 **Spec:** [ADR-0033, incluindo os dois adendos de 21/10/2026](https://github.com/BipoXDXD/duora/blob/7f1cea3197e283b84f32dc1e3e0d30efa3c69431/docs/architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md); [issue #108](https://github.com/BipoXDXD/duora/issues/108); ADR-0030 para perfil/catálogo. Base técnica inspecionada: `7f1cea3197e283b84f32dc1e3e0d30efa3c69431`.
 
 **Status:** plano aprovado pelo responsável em 21/10/2026; publicação documental autorizada; execução da implementação ainda não autorizada. Nenhuma etapa de implementação executada. Não abre PR de produto, aplica migração, baixa base, instala dependência ou ativa operação. Responsável nominal titular, substituto e canal de alertas permanecem pendentes.
+
+## Direção vigente em 22/10/2026 — mudança para IPinfo Lite
+
+O [ADR-0037](../../architecture/adr/0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) substitui somente a escolha
+anterior de `country.mmdb` por IPinfo Lite `ipinfo_lite.mmdb` / CC BY-SA 4.0. O cabeçalho, caixas e marcos abaixo
+preservam o planejamento original e o histórico de execução do produto anterior. As etapas 1–10 foram
+integradas; o estado operacional e as tarefas futuras estão no
+[plano de homologação atualizado](2026-10-22-issue-108-operational-homologation.md). MaxMind.Db 5.2.0/Apache-2.0,
+titular e Gmail privado já foram aprovados; não há substituto por enquanto. As pendências antigas do
+cabeçalho não reabrem essas decisões.
+
+Antes de G2 real, adaptar explicitamente downloader/manifesto/validador/leitor em PR próprio e testar fixtures
+Lite. O código ISO passa a vir de `country_code`; `country` é nome. Não reutilizar manifestos/aprovações de
+`country.mmdb`, não usar os campos ASN em perfis/pareamento e não tratar os testes anteriores como homologação
+de Lite. O artefato bruto mantém campos adicionais sob armazenamento privado e retenção aprovada.
+O perfil real e o primeiro hash precisam de aceite em G2. G3/G4/G5 continuam sujeitos a evidência e aprovação.
+
+Esta revisão muda apenas documentação: detector/atualizador/monitor desligados, corte V3 inativo, sem download,
+alertas reais ou EUA. A #108 permanece aberta. Testes pesados somente no CI, sem Docker/build no Mac de 16GB.
 
 ## Restrições globais
 

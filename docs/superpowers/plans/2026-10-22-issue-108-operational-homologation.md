@@ -15,7 +15,7 @@ bilateral sob guardas. A sugestão local, atualização e operação da base tê
 O fluxo manual não depende da base IPinfo.
 
 **Tecnologias vigentes:** .NET 10, PostgreSQL 18, React/TypeScript, MMDB com MaxMind.Db 5.2.0/Apache-2.0;
-IPinfo IP to Country `country.mmdb`/CC BY-SA 4.0. Não se propõe dependência nova neste plano.
+IPinfo Lite `ipinfo_lite.mmdb`/CC BY-SA 4.0 como produto planejado. Não se propõe dependência nova neste plano.
 
 **Especificação:** [ADR-0033](../../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md),
 [plano técnico](2026-10-21-issue-108-regional-implementation.md),
@@ -24,6 +24,15 @@ IPinfo IP to Country `country.mmdb`/CC BY-SA 4.0. Não se propõe dependência n
 
 **Base conferida:** main `ccc6c558579edf2c09204068cf33c8b8cb4398da`, PR #177 integrado;
 [issue #108](https://github.com/BipoXDXD/duora/issues/108) aberta em 22/10/2026.
+
+## Atualização aprovada em 22/10/2026 — IPinfo Lite
+
+O [ADR-0037](../../architecture/adr/0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) substitui a escolha anterior
+de `country.mmdb` pela distribuição Lite. Esta atualização documental prevalece nas tarefas futuras de G2;
+não muda os limites de autorização deste plano. O histórico das etapas 1–10 refere-se ao produto anterior.
+Downloader, manifesto, validador e leitor continuam com aquele contrato: requerem adaptação em PR próprio,
+com fixtures Lite e todos os checks obrigatórios, antes do ensaio real. Não basta renomear o arquivo.
+A aprovação da escolha Lite não constitui aceite de G2 nem autoriza download, credenciais ou ativação.
 
 ## Estado e limites desta elaboração
 
@@ -82,7 +91,8 @@ pode permanecer parada após o planejamento enquanto as restrições atuais esti
 
 ## Tarefa 1 — G2: homologar a distribuição e o perfil de validação
 
-**Consome:** produto/licenças já aprovados, downloader/validador/leitor inativos.
+**Consome:** IPinfo Lite/licenças aprovados; adaptação explícita do downloader/manifesto/validador/leitor,
+inativa e revisada, antes da execução real. O código atual ainda espera o produto anterior.
 **Entrega:** relatório do artefato e perfil operacional aprovado; sem integração nos hosts.
 **Arquivos de referência:** `backend/src/Duora.Infrastructure/Geolocation/CountryDatabaseDownloader.cs`,
 `backend/src/Duora.Infrastructure/Geolocation/CountryDatabaseArtifactValidator.cs`,
@@ -91,10 +101,17 @@ pode permanecer parada após o planejamento enquanto as restrições atuais esti
 `backend/tests/Duora.IntegrationTests/Geolocation/CountryDatabaseDownloadTests.cs` e
 `backend/tests/Duora.IntegrationTests/Geolocation/CountryDatabasePipelineTests.cs`.
 
+- [ ] Adaptar e testar o contrato Lite com fixtures sintéticas em PR próprio: origem
+  `https://ipinfo.io/data/ipinfo_lite.mmdb`, produto/fonte/schema versionados, leitura de `country_code` como ISO2
+  e rejeição de código inválido/produto incorreto/schema desconhecido. `country` é nome, não código. Validar
+  contrato IPv4/IPv6 e campos efetivos; o `DatabaseType` real ainda precisa ser medido e aprovado.
+  Não reaproveitar aprovações/manifestos antigos nem criar fallback automático para o produto anterior.
+  Campos ASN/organização/domínio/continente não integram a projeção, filtros ou logs por consulta. O MMDB bruto
+  continua contendo campos extras e exige armazenamento privado/retenção aprovados; não alegar sua remoção.
 - [ ] Obter autorização específica de acesso/download em ambiente isolado e definir custódia local do segredo.
   Não solicitar credencial no chat nem inseri-la no dossiê. Confirmar origem HTTPS, autenticação, continuidade
   do acesso, redirecionamentos documentados e ausência de credencial encaminhada a outro host.
-- [ ] Conferir `country.mmdb` real: tipo exato, schema, códigos de país, IPv4/IPv6, tamanho, número de redes,
+- [ ] Conferir `ipinfo_lite.mmdb` real: tipo exato, schema, códigos de país, IPv4/IPv6, tamanho, número de redes,
   epoch e sua semântica verificável. Registrar proveniência, licença/atribuição, tamanho, SHA-256 e datas
   originais. O hash local identifica bytes, mas não comprova sozinho autenticidade da origem.
 - [ ] Observar publicações na janela previamente acordada; registrar mudanças de hash/epoch e distinguir
@@ -114,7 +131,8 @@ pode permanecer parada após o planejamento enquanto as restrições atuais esti
 
 **Pendências/aprovações:** acesso real, perfil/limites numéricos, janela/cadência e datas confiáveis,
 critério/amostras de precisão, recursos do ambiente, primeiro hash e aceite técnico pelo responsável.
-Escolha IPinfo/MMDB e MaxMind.Db já estão aprovadas e não precisam ser reaprovadas sem mudança.
+Escolha IPinfo Lite/MMDB, CC BY-SA 4.0 e MaxMind.Db já aprovadas; não confundir decisão de produto com
+homologação do schema/limites. A adaptação Lite e o primeiro snapshot continuam pendentes.
 **Bloqueio:** sem relatório e aceite, não integrar dados reais ou operar download/detecção.
 
 ## Tarefa 2 — G3: comprovar capacidade operacional
