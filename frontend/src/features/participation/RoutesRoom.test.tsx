@@ -173,7 +173,7 @@ describe('Routes room', () => {
   it('does not expose actions for an expired room even with a stale active projection', async () => {
     setup(initial, 'Expired')
     await renderApp('/rooms/routes')
-    expect(await screen.findByText('Este encontro foi encerrado.')).toBeInTheDocument()
+    expect(await screen.findByText('O prazo terminou. Veja abaixo o progresso realizado.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Entendi' })).not.toBeInTheDocument()
   })
 })
