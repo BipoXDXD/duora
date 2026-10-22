@@ -11,7 +11,7 @@ Local: `git diff --check`, leitura de diff/caminhos e revisão. Nenhum build, re
 CI: os nove jobs existentes executam restore/build/format/test backend, frontend, e2e, contract, ops, secret-scan,
 supply-chain e imagens AMD64/ARM64. Resultado do head será registrado no PR após a execução; esta frase não
 é evidência de aprovação. O teste emite `regional-rehearsal rows=10000 lock-timeout-ms=...` e `expansion-ms=...`
-no output xUnit. A duração inclui EF/processo, não mede exclusivamente tempo de lock nem SLA de produção.
+no output xUnit e conserva as medições bem-sucedidas no resumo do job CI (`GITHUB_STEP_SUMMARY`). A duração inclui EF/processo, não mede exclusivamente tempo de lock nem SLA de produção.
 
 ## Limites e decisões de execução
 

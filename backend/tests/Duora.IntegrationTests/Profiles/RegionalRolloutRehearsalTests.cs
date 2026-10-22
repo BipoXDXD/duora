@@ -40,6 +40,7 @@ public sealed class RegionalRolloutRehearsalTests(PostgresFixture postgres)
             Options = "-c lock_timeout=250ms",
         };
         var timer = Stopwatch.StartNew();
+        long lockWaitMilliseconds;
         await using (var blocker = await connection.BeginTransactionAsync(ct))
         {
             await Execute(connection, "lock table identity.users in access exclusive mode", ct);
@@ -47,7 +48,8 @@ public sealed class RegionalRolloutRehearsalTests(PostgresFixture postgres)
             var error = await Assert.ThrowsAsync<PostgresException>(() => blocked.GetService<IMigrator>()
                 .MigrateAsync("20261021160000_RegionalPreferences", cancellationToken: ct));
             Assert.Equal(PostgresErrorCodes.LockNotAvailable, error.SqlState);
-            TestContext.Current.TestOutputHelper!.WriteLine($"regional-rehearsal rows=10000 lock-timeout-ms={timer.ElapsedMilliseconds}");
+            lockWaitMilliseconds = timer.ElapsedMilliseconds;
+            TestContext.Current.TestOutputHelper!.WriteLine($"regional-rehearsal rows=10000 lock-timeout-ms={lockWaitMilliseconds}");
             await blocker.RollbackAsync(ct);
         }
         Assert.Equal(original, await Snapshot(connection, ct));
@@ -58,7 +60,8 @@ public sealed class RegionalRolloutRehearsalTests(PostgresFixture postgres)
         timer.Restart();
         await using var expanded = PostgresFixture.CreateDbContext(database.MigratorConnectionString);
         await expanded.Database.MigrateAsync(ct);
-        TestContext.Current.TestOutputHelper!.WriteLine($"regional-rehearsal rows=10000 expansion-ms={timer.ElapsedMilliseconds}");
+        var expansionMilliseconds = timer.ElapsedMilliseconds;
+        TestContext.Current.TestOutputHelper!.WriteLine($"regional-rehearsal rows=10000 expansion-ms={expansionMilliseconds}");
         Assert.Equal(original, await Snapshot(connection, ct));
         await using (var pending = new NpgsqlCommand("select count(*) from profiles.regional_preferences", connection))
         {
@@ -86,6 +89,13 @@ public sealed class RegionalRolloutRehearsalTests(PostgresFixture postgres)
         Assert.Equal(10000L, reader.GetInt64(1));
         Assert.Equal("BR", reader.GetString(2));
         Assert.Equal(27L, reader.GetInt64(3));
+        // Preserve successful measurements in the CI job summary without changing workflow or product logging.
+        var summary = Environment.GetEnvironmentVariable("GITHUB_STEP_SUMMARY");
+        if (!string.IsNullOrEmpty(summary))
+        {
+            await File.AppendAllTextAsync(summary,
+                $"\nRegional rehearsal: 10,000 synthetic profiles; lock timeout {lockWaitMilliseconds} ms; expansion {expansionMilliseconds} ms. Data and explicit choices preserved.\n", ct);
+        }
     }
 
     private static async Task Execute(NpgsqlConnection connection, string sql, CancellationToken ct)
