@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-import time
 import unittest
 import uuid
 from pathlib import Path
@@ -12,6 +11,7 @@ from pathlib import Path
 import yaml
 
 import duora_deploy as deploy
+from caddy_readiness import wait_for_edge
 from caddy_test_support import CADDYFILE, IMAGE, REPO, docker_available, remove_container
 
 UPSTREAM = "duora-web"
@@ -69,14 +69,9 @@ class DualNetworkUpstreamTests(unittest.TestCase):
               "--env", "DUORA_DOMAIN=localhost", "--env", "DUORA_TLS=internal",
               "--volume", f"{CADDYFILE}:/etc/caddy/Caddyfile:ro", IMAGE])
         _run(["docker", "network", "connect", private, cls.edge])
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            result = cls.request("http://127.0.0.1:8081/healthz")
-            if result.returncode == 0:
-                break
-            time.sleep(0.5)
-        else:
-            raise AssertionError("edge de teste não ficou pronto")
+        # A porta de health pode responder antes da emissão do certificado interno.
+        # O ensaio só começa com HTTP e HTTPS do upstream privado prontos, no mesmo deadline.
+        wait_for_edge(cls.request)
 
     @classmethod
     def request(cls, url: str) -> subprocess.CompletedProcess[str]:

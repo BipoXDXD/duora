@@ -19,6 +19,15 @@
 - Verificação local leve: `git diff --check`. Nenhum restore/build/.NET test, Docker ou suíte pesada no Mac.
 - Commit de implementação `a6ef3a7`: build remoto passou; formatação apontou duas quebras de linha no
   inicializador do manifesto legado em `CountryDatabaseUpdateTests`. Corrigidas sem alterar lógica ou gates.
+- Commit `56034e9`: [backend GREEN](https://github.com/BipoXDXD/duora/actions/runs/39737790269/job/119687702240),
+  **3.068 testes passaram, zero falhas/ignorados**; build e formatação também passaram.
+  A mesma execução falhou em `ops`, no teste existente
+  `DualNetworkUpstreamTests.test_api_webhooks_and_hubs_reach_the_duora_upstream`: primeira requisição HTTPS
+  recebeu alerta TLS 80, enquanto as seguintes passaram. A fixture aguardava somente HTTP, sem exigir TLS.
+  A falha foi investigada e corrigida na espera de prontidão, sem alterar assertivas, filtros ou workflows.
+- Regressão leve da fixture Caddy: `PYTHONPATH=scripts/deploy python3 -m unittest test_caddy_readiness -v`.
+  A condição antiga reproduziu duas falhas em três casos; após exigir HTTP e HTTPS com resposta do upstream
+  privado, **3/3 passaram**, sem Docker, rede ou espera real. A integração Caddy real continua obrigatória no CI.
 - **Resultados finais:** consultar os [checks do PR #183](https://github.com/BipoXDXD/duora/pull/183/checks)
   e o registro final do head exato no PR. Este arquivo registra o ciclo inicial; não antecipa resultado
   de uma execução ainda em andamento nem transfere evidência entre commits.
@@ -30,6 +39,10 @@ leitura apenas de `country_code`. Manifestos antigos/incompletos e schema legado
 BCL valida códigos de forma conservadora; seus resultados ficam em cache limitado a 676 combinações ASCII,
 sem armazenar IPs, redes de consultas ou enriquecimento. Testes de atualização, recuperação e saúde usam
 fixtures Lite completas e mantêm aprovação de hash, lease/fencing, época/idade e recusa de metadados antigos.
+
+O ajuste incidental da fixture Caddy adiciona somente uma condição de prontidão do teste: HTTP e TLS devem
+responder corretamente antes das assertivas de isolamento, no mesmo deadline. Não adiciona retry às
+assertivas, não aceita upstream estrangeiro e falha se TLS não ficar pronto; regressões cobrem esses casos.
 
 Sem mudança de contratos HTTP, schema PostgreSQL, catálogo, idioma, preferência, notificadores ou registros
 nos hosts. Web continua com `DisabledCountryLookup`; atualizador/monitor seguem desativados. V3 inativo,
