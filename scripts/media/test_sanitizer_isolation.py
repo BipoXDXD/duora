@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import pwd
+import re
 import shutil
 import signal
 import socket
@@ -76,7 +77,17 @@ class Proof:
 
     def build(self):
         self.images = {}
-        for target in ["sanitizer","isolation-probe"]:
+        targets = ["sanitizer", "isolation-probe"]
+        if self.args.sanitizer_image:
+            # Publisher preloads this immutable digest before the launcher starts;
+            # no rebuild, pull, auth or registry access is delegated to a photo job.
+            info = json.loads(self.docker("image", "inspect", self.args.sanitizer_image))[0]
+            assert self.args.sanitizer_image in info.get("RepoDigests", [])
+            assert info["Id"] == self.args.sanitizer_config and info["Os"] == "linux"
+            assert info["Architecture"] == {"x86_64": "amd64", "aarch64": "arm64"}[platform.machine()]
+            self.images["sanitizer"] = info["Id"]
+            targets = ["isolation-probe"]
+        for target in targets:
             tag = f"duora-{target}:s2-ci"
             checked(["docker","build","-f",str(REPO/"infra/images/media-sanitizer/Dockerfile"),
                      "--target",target,"-t",tag,str(REPO)])
@@ -91,6 +102,7 @@ class Proof:
             archive.unlink()
             image = self.docker("image","inspect",tag,"--format","{{.Id}}").decode().strip()
             self.images[target]=image
+        self.sanitizer_image = self.args.sanitizer_image or self.images["sanitizer"]
         self.report["images"]=self.images
         info=json.loads(self.docker("info","--format","{{json .}}"))
         self.report["runtime"]={key:info[key] for key in ["ServerVersion","CgroupDriver","CgroupVersion"]}
@@ -254,6 +266,13 @@ class Proof:
             outcome,result=self.exchange(os.urandom(16).hex(),self.synthetic_png,format=2)
             assert outcome==0 and result[:5]==b"DMRS\x01"
             self.assert_empty()
+            if self.args.sanitizer_image:
+                from launcher import Profile
+                # Capture the actual profile while this restricted service is running.
+                # Fault cases use the separately reported immutable probe under S2 policy.
+                self.report["imageReference"] = self.sanitizer_image
+                self.report["profileSha256"] = Profile.from_dict(self.profile, self.args.launcher_uid).digest
+                self.args.tested_profile.write_text(json.dumps(self.profile) + "\n")
         finally:
             checked(["systemctl","stop",unit.name])
             unit.unlink(missing_ok=True); checked(["systemctl","daemon-reload"])
@@ -331,7 +350,7 @@ class Proof:
             assert self.exchange(job,b"inspect")[0]==2
             assert b"children" not in (self.state/"journal.json").read_bytes()
         self.case("launcher-sigkill-orphan-cleanup-and-durable-dedupe",restart)
-        self.stop();self.start(self.images["sanitizer"])
+        self.stop();self.start(self.sanitizer_image)
         def corpus():
             def chunk(name,data):return struct.pack(">I",len(data))+name+data+struct.pack(">I",zlib.crc32(name+data))
             png=b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",2,2,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(b"\x00\xff\x00\x00\x00\xff\x00"*2))+chunk(b"IEND",b"")
@@ -358,7 +377,18 @@ def main():
     parser.add_argument("--launcher-uid",type=int,required=True)
     parser.add_argument("--worker-uid",type=int,required=True)
     parser.add_argument("--report",type=Path,required=True)
-    proof=Proof(parser.parse_args())
+    parser.add_argument("--sanitizer-image")
+    parser.add_argument("--sanitizer-config")
+    parser.add_argument("--tested-profile", type=Path)
+    args = parser.parse_args()
+    if any((args.sanitizer_image, args.sanitizer_config, args.tested_profile)):
+        if (not isinstance(args.sanitizer_image, str)
+                or re.fullmatch(r"ghcr\.io/bipoxdxd/duora-media-sanitizer@sha256:[0-9a-f]{64}", args.sanitizer_image) is None
+                or not isinstance(args.sanitizer_config, str)
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", args.sanitizer_config) is None
+                or args.tested_profile is None):
+            parser.error("Release proof requires an immutable Duora image, config ID and profile output.")
+    proof=Proof(args)
     try:proof.run()
     finally:proof.dispose()
 
