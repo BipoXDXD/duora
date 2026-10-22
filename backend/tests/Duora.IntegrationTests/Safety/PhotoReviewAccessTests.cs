@@ -382,16 +382,26 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
     {
         var user = Guid.NewGuid();
         var session = Guid.NewGuid();
-        await ExecuteAsync("""
+        var now = _time.GetUtcNow();
+        var keyHash = System.Security.Cryptography.SHA256.HashData(session.ToByteArray());
+        var ticket = new byte[] { 1 };
+        await using var db = postgres.CreateDbContext();
+        await using var transaction = await db.Database.BeginTransactionAsync(Ct);
+        await db.Database.ExecuteSqlAsync($"""
             insert into identity.users(id,status,created_at,email_confirmed,phone_number_confirmed,
               two_factor_enabled,lockout_enabled,access_failed_count,security_stamp)
-            values($1,'Active',$2,true,false,true,true,0,'synthetic-review-stamp');
-            insert into identity.user_roles(user_id,role_id) select $1,id from identity.roles where name=$3;
+            values({user},'Active',{now},true,false,true,true,0,'synthetic-review-stamp')
+            """, Ct);
+        await db.Database.ExecuteSqlAsync($"""
+            insert into identity.user_roles(user_id,role_id) select {user},id from identity.roles where name={role}
+            """, Ct);
+        await db.Database.ExecuteSqlAsync($"""
             insert into identity.login_sessions(id,user_id,key_hash,ticket,security_stamp,description,policy,
               created_at,last_seen_at,idle_expires_at,absolute_expires_at,reauthenticated_at,mfa_verified_at,totp_verified_at)
-            values($4,$1,$5,$6,'synthetic-review-stamp','synthetic','Administrative',
-              $2-interval '1 minute',$2,$2+interval '10 minutes',$2+interval '1 hour',$2,$2,$2)
-            """, user, _time.GetUtcNow(), role, session, System.Security.Cryptography.SHA256.HashData(session.ToByteArray()), new byte[] { 1 });
+            values({session},{user},{keyHash},{ticket},'synthetic-review-stamp','synthetic','Administrative',
+              {now.AddMinutes(-1)},{now},{now.AddMinutes(10)},{now.AddHours(1)},{now},{now},{now})
+            """, Ct);
+        await transaction.CommitAsync(Ct);
         return new PhotoReviewActor(user, session);
     }
 
