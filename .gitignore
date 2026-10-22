@@ -67,3 +67,6 @@ __pycache__/
 
 # Licença da Six Labors (ADR-0025): só como secret do build, nunca no repositório.
 sixlabors.lic
+
+# Artefatos OCI de publicação; não são imagens locais nem código-fonte.
+.docker-artifacts/
