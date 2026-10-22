@@ -1,6 +1,7 @@
 # ADR-0033: Detecção aproximada opcional e preferência regional por país
 
 - **Status:** Accepted (2026-10-21), decisão aprovada; implementação e ativação pendentes
+- **Substituído em parte:** escolha `country.mmdb` e contrato de produto/fonte/schema pelo [ADR-0037](0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) (2026-10-22); demais decisões preservadas
 - **Origem:** [issue #108](https://github.com/BipoXDXD/duora/issues/108), desdobramento de #79/#80; spec 5.1; ADR-0012, ADR-0026 e ADR-0030
 - **Revisar quando:** houver evidência para subdivisão no pareamento, mudança da cadeia de proxies, necessidade de persistir detecções ou proposta de fornecedor/base
 
@@ -435,3 +436,17 @@ Titular/Gmail privado já definidos, sem substituto por enquanto; cobertura/cont
 identidade mínima de manutenção e comprovação de entrega continuam pendentes. Simulação não comprova
 transporte real: essa parte de G3/G5 fica pendente enquanto envio real estiver proibido. Testes pesados
 somente no CI remoto ou ambiente de homologação autorizado, sem carga pesada no Mac.
+
+
+## Adendo de 22/10/2026 — mudança aprovada para IPinfo Lite
+
+O responsável aprovou mudar o plano para IPinfo Lite `ipinfo_lite.mmdb` e abrir PR documental.
+O [ADR-0037](0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) substitui somente a escolha anterior de produto,
+fonte e schema: o código de país passa a ser `country_code` no contrato futuro, não `country`.
+O texto anterior permanece como histórico; os componentes executáveis ainda usam o produto antigo e não
+estão adaptados ou homologados para Lite. G2 exige novo perfil e aprovação do primeiro hash real.
+
+Permanecem CC BY-SA 4.0, leitor aprovado, governança, titular/Gmail privado sem substituto, arquitetura,
+prioridade manual e gates. A base bruta Lite contém ASN, mas o Duora utilizará apenas a projeção de país,
+sem enriquecimento nem persistência de campos adicionais por participante/consulta. Não há download real,
+ativação do detector/atualizador/monitor, envio de alertas ou habilitação dos EUA. A #108 continua aberta.
