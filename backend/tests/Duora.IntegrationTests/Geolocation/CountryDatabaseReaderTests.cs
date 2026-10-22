@@ -16,7 +16,7 @@ public sealed class CountryDatabaseReaderTests
         using var stream = new MemoryStream(SyntheticMmdb.Create(Now.AddHours(-1)));
         using var reader = new MaxMind.Db.Reader(stream);
         Assert.Equal(SyntheticMmdb.DatabaseType, reader.Metadata.DatabaseType);
-        Assert.Equal("BR", reader.Find<Dictionary<string, object>>(IPAddress.Parse("192.0.2.1"))!["country"]);
+        Assert.Equal("BR", reader.Find<Dictionary<string, object>>(IPAddress.Parse("192.0.2.1"))!["country_code"]);
         Assert.Equal(3, reader.FindAll<Dictionary<string, object>>(cacheSize: 16).Count());
     }
 
@@ -37,25 +37,27 @@ public sealed class CountryDatabaseReaderTests
     }
 
     [Theory]
-    [InlineData("ipinfo_lite", "BR", false)]
+    [InlineData("synthetic-ipinfo-country", "BR", false)]
     [InlineData(SyntheticMmdb.DatabaseType, "BR", true)]
-    public void ProductOrSchemaSubstitutionIsRejected(string type, string country, bool extraAsn)
+    public void ProductOrSchemaSubstitutionIsRejected(string type, string country, bool unknownField)
     {
         using var h = new Harness();
         var error = Assert.Throws<CountryDatabaseValidationException>(() =>
-            h.Validator.Validate(SyntheticMmdb.Create(Now.AddHours(-1), type, country, extraAsn), Now, Ct));
+            h.Validator.Validate(SyntheticMmdb.Create(Now.AddHours(-1), type, country, unknownField), Now, Ct));
         Assert.Equal("Schema", error.Code);
     }
 
     [Fact]
-    public void InvalidCodeIsUnknownAndPublicationCannotBeForgedOrRenewed()
+    public void InvalidCodeIsRejectedAndPublicationCannotBeForgedOrRenewed()
     {
         using var h = new Harness();
-        var bytes = SyntheticMmdb.Create(Now.AddHours(-1), country: "ZZ");
+        Assert.Equal("Schema", Assert.Throws<CountryDatabaseValidationException>(() =>
+            h.Validator.Validate(SyntheticMmdb.Create(Now.AddHours(-1), country: "ZZ"), Now, Ct)).Code);
+        var bytes = SyntheticMmdb.Create(Now.AddHours(-1));
         var manifest = h.Validator.Validate(bytes, Now, Ct);
         h.Save(manifest, bytes);
         Assert.True(h.Active.TryReplace(manifest, Ct));
-        Assert.Equal(CountryLookupStatus.Unknown, h.Active.Lookup(IPAddress.Parse("192.0.2.1")).Status);
+        Assert.Equal(CountryLookupStatus.Detected, h.Active.Lookup(IPAddress.Parse("192.0.2.1")).Status);
         Assert.False(h.Active.TryReplace(manifest with { BuiltAt = Now }, Ct));
         Assert.Throws<CountryDatabaseValidationException>(() => h.Validator.Validate(SyntheticMmdb.Create(Now.AddSeconds(1)), Now, Ct));
         Assert.Throws<CountryDatabaseValidationException>(() => h.Validator.Validate(SyntheticMmdb.Create(Now.AddDays(-7)), Now, Ct));

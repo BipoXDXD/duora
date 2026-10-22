@@ -101,7 +101,8 @@ inativa e revisada, antes da execução real. O código atual ainda espera o pro
 `backend/tests/Duora.IntegrationTests/Geolocation/CountryDatabaseDownloadTests.cs` e
 `backend/tests/Duora.IntegrationTests/Geolocation/CountryDatabasePipelineTests.cs`.
 
-- [ ] Adaptar e testar o contrato Lite com fixtures sintéticas em PR próprio: origem
+- [ ] Adaptar e testar o contrato Lite com fixtures sintéticas em PR próprio ([PR #183](https://github.com/BipoXDXD/duora/pull/183),
+  preparação inativa; integração/aceite dependem de revisão e CI): origem
   `https://ipinfo.io/data/ipinfo_lite.mmdb`, produto/fonte/schema versionados, leitura de `country_code` como ISO2
   e rejeição de código inválido/produto incorreto/schema desconhecido. `country` é nome, não código. Validar
   contrato IPv4/IPv6 e campos efetivos; o `DatabaseType` real ainda precisa ser medido e aprovado.

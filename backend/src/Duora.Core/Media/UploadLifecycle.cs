@@ -17,6 +17,9 @@ public enum UploadState
     Rejected,
 
     Deleted,
+
+    /// <summary>Derivação concluída; aguarda decisão humana. Leitores preparados antes dos escritores (ADR-0035).</summary>
+    AwaitingReview,
 }
 
 /// <summary>Transições permitidas da máquina de estados do upload (spec 4.2 e 16.2).</summary>
@@ -24,7 +27,7 @@ public static class UploadLifecycle
 {
     /// <summary>Estados que ocupam vaga no teto de pendentes por conta (spec 11.5).</summary>
     public static IReadOnlyList<UploadState> PendingStates { get; } =
-        [UploadState.Pending, UploadState.Quarantined, UploadState.Processing];
+        [UploadState.Pending, UploadState.Quarantined, UploadState.Processing, UploadState.AwaitingReview];
 
     /// <summary>
     /// <c>Processing → Processing</c> é a retomada por outro worker depois que o lease do primeiro venceu. Exclusão

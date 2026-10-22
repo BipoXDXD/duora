@@ -41,6 +41,22 @@ public sealed class CountryDatabaseUpdateTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task LegacyManifestCannotBeAdmittedEvenWithApprovedDigest()
+    {
+        await using var h = await Harness.Create(postgres);
+        var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
+        var legacy = Manifest('b', Now) with
+        {
+            Product = "country.mmdb",
+            Schema = "ipinfo-country-v1",
+            Source = "https://ipinfo.io/data/free/country.mmdb",
+        };
+        Assert.Equal(CountryDatabasePromotion.InvalidManifest, await h.Store.PromoteAsync(lease, legacy, legacy.Sha256, Ct));
+        Assert.Null(await h.Store.RecordCandidateAsync(lease, legacy, Ct));
+        Assert.Null(await h.Store.ReadActiveAsync(Ct));
+    }
+
+    [Fact]
     public async Task RetryTimesAreDurableBoundedAndHonorRetryAfter()
     {
         await using var h = await Harness.Create(postgres);
@@ -146,7 +162,8 @@ public sealed class CountryDatabaseUpdateTests(PostgresFixture postgres)
     }
 
     internal static CountryDatabaseManifest Manifest(char hash, DateTimeOffset now) =>
-        new(new string(hash, 64), 100, Now.AddHours(-1), now, now, "synthetic-ipinfo-country");
+        new(new string(hash, 64), 100, Now.AddHours(-1), now, now, SyntheticMmdb.DatabaseType,
+            "ipinfo_lite.mmdb", "ipinfo-lite-country-v1", "CC-BY-SA-4.0", "https://ipinfo.io/data/ipinfo_lite.mmdb");
 
     private sealed class Harness(NpgsqlDataSource source, FakeTimeProvider time) : IAsyncDisposable
     {

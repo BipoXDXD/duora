@@ -75,7 +75,8 @@ public sealed class CountryDatabaseArtifactValidator(CountryDatabaseValidationPr
                 throw new CountryDatabaseValidationException("Schema");
             }
             manifest = new(Convert.ToHexStringLower(SHA256.HashData(bytes)), bytes.LongLength,
-                new DateTimeOffset(meta.BuildDate), downloadedAt, time.GetUtcNow(), meta.DatabaseType);
+                new DateTimeOffset(meta.BuildDate), downloadedAt, time.GetUtcNow(), meta.DatabaseType,
+                IpinfoLiteSchema.Product, IpinfoLiteSchema.Schema, IpinfoLiteSchema.License, IpinfoLiteSchema.Source);
             if (!manifest.IsAdmissible(time.GetUtcNow()))
             { throw new CountryDatabaseValidationException("Integrity"); }
             var count = 0;
@@ -87,8 +88,8 @@ public sealed class CountryDatabaseArtifactValidator(CountryDatabaseValidationPr
                 if (++count > profile.MaxNetworks)
                 { throw new CountryDatabaseValidationException("Integrity"); }
                 var map = network.Data;
-                if (!map.TryGetValue("country", out var country) || country is not string
-                    || map.Any(p => p.Key is not ("country" or "country_name" or "continent" or "continent_name") || p.Value is not string))
+                if (!map.TryGetValue("country_code", out var country) || country is not string code || !IpinfoLiteSchema.IsCountryCode(code)
+                    || map.Any(p => p.Key is not ("country_code" or "country" or "continent_code" or "continent" or "asn" or "as_name" or "as_domain" or "network") || p.Value is not string))
                 {
                     throw new CountryDatabaseValidationException("Schema");
                 }

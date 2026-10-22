@@ -483,6 +483,9 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     }
 
     [Theory]
+    [InlineData("Product", "country.mmdb")]
+    [InlineData("Schema", "ipinfo-country-v1")]
+    [InlineData("Source", "https://ipinfo.io/data/free/country.mmdb")]
     [InlineData("Source", "https://invalid.example/country.mmdb")]
     [InlineData("DatabaseType", "../invalid")]
     [InlineData("FirstDownloadedAt", "2026-10-21T10:00:00+00:00")]
