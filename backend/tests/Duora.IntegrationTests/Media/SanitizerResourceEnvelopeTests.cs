@@ -1,3 +1,5 @@
+extern alias worker;
+
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
@@ -214,5 +216,3 @@ public sealed class SanitizerResourceEnvelopeTests
         }
     }
 }
-extern alias worker;
-
