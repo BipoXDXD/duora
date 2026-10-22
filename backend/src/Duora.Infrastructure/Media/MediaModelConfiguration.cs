@@ -12,7 +12,7 @@ internal sealed class UploadConfiguration : IEntityTypeConfiguration<Upload>
     {
         var states = Quoted(Enum.GetNames<UploadState>());
         var contentTypes = Quoted(Enum.GetValues<PhotoFormat>().Select(PhotoFormats.ContentType));
-        var rejections = Quoted(Enum.GetValues<PhotoRejection>().Select(PhotoRejections.Code));
+        var rejections = Quoted(Enum.GetValues<PhotoRejection>().Select(PhotoRejections.Code).Concat(PhotoReviewResults.Codes));
         var pendingStates = Quoted(UploadLifecycle.PendingStates.Select(state => state.ToString()));
         builder.ToTable("uploads", DatabaseSchemas.Media, table =>
         {

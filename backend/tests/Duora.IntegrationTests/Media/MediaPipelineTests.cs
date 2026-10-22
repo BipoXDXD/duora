@@ -53,6 +53,26 @@ public sealed class MediaPipelineTests(PostgresFixture postgres) : IAsyncLifetim
         _mail?.Delete(recursive: true);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OldTechnicalDeliveriesCannotDecideAnUploadAwaitingHumanReview(bool expired)
+    {
+        var (media, browser) = await SignInAsync();
+        using var _ = browser;
+        var photoId = await UploadAsync(browser, TestImages.Jpeg(), "image/jpeg");
+        await ExecuteAsync("update media.uploads set state = 'AwaitingReview' where id = $1", photoId);
+        var worker = StartWorker(services => services.AddSingleton<TimeProvider>(
+            new FakeTimeProvider(DateTimeOffset.UtcNow + (expired ? TimeSpan.FromDays(2) : TimeSpan.Zero))));
+
+        Assert.Equal(1, await DispatchOnceAsync(worker));
+
+        Assert.Equal(("AwaitingReview", null), await StatusAsync(browser, photoId));
+        Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id = $1", photoId));
+        Assert.Equal(expired ? "Expired" : "Delivered", await DeliveryStatusAsync(photoId));
+        Assert.Equal(0, await DispatchOnceAsync(worker));
+    }
+
     [Fact]
     public async Task AJpegWithGpsIsApprovedAsCleanVariantsAndTheOriginalIsDeleted()
     {

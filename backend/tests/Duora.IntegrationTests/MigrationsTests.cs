@@ -38,7 +38,7 @@ public sealed class MigrationsTests(PostgresFixture postgres)
                 "identity.user_claims", "identity.user_logins", "identity.user_roles", "identity.user_tokens",
                 "identity.users", "ops.audit_events", "ops.country_database_approvals", "ops.country_database_incidents", "ops.country_database_notifications", "ops.country_database_retired", "ops.country_database_state", "ops.country_database_versions", "ops.jobs", "ops.outbox_deliveries", "ops.outbox_events", "ops.webhook_receipts",
                 "profiles.communication_languages", "profiles.countries", "profiles.preferences", "profiles.profiles", "profiles.regional_preference_countries", "profiles.regional_preferences", "profiles.subdivisions",
-                "safety.blocks", "safety.user_guards",
+                "safety.blocks", "safety.photo_review_cases", "safety.user_guards",
             ],
             tables.Order(StringComparer.Ordinal));
     }

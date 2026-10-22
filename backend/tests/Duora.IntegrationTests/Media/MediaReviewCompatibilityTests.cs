@@ -65,7 +65,7 @@ public sealed class MediaReviewCompatibilityTests(PostgresFixture postgres) : IA
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         Assert.Single(await scenario.UploadsOfAsync(account.UserId));
         Assert.Single(await scenario.ProcessingEventsAsync(photoId));
-        Assert.Equal(1, scenario.StoredObjectCount());
+        Assert.Equal(0, scenario.StoredObjectCount());
     }
 
     [Theory]
@@ -107,7 +107,7 @@ public sealed class MediaReviewCompatibilityTests(PostgresFixture postgres) : IA
     [InlineData("AwaitingReview", "PHOTO_REVIEW_REJECTED")]
     [InlineData("Approved", "PHOTO_REVIEW_EXPIRED")]
     [InlineData("Rejected", "PHOTO_REVIEW_typo")]
-    [InlineData("AwaitingReviewTypo", null)]
+    [InlineData("ReviewTypo", null)]
     [InlineData("Rejected", null)]
     public async Task InvalidStatesAndResultCombinationsStayClosed(string state, string? code)
     {

@@ -193,3 +193,12 @@ imutáveis nem reter original para reconstruir revisão. Jobs/campos reais serã
 
 Esta tabela exige testes futuros; não os declara implementados. #173/#174/#86/#69 continuam abertas.
 Sem equipe e homologação adequadas, não ativar HumanReview/upload. Detector/filtro regional continuam fora do escopo.
+
+## Preparação executável M1
+
+A entrega M1 prepara leitura/status/replay de AwaitingReview e dos três resultados editoriais, constraints,
+índice/cotas e raiz SQL do caso Safety. Nenhum escritor HumanReview existe nessa etapa. As afirmações de
+M0 acima continuam delimitando o contrato futuro: assetId, ETag e rotas administrativas são posteriores.
+DTOs/OpenAPI/tipos atuais conservam strings e o formato existente; o gate contract regenera/compara os artefatos.
+A SPA tem transporte genérico testado, ainda sem tela consumidora de status.
+[Relatório M1 e gate de rollback antes dos escritores](../testing/reports/media-review-readers.md).
