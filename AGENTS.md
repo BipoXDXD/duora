@@ -30,6 +30,22 @@ Leia antes de mexer: [scope.md](docs/product/scope.md) (invariantes, estados, gl
 
 Permissões completas: [docs/automation/permissions.md](docs/automation/permissions.md).
 
+## Publicação automática e coordenação
+
+A proibição de fazer deploy limita a intervenção direta em produção. Ela não autoriza cancelar, desativar
+ou reexecutar a publicação automática aprovada separadamente, nem alterar sua fila, gates ou permissões.
+
+- Depois de um merge autorizado, acompanhe a CI e a promoção pelo fluxo aprovado. Um escopo restrito a código,
+  sem instalação ou ativação manual, não é uma ordem para interromper esse fluxo.
+- Não use `gh run cancel`, `--force`, os endpoints `cancel`/`force-cancel` ou ações equivalentes para impor
+  esse escopo. Cancelamento administrativo exige solicitação explícita e específica do responsável técnico
+  ou um procedimento de incidente previamente aprovado. As regras automáticas versionadas da CI continuam
+  responsáveis por suas próprias execuções obsoletas.
+- Se um merge não puder seguir para publicação automática, alinhe a restrição antes de integrá-lo. Preserve
+  a branch e os checks enquanto resolve o conflito; não cancele publicações de outros trabalhos.
+- Publicar uma versão não autoriza habilitar funcionalidades, instalar serviços, alterar configurações ou
+  processar dados reais que tenham autorização separada. Preserve as restrições e os assets existentes.
+
 ## Proibido
 
 - Aplicar migração destrutiva, fazer deploy em produção ou consultar dados de participantes.
