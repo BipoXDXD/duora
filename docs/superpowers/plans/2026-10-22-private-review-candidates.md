@@ -2,6 +2,8 @@
 
 > Execução inline na branch `feat/173-review-candidates`, inicialmente filha do #198/M2a. Testes executáveis somente na CI; revisão independente e todos os checks antes de integrar. Rebase/retarget para main depois do merge de M2a.
 
+**Entrega incremental:** #203/M2b-1 contém somente chaves/área e testes dos adaptadores (Tarefa 1). Tarefas 2–4 são o plano das próximas fatias, ainda sem implementação. Os testes RED de 72f5b76 foram observados na CI39798090643: três casos unitários e filesystem/MinIO falharam no parser inexistente; duas falhas herdadas de inventário de privilégios foram corrigidas em #198/7d313c0 antes desta implementação.
+
 **Objetivo:** persistir apenas os três derivados sanitizados numa área privada exclusiva por tentativa e confirmar AwaitingReview + caso Safety + auditoria + obrigação de apagar o original numa transação curta, sem criar asset aprovado.
 
 **Spec:** ADR-0035 e `docs/api/media-review.md`, M2. INV-03/05/06/08/10/11; T-03/05/06/08/10/16/26. O contrato aceito e a autorização atual de implementar as pendências definem este recorte. A entrega não habilita HumanReview, endpoints, permissões, montagens ou uso de dados reais; M3–M7 continuam necessários.
@@ -70,7 +72,7 @@ A implementação acrescenta constraints de datas finitas, chave correspondente 
 
 ## Tarefa 1 — área e limites de armazenamento
 
-- [ ] RED na CI: ler chaves review-candidates válidas e armazenar/excluir candidato sem afetar quarantine/derivatives no filesystem e no MinIO existentes.
+- [x] RED na CI: ler chaves review-candidates válidas e armazenar/excluir candidato sem afetar quarantine/derivatives no filesystem e no MinIO existentes.
 - [ ] Gerar chaves de tentativa com geração não vazia, tipo/variante fechados, parser ancorado no fim real e ToString sem token.
 - [ ] Testar geração diferente, path traversal, maiúsculas, variante desconhecida, quebra de linha, chave candidata recusada como origem de ForDerivative, ausência de diretório em modo sem criação e ACL privada no S3.
 

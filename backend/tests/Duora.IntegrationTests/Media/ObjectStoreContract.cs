@@ -32,6 +32,29 @@ public abstract class ObjectStoreContract
     }
 
     [Fact]
+    public async Task DeletingAnOldCandidateGenerationPreservesAllVariantsOfAnotherGeneration()
+    {
+        var abandoned = Guid.NewGuid();
+        var winner = Guid.NewGuid();
+        foreach (var variant in PhotoVariants.All)
+        {
+            await PutAsync(ObjectKey.ForReviewCandidate(abandoned, variant), [10]);
+            await PutAsync(ObjectKey.ForReviewCandidate(winner, variant), [20]);
+        }
+
+        foreach (var variant in PhotoVariants.All)
+        {
+            await Store.DeleteAsync(ObjectKey.ForReviewCandidate(abandoned, variant), Cancellation);
+        }
+
+        foreach (var variant in PhotoVariants.All)
+        {
+            Assert.Null(await ReadAsync(ObjectKey.ForReviewCandidate(abandoned, variant)));
+            Assert.Equal([20], await ReadAsync(ObjectKey.ForReviewCandidate(winner, variant)));
+        }
+    }
+
+    [Fact]
     public async Task WrittenBytesAreReadBackExactly()
     {
         var key = ObjectKey.NewQuarantine();
