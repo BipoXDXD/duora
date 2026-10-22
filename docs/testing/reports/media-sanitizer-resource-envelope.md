@@ -22,7 +22,7 @@ SanitizerElapsedMilliseconds, SanitizerCpuMilliseconds, AllocatedDuringSanitizeB
 GC/runtime/arquitetura/SO e memory.current do cgroup quando disponível. Resumo tabular e **todas as36amostras JSONL** em seção expansível de GITHUB_STEP_SUMMARY do job backend.
 A evidência primária não depende de o logger xUnit exibir output de testes aprovados. Além do resumo,
 o target RecordSyntheticSanitizerBaseline executa os dois testes diretamente após o build **somente**
-quando GITHUB_ACTIONS=true e GITHUB_JOB=backend. O comando nativo usa show-live-output on/output Detailed
+quando GITHUB_ACTIONS=true e GITHUB_JOB=backend. O comando nativo usa -class, -showLiveOutput e -reporter verbose
 para conservar os JSONL sem a supressão do SDK. A suíte completa existente roda depois, sem alterar
 workflows, paralelismo, filtros ou gates dela. Builds locais/outros jobs não executam o target. A presença
 de GITHUB_STEP_SUMMARY é exigida no GitHub Actions.

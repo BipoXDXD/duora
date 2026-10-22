@@ -21,7 +21,7 @@
        Ordinary/local builds and every other CI job do not execute this target. -->
   <Target Name="RecordSyntheticSanitizerBaseline" AfterTargets="Build"
           Condition="'$(GITHUB_ACTIONS)' == 'true' and '$(GITHUB_JOB)' == 'backend'">
-    <Exec Command="dotnet &quot;$(TargetPath)&quot; --filter-class Duora.IntegrationTests.Media.SanitizerResourceEnvelopeTests --show-live-output on --output Detailed"
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; -class Duora.IntegrationTests.Media.SanitizerResourceEnvelopeTests -showLiveOutput -reporter verbose"
           StandardOutputImportance="High" />
   </Target>
 </Project>
