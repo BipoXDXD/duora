@@ -8,6 +8,7 @@
   "extraPaths": [
     ".",
     "../media",
+    "../release",
     "../../infra/ansible/roles/docker/files"
   ]
 }
