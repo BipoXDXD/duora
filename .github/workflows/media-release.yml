@@ -23,6 +23,7 @@ env:
   TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
 jobs:
   verify:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'BipoXDXD/duora') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -36,6 +37,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'refs/heads/main' || github.sha }}
       - name: Candidate contract and publication boundary tests
         run: python3 -m unittest discover -s scripts/deploy -p 'test_media_release*.py' -v
       - name: Exact trusted main and nine CI gates
@@ -46,7 +48,7 @@ jobs:
           RELEASE_COMMIT: ${{ inputs.commit }}
         run: python3 scripts/media/release_publish.py gate
   native:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'BipoXDXD/duora' }}
     needs: verify
     name: licensed (${{ matrix.arch }})
     permissions:
@@ -221,7 +223,7 @@ jobs:
             systemctl --user stop docker.service || true
           sudo loginctl terminate-user duora-sanitizer-ci || true
   indexes:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'BipoXDXD/duora' }}
     needs: [verify, native]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -233,8 +235,6 @@ jobs:
       RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
       CI_RUN: ${{ needs.verify.outputs.ci_run }}
       CI_ATTEMPT: ${{ needs.verify.outputs.ci_attempt }}
-      NATIVE_CANDIDATES: ${{ runner.temp }}/native-candidates
-      RELEASE_BUNDLE_DIR: ${{ runner.temp }}/media-release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -256,6 +256,8 @@ jobs:
       - name: Verify both proven native digests and publish candidate index
         env:
           GH_TOKEN: ${{ github.token }}
+          NATIVE_CANDIDATES: ${{ runner.temp }}/native-candidates
+          RELEASE_BUNDLE_DIR: ${{ runner.temp }}/media-release
         run: python3 scripts/media/release_publish.py indexes
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
