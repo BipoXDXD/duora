@@ -100,7 +100,13 @@ class Proof:
         deadline=time.monotonic()+30
         while time.monotonic()<deadline:
             if self.process.poll() is not None: raise AssertionError("launcher-startup-exit-"+str(self.process.returncode))
-            if Path(self.profile["control_socket"]).exists(): return
+            if Path(self.profile["control_socket"]).exists():
+                try:
+                    # SIGKILL leaves the old socket path behind. Readiness means the
+                    # new server has completed recovery and answers the closed protocol.
+                    if self.exchange(os.urandom(16).hex(), operation=2) == (5,b""): return
+                except subprocess.CalledProcessError:
+                    pass
             time.sleep(0.1)
         raise AssertionError("launcher-startup-timeout")
 
