@@ -9,7 +9,7 @@
   "enUS": {
     "title": "Unlikely Routes",
     "objective": "Plan a route through an imaginary island together.",
-    "example": "You each see different clues. Share only what you want, using the agreed language. Take turns choosing three stops, then confirm the route or request a revision. There is no single correct route. No real location is needed.",
+    "example": "You each get different clues. Share only the clues you want, in the agreed language. Take turns: one choice per step. Each of you confirms the route or requests a revision. No right or wrong choices. Compatibility is not assessed. No personal details or real locations are needed.",
     "stops": [
       {
         "stepId": "meeting-place",
@@ -94,7 +94,7 @@
   "ptBR": {
     "title": "Rotas Improváveis",
     "objective": "Planejem uma rota por uma ilha imaginária em conjunto.",
-    "example": "Cada pessoa vê pistas diferentes. Compartilhe apenas o que quiser, no idioma combinado. Alternem as escolhas de três paradas e depois confirmem a rota ou peçam uma revisão. Não há uma única rota certa. Nenhuma localização real é necessária.",
+    "example": "Cada pessoa recebe pistas diferentes. No idioma combinado, compartilhe as que quiser. Escolham por turnos: uma opção por etapa. Cada pessoa confirma a rota ou pede revisão. Não há certo ou errado nem avaliação de compatibilidade. Dispensa dados pessoais ou locais reais.",
     "stops": [
       {
         "stepId": "meeting-place",
