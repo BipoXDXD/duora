@@ -42,7 +42,7 @@ public sealed class SmtpTransportTests
     }
 
     [Theory]
-    [InlineData("Email:Transport", "Unknown")]
+    [InlineData("Email:Provider", "Unknown")]
     [InlineData("Email:Smtp:Host", "")]
     [InlineData("Email:Smtp:Security", "None")]
     public async Task InvalidSmtpConfigurationIsRejectedWithoutWritingAPickupFile(string key, string value)
@@ -66,7 +66,7 @@ public sealed class SmtpTransportTests
     {
         var values = new Dictionary<string, string?>
         {
-            ["Email:Transport"] = "Smtp",
+            ["Email:Provider"] = "Smtp",
             ["Email:PickupDirectory"] = pickupDirectory,
             ["Email:Smtp:Host"] = "localhost",
             ["Email:Smtp:Port"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
