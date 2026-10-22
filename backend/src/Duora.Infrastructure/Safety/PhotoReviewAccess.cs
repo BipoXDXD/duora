@@ -1,4 +1,4 @@
-using Duora.Core.Identity;
+using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Persistence;
 
 namespace Duora.Infrastructure.Safety;

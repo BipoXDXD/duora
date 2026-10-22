@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Duora.Core.Identity;
+using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Persistence;
 using Duora.Infrastructure.Safety;
 using Microsoft.EntityFrameworkCore;
