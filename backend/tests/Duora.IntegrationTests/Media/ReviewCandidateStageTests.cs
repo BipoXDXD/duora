@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -69,6 +70,50 @@ public sealed partial class MediaPipelineTests
             """, first.CaseId));
         Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id=$1", upload.Id));
         Assert.Null(await media.ReadQuarantineAsync(upload));
+    }
+
+    [Theory]
+    [InlineData("review-expired")]
+    [InlineData("retention-expired")]
+    [InlineData("missing-variant")]
+    [InlineData("corrupt-variant")]
+    public async Task ReplayRefusesExpiredOrUnavailableCandidatesWithoutRewritingHistory(string condition)
+    {
+        var (media, upload, version) = await ReviewReadyUploadAsync();
+        var store = new CandidateWriteCountingStore(media.Store);
+        var first = Assert.IsType<ReviewCandidateStageResult.Staged>(await StageCandidateAsync(
+            upload.Id, version, store, DateTimeOffset.UtcNow.AddMinutes(1)));
+        var bytes = await CandidateBytesAsync(media.Store, upload.Id);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddHours(condition == "review-expired" ? 73 : 1));
+        if (condition == "retention-expired")
+        {
+            await media.ExecuteAsync("update media.review_candidates set retention_until=$2 where upload_id=$1",
+                upload.Id, clock.GetUtcNow().AddMinutes(-1));
+        }
+        else if (condition == "missing-variant")
+        {
+            await media.Store.DeleteAsync(bytes.Keys.First(), Cancellation);
+        }
+        else if (condition == "corrupt-variant")
+        {
+            using var content = new MemoryStream([0]);
+            await media.Store.PutAsync(bytes.Keys.First(), content, content.Length, "image/webp", Cancellation);
+        }
+
+        Assert.IsType<ReviewCandidateStageResult.LeaseLost>(await StageCandidateAsync(
+            upload.Id, version, store, clock.GetUtcNow().AddMinutes(1), clock));
+
+        Assert.Equal(3, store.Writes);
+        Assert.Equal(1, await CountAsync("select count(*) from safety.photo_review_cases where upload_id=$1", upload.Id));
+        Assert.Equal(1, await CountAsync("""
+            select count(*) from ops.audit_events where target_id=$1 and action='safety.photo_review_requested'
+            """, first.CaseId));
+        Assert.Equal(1, await CountAsync("select count(*) from media.uploads where id=$1 and state='AwaitingReview'", upload.Id));
+        Assert.Equal(1, await CountAsync("""
+            select count(*) from media.review_candidates where upload_id=$1 and committed_at is not null
+              and cleanup_requested_at is null and deleted_at is null
+            """, upload.Id));
+        Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id=$1", upload.Id));
     }
 
     [Theory]
@@ -358,6 +403,154 @@ public sealed partial class MediaPipelineTests
         Assert.Equal(expected, await CountAsync(sql, uploadId));
     }
 
+    [Fact]
+    public async Task CandidateCleanupOwnershipCannotAcknowledgeOrRetryAfterItsLeaseWasReclaimed()
+    {
+        var (media, uploadId, _) = await AbandonedCandidateAsync();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddSeconds(1));
+        var cleanup = CandidateCleanup(media.Store, clock);
+        var first = Assert.IsType<ReviewCandidateCleanupClaim>(await cleanup.ClaimAsync(Cancellation));
+        Assert.False(first.WriterWasSettled);
+        Assert.Null(await cleanup.ClaimAsync(Cancellation));
+        clock.Advance(ReviewCandidateCleanupDispatcher.LeaseDuration);
+        Assert.False(await cleanup.CompleteSweepAsync(first, Cancellation));
+        Assert.False(await cleanup.RetryAsync(first, Cancellation));
+        var next = Assert.IsType<ReviewCandidateCleanupClaim>(await cleanup.ClaimAsync(Cancellation));
+        Assert.NotEqual(first.Token, next.Token);
+        Assert.False(await cleanup.CompleteSweepAsync(first, Cancellation));
+        Assert.False(await cleanup.RetryAsync(first, Cancellation));
+        foreach (var kind in PhotoVariants.All)
+        {
+            await media.Store.DeleteAsync(ObjectKey.ForReviewCandidate(next.Generation, kind), Cancellation);
+        }
+
+        Assert.True(await cleanup.CompleteSweepAsync(next, Cancellation));
+        Assert.Equal(1, await CountAsync("""
+            select count(*) from media.review_candidates where upload_id=$1 and deleted_at is null
+              and last_cleanup_at is not null and cleanup_lease_until is null
+            """, uploadId));
+    }
+
+    [Fact]
+    public async Task ConcurrentCandidateCollectorsOwnAtMostOneClaim()
+    {
+        var (media, _, _) = await AbandonedCandidateAsync();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddSeconds(1));
+        var claims = await Task.WhenAll(CandidateCleanup(media.Store, clock).ClaimAsync(Cancellation),
+            CandidateCleanup(media.Store, clock).ClaimAsync(Cancellation));
+
+        Assert.Single(claims, claim => claim is not null);
+    }
+
+    [Fact]
+    public async Task PartialCandidateDeletionRetriesAndNeverExpiresAnUncertainWriterObligation()
+    {
+        var (media, uploadId, generation) = await AbandonedCandidateAsync();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddSeconds(1));
+        Assert.Equal(0, await CandidateCleanup(media.Store, clock, enabled: false).DispatchOnceAsync(Cancellation));
+        var partial = CandidateCleanup(new PartialCandidateDeletionStore(media.Store), clock);
+
+        Assert.Equal(1, await partial.DispatchOnceAsync(Cancellation));
+
+        await using (var missing = await media.Store.OpenReadAsync(ObjectKey.ForReviewCandidate(generation, PhotoVariant.Thumb), Cancellation))
+        {
+            Assert.Null(missing);
+        }
+
+        await using (var remaining = await media.Store.OpenReadAsync(ObjectKey.ForReviewCandidate(generation, PhotoVariant.Card), Cancellation))
+        {
+            Assert.NotNull(remaining);
+        }
+
+        Assert.Equal(1, await CountAsync("""
+            select count(*) from media.review_candidates where upload_id=$1 and cleanup_attempts=1
+              and cleanup_lease_until is null and deleted_at is null
+            """, uploadId));
+        var recovered = CandidateCleanup(media.Store, clock);
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            clock.Advance(TimeSpan.FromMinutes(15));
+            Assert.Equal(1, await recovered.DispatchOnceAsync(Cancellation));
+        }
+
+        foreach (var kind in PhotoVariants.All)
+        {
+            await using var missing = await media.Store.OpenReadAsync(ObjectKey.ForReviewCandidate(generation, kind), Cancellation);
+            Assert.Null(missing);
+        }
+
+        Assert.Equal(1, await CountAsync("""
+            select count(*) from media.review_candidates where upload_id=$1 and cleanup_attempts=13
+              and cleanup_requested_at is not null and writer_settled_at is null and deleted_at is null
+            """, uploadId));
+        Assert.Equal(0, await CountAsync("select count(*) from safety.photo_review_cases where upload_id=$1", uploadId));
+    }
+
+    [Fact]
+    public async Task CandidateCleanupShutdownLeavesOwnershipForRecovery()
+    {
+        var (media, uploadId, generation) = await AbandonedCandidateAsync();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddSeconds(1));
+        var blocked = new BlockingOriginalStore(media.Store);
+        using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        var pending = CandidateCleanup(blocked, clock).DispatchOnceAsync(shutdown.Token);
+        try
+        {
+            await blocked.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Cancellation);
+            await shutdown.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+            Assert.Equal(1, await CountAsync("""
+                select count(*) from media.review_candidates where upload_id=$1 and cleanup_lease_until is not null
+                  and deleted_at is null
+                """, uploadId));
+            Assert.Null(await CandidateCleanup(media.Store, clock).ClaimAsync(Cancellation));
+            clock.Advance(ReviewCandidateCleanupDispatcher.LeaseDuration);
+            Assert.Equal(1, await CandidateCleanup(media.Store, clock).DispatchOnceAsync(Cancellation));
+            foreach (var kind in PhotoVariants.All)
+            {
+                await using var missing = await media.Store.OpenReadAsync(ObjectKey.ForReviewCandidate(generation, kind), Cancellation);
+                Assert.Null(missing);
+            }
+        }
+        finally
+        {
+            blocked.Release.TrySetResult();
+            await shutdown.CancelAsync();
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try
+            {
+                await pending.WaitAsync(cleanup.Token);
+            }
+            catch (OperationCanceledException) when (pending.IsCompleted)
+            {
+                // The cancelled DELETE has been observed before the fixture is disposed.
+            }
+        }
+    }
+
+    private ReviewCandidateCleanupDispatcher CandidateCleanup(IObjectStore store, TimeProvider clock, bool enabled = true) => new(
+        Web.Services.GetRequiredService<NpgsqlDataSource>(), store, clock, enabled,
+        NullLogger<ReviewCandidateCleanupDispatcher>.Instance);
+
+    private async Task<(MediaScenario Media, Guid UploadId, Guid Generation)> AbandonedCandidateAsync()
+    {
+        var (media, upload, version) = await ReviewReadyUploadAsync();
+        await Assert.ThrowsAsync<IOException>(() => StageCandidateAsync(upload.Id, version,
+            new CandidateWriteCountingStore(media.Store, failingPut: 2), DateTimeOffset.UtcNow.AddMinutes(1)));
+        await using var connection = await OpenAsync();
+        await using var command = new NpgsqlCommand("select generation from media.review_candidates where upload_id=$1", connection);
+        command.Parameters.AddWithValue(upload.Id);
+        var generation = (Guid)(await command.ExecuteScalarAsync(Cancellation))!;
+        // Model uncertain writes reaching storage after a failed request. Cleanup must remove arbitrary partial bytes.
+        foreach (var kind in PhotoVariants.All)
+        {
+            using var content = new MemoryStream([1, 2, 3]);
+            await media.Store.PutAsync(ObjectKey.ForReviewCandidate(generation, kind), content, content.Length, "image/webp", Cancellation);
+        }
+
+        return (media, upload.Id, generation);
+    }
+
     private async Task<(MediaScenario Media, StoredUpload Upload, long Version)> ReviewReadyUploadAsync()
     {
         var (media, browser) = await SignInAsync();
@@ -499,6 +692,26 @@ public sealed partial class MediaPipelineTests
                 FullDeleted.TrySetResult();
                 await AllowSweep.Task.WaitAsync(cancellationToken);
             }
+        }
+    }
+
+    private sealed class PartialCandidateDeletionStore(IObjectStore inner) : IObjectStore
+    {
+        private int _deletes;
+
+        public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken) =>
+            inner.PutAsync(key, content, length, contentType, cancellationToken);
+
+        public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) => inner.OpenReadAsync(key, cancellationToken);
+
+        public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken)
+        {
+            if (key.Area == StorageArea.ReviewCandidates && Interlocked.Increment(ref _deletes) == 2)
+            {
+                throw new IOException("Synthetic partial candidate deletion");
+            }
+
+            return inner.DeleteAsync(key, cancellationToken);
         }
     }
 }
