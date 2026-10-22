@@ -231,8 +231,7 @@ public sealed partial class MediaPipelineTests
     {
         var (media, request) = await PromotionReadyCandidateAsync();
         var store = new PromotionPreparationStore(media.Store);
-        var source = Web.Services.GetRequiredService<NpgsqlDataSource>();
-        var fault = new PromotionPreparationCommitFault(source.ConnectionString, request.CaseId, afterCommit);
+        var fault = new PromotionPreparationCommitFault(_connectionString, request.CaseId, afterCommit);
 
         Assert.IsType<ReviewPromotionResult.Unavailable>(await PreparePromotionAsync(request, store, interceptor: fault));
 
@@ -260,9 +259,8 @@ public sealed partial class MediaPipelineTests
         var (media, request) = await PromotionReadyCandidateAsync();
         var original = await CandidateBytesAsync(media.Store, await PromotionUploadAsync(request.CaseId));
         var store = new PromotionPreparationStore(media.Store);
-        var source = Web.Services.GetRequiredService<NpgsqlDataSource>();
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var fault = new CleanupBeforePromotionWriterBarrier(source.ConnectionString, request.CaseId, cleanupAcknowledged, clock);
+        var fault = new CleanupBeforePromotionWriterBarrier(_connectionString, request.CaseId, cleanupAcknowledged, clock);
         var started = Stopwatch.GetTimestamp();
 
         Assert.IsType<ReviewPromotionResult.Unavailable>(await PreparePromotionAsync(request, store, clock, fault));
@@ -283,7 +281,6 @@ public sealed partial class MediaPipelineTests
     public async Task AManifestLockWaitCannotExtendCandidateOrReviewDeadlines(bool reviewExpires)
     {
         var (media, request) = await PromotionReadyCandidateAsync();
-        var source = Web.Services.GetRequiredService<NpgsqlDataSource>();
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
         if (reviewExpires)
         {
@@ -304,9 +301,10 @@ public sealed partial class MediaPipelineTests
         }
 
         var name = $"promotion-deadline-{Guid.NewGuid():N}";
-        var settings = new NpgsqlConnectionStringBuilder(source.ConnectionString) { ApplicationName = name };
+        var settings = new NpgsqlConnectionStringBuilder(_connectionString) { ApplicationName = name };
         var options = new DbContextOptionsBuilder<DuoraDbContext>().UseNpgsql(settings.ConnectionString).Options;
         await using var injected = new DuoraDbContext(options);
+        await AssertPromotionFixtureConnectionAsync(injected);
         var store = new PromotionPreparationStore(media.Store);
         await using var held = await OpenAsync();
         await using var transaction = await held.BeginTransactionAsync(Cancellation);
@@ -421,12 +419,20 @@ public sealed partial class MediaPipelineTests
             return outcome;
         }
 
-        var options = new DbContextOptionsBuilder<DuoraDbContext>().UseNpgsql(db.Database.GetConnectionString())
+        var options = new DbContextOptionsBuilder<DuoraDbContext>().UseNpgsql(_connectionString)
             .AddInterceptors(interceptor).Options;
         await using var injected = new DuoraDbContext(options);
+        await AssertPromotionFixtureConnectionAsync(injected);
         var result = await new PhotoReviewPromotions(injected, store, time ?? TimeProvider.System).PrepareAsync(request, Cancellation);
         Assert.Equal(0, store.DeleteAttempts);
         return result;
+    }
+
+    private async Task AssertPromotionFixtureConnectionAsync(DuoraDbContext db)
+    {
+        // A caught storage/database failure must not masquerade as the injected COMMIT/lock failure.
+        var actual = await db.Database.SqlQuery<string>($"select current_database() as \"Value\"").SingleAsync(Cancellation);
+        Assert.Equal(new NpgsqlConnectionStringBuilder(_connectionString).Database, actual);
     }
 
     private static async Task AssertPromotionCandidateUnchangedAsync(FileSystemObjectStore store, Dictionary<ObjectKey, byte[]> expected)
