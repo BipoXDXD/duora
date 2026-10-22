@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Duora.Infrastructure;
+using Duora.Infrastructure.Geolocation;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Media;
 using Duora.Infrastructure.Participation;
@@ -80,7 +81,11 @@ internal static class DuoraWebApp
         builder.Services.AddBlockRateLimiting();
         builder.Services.AddPhotoUploadRateLimiting();
         builder.Services.AddRegionDetectionRateLimiting();
-        builder.Services.AddSingleton<Duora.Infrastructure.Geolocation.ICountryLookup, Duora.Infrastructure.Geolocation.DisabledCountryLookup>();
+        var countryDatabase = builder.Services.AddCountryDatabaseRuntime(builder.Configuration, worker: false);
+        if (countryDatabase.DetectorEnabled)
+        { builder.Services.AddHostedService<CountryDatabaseReaderWorker>(); }
+        else
+        { builder.Services.AddSingleton<ICountryLookup, DisabledCountryLookup>(); }
         builder.Services.AddTrustedReverseProxy();
 
         var app = builder.Build();
