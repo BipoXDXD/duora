@@ -20,7 +20,9 @@ integra publicação de Web/Worker; ImageSharp4.1.3/licença já existentes perm
 Campos por amostra no output xUnit: input e hash, resultado/código, dimensões/bytes/hash por variante,
 SanitizerElapsedMilliseconds, SanitizerCpuMilliseconds, AllocatedDuringSanitizeBytes, RSS inicial/pico,
 GC/runtime/arquitetura/SO e memory.current do cgroup quando disponível. Resumo tabular e **todas as36amostras JSONL** em seção expansível de GITHUB_STEP_SUMMARY do job backend.
-A evidência primária não depende de o logger xUnit exibir output de testes aprovados. O ZIP sintético usa
+A evidência primária não depende de o logger xUnit exibir output de testes aprovados. Além do resumo,
+xunit.runner.json habilita showLiveOutput para conservar os mesmos JSONL nos logs normais do job, sem
+mudar workflows, paralelismo, filtros ou gates. [Configuração oficial](https://xunit.net/docs/config-xunit-runner-json). O ZIP sintético usa
 timestamp2000-01-01 fixo, não relógio de parede, para reproduzir seus bytes.
 Hashes permitem reproduzir o corpus e resultados sem publicar bytes de imagem.
 
