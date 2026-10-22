@@ -70,6 +70,34 @@ class ProcessRuntime:
         return self.mode != "cleanup-blocked"
 
 
+class PausedInput:
+    """Fault injection before S2 admits a job, while the original is still in transit."""
+    def __init__(self, reader, root):
+        self.reader, self.root = reader, root
+        self.reads = 0
+
+    async def readexactly(self, count):
+        self.reads += 1
+        if self.reads == 3 and (self.root / "mode").read_text().strip() == "transfer-hold":
+            first = await self.reader.readexactly(1)
+            (self.root / "transferring").write_text("1")
+            try:
+                while (self.root / "mode").read_text().strip() == "transfer-hold":
+                    await asyncio.sleep(0.01)
+                return first + await self.reader.readexactly(count - 1)
+            finally:
+                (self.root / "transfer-ended").write_text("1")
+        return await self.reader.readexactly(count)
+
+    async def read(self, count):
+        return await self.reader.read(count)
+
+
+class TestControlServer(ControlServer):
+    async def handle(self, reader, writer):
+        await super().handle(PausedInput(reader, Path(self.profile.journal_directory)), writer)
+
+
 async def main():
     root = Path(sys.argv[1])
     profile = Profile("sha256:" + "11"*32, "/unused-test-runtime",
@@ -77,7 +105,7 @@ async def main():
     runtime = ProcessRuntime(root, sys.argv[2], sys.argv[3])
     supervisor = Supervisor(profile, runtime, Journal(root, profile.digest))
     await supervisor.recover()
-    server = ControlServer(profile, supervisor)
+    server = TestControlServer(profile, supervisor)
     await server.start()
     print(json.dumps({"digest": profile.digest, "uid": os.getuid()}), flush=True)
     try:

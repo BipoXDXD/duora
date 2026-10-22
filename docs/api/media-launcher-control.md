@@ -125,3 +125,9 @@ O teste de integração usa o controle/journal S2 real e um processo sintético 
 exercitar protocolo, banco e storage. Isso não substitui as duas provas de contenção
 rootless nativa. P174-3/4 permanecem candidatos; não há instalação, ativação ou aprovação
 dos números para produção nesta entrega.
+
+Após commit, a exclusão do original conserva a semântica existente de melhor esforço:
+falha deixa o objeto em quarentena e registra erro de órfão, sem tornar o original
+público ou repetir a criação do asset. O teste S3 comprova esse comportamento, não
+uma limpeza durável já entregue. A limpeza durável prevista na M2 e os demais gates
+de #173/#69 continuam pendentes antes de ativação.

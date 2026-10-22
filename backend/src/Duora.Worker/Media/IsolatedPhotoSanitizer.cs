@@ -95,7 +95,7 @@ internal sealed partial class IsolatedPhotoSanitizer(
             cancellationToken.ThrowIfCancellationRequested();
             return outcome;
         }
-        catch (Exception exception) when (exception is IOException or SocketException or OperationCanceledException)
+        catch (Exception exception) when (exception is InvalidDataException or IOException or SocketException or OperationCanceledException)
         {
             // Closing the start connection is not cancellation. Use the separate restricted control operation,
             // within the reserved portion of the same total envelope; uncertain cleanup blocks the next start.
@@ -180,7 +180,7 @@ internal sealed partial class IsolatedPhotoSanitizer(
             {
                 await write;
             }
-            catch (Exception error) when (error is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+            catch (Exception error) when (error is InvalidDataException or IOException or SocketException or OperationCanceledException or ObjectDisposedException)
             {
                 // The primary response/failure determines the result; observe the stopped writer as well.
             }

@@ -1,5 +1,6 @@
 extern alias worker;
 
+using System.Diagnostics;
 using Duora.Core.Media;
 using worker::Duora.Worker.Media;
 
@@ -8,6 +9,48 @@ namespace Duora.IntegrationTests.Media;
 public sealed class MediaLauncherCrashTests
 {
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PartialTransferIsBoundedAndAnUnknownAdmissionRequiresRecovery(bool shutdown)
+    {
+        await using var launcher = new LauncherFixture();
+        await launcher.StartAsync(Cancellation);
+        launcher.Options.TotalTimeout = TimeSpan.FromSeconds(2);
+        launcher.Options.CleanupTimeout = TimeSpan.FromMilliseconds(500);
+        launcher.Options.ControlTimeout = TimeSpan.FromMilliseconds(100);
+        launcher.SetMode("transfer-hold");
+        using var sanitizer = new IsolatedPhotoSanitizer(launcher.Options);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        var timer = Stopwatch.StartNew();
+        var pending = sanitizer.SanitizeAsync(PhotoFormat.Jpeg, new byte[PhotoLimits.MaxBytes], stop.Token);
+        await launcher.WaitForAsync("transferring", Cancellation);
+        if (shutdown)
+        {
+            await stop.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        }
+        else
+        {
+            await Assert.ThrowsAnyAsync<IOException>(() => pending);
+        }
+        Assert.True(timer.Elapsed < TimeSpan.FromSeconds(5), "Transfer and cleanup must stay bounded by the restricted candidate envelope.");
+        Assert.False(launcher.Started);
+        launcher.SetMode("normal");
+        await launcher.WaitForAsync("transfer-ended", Cancellation);
+        await Assert.ThrowsAnyAsync<IOException>(() => sanitizer.SanitizeAsync(PhotoFormat.Jpeg, TestImages.Jpeg(), Cancellation));
+        Assert.False(launcher.Started);
+
+        // A fresh Worker can reconnect; S2 still owns global admission and confirms every new result.
+        launcher.Options.TotalTimeout = TimeSpan.FromSeconds(50);
+        launcher.Options.CleanupTimeout = TimeSpan.FromSeconds(5);
+        launcher.Options.ControlTimeout = TimeSpan.FromSeconds(2);
+        using var restarted = new IsolatedPhotoSanitizer(launcher.Options);
+        await restarted.EnsureReadyAsync(Cancellation);
+        Assert.IsType<SanitizeOutcome.Sanitized>(
+            await restarted.SanitizeAsync(PhotoFormat.Jpeg, TestImages.Jpeg(), Cancellation));
+    }
 
     [Theory]
     [InlineData("crash")]
@@ -115,5 +158,7 @@ public sealed class MediaLauncherCrashTests
         await sanitizer.EnsureReadyAsync(Cancellation);
         Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.TooManyPixels),
             await sanitizer.SanitizeAsync(PhotoFormat.Png, TestImages.DecompressionBombPng(), Cancellation));
+        Assert.Equal(new SanitizeOutcome.Rejected(PhotoRejection.ProcessingLimit),
+            await sanitizer.SanitizeAsync(PhotoFormat.Jpeg, TestImages.ProgressiveJpegWithScans(101), Cancellation));
     }
 }

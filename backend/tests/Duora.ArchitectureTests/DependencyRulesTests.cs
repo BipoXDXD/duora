@@ -41,6 +41,10 @@ public sealed class DependencyRulesTests
     [InlineData(Infrastructure, Contracts)]
     [InlineData(Infrastructure, Web)]
     [InlineData(Infrastructure, Worker)]
+    [InlineData(Infrastructure, MediaSanitizer)]
+    [InlineData(Web, MediaSanitizer)]
+    [InlineData(Worker, MediaSanitizer)]
+    [InlineData(MediaProtocol, MediaSanitizer)]
     public void AssemblyDoesNotReferenceForbiddenProject(string assembly, string forbidden)
     {
         Assert.DoesNotContain(forbidden, ReferencesOf(assembly));
