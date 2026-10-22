@@ -24,5 +24,7 @@ describe('regiões do perfil', () => {
     expect(ptBR[REGION_LABEL_KEYS['BR-SP']]).toBe('São Paulo')
     expect(ptBR[REGION_LABEL_KEYS['BR-DF']]).toBe('Distrito Federal')
     expect(en[REGION_LABEL_KEYS['BR-DF']]).toBe('Federal District')
+    expect(ptBR[REGION_LABEL_KEYS['US-DC']]).toBe('Distrito de Colúmbia')
+    expect(ptBR[REGION_LABEL_KEYS['US-WA']]).toBe('Washington')
   })
 })

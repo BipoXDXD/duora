@@ -9,8 +9,8 @@ public sealed class UnitedStatesLocations : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.InsertData(schema: "profiles", table: "countries", column: "code", value: "US");
-        migrationBuilder.InsertData(schema: "profiles", table: "subdivisions", columns: ["code", "country_code"],
+        migrationBuilder.InsertData(schema: "profiles", table: "countries", column: "code", columnType: "text", value: "US");
+        migrationBuilder.InsertData(schema: "profiles", table: "subdivisions", columns: ["code", "country_code"], columnTypes: ["text", "text"],
             values: new object[,]
             {
                 { "US-AK", "US" },
