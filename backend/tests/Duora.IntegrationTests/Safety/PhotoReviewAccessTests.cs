@@ -12,7 +12,7 @@ namespace Duora.IntegrationTests.Safety;
 
 public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
 {
-    private readonly FakeTimeProvider _time = TestClock.StartingNow();
+    private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Theory]
