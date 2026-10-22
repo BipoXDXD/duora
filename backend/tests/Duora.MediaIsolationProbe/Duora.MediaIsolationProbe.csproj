@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><AssemblyName>Duora.MediaSanitizer</AssemblyName></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/Duora.MediaProtocol/Duora.MediaProtocol.csproj" /></ItemGroup>
+</Project>

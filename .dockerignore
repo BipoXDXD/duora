@@ -11,6 +11,7 @@
 !.config/dotnet-tools.json
 
 !backend/src/
+!backend/tests/Duora.MediaIsolationProbe/
 !frontend/
 !infra/caddy/
 !infra/images/
