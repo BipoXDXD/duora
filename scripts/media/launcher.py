@@ -19,6 +19,7 @@ JOB_PATTERN = re.compile(r"[0-9a-f]{32}")
 MAX_INPUT = 5 * 1024 * 1024
 MAX_OUTPUT = 24 * 1024 * 1024 + 4096
 LABEL = "io.duora.media.managed"
+AUTHORITY_DIRECTORY = Path("/var/lib/duora-media")
 
 
 def require(condition: bool) -> None:

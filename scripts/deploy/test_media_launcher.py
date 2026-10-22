@@ -8,8 +8,10 @@ import os
 import struct
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "media"))
 from launcher import Journal, Profile, read_start
@@ -98,6 +100,24 @@ class RequestTests(unittest.IsolatedAsyncioTestCase):
 
 
 class JournalTests(unittest.TestCase):
+    def test_restart_removes_only_private_recognized_journal_temporaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            temporary = root/("journal-"+"a"*32+".tmp")
+            temporary.write_text("[]"); temporary.chmod(0o600)
+            unknown = root/"unrelated.tmp"; unknown.write_text("preserve")
+            journal = Journal(root, "c"*64)
+            self.assertFalse(temporary.exists())
+            self.assertEqual("preserve", unknown.read_text())
+            self.assertEqual({}, journal.records)
+
+    def test_recognized_temporary_symlink_never_removes_its_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); target = root/"other"; target.write_text("preserve")
+            (root/("journal-"+"a"*32+".tmp")).symlink_to(target)
+            with self.assertRaises(ValueError): Journal(root, "c"*64)
+            self.assertEqual("preserve", target.read_text())
+
     def test_replay_after_restart_never_launches_the_same_id_again(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Journal(Path(directory), "c" * 64)
@@ -207,6 +227,16 @@ class SupervisorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual("exited", result.code)
         self.assertEqual(b"", result.payload)
 
+    async def test_durable_finish_crossing_deadline_never_releases_bytes(self):
+        class SlowFinishJournal(Journal):
+            def finish(self, job_id, state):
+                time.sleep(0.05)  # Reproduce blocking fsync; asyncio timeout cannot preempt it.
+                super().finish(job_id, state)
+        self.supervisor.journal = SlowFinishJournal(Path(self.directory.name), "c"*64)
+        result = await self.supervisor.run(JOB, request(), (16777216,25165824,65536,20))
+        self.assertNotEqual("exited", result.code)
+        self.assertEqual(b"", result.payload)
+
     async def test_startup_recovers_orphans_before_admitting_an_attempt(self):
         self.runtime.orphan = True
         await self.supervisor.recover()
@@ -273,6 +303,16 @@ class ControlSocketTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RuntimeSafetyTests(unittest.TestCase):
+    def test_authority_lock_uses_fixed_state_directory_independent_of_profile_paths(self):
+        from launcher import acquire_runtime_lock
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as runtime:
+            with patch("launcher.AUTHORITY_DIRECTORY", Path(directory)):
+                descriptor = acquire_runtime_lock(str(Path(runtime)/"docker.sock"))
+                try:
+                    self.assertTrue((Path(directory)/"duora-media-launcher.lock").exists())
+                    self.assertFalse((Path(runtime)/"duora-media-launcher.lock").exists())
+                finally: os.close(descriptor)
+
     def test_only_reviewed_builtin_seccomp_and_rootless_systemd_are_accepted(self):
         from docker_runtime import validate_runtime_security
         valid = {"CgroupDriver": "systemd", "CgroupVersion": "2",
@@ -289,7 +329,7 @@ class RuntimeSafetyTests(unittest.TestCase):
 
     def test_authority_lock_is_shared_by_all_profiles_for_the_same_daemon(self):
         from launcher import acquire_runtime_lock
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch("launcher.AUTHORITY_DIRECTORY", Path(directory)):
             runtime_socket = str(Path(directory)/"docker.sock")
             first = acquire_runtime_lock(runtime_socket)
             try:
