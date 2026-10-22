@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-10-15)
 - **Substituído em parte:** o storage de produção das fotos (adaptador S3 com `AWSSDK.S3` num bucket de mídia, item 5), pelo [adendo de 2026-10-16 do ADR-0010](0010-object-storage-externo-leitura-via-api.md#adendo-2026-10-16-fotos-no-disco-da-vps-com-cópia-externa) (fotos no disco da VPS)
+- **Substituído em parte:** revisão e estado/resultado de fotos (itens 8 e 10), pelo [ADR-0035](0035-revisao-humana-de-fotos.md); isolamento e localização do decoder (itens 9 e 7), pelo [ADR-0036](0036-isolamento-do-media-sanitizer.md), em 2026-10-22. Arquitetura de destino aceita; implementação/ativação pendentes.
 - **Origem:** spec 2.3, 4.2, 4.3, 8.1, 8.4 (API-M01, API-M02), 8.7, 11.5, 12.3, 15.4, 16.1, 16.2 e 23.2;
   [ADR-0003](0003-monolito-modular-web-worker.md), [ADR-0008](0008-postgresql-para-jobs-e-outbox.md),
   [ADR-0010](0010-object-storage-externo-leitura-via-api.md), [ADR-0021](0021-jobs-duraveis-e-leases-no-postgresql.md);
@@ -264,3 +265,18 @@ com 135 mil scans levou 84 s (só o timeout de 30 s o cortava). O tempo na VPS K
 Compliance: `PhotoDecodeCostTests`, os testes de scans e `zTXt` em `PhotoSanitizerTests`, `UploadQueueLimitTests`
 (conferido sem o advisory lock: 9 envios de 9 contas passam de um teto de 3) e
 `ADeliveryThatAlsoExhaustedTheGiveUpAttemptsEndsAtTheClaimWithTheUploadRejected`.
+
+
+## Adendo de 2026-10-22 — revisão humana e isolamento aceitos, sem implementação
+
+O responsável aceitou as escolhas dos [ADR-0035](0035-revisao-humana-de-fotos.md) e
+[ADR-0036](0036-isolamento-do-media-sanitizer.md), mantendo P174-3/4 como candidatos de homologação
+e todos os nomes de P173-7 pendentes. O primeiro define HumanReview, espera humana e resultado público
+(itens 8 e 10); o segundo define decoder descartável por tentativa e launcher rootless dedicado
+(item 9 e localização do decode no item 7). As demais decisões deste ADR permanecem vigentes, inclusive
+a substituição de storage já registrada pelo ADR-0010.
+
+Os parágrafos anteriores preservam o histórico e não afirmam implementação dessas escolhas.
+TechnicalOnly continua restrita a Development/Testing no runtime atual. O upload permanece desligado;
+nenhuma allowlist, contrato, recurso ou deploy muda com este aceite. Implementação, homologação #86,
+gates operacionais #69 e autorização própria de ativação continuam necessários.

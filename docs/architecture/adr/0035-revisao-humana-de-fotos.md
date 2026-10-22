@@ -1,22 +1,28 @@
 # ADR-0035: Revisão humana de fotos antes da publicação
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-22); implementação e ativação pendentes
 - **Origem:** [issue #173](https://github.com/BipoXDXD/duora/issues/173), [#69](https://github.com/BipoXDXD/duora/issues/69), [ADR-0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md), spec 12.3 e API-M01–M04.
 - **Revisar quando:** Estados/contrato, regras editoriais, retenção, equipe ou fronteira Media/Safety mudarem.
 
-Formalização da investigação de 21/10/2026, baseada na main `c6af25d53f9e5844e6ae92755ea3466504a673cb`.
-As recomendações abaixo são candidatas, não decisões aceitas. Os responsáveis por função ainda não foram
-nomeados e os itens P173-* permanecem pendentes. Aprovar ou integrar este PR documental não aprova o desenho,
-não autoriza implementação e não satisfaz os gates de ativação.
+## Registro do aceite — 22/10/2026
+
+O responsável aceitou nesta conversa as escolhas concretas apresentadas após o PR #175:
+“Aceito as escolhas, com P174-3/4 como candidatos de homologação e nomes da P173-7 pendentes.”
+Autorizou somente registrar o aceite em PR documental e validar pelo CI. Não autorizou implementação,
+ativação, deploy nem builds, testes ou Docker no Mac. Os identificadores P173/P174 são preservados para
+rastrear decisões aceitas e condições remanescentes; não representam todas decisões ainda abertas.
+
+A investigação original de 21/10/2026 usou a main `c6af25d53f9e5844e6ae92755ea3466504a673cb`.
+As evidências abaixo descrevem esse baseline, não funcionalidades entregues por este aceite.
 
 ## Relação com decisões vigentes
 
-Propõe detalhar a futura revisão humana e publicação de candidatos privados, prevista como pendência no ADR-0025.
-O ADR-0025 permanece Accepted e inalterado: este documento não o substitui enquanto Proposed. No aceite
-futuro, identificar precisamente as partes substituídas e registrar referências recíprocas conforme as regras
-do [índice](README.md#regras). A proposta complementar está no [ADR-0036](0036-isolamento-do-media-sanitizer.md).
-O ADR-0034 e o contrato legado/opt-in já implementados permanecem vigentes; a política humana e o sandbox
-não são uma continuação da migração de validação.
+Este ADR substitui parcialmente, como arquitetura de destino, o item 8 (revisão) e evolução do estado/resultado público do item 10 do
+[ADR-0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md). O ADR-0025 permanece Accepted nas demais partes,
+com adendo recíproco; seu relato da implementação existente permanece histórico.
+A decisão complementar está no [ADR-0036](0036-isolamento-do-media-sanitizer.md).
+O ADR-0034 e o contrato legado/opt-in permanecem vigentes. Este PR não altera o contrato executável,
+a política efetiva, limites ou configuração. Aceite arquitetural não comprova implementação ou homologação.
 
 ## Contexto e evidências
 
@@ -31,40 +37,42 @@ não são uma continuação da migração de validação.
 
 ## Alternativas
 
-| Opção | Benefício | Custo/risco | Parecer proposto |
+| Opção | Benefício | Custo/risco | Resultado da decisão |
 |---|---|---|---|
 | Adicionar política e retornar outro veredito no fluxo atual | Mudança pequena | Factory ainda aprova; falta caso, autorização, auditoria e retenção | Descartar |
-| Manter `Processing` e uma fila editorial lateral | Pode evitar valor novo na resposta | Mistura significado técnico/humano, complica retry/expiração e pode esconder estado ao cliente | Possível apenas com projeção e semântica explicitamente aprovadas; não é compatibilidade automática |
-| Estado explícito `AwaitingReview`, candidato não público e caso editorial próprio | Fronteiras e expiração explícitas; não confunde falha técnica com decisão humana | Exige evolução de schema, contrato e armazenamento, mais fluxo administrativo | **Recomendação para revisão** |
+| Manter `Processing` e uma fila editorial lateral | Pode evitar valor novo na resposta | Mistura significado técnico/humano, complica retry/expiração e pode esconder estado ao cliente | Não escolhida; decisão aceita usa estado explícito |
+| Estado explícito `AwaitingReview`, candidato não público e caso editorial próprio | Fronteiras e expiração explícitas; não confunde falha técnica com decisão humana | Exige evolução de schema, contrato e armazenamento, mais fluxo administrativo | Escolhida |
 
-## Decisão proposta, sujeita às decisões pendentes
+## Decisão aceita — implementação futura
 
-1. Preservar `TechnicalOnly` exclusivamente para Development/Testing. Nome provisório da nova política: `HumanReview` (não é enum disponível). O nome, os ambientes permitidos e o comportamento de Staging só entram após aceite explícito; nenhum ambiente desconhecido herda permissão.
+1. Preservar `TechnicalOnly` exclusivamente para Development/Testing. Nova política de destino: `HumanReview` (ainda não é enum disponível), nos quatro ambientes conhecidos; Staging somente com dados sintéticos. Nenhum ambiente desconhecido herda permissão.
 2. Após sanitização bem-sucedida, persistir candidato/variantes em área privada de revisão, sem criar asset aprovado. Em uma transação curta, registrar a geração/hash do candidato, mover `Processing → AwaitingReview` e criar o caso editorial durável. Encerrar a entrega técnica após esse commit; apagar o original após a derivação/commit com limpeza durável para falhas, sem alongar a retenção do original para esperar um moderador.
-3. Propor caso/decisão sob responsabilidade de Safety, e estado de upload/asset/arquivo sob Media; aplicar a decisão por serviço de aplicação com a mesma unidade transacional já permitida pelo monólito. Não inventar uma denúncia de usuário só para encaixar um upload na tabela de reports; não depender de implementar todo o produto de moderação.
-4. Lista paginada e evidência somente de casos atribuídos/autorizados. Propor `moderator` com permissão específica, sessão administrativa e MFA; `product_admin`/`operator` não ganham acesso a fotos por serem privilegiados. Decisão exige step-up e versão esperada; leitura de evidência é auditada **antes** de transmitir bytes, falhando fechada se a auditoria falhar. Não criar thumbnails na lista por padrão; interface e mensagens de uso em PT-BR/EN-US.
+3. Manter caso/decisão sob responsabilidade de Safety, e estado de upload/asset/arquivo sob Media; aplicar a decisão por serviço de aplicação com a mesma unidade transacional já permitida pelo monólito. Não inventar uma denúncia de usuário só para encaixar um upload na tabela de reports; não depender de implementar todo o produto de moderação.
+4. Lista paginada e evidência somente de casos atribuídos/autorizados. Exigir `moderator` com permissão específica, sessão administrativa e MFA; `product_admin`/`operator` não ganham acesso a fotos por serem privilegiados. Decisão exige step-up e versão esperada; leitura de evidência é auditada **antes** de transmitir bytes, falhando fechada se a auditoria falhar. Não criar thumbnails na lista por padrão; interface e mensagens de uso em PT-BR/EN-US.
 5. Aprovação prepara a cópia dos derivados para a área final fora de transação longa. O commit condicional pela versão faz upload/asset Approved, decisão, auditoria e eventual efeito de outbox necessários de forma atômica. Arquivo copiado sem esse commit nunca se torna público. Chaves/gerações e limpeza devem impedir que uma tentativa antiga sobrescreva ou apague a vencedora.
 6. Reprovação, expiração e exclusão nunca aprovam nem sancionam a conta implicitamente. Repetição idempotente devolve a decisão já registrada; decisão divergente ou versão antiga é conflito. Exclusão/restrição/revogação de permissão concorrentes são revalidadas sob as guardas/versões pertinentes. Recurso cria nova revisão autorizada, preservando o histórico; não implementa `Rejected → Approved` cego.
-7. Incluir a espera editorial nas cotas atuais por conta/global e respectivas consultas/índices; não abrir fila infinita nem aumentar 3/100 para compensar falta de revisores. Definir TTL e alertas próprios, separados do lease e das 24 h técnicas.
-8. Preferir área de candidatos separada de derivados finais e fora do backup de mídia corrente. Isso **requer** proposta de StorageArea/chaves, permissões, marcadores/montagens e política de backup/restore; não é uma área já disponível. Moderador acessa derivado sanitizado por rota administrativa autorizada, nunca original ou caminho interno. Restore com candidato ausente mantém o caso não publicável para nova coleta/expiração conforme política aprovada, jamais promove a Approved. A ausência dos bytes candidatos no backup de mídia não elimina os metadados/casos presentes nas cópias do banco; retenção e reconciliação desses registros também precisam ser aprovadas.
+7. Incluir a espera editorial nas cotas atuais por conta/global e respectivas consultas/índices; não abrir fila infinita nem aumentar 3/100 para compensar falta de revisores. Aplicar os prazos de P173-5 e detalhar alertas próprios, separados do lease e das 24 h técnicas.
+8. Criar área `review-candidates` separada de derivados finais e fora do backup de mídia corrente. Isso **requer** proposta de StorageArea/chaves, permissões, marcadores/montagens e política de backup/restore; não é uma área já disponível. Moderador acessa derivado sanitizado por rota administrativa autorizada, nunca original ou caminho interno. Restore com candidato ausente encerra a tentativa com `PHOTO_REVIEW_UNAVAILABLE` e orienta novo envio, jamais promove a Approved. A ausência dos bytes candidatos no backup de mídia não elimina os metadados/casos presentes nas cópias do banco; a execução da retenção de P173-5 e a reconciliação desses registros precisam ser detalhadas e verificadas.
 
-## Decisões pendentes e responsáveis por função
+## Escolhas aceitas e condições remanescentes
 
-| ID | Decisão a revisar | Recomendação / consequência | Aceite necessário |
-|---|---|---|---|
-| P173-1 | Nome/ambientes e regras editoriais | Política humana explícita; nenhum fallback técnico em produção | Produto + responsável técnico |
-| P173-2 | Estado e contrato público | Preferir `AwaitingReview`; avaliar também projeção para contrato antigo. Atualizar enum/checks, DTO/docs, replay e consumidores antes de escrever novos estados | Engenharia/API + responsável técnico |
-| P173-3 | Rejeição/expiração editorial | Códigos estáveis mínimos no status, separados dos motivos internos. CHECK atual só conhece rejeições técnicas; não usar `PROCESSING_LIMIT` para disfarçar decisão editorial | Produto/privacidade + API |
-| P173-4 | Dono do caso e permissões | Safety decide/audita; Media publica; permissão por atribuição, step-up e revisão independente de recurso | Segurança + produto |
-| P173-5 | TTL, retenção, recurso e ausência de revisão | Prazo explícito para candidato/evidência e comportamento de fila sem responsável; sem retenção infinita nem aprovação automática | Produto/privacidade + operação |
-| P173-6 | Área candidata e backups | Preferir área privada separada; definir destino após restore e limpeza de órfãos/tombstones | Engenharia/storage + operação |
-| P173-7 | Atendimento real | Nomear responsável e substituto, fluxo de atribuição e escalonamento; não pressupor equipe disponível | Responsável pelo produto |
+| ID | Escolha aceita | Dependência ou risco remanescente |
+|---|---|---|
+| P173-1 | `HumanReview` em Development, Testing, Staging e Production; Staging sintético. Foto apresentada como do titular, sem terceiros identificáveis, nudez/conteúdo sexual explícito, violência gráfica, ódio ou dados de contato expostos. Dúvida exige segunda análise, nunca aprovação automática. Não realizar reconhecimento facial nem inferir idade ou atributos pessoais. | Regras e orientação do revisor em PT-BR/EN-US. Revisão visual não comprova identidade, consentimento ou idade; risco de inconsistência humana. |
+| P173-2 | `AwaitingReview` persistido e público, inclusive replay; não projetar como `Processing`. Preparar leitores, constraints, índices, cotas e consumidores antes dos escritores. | Evolução semântica exige revisão própria de contrato e testes. Rollback só com leitores compatíveis. |
+| P173-3 | `Rejected` com `PHOTO_REVIEW_REJECTED` para decisão humana, `PHOTO_REVIEW_EXPIRED` para espera vencida e `PHOTO_REVIEW_UNAVAILABLE` para candidato perdido. Motivos internos no caso; explicação pública acionável e localizada. | Códigos do resultado de revisão, não de `errors` ou da negociação ADR-0034. Requer contrato/CHECK próprios; não reutilizar `PROCESSING_LIMIT`. Categorias públicas/textos seguros ainda a detalhar. |
+| P173-4 | Safety possui caso, atribuição e decisão; Media possui upload, arquivos e publicação. Moderador apenas em casos atribuídos, MFA, step-up e versão esperada na decisão. Auditar leitura antes dos bytes; recurso decidido por outra pessoa. | Operações administrativas e auditoria transacional futuras; falha da auditoria nega leitura. Operador/product_admin não recebe acesso implícito. |
+| P173-5 | Alvo de primeira análise 24 h; espera expira em 72 h. Recurso até 7 dias da rejeição; alvo de decisão em 7 dias. Candidato rejeitado retido por 7 dias; com recurso até encerramento + 24 h, limitado a 30 dias desde rejeição, salvo preservação excepcional explicitamente aprovada. Candidato expirado: limpeza em até 24 h. Original eliminado após derivação/commit, sem aguardar humano. Registro mínimo de decisão/auditoria: 1 ano, sem imagem/texto sensível. | Reconciliar política de privacidade, `retention_until`, exclusão e backups; não é conclusão jurídica. Detalhar recurso vencido sem aprovação automática, exceções de preservação e reconciliação. Alvos de atendimento não são evidência de capacidade. |
+| P173-6 | Área privada `review-candidates`, separada de quarantine/derivatives e fora do backup de mídia; somente derivados sanitizados. Promoção com geração/versão e commit condicional, seguida de limpeza. Perda após restore: `PHOTO_REVIEW_UNAVAILABLE` e novo envio. | Montagens/permissões, leitura administrativa, GC e tombstones. Metadados dos casos seguem no backup do banco; perda de disco pode exigir reenvio. |
+| P173-7 | Modelo aceito: responsável pelo serviço, revisor principal e substituto capaz de julgar recurso independentemente. Sem cobertura, suspender novas admissões pelo procedimento aprovado e tratar pendências. | **Todos os nomes permanecem pendentes**, inclusive responsável pelo serviço. Não atribuir pessoa automaticamente pelo aceite. Nomeação/cobertura bloqueiam ativação; uma pessoa não revisa a própria decisão. |
 
-As funções acima não são pessoas já designadas. Esta investigação registra escolhas abertas, sem pedir nem presumir seu aceite.
+A retenção aceita precisa ser reconciliada com [retention.md](../../privacy/retention.md) na entrega posterior.
+Ela não muda neste PR jobs de limpeza ou backups imutáveis; não promete apagar cópias externas imediatamente.
+Leitura/exclusão/limpeza de mídia e o tratamento de recursos vencidos exigem especificação antes de dados reais.
 
 ## Entregas posteriores e dependências
 
-- Antes de implementar: resolver e registrar as decisões pendentes, obter os aceites indicados e atualizar este ADR para Accepted por revisão explícita. A publicação deste documento como Proposed não satisfaz esse gate.
+- Aceite arquitetural registrado. Implementação requer autorização própria, detalhamento das entregas e resolução das condições aplicáveis abaixo; este PR é exclusivamente documental.
 - Entrega de persistência/compatibilidade: expandir schema e leitores **antes** de escritores da nova política; casos, constraints, índices, cotas e projeção da API testados. O opt-in de validação #154 trata outro campo/negociação e não resolve evolução do status.
 - Entrega do caso humano: operações administrativas de atribuição/leitura/decisão/recurso, auditoria e teste de concorrência; sem tornar SQL manual ou acesso ao storage a interface de revisão.
 - Entrega de armazenamento/retenção/exclusão: candidato privado, promoção, coleta de órfãos e exclusão lógica/física. Delimitar trabalho de API-M03/M04 e T-26 ausente antes de considerar pronta a experiência com fotos reais; escopo/issue própria ainda a definir, não prometido por este estudo.
