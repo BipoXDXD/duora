@@ -16,4 +16,12 @@
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
+  <!-- The SDK's dotnet test console suppresses successful test-host output. Record this synthetic
+       experiment directly on the hosted backend runner, then keep the full existing test gate unchanged.
+       Ordinary/local builds and every other CI job do not execute this target. -->
+  <Target Name="RecordSyntheticSanitizerBaseline" AfterTargets="Build"
+          Condition="'$(GITHUB_ACTIONS)' == 'true' and '$(GITHUB_JOB)' == 'backend'">
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; --filter-class Duora.IntegrationTests.Media.SanitizerResourceEnvelopeTests --show-live-output on --output Detailed"
+          StandardOutputImportance="High" />
+  </Target>
 </Project>

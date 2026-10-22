@@ -21,10 +21,16 @@ Campos por amostra no output xUnit: input e hash, resultado/código, dimensões/
 SanitizerElapsedMilliseconds, SanitizerCpuMilliseconds, AllocatedDuringSanitizeBytes, RSS inicial/pico,
 GC/runtime/arquitetura/SO e memory.current do cgroup quando disponível. Resumo tabular e **todas as36amostras JSONL** em seção expansível de GITHUB_STEP_SUMMARY do job backend.
 A evidência primária não depende de o logger xUnit exibir output de testes aprovados. Além do resumo,
-testconfig.json configura a saída Detailed/on no MTP, com showLiveOutput, sem mudar workflows,
-paralelismo, filtros ou gates. A presença do destino GITHUB_STEP_SUMMARY é exigida no GitHub Actions.
-[Configuração oficial MTP](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-config)
-e [configuração xUnit/MTP](https://xunit.net/docs/config-testconfig-json). O ZIP sintético usa
+o target RecordSyntheticSanitizerBaseline executa os dois testes diretamente após o build **somente**
+quando GITHUB_ACTIONS=true e GITHUB_JOB=backend. O comando nativo usa show-live-output on/output Detailed
+para conservar os JSONL sem a supressão do SDK. A suíte completa existente roda depois, sem alterar
+workflows, paralelismo, filtros ou gates dela. Builds locais/outros jobs não executam o target. A presença
+de GITHUB_STEP_SUMMARY é exigida no GitHub Actions.
+[Runner nativo MTP](https://xunit.net/docs/getting-started/v3/microsoft-testing-platform).
+
+A invocação direta grava36amostras, e a suíte completa verifica novamente os mesmos casos. São execuções
+separadas; não somar seus totais como testes distintos nem confundir PID repetido em logs live/final com
+nova amostra. O registro permanente identifica run/head e a invocação que originou os números. O ZIP sintético usa
 timestamp2000-01-01 fixo, não relógio de parede, para reproduzir seus bytes.
 Hashes permitem reproduzir o corpus e resultados sem publicar bytes de imagem.
 
