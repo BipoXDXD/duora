@@ -16,8 +16,8 @@ public static class EmailServiceCollectionExtensions
     public static IServiceCollection AddTransactionalEmailDispatch(this IServiceCollection services)
     {
         services.AddOptions<EmailTransportOptions>()
-            .BindConfiguration("Email")
-            .Validate(o => o.IsValid(), "Email:Provider deve ser PickupDirectory ou Resend; Resend exige Email:Resend:ApiKey e Email:Resend:From válidos.")
+            .BindConfiguration(EmailTransportOptions.Section)
+            .Validate(o => o.IsValid(), "Email:Provider deve ser PickupDirectory, Resend ou Smtp; configure o provedor selecionado. SMTP exige TLS e autenticação.")
             .ValidateOnStart();
         services.AddOptions<PickupDirectoryOptions>()
             .BindConfiguration(PickupDirectoryOptions.Section)
@@ -36,11 +36,14 @@ public static class EmailServiceCollectionExtensions
 
         services.AddKeyedSingleton<HttpClient>("Resend", (_, _) => ResendEmailSender.CreateClient());
         services.AddSingleton<ITransactionalEmailSender>(provider =>
-            provider.GetRequiredService<IOptions<EmailTransportOptions>>().Value.Provider == "Resend"
-                ? new ResendEmailSender(provider.GetRequiredKeyedService<HttpClient>("Resend"),
-                    provider.GetRequiredService<IOptions<EmailTransportOptions>>())
-                : new PickupDirectoryEmailSender(provider.GetRequiredService<IOptions<PickupDirectoryOptions>>(),
-                    provider.GetRequiredService<ILogger<PickupDirectoryEmailSender>>()));
+            provider.GetRequiredService<IOptions<EmailTransportOptions>>().Value.Provider switch
+            {
+                "Smtp" => new SmtpTransactionalEmailSender(provider.GetRequiredService<IOptions<EmailTransportOptions>>()),
+                "Resend" => new ResendEmailSender(provider.GetRequiredKeyedService<HttpClient>("Resend"),
+                    provider.GetRequiredService<IOptions<EmailTransportOptions>>()),
+                _ => new PickupDirectoryEmailSender(provider.GetRequiredService<IOptions<PickupDirectoryOptions>>(),
+                    provider.GetRequiredService<ILogger<PickupDirectoryEmailSender>>()),
+            });
         services.AddSingleton(provider => new OutboxDeliveryQueue(provider.GetRequiredService<NpgsqlDataSource>()));
         services.AddSingleton(provider => new TransactionalEmailDispatcher(
             provider.GetRequiredService<OutboxDeliveryQueue>(),

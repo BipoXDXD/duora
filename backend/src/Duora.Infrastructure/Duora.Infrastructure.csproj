@@ -7,6 +7,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MailKit" />
     <!-- Pacote NuGet, não o framework compartilhado: traz IdentityDbContext, UserManager e PasswordHasher. -->
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
