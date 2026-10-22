@@ -71,7 +71,7 @@ class CaddyAccessLogTests(unittest.TestCase):
                 statuses.append(entry["status"])
         return statuses
 
-    def logged_uris(self) -> list[str]:
+    def logged_uris(self, expected_uri: str | None = None) -> list[str]:
         logs = subprocess.run(["docker", "logs", self.container], capture_output=True, text=True, check=False)
         uris: list[str] = []
         for line in (logs.stdout + logs.stderr).splitlines():
