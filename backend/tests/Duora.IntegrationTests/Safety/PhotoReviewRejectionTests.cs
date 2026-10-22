@@ -255,6 +255,8 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
     [InlineData("grant")]
     [InlineData("totp")]
     [InlineData("owner")]
+    [InlineData("deleted")]
+    [InlineData("reassigned")]
     public async Task ChangesDuringStorageAreNotBlockedBySqlAndPreventTheCommit(string change)
     {
         var (reviewer, item) = await PreparedAsync();
@@ -274,13 +276,25 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
             {
                 _time.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromTicks(10));
             }
-            else
+            else if (change == "owner")
             {
                 await ExecuteAsync("update identity.users set status='Restricted' where id=$1", item.OwnerId);
             }
+            else if (change == "deleted")
+            {
+                await ExecuteAsync("update media.uploads set state='Deleted',version=version+1 where id=$1", item.UploadId);
+            }
+            else
+            {
+                var assigner = await ModeratorAsync(PhotoReviewCapability.Assign);
+                var replacement = await ModeratorAsync(PhotoReviewCapability.Evidence, PhotoReviewCapability.Decide);
+                await using var db = Context();
+                Assert.IsType<PhotoReviewAssignmentResult.Assigned>(await new PhotoReviewAssignments(db, _time)
+                    .AssignAsync(assigner, item.CaseId, replacement.UserId, 2, Key(), Ct));
+            }
             store.Release();
             var result = await opening.WaitAsync(budget.Token);
-            if (change == "owner")
+            if (change is "owner" or "deleted" or "reassigned")
             {
                 Assert.IsType<PhotoReviewRejectionResult.NotFound>(result);
             }
@@ -288,7 +302,22 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
             {
                 Assert.IsType<PhotoReviewRejectionResult.Forbidden>(result);
             }
-            await AssertUnchangedAsync(item);
+            if (change == "deleted")
+            {
+                await AssertNoDecisionAsync(item);
+                Assert.Equal(1, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='Deleted' and version=4", item.UploadId));
+                Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_cases where id=$1 and version=2", item.CaseId));
+            }
+            else if (change == "reassigned")
+            {
+                await AssertNoDecisionAsync(item);
+                Assert.Equal(1, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='AwaitingReview' and version=3", item.UploadId));
+                Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_cases where id=$1 and version=3", item.CaseId));
+            }
+            else
+            {
+                await AssertUnchangedAsync(item);
+            }
         }
         finally
         {
@@ -305,17 +334,125 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedOrAmbiguousCommitNeverReportsAConfirmedDecision(bool afterCommit)
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var failure = new RefuseDecisionCommit(_connectionString, item.CaseId, afterCommit);
+        var service = new PhotoReviewRejections(Factory(failure), new FileSystemObjectStore(_root.FullName), _time);
+
+        await Assert.ThrowsAsync<IOException>(() => service.RejectAsync(reviewer, item.CaseId, 2,
+            PhotoReviewRejectionReason.DoesNotMeetPolicy, Key(), Ct));
+
+        Assert.True(failure.Fired);
+        var count = afterCommit ? 1L : 0L;
+        Assert.Equal(count, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1", item.CaseId));
+        Assert.Equal(count, await ScalarAsync("select count(*) from safety.photo_review_decision_commands where case_id=$1", item.CaseId));
+        Assert.Equal(count, await ScalarAsync("select count(*) from ops.audit_events where target_type='photo_review_decision'"));
+        Assert.Equal(count, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='Rejected'", item.UploadId));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TotpThatExpiresDuringARealGuardOrCaseLockWaitCannotAuthorizeARejection(bool ownerGuard)
+    {
+        var assigner = await ModeratorAsync(PhotoReviewCapability.Assign);
+        var reviewer = await ActorAsync(AccountRoles.Moderator, Guid.Parse("ffffffff-ffff-ffff-ffff-fffffffffffe"));
+        await GrantAsync(reviewer.UserId, PhotoReviewCapability.Evidence, enabled: true);
+        await GrantAsync(reviewer.UserId, PhotoReviewCapability.Decide, enabled: true);
+        var item = await CaseAsync(Guid.Parse("00000000-0000-0000-0000-00000000000a"));
+        await using (var db = Context())
+        {
+            Assert.IsType<PhotoReviewAssignmentResult.Assigned>(await new PhotoReviewAssignments(db, _time)
+                .AssignAsync(assigner, item.CaseId, reviewer.UserId, 1, Key(), Ct));
+        }
+        var application = "rejection-lock-" + Guid.NewGuid().ToString("N");
+        var connectionString = new NpgsqlConnectionStringBuilder(_connectionString) { ApplicationName = application }.ConnectionString;
+        var options = new DbContextOptionsBuilder<DuoraDbContext>();
+        options.UseDuoraNpgsql(connectionString);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(10));
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(budget.Token);
+        await using var held = await connection.BeginTransactionAsync(budget.Token);
+        var sql = ownerGuard ? "select 1 from safety.user_guards where user_id=$1 for update"
+            : "select 1 from safety.photo_review_cases where id=$1 for update";
+        await using (var command = new NpgsqlCommand(sql, connection, held))
+        {
+            command.Parameters.AddWithValue(ownerGuard ? item.OwnerId : item.CaseId);
+            await command.ExecuteNonQueryAsync(budget.Token);
+        }
+        var released = false;
+        var rejecting = new PhotoReviewRejections(new ContextFactory(options.Options), new FileSystemObjectStore(_root.FullName), _time)
+            .RejectAsync(reviewer, item.CaseId, 2, PhotoReviewRejectionReason.DoesNotMeetPolicy, Key(), budget.Token);
+        try
+        {
+            await WaitForApplicationLockAsync(application, rejecting, budget.Token);
+            _time.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromTicks(10));
+            await held.CommitAsync(budget.Token);
+            released = true;
+            Assert.IsType<PhotoReviewRejectionResult.Forbidden>(await rejecting.WaitAsync(budget.Token));
+            await AssertUnchangedAsync(item);
+            await using var proof = Context();
+            await using var transaction = await proof.Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, Ct);
+            Assert.True(await new PhotoReviewAccess(proof, _time).AuthorizeAsync(reviewer, PhotoReviewCapability.Evidence, Ct));
+            Assert.False(await new PhotoReviewAccess(proof, _time).AuthorizeAsync(reviewer, PhotoReviewCapability.Decide, Ct));
+        }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            if (!released)
+            {
+                await held.RollbackAsync(cleanup.Token);
+            }
+            await budget.CancelAsync();
+            try
+            {
+                await rejecting.WaitAsync(cleanup.Token);
+            }
+            catch (OperationCanceledException) when (rejecting.IsCompleted)
+            {
+            }
+        }
+    }
+
+    private async Task WaitForApplicationLockAsync(string application, Task operation, CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            await using var command = new NpgsqlCommand("select exists(select 1 from pg_stat_activity where application_name=$1 and wait_event_type='Lock')", connection);
+            command.Parameters.AddWithValue(application);
+            if (await command.ExecuteScalarAsync(cancellationToken) is true)
+            {
+                return;
+            }
+            Assert.False(operation.IsCompleted, "The decision must actually wait for the held guard or case row.");
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        }
+        Assert.Fail("The decision did not enter a real PostgreSQL lock wait.");
+    }
+
     private Task<PhotoReviewRejectionResult> RejectAsync(PhotoReviewActor actor, Guid caseId, long version,
         IdempotencyKey key, IObjectStore? store = null) => new PhotoReviewRejections(Factory(), store ?? new FileSystemObjectStore(_root.FullName), _time)
         .RejectAsync(actor, caseId, version, PhotoReviewRejectionReason.DoesNotMeetPolicy, key, Ct);
 
     private async Task AssertUnchangedAsync(CaseData item)
     {
+        await AssertNoDecisionAsync(item);
+        Assert.Equal(1, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='AwaitingReview' and version=3", item.UploadId));
+        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_cases where id=$1 and version=2", item.CaseId));
+    }
+
+    private async Task AssertNoDecisionAsync(CaseData item)
+    {
         Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1", item.CaseId));
         Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_decision_commands where case_id=$1", item.CaseId));
         Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where target_type='photo_review_decision'"));
-        Assert.Equal(1, await ScalarAsync("select count(*) from media.uploads where id=$1 and state='AwaitingReview' and version=3", item.UploadId));
-        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_cases where id=$1 and version=2", item.CaseId));
     }
 
     private string[] Files() => [.. Directory.GetFiles(_root.FullName, "*", SearchOption.AllDirectories)
@@ -559,6 +696,49 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
                 throw new IOException("Synthetic decision write refusal");
             }
             return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class RefuseDecisionCommit(string connectionString, Guid caseId, bool afterCommit) : DbTransactionInterceptor
+    {
+        internal bool Fired { get; private set; }
+        public override async ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction,
+            TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
+        {
+            if (!afterCommit && !Fired && await HasDecisionAuditAsync(
+                Assert.IsType<NpgsqlConnection>(transaction.Connection), Assert.IsType<NpgsqlTransaction>(transaction), cancellationToken))
+            {
+                Fired = true;
+                throw new IOException("Synthetic failure before decision commit");
+            }
+            return result;
+        }
+
+        public override async Task TransactionCommittedAsync(DbTransaction transaction,
+            TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+        {
+            if (!afterCommit || Fired)
+            {
+                return;
+            }
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            if (await HasDecisionAuditAsync(connection, null, cancellationToken))
+            {
+                Fired = true;
+                throw new IOException("Synthetic lost response after decision commit");
+            }
+        }
+
+        private async Task<bool> HasDecisionAuditAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
+        {
+            await using var command = new NpgsqlCommand("""
+                select exists(select 1 from safety.photo_review_decisions d join ops.audit_events e
+                  on e.target_id=d.id and e.target_type='photo_review_decision'
+                  where d.case_id=$1 and e.action='safety.photo_review_rejected')
+                """, connection, transaction);
+            command.Parameters.AddWithValue(caseId);
+            return await command.ExecuteScalarAsync(cancellationToken) is true;
         }
     }
 }

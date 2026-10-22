@@ -35,3 +35,6 @@ review_original_cleanup encontrou um P2: ambiguidade entre retenção de bytes7d
 
 ## Estado dos testes
 Primeiro recorte local com testes e seam fail-closed. Sem produto, migrações, rotas, registro DI ou flags. A CI deve provar RED comportamental próprio; erro de build/format/fixture não conta. Provas adicionais de COMMIT ambíguo, espera real de guarda e rejeição concorrente com exclusão serão exigidas antes de produto. Todos os checks no SHA/base finais e liberação da fila são obrigatórios antes de merge.
+
+## Prova comportamental inicial e reforços
+RED e34f58e: CI39835489088/backend120022573063, build/formatPASS,3340total/21falhas exclusivamente novas/3319pass (3315baseline+4negativos),0skip. Ainda sem produto. Acrescentados testes antes de implementar: falha antes/apósCOMMIT (pós confirmado por outra conexão), TOTP vencendo em espera real observada de ownerGuard/root mantendo Evidence vivo, exclusão e reatribuição durante I/O sem bloquear SQL nem sobrescrever concorrente. Revisão desses deltas sem P1/P2; CI própria pendente.
