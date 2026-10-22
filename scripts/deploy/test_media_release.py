@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "media"))
 from launcher import Profile
@@ -46,7 +47,7 @@ class MediaReleaseTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.bundle = Path(self.temporary.name) / "release"
         self.bundle.mkdir()
-        self.profile = {"schema": 1, "image": IMAGE, "runtime_socket": "/run/user/1002/docker.sock",
+        self.profile: dict[str, Any] = {"schema": 1, "image": IMAGE, "runtime_socket": "/run/user/1002/docker.sock",
                         "control_socket": "/run/duora-media/socket", "journal_directory": "/var/lib/duora-media",
                         "worker_uid": 1654, "control_gid": 1654}
         for name in ["launcher.py", "docker_runtime.py", "run_launcher.py"]:
@@ -56,7 +57,7 @@ class MediaReleaseTests(unittest.TestCase):
         write_json(self.bundle / "profile.json", self.profile)
         write_json(self.bundle / "sbom.cdx.json", {"bomFormat": "CycloneDX", "specVersion": "1.6",
                                                   "version": 1, "components": []})
-        self.proof = {
+        self.proof: dict[str, Any] = {
             "architecture": "x86_64", "candidateOnly": True, "complete": True,
             "cases": [{"name": name, "passed": True, "milliseconds": 1.0} for name in CASE_NAMES],
             "images": {"sanitizer": CONFIG, "isolation-probe": "sha256:" + "d" * 64},
@@ -67,7 +68,7 @@ class MediaReleaseTests(unittest.TestCase):
             "sanitizerResponseBytes": 2048, "sanitizerResponseHash": "e" * 64,
         }
         write_json(self.bundle / "isolation.json", self.proof)
-        self.manifest = {
+        self.manifest: dict[str, Any] = {
             "schema": 1, "scope": "synthetic-candidate", "commit": COMMIT, "architecture": "amd64",
             "image": IMAGE, "imageConfig": CONFIG, "launcherVersion": "s2-control-v1",
             "protocol": {"control": 1, "stream": 1}, "launcherUid": 1002,
