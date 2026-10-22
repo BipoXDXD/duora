@@ -88,3 +88,18 @@ detalha os gates. A sequência restante é:
 
 Este PR verifica documentação, referências e ausência de alterações executáveis; testes pesados somente no CI.
 Não demonstra precisão, acesso real, prontidão operacional ou aceite de qualquer gate.
+
+
+## Adendo de 22/10/2026 — adaptação técnica inativa
+
+O responsável autorizou adaptar downloader, manifesto, validador e leitor no
+[PR #183](https://github.com/BipoXDXD/duora/pull/183). A preparação usa produto `ipinfo_lite.mmdb`,
+origem Lite fixa e schema lógico `ipinfo-lite-country-v1`, sem homologar o `DatabaseType` real.
+A identidade completa é explícita; JSON incompleto ou produto/schema/fonte antigos não são reinterpretados.
+O leitor projeta apenas `country_code`, com validação conservadora pelo BCL e sem fallback por nome.
+Os demais campos documentados são opcionais e não viram atributos de participantes ou logs de consultas.
+
+A [matriz de testes](../../testing/regional-matching.md#adaptação-inativa-ipinfo-lite--adr-0037) cobre a troca
+com MMDBs sintéticos e o fluxo existente de atualização/recuperação. A preparação do contrato não constitui
+aceite de G2 ou autorização operacional. Detector, atualizador e monitor continuam desativados; sem corte V3,
+EUA, download/base real, credenciais ou alertas reais. A #108 permanece aberta.

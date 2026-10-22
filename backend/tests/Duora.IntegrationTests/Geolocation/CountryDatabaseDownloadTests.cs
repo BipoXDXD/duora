@@ -11,6 +11,21 @@ public sealed class CountryDatabaseDownloadTests
     private static readonly DateTimeOffset Now = new(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task InitialRequestUsesLiteOriginWithoutQueryCredentials()
+    {
+        using var h = new Harness();
+        using var downloader = h.Downloader((request, _) =>
+        {
+            Assert.Equal("https://ipinfo.io/data/ipinfo_lite.mmdb", request.RequestUri!.AbsoluteUri);
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            Assert.Equal("synthetic-token", request.Headers.Authorization?.Parameter);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([1, 2, 3]) });
+        });
+        await downloader.DownloadAsync(h.Path, Ct);
+        Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(h.Path, Ct));
+    }
+
+    [Fact]
     public async Task RedirectRequiresAllowlistAndNeverForwardsAuthorization()
     {
         using var h = new Harness();
