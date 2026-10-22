@@ -8,7 +8,7 @@
 - Commit de testes `3222851`: build remoto passou; formatação recusou dois blocos condicionais antes da execução
   dos testes. Corrigidos sem alterar gates ou workflows; não conta como RED funcional.
 - Commit de testes `2bb7d5301c280d95f8ae8a8c096a9bdac673c430`:
-  [CI RED](https://github.com/BipoXDXD/duora/actions/runs/39734850625), comando
+  [backend RED](https://github.com/BipoXDXD/duora/actions/runs/39734850625/job/119678344273), comando
   `dotnet test --solution backend/Duora.slnx --no-build`: **3.062 testes, 3.057 passaram, 5 falharam, zero ignorados**.
   Compilação/formatação passaram; as cinco falhas correspondem às regressões esperadas antes do código produtivo:
   `InitialRequestUsesLiteOriginWithoutQueryCredentials`,
@@ -17,7 +17,11 @@
   `LegacyRecordsAreRejectedEvenWithAnApprovedLiteDatabaseType` e
   `LiteManifestIdentityIsExplicitAndLegacyManifestCannotBeReused`.
 - Verificação local leve: `git diff --check`. Nenhum restore/build/.NET test, Docker ou suíte pesada no Mac.
-- Resultado do head de implementação: **pendente de CI**; resultados anteriores não o certificam.
+- Commit de implementação `a6ef3a7`: build remoto passou; formatação apontou duas quebras de linha no
+  inicializador do manifesto legado em `CountryDatabaseUpdateTests`. Corrigidas sem alterar lógica ou gates.
+- **Resultados finais:** consultar os [checks do PR #183](https://github.com/BipoXDXD/duora/pull/183/checks)
+  e o registro final do head exato no PR. Este arquivo registra o ciclo inicial; não antecipa resultado
+  de uma execução ainda em andamento nem transfere evidência entre commits.
 
 ## Contrato preparado e limites
 

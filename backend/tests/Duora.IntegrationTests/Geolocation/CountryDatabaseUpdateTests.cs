@@ -47,7 +47,9 @@ public sealed class CountryDatabaseUpdateTests(PostgresFixture postgres)
         var lease = Assert.IsType<CountryDatabaseUpdateLease>(await h.Store.ClaimAsync(Ct));
         var legacy = Manifest('b', Now) with
         {
-            Product = "country.mmdb", Schema = "ipinfo-country-v1", Source = "https://ipinfo.io/data/free/country.mmdb",
+            Product = "country.mmdb",
+            Schema = "ipinfo-country-v1",
+            Source = "https://ipinfo.io/data/free/country.mmdb",
         };
         Assert.Equal(CountryDatabasePromotion.InvalidManifest, await h.Store.PromoteAsync(lease, legacy, legacy.Sha256, Ct));
         Assert.Null(await h.Store.RecordCandidateAsync(lease, legacy, Ct));
