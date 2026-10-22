@@ -21,7 +21,7 @@ public static class SanitizerProtocol
         Require(header.AsSpan(0, 4).SequenceEqual("DMRQ"u8) && header[4] == 1);
         var format = ReadFormat(header[21]);
         var length = ReadInt(header, 22);
-        Require(length is > 0 and <= PhotoLimits.MaxBytes);
+        Require(length > 0 && length <= PhotoLimits.MaxBytes);
         var budget = new ProtocolBudget(ReadInt(header, 58), ReadInt(header, 62), ReadInt(header, 66), ReadInt(header, 70));
         ValidateBudget(budget);
         var content = new byte[length];
@@ -161,7 +161,8 @@ public static class SanitizerProtocol
     private static void ValidateRequest(SanitizerRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        Require(request.Nonce is { Length: 16 } && request.Content is { Length: > 0 and <= PhotoLimits.MaxBytes });
+        Require(request.Nonce is { Length: 16 } && request.Content is { Length: > 0 }
+            && request.Content.LongLength <= PhotoLimits.MaxBytes);
         _ = WriteFormat(request.Format);
         ValidateBudget(request.Budget);
     }
