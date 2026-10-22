@@ -63,6 +63,8 @@ internal static class AppRoleTableAccess
             ["media.media_variants"] = AppTableAccess.ReadWrite,
             // Intenção durável: criar, tomar/reagendar por lease e remover somente após DELETE confirmado.
             ["media.original_cleanup"] = AppTableAccess.ReadWrite,
+            ["media.review_candidate_variants"] = AppTableAccess.ReadWrite,
+            ["media.review_candidates"] = AppTableAccess.ReadWrite,
             ["media.upload_guards"] = AppTableAccess.ReadWrite,
             ["media.uploads"] = AppTableAccess.ReadWrite,
 

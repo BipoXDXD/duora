@@ -27,6 +27,8 @@ internal sealed record AuditAction
 {
     public static readonly AuditAction SafetyBlockCreated = new("safety.block_created");
 
+    public static readonly AuditAction PhotoReviewRequested = new("safety.photo_review_requested");
+
     public static readonly AuditAction MfaEnrollmentStarted = new("identity.mfa_enrollment_started");
 
     public static readonly AuditAction MfaEnabled = new("identity.mfa_enabled");
@@ -132,6 +134,8 @@ internal static class AuditTargetTypes
     public const string AgeVerification = "age_verification";
 
     public const string LoginSession = "login_session";
+
+    public const string PhotoReviewCase = "photo_review_case";
 }
 
 /// <summary>
