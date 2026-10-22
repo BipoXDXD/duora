@@ -135,6 +135,9 @@ class Proof:
     def exchange(self, job, content=b"", *, operation=1, **kwargs):
         wire=self.wire(job,content,**kwargs) if operation==1 else b""
         result=self.raw_client(b"DMLC\x01"+bytes([operation])+bytes.fromhex(job)+wire)
+        return self.response(job, result)
+
+    def response(self, job, result):
         assert len(result)>=54 and result[:5]==b"DMLR\x01" and result[6:22]==bytes.fromhex(job)
         digest=hashlib.sha256(json.dumps({"policy":"s2-candidate-v1",**{k:v for k,v in self.profile.items() if k!="schema"}},sort_keys=True).encode()).digest()
         assert result[22:54]==digest
@@ -158,14 +161,62 @@ class Proof:
         assert code==4 and not output,(mode,code,len(output))
         self.assert_empty()
 
-    def async_sleep(self, mode=b"sleep"):
+    def finish_deadline_proof(self, job, code, output):
+        assert code in (4, 8) and not output, ("deadline", code, len(output))
+        if code == 4:
+            self.assert_empty()
+            return
+        # Blocked is not confirmed cleanup: prove admission refusal and durable
+        # fencing, then restart the real launcher and prove recovery and dedupe.
+        assert self.exchange(job, operation=2) == (8, b"")
+        refused = os.urandom(16).hex()
+        assert self.exchange(refused, b"sleep") == (8, b"")
+        path = self.state / "journal.json"
+        assert path.stat().st_size <= 2 * 1024 * 1024
+        records = json.loads(path.read_text())
+        assert any(row["id"] == job for row in records)
+        assert not any(row["id"] == refused for row in records)
+        self.stop()
+        self.start(self.images["isolation-probe"])
+        self.assert_empty()
+        assert self.exchange(job, operation=2) == (7, b"")
+        assert self.exchange(job, b"sleep") == (2, b"")
+        self.assert_empty()
+
+    def deadline_fault(self, mode, *, deadline=1500):
+        job = os.urandom(16).hex()
+        code, output = self.exchange(job, mode.encode(), deadline=deadline)
+        self.finish_deadline_proof(job, code, output)
+
+    def hard_deadline(self):
+        self.deadline_fault("sleep")
+        # Exercise blocked recovery deterministically on our one disposable
+        # CI daemon, rather than waiting for scheduler pressure to select it.
+        job, client = self.async_sleep(deadline=5000)
+        pids = subprocess.check_output(["pgrep", "-u", str(self.args.launcher_uid), "-x", "dockerd"], text=True).split()
+        assert len(pids) == 1 and pids[0].isdecimal()
+        pid = int(pids[0])
+        try:
+            os.kill(pid, signal.SIGSTOP)
+            result, _ = client.communicate(timeout=15)
+            assert client.returncode == 0
+        finally:
+            os.kill(pid, signal.SIGCONT)
+            if client.poll() is None:
+                os.killpg(client.pid, signal.SIGKILL)
+                client.wait(timeout=5)
+        code, output = self.response(job, result)
+        assert code == 8 and not output
+        self.finish_deadline_proof(job, code, output)
+
+    def async_sleep(self, mode=b"sleep", *, deadline=50000):
         job=os.urandom(16).hex()
-        wire=b"DMLC\x01\x01"+bytes.fromhex(job)+self.wire(job,mode)
+        wire=b"DMLC\x01\x01"+bytes.fromhex(job)+self.wire(job,mode,deadline=deadline)
         client=subprocess.Popen(["runuser","-u",self.worker,"--","python3","-c",CLIENT,self.profile["control_socket"]],
-            stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+            stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
         client.stdin.write(wire);client.stdin.close();client.stdin=None
-        deadline=time.monotonic()+8
-        while time.monotonic()<deadline:
+        startup_deadline=time.monotonic()+8
+        while time.monotonic()<startup_deadline:
             ids=self.docker("ps","--filter","name=^/duora-media-"+job+"$","--quiet").strip()
             if ids:return job,client
             if client.poll() is not None:raise AssertionError("fault-candidate-never-started")
@@ -246,8 +297,8 @@ class Proof:
         self.case("unauthorized-kernel-peer-rejected-before-header",peer)
         for mode in ["stdout","stderr","crash"]:
             self.case(mode+"-withholds-all-bytes",lambda mode=mode:self.fault(mode,total=4096))
-        self.case("hard-deadline-withholds-bytes",lambda:self.fault("sleep",deadline=1500))
-        self.case("descendants-terminated-at-deadline",lambda:self.fault("children",deadline=4000))
+        self.case("hard-deadline-withholds-bytes",self.hard_deadline)
+        self.case("descendants-terminated-at-deadline",lambda:self.deadline_fault("children",deadline=4000))
         def oom():
             since=str(int(time.time())-1)
             self.fault("oom",deadline=15000)

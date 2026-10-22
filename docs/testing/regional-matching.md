@@ -150,3 +150,17 @@ Fixtures são produzidas pelo próprio teste, em redes reservadas; os códigos U
 Dados adicionais existem no artefato bruto sob retenção privada, mas não no resultado/manifesto por consulta.
 Nenhum token, IP de participante, requisição à IPinfo ou notificador real é usado. Testes pesados somente no
 CI. G2 e G3/G4/G5 continuam pendentes de evidências/aprovações próprias; a #108 permanece aberta.
+
+## Preparação do ensaio G2 Lite no CI — PR #188
+
+O [runbook G2](../operations/ipinfo-g2-ci.md) descreve workflow dedicado e autorizações pendentes.
+`g2-synthetic` executa guardas offline do ambiente/CI e um harness JIT sem fornecedor: perfil ausente/inválido,
+bytes/redes limitados, inventário sem aceite, tipo/hash revisados, projeção sanitizada, schema legado recusado
+pelo mesmo validador e limpeza da base temporária no sucesso/falha. Fonte de MMDB exclusivamente sintética.
+O projeto da ferramenta tem restore travado, build com analisadores e formatação próprios no runner.
+
+Os nove checks existentes continuam íntegros e obrigatórios. O job real é manual/main, passa pela revisão do
+ambiente exclusivo e só usa token no passo do ensaio. Não existe segredo em PR/preflight, base real em artifact,
+promoção/ponteiro, registro nos hosts ou alerta externo. Inventário não aprova `DatabaseType`; validação exige
+hash/tipo revisados. Precisão, cadência, relógios, capacidade alvo e aceite do primeiro snapshot continuam G2
+pendentes, assim como G3/G4/G5. A #108 fica aberta; detector/atualizador/monitor e V3 inativos, sem EUA.

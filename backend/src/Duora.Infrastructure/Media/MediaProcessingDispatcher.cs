@@ -292,13 +292,19 @@ public sealed partial class MediaProcessingDispatcher
     private async Task<Settlement> RejectAsync(Upload upload, long version, PhotoRejection reason, CancellationToken cancellationToken)
     {
         var code = PhotoRejections.Code(reason);
-        if (!await MoveAsync(upload.Id, version, UploadState.Rejected, code, cancellationToken))
+        await using (var transaction = await _db.Database.BeginTransactionAsync(cancellationToken))
         {
-            return Settlement.LeaseLost;
+            if (!await MoveAsync(upload.Id, version, UploadState.Rejected, code, cancellationToken))
+            {
+                return Settlement.LeaseLost;
+            }
+
+            await OriginalCleanupQueue.EnqueueAsync(_db, upload.Id, _time.GetUtcNow(), cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
 
         LogRejected(_logger, upload.Id, code);
-        await DeleteQuietlyAsync(ObjectKey.Parse(upload.QuarantineKey), upload.Id);
+        await DeleteOriginalQuietlyAsync(upload);
         return Settlement.Delivered;
     }
 
@@ -334,12 +340,6 @@ public sealed partial class MediaProcessingDispatcher
         }
 
         var now = _time.GetUtcNow();
-        await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        if (!await MoveAsync(upload.Id, version, verdict, rejection: null, cancellationToken))
-        {
-            return Settlement.LeaseLost;
-        }
-
         var asset = MediaAsset.Approve(
             upload.Id,
             upload.OwnerId,
@@ -348,25 +348,35 @@ public sealed partial class MediaProcessingDispatcher
             sanitized.Height,
             fingerprint.Sha256.Span,
             now);
-        _db.Add(asset);
-        foreach (var variant in sanitized.Variants)
+        await using (var transaction = await _db.Database.BeginTransactionAsync(cancellationToken))
         {
-            _db.Add(MediaVariant.Create(
-                asset.Id,
-                variant.Kind,
-                ObjectKey.ForDerivative(ObjectKey.Parse(upload.QuarantineKey), variant.Kind),
-                variant.Width,
-                variant.Height,
-                variant.Content.Length,
-                now));
+            if (!await MoveAsync(upload.Id, version, verdict, rejection: null, cancellationToken))
+            {
+                return Settlement.LeaseLost;
+            }
+
+            _db.Add(asset);
+            foreach (var variant in sanitized.Variants)
+            {
+                _db.Add(MediaVariant.Create(
+                    asset.Id,
+                    variant.Kind,
+                    ObjectKey.ForDerivative(ObjectKey.Parse(upload.QuarantineKey), variant.Kind),
+                    variant.Width,
+                    variant.Height,
+                    variant.Content.Length,
+                    now));
+            }
+
+            await _db.SaveChangesAsync(cancellationToken);
+            await OriginalCleanupQueue.EnqueueAsync(_db, upload.Id, _time.GetUtcNow(), cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
         LogApproved(_logger, upload.Id, asset.Id);
 
         // O original só existe até aqui (spec 12.4): o asset nasce sem original_key.
-        await DeleteQuietlyAsync(ObjectKey.Parse(upload.QuarantineKey), upload.Id);
+        await DeleteOriginalQuietlyAsync(upload);
         return Settlement.Delivered;
     }
 
@@ -483,7 +493,23 @@ public sealed partial class MediaProcessingDispatcher
         }
     }
 
-    /// <summary>Melhor esforço: original que não sair fica para a limpeza de órfãos, com log (spec 16.2).</summary>
+    private async Task DeleteOriginalQuietlyAsync(Upload upload)
+    {
+        using var budget = new CancellationTokenSource(OriginalCleanupDispatcher.DeleteBudget);
+        var key = ObjectKey.Parse(upload.QuarantineKey);
+        try
+        {
+            await _store.DeleteAsync(key, budget.Token);
+            budget.Token.ThrowIfCancellationRequested();
+            await OriginalCleanupQueue.CompleteImmediateAsync(_db, upload.Id, key, budget.Token);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            LogOrphanLeft(_logger, upload.Id, exception.GetType().Name);
+        }
+    }
+
+    /// <summary>Derivados órfãos seguem o mecanismo legado; originais usam intenção durável própria.</summary>
     private async Task DeleteQuietlyAsync(ObjectKey key, Guid uploadId)
     {
         try
