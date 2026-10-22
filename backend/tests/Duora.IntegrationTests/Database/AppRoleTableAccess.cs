@@ -95,6 +95,7 @@ internal static class AppRoleTableAccess
             // safety (dono: Safety)
             ["safety.blocks"] = AppTableAccess.ReadWrite,
             ["safety.photo_review_cases"] = AppTableAccess.ReadWrite,
+            ["safety.photo_review_grants"] = AppTableAccess.AppendOnly,
             ["safety.user_guards"] = AppTableAccess.ReadWrite,
         };
 
