@@ -58,6 +58,10 @@ class Proof:
         self.control = self.root/"control"; self.control.mkdir(mode=0o750)
         self.state = self.root/"state"; self.state.mkdir(mode=0o700)
         os.chown(self.control,args.launcher_uid,group); os.chown(self.state,args.launcher_uid,group)
+        self.authority = Path("/var/lib/duora-media")
+        self.authority.mkdir(mode=0o700)
+        os.chown(self.authority,args.launcher_uid,group)
+        self.client_group = group
         self.profile = {"schema":1,"image":"", "runtime_socket":f"/run/user/{args.launcher_uid}/docker.sock",
             "control_socket":str(self.control/"socket"),"journal_directory":str(self.state),
             "worker_uid":args.worker_uid,"control_gid":group}
@@ -167,6 +171,43 @@ class Proof:
             time.sleep(0.1)
         raise AssertionError("fault-candidate-startup-timeout")
 
+    def systemd_template(self):
+        # Execute the supplied sandboxing template on the disposable runner only.
+        # /tmp is deliberately unavailable inside its PrivateTmp namespace.
+        code = Path("/opt/duora-s2-ci")
+        configuration = Path("/etc/duora-s2-ci.json")
+        unit = Path("/run/systemd/system/duora-media-s2-ci.service")
+        previous = dict(self.profile)
+        journal = self.authority/"service-journal"; journal.mkdir(mode=0o700)
+        os.chown(journal,self.args.launcher_uid,self.client_group)
+        shutil.copytree(self.code,code)
+        self.profile.update(control_socket="/run/duora-media/socket", journal_directory=str(journal))
+        configuration.write_text(json.dumps(self.profile)); configuration.chmod(0o644)
+        template=(REPO/"infra/media/systemd/duora-media-launcher.service").read_text()
+        template=template.replace("User=duora-media-launcher", "User="+self.user)
+        template=template.replace("Group=duora-media-client", "Group=duora-media-ci-client")
+        template=template.replace("/opt/duora/media/run_launcher.py /etc/duora/media-launcher.json",
+                                  str(code/"run_launcher.py")+" "+str(configuration))
+        unit.write_text(template)
+        try:
+            checked(["systemctl","daemon-reload"])
+            checked(["systemctl","start",unit.name])
+            deadline=time.monotonic()+30
+            while time.monotonic()<deadline:
+                try:
+                    if self.exchange(os.urandom(16).hex(),operation=2)==(5,b""): break
+                except subprocess.CalledProcessError: pass
+                time.sleep(0.1)
+            else: raise AssertionError("restricted-systemd-template-not-ready")
+            outcome,result=self.exchange(os.urandom(16).hex(),self.synthetic_png,format=2)
+            assert outcome==0 and result[:5]==b"DMRS\x01"
+            self.assert_empty()
+        finally:
+            checked(["systemctl","stop",unit.name])
+            unit.unlink(missing_ok=True); checked(["systemctl","daemon-reload"])
+            configuration.unlink(missing_ok=True); shutil.rmtree(code,ignore_errors=True)
+            self.profile=previous
+
     def run(self):
         self.build();self.start(self.images["isolation-probe"])
         def inspect():
@@ -223,12 +264,15 @@ class Proof:
         def corpus():
             def chunk(name,data):return struct.pack(">I",len(data))+name+data+struct.pack(">I",zlib.crc32(name+data))
             png=b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",2,2,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(b"\x00\xff\x00\x00\x00\xff\x00"*2))+chunk(b"IEND",b"")
+            self.synthetic_png=png
             job=os.urandom(16).hex();code,payload=self.exchange(job,png,format=2)
             assert code==0 and payload[:5]==b"DMRS\x01" and payload[5:21]==bytes.fromhex(job) and payload[53]==1
             self.report["sanitizerResponseBytes"]=len(payload)
             self.report["sanitizerResponseHash"]=hashlib.sha256(payload).hexdigest()
             self.assert_empty()
         self.case("actual-unmodified-dotnet-sanitizer-produces-three-variants",corpus)
+        self.stop()
+        self.case("supplied-restricted-systemd-template-starts-and-runs-sanitizer",self.systemd_template)
         self.report["complete"]=True
 
     def dispose(self):

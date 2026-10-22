@@ -38,10 +38,14 @@ def private_directory(path: Path) -> None:
 
 
 def acquire_runtime_lock(runtime_socket: str) -> int:
-    directory = Path(runtime_socket).parent
-    private_directory(directory)
-    require(directory.resolve() == directory)
-    descriptor = os.open(directory / "duora-media-launcher.lock",
+    runtime = Path(runtime_socket).parent
+    private_directory(runtime)
+    require(runtime.resolve() == runtime)
+    # A fixed authority directory spans profiles and is writable under the
+    # template's StateDirectory exception to ProtectSystem=strict.
+    private_directory(AUTHORITY_DIRECTORY)
+    require(AUTHORITY_DIRECTORY.resolve() == AUTHORITY_DIRECTORY)
+    descriptor = os.open(AUTHORITY_DIRECTORY / "duora-media-launcher.lock",
                          os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
         info = os.fstat(descriptor)
@@ -118,6 +122,19 @@ class Journal:
         self.digest = digest
         self.path = directory / "journal.json"
         self.records: dict[str, dict] = {}
+        removed = False
+        for temporary in directory.glob("journal-*.tmp"):
+            if re.fullmatch(r"journal-[0-9a-f]{32}\.tmp", temporary.name) is None:
+                continue
+            info = temporary.lstat()
+            require(stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
+                    and info.st_mode & 0o077 == 0 and info.st_nlink == 1 and info.st_size <= 2*1024*1024)
+            temporary.unlink()
+            removed = True
+        if removed:
+            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try: os.fsync(descriptor)
+            finally: os.close(descriptor)
         if self.path.exists() or self.path.is_symlink():
             info = self.path.lstat()
             require(stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid() and info.st_mode & 0o077 == 0)
@@ -234,9 +251,9 @@ class Supervisor:
                     self.blocked = True
                     state = "blocked"
                 self.current = None
-            if state == "finished":
+            if state == "finished" and time.monotonic() < deadline:
                 return Outcome("exited", payload)
-            return Outcome(state)
+            return Outcome("failed" if state == "finished" else state)
 
     def cancel(self, job_id):
         if self.current and self.current[0] == job_id:
@@ -302,6 +319,7 @@ class ControlServer:
             if uid != self.profile.worker_uid or self.clients > 8:
                 return
             began = time.monotonic()
+            response_deadline = None
             async with asyncio.timeout(50):
                 header = await reader.readexactly(22)
                 require(header[:5] == b"DMLC\x01" and header[5] in (1, 2, 3))
@@ -314,7 +332,8 @@ class ControlServer:
                         outcome = Outcome("busy")
                     else:
                         wire, budget = await read_start(reader)
-                        remaining = budget[3] - int((time.monotonic()-began)*1000)
+                        response_deadline = began + budget[3]/1000
+                        remaining = math.floor((response_deadline-time.monotonic())*1000)
                         require(remaining > 0)
                         outcome = await self.supervisor.run(job_id, wire, (*budget[:3],remaining))
                 else:
@@ -322,6 +341,8 @@ class ControlServer:
                     if header[5] == 3:
                         self.supervisor.cancel(job_id)
                     outcome = Outcome(self.supervisor.status(job_id))
+                if outcome.code == "exited" and (response_deadline is None or time.monotonic() >= response_deadline):
+                    outcome = Outcome("failed")
                 writer.write(b"DMLR\x01" + bytes([CONTROL_CODES[outcome.code]]) + bytes.fromhex(job_id)
                              + bytes.fromhex(self.profile.digest) + outcome.payload)
                 await writer.drain()
