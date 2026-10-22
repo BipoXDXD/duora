@@ -33,6 +33,19 @@ public sealed class IpinfoLiteContractTests
         Assert.DoesNotContain("synthetic.example.invalid", JsonSerializer.Serialize(h.Active.Lookup(IPAddress.Parse("192.0.2.1"))), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("EH")]
+    [InlineData("XK")]
+    public void VendorTerritoriesDoNotDependOnAnInstalledRegionalCulture(string code)
+    {
+        using var h = new Harness();
+        var bytes = SyntheticMmdb.CreateLite(Now.AddHours(-1), configure: map => map["country_code"] = code);
+        var manifest = h.Validator.Validate(bytes, Now, Ct);
+        h.Save(manifest, bytes);
+        Assert.True(h.Active.TryReplace(manifest, Ct));
+        Assert.Equal(new(CountryLookupStatus.Detected, code), h.Active.Lookup(IPAddress.Parse("192.0.2.1")));
+    }
+
     [Fact]
     public void CountryCodeAloneIsSufficientWithoutEnrichmentFields()
     {
