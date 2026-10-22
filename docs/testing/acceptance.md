@@ -111,3 +111,12 @@ As linhas históricas T-01 a T-28 não são reclassificadas por esta entrega. Pa
 concretos de domínio, PostgreSQL, HTTP, frontend/E2E e operação. O
 [relatório de homologação](reports/2026-10-22-regional-homologation.md) separa execução remota, limites de volume,
 gates técnicos e aceite operacional. Testes sintéticos não aprovam ativação nem encerram #108.
+
+
+## Contrato editorial M0 e baseline S0 — #173/#174
+
+A [matriz do contrato](../api/media-review.md#matriz-de-aceite-futuro) relaciona estados/replay, autorização,
+transações e exclusão/restore a INV-03/05/06/08/10/11 e T-01/03/05/06/08/10/13/16/26. São provas exigidas
+das próximas entregas, não aceite de runtime novo. O ensaio SanitizerResourceEnvelopeTests caracteriza
+a implementação atual em processos novos, com corpus sintético, resultados repetidos, bytes/hashes, tempo
+e RSS. Não impõe limites candidatos nem comprova sandbox, segurança da futura autoridade ou capacidade86.

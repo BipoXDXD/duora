@@ -113,3 +113,13 @@ Release de servidor/worker deve preceder SPA. Retirar todos os escritores/consum
 qualquer corte V3. Pausa de novos pares, preservação de dados e correção para frente são o procedimento de
 reversão; nunca selecionar V2 irrestrito para contornar defeito regional. [Matriz](../testing/regional-matching.md#homologação-integrada--etapa-10)
 e [runbook](../operations/regional-matching.md#homologação-e-release--etapa-10).
+
+
+## Fronteira editorial consolidada — M0 / #173
+
+[Contrato](../api/media-review.md): Media possui upload/arquivos/publicação; Safety terá caso, atribuição,
+decisão e recurso próprios, sem inventar denúncia de participante. Serviço de aplicação coordena commit
+curto de estado/decisão/auditoria/outbox na unidade transacional existente. Nenhum I/O de storage, decoder
+ou espera humana sob locks; a ordem global acima permanece. Atribuição não concede leitura implícita,
+auditoria deve anteceder os bytes e recurso requer pessoa independente. Apenas contrato documental nesta
+etapa; persistência e capacidades administrativas permanecem para M1–M7.

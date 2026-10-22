@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\..\src\Duora.Infrastructure\Duora.Infrastructure.csproj" />
+    <ProjectReference Include="../Duora.MediaBaselineHost/Duora.MediaBaselineHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../Duora.SelfieProcessHost/Duora.SelfieProcessHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\Duora.Web\Duora.Web.csproj" />
     <!-- Alias: o Program interno do Worker colidiria com o Program do Web. -->
@@ -15,4 +16,12 @@
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
+  <!-- The SDK's dotnet test console suppresses successful test-host output. Record this synthetic
+       experiment directly on the hosted backend runner, then keep the full existing test gate unchanged.
+       Ordinary/local builds and every other CI job do not execute this target. -->
+  <Target Name="RecordSyntheticSanitizerBaseline" AfterTargets="Build"
+          Condition="'$(GITHUB_ACTIONS)' == 'true' and '$(GITHUB_JOB)' == 'backend'">
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; -class Duora.IntegrationTests.Media.SanitizerResourceEnvelopeTests -showLiveOutput -reporter verbose"
+          StandardOutputImportance="High" />
+  </Target>
 </Project>

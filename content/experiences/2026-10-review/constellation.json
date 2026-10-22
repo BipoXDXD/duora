@@ -68,7 +68,7 @@
           },
           {
             "optionId": "print",
-            "label": "Making a simple print"
+            "label": "Make a simple art print (an image printed on paper)."
           },
           {
             "optionId": "sky",
@@ -162,7 +162,7 @@
           },
           {
             "optionId": "print",
-            "label": "Fazer uma gravura simples"
+            "label": "Fazer uma gravura simples (uma imagem impressa no papel)."
           },
           {
             "optionId": "sky",
