@@ -98,6 +98,14 @@ como cliente sem acesso Docker, em grupo de recursos limitado. A instrumentaçã
 contém o decoder de baseline apenas para comparação sintética; não é imagem de
 produto, substituto do Worker ou parte do pacote fechado de oito arquivos.
 Sua presença não comprova ensaio, capacidade ou backup e não autoriza instalação.
+O artefato separado `media-host-probe-<arquitetura>-<attempt>` contém a imagem de
+falhas já construída, escaneada e exercitada na mesma prova nativa, para não
+reconstruí-la na VPS. Antes de qualquer pré-carga, conferir sua arquitetura e
+configID contra `images.isolation-probe` da evidência qualificada; carregar
+somente no runtime dedicado. É um probe adversarial de testes, não o sanitizador
+de produto. Não executar o harness de runner descartável no host de aplicação:
+os ensaios operacionais precisam restringir instalações, sinais e limpeza aos
+recursos exclusivos e preservar os serviços existentes.
 
 Referências técnicas: [BuildKit secrets](https://docs.docker.com/build/building/secrets/),
 [imagetools inspect](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/)

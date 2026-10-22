@@ -227,6 +227,15 @@ jobs:
             backend/tests/Duora.MediaBaselineHost/bin/Debug/net10.0/
           if-no-files-found: error
           retention-days: 90
+      - name: Export the already tested native fault probe
+        run: |
+          docker image save --output "$RUNNER_TEMP/media-host-probe.tar" duora-isolation-probe:s2-ci
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: media-host-probe-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/media-host-probe.tar
+          if-no-files-found: error
+          retention-days: 90
       - name: Assemble and verify pinned candidate bundle
         env:
           NATIVE_BUNDLE_DIR: ${{ runner.temp }}/media-native/bundle
