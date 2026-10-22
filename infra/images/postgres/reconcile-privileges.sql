@@ -80,3 +80,16 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Explicit photo review permissions retain append-only history, independently of moderator role membership.
+DO $$
+BEGIN
+  IF to_regclass('safety.photo_review_grants') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE, TRUNCATE ON safety.photo_review_grants FROM duora_app;
+    IF has_table_privilege('duora_app', 'safety.photo_review_grants', 'UPDATE')
+       OR has_table_privilege('duora_app', 'safety.photo_review_grants', 'DELETE')
+       OR has_table_privilege('duora_app', 'safety.photo_review_grants', 'TRUNCATE') THEN
+      RAISE EXCEPTION 'duora_app may not rewrite photo review permission history';
+    END IF;
+  END IF;
+END $$;
