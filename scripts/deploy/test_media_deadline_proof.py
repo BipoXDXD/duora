@@ -31,7 +31,7 @@ class DeadlineProofTests(unittest.TestCase):
 
     def verify(self, code: int = 8, payload: bytes = b""):
         method = getattr(Proof, "finish_deadline_proof", None)
-        self.assertIsNotNone(method, "Blocked deadline proof lacks mandatory recovery checks")
+        assert method is not None, "Blocked deadline proof lacks mandatory recovery checks"
         return method(self.proof, JOB, code, payload)
 
     def test_confirmed_failure_still_requires_no_remaining_container(self):
