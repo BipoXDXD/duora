@@ -28,6 +28,25 @@ public sealed class OwnProfileTests : IAsyncDisposable
 
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("US-MA")]
+    [InlineData("US-DC")]
+    public async Task UnitedStatesLocationKeepsLegacyProjectionNull(string? subdivision)
+    {
+        var (_, browser) = await SignedInAsync();
+        using var _ = browser;
+        var payload = new JsonObject { ["countryCode"] = "US", ["subdivisionCode"] = subdivision };
+        using var saved = await PatchAsync(browser, payload.ToJsonString(), "\"0\"");
+        Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var body = await ReadObjectAsync(saved);
+        Assert.Equal("US", (string?)body["countryCode"]);
+        Assert.Equal(subdivision, (string?)body["subdivisionCode"]);
+        Assert.Null(body["regionCode"]);
+        using var edited = await PatchAsync(browser, """{"bio":"Hello"}""", "\"1\"");
+        Assert.Equal("US", (string?)(await ReadObjectAsync(edited))["countryCode"]);
+    }
+
     [Fact]
     public async Task LegacyTextEditKeepsCountryOnlyAndExplicitNullClearsIt()
     {
@@ -70,7 +89,7 @@ public sealed class OwnProfileTests : IAsyncDisposable
     }
 
     [Theory]
-    [InlineData("{\"countryCode\":\"US\"}")]
+    [InlineData("{\"countryCode\":\"CA\"}")]
     [InlineData("{\"countryCode\":\"br\"}")]
     [InlineData("{\"countryCode\":\"\"}")]
     [InlineData("{\"countryCode\":null,\"subdivisionCode\":\"BR-SP\"}")]

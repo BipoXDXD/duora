@@ -8,6 +8,10 @@ As etapas 7, 8 e 9 da [issue #108](https://github.com/BipoXDXD/duora/issues/108)
 nos hosts. O leitor usa o fallback de reflexão no runtime JIT; NativeAOT/trimming não estão homologados. [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md) rege a arquitetura, com a troca de produto no ADR-0037 abaixo.
 Este documento não é autorização de operação. BR + 27 UFs continuam sendo o catálogo executável.
 
+O [ensaio G2 no CI](ipinfo-g2-ci.md), proposto no PR dedicado #188, especifica preflight sem segredos,
+inventário/validação manuais, ambiente protegido, acessos e aprovações. Não houve provisionamento ou download
+real nessa preparação; nenhum resultado do harness aceita G2 ou ativa serviços automaticamente.
+
 ## Direção vigente — IPinfo Lite (22/10/2026)
 
 O [ADR-0037](../architecture/adr/0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) substitui a escolha de produto

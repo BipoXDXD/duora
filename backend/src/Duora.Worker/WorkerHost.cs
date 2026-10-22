@@ -50,6 +50,7 @@ internal static class WorkerHost
         builder.Services.AddHostedService<TransactionalEmailService>();
         builder.Services.AddHostedService<SelfieVerificationProviderService>();
         builder.Services.AddHostedService<MediaProcessingService>();
+        builder.Services.AddHostedService<OriginalCleanupService>();
 
         return builder;
     }

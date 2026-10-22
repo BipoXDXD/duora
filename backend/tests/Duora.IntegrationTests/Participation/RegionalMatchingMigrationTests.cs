@@ -37,7 +37,7 @@ public sealed class RegionalMatchingMigrationTests(PostgresFixture postgres)
         Assert.Equal(oldRounds, await Snapshot(connection, "events.rounds", ct));
         Assert.Equal(oldPairs, await Snapshot(connection, "events.pairings", ct));
         await using (var countries = Command(connection, "select array_agg(code order by code) from profiles.countries"))
-        { Assert.Equal(["BR"], (string[])(await countries.ExecuteScalarAsync(ct))!); }
+        { Assert.Equal(["BR", "US"], (string[])(await countries.ExecuteScalarAsync(ct))!); }
         await Execute(connection, "update events.rounds set algorithm_version=3 where id=$1", ct, seed.Rounds[1]);
         var low = seed.Alice.CompareTo(seed.Bob) < 0 ? seed.Alice : seed.Bob;
         var high = low == seed.Alice ? seed.Bob : seed.Alice;

@@ -58,11 +58,14 @@ export const profileFormSchema = z
   .object({
     displayName: displayNameSchema,
     bio: bioSchema,
-    countryCode: z.enum(['', 'BR'], { error: () => 'profile.error.unknownRegion' satisfies ProfileErrorKey }),
+    countryCode: z.enum(['', 'BR', 'US'], { error: () => 'profile.error.unknownRegion' satisfies ProfileErrorKey }),
     subdivisionCode: regionSchema,
   })
   .superRefine((value, context) => {
-    if (value.countryCode === '' && value.subdivisionCode !== '') {
+    if (
+      value.subdivisionCode !== '' &&
+      (value.countryCode === '' || !value.subdivisionCode.startsWith(`${value.countryCode}-`))
+    ) {
       context.addIssue({
         code: 'custom',
         path: ['subdivisionCode'],

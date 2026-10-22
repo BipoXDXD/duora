@@ -30,8 +30,9 @@ IPinfo Lite `ipinfo_lite.mmdb`/CC BY-SA 4.0 como produto planejado. Não se prop
 O [ADR-0037](../../architecture/adr/0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) substitui a escolha anterior
 de `country.mmdb` pela distribuição Lite. Esta atualização documental prevalece nas tarefas futuras de G2;
 não muda os limites de autorização deste plano. O histórico das etapas 1–10 refere-se ao produto anterior.
-Downloader, manifesto, validador e leitor continuam com aquele contrato: requerem adaptação em PR próprio,
-com fixtures Lite e todos os checks obrigatórios, antes do ensaio real. Não basta renomear o arquivo.
+Downloader, manifesto, validador e leitor foram adaptados explicitamente no PR #183, integrado em
+`1453fd941a4eb886bf760ed693c212bf2062fb51`, com fixtures Lite e todos os checks obrigatórios verdes.
+Essa preparação inativa não homologou o arquivo real nem aprovou G2. Não basta renomear um arquivo legado.
 A aprovação da escolha Lite não constitui aceite de G2 nem autoriza download, credenciais ou ativação.
 
 ## Estado e limites desta elaboração
@@ -92,7 +93,7 @@ pode permanecer parada após o planejamento enquanto as restrições atuais esti
 ## Tarefa 1 — G2: homologar a distribuição e o perfil de validação
 
 **Consome:** IPinfo Lite/licenças aprovados; adaptação explícita do downloader/manifesto/validador/leitor,
-inativa e revisada, antes da execução real. O código atual ainda espera o produto anterior.
+inativa e integrada no PR #183 antes da execução real. A homologação do artefato real continua pendente.
 **Entrega:** relatório do artefato e perfil operacional aprovado; sem integração nos hosts.
 **Arquivos de referência:** `backend/src/Duora.Infrastructure/Geolocation/CountryDatabaseDownloader.cs`,
 `backend/src/Duora.Infrastructure/Geolocation/CountryDatabaseArtifactValidator.cs`,
@@ -101,8 +102,8 @@ inativa e revisada, antes da execução real. O código atual ainda espera o pro
 `backend/tests/Duora.IntegrationTests/Geolocation/CountryDatabaseDownloadTests.cs` e
 `backend/tests/Duora.IntegrationTests/Geolocation/CountryDatabasePipelineTests.cs`.
 
-- [ ] Adaptar e testar o contrato Lite com fixtures sintéticas em PR próprio ([PR #183](https://github.com/BipoXDXD/duora/pull/183),
-  preparação inativa; integração/aceite dependem de revisão e CI): origem
+- [x] Adaptar e testar o contrato Lite com fixtures sintéticas em PR próprio ([PR #183](https://github.com/BipoXDXD/duora/pull/183),
+  integrado após revisão e 9/9 checks verdes; sem aceite de G2): origem
   `https://ipinfo.io/data/ipinfo_lite.mmdb`, produto/fonte/schema versionados, leitura de `country_code` como ISO2
   e rejeição de código inválido/produto incorreto/schema desconhecido. `country` é nome, não código. Validar
   contrato IPv4/IPv6 e campos efetivos; o `DatabaseType` real ainda precisa ser medido e aprovado.
@@ -133,8 +134,14 @@ inativa e revisada, antes da execução real. O código atual ainda espera o pro
 **Pendências/aprovações:** acesso real, perfil/limites numéricos, janela/cadência e datas confiáveis,
 critério/amostras de precisão, recursos do ambiente, primeiro hash e aceite técnico pelo responsável.
 Escolha IPinfo Lite/MMDB, CC BY-SA 4.0 e MaxMind.Db já aprovadas; não confundir decisão de produto com
-homologação do schema/limites. A adaptação Lite e o primeiro snapshot continuam pendentes.
+homologação do schema/limites. O primeiro snapshot real e seu aceite continuam pendentes; a adaptação
+sintética foi integrada no #183.
 **Bloqueio:** sem relatório e aceite, não integrar dados reais ou operar download/detecção.
+
+**Preparação de CI proposta no PR #188:** o [runbook do ensaio G2](../../operations/ipinfo-g2-ci.md) detalha
+workflow manual, ambiente protegido, segredo exclusivo, perfil explícito e evidências sanitizadas. Preflight
+sintético não acessa a IPinfo; inventário/validação reais exigem autorização de execução e revisão do ambiente.
+Nenhum ambiente/segredo/download real foi provisionado ou executado nesta preparação; G2 continua pendente.
 
 ## Tarefa 2 — G3: comprovar capacidade operacional
 
