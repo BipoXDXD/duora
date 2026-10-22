@@ -464,7 +464,8 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         }
         finally
         {
-            await lease.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await lease.DisposeAsync().AsTask().WaitAsync(cleanup.Token);
         }
     }
 
