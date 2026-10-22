@@ -4,9 +4,9 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Duora.Core.Media;
 using Duora.MediaProtocol;
+using sanitizer::Duora.MediaSanitizer.Media;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using sanitizer::Duora.MediaSanitizer.Media;
 
 namespace Duora.IntegrationTests.Media;
 
