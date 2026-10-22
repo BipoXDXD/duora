@@ -137,7 +137,7 @@ rode os dois a partir de `backend/`, como nos comandos deste arquivo.
 | `Duora:PublicOrigin` | `https://localhost:5173` | Links dos e-mails e origem aceita no CSRF |
 | `DataProtection:KeysDirectory` (Web) | `../.local/dataprotection-keys` | Key ring; apagá-lo derruba as sessões abertas |
 | `Email:PickupDirectory` (Worker) | `../.local/mail` | Cada e-mail de conta vira um `.eml` com o link de confirmação ou de redefinição |
-| `Email:Transport` (Worker) | `Pickup` (padrão) | `Smtp` seleciona o envio externo; a seleção não muda o produtor da outbox |
+| `Email:Provider` (Worker) | `PickupDirectory` (padrão) | `Resend` e `Smtp` selecionam o envio externo; a seleção não muda o produtor da outbox |
 | `Media:Review` (Web e Worker) | `TechnicalOnly` | Liga o upload de fotos com aprovação só técnica (dados sintéticos; o boot a recusa em Production, ADR-0025) |
 | `Media:Storage:Provider` e `Media:Storage:FileSystemRoot` (Web e Worker) | `FileSystem`, `../.local/media` | Quarentena e derivados num diretório local, o mesmo nos dois processos; em Production, `FileSystem` num diretório absoluto já montado nos dois, no disco da VPS (adendo do ADR-0010); o adaptador `S3` existe, mas não é o de produção |
 
@@ -152,8 +152,8 @@ saem com o Worker rodando: o Web grava na outbox e o Worker entrega.
 
 ## Outbox de e-mail
 
-O transporte `Pickup` exige `Email:PickupDirectory` e continua sendo o padrão. Para um ensaio SMTP isolado,
-configure `Email:Transport=Smtp` e as chaves abaixo no Worker. Não há ativação SMTP no Compose de produção.
+O transporte `PickupDirectory` exige `Email:PickupDirectory` e continua sendo o padrão. Para um ensaio SMTP isolado,
+configure `Email:Provider=Smtp` e as chaves abaixo no Worker. Não há ativação SMTP no Compose de produção.
 
 | Chave | Regra |
 |---|---|
@@ -167,7 +167,7 @@ configure `Email:Transport=Smtp` e as chaves abaixo no Worker. Não há ativaç�
 Não coloque credenciais no repositório, na linha de comando, no chat ou nos comprovantes. Os certificados são
 validados normalmente. O cancelamento e `Outbox:SendTimeout` limitam conexão, autenticação e envio; os limites
 de lease continuam obrigatórios. A configuração SMTP dispensa o diretório pickup e falha na inicialização
-se estiver incompleta. Sem `Email:Transport=Smtp`, as chaves SMTP não ativam envio externo.
+se estiver incompleta. Sem `Email:Provider=Smtp`, as chaves SMTP não ativam envio externo.
 
 O `Message-ID` tem a forma `duora-<delivery-id-sem-hífens>@<domínio-do-remetente>` e permanece igual no retry.
 Ele permite correlação; SMTP não garante deduplicação quando o servidor aceita a mensagem e o worker perde
@@ -249,3 +249,5 @@ dotnet run --project src/Duora.Worker
 | `GET /health/live` | Processo responde. Não consulta dependências. |
 | `GET /health/ready` | Inclui o banco: 503 quando ele recusa a conexão ou não responde em 3 s. |
 | `GET /openapi/v1.json` | Documento OpenAPI, só em `Development`. |
+
+Transporte externo opt-in: [Resend e homologação descartável](../operations/resend.md). O desenvolvimento continua usando pickup por padrão.

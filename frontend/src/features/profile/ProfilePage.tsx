@@ -243,6 +243,7 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
           options={[
             { value: '', label: t('profile.regionNotInformed') },
             { value: 'BR', label: new Intl.DisplayNames([locale], { type: 'region' }).of('BR') ?? 'BR' },
+            { value: 'US', label: new Intl.DisplayNames([locale], { type: 'region' }).of('US') ?? 'US' },
           ]}
           error={errorText(form.formState.errors.countryCode?.message)}
           {...form.register('countryCode', {
@@ -254,7 +255,9 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
         <SelectField
           label={t('profile.region')}
           hint={t('profile.regionHint')}
-          options={countryCode === '' ? regionOptions.slice(0, 1) : regionOptions}
+          options={regionOptions.filter(
+            (option) => option.value === '' || (countryCode !== '' && option.value.startsWith(`${countryCode}-`)),
+          )}
           error={errorText(form.formState.errors.subdivisionCode?.message)}
           {...form.register('subdivisionCode')}
         />

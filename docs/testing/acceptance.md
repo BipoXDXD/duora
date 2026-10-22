@@ -120,3 +120,10 @@ transações e exclusão/restore a INV-03/05/06/08/10/11 e T-01/03/05/06/08/10/1
 das próximas entregas, não aceite de runtime novo. O ensaio SanitizerResourceEnvelopeTests caracteriza
 a implementação atual em processos novos, com corpus sintético, resultados repetidos, bytes/hashes, tempo
 e RSS. Não impõe limites candidatos nem comprova sandbox, segurança da futura autoridade ou capacidade86.
+
+## Transporte Resend — conta e recuperação
+
+`ResendEmailSenderTests` e `ResendEmailFlowTests` complementam INV-01/06/08/12: mensagens PT-BR/EN-US
+via HTTP local, confirmação/reset com o conteúdo capturado, concorrência, cancelamento/retomada, backoff,
+configuração inválida e falhas do provedor sem diagnóstico sensível. Ver [reprodução e limites](../operations/resend.md).
+MFA: `LoginPage.test.tsx` aguarda o foco efetivo sem enfraquecer a exigência de acessibilidade.

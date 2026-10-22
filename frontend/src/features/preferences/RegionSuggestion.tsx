@@ -11,7 +11,7 @@ import { fetchRegionDetectionCapability, suggestRegion } from './region-detectio
 export function RegionSuggestion({
   onCountry,
 }: {
-  readonly onCountry: (country: 'BR') => boolean
+  readonly onCountry: (country: 'BR' | 'US') => boolean
 }): React.JSX.Element | null {
   const { id } = useAccount()
   const { t } = useI18n()
@@ -41,7 +41,7 @@ function SuggestionControls({
   onCountry,
   onDisabled,
 }: {
-  readonly onCountry: (country: 'BR') => boolean
+  readonly onCountry: (country: 'BR' | 'US') => boolean
   readonly onDisabled: () => void
 }): React.JSX.Element {
   const { t } = useI18n()

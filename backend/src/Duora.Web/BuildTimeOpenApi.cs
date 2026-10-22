@@ -39,6 +39,7 @@ internal static class BuildTimeOpenApi
         configuration.AddInMemoryCollection(
         [
             new KeyValuePair<string, string?>("ConnectionStrings:Duora", PlaceholderConnectionString),
+            new KeyValuePair<string, string?>("CountryDatabase:DetectorEnabled", "false"),
             new KeyValuePair<string, string?>("Duora:PublicOrigin", "https://build-time-openapi.invalid"),
             new KeyValuePair<string, string?>(
                 "DataProtection:KeysDirectory",

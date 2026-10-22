@@ -2,7 +2,7 @@ using System.Net;
 
 namespace Duora.Infrastructure.Geolocation;
 
-// No MMDB reader, file access or remote service is registered in this delivery.
+// Country lookup stays local. Runtime registration is opt-in and never writes participant attributes.
 public interface ICountryLookup
 {
     bool Enabled { get; }

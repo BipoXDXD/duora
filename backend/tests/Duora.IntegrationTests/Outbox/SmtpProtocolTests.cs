@@ -68,7 +68,7 @@ public sealed class SmtpProtocolTests
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["Email:Transport"] = "Smtp",
+            ["Email:Provider"] = "Smtp",
             ["Email:Smtp:Host"] = "localhost",
             ["Email:Smtp:Port"] = server.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["Email:Smtp:Security"] = startTls ? "StartTls" : "SslOnConnect",

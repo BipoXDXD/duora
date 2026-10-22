@@ -17,7 +17,7 @@ Em 2026-10-22, autorizou também a revisão final e o merge do PR #207 se aprova
 
 ## Decisão
 
-Preservar `Pickup` como padrão e adicionar `Email:Transport=Smtp`, sem alterar Compose/configuração de
+Preservar `PickupDirectory` como padrão e adicionar `Email:Provider=Smtp`, sem alterar Compose/configuração de
 produção. MailKit/MimeKit 4.18.1 (MIT) fazem protocolo, MIME e autenticação; PKCS 10.0.13 é fixado para remover
 a versão transitiva vulnerável, mantendo audit/gates ativos. Não implementar um cliente SMTP próprio.
 

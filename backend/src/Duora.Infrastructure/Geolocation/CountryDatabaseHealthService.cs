@@ -52,6 +52,8 @@ public sealed class CountryDatabaseHealthService(CountryDatabaseOperationsStore 
                     { conditions["Disk"] = 2; }
                 }
             }
+            if (s.BackupFailed)
+            { conditions["Backup"] = 2; }
             if (s.Blocked && s.Error is "Unauthorized" or "Schema" or "Integrity" or "ApprovalRequired" or "Validation" or "Disk")
             { conditions[s.Error] = 2; }
             if (s.Exhausted)

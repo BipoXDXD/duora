@@ -167,3 +167,11 @@ O [ADR-0039](0039-transporte-smtp-opcional.md) limita ao adaptador pickup as afi
 local deste registro. No SMTP, Message-ID estável permite correlação e não elimina a janela entre aceite
 remoto e confirmação/commit local. O aceite cobre a integração do transporte opcional, sem ativação em produção; evidências
 e limites estão no relatório de homologação referenciado pelo ADR.
+
+## Revisão: transporte Resend (22/10/2026)
+
+O adaptador opt-in Resend implementa a porta de envio existente sem mudar a transação de conta, schemas,
+contratos ou o protocolo da outbox. Pickup continua disponível para desenvolvimento e compatibilidade.
+O [runbook](../../operations/resend.md) define configuração por segredo do worker, falha fechada para
+configuração inválida, limite de deduplicação do provedor (24 h), aceite versus entrega e rollback sem
+consumir pendências externas com pickup. A revisão humana e ativação operacional continuam separadas.

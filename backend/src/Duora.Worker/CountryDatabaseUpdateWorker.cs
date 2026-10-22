@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Duora.Worker;
 
-// Not registered by WorkerHost. G3/G5 and a later rollout must precede operational scheduling.
+// WorkerHost registers this only through the explicit, validated runtime configuration.
 internal sealed partial class CountryDatabaseUpdateWorker(
     CountryDatabaseUpdateStore store, CountryDatabaseUpdateService service, TimeProvider time, TimeSpan leaseDuration,
     bool enabled = false, ILogger<CountryDatabaseUpdateWorker>? logger = null) : BackgroundService

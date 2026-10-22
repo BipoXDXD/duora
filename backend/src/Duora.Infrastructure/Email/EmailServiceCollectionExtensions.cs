@@ -11,19 +11,18 @@ public static class EmailServiceCollectionExtensions
 {
     /// <summary>
     /// Registra o consumidor da outbox de e-mail e o adaptador de envio. O host não sobe sem
-    /// configuração válida para o transporte escolhido nem com parâmetros de <c>Outbox</c> incoerentes.
+    /// configuração válida para o provedor selecionado nem com parâmetros de <c>Outbox</c> incoerentes.
     /// </summary>
     public static IServiceCollection AddTransactionalEmailDispatch(this IServiceCollection services)
     {
         services.AddOptions<EmailTransportOptions>()
             .BindConfiguration(EmailTransportOptions.Section)
-            .Validate(o => o.IsValid(), "Email: transporte inválido ou SMTP incompleto; TLS e autenticação são obrigatórios.")
+            .Validate(o => o.IsValid(), "Email:Provider deve ser PickupDirectory, Resend ou Smtp; configure o provedor selecionado. SMTP exige TLS e autenticação.")
             .ValidateOnStart();
-
         services.AddOptions<PickupDirectoryOptions>()
             .BindConfiguration(PickupDirectoryOptions.Section)
             .Validate<IOptions<EmailTransportOptions>>(
-                (o, transport) => transport.Value.UsesSmtp || !string.IsNullOrWhiteSpace(o.PickupDirectory),
+                (o, transport) => transport.Value.Provider != "PickupDirectory" || !string.IsNullOrWhiteSpace(o.PickupDirectory),
                 "Email:PickupDirectory é obrigatório (docs/development/environment.md).")
             .ValidateOnStart();
 
@@ -35,12 +34,16 @@ public static class EmailServiceCollectionExtensions
                 "Outbox: SendTimeout deve ser menor ou igual a LeaseDuration / 2 (o lease é renovado antes de cada envio).")
             .ValidateOnStart();
 
-        services.AddSingleton<PickupDirectoryEmailSender>();
-        services.AddSingleton<SmtpTransactionalEmailSender>();
+        services.AddKeyedSingleton<HttpClient>("Resend", (_, _) => ResendEmailSender.CreateClient());
         services.AddSingleton<ITransactionalEmailSender>(provider =>
-            provider.GetRequiredService<IOptions<EmailTransportOptions>>().Value.UsesSmtp
-                ? provider.GetRequiredService<SmtpTransactionalEmailSender>()
-                : provider.GetRequiredService<PickupDirectoryEmailSender>());
+            provider.GetRequiredService<IOptions<EmailTransportOptions>>().Value.Provider switch
+            {
+                "Smtp" => new SmtpTransactionalEmailSender(provider.GetRequiredService<IOptions<EmailTransportOptions>>()),
+                "Resend" => new ResendEmailSender(provider.GetRequiredKeyedService<HttpClient>("Resend"),
+                    provider.GetRequiredService<IOptions<EmailTransportOptions>>()),
+                _ => new PickupDirectoryEmailSender(provider.GetRequiredService<IOptions<PickupDirectoryOptions>>(),
+                    provider.GetRequiredService<ILogger<PickupDirectoryEmailSender>>()),
+            });
         services.AddSingleton(provider => new OutboxDeliveryQueue(provider.GetRequiredService<NpgsqlDataSource>()));
         services.AddSingleton(provider => new TransactionalEmailDispatcher(
             provider.GetRequiredService<OutboxDeliveryQueue>(),

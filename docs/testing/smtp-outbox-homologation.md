@@ -2,7 +2,7 @@
 
 ## Escopo e estado
 
-O transporte SMTP é opcional. `Email:Transport` continua `Pickup` por padrão; não há ativação de SMTP,
+O transporte SMTP é opcional. `Email:Provider` continua `PickupDirectory` por padrão; não há ativação de SMTP,
 alteração do Compose ou acesso a produção nesta mudança. Configuração: [environment.md](../development/environment.md).
 
 A prova de envio e recebimento SMTP foi concluída em 2026-10-22. A criação de uma conta dedicada ficou
