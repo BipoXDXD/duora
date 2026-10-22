@@ -1307,3 +1307,13 @@ Tempos são registrados pelo teste no CI; não são SLA de produção nem recome
 `AppRolePrivilegesTests` verifica o inventário de privilégios atual, inclusive registros imutáveis da base.
 Nenhuma migração nova ou grant é introduzido nesta etapa. Reversão de binário mantém schema e dados; requer
 pausa de escritas/pareamento incompatíveis e avaliação ADR-0030, nunca Down destrutivo.
+
+
+## Expansão editorial planejada — M0 / #173
+
+O [contrato de revisão humana](../api/media-review.md) fixa AwaitingReview e os resultados editoriais
+como alvo futuro, separado do schema executável atual. Media mantém upload/candidato/asset; Safety terá
+caso/atribuição/decisão/recurso. Leitores, constraints, índices e as consultas reais de cota3/100 devem
+preceder escritores; metadados de geração/versão impedem publicação ou limpeza por tentativa obsoleta.
+M0 não cria migração, tabela, grant, enum ou valor persistido. Recurso/retention_until e cleanup precisam
+de serialização no PostgreSQL real; restore não reconstrói candidato ausente por metadados.

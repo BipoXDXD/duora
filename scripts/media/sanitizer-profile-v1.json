@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "status": "candidate-not-production-approved",
+  "source": "ADR-0036 P174-3/4",
+  "inputMaxBytes": 5242880,
+  "maxPixels": 20000000,
+  "expectedVariants": [
+    "thumb",
+    "card",
+    "full"
+  ],
+  "candidateMetadataBytes": 4096,
+  "candidateVariantBytes": 16777216,
+  "candidateTotalOutputBytes": 25165824,
+  "candidateStderrBytes": 65536,
+  "candidateSandboxMemoryBytes": 536870912,
+  "candidateCpus": 1,
+  "candidatePids": 64,
+  "candidateTmpfsBytes": 16777216,
+  "candidateSwapBytes": 0,
+  "candidateEnvelopeSeconds": 50,
+  "currentDecodeSeconds": 30,
+  "currentAllocatorMegabytes": 256,
+  "currentLeaseSeconds": 120,
+  "enforcement": "none-this-file-is-a-measurement-reference"
+}
