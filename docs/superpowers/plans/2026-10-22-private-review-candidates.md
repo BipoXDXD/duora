@@ -42,6 +42,8 @@ create table media.review_candidates (
   case_id uuid null references safety.photo_review_cases(id) on delete restrict,
   retention_until timestamptz null,
   cleanup_requested_at timestamptz null,
+  writer_settled_at timestamptz null,
+  last_cleanup_at timestamptz null,
   deleted_at timestamptz null,
   cleanup_token uuid null,
   cleanup_lease_until timestamptz null,
@@ -74,9 +76,10 @@ A implementação acrescenta constraints de datas finitas, chave correspondente 
 
 ## Tarefa 2 — preparação fora dos locks
 
-- [ ] Ler upload Processing na versão esperada e fingerprint válido; recusar prazo já vencido/fora do lease configurado e forma inválida de variantes.
+- [ ] Primeiro procurar confirmação da mesma tentativa: revalidar conta, upload AwaitingReview/version+1, geração/caso coerentes e ainda disponíveis. Devolver o caso confirmado sem novos PUTs ou efeitos. Só na ausência desse replay exigir Processing na versão esperada e fingerprint válido; recusar prazo já vencido/fora do lease configurado e forma inválida de variantes.
 - [ ] Criar geração própria, persistir metadados e exatamente três chaves/hashes antes de qualquer PUT. Unicidade por upload/versão impede dois preparadores da mesma tentativa; o perdedor não grava por cima do vencedor.
-- [ ] Escrever thumb/card/full em chaves da geração fora de transações de negócio, com token/prazo total da tentativa. Falha conserva metadados para GC e nunca cria asset ou caso público.
+- [ ] Escrever thumb/card/full em chaves da geração fora de transações de negócio, com token/prazo total da tentativa. A geração nunca é retomada para escrita por outro Stage. Falha conserva metadados para GC e nunca cria asset ou caso público.
+- [ ] `writer_settled_at` somente após todos os PUTs terem respondido sucesso, ou saída comprovada antes do primeiro PUT. Exceção de transporte/cancelamento/queda não prova que o servidor encerrou a escrita e mantém o escritor incerto. Mesmo após marcar settled, revalidar cleanup_requested_at/deadline antes de commit; nunca emitir outro PUT nessa geração.
 
 ## Tarefa 3 — commit coordenado
 
@@ -91,6 +94,10 @@ A implementação acrescenta constraints de datas finitas, chave correspondente 
 
 - [ ] Consumidor toma uma geração não confirmada, expirada/abandonada, por lease/tokenUUID. O claim marca cleanup_requested_at antes dos DELETEs; Stage não pode confirmá-la depois.
 - [ ] Remover somente as três chaves daquela geração fora da transação. Falha parcial mantém obrigação; ACK/retry exigem posse atual. Nunca apagar geração confirmada nem chaves de outra tentativa.
+- [ ] O claim captura sob lock se `writer_settled_at` já existia **antes de começar essa passagem de DELETEs**. Somente esse claim settled pode fazer ACK terminal após excluir todas as chaves. Uma passagem iniciada com escritor incerto deve reagendar, mesmo que o escritor marque settled antes do ACK: pode ter recriado uma chave que esse GC já apagou.
+- [ ] Se o claim começou incerto, não encerrar a obrigação após os DELETEs: gravar `last_cleanup_at`, liberar posse e reagendar limpeza periódica. Conservar tombstone/intenção sem expiração por lease/contador; um PUT tardio ainda pode recriar a chave. Um escritor vivo que obtém sucesso tardio pode marcar settled, mas não confirmar candidato após cleanup_requested_at; a próxima coleta encerra os bytes depois dele. Tombstones incertos exigem prova operacional de término para eventual pruning; esta fatia não inventa prazo que torne uma escrita incerta segura. O custo de metadados e DELETEs repetidos deve aparecer no relatório, sem ampliar retenção dos bytes.
+- [ ] Teste determinístico obrigatório: bloquear PUT que ignora cancelamento, expirar tentativa, GC apagar sem ACK terminal, liberar PUT tardio e provar remoção eventual; manter outra geração confirmada byte a byte.
+- [ ] Testar também GC apaga primeira chave, PUT tardio a recria e escritor marca settled antes do ACK: essa primeira passagem conserva a obrigação; a próxima passagem remove tudo.
 - [ ] PostgreSQL/storage: falhas entre cada PUT, depois dos arquivos/antes do commit, na auditoria, perda de versão/lease, restrição concorrente, repetição, restart e commit ambíguo. Conferir hashes dos derivados/catálogo sentinela e contagens diretas de casos/assets/outbox/intenção original.
 - [ ] Restaurar banco sem candidato não o torna aprovado; testar metadados conservados e leitura negada. Reconciliar decisão pública de indisponibilidade em M6, sem inventar writer parcial nesta fatia.
 - [ ] Repetir gate de leitores publicados sobre as migrations aditivas, nove checks gerais e isolamento aplicável no head final. Revisão independente sem bloqueadores antes de merge; manter #173/#174 abertas pelos critérios restantes.
