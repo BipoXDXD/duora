@@ -63,6 +63,10 @@ internal static class AppRoleTableAccess
             ["media.media_variants"] = AppTableAccess.ReadWrite,
             // Intenção durável: criar, tomar/reagendar por lease e remover somente após DELETE confirmado.
             ["media.original_cleanup"] = AppTableAccess.ReadWrite,
+            ["media.review_candidate_variants"] = AppTableAccess.ReadWrite,
+            ["media.review_candidates"] = AppTableAccess.ReadWrite,
+            ["media.review_promotion_variants"] = AppTableAccess.AppendOnly,
+            ["media.review_promotions"] = AppTableAccess.ReadWrite,
             ["media.upload_guards"] = AppTableAccess.ReadWrite,
             ["media.uploads"] = AppTableAccess.ReadWrite,
 
@@ -92,7 +96,14 @@ internal static class AppRoleTableAccess
 
             // safety (dono: Safety)
             ["safety.blocks"] = AppTableAccess.ReadWrite,
+            ["safety.photo_review_assignments"] = AppTableAccess.AppendOnly,
             ["safety.photo_review_cases"] = AppTableAccess.ReadWrite,
+            ["safety.photo_review_commands"] = AppTableAccess.AppendOnly,
+            ["safety.photo_review_decision_commands"] = AppTableAccess.AppendOnly,
+            ["safety.photo_review_decision_variants"] = AppTableAccess.AppendOnly,
+            ["safety.photo_review_decisions"] = AppTableAccess.AppendOnly,
+            ["safety.photo_review_evidence_accesses"] = AppTableAccess.AppendOnly,
+            ["safety.photo_review_grants"] = AppTableAccess.AppendOnly,
             ["safety.user_guards"] = AppTableAccess.ReadWrite,
         };
 

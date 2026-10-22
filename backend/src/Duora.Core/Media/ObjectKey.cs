@@ -26,6 +26,7 @@ public readonly partial record struct ObjectKey
     private const string QuarantinePrefix = "quarantine/";
     private const string DerivativesPrefix = "derivatives/";
     private const string ReviewCandidatesPrefix = "review-candidates/";
+    private const string PromotedDerivativePrefix = "derivatives/review-";
 
     private ObjectKey(StorageArea area, string value)
     {
@@ -66,6 +67,13 @@ public readonly partial record struct ObjectKey
         return new(StorageArea.ReviewCandidates, $"{ReviewCandidatesPrefix}{generation:N}-{PhotoVariants.Name(variant)}");
     }
 
+    /// <summary>Chave final por tentativa, disjunta do legado; a existência do objeto não concede publicação.</summary>
+    public static ObjectKey ForPromotedDerivative(Guid generation, PhotoVariant variant)
+    {
+        ArgumentOutOfRangeException.ThrowIfEqual(generation, Guid.Empty);
+        return new(StorageArea.Derivatives, $"{PromotedDerivativePrefix}{generation:N}-{PhotoVariants.Name(variant)}");
+    }
+
     /// <summary>Lê uma chave gravada pelo próprio sistema; qualquer outro formato é dado corrompido.</summary>
     public static ObjectKey Parse(string stored)
     {
@@ -75,7 +83,7 @@ public readonly partial record struct ObjectKey
             return new ObjectKey(StorageArea.Quarantine, stored);
         }
 
-        if (DerivativeKey().IsMatch(stored))
+        if (DerivativeKey().IsMatch(stored) || PromotedDerivativeKey().IsMatch(stored))
         {
             return new ObjectKey(StorageArea.Derivatives, stored);
         }
@@ -104,6 +112,9 @@ public readonly partial record struct ObjectKey
 
     [GeneratedRegex(@"\Aderivatives/[0-9a-f]{32}-(thumb|card|full)\z", RegexOptions.CultureInvariant)]
     private static partial Regex DerivativeKey();
+
+    [GeneratedRegex(@"\Aderivatives/review-(?!0{32}-)[0-9a-f]{32}-(thumb|card|full)\z", RegexOptions.CultureInvariant)]
+    private static partial Regex PromotedDerivativeKey();
 
     [GeneratedRegex(@"\Areview-candidates/(?!0{32}-)[0-9a-f]{32}-(thumb|card|full)\z", RegexOptions.CultureInvariant)]
     private static partial Regex ReviewCandidateKey();
