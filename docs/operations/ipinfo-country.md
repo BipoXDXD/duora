@@ -1,6 +1,6 @@
 # Base IPinfo: preparação inativa
 
-As etapas 7 e 8 da [issue #108](https://github.com/BipoXDXD/duora/issues/108) preparam componentes sem registrá-los
+As etapas 7, 8 e 9 da [issue #108](https://github.com/BipoXDXD/duora/issues/108) preparam componentes sem registrá-los
 nos hosts. O leitor usa o fallback de reflexão no runtime JIT; NativeAOT/trimming não estão homologados. [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md) é a decisão vigente.
 Este documento não é autorização de operação. BR + 27 UFs continuam sendo o catálogo executável.
 
@@ -55,16 +55,82 @@ Epoch da construção determina idade: 72h requer aviso, 168h recusa leitura/pro
 Download e restauração não rejuvenescem o arquivo. Não há dados de participante no manifesto nem detalhes de exceção,
 resposta HTTP, token ou URL assinada nos diagnósticos. Falha de limpeza gera somente aviso sanitizado.
 
-## O que ainda não está implementado
+## Monitor independente e entrega inativa — etapa 9
 
-Etapa 9: monitor independente (36h sem execução, idade/falhas), incidentes deduplicados, retenção de até 14 versões/14 dias,
-registros por 90 dias, cópia separada e recuperação administrativa auditada. Sobras de crash/limpeza exigirão reconciliação.
-A role da aplicação não pode UPDATE/DELETE/TRUNCATE manifestos; retenção futura exige permissão específica revisada.
-Bloqueio terminal não possui botão/comando de liberação automática; não contornar por SQL improvisado.
+`CountryDatabaseHealthService.RunOnceAsync` é invocação explícita, com `enabled=false` por padrão, independente
+do atualizador. Não está registrado em Web/Worker e não cria timer, job ou automação de chat. Avalia ausência
+de execução em **36h**, aviso de idade em **72h**, indisponibilidade em **168h**, falta do arquivo, tentativas
+esgotadas e falhas sanitizadas de credencial/schema/integridade. O leitor aplica 168h mesmo sem monitor.
+Incidentes ativos e notificações são persistidos em Operations, sem IP, país por pessoa, endereço de e-mail ou payload.
 
-Não declarar cumprimento de retenção, recuperação em 15 minutos ou prontidão operacional com esses itens abertos.
-Para rollback binário futuro, desligar atualizador/detector, conservar schema aditivo e dados; Down é recusado.
-Aplicar migração e habilitar serviços exigem revisão humana e autorização separada. A #108 permanece aberta e US pertence à #78.
+Primeira ocorrência, mudança de gravidade e recuperação geram evento; intervenção ainda pendente gera lembrete
+a cada 24h, sem repetir por poll/restart. A fila reserva entrega por 15 minutos e processa até 32 eventos por
+invocação. Eventos pendentes do mesmo incidente preservam ordem, inclusive após falha de envio; recuperação não
+ultrapassa aviso/indisponibilidade ainda sem confirmação. `ICountryDatabaseNotifier` exige deduplicação pelo Id durável: uma queda depois do envio e antes do
+commit pode repetir a chamada com o mesmo Id. Falha não registra detalhes do transporte e mantém retry limitado.
+O único adaptador está nos testes; não há SMTP, Gmail API, credencial, endereço ou envio real. O Gmail privado
+escolhido pelo titular continua sendo o destino autorizado, **não um canal operacional comprovado**.
+
+## Retenção e cópia privada
+
+`CountryDatabaseRetentionService` também vem desligado e sem agendamento. Aplica simultaneamente **14 versões**
+e **14 dias desde o primeiro download**, inclusive à antiga ativa sem substituta. Validade de serviço permanece
+inferior a sete dias desde construção; diagnóstico não renova validade. Redownload conserva manifesto original.
+Primeiro confirma tombstones/revogação e invalida publicadores antigos; depois remove bytes. Falha de I/O exige
+retry e reconciliação, sem reautorizar versão aposentada. Arquivos órfãos e diretórios `.attempt-*` são varridos;
+diretórios de download em andamento são preservados enquanto houver lease válida. Rejeição normal remove bytes
+ao fim da tentativa, mantendo apenas diagnóstico/manifesto. Crash exige a próxima varredura explícita.
+
+Leitores usam cópia imutável em memória: `OpenVerified` fecha o handle de arquivo antes de disponibilizar o Reader.
+Remover arquivo de disco não interrompe a consulta em andamento. Refresh respeita geração e revogação; a idade
+é conferida em toda consulta. A publicação e a manutenção compartilham um advisory lock de sessão PostgreSQL
+exclusivo, separado das transações/guardas de participação. Downloads e notificações ficam fora desse lock;
+ele limita escritores, não consultas. Criação de staging também participa desse protocolo. O monitor não adquire
+esse lock: avalia snapshot SQL e verifica geração antes de registrar, inclusive durante cópia externa lenta.
+Espera de lock de escritores é limitada e uma falha exige retry pelo futuro orquestrador.
+
+Manifestos, aprovações, tombstones e eventos saem aos **90 dias**; incidentes ainda ativos representam uma condição
+atual: registros inativos expiram, a data de abertura é limitada à janela de 90 dias e só notificações recentes ficam. `duora_app` continua sem UPDATE/DELETE/TRUNCATE
+em versões, aprovações e tombstones. A retenção requer **data source de manutenção com privilégio específico**;
+provisionar essa role, identidade e grants mínimos é pré-requisito de G3, sem reutilizar o migrador em produção.
+Os testes usam o migrador somente no PostgreSQL descartável para simular essa capacidade e adulterações negativas.
+
+`ICountryDatabaseArchive` prepara cópia da ativa/anterior aprovada, limitada a dois objetos privados e aos mesmos
+prazos. Empates de epoch seguem a ordem durável de promoção, nunca a ordem lexicográfica do hash;
+a ativa tem prioridade na cópia, junto da anterior distinta. O adaptador futuro deve reter manifesto original, atribuição IPinfo/CC BY-SA 4.0 e excluir todas as versões,
+réplicas e uploads incompletos de cada chave removida; não incluir credenciais nem bases em backup geral duradouro.
+Serviço, orçamento, limites, timeouts, ACLs e demonstração de exclusão/entrega permanecem pendentes. Só existe
+adaptador sintético em memória nos testes; **nenhum armazenamento fora do host foi contratado ou provisionado**.
+
+## Recuperação e liberação humana
+
+1. Manter fluxo manual e serviços desativados durante investigação. Conferir relógio/sincronização externa antes
+  de invocar recuperação; marca UTC persistida recusa recuo observado, inclusive após restart do serviço.
+2. Recuperar somente hash com aprovação durável no registro autoritativo, nunca ponteiro/manifesto fornecido por
+  backup antigo. Escolher a construção aprovada mais recente, dentro de 168h, sem tombstone, e conferir novamente
+  hash, tamanho, manifesto original, licença/produto/schema, legibilidade e redes IPv4/IPv6. Nenhum acesso à IPinfo.
+3. Arquivo local ausente pode ser restaurado da cópia separada admissível; datas não mudam. Não rebaixar para uma
+  construção anterior só porque a cópia mais recente está ausente. Sem cópia admissível, continuar indisponível.
+4. Corrupção de bytes/manifesto e bloqueios de integridade/schema/licença exigem revisão humana. O método
+  `ReleaseAsync(expectedGeneration, reviewId, OperatorName, ...)` exige geração vigente e referência opaca não vazia,
+  registra auditoria e invalida leases. Não existe endpoint, comando público ou liberação automática. O futuro
+  adaptador operacional deve autenticar/autorizar o operador antes da chamada; OperatorName sozinho é rótulo,
+  não prova de identidade. Uma liberação permite reparar arquivo, mas não serve bytes antes de nova validação.
+   A autorização é consumida pela recuperação ou por qualquer promoção posterior; um incidente novo exige nova revisão.
+   O monitor confere todos os campos/coerência do manifesto, inclusive origem, tipo e cronologia, antes de declarar saúde.
+5. Trocar arquivo completo e confirmar ponteiro com fencing; não copiar credenciais, rejuvenecer download ou confiar
+  em geração de outro backup. Manifesto/registro perdido exige reconstrução e homologação humanas.
+
+A meta é **até 15 minutos com cópia válida**, a medir em ensaio real; testes sintéticos não comprovam esse SLA.
+Atendimento aprovado: um dia útil para aviso, quatro horas **dentro da cobertura acordada** para indisponibilidade.
+Cobertura, contingência e substituto seguem pendentes; não presumir plantão 24x7. Ensaiar trimestralmente e após
+mudanças: ausência/corrupção, cópia antiga/adulterada, relógio incorreto, disco cheio e concorrência. Registrar duração,
+hash, geração, categoria e resultado sanitizados, sem dados de participantes nem endereço privado.
+
+G2 (base real/limites/relógios), G3 (capacidade operacional) e G5 (ensaio/ativação) continuam abertos. Não declarar
+prontidão, retenção em produção ou recuperação em 15 minutos. Aplicar migrações, implantar, registrar serviços,
+provisionar storage e habilitar transportes exigem revisão/autorização próprias. Down é recusado; rollback binário
+mantém schema aditivo e serviços desligados. A #108 permanece aberta e US pertence à #78.
 
 ## Fontes primárias
 

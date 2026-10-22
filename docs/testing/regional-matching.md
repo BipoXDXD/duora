@@ -83,3 +83,26 @@ dotnet test --project backend/tests/Duora.IntegrationTests -- --filter-class '*G
 
 Homologação do arquivo real, relógios entre hosts/restarts, download/autenticação reais, armazenamento/ACLs, alertas,
 retenção e recuperação operacional continuam pendentes. Testes sintéticos não demonstram precisão nem capacidade operacional.
+
+
+## Operação inativa — etapa 9
+
+`CountryDatabaseOperationsTests` usa relógio sintético, PostgreSQL real descartável, MMDB próprio e adaptadores
+em memória. Cobre 36h/72h/168h exatas, incidentes persistentes, poll concorrente, lembretes/recovery, retry de
+notificação, falhas terminais/tentativas esgotadas, retenção simultânea 14 versões/14 dias e metadados 90 dias,
+cópia privada limitada a duas versões, restauração sem rede, cópia adulterada/antiga/não aprovada, relógio atrás
+da marca persistida, revogação local e publicador atrasado concorrente com retenção. Falta de cópia mais recente
+não autoriza downgrade. Testes de privilégios confirmam que a aplicação não ganha DELETE em registros imutáveis.
+
+Os comandos de restore/build/format/test backend, frontend, contrato, e2e, ops, scanners e imagens são os gates
+existentes do CI. **Nenhum teste pesado, build ou Docker é executado no Mac de 16GB nesta etapa.** O relatório
+registra o head e a execução remota; comandos documentados não equivalem a resultado. Adaptadores sintéticos
+não comprovam Gmail real, base IPinfo, retenção fora do host, SLA de 15 minutos ou cobertura operacional.
+
+Titular/Gmail privado já designados por decisão posterior; substituto, contingência/cobertura, transporte,
+armazenamento/orçamento e homologação G2/G3/G5 continuam pendentes. Nenhum serviço é registrado, detector ou
+atualizador ativado, alerta real enviado ou país habilitado. #108 aberta. Ver [runbook](../operations/ipinfo-country.md).
+
+A regressão de liberação humana verifica que autorização de reparo não passa a uma promoção posterior.
+Casos de manifesto adulterado abrangem origem, tipo inválido e cronologia de primeiro download, com alerta e bloqueio;
+a validação estrutural é compartilhada entre admissão, monitor e recuperação, preservando o corte de 168h.

@@ -17,8 +17,22 @@ public sealed class ActiveCountryDatabase(string root, CountryDatabaseArtifactVa
 
     public async Task<bool> RefreshAsync(CountryDatabaseUpdateStore store, CancellationToken ct)
     {
-        var snapshot = await store.ReadActiveSnapshotAsync(ct);
-        return snapshot is not null && TryReplace(snapshot, ct);
+        var snapshot = await store.ReadReaderSnapshotAsync(ct);
+        if (snapshot.Manifest is null)
+        {
+            lock (_gate)
+            {
+                if (snapshot.Generation >= _generation)
+                {
+                    _generation = snapshot.Generation;
+                    _reader?.Dispose();
+                    _reader = null;
+                    _manifest = null;
+                }
+            }
+            return false;
+        }
+        return TryReplace(new CountryDatabaseSnapshot(snapshot.Generation, snapshot.Manifest), ct);
     }
 
     internal bool TryReplace(CountryDatabaseSnapshot snapshot, CancellationToken ct) => TryReplaceCore(snapshot.Manifest, snapshot.Generation, ct);

@@ -14,6 +14,8 @@ public sealed class CountryDatabaseValidationException(string code) : Exception(
 
 public sealed class CountryDatabaseArtifactValidator(CountryDatabaseValidationProfile profile, TimeProvider time)
 {
+    internal long MaxBytes => profile.MaxBytes;
+
     public CountryDatabaseManifest Validate(byte[] bytes, DateTimeOffset downloadedAt, CancellationToken ct)
     {
         using var reader = Open(bytes, downloadedAt, out var manifest, ct);
