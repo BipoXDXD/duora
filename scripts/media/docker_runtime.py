@@ -11,6 +11,10 @@ from pathlib import Path
 from launcher import LABEL, collect_bounded, job_name, private_directory, require
 
 
+def validate_runtime_security(info):
+    raise NotImplementedError
+
+
 class DockerRuntime:
     def __init__(self, profile):
         self.profile = profile

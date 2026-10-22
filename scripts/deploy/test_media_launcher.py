@@ -196,6 +196,17 @@ class SupervisorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("failed", result.code)
         self.assertEqual(b"", result.payload)
 
+    async def test_cleanup_cannot_turn_an_expired_attempt_into_success(self):
+        class SlowCleanupRuntime(RuntimeDouble):
+            async def remove(self, job_id):
+                await asyncio.sleep(0.1)
+                return True
+
+        self.supervisor.runtime = SlowCleanupRuntime()
+        result = await asyncio.wait_for(self.supervisor.run(JOB, request(), (16777216,25165824,65536,10)), 1)
+        self.assertNotEqual("exited", result.code)
+        self.assertEqual(b"", result.payload)
+
     async def test_startup_recovers_orphans_before_admitting_an_attempt(self):
         self.runtime.orphan = True
         await self.supervisor.recover()
@@ -262,6 +273,33 @@ class ControlSocketTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RuntimeSafetyTests(unittest.TestCase):
+    def test_only_reviewed_builtin_seccomp_and_rootless_systemd_are_accepted(self):
+        from docker_runtime import validate_runtime_security
+        valid = {"CgroupDriver": "systemd", "CgroupVersion": "2",
+                 "SecurityOptions": ["name=rootless", "name=seccomp,profile=builtin"]}
+        validate_runtime_security(valid)
+        for field, value in [
+            ("CgroupDriver", "none"), ("CgroupDriver", "cgroupfs"), ("CgroupVersion", "1"),
+            ("SecurityOptions", ["name=rootless", "name=seccomp,profile=/custom/allow-all.json"]),
+            ("SecurityOptions", ["name=rootless", "name=seccomp,profile=unconfined"]),
+            ("SecurityOptions", ["name=seccomp,profile=builtin"]),
+        ]:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                validate_runtime_security({**valid, field: value})
+
+    def test_authority_lock_is_shared_by_all_profiles_for_the_same_daemon(self):
+        from launcher import acquire_runtime_lock
+        with tempfile.TemporaryDirectory() as directory:
+            runtime_socket = str(Path(directory)/"docker.sock")
+            first = acquire_runtime_lock(runtime_socket)
+            try:
+                with self.assertRaises(BlockingIOError):
+                    acquire_runtime_lock(runtime_socket)
+            finally:
+                os.close(first)
+            # Releasing the first authority permits a new launcher after recovery.
+            os.close(acquire_runtime_lock(runtime_socket))
+
     def test_launcher_has_no_fallback_to_shared_or_rootful_runtime(self):
         from docker_runtime import DockerRuntime
         with tempfile.TemporaryDirectory() as directory:
