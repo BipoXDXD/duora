@@ -172,7 +172,7 @@ def installed_coolify_version():
     # Derive the informational label from the installed control-plane container only.
     record = json.loads(subprocess.check_output(
         ['/usr/bin/docker', 'inspect', 'coolify'], text=True, env=SAFE_ENV))[0]
-    match = re.fullmatch(r'ghcr\.io/coollabsio/coolify:([1-9][0-9]*\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))',
+    match = re.fullmatch(r'(?:ghcr\.io|docker\.io)/coollabsio/coolify:([1-9][0-9]*\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))',
                          record['Config']['Image'])
     if not match or not record['State']['Running']:
         raise ValueError('Installed Coolify must use a running stable versioned official image')

@@ -163,6 +163,9 @@ class ObserverSafetyTests(unittest.TestCase):
                  'State': {'Running': True}}
         with patch.object(wrapper.subprocess, 'check_output', return_value=json.dumps([valid])):
             self.assertEqual(wrapper.installed_coolify_version(), '4.4.8')
+        hub = {**valid, 'Config': {'Image': 'docker.io/coollabsio/coolify:4.4.8'}}
+        with patch.object(wrapper.subprocess, 'check_output', return_value=json.dumps([hub])):
+            self.assertEqual(wrapper.installed_coolify_version(), '4.4.8')
         for image in ['ghcr.io/coollabsio/coolify:latest', 'attacker/coolify:4.4.8',
                       'ghcr.io/coollabsio/coolify:4.4.8-dev', 'ghcr.io/coollabsio/coolify:04.4.8']:
             record = {**valid, 'Config': {'Image': image}}
