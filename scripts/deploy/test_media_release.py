@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
 import os
 import sys
@@ -13,6 +12,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "media"))
 from launcher import Profile
+from release_contract import verify_bundle
 
 ROOT = Path(__file__).resolve().parents[2]
 COMMIT = "a" * 40
@@ -82,11 +82,8 @@ class MediaReleaseTests(unittest.TestCase):
 
     def verify(self, *, pin: str | None = None, commit: str = COMMIT, architecture: str = "amd64",
                scope: str = "synthetic-candidate"):
-        self.assertTrue((ROOT / "scripts/media/release_contract.py").is_file(),
-                        "S4 release bundle validation is not implemented")
-        module = importlib.import_module("release_contract")
-        return module.verify_bundle(self.bundle, pin or digest(self.bundle / "manifest.json"),
-                                    commit, architecture, scope)
+        return verify_bundle(self.bundle, pin or digest(self.bundle / "manifest.json"),
+                             commit, architecture, scope)
 
     def reseal(self, file_name: str | None = None):
         if file_name:
