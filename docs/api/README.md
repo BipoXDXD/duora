@@ -215,3 +215,17 @@ e regionCode, incluindo limpeza explícita. Omissão mantém localização e pre
 Conta e versão são revalidadas depois da espera: 403 para restrição, 412 para versão vencida e 503 com
 Retry-After para contenção/timeout, sem escrita parcial. Edição posterior à reserva não cancela a sala.
 Não há endpoint de detecção nesta entrega. [Corte V3 ainda inativo](../operations/regional-matching.md).
+
+
+## Estado integrado regional — etapa 10
+
+As notas de etapas anteriores acima são históricas. A API de preferência, PATCH moderno/legado e interface
+manual já existem. GET `/api/v1/me/region-detection/capability` responde `enabled: false`;
+POST `/api/v1/me/region-detection`, sem corpo, responde `disabled` no registro executável atual.
+Não existe configuração operacional que substitua `DisabledCountryLookup` nesta entrega.
+
+Implantar servidor compatível antes da SPA; testar os contratos privados, CSRF, ETag e no-store no ambiente
+isolado. Configurar localização e preferência são salvamentos independentes: sucesso parcial não é sucesso
+conjunto; conflito 412 exige reler e escolher novamente. Não criar preferência a partir de perfil antigo,
+idioma, país sugerido ou tempo de espera. A UI manual existente serve contas antigas e novas, sem detector.
+Ver [roteiro de homologação e reversão](../operations/regional-matching.md#homologação-e-release--etapa-10).

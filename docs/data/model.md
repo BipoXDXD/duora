@@ -1292,3 +1292,18 @@ confirma pai/filhos/marcador de segurança na mesma transação. Dados são priv
 declarada e dos idiomas; esta expansão não muda perfil, versões legadas, catálogo BR + 27 UFs ou matching.
 A migração é aditiva e sem inferência; Down recusa perda de dados. Nenhum detector, dado de IP ou histórico
 regional foi acrescentado. Elegibilidade regional no pareamento permanece para as etapas seguintes.
+
+
+## Ensaio de expansão regional — etapa 10
+
+`RegionalRolloutRehearsalTests` cria 10.000 contas/perfis sintéticos no schema anterior à preferência regional,
+com UF brasileira, versões e idiomas declarados. Sob lock exclusivo em `identity.users`, a expansão encontra
+`lock_timeout=250ms` e deve abortar sem tabela parcial; após liberar o lock, a cadeia de migrações é aplicada,
+reaplicada e comparada a um digest ordenado dos dados anteriores. Nenhuma preferência é inferida.
+O ensaio cria 10.000 escolhas explícitas, tenta Down e exige recusa preservando escolhas, BR e 27 UFs.
+Tempos são registrados pelo teste no CI; não são SLA de produção nem recomendação de timeout operacional.
+
+`RegionalMatchingMigrationTests` complementa com histórico V2, FK rodada/par e compatibilidade das salas.
+`AppRolePrivilegesTests` verifica o inventário de privilégios atual, inclusive registros imutáveis da base.
+Nenhuma migração nova ou grant é introduzido nesta etapa. Reversão de binário mantém schema e dados; requer
+pausa de escritas/pareamento incompatíveis e avaliação ADR-0030, nunca Down destrutivo.
