@@ -14,6 +14,24 @@ public abstract class ObjectStoreContract
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
     [Fact]
+    public async Task PrivateReviewCandidateDeletionCannotAffectOriginalsOrPublishedDerivatives()
+    {
+        var original = ObjectKey.NewQuarantine();
+        var published = ObjectKey.ForDerivative(original, PhotoVariant.Card);
+        var candidate = ObjectKey.Parse($"review-candidates/{Guid.NewGuid():N}-card");
+        await PutAsync(original, [10]);
+        await PutAsync(published, [20]);
+        await PutAsync(candidate, [30]);
+        Assert.Equal([30], await ReadAsync(candidate));
+
+        await Store.DeleteAsync(candidate, Cancellation);
+
+        Assert.Null(await ReadAsync(candidate));
+        Assert.Equal([10], await ReadAsync(original));
+        Assert.Equal([20], await ReadAsync(published));
+    }
+
+    [Fact]
     public async Task WrittenBytesAreReadBackExactly()
     {
         var key = ObjectKey.NewQuarantine();
