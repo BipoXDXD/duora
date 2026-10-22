@@ -180,7 +180,7 @@ def verify_bundle(directory: Path, expected_manifest_sha256: str, expected_commi
             require(parsed.image == manifest["image"] and parsed.digest == manifest["profileSha256"])
             validate_proof(document(contents["isolation.json"]), manifest)
             bom = document(contents["sbom.cdx.json"])
-            require(bom.get("bomFormat") == "CycloneDX" and bom.get("specVersion") in {"1.5", "1.6"})
+            require(bom.get("bomFormat") == "CycloneDX" and bom.get("specVersion") in {"1.5", "1.6", "1.7"})
             require(integer(bom.get("version")) and isinstance(bom.get("components"), list))
             return manifest
         finally:

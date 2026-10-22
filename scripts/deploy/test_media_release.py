@@ -95,6 +95,24 @@ class MediaReleaseTests(unittest.TestCase):
         self.assertEqual(COMMIT, verified["commit"])
         self.assertEqual(Profile.from_dict(self.profile, 1002).digest, verified["profileSha256"])
 
+    def test_supported_cyclonedx_versions_including_pinned_trivy_output(self):
+        for version in ("1.5", "1.6", "1.7"):
+            with self.subTest(version=version):
+                write_json(self.bundle / "sbom.cdx.json", {"bomFormat": "CycloneDX",
+                    "specVersion": version, "version": 1, "components": []})
+                self.reseal("sbom.cdx.json")
+                self.assertEqual(COMMIT, self.verify()["commit"])
+
+    def test_unsupported_or_malformed_cyclonedx_metadata_is_refused(self):
+        valid = {"bomFormat": "CycloneDX", "specVersion": "1.7", "version": 1, "components": []}
+        for mutation in ({"specVersion": "1.8"}, {"specVersion": "2.0"}, {"specVersion": 1.7},
+                         {"bomFormat": "SPDX"}, {"version": True}, {"components": {}}):
+            with self.subTest(mutation=mutation):
+                write_json(self.bundle / "sbom.cdx.json", {**valid, **mutation})
+                self.reseal("sbom.cdx.json")
+                with self.assertRaises(ValueError):
+                    self.verify()
+
     def test_arm64_proof_is_required_for_an_arm64_release(self):
         self.manifest["architecture"] = "arm64"
         self.proof["architecture"] = "aarch64"
