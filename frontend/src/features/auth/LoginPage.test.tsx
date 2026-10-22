@@ -264,7 +264,9 @@ describe('segundo fator na entrada', () => {
 
     await fillAndSubmit(user, 'admin@exemplo.com', 'frase longa de senha')
 
-    expect(await screen.findByLabelText('Código do autenticador')).toHaveFocus()
+    const codeField = await screen.findByLabelText('Código do autenticador')
+    // O campo renderiza antes de o efeito aplicar o foco. Aguarda a pós-condição observável.
+    await waitFor(() => expect(codeField).toHaveFocus())
   })
 
   it('entra com um código de recuperação, sem mandar o TOTP e sem guardá-lo no MutationCache', async () => {

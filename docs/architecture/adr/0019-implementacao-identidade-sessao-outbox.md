@@ -160,3 +160,11 @@ O smoke local da release (`scripts/deploy/smoke_local.py`) sobe o Worker na imag
 - Nomes snake_case nos schemas `identity` e `ops`: `MigrationsTests.PhysicalNamesAreSnakeCase`.
 - Rotas fora da allowlist pública exigem sessão: `EndpointAuthorizationTests`.
 - Revisão humana obrigatória (autenticação, [permissions.md](../../automation/permissions.md)).
+
+## Revisão: transporte Resend (22/10/2026)
+
+O adaptador opt-in Resend implementa a porta de envio existente sem mudar a transação de conta, schemas,
+contratos ou o protocolo da outbox. Pickup continua disponível para desenvolvimento e compatibilidade.
+O [runbook](../../operations/resend.md) define configuração por segredo do worker, falha fechada para
+configuração inválida, limite de deduplicação do provedor (24 h), aceite versus entrega e rollback sem
+consumir pendências externas com pickup. A revisão humana e ativação operacional continuam separadas.
