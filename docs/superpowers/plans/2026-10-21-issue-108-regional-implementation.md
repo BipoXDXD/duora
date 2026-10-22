@@ -397,3 +397,14 @@ armazenamento/orçamento e G2/G3/G5 seguem pendentes. Nenhum endereço privado �
 Sem base IPinfo real, ativação do detector/atualizador, alertas reais, implantação ou EUA habilitados.
 Testes pesados executam somente no CI; evidências efetivas ficam no PR e no relatório de validação.
 Consulte [o procedimento operacional](../../operations/ipinfo-country.md).
+
+
+## Execução autorizada — etapa 10, 22/10/2026
+
+Autorizados homologação técnica e abertura de PR, com testes pesados exclusivamente no CI. Implementação
+limitada a testes de ensaio sintético e documentação: [relatório](../../testing/reports/2026-10-22-regional-homologation.md),
+[matriz integrada](../../testing/regional-matching.md#homologação-integrada--etapa-10) e
+[roteiro](../../operations/regional-matching.md#homologação-e-release--etapa-10).
+Não autoriza implantação, corte V3, detector/atualizador, alertas reais ou EUA. #108 permanece aberta.
+G2/G3/G4/G5 mantêm os aceites operacionais explícitos no roteiro; titular/Gmail privado já designados e sem
+substituto por enquanto. O plano histórico acima não substitui essas decisões posteriores.

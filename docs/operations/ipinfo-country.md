@@ -137,3 +137,12 @@ mantém schema aditivo e serviços desligados. A #108 permanece aberta e US pert
 - [MaxMind.Db 5.2.0](https://www.nuget.org/packages/MaxMind.Db/5.2.0) e [licença do leitor](https://github.com/maxmind/MaxMind-DB-Reader-dotnet/blob/v5.2.0/LICENSE).
 - [Formato MaxMind DB](https://maxmind.github.io/MaxMind-DB/).
 - [IPinfo Lite e exportações](https://ipinfo.io/developers/ipinfo-lite-database): não substitui a homologação de country.mmdb.
+
+
+## Homologação técnica e reversão — etapa 10
+
+A [matriz integrada](../testing/regional-matching.md#homologação-integrada--etapa-10) e o
+[roteiro de release](regional-matching.md#homologação-e-release--etapa-10) consolidam os testes sintéticos.
+Não homologam arquivo real, precisão, acesso IPinfo, Gmail, storage, relógios entre hosts ou SLA de recuperação.
+Não há registro de serviços, job operacional ou nova coleta. Manter detector/atualizador/monitor desativados,
+sem enviar alerta real; a homologação operacional exige autorização própria e os gates G2/G3/G5 acima.

@@ -208,3 +208,20 @@ jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 `identity.selfie_verifications`: ID interno, titular, estado, política e datas; referência de sessão e feedback transitórios removidos após 24h. Sem imagens, templates, idade, documentos ou scores no banco/outbox/log. A exclusão física futura de contas deve remover estas linhas; não há implementação de exclusão física no produto atual.
 
 AWS recebe vídeo de captura diretamente do SDK; o worker obtém frame de referência em memória para brilho/nitidez/pose (DEFAULT). AuditImagesLimit=0, sem S3/OutputConfig. Prazo contratual no fornecedor, opt-out de uso secundário, DPA, região e transferências precisam ser homologados antes de Enabled=true. Expiração de sessão não prova exclusão contratual. Credenciais temporárias STS ficam apenas em memória do navegador e não vão para URL/storage/telemetria.
+
+
+## Região declarada, preferência e sugestão — ADR-0033 / etapa 10
+
+| Dado | Finalidade/acesso | Persistência e minimização |
+|---|---|---|
+| País/subdivisão declarados | Perfil, fornecidos pela pessoa | Profiles; ambos opcionais, BR + 27 UFs no catálogo executável; sem coordenadas/cidade/CEP |
+| Modo e países desejados | Compatibilidade bilateral; somente titular e projeção interna mínima de Matching | `profiles.regional_preferences` e `regional_preference_countries`; P3, nunca DTO de terceiro; ausência é pending, sem inferência |
+| IP para sugestão futura | Consulta local opcional de país; não participa do matching | Detector desativado. Se autorizado futuramente, IP apenas transitório, sem histórico, hash ou envio ao fornecedor; logs não recebem IP/país por pessoa |
+| Resultado detectado | Sugestão temporária sujeita a escolha manual | Não persiste; não substitui rascunho manual nem altera perfil, preferência, locale ou idiomas |
+| Base e eventos operacionais | Integridade, disponibilidade e recuperação | Sem dados de participantes; artefatos até 14 versões/14 dias, metadados sanitizados 90 dias; cópia privada até duas versões nos mesmos prazos, ainda sem adaptador real |
+
+A futura exclusão física de contas deve remover também preferência e países associados; essa exclusão ainda
+não está implementada e requer aceite próprio, como as demais linhas deste mapa. Esta etapa não autoriza
+retenção adicional de dados pessoais. A classificação não resolve as lacunas jurídicas já registradas neste
+mapa. Titular e Gmail privado foram designados sem publicação do endereço; não há envio real. Ensaios usam
+somente dados sintéticos; homologação de fornecedor, transporte, cobertura e armazenamento continua pendente.

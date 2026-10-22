@@ -100,3 +100,16 @@ Todo caso de uso coordenado adquire locks nesta ordem; quem descobre recurso for
 
 Nenhuma chamada a e-mail, storage, processamento externo ou webhook de terceiro acontece enquanto os locks de negócio estão
 mantidos. O protocolo de cada cenário está em [concurrency.md](../data/concurrency.md).
+
+
+## Homologação regional — etapa 10
+
+Profiles mantém declaração e preferência privada separadas; Matching V3 consome país/aceitação após as
+guardas existentes, sem detector, rede ou consulta MMDB na transação. Operations possui manifestos, ponteiro,
+leases, incidentes e retenção; os serviços de base não são registrados em Web/Worker. A Web continua usando
+`DisabledCountryLookup`; os contratos de notificação/archive não têm adaptador operacional.
+
+Release de servidor/worker deve preceder SPA. Retirar todos os escritores/consumidores sem guardas antes de
+qualquer corte V3. Pausa de novos pares, preservação de dados e correção para frente são o procedimento de
+reversão; nunca selecionar V2 irrestrito para contornar defeito regional. [Matriz](../testing/regional-matching.md#homologação-integrada--etapa-10)
+e [runbook](../operations/regional-matching.md#homologação-e-release--etapa-10).
