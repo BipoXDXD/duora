@@ -86,6 +86,19 @@ com imagem pré-carregada e perfil/pin correspondentes. Sem conjunto seguro,
 parar consumo e manter upload desligado; nunca recolocar decode no Worker.
 Este PR prepara publicação candidata e não executa rollback operacional.
 
+Após a prova nativa, `media-host-instrumentation-<arquitetura>-<attempt>` preserva
+por90dias os dois diretórios compilados da instrumentação sintética e
+`global.json`, com a estrutura necessária para localizar o baseline. A compilação
+ocorre antes da etapa que recebe a licença; o artefato não inclui diretórios de
+autenticação, licença, configuração de host ou o workspace inteiro. Isso permite
+repetir o corpus no host autorizado sem compilar no Mac ou na VPS.
+Selecionar somente artefatos da execução/tentativa/commit qualificados e da
+arquitetura correta, conferir integridade e caminhos antes de extrair e executar
+como cliente sem acesso Docker, em grupo de recursos limitado. A instrumentação
+contém o decoder de baseline apenas para comparação sintética; não é imagem de
+produto, substituto do Worker ou parte do pacote fechado de oito arquivos.
+Sua presença não comprova ensaio, capacidade ou backup e não autoriza instalação.
+
 Referências técnicas: [BuildKit secrets](https://docs.docker.com/build/building/secrets/),
 [imagetools inspect](https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/)
 e [imagetools create](https://docs.docker.com/reference/cli/docker/buildx/imagetools/create/).
