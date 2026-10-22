@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Duora.Infrastructure.Geolocation;
 using Duora.IntegrationTests.Geolocation;
@@ -6,7 +7,7 @@ namespace Duora.Tools.IpinfoG2;
 
 internal static class SelfTest
 {
-    public static int Run()
+    public static async Task<int> RunAsync()
     {
         try
         {
@@ -17,6 +18,7 @@ internal static class SelfTest
             Reject(() => (profile with { TimeoutSeconds = 0 }).Validate("inventory"));
             Reject(() => (profile with { Authorization = "" }).Validate("inventory"));
             Reject(() => (profile with { RedirectHosts = ["example.invalid"] }).Validate("inventory"));
+            Reject(() => (profile with { TimeoutSeconds = 601 }).Validate("inventory"));
             Reject(() => profile.Validate("validate"));
             Reject(() => (profile with { DatabaseType = "observed", ExpectedSha256 = "bad" }).Validate("validate"));
             profile.Validate("inventory");
@@ -51,6 +53,25 @@ internal static class SelfTest
             Reject(() => G2Evidence.Measure(bytes, now, profile with { MaxBytes = 1 }, "inventory", CancellationToken.None));
             Reject(() => G2Evidence.Measure(bytes, now, profile with { MaxNetworks = 1 }, "inventory", CancellationToken.None));
             Reject(() => G2Profile.Parse(JsonSerializer.Serialize(profile).Replace("\"MaxBytes\":1048576", "\"MaxBytes\":1048576,\"Unknown\":1", StringComparison.Ordinal), "inventory"));
+            Reject(() => G2Profile.Parse("{\"MaxBytes\":1,\"MaxBytes\":2}", "inventory"));
+            var root = Path.Combine(Path.GetTempPath(), "g2-synthetic-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                using var success = new SyntheticHandler(bytes);
+                var downloaded = await G2Rehearsal.RunAsync(profile, "inventory", "synthetic-secret-canary", root, success);
+                Ensure(downloaded.Sha256 == inventory.Sha256 && !Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Any());
+                using var failure = new SyntheticHandler(bytes);
+                try
+                {
+                    await G2Rehearsal.RunAsync(approved with { ExpectedSha256 = new string('0', 64) }, "validate",
+                        "synthetic-secret-canary", root, failure);
+                    throw new InvalidOperationException("Wrong snapshot accepted.");
+                }
+                catch (G2Failure error) when (error.Code == "HashMismatch") { }
+                Ensure(!Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Any());
+            }
+            finally
+            { Directory.Delete(root, recursive: true); }
             Console.WriteLine("G2 synthetic checks passed; no provider access or gate acceptance.");
             return 0;
         }
@@ -72,5 +93,16 @@ internal static class SelfTest
         try { action(); }
         catch (G2Failure) { return; }
         throw new InvalidOperationException("Invalid rehearsal profile was accepted.");
+    }
+
+    private sealed class SyntheticHandler(byte[] bytes) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Ensure(request.RequestUri?.AbsoluteUri == IpinfoLiteSchema.Source
+                && request.Headers.Authorization?.Scheme == "Bearer"
+                && request.Headers.Authorization.Parameter == "synthetic-secret-canary");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+        }
     }
 }
