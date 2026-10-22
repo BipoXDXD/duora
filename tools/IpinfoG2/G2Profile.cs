@@ -8,6 +8,8 @@ internal sealed record G2Profile(
     string[] RedirectHosts, string? DatabaseType = null, string? ExpectedSha256 = null)
 {
     private const string ApprovalPrefix = "https://github.com/BipoXDXD/duora/issues/108#issuecomment-";
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow };
     private static readonly HashSet<string> DocumentedHosts = new(StringComparer.Ordinal)
     { "ipinfo.io", "dl.assets.ipinfo.io", "dl.ipinfo.io", "storage.googleapis.com" };
 
@@ -20,8 +22,7 @@ internal sealed record G2Profile(
                 || document.RootElement.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count()
                     != document.RootElement.EnumerateObject().Count())
             { throw new G2Failure("Configuration"); }
-            var profile = document.Deserialize<G2Profile>(new JsonSerializerOptions
-            { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow }) ?? throw new G2Failure("Configuration");
+            var profile = document.Deserialize<G2Profile>(JsonOptions) ?? throw new G2Failure("Configuration");
             profile.Validate(mode);
             return profile;
         }

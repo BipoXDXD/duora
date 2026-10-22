@@ -1,6 +1,6 @@
+using System.Text.Json;
 using Duora.Infrastructure.Geolocation;
 using Duora.IntegrationTests.Geolocation;
-using System.Text.Json;
 
 namespace Duora.Tools.IpinfoG2;
 
