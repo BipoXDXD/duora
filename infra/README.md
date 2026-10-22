@@ -183,3 +183,17 @@ resolve a arquitetura pelo daemon Docker ativo, força a saída nativa e inspeci
 carregar uma variante estrangeira no Docker local. Não muda o manifesto nem o executor de deploy.
 Os testes de `scripts/deploy/test_docker_build.py` entram na descoberta existente do gate de infraestrutura.
 O CI existente continua usando runners nativos de ambas as arquiteturas.
+
+### Referências de release AMD64 + ARM64
+
+Após os dois builds nativos, scans e drills, `Publish release images` reúne os
+mesmos digests em índices do GHCR para `web`, `worker`, `migrator`, `edge` e
+`postgres`. A tag de release é `<commit>-<run-id>-<attempt>`; ela resolve
+`linux/amd64` e `linux/arm64` automaticamente. As tags com sufixo de arquitetura
+são entradas intermediárias de proveniência. O deploy restrito continua recebendo
+o artefato nativo por digest, sem rebuild nem mudança de schema.
+
+O job `indexes` valida identidade de commit/CI/run, configurações reais das imagens
+e os dois descritores aprovados antes e depois da publicação. A evidência fica no
+artefato `release-multiarch-<attempt>`. Falta, duplicação ou troca de arquitetura
+reprova a publicação completa e impede sua promoção pelo pipeline.
