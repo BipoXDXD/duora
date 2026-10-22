@@ -7,6 +7,7 @@
   "reportMissingTypeStubs": "none",
   "extraPaths": [
     ".",
+    "../media",
     "../../infra/ansible/roles/docker/files"
   ]
 }
