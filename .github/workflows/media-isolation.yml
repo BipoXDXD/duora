@@ -1,0 +1,112 @@
+# Dedicated hosted-runner proof for ADR-0036; never deploys or accesses production secrets.
+name: Media isolation
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/media-isolation.yml'
+      - 'scripts/media/**'
+      - 'scripts/deploy/test_media_launcher.py'
+      - 'infra/images/media-sanitizer/**'
+      - 'backend/src/Duora.MediaSanitizer/**'
+      - 'backend/src/Duora.MediaProtocol/**'
+      - 'backend/src/Duora.Worker/Media/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/media-isolation.yml'
+      - 'scripts/media/**'
+      - 'infra/images/media-sanitizer/**'
+      - 'backend/src/Duora.MediaSanitizer/**'
+      - 'backend/src/Duora.MediaProtocol/**'
+      - 'backend/src/Duora.Worker/Media/**'
+permissions:
+  contents: read
+concurrency:
+  group: media-isolation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rootless:
+    name: rootless (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Native architecture and dedicated rootless prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual=$(uname -m)
+          case '${{ matrix.arch }}:$actual' in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          sudo apt-get update -qq
+          sudo apt-get install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
+          sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
+          uid=$(id -u duora-sanitizer-ci)
+          sudo mkdir -p /etc/systemd/system/user@.service.d
+          echo -e '[Service]\nDelegate=cpu cpuset io memory pids' | sudo tee /etc/systemd/system/user@.service.d/duora-ci.conf >/dev/null
+          sudo systemctl daemon-reload
+          # Ubuntu hosted-runner user namespaces only; the Mac and application hosts are never touched.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo loginctl enable-linger duora-sanitizer-ci
+          sudo systemctl start "user@$uid.service"
+          sudo -u duora-sanitizer-ci env HOME=/home/duora-sanitizer-ci XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" dockerd-rootless-setuptool.sh install --force
+          for attempt in $(seq 1 30); do
+            if sudo -u duora-sanitizer-ci docker --host "unix:///run/user/$uid/docker.sock" info >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          sudo chmod 600 "/run/user/$uid/docker.sock"
+          echo "LAUNCHER_UID=$uid" >> "$GITHUB_ENV"
+          echo "WORKER_UID=$(id -u)" >> "$GITHUB_ENV"
+          sudo -u duora-sanitizer-ci docker --host "unix:///run/user/$uid/docker.sock" info --format '{{json .}}' > "$RUNNER_TEMP/rootless-info.json"
+          python3 - "$RUNNER_TEMP/rootless-info.json" <<'PY'
+          import json, sys
+          data=json.load(open(sys.argv[1]))
+          assert data['CgroupVersion']=='2' and data['CgroupDriver']=='systemd'
+          assert any('rootless' in item for item in data['SecurityOptions'])
+          assert any('seccomp' in item and 'unconfined' not in item for item in data['SecurityOptions'])
+          PY
+      - name: Enforce actual candidate cgroups before launcher integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='mcr.microsoft.com/dotnet/sdk:10.0.402-noble@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa'
+          host="unix:///run/user/$LAUNCHER_UID/docker.sock"
+          sudo -u duora-sanitizer-ci docker --host "$host" pull "$image"
+          sudo -u duora-sanitizer-ci docker --host "$host" run --rm --pull never --network none --read-only \
+            --user 1654:1654 --cap-drop ALL --security-opt no-new-privileges \
+            --memory 536870912 --memory-swap 536870912 --cpus 1 --pids-limit 64 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16777216 --entrypoint /bin/sh "$image" -c \
+            'test "$(cat /sys/fs/cgroup/memory.max)" = 536870912 && test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0 && test "$(cat /sys/fs/cgroup/pids.max)" = 64 && test "$(cat /sys/fs/cgroup/cpu.max)" = "100000 100000" && grep -q "Seccomp:.*2" /proc/self/status && grep -q "NoNewPrivs:.*1" /proc/self/status'
+      # The preparatory PR establishes real runner prerequisites; S2 adds this harness in its own PR.
+      - name: Real launcher and sanitizer fault matrix
+        if: ${{ hashFiles('scripts/media/test_sanitizer_isolation.py') != '' }}
+        run: |
+          sudo python3 scripts/media/test_sanitizer_isolation.py \
+            --launcher-uid "$LAUNCHER_UID" --worker-uid "$WORKER_UID" \
+            --report "$RUNNER_TEMP/media-isolation.json"
+      - name: Sanitized evidence
+        if: ${{ always() && hashFiles('scripts/media/test_sanitizer_isolation.py') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: media-isolation-${{ matrix.arch }}
+          path: ${{ runner.temp }}/media-isolation.json
+          retention-days: 1
+          if-no-files-found: error
+      - name: Dispose dedicated runtime
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          uid=$(id -u duora-sanitizer-ci 2>/dev/null) || exit 0
+          sudo -u duora-sanitizer-ci env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            systemctl --user stop docker.service || true
+          sudo loginctl terminate-user duora-sanitizer-ci || true
