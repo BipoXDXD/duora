@@ -419,3 +419,19 @@ e G2/G3/G5 seguem pendentes. Nenhum endereço privado é registrado no código.
 Sem base IPinfo real, ativação do detector/atualizador, alertas reais, implantação ou EUA habilitados.
 Testes pesados executam somente no CI; evidências efetivas ficam no PR e no relatório de validação.
 Consulte [o procedimento operacional](../../operations/ipinfo-country.md).
+
+
+## Adendo de 22/10/2026 — plano de homologação operacional aprovado
+
+O responsável aprovou o [plano de homologação operacional da #108](../../superpowers/plans/2026-10-22-issue-108-operational-homologation.md)
+e autorizou seu registro no repositório/issue e a abertura de PR documental. O plano delimita evidências,
+pendências e aprovações próprias para G2 (base/perfil real), G3 (capacidade operacional), G4 (filtro manual e
+transição V3) e G5 (recuperação e release). G4 pode avançar independentemente da detecção por IP.
+
+A aprovação é do planejamento: não constitui aceite dos gates nem autorização para download real,
+provisionamento, migrações, implantação, configuração do corte ou ativação de serviços. Detector, atualizador e monitor permanecem desativados;
+BR + 27 UFs continuam sendo o catálogo executável, sem EUA e sem envio de alertas reais. A #108 fica aberta.
+Titular/Gmail privado já definidos, sem substituto por enquanto; cobertura/contingência, armazenamento,
+identidade mínima de manutenção e comprovação de entrega continuam pendentes. Simulação não comprova
+transporte real: essa parte de G3/G5 fica pendente enquanto envio real estiver proibido. Testes pesados
+somente no CI remoto ou ambiente de homologação autorizado, sem carga pesada no Mac.
