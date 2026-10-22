@@ -81,7 +81,7 @@ class SupersededReleaseTests(unittest.TestCase):
 
 class ConsistentJobViewTests(unittest.TestCase):
     def setUp(self):
-        self.run = {
+        self.ci_run = {
             'id': 101, 'run_attempt': 1, 'head_sha': SHA, 'head_branch': 'main',
             'event': 'push', 'path': '.github/workflows/ci.yml',
             'head_repository': {'full_name': 'BipoXDXD/duora'},
@@ -103,7 +103,7 @@ class ConsistentJobViewTests(unittest.TestCase):
                 return {'sha': SHA}
             if path.endswith('/actions/runs/101'):
                 run_reads += 1
-                return later_run if later_run is not None and run_reads > 1 else self.run
+                return later_run if later_run is not None and run_reads > 1 else self.ci_run
             if path.endswith('/actions/runs/101/attempts/1/jobs?per_page=100'):
                 jobs = next(views)
                 return {'total_count': len(jobs), 'jobs': jobs}
@@ -160,7 +160,7 @@ class ConsistentJobViewTests(unittest.TestCase):
         for change in [{'run_attempt': 2}, {'head_sha': 'b' * 40}, {'id': 102},
                        {'status': 'in_progress', 'conclusion': None}]:
             with self.subTest(change=change):
-                output, _, _, error = self.execute([self.pending, self.jobs], later_run={**self.run, **change})
+                output, _, _, error = self.execute([self.pending, self.jobs], later_run={**self.ci_run, **change})
                 self.assertIsInstance(error, ValueError)
                 self.assertFalse(output.exists())
 
