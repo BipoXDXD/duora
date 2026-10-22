@@ -165,7 +165,7 @@ public sealed class SanitizerProtocolTests
     [Fact]
     public async Task ResponseCannotExceedTheRestrictedTotalBudgetOrContainTrailingData()
     {
-        var request = Request with { Budget = ProtocolBudget.Candidate with { TotalBytes = 35 } };
+        var request = Request with { Budget = ProtocolBudget.Candidate with { TotalBytes = 95 } };
         await using var excessive = new MemoryStream(SuccessVector(request));
         await Assert.ThrowsAsync<InvalidDataException>(() => SanitizerProtocol.ReadResponseAsync(excessive, request, Ct));
         await using var extra = new MemoryStream([.. SuccessVector(Request), 0]);
@@ -184,9 +184,55 @@ public sealed class SanitizerProtocolTests
         }
     }
 
-    private static byte[] WebpHeader() => [.. "RIFF"u8, 4, 0, 0, 0, .. "WEBP"u8];
+    // Coherent RIFF/VP8 headers, without a decodable entropy stream. Full images use the integration corpus.
+    private static byte[] WebpHeader() =>
+        [.. "RIFF"u8, 24, 0, 0, 0, .. "WEBPVP8 "u8, 12, 0, 0, 0, 16, 0, 0, 0x9d, 1, 0x2a, 40, 0, 20, 0, 0, 0];
 
-    private static byte[] SuccessVector(SanitizerRequest request)
+    [Fact]
+    public async Task DuplicateFrameKindsCannotSatisfyTheThreeFrameRequirement()
+    {
+        var bytes = SuccessVector(Request);
+        bytes[141] = 1;
+        await using var input = new MemoryStream(bytes);
+        await Assert.ThrowsAsync<InvalidDataException>(() => SanitizerProtocol.ReadResponseAsync(input, Request, Ct));
+    }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(16)]
+    [InlineData(23)]
+    [InlineData(26)]
+    public async Task ImageFramingAndDimensionsMustAgreeEvenWhenPayloadHashMatches(int offset)
+    {
+        var payload = WebpHeader();
+        payload[offset]++;
+        await using var input = new MemoryStream(SuccessVector(Request, payload));
+        await Assert.ThrowsAsync<InvalidDataException>(() => SanitizerProtocol.ReadResponseAsync(input, Request, Ct));
+    }
+
+    [Theory]
+    [InlineData("EXIF")]
+    [InlineData("XMP ")]
+    [InlineData("ICCP")]
+    [InlineData("ANIM")]
+    [InlineData("ZZZZ")]
+    public async Task AValidTransportHashDoesNotAuthorizeMetadataOrUnknownImageChunks(string chunk)
+    {
+        var payload = WebpHeader().Concat(System.Text.Encoding.ASCII.GetBytes(chunk)).Concat(new byte[4]).ToArray();
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(4), (uint)(payload.Length - 8));
+        await using var input = new MemoryStream(SuccessVector(Request, payload));
+        await Assert.ThrowsAsync<InvalidDataException>(() => SanitizerProtocol.ReadResponseAsync(input, Request, Ct));
+    }
+
+    [Fact]
+    public async Task AnEmptyRiffContainerCannotMasqueradeAsASanitizedImage()
+    {
+        byte[] payload = [.. "RIFF"u8, 4, 0, 0, 0, .. "WEBP"u8];
+        await using var input = new MemoryStream(SuccessVector(Request, payload));
+        await Assert.ThrowsAsync<InvalidDataException>(() => SanitizerProtocol.ReadResponseAsync(input, Request, Ct));
+    }
+
+    private static byte[] SuccessVector(SanitizerRequest request, byte[]? content = null)
     {
         using var output = new MemoryStream();
         using var writer = new BinaryWriter(output);
@@ -200,7 +246,7 @@ public sealed class SanitizerProtocolTests
         writer.Write(20);
         writer.Write((byte)3);
         // A framing-only payload; image decoding is exercised separately against the full synthetic corpus.
-        var payload = WebpHeader();
+        var payload = content ?? WebpHeader();
         for (byte kind = 1; kind <= 3; kind++)
         {
             writer.Write(kind);
