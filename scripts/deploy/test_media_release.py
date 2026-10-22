@@ -59,6 +59,7 @@ class MediaReleaseTests(unittest.TestCase):
                                                   "version": 1, "components": []})
         self.proof: dict[str, Any] = {
             "architecture": "x86_64", "candidateOnly": True, "complete": True,
+            "imageReference": IMAGE, "profileSha256": Profile.from_dict(self.profile, 1002).digest,
             "cases": [{"name": name, "passed": True, "milliseconds": 1.0} for name in CASE_NAMES],
             "images": {"sanitizer": CONFIG, "isolation-probe": "sha256:" + "d" * 64},
             "runtime": {"ServerVersion": "synthetic-test", "CgroupDriver": "systemd", "CgroupVersion": "2"},
@@ -207,6 +208,8 @@ class MediaReleaseTests(unittest.TestCase):
                        lambda proof: proof["cases"].append(proof["cases"][0]),
                        lambda proof: proof["cases"][0].update(passed=False),
                        lambda proof: proof["images"].update(sanitizer="sha256:" + "f" * 64),
+                       lambda proof: proof.update(imageReference="ghcr.io/attacker/image@sha256:" + "f" * 64),
+                       lambda proof: proof.update(profileSha256="f" * 64),
                        lambda proof: proof.update(kernelOomObserved=False),
                        lambda proof: proof.update(writableRootNegativeControl=False),
                        lambda proof: proof["effectiveControls"].update(memory="max"),
@@ -218,6 +221,18 @@ class MediaReleaseTests(unittest.TestCase):
             self.reseal("isolation.json")
             with self.subTest(proof=proof), self.assertRaises(ValueError):
                 self.verify()
+
+    def test_bundle_directory_links_and_external_hardlinks_are_refused(self):
+        alias = self.bundle.parent / "alias"
+        os.symlink(self.bundle, alias)
+        original = self.bundle
+        self.bundle = alias
+        with self.assertRaises(ValueError):
+            self.verify()
+        self.bundle = original
+        os.link(self.bundle / "launcher.py", self.bundle.parent / "external-hardlink.py")
+        with self.assertRaises(ValueError):
+            self.verify()
 
     def test_valid_bom_and_exact_positive_run_attempt_references_are_required(self):
         for value in [{"run": True, "attempt": 1}, {"run": 101, "attempt": 0},
