@@ -110,19 +110,26 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
     }
 
     [Theory]
-    [InlineData(-6)]
-    [InlineData(-5)]
-    [InlineData(1)]
-    public async Task CriticalAuthorizationRequiresRecentTotpAndNotOnlyRecoveryCode(int minutes)
+    [InlineData("Decide", -6)]
+    [InlineData("Decide", -5)]
+    [InlineData("Decide", 1)]
+    [InlineData("Appeal", -6)]
+    [InlineData("Appeal", -5)]
+    [InlineData("Appeal", 1)]
+    [InlineData("Preserve", -6)]
+    [InlineData("Preserve", -5)]
+    [InlineData("Preserve", 1)]
+    public async Task CriticalAuthorizationRequiresRecentTotpAndNotOnlyRecoveryCode(string capabilityName, int minutes)
     {
+        var capability = Enum.Parse<PhotoReviewCapability>(capabilityName);
         var actor = await ReadyActorAsync();
-        Assert.True(await ChangeAsync(actor.UserId, PhotoReviewCapability.Decide, enabled: true));
+        Assert.True(await ChangeAsync(actor.UserId, capability, enabled: true));
         await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", actor.SessionId, _time.GetUtcNow().AddMinutes(minutes));
-        Assert.False(await AuthorizedAsync(actor, PhotoReviewCapability.Decide));
+        Assert.False(await AuthorizedAsync(actor, capability));
         await ExecuteAsync("update identity.login_sessions set totp_verified_at=null where id=$1", actor.SessionId);
-        Assert.False(await AuthorizedAsync(actor, PhotoReviewCapability.Decide));
+        Assert.False(await AuthorizedAsync(actor, capability));
         await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", actor.SessionId, _time.GetUtcNow().AddMinutes(-1));
-        Assert.True(await AuthorizedAsync(actor, PhotoReviewCapability.Decide));
+        Assert.True(await AuthorizedAsync(actor, capability));
     }
 
     [Fact]
@@ -298,6 +305,63 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
 
         Assert.Equal(2, await ScalarAsync("select count(*) from safety.photo_review_grants where user_id=$1", actor.UserId));
         Assert.False(await AuthorizedAsync(actor, PhotoReviewCapability.Evidence));
+    }
+
+    [Fact]
+    public async Task SessionExpiryWhileWaitingForAuthorizationIsCheckedAfterTheLock()
+    {
+        var actor = await ReadyActorAsync();
+        Assert.True(await ChangeAsync(actor.UserId, PhotoReviewCapability.Evidence, enabled: true));
+        await using var guard = new NpgsqlConnection(postgres.ConnectionString);
+        await guard.OpenAsync(Ct);
+        await using var guardTransaction = await guard.BeginTransactionAsync(Ct);
+        await using (var takeGuard = new NpgsqlCommand("""
+            select 1 from safety.user_guards where user_id=$1 for update
+            """, guard, guardTransaction))
+        {
+            takeGuard.Parameters.AddWithValue(actor.UserId);
+            Assert.Equal(1, await ScalarAsync("select count(*) from safety.user_guards where user_id=$1", actor.UserId));
+            await takeGuard.ExecuteNonQueryAsync(Ct);
+        }
+
+        await using var db = postgres.CreateDbContext();
+        await db.Database.OpenConnectionAsync(Ct);
+        await using var transaction = await db.Database.BeginTransactionAsync(Ct);
+        var pid = ((NpgsqlConnection)db.Database.GetDbConnection()).ProcessID;
+        var authorizing = new PhotoReviewAccess(db, _time).AuthorizeAsync(actor, PhotoReviewCapability.Evidence, Ct);
+        var released = false;
+        try
+        {
+            using var observation = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await using var observer = new NpgsqlConnection(postgres.ConnectionString);
+            await observer.OpenAsync(observation.Token);
+            var waiting = false;
+            while (!waiting)
+            {
+                await using var query = new NpgsqlCommand("select exists(select 1 from pg_stat_activity where pid=$1 and wait_event_type='Lock')", observer);
+                query.Parameters.AddWithValue(pid);
+                waiting = (bool)(await query.ExecuteScalarAsync(observation.Token))!;
+                if (!waiting)
+                {
+                    Assert.False(authorizing.IsCompleted);
+                    await Task.Delay(TimeSpan.FromMilliseconds(10), observation.Token);
+                }
+            }
+
+            _time.Advance(TimeSpan.FromMinutes(11));
+            await guardTransaction.CommitAsync(Ct);
+            released = true;
+            Assert.False(await authorizing.WaitAsync(TimeSpan.FromSeconds(5), Ct));
+        }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            if (!released)
+            {
+                await guardTransaction.RollbackAsync(cleanup.Token);
+            }
+            await authorizing.WaitAsync(cleanup.Token);
+        }
     }
 
     [Fact]
