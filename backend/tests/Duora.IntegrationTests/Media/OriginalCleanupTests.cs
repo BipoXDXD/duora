@@ -54,7 +54,9 @@ public sealed partial class MediaPipelineTests
         try
         {
             var waiting = Stopwatch.StartNew();
-            while (await media.ReadQuarantineAsync(upload) is not null && waiting.Elapsed < TimeSpan.FromSeconds(10))
+            while ((await media.ReadQuarantineAsync(upload) is not null
+                || await CountAsync("select count(*) from media.original_cleanup where upload_id = $1", photoId) != 0)
+                && waiting.Elapsed < TimeSpan.FromSeconds(10))
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(100), Cancellation);
             }
