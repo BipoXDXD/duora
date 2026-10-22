@@ -1,10 +1,10 @@
-extern alias worker;
+extern alias sanitizer;
 
 using System.Text;
 using Duora.Core.Media;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using worker::Duora.Worker.Media;
+using sanitizer::Duora.MediaSanitizer.Media;
 
 namespace Duora.IntegrationTests.Media;
 

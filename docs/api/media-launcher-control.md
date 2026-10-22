@@ -1,7 +1,7 @@
 # Controle local do sanitizador — candidato S2
 
 Implementação de ensaio do ADR-0036, sem instalação nem ativação. O Worker
-continua com a composição anterior até S3. O perfil `s2-candidate-v1` e as
+usa o adaptador isolado da S3, sem decoder local ou fallback. O perfil `s2-candidate-v1` e as
 imagens Debug sintéticas não constituem release ou homologação de produção.
 
 ## Autoridade e identidade
@@ -89,8 +89,39 @@ executa exclusivamente em runners descartáveis do Actions e mede enforcement
 real nas duas arquiteturas, falhas nativas e o executável sanitizador. O probe
 de falhas é uma imagem separada; não entra na imagem do sanitizador.
 
-S3 ainda precisa integrar o transporte no Worker, validar S1 antes do commit e
-retirar seu decoder. A revisão de segurança, release licenciada, orçamento
+S3 integra o transporte no Worker e valida S1 antes de devolver o resultado ao
+dispatcher; o ImageSharp permanece somente no executável sanitizador. A revisão de segurança, release licenciada, orçamento
 completo de launcher/daemon/buffers e homologação do host continuam gates de
 #174/#86 antes de qualquer instalação ou dados reais. Upload e filtro regional
 permanecem inativos.
+
+## Adaptador do Worker — candidato S3
+
+A seção `Media:Processing:Sanitizer` requer `LauncherSocket` absoluto, `LauncherUid`
+não root e `ProfileSha256` (64 dígitos hexadecimais) quando há política de processamento.
+O hash esperado é o digest canônico S2 do perfil local, que inclui a imagem imutável;
+não é escolhido pelo upload. O manifesto e a distribuição desse conjunto pertencem à S4.
+O cliente Linux verifica `SO_PEERCRED` do servidor antes de enviar qualquer original,
+e confere perfil, id e versão em toda resposta. Nenhuma API de runtime é exposta ao Worker.
+
+Sem política, launcher ausente não impede o startup. Com política configurada, uma
+consulta autenticada e compatível precede o consumo da fila; ausência, perfil divergente
+ou launcher bloqueado impedem prontidão. Falha posterior segue o retry limitado existente.
+
+`TotalTimeout` é candidato de 50 s e `CleanupTimeout` reserva 5 s dentro dele para
+cancelamento/consulta explícitos. O orçamento enviado só restringe o perfil: no máximo
+45 s, menos o tempo já gasto. `ControlTimeout` é 2 s no startup. `StorageCommitMargin`
+reserva 60 s; startup exige lease estritamente maior que total + margem (110 s no
+padrão, dentro dos 2 min existentes). A margem declarada não comprova latência de storage,
+capacidade ou homologação: #86/C1/C2 continuam necessários.
+
+Slot local ocupado falha imediatamente, sem fila adicional. Uma desconexão não prova
+cancelamento: o cliente usa a operação cancel e consulta o mesmo id. Estado desconhecido,
+running ou blocked nunca confirma limpeza; até finished, nenhuma nova tentativa é
+iniciada por esse adaptador. Finished só libera recuperação, nunca devolve sucesso antigo.
+O launcher mantém também sua exclusão global e recuperação durável após restart.
+
+O teste de integração usa o controle/journal S2 real e um processo sintético para
+exercitar protocolo, banco e storage. Isso não substitui as duas provas de contenção
+rootless nativa. P174-3/4 permanecem candidatos; não há instalação, ativação ou aprovação
+dos números para produção nesta entrega.

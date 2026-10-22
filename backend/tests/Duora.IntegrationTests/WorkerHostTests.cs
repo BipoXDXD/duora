@@ -1,5 +1,6 @@
 extern alias worker;
 
+using Duora.IntegrationTests.Media;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -190,6 +191,41 @@ public sealed class WorkerHostTests
         {
             root.Delete(recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task ConfiguredWorkerStartsOnlyWithACompatibleLauncher()
+    {
+        await using var launcher = new LauncherFixture();
+        await launcher.StartAsync(TestContext.Current.CancellationToken);
+        var root = Directory.CreateTempSubdirectory("duora-media-ready-");
+        try
+        {
+            using var host = BuildHost(new CanaryConnectionString().Value, null,
+            [
+                "--Media:Review=TechnicalOnly", "--Media:Storage:Provider=FileSystem",
+                $"--Media:Storage:FileSystemRoot={root.FullName}",
+                .. launcher.Arguments,
+            ]);
+            await host.StartAsync(TestContext.Current.CancellationToken);
+            await host.StopAsync(TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("00:01:49")]
+    [InlineData("00:01:50")]
+    public async Task LeaseMustCoverTheWholeEnvelopeAndStorageCommitReserve(string lease)
+    {
+        using var host = BuildHost(new CanaryConnectionString().Value, null,
+            $"--Media:Processing:LeaseDuration={lease}");
+        var error = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync(TestContext.Current.CancellationToken));
+        Assert.Contains("LeaseDuration", error.Message, StringComparison.Ordinal);
     }
 
     private static IHost BuildHost(string connectionString, CapturingLoggerProvider? logs, params string[] overrides)

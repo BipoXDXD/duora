@@ -17,9 +17,11 @@ public sealed class DependencyRulesTests
     private const string Infrastructure = "Duora.Infrastructure";
     private const string Web = "Duora.Web";
     private const string Worker = "Duora.Worker";
+    private const string MediaSanitizer = "Duora.MediaSanitizer";
+    private const string MediaProtocol = "Duora.MediaProtocol";
     private const string WebIdentity = "Duora.Web.Identity";
 
-    private static readonly string[] ProductionAssemblies = [Core, Contracts, Infrastructure, Web, WebIdentity, Worker];
+    private static readonly string[] ProductionAssemblies = [Core, Contracts, Infrastructure, Web, WebIdentity, Worker, MediaSanitizer, MediaProtocol];
 
     /// <summary>
     /// Core e Contracts só podem usar a BCL e abstrações do Microsoft.Extensions. Nenhum projeto Duora é permitido
@@ -45,8 +47,7 @@ public sealed class DependencyRulesTests
     }
 
     /// <summary>
-    /// ADR-0025: só o Worker decodifica imagem. O Web recebe bytes hostis e não pode carregar o decoder; um bug de
-    /// memória do decoder derruba no máximo o Worker.
+    /// ADR-0036: only the standalone sanitizer loads the decoder. Orchestration and protocol stay decoder-free.
     /// </summary>
     [Theory]
     [InlineData(Core)]
@@ -54,7 +55,9 @@ public sealed class DependencyRulesTests
     [InlineData(Infrastructure)]
     [InlineData(Web)]
     [InlineData(WebIdentity)]
-    public void OnlyTheWorkerReferencesTheImageDecoder(string assembly)
+    [InlineData(Worker)]
+    [InlineData(MediaProtocol)]
+    public void OnlyTheStandaloneSanitizerReferencesTheImageDecoder(string assembly)
     {
         Assert.DoesNotContain(ReferencesOf(assembly), name => name.StartsWith("SixLabors", StringComparison.Ordinal));
     }
@@ -66,10 +69,10 @@ public sealed class DependencyRulesTests
     }
 
     [Fact]
-    public void TheWorkerReferencesTheImageDecoder()
+    public void TheStandaloneSanitizerReferencesTheImageDecoder()
     {
         // Sentinela da regra acima: se o nome do assembly mudar, ela passaria à toa.
-        Assert.Contains("SixLabors.ImageSharp", ReferencesOf(Worker));
+        Assert.Contains("SixLabors.ImageSharp", ReferencesOf(MediaSanitizer));
     }
 
     [Fact]
@@ -109,6 +112,8 @@ public sealed class DependencyRulesTests
     [InlineData(Web)]
     [InlineData(WebIdentity)]
     [InlineData(Worker)]
+    [InlineData(MediaSanitizer)]
+    [InlineData(MediaProtocol)]
     public void TypesLiveUnderTheirAssemblyNamespace(string assembly)
     {
         var loaded = Assembly.Load(assembly);
