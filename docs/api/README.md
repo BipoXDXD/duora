@@ -229,3 +229,11 @@ isolado. Configurar localização e preferência são salvamentos independentes:
 conjunto; conflito 412 exige reler e escolher novamente. Não criar preferência a partir de perfil antigo,
 idioma, país sugerido ou tempo de espera. A UI manual existente serve contas antigas e novas, sem detector.
 Ver [roteiro de homologação e reversão](../operations/regional-matching.md#homologação-e-release--etapa-10).
+
+
+## Contrato documental de revisão humana — #173 / M0
+
+O [contrato consolidado](media-review.md) inventaria API-M01/M02 atuais e especifica estados, rotas futuras,
+autorização, retenção/recurso e o recorte faltante de API-M03/M04/T-26. É alvo de implementação M1–M7,
+sem endpoints, DTOs, OpenAPI ou tipos executáveis novos nesta entrega. AwaitingReview e PHOTO_REVIEW_*
+não são negociação de errors do ADR-0034. Upload permanece desligado.

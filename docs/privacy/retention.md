@@ -132,3 +132,13 @@ O worker executa lotes de até 1.000 por tabela, mantendo a identidade recorrent
 Falhas da retenção têm até oito tentativas e exigem retomada auditada após esgotar; nenhuma falha não
 revisada é descartada por idade. Revisão tem ator/data/motivo fechado e permanece na auditoria após expurgo.
 Veja [o procedimento operacional](../operations/retention.md), incluindo ativação e rollback.
+
+
+## Revisão humana de fotos — contrato M0, implementação pendente
+
+Os prazos aceitos do ADR-0035 estão detalhados no [contrato de revisão](../api/media-review.md#relógio-recurso-retenção-e-perda-de-bytes),
+incluindo intervalo UTC, recurso versus limpeza e teto de30dias sem aprovação automática. O registro mínimo
+de decisão/auditoria é de1ano, sem imagem/texto sensível; candidato privado fica fora do backup de mídia,
+mas metadados seguem no backup do banco. Preservação excepcional continua exigindo escopo e vencimento
+explícitos; recurso não cria hold ilimitado. Jobs, tombstones e reconciliação editorial ainda não estão
+implementados. Esta referência não muda retenção executável nem autoriza expurgo, coleta ou ativação.

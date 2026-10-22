@@ -194,3 +194,13 @@ TLS, Slack/MCP e atualização sem prometer latência. No Duora, até 6,8 vCPU c
 coletor e emissor (tetos, não reservas). O perfil remoto recusa containers do produto no host do
 gateway; não usar nomes alternativos para contornar a separação. Não hospedar browser/processamento externo/builds.
 As constantes são conciliadas com Compose/units no teste existente, sem mudar workflows/gates.
+
+
+## Baseline S0 do sanitizador — recursos ainda candidatos
+
+O [ensaio sintético](../testing/reports/media-sanitizer-resource-envelope.md) mede o sanitizador atual
+em processos filhos novos no GitHub Actions, separado da geração da entrada. RSS inclui runtime/entrada;
+cgroup herdado é contexto compartilhado, não pico atribuível ao filho. Não é capacidade do Worker real
+nem enforcement do futuro sandbox. scripts/media/sanitizer-profile-v1.json é referência de candidatos,
+sem alterar gates8512/3456MiB ou permitir instalação. Launcher/daemon/buffers e backup concorrente exigem
+S1–S3/C1–C2; nenhum número candidato fica homologado só porque o corpus passou.
