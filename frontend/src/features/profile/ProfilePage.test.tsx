@@ -463,7 +463,9 @@ it('edits US subdivisions and clears them when changing country', async () => {
   expect(within(region).queryByRole('option', { name: 'São Paulo' })).not.toBeInTheDocument()
   await user.selectOptions(region, 'US-DC')
   await user.click(screen.getByRole('button', { name: 'Salvar perfil' }))
-  await waitFor(() => expect(api.patches).toHaveLength(1))
+  await waitFor(() => {
+    expect(api.patches).toHaveLength(1)
+  })
   expect(api.patches[0]).toEqual({ ifMatch: '"1"', body: { countryCode: 'US', subdivisionCode: 'US-DC' } })
   await user.selectOptions(country, 'BR')
   expect(region).toHaveValue('')

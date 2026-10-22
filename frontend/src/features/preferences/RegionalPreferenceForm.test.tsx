@@ -334,10 +334,14 @@ it('saves US independently and both enabled countries without inferring Brazil',
   await user.selectOptions(await screen.findByRole('combobox', { name: 'Preferência regional' }), 'countries')
   await user.click(screen.getByRole('checkbox', { name: 'Estados Unidos' }))
   await user.click(screen.getByRole('button', { name: 'Salvar preferência regional' }))
-  await waitFor(() => expect(api.writes).toHaveLength(1))
+  await waitFor(() => {
+    expect(api.writes).toHaveLength(1)
+  })
   expect(api.writes[0]).toEqual({ mode: 'countries', countryCodes: ['US'] })
   await user.click(screen.getByRole('checkbox', { name: 'Brasil' }))
   await user.click(screen.getByRole('button', { name: 'Salvar preferência regional' }))
-  await waitFor(() => expect(api.writes).toHaveLength(2))
+  await waitFor(() => {
+    expect(api.writes).toHaveLength(2)
+  })
   expect(api.writes[1]).toEqual({ mode: 'countries', countryCodes: ['BR', 'US'] })
 })
