@@ -253,3 +253,15 @@ class ControlSocketTests(unittest.IsolatedAsyncioTestCase):
         writer.close(); await writer.wait_closed()
         self.assertFalse(self.runtime.started.is_set())
         await self.server.close()
+
+
+class RuntimeSafetyTests(unittest.TestCase):
+    def test_launcher_has_no_fallback_to_shared_or_rootful_runtime(self):
+        from docker_runtime import DockerRuntime
+        with tempfile.TemporaryDirectory() as directory:
+            cfg=configuration(); cfg['journal_directory']=directory
+            runtime=DockerRuntime(Profile.from_dict(cfg,1002))
+            self.assertEqual(["/usr/bin/docker","--config",str(Path(directory)/"cli"),"--host","unix:///run/user/1002/docker.sock"],runtime.prefix)
+            self.assertNotIn("DOCKER_HOST",runtime.environment)
+            self.assertNotIn("AWS_ACCESS_KEY_ID",runtime.environment)
+            self.assertEqual("/nonexistent",runtime.environment['HOME'])
