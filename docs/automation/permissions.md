@@ -22,7 +22,19 @@ do responsável técnico.
 | Consultar dados de participantes | Proibido por padrão | Só serviço autorizado à finalidade | Acesso excepcional auditado |
 | Deploy em homologação | Via pipeline | Automático após os gates | Não exige acesso SSH amplo |
 | Deploy em produção | Não diretamente | Executor restrito | Gate de release no piloto |
+| Cancelar, desativar ou reexecutar CI/release | Não por inferência de escopo da tarefa | Somente regras versionadas e procedimentos aprovados | Cancelamento administrativo: solicitação explícita e específica do responsável técnico ou procedimento de incidente previamente aprovado |
 | Banir permanentemente, decidir recurso ou aprovar evidência sensível | Proibido autonomamente | Preparar triagem | Responsável humano |
+
+## Publicação aprovada e limites da tarefa
+
+“Não fazer deploy”, “somente código” ou “sem instalação/ativação” limitam as ações diretas do trabalho de
+código. Essas restrições não revogam uma publicação automática autorizada separadamente e não concedem
+permissão para cancelar, forçar cancelamento, desativar ou reexecutar a CI/release.
+
+O merge autorizado mantém a promoção sob os gates e o executor restrito já aprovados. Quando uma mudança
+não puder seguir por esse fluxo, a restrição deve ser alinhada antes do merge; não se corrige a divergência
+interrompendo a fila de outro trabalho. Acompanhar o estado não concede permissão de modificar execuções.
+A publicação também não amplia a autorização para instalar, ativar funcionalidades ou usar dados reais.
 
 ## Credenciais e ambientes
 
