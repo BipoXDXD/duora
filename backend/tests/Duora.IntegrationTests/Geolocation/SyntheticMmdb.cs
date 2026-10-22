@@ -7,12 +7,12 @@ namespace Duora.IntegrationTests.Geolocation;
 internal static class SyntheticMmdb
 {
     public const string DatabaseType = "synthetic-ipinfo-country";
+    public const string LiteDatabaseType = "synthetic-ipinfo-lite";
     private static readonly string[] Languages = ["en"];
     private static readonly byte[] Marker = [0xab, 0xcd, 0xef];
 
     public static byte[] Create(DateTimeOffset builtAt, string type = DatabaseType, string country = "BR", bool extraAsn = false)
     {
-        var root = new Node();
         var maps = new[]
         {
             new Dictionary<string, object> { ["country"] = country },
@@ -20,6 +20,32 @@ internal static class SyntheticMmdb
         };
         if (extraAsn)
         { maps[0]["asn"] = "AS0"; }
+        return Build(builtAt, type, maps);
+    }
+
+    public static byte[] CreateLite(DateTimeOffset builtAt, string type = LiteDatabaseType,
+        Action<Dictionary<string, object>>? configure = null)
+    {
+        var maps = new[]
+        {
+            new Dictionary<string, object>
+            {
+                ["country_code"] = "BR", ["country"] = "Brazil", ["continent_code"] = "SA", ["continent"] = "South America",
+                ["asn"] = "AS0", ["as_name"] = "synthetic-organization-canary", ["as_domain"] = "synthetic.example.invalid",
+            },
+            new Dictionary<string, object>
+            {
+                ["country_code"] = "US", ["country"] = "United States", ["continent_code"] = "NA", ["continent"] = "North America",
+                ["asn"] = "AS0", ["as_name"] = "synthetic-organization-canary", ["as_domain"] = "synthetic.example.invalid",
+            },
+        };
+        configure?.Invoke(maps[0]);
+        return Build(builtAt, type, maps);
+    }
+
+    private static byte[] Build(DateTimeOffset builtAt, string type, Dictionary<string, object>[] maps)
+    {
+        var root = new Node();
         Add(root, "192.0.2.0", 24, 0);
         Add(root, "203.0.113.0", 24, 1);
         Add(root, "2001:db8::", 32, 0);
