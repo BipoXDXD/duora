@@ -220,7 +220,8 @@ AWS recebe vídeo de captura diretamente do SDK; o worker obtém frame de refer�
 | Resultado detectado | Sugestão temporária sujeita a escolha manual | Não persiste; não substitui rascunho manual nem altera perfil, preferência, locale ou idiomas |
 | Base e eventos operacionais | Integridade, disponibilidade e recuperação | Sem dados de participantes; artefatos até 14 versões/14 dias, metadados sanitizados 90 dias; cópia privada até duas versões nos mesmos prazos, ainda sem adaptador real |
 
-A preferência privada segue o ciclo de exclusão da conta e os controles existentes; esta etapa não autoriza
+A futura exclusão física de contas deve remover também preferência e países associados; essa exclusão ainda
+não está implementada e requer aceite próprio, como as demais linhas deste mapa. Esta etapa não autoriza
 retenção adicional de dados pessoais. A classificação não resolve as lacunas jurídicas já registradas neste
 mapa. Titular e Gmail privado foram designados sem publicação do endereço; não há envio real. Ensaios usam
 somente dados sintéticos; homologação de fornecedor, transporte, cobertura e armazenamento continua pendente.

@@ -102,7 +102,10 @@ Contingência/cobertura, transporte comprovado e armazenamento/orçamento contin
    Texto proposto: “Escolha sua preferência de país para participar das novas rodadas. Sua localização e seus
    idiomas não serão alterados.” / “Choose your country preference to join new rounds. Your location and
    languages will not change.” Revisar comunicação e concluir configuração antes do corte, sem cadastro automático.
-5. Resolver rodadas V2 futuras por conclusão ou cancelamento/republicação administrativos revisados. Só então
+5. Antes da ativação, atualizar em PR próprio o aviso atual da SPA de que salvar ainda não restringe os pares:
+   ele não pode continuar afirmando isso com V3 ativo. Homologar o texto PT-BR/EN-US e o comportamento E2E
+   para o estado real do corte, sem sugerir que rodadas V2 históricas foram reclassificadas.
+   Resolver rodadas V2 futuras por conclusão ou cancelamento/republicação administrativos revisados. Só então
    autorizar/configurar `Participation:RegionalMatchingStartsAt` e retomar novos pares. Publicação posterior à
    configuração usa início >= corte para V3; rodadas já publicadas conservam a versão. Não alterar linhas por SQL.
 6. Conferir comportamento manual, pending, compatibilidade bilateral e reservas já confirmadas. Detector pode

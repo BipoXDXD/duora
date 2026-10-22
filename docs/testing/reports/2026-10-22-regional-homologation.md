@@ -25,3 +25,15 @@ no output xUnit e conserva as medições bem-sucedidas no resumo do job CI (`GIT
 As decisões evitam confundir homologação técnica com aceite operacional; o custo é manter a ativação bloqueada
 até ensaios e aprovações específicos. Titular e Gmail privado preservados; não publicar endereço; ausência de
 substituto/contingência/cobertura permanece limitação expressa.
+
+## Revisão independente
+
+Revisão somente de leitura do conjunto da branch: nenhum defeito crítico ou importante no ensaio identificado.
+Omissão do aviso pré-ativação da SPA foi reclassificada pelo autor como requisito importante de release: manter
+o texto de que a preferência ainda não restringe pares depois de ativar V3 informaria o usuário incorretamente.
+O runbook agora exige atualização em PR próprio e homologação PT-BR/EN-US/E2E antes do corte; sem alteração de
+runtime nesta entrega. Custo da decisão: mais um pré-requisito de G4, evitando comunicação falsa no rollout.
+
+A revisão não certifica capacidade de produção, base/canal/storage reais, SLA, relógios ou binário antigo;
+essas exclusões são aceitas por dependerem de gates e autorização separados. A caracterização sem produto novo
+não exige fabricar RED/GREEN. O CI continua sendo evidência separada, não inferida da revisão. Sem menores adiados.
