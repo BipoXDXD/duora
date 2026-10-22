@@ -67,3 +67,23 @@ Os logs e cópias para reprodução ficam na evidência local `outputs/duora-res
 O E2E remoto também sofreu cancelamento após 19 min 15 s de download de pacotes Ubuntu; isso é separado da
 corrida no fixture. O resultado final dos nove gates do novo commit deve ser conferido na CI vinculada na
 descrição do PR. Nenhum workflow ou gate foi alterado. Nenhum merge, acesso à VPS ou deploy foi executado.
+
+## Precisão do relógio dos testes de timeout
+
+A CI posterior encontrou um falso negativo no teste do prazo total do login: 503 correto com `Retry-After`
+e sem sessão, mas o Stopwatch mediu `999,9478 ms` e a asserção exigia 1.000 ms sem a resolução do timer.
+No .NET 10 em Linux/macOS, os timeouts usam um contador inteiro de milissegundos
+([TimerQueue.Unix](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Private.CoreLib/src/System/Threading/TimerQueue.Unix.cs#L7),
+[agendamento](https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Private.CoreLib/src/System/Threading/Timer.cs#L313)).
+
+Os limites inferiores dos dois testes de timeout agora usam `Environment.TickCount64`, capturado antes e
+logo após a requisição, mantendo o mínimo de 1.000 ms. Stopwatch continua medindo o teto de 10 s e o
+diagnóstico. Permanecem os checks de 503, `Retry-After`, sessão ausente e teto da fila. O piso de segurança
+contra enumeração e suas asserções de alta resolução não foram alterados; nenhum código de autenticação
+integra esta correção.
+
+Controle negativo em ambiente local descartável: reduzir temporariamente os dois prazos pela metade fez
+os três casos rejeitarem respostas em torno de 500 ms. Os arquivos de produto foram restaurados byte a byte
+antes do build positivo. Os 23 casos de `LoginConcurrencyTests` e 15 repetições dos casos afetados passaram,
+sem skips. Não foi inserida tolerância arbitrária, pausa, aumento de timeout ou retirada de asserção.
+A CI completa do commit final continua sendo obrigatória e está vinculada na descrição do PR.
