@@ -109,13 +109,16 @@ public sealed partial class ParticipationService
         ConstellationView? game = null;
         UnlikelyRoutesView? routesGame = null;
         IReadOnlyList<LocalizedAudioView> audio = [];
-        if (row.Kind == "unlikely-routes" && row.Public is not null && row.State is "Active" or "Completed")
+        if (row.Kind == "unlikely-routes" && row.Public is not null && row.State is "Active" or "Completed" or "Expired")
         {
             var content = await RoutesContentAsync(connection, row.ContentId, ct) ?? throw new InvalidOperationException("Pinned catalog missing.");
             routesGame = content.Project(await RestoreRoutesAsync(connection, row, content, ct), new(user), row.Locale);
-            audio = content.ProjectAudio(row.Locale);
+            if (row.State is "Active" or "Completed")
+            {
+                audio = content.ProjectAudio(row.Locale);
+            }
         }
-        else if (row.Public is not null && row.State is "Active" or "Completed")
+        else if (row.Public is not null && row.State is "Active" or "Completed" or "Expired")
         {
             var content = await ContentAsync(connection, row.ContentId, ct) ?? throw new InvalidOperationException("Pinned catalog missing.");
             game = content.Project(await RestoreAsync(connection, row, content, ct), new(user), row.Locale);

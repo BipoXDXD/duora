@@ -7,6 +7,7 @@ import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page, TextLink } from '@/shared/ui/page'
+import { ExperienceDeadline } from './ExperienceDeadline'
 import { RoutesGamePanel } from './RoutesGamePanel'
 import { act, actOnRoutes, fetchRoom, roomCommand, type RoutesAction, type Room } from './participation-api'
 
@@ -65,7 +66,9 @@ function RoomBody({
   const invited = state === 'invited' || state === 'ready'
   const active = state === 'active'
   const completed = state === 'completed'
-  const closed = !invited && !active && !completed
+  const expiredGame = state === 'expired' && (room.game !== null || room.routesGame !== null)
+  const closed = !invited && !active && !completed && !expiredGame
+  const deadline = room.game?.deadline ?? room.routesGame?.deadline
   const busy = command.isPending || action.isPending || routesAction.isPending
   const card = room.game?.currentCard
   return (
@@ -104,6 +107,10 @@ function RoomBody({
           </Button>
         </section>
       ) : null}
+      {active && deadline !== undefined ? (
+        <ExperienceDeadline key={`${room.roomId}:${deadline}`} deadline={deadline} />
+      ) : null}
+      {expiredGame ? <p role="status">{t('participation.expiredProgress')}</p> : null}
       {completed ? <Alert variant="success">{t('participation.completed')}</Alert> : null}
       {closed ? <p role="status">{t('participation.closed')}</p> : null}
       {room.audio.map((audio) => (

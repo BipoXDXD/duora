@@ -18,6 +18,7 @@ const cardSchema = z.object({
   options: z.array(z.object({ optionId: z.string(), label: z.string() })),
 })
 const gameSchema = z.object({
+  deadline: z.string(),
   title: z.string(),
   objective: z.string(),
   currentCard: cardSchema.nullable(),
@@ -91,7 +92,14 @@ const roomSchema = z.object({
   Omit<components['schemas']['RoomResponse'], 'game'> & {
     game: Pick<
       components['schemas']['GameResponse'],
-      'title' | 'objective' | 'currentCard' | 'awaitingPartner' | 'revealed' | 'passed' | 'availableActions'
+      | 'deadline'
+      | 'title'
+      | 'objective'
+      | 'currentCard'
+      | 'awaitingPartner'
+      | 'revealed'
+      | 'passed'
+      | 'availableActions'
     > | null
   }
 >
