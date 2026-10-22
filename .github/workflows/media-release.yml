@@ -148,9 +148,20 @@ jobs:
           fingerprint=$(gpg --show-keys --with-colons "$RUNNER_TEMP/docker.asc" | awk -F: '$1=="fpr" {print $10; exit}')
           test "$fingerprint" = 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
           sudo install -m 0644 "$RUNNER_TEMP/docker.asc" /etc/apt/keyrings/duora-ci-docker.asc
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/duora-ci-docker.asc] https://download.docker.com/linux/ubuntu noble stable" | sudo tee /etc/apt/sources.list.d/duora-ci-docker.list >/dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
+          # Scope prerequisites to Ubuntu + Docker. Unrelated runner repositories
+          # (for example Microsoft) must not block the native isolation proof.
+          # Use fresh indexes and retain signature checks; any update error is fatal.
+          apt_root=$(mktemp -d /tmp/duora-rootless-apt.XXXXXX)
+          chmod 0755 "$apt_root"
+          mkdir "$apt_root/sources" "$apt_root/lists"
+          cp /etc/apt/sources.list.d/ubuntu.sources "$apt_root/sources/ubuntu.sources"
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/duora-ci-docker.asc] https://download.docker.com/linux/ubuntu noble stable" > "$apt_root/sources/docker.list"
+          apt_options=(-o "Dir::Etc::sourcelist=/dev/null"
+            -o "Dir::Etc::sourceparts=$apt_root/sources"
+            -o "Dir::State::lists=$apt_root/lists"
+            -o "APT::Update::Error-Mode=any")
+          sudo apt-get "${apt_options[@]}" update -qq
+          sudo apt-get "${apt_options[@]}" install -y uidmap dbus-user-session slirp4netns docker-ce-rootless-extras
           sudo useradd --create-home --shell /bin/bash duora-sanitizer-ci
           uid=$(id -u duora-sanitizer-ci)
           # Keep image IDs as config digests in the dedicated rootless daemon.
