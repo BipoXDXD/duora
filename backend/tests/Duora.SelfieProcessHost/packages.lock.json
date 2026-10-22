@@ -37,6 +37,11 @@
         "resolved": "4.0.102.11",
         "contentHash": "K9PP9/qHQ7pqSB0lYwStJrpXQ8P1xc7Fbn3CyPg8EX78p4+yz8dhIiwiRc3aVbVrUZxmPAPRvmZm+ey1euIXGg=="
       },
+      "BouncyCastle.Cryptography": {
+        "type": "Transitive",
+        "resolved": "2.7.0",
+        "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
+      },
       "Microsoft.AspNetCore.Cryptography.Internal": {
         "type": "Transitive",
         "resolved": "10.0.13",
@@ -344,6 +349,15 @@
         "resolved": "10.0.13",
         "contentHash": "ZjTwxzhiw2TMEzIbUDkMF0dfDB2I4NQgIfKD0ELu9/5Mk+SRGdKZcD0/lvBrRCAPo6KN2r0BW86MRancoyJkoA=="
       },
+      "MimeKit": {
+        "type": "Transitive",
+        "resolved": "4.18.1",
+        "contentHash": "D8AfFVMFVJldWmhQWCziC9nWUN/zayFFBAKpyjVyCeh0tqBiI9jtUVuMrKgWw1EGnCp09msDZldbRvp2jfUehQ==",
+        "dependencies": {
+          "BouncyCastle.Cryptography": "2.7.0",
+          "System.Security.Cryptography.Pkcs": "10.0.0"
+        }
+      },
       "Npgsql": {
         "type": "Transitive",
         "resolved": "10.0.3",
@@ -367,6 +381,7 @@
           "AWSSDK.S3": "[4.0.104, )",
           "AWSSDK.SecurityToken": "[4.0.101.4, )",
           "Duora.Core": "[1.0.0, )",
+          "MailKit": "[4.18.1, )",
           "MaxMind.Db": "[5.2.0, )",
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.13, )",
           "Microsoft.Extensions.Configuration.KeyPerFile": "[10.0.13, )",
@@ -400,6 +415,15 @@
         "contentHash": "vjha/QlWaemVuL4A81mwxqGRR52meo+naCp1ELk/UTxrUiSn4fltXMCLlooZKURzwfdHd6dDDQHUL8cjT8xW3w==",
         "dependencies": {
           "AWSSDK.Core": "[4.0.102.11, 5.0.0)"
+        }
+      },
+      "MailKit": {
+        "type": "CentralTransitive",
+        "requested": "[4.18.1, )",
+        "resolved": "4.18.1",
+        "contentHash": "EssBsnKHvIcH1QpqqsVUEWAlAHI3dkGXJpKAzSNJ8PGjClNynSo9bRkT68jVZkxhREm0Z51Dwu3127f4WfIiRg==",
+        "dependencies": {
+          "MimeKit": "4.18.1"
         }
       },
       "MaxMind.Db": {
@@ -487,6 +511,12 @@
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.4, 11.0.0)",
           "Npgsql": "10.0.3"
         }
+      },
+      "System.Security.Cryptography.Pkcs": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.13, )",
+        "resolved": "10.0.13",
+        "contentHash": "a+EovgC1fBnwdlQ6cn3j4JFBfKqiFaFvoAhjisOoSvazLAcIznaBzPQP0oYnvccmeXfqUH1KebVZOxSeH6rMaw=="
       }
     }
   }

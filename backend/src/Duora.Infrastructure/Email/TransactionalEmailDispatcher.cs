@@ -8,8 +8,8 @@ namespace Duora.Infrastructure.Email;
 
 /// <summary>
 /// Consumidor da outbox de e-mails de conta (spec 10.6): toma um lote com lease, envia fora da transação e
-/// conclui só se ainda detiver o token de fencing. A entrega é at-least-once; a chave de idempotência passada ao
-/// envio (o id da entrega) é o que evita a segunda cópia quando um worker que perdeu o lease já tinha enviado.
+/// conclui só se ainda detiver o token de fencing. A entrega é at-least-once; o adaptador recebe o id da entrega
+/// para deduplicação quando suportada. No SMTP, aceite remoto seguido de falha local pode gerar outra cópia.
 /// </summary>
 public sealed partial class TransactionalEmailDispatcher
 {
