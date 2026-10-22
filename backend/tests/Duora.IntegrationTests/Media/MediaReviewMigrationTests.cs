@@ -11,6 +11,37 @@ public sealed class MediaReviewMigrationTests(PostgresFixture postgres)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
+    public async Task InitialDecisionConstraintNamesAreKnownBeforeTheForwardApprovalExpansion()
+    {
+        var database = await postgres.CreateEmptyDatabaseAsync(Ct);
+        await using (var db = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
+        {
+            await db.GetService<IMigrator>().MigrateAsync("20261022194500_PhotoReviewDecisions", cancellationToken: Ct);
+        }
+
+        await using var connection = new NpgsqlConnection(database.MigratorConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var command = new NpgsqlCommand("""
+            select conname::text from pg_constraint
+            where conrelid='safety.photo_review_decisions'::regclass and contype='c'
+              and (pg_get_constraintdef(oid) like '%decision%' or pg_get_constraintdef(oid) like '%reason_code%'
+                or pg_get_constraintdef(oid) like '%candidate_retention_until_snapshot%')
+            order by conname
+            """, connection);
+        await using var reader = await command.ExecuteReaderAsync(Ct);
+        var names = new List<string>();
+        while (await reader.ReadAsync(Ct))
+        {
+            names.Add(reader.GetString(0));
+        }
+
+        Assert.Collection(names,
+            name => Assert.Equal("photo_review_decisions_check", name),
+            name => Assert.Equal("photo_review_decisions_decision_check", name),
+            name => Assert.Equal("photo_review_decisions_reason_code_check", name));
+    }
+
+    [Fact]
     public async Task ExpansionPreservesEveryLegacyStateAndCreatesNoCasesOrAssets()
     {
         var database = await postgres.CreateEmptyDatabaseAsync(Ct);

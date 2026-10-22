@@ -398,6 +398,173 @@ public sealed class PhotoReviewApprovalTests(PostgresFixture postgres) : IAsyncL
         }
     }
 
+    [Theory]
+    [InlineData("thumb", false)]
+    [InlineData("card", false)]
+    [InlineData("full", false)]
+    [InlineData("thumb", true)]
+    [InlineData("card", true)]
+    [InlineData("full", true)]
+    public async Task MissingOrCorruptCandidateBytesCannotBecomeAnApprovedAsset(string kind, bool corrupt)
+    {
+        var (reviewer, item) = await PreparedAsync();
+        await using var db = Context();
+        var key = ObjectKey.Parse(await db.Database.SqlQuery<string>($"""
+            select v.object_key as "Value" from media.review_candidate_variants v
+            join safety.photo_review_cases r on r.candidate_generation=v.generation
+            where r.id={item.CaseId} and v.kind={kind}
+            """).SingleAsync(Ct));
+        var inner = new FileSystemObjectStore(_root.FullName);
+        if (corrupt)
+        {
+            var bytes = TestImages.WebP(64, 32);
+            bytes[^1] ^= 1;
+            using var replacement = new MemoryStream(bytes);
+            await inner.PutAsync(key, replacement, bytes.Length, "image/webp", Ct);
+        }
+        else
+        {
+            await inner.DeleteAsync(key, Ct);
+        }
+
+        var before = Files();
+        var store = new ApprovalStore(inner);
+        Assert.IsType<PhotoReviewApprovalResult.Unavailable>(await ApproveAsync(reviewer, item, Key(), store));
+        Assert.Equal(0, store.DeleteAttempts);
+        Assert.All(before, file => Assert.Contains(file, Files()));
+        await AssertNoApprovalAsync(item);
+    }
+
+    [Fact]
+    public async Task AFailedApprovalAuditRollsBackEveryApprovalProjection()
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var candidateBefore = await CandidateMetadataAsync(item);
+        var store = new ApprovalStore(new FileSystemObjectStore(_root.FullName));
+        var fault = new RefuseApprovalAudit();
+        var service = new PhotoReviewApprovals(Factory(fault), store, _time);
+        await Assert.ThrowsAsync<IOException>(() => service.ApproveAsync(reviewer, item.CaseId, 2,
+            PhotoReviewApprovalReason.MeetsPolicy, Key(), Ct));
+        Assert.True(fault.Fired);
+        Assert.Equal(3, store.PutAttempts);
+        Assert.Equal(0, store.DeleteAttempts);
+        await AssertNoApprovalAsync(item);
+        Assert.Equal(candidateBefore, await CandidateMetadataAsync(item));
+    }
+
+    private async Task<string> CandidateMetadataAsync(CaseData item)
+    {
+        await using var db = Context();
+        return await db.Database.SqlQuery<string>($"""
+            select to_jsonb(c)::text as "Value" from media.review_candidates c
+            join safety.photo_review_cases r on r.candidate_generation=c.generation where r.id={item.CaseId}
+            """).SingleAsync(Ct);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanupAndApprovalCannotCommitOwnershipOfTheSamePromotion(bool cleanupFirst)
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var inner = new FileSystemObjectStore(_root.FullName);
+        var before = Files();
+        var store = new ApprovalStore(inner);
+        var collector = new CollectConfirmedPreparation(this, store, inner, cleanupFirst);
+        var service = new PhotoReviewApprovals(Factory(collector), store, _time);
+        var result = await service.ApproveAsync(reviewer, item.CaseId, 2, PhotoReviewApprovalReason.MeetsPolicy, Key(), Ct);
+        if (cleanupFirst)
+        {
+            Assert.True(collector.Fired);
+            Assert.IsType<PhotoReviewApprovalResult.Unavailable>(result);
+            await AssertNoApprovalAsync(item);
+            Assert.Equal(1, await ScalarAsync("select count(*) from media.review_promotions where case_id=$1 and deleted_at is not null", item.CaseId));
+        }
+        else
+        {
+            var approved = Assert.IsType<PhotoReviewApprovalResult.Approved>(result);
+            _time.Advance(TimeSpan.FromSeconds(16));
+            await using var source = NpgsqlDataSource.Create(_connectionString);
+            var gc = new ReviewPromotionCleanupDispatcher(source, inner, _time, enabled: true);
+            Assert.Null(await gc.ClaimAsync(Ct));
+            Assert.Equal(0, await gc.DispatchOnceAsync(Ct));
+            Assert.Equal(3, await ScalarAsync("select count(*) from media.media_variants where media_asset_id=$1", approved.AssetId));
+            await using var db = Context();
+            var keys = await db.Database.SqlQuery<string>($"""
+                select object_key as "Value" from media.media_variants where media_asset_id={approved.AssetId}
+                """).ToListAsync(Ct);
+            foreach (var key in keys)
+            {
+                await using var stream = await inner.OpenReadAsync(ObjectKey.Parse(key), Ct);
+                Assert.NotNull(stream);
+            }
+        }
+
+        Assert.All(before, file => Assert.Contains(file, Files()));
+        Assert.Equal(0, store.DeleteAttempts);
+    }
+
+    private sealed class RefuseApprovalAudit : DbCommandInterceptor
+    {
+        internal bool Fired { get; private set; }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("insert into ops.audit_events", StringComparison.Ordinal)
+                && command.Parameters.Cast<DbParameter>().Any(parameter => parameter.Value is "safety.photo_review_approved"))
+            {
+                Fired = true;
+                throw new IOException("Synthetic approval audit failure.");
+            }
+
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class CollectConfirmedPreparation(PhotoReviewApprovalTests fixture, ApprovalStore store,
+        IObjectStore inner, bool enabled) : DbTransactionInterceptor
+    {
+        internal bool Fired { get; private set; }
+
+        public override async Task TransactionCommittedAsync(DbTransaction transaction,
+            TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+        {
+            if (!enabled || Fired || store.PutAttempts != 3)
+            {
+                return;
+            }
+
+            // Observe a confirmed preparation with no SQL lock left, before the approval's final transaction.
+            await using var connection = new NpgsqlConnection(fixture._connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using var mark = new NpgsqlCommand("""
+                update media.review_promotions set cleanup_requested_at=$1
+                where committed_at is null and writer_settled_at is not null and deleted_at is null
+                returning generation
+                """, connection);
+            mark.Parameters.AddWithValue(fixture._time.GetUtcNow());
+            var generation = await mark.ExecuteScalarAsync(cancellationToken);
+            if (generation is not Guid expected)
+            {
+                return;
+            }
+
+            Fired = true;
+            await using var source = NpgsqlDataSource.Create(fixture._connectionString);
+            var gc = new ReviewPromotionCleanupDispatcher(source, inner, fixture._time, enabled: true);
+            var claim = Assert.IsType<ReviewPromotionCleanupClaim>(await gc.ClaimAsync(cancellationToken));
+            Assert.Equal(expected, claim.Generation);
+            Assert.True(claim.WriterWasSettled);
+            foreach (var kind in PhotoVariants.All)
+            {
+                await inner.DeleteAsync(ObjectKey.ForPromotedDerivative(expected, kind), cancellationToken);
+            }
+
+            Assert.True(await gc.CompleteSweepAsync(claim, cancellationToken));
+        }
+    }
+
     private Task<PhotoReviewApprovalResult> ApproveAsync(PhotoReviewActor actor, CaseData item, IdempotencyKey key,
         IObjectStore? store = null, long version = 2) => new PhotoReviewApprovals(Factory(), store ?? new FileSystemObjectStore(_root.FullName), _time)
         .ApproveAsync(actor, item.CaseId, version, PhotoReviewApprovalReason.MeetsPolicy, key, Ct);
