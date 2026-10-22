@@ -35,6 +35,26 @@ while True:
 sys.stdout.buffer.write(result)
 '''
 
+NATIVE_CORPUS_CASES = {"jpeg-20mp-texture", "png-20mp-texture", "webp-20mp-texture", "png-dense-noise",
+    "jpeg-metadata-icc", "png-metadata-icc", "webp-metadata-icc", "jpeg-gps-rotation",
+    "png-html-polyglot", "jpeg-zip-polyglot", "png-animation", "webp-animation", "png-declared-jpeg",
+    "jpeg-bomb", "png-bomb", "webp-bomb", "png-truncated", "jpeg-byte-limit"}
+
+
+def validate_native_corpus_report(path, profile_sha256):
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > 1024 * 1024:
+        raise ValueError("Missing or oversized native corpus report")
+    report = json.loads(path.read_text())
+    if (type(report.get("schema")) is not int or report["schema"] != 1
+            or report.get("complete") is not True or report.get("profileSha256") != profile_sha256):
+        raise ValueError("Incomplete native corpus report or mismatched running profile")
+    cases = report.get("cases")
+    if (not isinstance(cases, list) or len(cases) != 18
+            or any(not isinstance(row, dict) or not isinstance(row.get("name"), str) for row in cases)
+            or {row["name"] for row in cases} != NATIVE_CORPUS_CASES):
+        raise ValueError("Native corpus report must contain all 18 unique trusted cases")
+    return report
+
 
 def checked(args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
@@ -268,6 +288,7 @@ class Proof:
             self.assert_empty()
             if self.args.sanitizer_image:
                 from launcher import Profile
+                self.native_corpus()
                 # Capture the actual profile while this restricted service is running.
                 # Fault cases use the separately reported immutable probe under S2 policy.
                 self.report["imageReference"] = self.sanitizer_image
@@ -278,6 +299,35 @@ class Proof:
             unit.unlink(missing_ok=True); checked(["systemctl","daemon-reload"])
             configuration.unlink(missing_ok=True); shutil.rmtree(code,ignore_errors=True)
             self.profile=previous
+
+    def native_corpus(self):
+        from launcher import Profile
+        profile = Profile.from_dict(self.profile, self.args.launcher_uid).digest
+        directory = self.root / "native-corpus"
+        directory.mkdir(mode=0o700)
+        os.chown(directory, self.args.worker_uid, pwd.getpwuid(self.args.worker_uid).pw_gid)
+        report = directory / "report.json"
+        environment = {"PATH": "/usr/bin:/bin", "DOTNET_ROOT": str(self.args.corpus_dotnet.parent),
+            "DOTNET_NOLOGO": "true", "DOTNET_CLI_TELEMETRY_OPTOUT": "true",
+            "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(directory / "summary.md"),
+            "DUORA_NATIVE_CORPUS_REQUIRED": "true", "DUORA_NATIVE_CORPUS_SOCKET": self.profile["control_socket"],
+            "DUORA_NATIVE_CORPUS_UID": str(self.args.launcher_uid), "DUORA_NATIVE_CORPUS_PROFILE": profile,
+            "DUORA_NATIVE_CORPUS_REPORT": str(report)}
+        command = ["runuser", "-u", self.worker, "--", "env", "-i",
+            *[f"{key}={value}" for key, value in environment.items()], str(self.args.corpus_dotnet),
+            str(self.args.corpus_assembly), "-class", "Duora.IntegrationTests.Media.SanitizerResourceEnvelopeTests",
+            "-showLiveOutput", "-reporter", "verbose"]
+        process = subprocess.Popen(command, start_new_session=True)
+        try:
+            assert process.wait(timeout=1200) == 0, "Native corpus comparison did not pass"
+        finally:
+            # Also kill descendants if a test runner exited early while leaving a baseline child.
+            try: os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            process.wait(timeout=5)
+        result = validate_native_corpus_report(report, profile)
+        self.assert_empty()
+        self.args.corpus_report.write_text(json.dumps(result, indent=2) + "\n")
 
     def run(self):
         self.build()
@@ -380,6 +430,9 @@ def main():
     parser.add_argument("--sanitizer-image")
     parser.add_argument("--sanitizer-config")
     parser.add_argument("--tested-profile", type=Path)
+    parser.add_argument("--corpus-dotnet", type=Path)
+    parser.add_argument("--corpus-assembly", type=Path)
+    parser.add_argument("--corpus-report", type=Path)
     args = parser.parse_args()
     if any((args.sanitizer_image, args.sanitizer_config, args.tested_profile)):
         if (not isinstance(args.sanitizer_image, str)
@@ -388,6 +441,13 @@ def main():
                 or re.fullmatch(r"sha256:[0-9a-f]{64}", args.sanitizer_config) is None
                 or args.tested_profile is None):
             parser.error("Release proof requires an immutable Duora image, config ID and profile output.")
+        if (args.corpus_dotnet is None or args.corpus_assembly is None or args.corpus_report is None
+                or not args.corpus_dotnet.is_absolute() or not args.corpus_dotnet.is_file()
+                or not args.corpus_assembly.is_absolute() or not args.corpus_assembly.is_file()
+                or not args.corpus_report.is_absolute() or args.corpus_report.exists()):
+            parser.error("Release proof requires native corpus instrumentation and a fresh absolute report path.")
+    elif any((args.corpus_dotnet, args.corpus_assembly, args.corpus_report)):
+        parser.error("Native corpus qualification requires the pinned Release image.")
     proof=Proof(args)
     try:proof.run()
     finally:proof.dispose()
