@@ -113,3 +113,95 @@ class JournalTests(unittest.TestCase):
             path.unlink(); outside = Path(directory)/"other"; outside.write_text("[]")
             path.symlink_to(outside)
             with self.assertRaises(ValueError): Journal(Path(directory), "c"*64)
+
+
+class RuntimeDouble:
+    """Only the external runtime boundary is replaced; supervisor/journal execute real code."""
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.wait = False
+        self.exit_code = 0
+        self.cleanup_ok = True
+        self.orphan = False
+
+    async def recover(self):
+        self.orphan = False
+
+    async def execute(self, job_id, wire, budget):
+        self.started.set()
+        if self.wait:
+            await self.release.wait()
+        return b"synthetic response"
+
+    async def inspect_exit(self, job_id):
+        return self.exit_code
+
+    async def remove(self, job_id):
+        return self.cleanup_ok
+
+
+class SupervisorTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        from launcher import Supervisor
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.runtime = RuntimeDouble()
+        self.journal = Journal(Path(self.directory.name), "c"*64)
+        self.supervisor = Supervisor(Profile.from_dict(configuration(), 1002), self.runtime, self.journal)
+        await self.supervisor.recover()
+
+    async def test_exit_zero_and_confirmed_cleanup_are_both_required_for_bytes(self):
+        result = await self.supervisor.run(JOB, request(), (16777216,25165824,65536,50000))
+        self.assertEqual("exited", result.code)
+        self.assertEqual(b"synthetic response", result.payload)
+        self.assertEqual("finished", self.supervisor.status(JOB))
+        replay = await self.supervisor.run(JOB, request(), (16777216,25165824,65536,50000))
+        self.assertEqual("duplicate", replay.code)
+        self.assertEqual(b"", replay.payload)
+
+    async def test_success_bytes_followed_by_crash_never_escape(self):
+        self.runtime.exit_code = 137
+        result = await self.supervisor.run(JOB, request(), (16777216,25165824,65536,50000))
+        self.assertEqual("failed", result.code)
+        self.assertEqual(b"", result.payload)
+
+    async def test_unknown_termination_blocks_all_later_attempts(self):
+        self.runtime.cleanup_ok = False
+        result = await self.supervisor.run(JOB, request(), (16777216,25165824,65536,50000))
+        self.assertEqual("blocked", result.code)
+        result = await self.supervisor.run("d"*32, request(), (16777216,25165824,65536,50000))
+        self.assertEqual("blocked", result.code)
+        self.assertEqual(b"", result.payload)
+
+    async def test_slot_is_not_reused_while_first_container_is_running(self):
+        self.runtime.wait = True
+        first = asyncio.create_task(self.supervisor.run(JOB, request(), (16777216,25165824,65536,50000)))
+        await self.runtime.started.wait()
+        self.assertEqual("running", self.supervisor.status(JOB))
+        second = await self.supervisor.run("d"*32, request(), (16777216,25165824,65536,50000))
+        self.assertEqual("busy", second.code)
+        self.supervisor.cancel(JOB)
+        self.assertEqual("cancelled", (await first).code)
+
+    async def test_external_deadline_cancels_runtime_and_never_returns_response(self):
+        self.runtime.wait = True
+        result = await asyncio.wait_for(self.supervisor.run(JOB, request(), (16777216,25165824,65536,10)), 1)
+        self.assertEqual("failed", result.code)
+        self.assertEqual(b"", result.payload)
+
+    async def test_startup_recovers_orphans_before_admitting_an_attempt(self):
+        self.runtime.orphan = True
+        await self.supervisor.recover()
+        self.assertFalse(self.runtime.orphan)
+        self.assertEqual("exited", (await self.supervisor.run(JOB, request(), (16777216,25165824,65536,50000))).code)
+
+    async def test_output_and_stderr_collectors_stop_at_the_first_excess_byte(self):
+        from launcher import collect_bounded
+        reader = asyncio.StreamReader()
+        reader.feed_data(b"x"*65)
+        # No EOF: overflow must fail without waiting for a producer to close.
+        with self.assertRaises(ValueError):
+            await asyncio.wait_for(collect_bounded(reader,64), 1)
+        reader = asyncio.StreamReader(); reader.feed_data(b"x"*64); reader.feed_eof()
+        self.assertEqual(b"x"*64, await collect_bounded(reader,64))

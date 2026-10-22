@@ -35,3 +35,30 @@ class Journal:
 
     def finish(self, job_id: str, state: str) -> None:
         raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class Outcome:
+    code: str
+    payload: bytes = b""
+
+
+class Supervisor:
+    def __init__(self, profile, runtime, journal):
+        raise NotImplementedError
+
+    async def recover(self):
+        raise NotImplementedError
+
+    async def run(self, job_id, wire, budget):
+        raise NotImplementedError
+
+    def cancel(self, job_id):
+        raise NotImplementedError
+
+    def status(self, job_id):
+        raise NotImplementedError
+
+
+async def collect_bounded(stream, limit):
+    raise NotImplementedError
