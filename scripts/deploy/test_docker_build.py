@@ -78,6 +78,37 @@ class DockerBuildContractTests(unittest.TestCase):
         actual = self.docker("image", "inspect", "--format", "{{.Os}}/{{.Architecture}}", self.tag)
         self.assertEqual(actual, self.native)
 
+    def test_local_build_supports_a_cli_without_inspect_platform(self) -> None:
+        # A CLI dos runners pode ser anterior à opção --platform do image inspect.
+        fake_bin = self.context / "legacy-bin"
+        fake_bin.mkdir()
+        fake = fake_bin / "docker"
+        fake.write_text(
+            '#!/bin/sh\n'
+            'if [ "$1" = image ] && [ "$2" = inspect ]; then\n'
+            '  for argument do\n'
+            '    [ "$argument" != --platform ] || exit 125\n'
+            '  done\n'
+            'fi\n'
+            'exec "$DOCKER_TEST_REAL" "$@"\n'
+        )
+        fake.chmod(0o755)
+        environment = {
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "DOCKER_TEST_REAL": DOCKER,
+            "DOCKER_DEFAULT_PLATFORM": self.foreign,
+        }
+        self.docker(
+            "buildx", "build", "--platform", self.foreign, "--load",
+            "--provenance=false", "-t", self.tag, str(self.context),
+        )
+        self.assertNotEqual(self.command("check", self.tag, **environment).returncode, 0)
+        result = self.command("local", "-t", self.tag, str(self.context), **environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.command("check", self.tag, **environment).returncode, 0)
+        actual = self.docker("image", "inspect", "--format", "{{.Os}}/{{.Architecture}}", self.tag)
+        self.assertEqual(actual, self.native)
+
     def test_local_verification_rejects_an_image_with_only_the_foreign_platform(self) -> None:
         self.docker(
             "buildx", "build", "--platform", self.foreign, "--load",

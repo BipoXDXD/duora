@@ -40,7 +40,7 @@ esac
 check_native() {
   [ "$#" -gt 0 ] || fail 'informe pelo menos uma imagem'
   for image do
-    actual=$(docker image inspect --platform "$platform" --format '{{.Os}}/{{.Architecture}}' "$image")
+    actual=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")
     [ "$actual" = "$platform" ] || fail "$image: $actual, esperado $platform"
     printf '%s\n' "$image: $actual (nativo)"
   done
