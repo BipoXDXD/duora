@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/Duora.Core/Duora.Core.csproj" />
+    <ProjectReference Include="../../src/Duora.Worker/Duora.Worker.csproj" Aliases="worker" />
+    <ProjectReference Include="../Duora.MediaBaselineHost/Duora.MediaBaselineHost.csproj" ReferenceOutputAssembly="false" />
+    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <!-- Explicit shared sources preserve the corpus without importing database fixtures. -->
+  <ItemGroup>
+    <Compile Include="../Duora.IntegrationTests/Media/SanitizerResourceEnvelopeTests.cs" Link="Media/SanitizerResourceEnvelopeTests.cs" />
+    <Compile Include="../Duora.IntegrationTests/Media/NativeCorpusOptions.cs" Link="Media/NativeCorpusOptions.cs" />
+    <Compile Include="../Duora.IntegrationTests/Media/NativeSanitizerCorpus.cs" Link="Media/NativeSanitizerCorpus.cs" />
+    <Compile Include="../Duora.IntegrationTests/Media/SanitizerBaselineCorpus.cs" Link="Media/SanitizerBaselineCorpus.cs" />
+    <Compile Include="../Duora.IntegrationTests/Media/TestImages.cs" Link="Media/TestImages.cs" />
+    <Compile Include="../Duora.IntegrationTests/RepositoryRoot.cs" Link="RepositoryRoot.cs" />
+  </ItemGroup>
+</Project>
