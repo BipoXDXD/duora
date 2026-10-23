@@ -4,6 +4,8 @@
 
 **Entrega incremental:** #203/M2b-1 contém somente chaves/área e testes dos adaptadores (Tarefa 1). Tarefas 2–4 são o plano das próximas fatias, ainda sem implementação. Os testes RED de 72f5b76 foram observados na CI39798090643: três casos unitários e filesystem/MinIO falharam no parser inexistente; duas falhas herdadas de inventário de privilégios foram corrigidas em #198/7d313c0 antes desta implementação.
 
+**Rascunho #205/M2b-2:** implementação das tarefas 2–4 em validação, ainda fora do pipeline/política. RED observado em 0c13177/CI39802046717: 5 falhas comportamentais esperadas, 3229 testes aprovados e 0 ignorados. Testes adversariais adicionais foram escritos antes da implementação e revisados, mas ainda aguardam sua execução na CI; não lhes atribuir o RED anterior. A revisão do código também exigiu negar replay vencido/sem bytes, com prazo e hashes verificados sem locks; o writer público de indisponibilidade permanece em M6. O novo GC tem testes próprios de fencing, concorrência, DELETE parcial, shutdown e obrigação incerta sem expiração.
+
 **Objetivo:** persistir apenas os três derivados sanitizados numa área privada exclusiva por tentativa e confirmar AwaitingReview + caso Safety + auditoria + obrigação de apagar o original numa transação curta, sem criar asset aprovado.
 
 **Spec:** ADR-0035 e `docs/api/media-review.md`, M2. INV-03/05/06/08/10/11; T-03/05/06/08/10/16/26. O contrato aceito e a autorização atual de implementar as pendências definem este recorte. A entrega não habilita HumanReview, endpoints, permissões, montagens ou uso de dados reais; M3–M7 continuam necessários.

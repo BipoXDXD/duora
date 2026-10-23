@@ -59,36 +59,49 @@ class CaddyAccessLogTests(unittest.TestCase):
         subprocess.run(["docker", "exec", self.container, "sh", "-c", script], capture_output=True, check=False)
 
     def logged_statuses(self, uri: str) -> list[int]:
-        logs = subprocess.run(["docker", "logs", self.container], capture_output=True, text=True, check=False)
         statuses: list[int] = []
-        for line in (logs.stdout + logs.stderr).splitlines():
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            request = entry.get("request") if isinstance(entry, dict) else None
+        for entry in self._logged_entries(uri):
+            request = entry.get("request")
             if isinstance(request, dict) and request.get("uri") == uri and isinstance(entry.get("status"), int):
                 statuses.append(entry["status"])
         return statuses
 
-    def logged_uris(self) -> list[str]:
-        logs = subprocess.run(["docker", "logs", self.container], capture_output=True, text=True, check=False)
+    def logged_uris(self, expected_uri: str | None = None) -> list[str]:
         uris: list[str] = []
-        for line in (logs.stdout + logs.stderr).splitlines():
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            request = entry.get("request") if isinstance(entry, dict) else None
+        for entry in self._logged_entries(expected_uri):
+            request = entry.get("request")
             if isinstance(request, dict) and isinstance(request.get("uri"), str):
                 uris.append(request["uri"])
         return uris
+
+    def _logged_entries(self, expected_uri: str | None) -> list[dict]:
+        deadline = time.monotonic() + 5
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AssertionError(f"Expected access log entry was not observed within 5 seconds: {expected_uri}")
+            logs = subprocess.run(["docker", "logs", self.container], capture_output=True, text=True,
+                                  check=False, timeout=remaining)
+            entries: list[dict] = []
+            for line in (logs.stdout + logs.stderr).splitlines():
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(entry, dict):
+                    entries.append(entry)
+            if expected_uri is None or any(
+                    isinstance(entry.get("request"), dict) and entry["request"].get("uri") == expected_uri
+                    and isinstance(entry.get("status"), int) for entry in entries):
+                # Preserve every entry. Filtering to the expected URI could conceal an unredacted canary.
+                return entries
+            time.sleep(min(0.05, remaining))
 
     def test_uuid_in_the_path_is_replaced_and_never_logged(self) -> None:
         canary = str(uuid.uuid4())
         self.request(f"/api/v1/me/blocks/{canary}")
 
-        uris = self.logged_uris()
+        uris = self.logged_uris("/api/v1/me/blocks/{id}")
         self.assertIn("/api/v1/me/blocks/{id}", uris)
         self.assertFalse(any(canary in uri for uri in uris), uris)
 
@@ -96,7 +109,7 @@ class CaddyAccessLogTests(unittest.TestCase):
         canary = str(uuid.uuid4()).upper()
         self.request(f"/api/v1/me/sessions/{canary}?token=CANARY-{canary}")
 
-        uris = self.logged_uris()
+        uris = self.logged_uris("/api/v1/me/sessions/{id}?redacted")
         self.assertIn("/api/v1/me/sessions/{id}?redacted", uris)
         self.assertFalse(any(canary in uri for uri in uris), uris)
 
@@ -104,7 +117,7 @@ class CaddyAccessLogTests(unittest.TestCase):
         canary = f"CANARY-{uuid.uuid4()}"
         self.post(f"/webhooks/fake?signature={canary}", 16)
 
-        uris = self.logged_uris()
+        uris = self.logged_uris("/webhooks/fake?redacted")
         self.assertIn("/webhooks/fake?redacted", uris)
         self.assertFalse(any(canary in uri for uri in uris), uris)
         # O "web" de teste responde 200: a rota foi ao proxy, não ao fallback da SPA.
