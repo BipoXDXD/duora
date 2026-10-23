@@ -88,11 +88,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          project=backend/tests/Duora.IntegrationTests/Duora.IntegrationTests.csproj
+          project=backend/tests/Duora.MediaCorpusTests/Duora.MediaCorpusTests.csproj
           dotnet restore "$project" --locked-mode
           dotnet build "$project" --no-restore
           echo "CORPUS_DOTNET=$(readlink -f "$(command -v dotnet)")" >> "$GITHUB_ENV"
-          echo "CORPUS_ASSEMBLY=$GITHUB_WORKSPACE/backend/tests/Duora.IntegrationTests/bin/Debug/net10.0/Duora.IntegrationTests.dll" >> "$GITHUB_ENV"
+          echo "CORPUS_ASSEMBLY=$GITHUB_WORKSPACE/backend/tests/Duora.MediaCorpusTests/bin/Debug/net10.0/Duora.MediaCorpusTests.dll" >> "$GITHUB_ENV"
       - name: Build licensed Release once
         env:
           SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
@@ -240,7 +240,7 @@ jobs:
           name: media-host-instrumentation-${{ matrix.arch }}-${{ github.run_attempt }}
           path: |
             global.json
-            backend/tests/Duora.IntegrationTests/bin/Debug/net10.0/
+            backend/tests/Duora.MediaCorpusTests/bin/Debug/net10.0/
             backend/tests/Duora.MediaBaselineHost/bin/Debug/net10.0/
           if-no-files-found: error
           retention-days: 90
