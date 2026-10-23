@@ -119,6 +119,14 @@ class InstallationTests(unittest.TestCase):
                 installer.require_installation_context(baseline, self.paths, (pin,))
             changed.write_bytes(original)
 
+    def test_actual_pinned_compose_json_is_selected_and_its_pinned_hash_is_required(self) -> None:
+        actual = self.root / "compose.coolify.json"
+        actual.write_text('{"name":"duora","services":{},"syntheticRegionalCut":"preserved"}')
+        pin = {"compose": str(actual), "compose_sha256": hashlib.sha256(actual.read_bytes()).hexdigest()}
+        self.assertEqual(installer.pinned_compose(pin), actual)
+        actual.write_text("unreviewed changed configuration")
+        with self.assertRaises(installer.InstallError): installer.pinned_compose(pin)
+
     def test_interrupted_activation_has_explicit_hash_guarded_recovery_under_real_locks(self) -> None:
         receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "installer_crash_receiver")
         for boundary in ["fence", "pending", "baseline", "entry", "receipt"]:

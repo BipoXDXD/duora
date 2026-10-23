@@ -23,6 +23,7 @@ sys.dont_write_bytecode = True
 import runtime_guard as guard
 
 FILES = ("duora_deploy.py", "reconcile_payload.py", "runtime_guard.py", "install_executor.py")
+FENCE_DIRECTORY = "duora-executor-install"
 
 
 class InstallError(ValueError):
@@ -122,7 +123,11 @@ def installation_context(paths: InstallPaths, preserved_files: tuple[Path, ...])
             raise InstallError("Invalid current release identity")
         files = (paths.state / "current.json", paths.state / "releases" / (current + ".json"),
                  paths.state / "releases" / (current + ".env"), *preserved_files)
-        return {str(path): hashlib.sha256(_protected_bytes(path)).hexdigest() for path in files}
+        result: dict = {str(path): hashlib.sha256(_protected_bytes(path)).hexdigest() for path in files}
+        floor = paths.state / "v2-contract-floor.json"
+        raw_floor = _optional(floor)
+        result[str(floor)] = hashlib.sha256(raw_floor).hexdigest() if raw_floor is not None else None
+        return result
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise InstallError("Cannot bind reviewed current/manifest/environment/preservation state") from error
 
@@ -130,6 +135,10 @@ def installation_context(paths: InstallPaths, preserved_files: tuple[Path, ...])
 def require_installation_context(expected: dict, paths: InstallPaths, preserved_files: tuple[Path, ...]) -> None:
     if installation_context(paths, preserved_files) != expected:
         raise InstallError("Current application or preserved configuration changed since review")
+
+
+def pinned_compose(pin: dict) -> Path:
+    raise NotImplementedError("Select and verify the actual protected observer-pinned Compose")
 
 
 @contextmanager
@@ -148,14 +157,54 @@ def _optional(path: Path) -> bytes | None:
     return _protected_bytes(path) if path.exists() or path.is_symlink() else None
 
 
+def require_ingress_idle(receiver, paths: InstallPaths, *, expected_commit: str, manifest_sha256: str) -> None:
+    """Receiver-compatible durable fence; exempt only a fully verified own static-install intent."""
+    fence_dir = paths.ingress / FENCE_DIRECTORY
+    fence = fence_dir / "pending.json"
+    if not fence.exists() and not fence.is_symlink():
+        receiver.require_host_idle()
+        return
+    try:
+        info = fence_dir.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise InstallError("Unowned ingress fence directory")
+        pending = guard.decode_json(_protected_bytes(fence))
+        if (set(pending) != {"attempt", "attemptSha256"} or not isinstance(pending["attempt"], str)
+                or not re.fullmatch(r"installation-[a-z0-9_]+", pending["attempt"])
+                or not isinstance(pending["attemptSha256"], str)
+                or not re.fullmatch(r"[a-f0-9]{64}", pending["attemptSha256"])):
+            raise InstallError("Unknown ingress fence")
+        preimage = paths.preimages / pending["attempt"]
+        info = preimage.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise InstallError("Unowned fenced attempt")
+        raw = _protected_bytes(preimage / "attempt.json")
+        if hashlib.sha256(raw).hexdigest() != pending["attemptSha256"]: raise InstallError("Fenced journal changed")
+        receipt = guard.decode_json(raw)["installedReceipt"]
+        if receipt["sourceCommit"] != expected_commit or receipt["manifestSha256"] != manifest_sha256:
+            raise InstallError("Fence belongs to another source or bundle")
+        validate_bundle(paths.versions / expected_commit, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
+        private_pending = _optional(paths.state / "executor-install-pending.json")
+        if private_pending is not None and guard.decode_json(private_pending) != pending:
+            raise InstallError("Private pending disagrees with the own fence")
+        # Never remove or ignore a global or another project's intent, including unknown project directories.
+        receiver.require_no_pending(paths.ingress)
+        for directory in paths.ingress.iterdir():
+            if directory.is_dir() and directory != fence_dir: receiver.require_no_pending(directory)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise InstallError("Ingress is active or the own fence cannot be authenticated") from error
+
+
 def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[], None]) -> dict:
     require_idle()
     marker = paths.state / "executor-install-pending.json"
+    fence = paths.ingress / FENCE_DIRECTORY / "pending.json"
     if (set(pending) != {"attempt", "attemptSha256"}
             or not isinstance(pending["attempt"], str)
             or not re.fullmatch(r"installation-[a-z0-9_]+", pending["attempt"])
             or not re.fullmatch(r"[a-f0-9]{64}", pending["attemptSha256"])
-            or guard.decode_json(_protected_bytes(marker)) != pending):
+            or guard.decode_json(_protected_bytes(fence)) != pending
+            or ((marker.exists() or marker.is_symlink()) and guard.decode_json(_protected_bytes(marker)) != pending)):
         raise InstallError("Recovery requires the exact outstanding own-attempt identity")
     preimage = paths.preimages / pending["attempt"]
     info = preimage.lstat()
@@ -213,8 +262,10 @@ def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[
     recovery = {"status": "recovered-own-attempt", **pending, "recoveredAt": int(time.time()),
                 "executorSha256": journal["oldExecutorSha256"]}
     _write(paths.state / "executor-recovery-receipt.json", _json(recovery))
-    marker.unlink()
+    marker.unlink(missing_ok=True)
     _sync(paths.state)
+    fence.unlink()
+    _sync(fence.parent)
     return recovery
 
 
@@ -233,7 +284,9 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
     manifest = validate_bundle(source, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
     try:
         with _locks(paths):
-            if (paths.state / "executor-install-pending.json").exists():
+            fence_dir = paths.ingress / FENCE_DIRECTORY
+            fence = fence_dir / "pending.json"
+            if ((paths.state / "executor-install-pending.json").exists() or fence.exists() or fence.is_symlink()):
                 raise InstallError("Resolve the outstanding interrupted installation explicitly first")
             require_idle()
             if paths.entry.is_symlink() and not Path(os.readlink(paths.entry)).is_absolute():
@@ -251,7 +304,7 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                 "qualificationRun": manifest["qualificationRun"], "qualificationArtifactId": qualification_artifact}
             if not apply:
                 return {**receipt, "inventory": inventory}
-            for directory in (paths.versions, paths.preimages):
+            for directory in (paths.versions, paths.preimages, fence_dir):
                 if directory.exists() and (directory.is_symlink() or directory.stat().st_uid != os.geteuid()
                                            or directory.stat().st_mode & 0o077):
                     raise InstallError("Version/preimage root is not private")
@@ -295,9 +348,13 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
             if _sha(paths.entry) != expected_executor_sha256: raise InstallError("Executor changed before activation")
             after_staging = inspect_runtime()
             if after_staging["inventorySha256"] != actual_inventory: raise InstallError("Context changed during staging")
-            _write(paths.state / "executor-install-pending.json", _json(pending))
+            require_idle()
+            # The existing receiver scans unknown project directories before imports or writing any intent.
+            # Fence it first, so SIGKILL cannot turn executor-private pending into a circular foreign intent.
+            _write(fence, _json(pending))
             temporary_link = paths.entry.with_name(".duora-deploy-" + preimage.name)
             try:
+                _write(paths.state / "executor-install-pending.json", _json(pending))
                 _write(baseline_path, new_baseline)
                 temporary_link.symlink_to(version / "duora_deploy.py")
                 temporary_link.replace(paths.entry)
@@ -312,6 +369,8 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                 _write(paths.state / "executor-install-receipt.json", _json(receipt))
                 (paths.state / "executor-install-pending.json").unlink()
                 _sync(paths.state)
+                fence.unlink()
+                _sync(fence_dir)
                 return receipt
             except Exception:
                 _recover_locked(paths, pending, require_idle)
@@ -349,14 +408,14 @@ def _module(path: Path, name: str):
     return module
 
 
-def _production_idle() -> None:
+def _production_idle(paths: InstallPaths, *, expected_commit: str, manifest_sha256: str) -> None:
     path = Path("/opt/coolify-release/receiver.py")
     if path.stat().st_uid != 0 or path.stat().st_mode & 0o022:
         raise InstallError("Untrusted installed receiver")
     if _sha(path) != "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb":
         raise InstallError("Shared receiver is outside the qualified version")
     receiver = _module(path, "duora_installer_reviewed_receiver")
-    receiver.require_host_idle()
+    require_ingress_idle(receiver, paths, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
     if receiver.api("deployments") != []:
         raise InstallError("Coolify global queue is active or unknown")
 
@@ -421,18 +480,20 @@ def main() -> int:
         _verify_provenance(manifest, args.artifact_id)
         paths = InstallPaths(Path("/usr/local/sbin/duora-deploy"), Path("/opt/duora-executor/releases"),
             Path("/opt/duora-executor/preimages"), Path("/var/lib/duora"), Path("/var/lib/coolify-release"))
+        def idle() -> None:
+            _production_idle(paths, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256)
         if args.recover_attempt or args.recover_attempt_sha256:
             if args.apply or not args.recover_attempt or not args.recover_attempt_sha256:
                 raise InstallError("Recovery is separate from apply and requires exact attempt and journal SHA")
             result = recover_installation(paths=paths, pending={"attempt": args.recover_attempt,
-                "attemptSha256": args.recover_attempt_sha256}, require_idle=_production_idle)
+                "attemptSha256": args.recover_attempt_sha256}, require_idle=idle)
             print(json.dumps(result, sort_keys=True))
             return 0
         executor = _module(args.bundle / "duora_deploy.py", "duora_candidate_executor")
-        deploy_paths = executor.Paths(Path("/opt/duora/compose.prod.yml"), Path("/etc/duora/duora.env"), paths.state)
         pinned = Path("/etc/duora/coolify-deploy.json")
         pin_raw = _protected_bytes(pinned)
         pin = guard.decode_json(pin_raw)
+        deploy_paths = executor.Paths(pinned_compose(pin), Path("/etc/duora/duora.env"), paths.state)
         preserved = (deploy_paths.compose_file, deploy_paths.host_env, pinned, Path(pin["caddy"]),
                      Path(pin["manifest"]), Path("/opt/coolify-release/receiver.py"), paths.ingress / "duora/current.json")
         context = installation_context(paths, preserved)
@@ -466,7 +527,7 @@ def main() -> int:
         result = install_bundle(args.bundle, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256,
             reviewed_inventory_sha256=args.reviewed_inventory_sha256 or inspect()["inventorySha256"],
             expected_executor_sha256=args.expected_executor_sha256 or _sha(paths.entry), paths=paths,
-            inspect_runtime=inspect, require_idle=_production_idle, apply=args.apply, qualification_artifact=args.artifact_id)
+            inspect_runtime=inspect, require_idle=idle, apply=args.apply, qualification_artifact=args.artifact_id)
         print(json.dumps(result, sort_keys=True))
         return 0
     except (InstallError, OSError, ValueError) as error:

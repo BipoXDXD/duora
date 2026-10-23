@@ -35,6 +35,13 @@ missing files never select v1. Rollback keeps the safe executor and cumulative s
 database restore or reapplying weaker legacy SQL.
 After current v2, a new v1 release is refused even with an unchanged schema. Only its exact recorded eligible
 previous target can be served as application rollback, executing neither legacy SQL nor migrations.
+The minimum contract is monotonic, independent of which application is currently selected. Before the first
+v2 worker stop/migrations/SQL effects, the executor durably seals `/var/lib/duora/v2-contract-floor.json` (0600).
+That floor is not written by preflight or a refused runtime/payload check, is never lowered by an application
+rollback, and survives a failed first v2 attempt. Successful recorded v2 history also establishes the minimum.
+If the first v2 attempt fails while the qualified current application is still v1, that exact recorded current
+target can recover app-only without SQL/migrations when the observed schema is within its qualified range.
+An unknown or advanced incompatible partial schema refuses recovery; a new v1 release remains forbidden.
 The actual v2 preflight pulls the authenticated migrator digest before extraction, after the runtime/schema
 guards and before staging or any worker stop; OCI ingress is not assumed to populate its GHCR RepoDigest.
 
@@ -53,6 +60,7 @@ entry point 0755. Existing unrelated paths and their permissions remain untouche
 | `/var/lib/duora/executor-install-receipt.json` | Atomic installation journal/receipt with exact installed source/helper/manifest/baseline hashes |
 | `/var/lib/duora/executor-install-pending.json` | Durable own-attempt pointer, written before baseline or entry changes; unresolved intent blocks another apply and the new executor |
 | `/var/lib/duora/executor-recovery-receipt.json` | Record an explicitly recovered own attempt, without asserting product remediation |
+| `/var/lib/coolify-release/duora-executor-install/pending.json` | Own private receiver-compatible durable fence; the existing receiver refuses it before imports/configuration/creating a foreign intent |
 | `/var/lib/healthchecks-diagnostics/remediation-proof.json` | Informational proof only after actual installation and qualification; schema agreed with the monitor |
 
 Staging and temporary files must remain inside these installer-owned roots. Resolve helpers from the
@@ -77,6 +85,8 @@ The candidate input directory and its ancestry must also be protected and root-o
 application current pointers, the current recorded manifest/environment, host environment, Compose, Caddy,
 observer pin and pinned release manifest, and receiver code by hash. All are re-read under the locks before
 and after activation; this does not disclose their contents or change them.
+The Compose path and SHA come from the protected observer pin, including a customized `compose.coolify.json`;
+the static installer must not assume the repository's `compose.prod.yml` is the active host configuration.
 
 1. Verify the exact reviewed bundle SHA-256, closed manifest/source/hash/modes and qualification evidence.
    Inspect candidate files statically; reject unsupported contracts or dependencies before writing a host path.
@@ -102,14 +112,19 @@ and after activation; this does not disclose their contents or change them.
 8. On installation failure, recover only this installation's own files/preimages, after checking the current
    hash/target still belongs to this attempt. Never overwrite an intervening change, restore an entire snapshot
    or roll back database/application/configuration state. Recovery and partial-failure cases need Actions tests.
-   A synced preimage/journal and pending pointer precede every activation write. SIGKILL leaves that pointer
+   A synced preimage/journal, then the own receiver fence, then the private pending pointer precede every activation write. SIGKILL leaves that intent
    for explicit administrative recovery, never an automatic re-enrollment/retry. From the same qualified bundle,
    use the base verification arguments plus `--recover-attempt <installation-id>
    --recover-attempt-sha256 <reviewed-journal-sha256>` without `--apply`. Recovery acquires the same three locks,
    requires idle ingress/queue and validates all preimage, current baseline, receipt and entry identities before
    restoring either file. A foreign change refuses every replacement. Successful recovery clears only its
-   pending marker and leaves the preimages for review. SIGKILL at pending/baseline/entry/receipt is exercised
-   by real child processes in Actions; no local process termination or Docker is needed.
+   pending marker and leaves the preimages for review. The own receiver fence is always removed last and synced.
+   The fence-only crash before private pending is recoverable. Recovery exempts only its exact hash/source/
+   manifest-validated own fence; global or any other project's intent and the real global Coolify queue still
+   refuse recovery and remain untouched. The existing receiver requires no code or configuration changes.
+   SIGKILL at fence/pending/baseline/entry/receipt and during recovery is exercised by real child processes in
+   Actions, including an actual receiver attempt after the process dies, invalid fences and foreign intent refusal.
+   A new apply never assumes or removes an interrupted fence. No local process termination or Docker is needed.
 
 Enrollment binds host/project, two database/backup containers and volumes, IDs/Created/StartedAt/RestartCount,
 image references/IDs, Compose/config hashes, guard/tool versions and hashes of stable Config/HostConfig/Mounts/

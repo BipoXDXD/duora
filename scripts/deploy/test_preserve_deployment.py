@@ -114,12 +114,14 @@ class PreservationDeploymentTests(unittest.TestCase):
         original = floor.read_bytes()
         with patch.object(deploy._payload, "capture_binary", side_effect=AssertionError("Never weaker SQL")):
             self.assertIsNone(self._preflight(self.release, InputRunner()))
-        runner = InputRunner()
+        runner = InputRunner(pre_head=self.release.latest_migration)
         with patch.object(deploy, "runtime_preflight", return_value=None):
             deploy.deploy(self.release, self.paths, runner, sleep=lambda _: None)
         self.assertFalse(any("migrator" in command and "run" in command for command in runner.commands))
         self.assertFalse(any(text is not None for text in runner.inputs))
         self.assertEqual(floor.read_bytes(), original)
+        with self.assertRaises(deploy.DeployError):
+            deploy._is_rollback(self.release, "20990101000000_UnknownPartialSchema", self.paths.state_dir)
 
     def test_runtime_or_payload_refusal_precedes_pull_worker_migration_and_staging(self) -> None:
         runner = InputRunner()

@@ -22,6 +22,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -172,8 +173,8 @@ def runtime_preflight(release: Release, paths: Paths, run: Runner, *, authentica
         head = _read_migration_head(compose, run)
         _require_release_not_rewritten(release, paths.state_dir)
         rollback = _is_rollback(release, head, paths.state_dir)
-        current_manifest = _recorded_manifest(paths.state_dir, current)
-        if current_manifest is not None and current_manifest.get("contractVersion") == "v2" and release.contract_version == "v1":
+        minimum_v2 = _minimum_contract_v2(paths.state_dir)
+        if minimum_v2 and release.contract_version == "v1":
             if rollback:
                 return None  # The recorded compatible target never executes legacy migrations or SQL.
             raise DeployError("A new legacy-v1 release cannot weaken the current v2 contract")
@@ -196,6 +197,55 @@ def runtime_preflight(release: Release, paths: Paths, run: Runner, *, authentica
         return None
     except (_guard.GuardError, _payload.PayloadError, OSError, UnicodeError) as error:
         raise DeployError("Runtime/contract/payload qualification refused before product mutation") from error
+
+
+def _minimum_contract_v2(state_dir: Path) -> bool:
+    floor = state_dir / "v2-contract-floor.json"
+    if floor.exists() or floor.is_symlink():
+        value = _private_json(floor)
+        if (set(value) != {"schema", "minimumContract", "releaseId", "commit", "sqlSha256"}
+                or type(value["schema"]) is not int or value["schema"] != 1 or value["minimumContract"] != "v2"
+                or not isinstance(value["releaseId"], str) or not _RELEASE_ID.fullmatch(value["releaseId"])
+                or not isinstance(value["commit"], str) or not _COMMIT.fullmatch(value["commit"])
+                or not isinstance(value["sqlSha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", value["sqlSha256"])):
+            raise DeployError("Unknown minimum deployment contract; refusing any downgrade")
+        return True
+    # Successful recorded v2 releases remain qualified even after an application-only rollback selects v1.
+    # Staging/failed intents are deliberately excluded: partial v2 effects are instead protected by the floor above.
+    for path in (state_dir / RELEASES_DIR).glob("*.json"):
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022 or info.st_size > 256 * 1024):
+            raise DeployError("Untrusted recorded contract history")
+        recorded = parse_manifest(path.read_text(), image_prefix="")
+        if recorded.release_id != path.stem: raise DeployError("Recorded contract identity changed")
+        if recorded.contract_version == "v2": return True
+    return False
+
+
+def _seal_v2_floor(release: Release, state_dir: Path, sql: str | None) -> None:
+    floor = state_dir / "v2-contract-floor.json"
+    if floor.exists() or floor.is_symlink():
+        _minimum_contract_v2(state_dir)
+        return
+    if sql is None: raise DeployError("External-v2 SQL must be authenticated before partial effects")
+    value = {"schema": 1, "minimumContract": "v2", "releaseId": release.release_id,
+             "commit": release.commit, "sqlSha256": hashlib.sha256(sql.encode()).hexdigest()}
+    descriptor, name = tempfile.mkstemp(prefix=".v2-floor-", dir=state_dir)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            json.dump(value, stream, sort_keys=True)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if floor.exists() or floor.is_symlink():
+            _minimum_contract_v2(state_dir)
+            return
+        temporary.replace(floor)
+        directory = os.open(state_dir, os.O_RDONLY | os.O_DIRECTORY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+    finally: temporary.unlink(missing_ok=True)
 
 
 # --- Manifesto ------------------------------------------------------------------------------------------------------
@@ -433,6 +483,7 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
         # schema). O migrador não roda: ele não desfaz migrations e nunca roda Down (spec 17.4).
         _step(f"rollback para {release.release_id}: banco em {head}, migrador não roda")
     else:
+        if release.contract_version == "v2": _seal_v2_floor(release, paths.state_dir, canonical_sql)
         # Spec 17.3, passo 4: o worker para de adquirir jobs antes da migração; jobs retomam pelo estado persistido.
         _step("pausando o worker")
         _check(run(compose + ["stop", "worker"]), "parada do worker")
@@ -494,9 +545,11 @@ def _is_rollback(release: Release, head: str, state_dir: Path) -> bool:
     """
     current = _recorded_manifest(state_dir, _current_release_id(state_dir))
     known_previous = current is not None and current.get("previousReleaseId") == release.release_id
-    if head <= release.latest_migration and not known_previous:
+    known_current_recovery = (current is not None and current.get("releaseId") == release.release_id
+                              and release.contract_version == "v1" and _minimum_contract_v2(state_dir))
+    if head <= release.latest_migration and not (known_previous or known_current_recovery):
         return False
-    if current is None or current.get("previousReleaseId") != release.release_id:
+    if current is None or not (known_previous or known_current_recovery):
         current_id = current.get("releaseId") if current else None
         raise DeployError(
             f"banco na migration {head}, mais nova que schema.max {release.latest_migration} da release "

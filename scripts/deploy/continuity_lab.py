@@ -129,7 +129,7 @@ def _root_lab() -> dict:
             refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", tagged]))
             images[role] = next(ref for ref in refs if ref.startswith(registry + role + "@sha256:"))
         manifest = smoke_local.build_manifest(os.environ["GITHUB_SHA"], architecture, images)
-        manifest.update(contractVersion="v2", releaseId="qualified-bootstrap")
+        manifest.update(contractVersion="v1", releaseId="qualified-bootstrap")
         bootstrap = executor.parse_manifest(json.dumps(manifest), image_prefix="")
         paths = executor.Paths(compose_file, host_env, state)
         executor._stage_release_files(bootstrap, state)
@@ -251,7 +251,7 @@ def _root_lab() -> dict:
             receiver = installer._module(repo / "scripts/release/coolify/receiver.py", "duora_lab_receiver")
             setattr(receiver, "STATE", install_paths.ingress)
             def idle() -> None:
-                receiver.require_host_idle()
+                installer.require_ingress_idle(receiver, install_paths, expected_commit=source_commit, manifest_sha256=manifest_sha)
             def inspect() -> dict: return executor.runtime_inventory(initial, paths)
             options = dict(expected_commit=source_commit, manifest_sha256=manifest_sha,
                 reviewed_inventory_sha256=live_inventory["inventorySha256"],
@@ -300,6 +300,32 @@ def _root_lab() -> dict:
             active = installer._module(install_paths.entry, "duora_lab_installed_executor")
             active.runtime_preflight(initial, paths, active.run_command, authenticate_payload=False)
 
+            bad_tag = registry + "migrator:qualified-failure"
+            bad_dockerfile = root / "failed.Dockerfile"
+            bad_dockerfile.write_text("FROM " + images["migrator"] + '\nENTRYPOINT ["/bin/sh","-c","exit 47"]\n')
+            command(["docker", "build", "--file", str(bad_dockerfile), "--tag", bad_tag, str(root)])
+            command(["docker", "push", "--quiet", bad_tag])
+            refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", bad_tag]))
+            bad_migrator = next(ref for ref in refs if ref.startswith(registry + "migrator@sha256:"))
+            first_failed_raw = dict(initial_raw, contractVersion="v2", releaseId="qualified-first-v2-failed",
+                previousReleaseId=initial.release_id, images=dict(images, migrator=bad_migrator))
+            try: active.deploy(active.parse_manifest(json.dumps(first_failed_raw), image_prefix=""), paths, active.run_command, verify_backup=False)
+            except active.DeployError: pass
+            else: raise RuntimeError("The first v2 failure was accepted")
+            floor_bytes = (state / "v2-contract-floor.json").read_bytes()
+            if active._current_release_id(state) != initial.release_id: raise RuntimeError("Failed first v2 changed current")
+            # Recover the exact qualified current v1 application without reapplying its weaker SQL.
+            active.deploy(initial, paths, active.run_command, verify_backup=False)
+            if ((state / "v2-contract-floor.json").read_bytes() != floor_bytes
+                    or query("select pg_backend_pid()") != backend_pid):
+                raise RuntimeError("Current application recovery lowered the v2 floor or lost the SQL session")
+            before_legacy = _instances(current_compose)["worker"]
+            next_legacy = active.parse_manifest(json.dumps(dict(initial_raw, releaseId="qualified-new-v1-refused")), image_prefix="")
+            try: active.deploy(next_legacy, paths, active.run_command, verify_backup=False)
+            except active.DeployError: pass
+            else: raise RuntimeError("New legacy SQL became eligible after current app-only recovery")
+            if _instances(current_compose)["worker"] != before_legacy: raise RuntimeError("Legacy guard stopped the recovered worker")
+
             def next_web(label: str) -> str:
                 tagged = registry + "web:qualified-" + label
                 dockerfile = root / (label + ".Dockerfile")
@@ -308,7 +334,7 @@ def _root_lab() -> dict:
                 command(["docker", "push", "--quiet", tagged])
                 refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", tagged]))
                 return next(ref for ref in refs if ref.startswith(registry + "web@sha256:"))
-            first_raw = dict(initial_raw, releaseId="qualified-v2-a", previousReleaseId=initial.release_id,
+            first_raw = dict(initial_raw, contractVersion="v2", releaseId="qualified-v2-a", previousReleaseId=initial.release_id,
                              images=dict(images, web=next_web("a")))
             first = active.parse_manifest(json.dumps(first_raw), image_prefix="")
             # Remove the pushed digest alias. The real executor must cold-pull it before native SQL extraction.
@@ -330,14 +356,8 @@ def _root_lab() -> dict:
                 "and n.nspname not like 'pg_%'")
             acl_before = query(acl_query)
             # A genuine post-worker-stop failure must keep current B and permit its concrete recorded A rollback.
-            bad_tag = registry + "migrator:qualified-failure"
-            bad_dockerfile = root / "failed.Dockerfile"
-            bad_dockerfile.write_text("FROM " + images["migrator"] + '\nENTRYPOINT ["/bin/sh","-c","exit 47"]\n')
-            command(["docker", "build", "--file", str(bad_dockerfile), "--tag", bad_tag, str(root)])
-            command(["docker", "push", "--quiet", bad_tag])
-            refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", bad_tag]))
             bad_raw = dict(second_raw, releaseId="qualified-failed", previousReleaseId=second.release_id,
-                images=dict(second_images, migrator=next(r for r in refs if r.startswith(registry + "migrator@sha256:"))))
+                images=dict(second_images, migrator=bad_migrator))
             try: active.deploy(active.parse_manifest(json.dumps(bad_raw), image_prefix=""), paths, active.run_command, verify_backup=False)
             except active.DeployError: pass
             else: raise RuntimeError("The deliberately failed migrator was accepted")
@@ -354,7 +374,7 @@ def _root_lab() -> dict:
                 raise RuntimeError("Compatible rollback changed SQL session, sentinel or schema")
             guard.require_preserved(live_inventory["profile"], active.runtime_inventory(first, paths)["profile"])
 
-            negatives = []
+            negatives = ["real_new_legacy_after_first_failed_v2_current_app_recovery_refused"]
             def refuses(label: str, target=first) -> None:
                 worker_before = _instances(current_compose)["worker"]
                 try: active.deploy(target, paths, active.run_command, verify_backup=False)
@@ -446,6 +466,7 @@ def _root_lab() -> dict:
                 "negative_guards_passed": negatives, "static_installation_preserved_services": static_preserved,
                 "compatible_v2_rollback_passed": True, "baseline": live_inventory["profile"],
                 "two_forward_deploys_under_observation": True, "failed_product_recovered": True,
+                "first_failed_v2_current_v1_app_recovery_preserved_floor": True,
                 "receiver_installer_interlock_proved": True,
                 "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,
                     "maximumAllowedGapSeconds": 3, "startedBefore": first.release_id, "endedAfter": "compatible rollback and negative read-only guards"},
