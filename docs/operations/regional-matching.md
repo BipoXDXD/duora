@@ -1,5 +1,42 @@
 # Pareamento regional: preparação do corte V3
 
+## Estado integrado e cuidados adicionais — revisão de 22/10/2026
+
+O PR #216 integrou o aviso PT-BR/EN-US e os testes de salvamento BR+US. Isso satisfaz a preparação
+da comunicação no código; o aceite operacional G4 continua separado. O catálogo BR+US já foi integrado
+pelo PR #196, conforme [us-catalog.md](us-catalog.md). O PR #204 integrou o runtime opcional de
+geolocalização, conforme [ipinfo-runtime.md](ipinfo-runtime.md): as flags `CountryDatabase` permanecem
+false por padrão. As afirmações posteriores sobre BR-only, UI futura ou inexistência de configuração
+do detector descrevem entregas históricas, não o estado atual da main. Integração não comprova flags
+efetivas nem habilita qualquer componente em um ambiente.
+
+Antes do corte, revisar também estes limites da implementação:
+
+- `ParticipationService` usa `IOptions<ParticipationOptions>` em singleton. Alterar um arquivo ou variável
+  no host não atualiza a instância existente. Ensaiar a propagação por processo e a recriação/reinício
+  coordenado, conferindo os valores efetivos; não pressupor recarga dinâmica.
+- O Compose de produção base não encaminha `Participation__MatchingEnabled` nem
+  `Participation__RegionalMatchingStartsAt`. Uma chave no arquivo de interpolação do Compose não é,
+  por si só, variável do container. Identificar o mecanismo de configuração aprovado no ambiente,
+  revisar sua persistência nas releases seguintes e provar o recebimento pela aplicação antes de usá-lo.
+- `MatchingEnabled=false` impede novos claims/conclusões de `build-round` e a construção direta de pares;
+  não bloqueia `PublishAsync`. Suspender publicações por procedimento administrativo revisado e drenar
+  transações de publicação antes de alterar o corte. Retomar publicações somente após retirar processos
+  com configuração antiga: uma publicação que os alcance ainda pode gravar V2.
+- Pausa não desfaz trabalho já em execução. Conferir jobs, leases e operações em curso. Os jobs de
+  fechamento/expiração continuam elegíveis; não interromper o ciclo das reservas confirmadas sem plano.
+  Uma rodada construída mais de 60 segundos após seu início é cancelada pelo serviço, portanto a pausa
+  precisa de janela e inventário que evitem perder rodadas.
+- A retirada do corte conserva V3 persistido, mas novas publicações sem corte voltam a receber V2.
+  Em incidente, pausar também publicações, conservar configuração/schema/preferências/versões e corrigir
+  para frente. Elegibilidade genérica de rollback por manifesto/schema não comprova capacidade regional
+  do binário anterior; a release de recuo precisa de revisão própria de V3, US e guardas.
+
+O inventário inicial vazio é evidência histórica. Repetir o inventário agregado de rodadas V2 futuras,
+rodadas abertas e jobs antes da janela e depois da drenagem, com publicações suspensas. Registrar
+release/digests, schema/privilégios, configuração efetiva, limites do ensaio, responsável e aceite G4.
+Usar instante UTC com `Z` ou offset explícito revisado; este documento não escolhe nem configura o corte.
+
 ## Comunicação para a ativação BR+US
 
 O aviso da SPA descreve agora as rodadas com filtro regional: preferência explícita obrigatória,
