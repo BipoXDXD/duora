@@ -87,6 +87,16 @@ class RuntimeIdentityTests(unittest.TestCase):
         variants[2]["State"]["Health"]["Status"] = "unhealthy"
         variants[3]["State"]["Restarting"] = True
         variants[4]["RestartCount"] = True
+        missing_health = container()
+        del missing_health["State"]["Health"]
+        variants.append(missing_health)
+        for status in ("starting", "unknown"):
+            changed = container()
+            changed["State"]["Health"]["Status"] = status
+            variants.append(changed)
+        paused = container()
+        paused["State"]["Status"] = "paused"
+        variants.append(paused)
         for changed in variants:
             with self.subTest(state=changed.get("State")), self.assertRaises(guard.GuardError):
                 guard.container_identity(changed)

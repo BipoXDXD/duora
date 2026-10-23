@@ -126,6 +126,17 @@ class MigratorPayloadImageTests(unittest.TestCase):
               "container_observations": observations, "owned_container_removed": True}))
 
 
+@unittest.skipUnless(IMAGE, "real disposable continuity qualification runs in native Actions images job")
+class RuntimeContinuityLabTests(unittest.TestCase):
+    def test_real_two_deploy_continuity_guards_installer_and_compatible_rollback(self) -> None:
+        from continuity_lab import run_preservation_lab
+        report = run_preservation_lab()
+        for field in ["sql_session_survived", "database_backup_identity_preserved", "negative_guards_passed",
+                      "static_installation_preserved_services", "compatible_v2_rollback_passed"]:
+            self.assertTrue(report[field], field)
+        print("[continuity-lab] " + json.dumps(report))
+
+
 @unittest.skipUnless(IMAGE, "defina DUORA_POSTGRES_IMAGE com a imagem derivada (docker)")
 class AppRolePrivilegesTests(unittest.TestCase):
     container = ""

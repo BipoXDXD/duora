@@ -124,6 +124,10 @@ class Runner(Protocol):
     def __call__(self, command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]: ...
 
 
+def runtime_preflight(release: Release, paths: Paths, run: Runner) -> str | None:
+    raise NotImplementedError("Preserve reviewed runtime and authenticate SQL before any product mutation")
+
+
 # --- Manifesto ------------------------------------------------------------------------------------------------------
 
 def parse_manifest(text: str, *, image_prefix: str) -> Release:
