@@ -50,7 +50,23 @@ CREATE FUNCTION rooms.room_count() RETURNS bigint LANGUAGE sql AS 'SELECT count(
 
 
 def apply_candidate_sql(container: str) -> subprocess.CompletedProcess[str]:
-    raise NotImplementedError("Apply the verified real migrator SQL payload through local PostgreSQL stdin")
+    image = payload._inspect("image", "duora-migrator:ci", payload.capture_binary)
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    labels = image.get("Config", {}).get("Labels", {})
+    architecture = {"x86_64": "amd64", "aarch64": "arm64"}[os.uname().machine]
+    if (labels.get("org.opencontainers.image.revision") != revision
+            or labels.get("org.opencontainers.image.title") != "duora-migrator"
+            or labels.get("org.opencontainers.image.source") != "https://github.com/BipoXDXD/duora"
+            or image.get("Architecture") != architecture or image.get("Os") != "linux"):
+        raise AssertionError("Native candidate image differs from this reviewed CI build")
+    sql = payload._copy_stopped_sql(image["Id"], image["Id"])
+    canonical = Path(__file__).resolve().parents[2] / "infra/images/dotnet/reconcile-privileges.sql"
+    if sql.encode("utf-8") != canonical.read_bytes():
+        raise AssertionError("Native candidate SQL differs from the canonical source")
+    return subprocess.run(["docker", "exec", "--interactive", container, "psql", "--no-psqlrc",
+                           "-v", "ON_ERROR_STOP=1", "--single-transaction", "--username", "postgres",
+                           "--dbname", "duora", "--file", "/dev/stdin"],
+                          input=sql, capture_output=True, text=True, check=False, timeout=60)
 
 
 @unittest.skipUnless(IMAGE, "native image proof runs with DUORA_POSTGRES_IMAGE in both CI architectures")
@@ -134,7 +150,9 @@ class AppRolePrivilegesTests(unittest.TestCase):
               IMAGE])
         cls._wait_ready()
         _run(cls._psql_superuser() + ["--command", MIGRATION_SQL])
-        _run(cls._psql_superuser() + ["--file", "/usr/local/share/duora/reconcile-privileges.sql"])
+        reconciliation = apply_candidate_sql(cls.container)
+        if reconciliation.returncode != 0:
+            raise AssertionError("Canonical reconciliation failed: " + reconciliation.stderr[-800:])
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -235,9 +253,7 @@ class AppRolePrivilegesTests(unittest.TestCase):
         # Privilégio herdado (PUBLIC) não sai com o REVOKE de duora_app: a checagem final tem de barrar o deploy.
         _run(self._psql_superuser() + ["--command", "GRANT UPDATE ON ops.audit_events TO PUBLIC"])
         try:
-            result = subprocess.run(
-                self._psql_superuser() + ["--file", "/usr/local/share/duora/reconcile-privileges.sql"],
-                capture_output=True, text=True, check=False)
+            result = apply_candidate_sql(self.container)
             self.assertNotEqual(0, result.returncode, "o reconcile devia falhar")
             self.assertIn("append-only", result.stderr)
         finally:

@@ -5,6 +5,8 @@ namespace Duora.IntegrationTests.Database;
 
 public sealed class CanonicalReconciliationTests(PostgresFixture postgres)
 {
+    private static readonly string[] RewrittenPrivileges = ["UPDATE", "DELETE", "TRUNCATE"];
+
     [Fact]
     public async Task CanonicalSqlRemovesDeliberatelyGrantedPrivilegesWithoutChangingHistoryOrLegitimateAccess()
     {
@@ -25,7 +27,7 @@ public sealed class CanonicalReconciliationTests(PostgresFixture postgres)
         // A compiled allowlist, never participant input. Include the regional TRUNCATE exception explicitly.
         var protectedTables = AppRoleTableAccess.Expected.Where(entry => entry.Value != AppTableAccess.ReadWrite ||
             entry.Key is "profiles.regional_preferences" or "profiles.regional_preference_countries").ToArray();
-        var forbidden = protectedTables.SelectMany(entry => new[] { "UPDATE", "DELETE", "TRUNCATE" }
+        var forbidden = protectedTables.SelectMany(entry => RewrittenPrivileges
             .Except(AppRoleTableAccess.PrivilegesOf(entry.Value))
             .Select(privilege => (Table: entry.Key, Privilege: privilege))).ToArray();
         Assert.NotEmpty(forbidden);
