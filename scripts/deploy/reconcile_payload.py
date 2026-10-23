@@ -216,11 +216,12 @@ def extract_sql(image_reference: str, *, revision: str, architecture: str,
                            "--network", "none", "--read-only", "--cap-drop", "ALL",
                            "--entrypoint", "/bin/false", image_reference])
         try:
-            container_id = created.decode("ascii").strip()
+            candidate_id = created.decode("ascii").strip()
         except UnicodeError as error:
             raise PayloadError("Invalid extraction container identity") from error
-        if not re.fullmatch(r"[a-f0-9]{64}", container_id):
+        if not re.fullmatch(r"[a-f0-9]{64}", candidate_id):
             raise PayloadError("Invalid extraction container identity")
+        container_id = candidate_id
         owned_container()
         sql = capture(["docker", "cp", container_id + ":/app/" + SQL_NAME, "-"])
         checksum = capture(["docker", "cp", container_id + ":/app/" + CHECKSUM_NAME, "-"])
