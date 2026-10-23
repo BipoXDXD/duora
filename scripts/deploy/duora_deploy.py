@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import platform
@@ -27,6 +28,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterator, Protocol
+
+# The installed entry can be a symlink loaded by the receiver's SourceFileLoader.
+# Bind sidecars to the verified root-owned version, never the caller's working directory.
+_SIDECAR_DIRECTORY = str(Path(__file__).resolve().parent)
+sys.dont_write_bytecode = True
+if _SIDECAR_DIRECTORY not in sys.path:
+    sys.path.insert(0, _SIDECAR_DIRECTORY)
+import reconcile_payload as _payload
+import runtime_guard as _guard
 
 DESCRIPTION = "Comando restrito de deploy do Duora na VPS (spec 15.5 e 17.3)."
 IMAGE_NAMES = ("web", "worker", "edge", "migrator", "postgres")
@@ -121,11 +131,59 @@ class Paths:
 
 
 class Runner(Protocol):
-    def __call__(self, command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]: ...
+    def __call__(self, command: list[str], *, capture: bool = False,
+                 input_text: str | None = None) -> subprocess.CompletedProcess[str]: ...
 
 
-def runtime_preflight(release: Release, paths: Paths, run: Runner) -> str | None:
-    raise NotImplementedError("Preserve reviewed runtime and authenticate SQL before any product mutation")
+def _private_json(path: Path) -> dict:
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077
+            or info.st_size > 256 * 1024):
+        raise DeployError("Runtime baseline must be an owned private regular file")
+    return _guard.decode_json(path.read_bytes())
+
+
+def runtime_inventory(release: Release, paths: Paths) -> dict:
+    """Read-only candidate inventory. This does not enroll it or authenticate an external SQL payload."""
+    current = _current_release_id(paths.state_dir)
+    if current is None:
+        raise DeployError("No qualified running release; explicit administrative bootstrap required")
+    runtime_env = paths.state_dir / RELEASES_DIR / (current + ".env")
+    if not runtime_env.is_file():
+        raise DeployError("Missing current runtime environment; refusing implicit repair")
+    try:
+        return _guard.collect_runtime(_compose_command(paths, runtime_env),
+            postgres_reference=release.images["postgres"],
+            compose_sha256=hashlib.sha256(paths.compose_file.read_bytes()).hexdigest(),
+            host_id_sha256=hashlib.sha256(Path("/etc/machine-id").read_bytes()).hexdigest(),
+            capture=_payload.capture_binary)
+    except (_guard.GuardError, _payload.PayloadError, OSError) as error:
+        raise DeployError("Cannot qualify the unchanged database/backup runtime") from error
+
+
+def runtime_preflight(release: Release, paths: Paths, run: Runner, *, authenticate_payload: bool = True) -> str | None:
+    try:
+        inventory = runtime_inventory(release, paths)
+        _guard.require_preserved(_private_json(paths.state_dir / _guard.BASELINE_NAME), inventory["profile"])
+        current = _current_release_id(paths.state_dir)
+        compose = _compose_command(paths, paths.state_dir / RELEASES_DIR / (str(current) + ".env"))
+        head = _read_migration_head(compose, run)
+        legacy_hash = ""
+        if release.contract_version == "v1":
+            identifier = inventory["profile"]["services"]["postgres"]["id"]
+            filename = "/usr/local/share/duora/reconcile-privileges.sql"
+            result = _payload.capture_binary(["docker", "exec", identifier, "sha256sum", filename]).decode("ascii").split()
+            if len(result) != 2 or result[1] != filename:
+                raise DeployError("Cannot bind the qualified legacy SQL snapshot")
+            legacy_hash = result[0]
+        _guard.require_contract(release.raw, schema_head=head, legacy_sql_sha256=legacy_hash)
+        if release.contract_version == "v2" and authenticate_payload:
+            sql = _payload.extract_sql(release.images["migrator"], revision=release.commit, architecture=release.architecture)
+            _step("SQL externo autenticado sha256=" + hashlib.sha256(sql.encode()).hexdigest())
+            return sql
+        return None
+    except (_guard.GuardError, _payload.PayloadError, OSError, UnicodeError) as error:
+        raise DeployError("Runtime/contract/payload qualification refused before product mutation") from error
 
 
 # --- Manifesto ------------------------------------------------------------------------------------------------------
@@ -336,16 +394,15 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     _require_release_not_rewritten(release, paths.state_dir)
     if media_uploads_enabled:
         _require_media_backup(run, paths.state_dir, clock())
+    canonical_sql = runtime_preflight(release, paths, run)
     release_env = _stage_release_files(release, paths.state_dir)
     compose = _compose_command(paths, release_env)
 
     _step("baixando imagens por digest")
-    _check(run(compose + ["--profile", "migrate", "pull", "--quiet"]), "pull das imagens")
+    _check(run(compose + ["--profile", "migrate", "pull", "--quiet", "web", "worker", "edge", "migrator"]), "pull das imagens da aplicação")
     _require_image_architectures(release, run)
 
-    # backup: repository host do pgBackRest (mesma imagem), recebe o WAL do postgres e faz os backups.
-    _step("garantindo o PostgreSQL e o backup saudáveis")
-    _check(run(compose + ["up", "--detach", "--wait", "postgres", "backup"]), "subida do postgres e do backup")
+    _step("PostgreSQL e backup preservados; nenhuma operação de criação ou reinício")
 
     # Spec 17.3, passo 1: estado de backup/WAL desconhecido ou ruim interrompe. Roda com o postgres desta release já
     # de pé, então prova o arquivamento com a configuração que vai ficar no ar.
@@ -369,13 +426,15 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
         _check(run(compose + ["stop", "worker"]), "parada do worker")
 
         _step("aplicando migrations (job exclusivo)")
-        _check(run(compose + ["--profile", "migrate", "run", "--rm", "migrator"]), "migrator")
+        _check(run(compose + ["--profile", "migrate", "run", "--rm", "--no-deps", "migrator"]), "migrator")
         # Default privileges não aceitam exceção: o histórico do EF nasce com DML para o app e perde aqui (script
         # versionado na imagem do postgres, docs/data/model.md "Permissões de banco").
-        _check(run(compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1",
-                              "--username", "postgres", "--dbname", "duora",
-                              "--file", "/usr/local/share/duora/reconcile-privileges.sql"]),
-               "reconciliação de privilégios")
+        reconciliation = compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1",
+                                      "--single-transaction", "--username", "postgres", "--dbname", "duora", "--file"]
+        if canonical_sql is None:
+            _check(run(reconciliation + ["/usr/local/share/duora/reconcile-privileges.sql"]), "reconciliação de privilégios")
+        else:
+            _check(run(reconciliation + ["/dev/stdin"], input_text=canonical_sql), "reconciliação de privilégios")
         migrated_head = _read_migration_head(compose, run)
         if migrated_head != release.latest_migration:
             raise DeployError(f"banco na migration {migrated_head or '(nenhuma)'} depois do migrador, "
@@ -421,9 +480,10 @@ def _is_rollback(release: Release, head: str, state_dir: Path) -> bool:
       - a release alvo já foi implantada antes, com este mesmo manifesto (releases/<id>.json idêntico);
       - teto: o banco não passa do schema.max da release corrente registrada.
     """
-    if head <= release.latest_migration:
-        return False
     current = _recorded_manifest(state_dir, _current_release_id(state_dir))
+    known_previous = current is not None and current.get("previousReleaseId") == release.release_id
+    if head <= release.latest_migration and not known_previous:
+        return False
     if current is None or current.get("previousReleaseId") != release.release_id:
         current_id = current.get("releaseId") if current else None
         raise DeployError(
@@ -433,6 +493,8 @@ def _is_rollback(release: Release, head: str, state_dir: Path) -> bool:
     if _recorded_manifest(state_dir, release.release_id) is None:
         raise DeployError(f"release {release.release_id} nunca foi implantada aqui: não é rollback elegível. "
                           "Nada foi parado.")
+    if head < release.raw["schema"]["min"]:
+        raise DeployError("Rollback com histórico abaixo do schema mínimo conhecido; nada foi parado")
     ceiling = current["schema"]["max"]
     if head > ceiling:
         raise DeployError(f"banco na migration {head}, além do schema.max {ceiling} da release corrente; estado "
@@ -593,18 +655,18 @@ def _step(message: str) -> None:
     print(f"[duora-deploy] {message}", flush=True)
 
 
-def run_command(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+def run_command(command: list[str], *, capture: bool = False,
+                input_text: str | None = None) -> subprocess.CompletedProcess[str]:
     # Só se captura o que o deploy lê (arquitetura, migration, estado). O resto, inclusive a saída do migrador,
     # vai direto ao operador: "run --rm" apaga o container e os logs dele junto.
     # Compose dá precedência ao shell sobre --env-file. O gate lê o arquivo do host, então o shell não pode
     # substituir DUORA_* nem injetar arquivos/profiles via COMPOSE_*. Outros comandos preservam seu ambiente.
     environment = None
-    if command[:2] == ["docker", "compose"]:
-        environment = {key: value for key, value in os.environ.items()
-                       if not key.startswith(("DUORA_", "COMPOSE_"))}
+    if command and command[0] == "docker":
+        environment = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C", "HOME": "/root"}
     try:
         return subprocess.run(command, text=True, check=False, capture_output=capture,
-                              timeout=COMMAND_TIMEOUT_SECONDS, env=environment)
+                              timeout=COMMAND_TIMEOUT_SECONDS, env=environment, input=input_text)
     except subprocess.TimeoutExpired as error:
         raise DeployError(f"comando excedeu {COMMAND_TIMEOUT_SECONDS} s: {' '.join(command[:6])} ...") from error
 
@@ -617,17 +679,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compose-file", type=Path, default=Path("/opt/duora/compose.prod.yml"))
     parser.add_argument("--host-env", type=Path, default=Path("/etc/duora/duora.env"))
     parser.add_argument("--state-dir", type=Path, default=Path("/var/lib/duora"))
+    parser.add_argument("--preflight-only", action="store_true", help="runtime/contrato somente leitura; payload é autenticado no deploy antes do worker")
+    parser.add_argument("--inventory-only", action="store_true", help="inventário sanitizado somente leitura; não sela baseline")
     parser.add_argument("--accept-missing-backup-check", action="store_true",
                         help="segue sem verificar backup/WAL: só o primeiro deploy (antes da stanza existir), "
                              "homologação ou smoke. Fora do sudoers do executor de deploy")
     args = parser.parse_args(argv)
 
     try:
-        with deploy_lock(args.state_dir):
+        with deploy_lock(args.state_dir, readonly=args.preflight_only or args.inventory_only):
             host = parse_host_config(args.host_env.read_text(encoding="utf-8"))
             release = parse_manifest(read_manifest(args.manifest), image_prefix=host.image_prefix)
             preflight(release, host)
-            deploy(release, Paths(args.compose_file, args.host_env, args.state_dir), run_command,
+            paths = Paths(args.compose_file, args.host_env, args.state_dir)
+            if args.inventory_only:
+                print(json.dumps(runtime_inventory(release, paths), sort_keys=True))
+                return 0
+            if args.preflight_only:
+                runtime_preflight(release, paths, run_command, authenticate_payload=False)
+                return 0
+            deploy(release, paths, run_command,
                    verify_backup=not args.accept_missing_backup_check,
                    media_uploads_enabled=host.media_uploads_enabled)
     except DeployError as error:
@@ -640,13 +711,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 @contextmanager
-def deploy_lock(state_dir: Path) -> Iterator[None]:
+def deploy_lock(state_dir: Path, *, readonly: bool = False) -> Iterator[None]:
     """Um deploy por vez (spec 17.3, passo 5): dois migradores ou dois "up" concorrentes deixam estado misto.
 
     flock é solto pelo kernel quando o processo morre, então um deploy interrompido não trava os próximos.
     """
-    state_dir.mkdir(parents=True, exist_ok=True)
-    with open(state_dir / ".deploy.lock", "w", encoding="utf-8") as lock_file:
+    if not readonly:
+        state_dir.mkdir(parents=True, exist_ok=True)
+    with open(state_dir / ".deploy.lock", "r" if readonly else "a", encoding="utf-8") as lock_file:
         try:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:

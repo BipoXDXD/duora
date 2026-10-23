@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from collections.abc import Callable
+from decimal import Decimal
 
 GUARD_VERSION = 1
 BASELINE_NAME = "executor-runtime-baseline.json"
@@ -83,11 +84,11 @@ def _profile(value: dict) -> None:
             raise GuardError("Unknown baseline schema")
         context = value["context"]
         if (set(context) != {"hostIdSha256", "project", "guardVersion", "dockerVersion", "dockerApi",
-                            "composeVersion", "composeSha256", "configHashes"}
+                            "composeVersion", "composeSha256", "configHashes", "dockerServerSha256"}
                 or context["project"] != "duora" or type(context["guardVersion"]) is not int
                 or context["guardVersion"] != GUARD_VERSION):
             raise GuardError("Unexpected baseline context")
-        for key in ("hostIdSha256", "composeSha256"):
+        for key in ("hostIdSha256", "composeSha256", "dockerServerSha256"):
             _hex(context[key])
         for key in ("dockerVersion", "dockerApi", "composeVersion"):
             if not isinstance(context[key], str) or not re.fullmatch(r"[v0-9][0-9a-zA-Z.+-]{0,63}", context[key]):
@@ -120,8 +121,118 @@ def _profile(value: dict) -> None:
 
 def collect_runtime(compose: list[str], *, postgres_reference: str, compose_sha256: str,
                     host_id_sha256: str, capture: Callable[[list[str]], bytes]) -> dict:
-    raise NotImplementedError("Read effective runtime, desired Compose hashes and sanitized audit without writes")
+    """A sanitized review candidate, not automatic enrollment or permission to install."""
+    def read(command: list[str]) -> dict:
+        return decode_json(capture(command))
+
+    try:
+        config = read(compose + ["config", "--format", "json"])
+        if config["name"] != "duora" or config["volumes"]["pgdata"]["name"] != "duora_pgdata":
+            raise GuardError("Unexpected Compose project or data volume")
+        server = read(["docker", "version", "--format", "{{json .Server}}"])
+        image = read(["docker", "image", "inspect", "--format", "{{json .}}", postgres_reference])
+        _hex(image["Id"], prefix="sha256:")
+        profile: dict = {"schema": 1, "context": {"hostIdSha256": host_id_sha256, "project": "duora",
+            "guardVersion": GUARD_VERSION, "dockerVersion": server["Version"], "dockerApi": server["ApiVersion"],
+            "dockerServerSha256": digest(server), "composeVersion": capture(["docker", "compose", "version", "--short"]).decode().strip(),
+            "composeSha256": compose_sha256, "configHashes": {}}, "services": {}, "volumes": []}
+        audit: dict = {"desired": {}, "effective": {}}
+        for role in ("postgres", "backup"):
+            line = capture(compose + ["config", "--hash", role]).decode("ascii").strip().split()
+            if len(line) != 2 or line[0] != role:
+                raise GuardError("Unknown Compose hash output")
+            _hex(line[1])
+            identifier = capture(compose + ["ps", "--all", "--quiet", role]).decode("ascii").strip()
+            _hex(identifier)
+            item = read(["docker", "container", "inspect", "--format", "{{json .}}", identifier])
+            identity = container_identity(item)
+            labels = item["Config"]["Labels"]
+            wanted = config["services"][role]
+            if (labels.get("com.docker.compose.project") != "duora"
+                    or labels.get("com.docker.compose.service") != role
+                    or labels.get("com.docker.compose.config-hash") != line[1]
+                    or item["Image"] != image["Id"] or item["Config"]["Image"] != postgres_reference
+                    or wanted["image"] != postgres_reference):
+                raise GuardError("Runtime differs from the desired immutable component")
+            mounts = [m for m in item["Mounts"] if m["Type"] == "volume"]
+            if (len(mounts) != 1 or mounts[0]["Name"] != "duora_pgdata"
+                    or mounts[0]["Destination"] != "/var/lib/postgresql"
+                    or mounts[0]["RW"] is not (role == "postgres")):
+                raise GuardError("Unexpected data volume mount")
+            wanted_networks = {config["networks"][n]["name"] for n in wanted["networks"]}
+            if set(item["NetworkSettings"]["Networks"]) != wanted_networks:
+                raise GuardError("Effective networks differ from Compose")
+            actual = item["HostConfig"]
+            limits = wanted.get("deploy", {}).get("resources", {}).get("limits", {})
+            expected = {"Memory": int(limits.get("memory", 0)), "PidsLimit": int(limits.get("pids", 0)),
+                        "NanoCpus": int(Decimal(str(limits.get("cpus", "0"))) * 1_000_000_000),
+                        "CpuShares": int(wanted.get("cpu_shares", 0)), "Privileged": wanted.get("privileged", False),
+                        "ReadonlyRootfs": wanted.get("read_only", False)}
+            for key, value in expected.items():
+                if (actual.get(key) or 0) != value:
+                    raise GuardError("Effective resource or isolation setting differs from Compose")
+            for key, field in [("CapDrop", "cap_drop"), ("CapAdd", "cap_add"), ("SecurityOpt", "security_opt")]:
+                normalize = lambda values: sorted(v.upper().removeprefix("CAP_").removesuffix(":TRUE") for v in values or [])
+                if normalize(actual.get(key)) != normalize(wanted.get(field)):
+                    raise GuardError("Effective capabilities or security options differ from Compose")
+            if actual["RestartPolicy"]["Name"] != wanted.get("restart", "no"):
+                raise GuardError("Effective restart policy differs from Compose")
+            profile["context"]["configHashes"][role] = line[1]
+            profile["services"][role] = identity
+            # Immutable creation settings are bound by config-hash and the full fingerprint. Never expose Env.
+            desired = {k: wanted.get(k) for k in ("image", "restart", "read_only", "privileged", "cap_drop", "cap_add",
+                                                 "security_opt", "deploy", "cpu_shares", "volumes", "networks")}
+            desired["environmentSha256"] = digest(wanted.get("environment", {}))
+            audit["desired"][role] = desired
+            audit["effective"][role] = {"image": item["Config"]["Image"], "user": item["Config"].get("User"),
+                "hostConfig": {k: actual.get(k) for k in ("Memory", "MemorySwap", "MemoryReservation", "NanoCpus",
+                "CpuShares", "CpuPeriod", "CpuQuota", "CpusetCpus", "PidsLimit", "Privileged", "ReadonlyRootfs",
+                "CapDrop", "CapAdd", "SecurityOpt", "RestartPolicy", "NetworkMode", "ShmSize", "IpcMode")},
+                "mounts": item["Mounts"], "networks": item["NetworkSettings"]["Networks"],
+                "environmentSha256": digest(item["Config"].get("Env", []))}
+        volume = read(["docker", "volume", "inspect", "--format", "{{json .}}", "duora_pgdata"])
+        profile["volumes"] = [volume_identity(volume)]
+        audit["volume"] = {key: volume.get(key) for key in ("Name", "CreatedAt", "Driver", "Scope", "Mountpoint")}
+        audit["volume"]["optionsSha256"] = digest(volume.get("Options"))
+        audit["volume"]["labelsSha256"] = digest(volume.get("Labels"))
+        _profile(profile)
+        result = {"profile": profile, "audit": audit}
+        return {**result, "inventorySha256": digest(result)}
+    except (KeyError, TypeError, ValueError, UnicodeError, ArithmeticError) as error:
+        raise GuardError("Cannot establish the reviewed healthy runtime") from error
 
 
 def require_contract(release: dict, *, schema_head: str, legacy_sql_sha256: str) -> None:
-    raise NotImplementedError("Explicit bounded legacy-v1 and mandatory external-v2 contract")
+    if schema_head and not re.fullmatch(r"\d{14}_[A-Za-z0-9_]+", schema_head):
+        raise GuardError("Unknown database schema identity")
+    version = release.get("contractVersion")
+    if version == "v2":
+        return  # External payload authentication is mandatory in runtime_preflight, never a missing-file fallback.
+    if version != "v1":
+        raise GuardError("Unknown deployment contract")
+    try:
+        if (release["images"]["postgres"] != LEGACY_DIGESTS[release["architecture"]]
+                or legacy_sql_sha256 != LEGACY_SQL_SHA256
+                or schema_head > LEGACY_SCHEMA_CEILING or release["schema"]["max"] > LEGACY_SCHEMA_CEILING):
+            raise GuardError("Release exceeds the explicitly qualified legacy-v1 profile")
+    except (KeyError, TypeError) as error:
+        raise GuardError("Missing qualified legacy-v1 identity") from error
+
+
+def decode_json(data: bytes) -> dict:
+    if len(data) > 256 * 1024:
+        raise GuardError("Metadata budget exceeded")
+    def pairs(items: list[tuple[str, object]]) -> dict:
+        value = {}
+        for key, item in items:
+            if key in value:
+                raise GuardError("Duplicate metadata field")
+            value[key] = item
+        return value
+    try:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=pairs)
+        if not isinstance(value, dict):
+            raise GuardError("Metadata must be an object")
+        return value
+    except (ValueError, UnicodeError, RecursionError) as error:
+        raise GuardError("Invalid runtime metadata") from error

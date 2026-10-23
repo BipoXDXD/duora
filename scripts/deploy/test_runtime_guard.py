@@ -29,7 +29,8 @@ def reviewed_profile() -> dict:
                 "startedAt": "2026-10-23T01:49:01Z", "restartCount": 0, "runtimeSha256": "d" * 64}
     backup = dict(identity, id="2" * 64)
     return {"schema": 1, "context": {"hostIdSha256": "e" * 64, "project": "duora", "guardVersion": 1,
-            "dockerVersion": "29.9.1", "dockerApi": "1.52", "composeVersion": "5.6.0", "composeSha256": "f" * 64,
+            "dockerVersion": "29.9.1", "dockerApi": "1.52", "dockerServerSha256": "a" * 64,
+            "composeVersion": "5.6.0", "composeSha256": "f" * 64,
             "configHashes": {"postgres": "c" * 64, "backup": "c" * 64}},
             "services": {"postgres": identity, "backup": backup},
             "volumes": [{"name": "duora_pgdata", "createdAt": "2026-10-22T10:00:00Z", "runtimeSha256": "a" * 64}]}
