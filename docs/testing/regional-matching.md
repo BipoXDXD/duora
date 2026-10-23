@@ -3,6 +3,26 @@
 Referência: [ADR-0033](../architecture/adr/0033-deteccao-aproximada-e-preferencia-regional.md).
 Ativação e rollback: [procedimento do corte V3](../operations/regional-matching.md).
 
+## Cobertura integrada BR+US pela API real
+
+`RegionalPreferenceTests.UnitedStatesAndBothCountriesSurviveNewSessionsAndAStaleSave` grava US e depois
+BR+US por HTTP autenticado, relê em novas sessões, exige 412 na gravação vencida e confere os países no
+PostgreSQL. Perfil, idiomas e locale mantêm seus corpos e ETags; o cenário roda em PT-BR e EN-US.
+
+`RegionalMatchingApiTests` usa o host real `DuoraWebFactory` com PostgreSQL descartável do Testcontainers.
+Localização, preferência regional, idiomas, locale, inscrição e check-in passam pelas rotas reais, com
+cookies, CSRF e If-Match. O coordenador de produção constrói uma rodada V3 sintética já persistida, sem
+configurar o corte. A API de participação/sala e as linhas de pares/reservas comprovam o resultado.
+
+A matriz inclui BR+US, US isolado, aceitação cruzada BR/US, rejeição unilateral nos dois sentidos,
+interseção desejada sem declaração compatível, pending nos dois lados, país ausente, unrestricted explícito,
+idioma comum e opt-in entre locales. Retry com consumidor novo sem corte não duplica pares. Os resultados
+esperados são literais; não há API simulada, SQLite ou EF InMemory nesses testes.
+
+Essa cobertura complementa o E2E da SPA com API simulada; não homologa capacidade do host, binário antigo,
+configuração efetiva, inventário vivo ou aceite G4. A execução e os resultados do head exato ficam no PR/CI.
+Nenhuma ativação, migração de produção, geolocalização ou alteração de dados reais faz parte desta entrega.
+
 | Regra | Evidência automatizada |
 |---|---|
 | API privada, ETags independentes, ausência pending, consistência/FKs | RegionalPreferenceTests, RegionalPreferenceContractTests, RegionalPreferenceMigrationTests |

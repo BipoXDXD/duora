@@ -34,6 +34,77 @@ public sealed class RegionalPreferenceTests(PostgresFixture postgres) : IAsyncDi
     }
 
     [Theory]
+    [InlineData("pt-BR")]
+    [InlineData("en-US")]
+    public async Task UnitedStatesAndBothCountriesSurviveNewSessionsAndAStaleSave(string locale)
+    {
+        var scenario = new IdentityScenario(postgres, _factory);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(account);
+        using var localeSave = await browser.PutAsync("/api/v1/me/locale", $$"""{"locale":"{{locale}}"}""",
+            new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = "\"0\"" }));
+        Assert.Equal(HttpStatusCode.OK, localeSave.StatusCode);
+        using var profile = await browser.PatchRawJsonAsync("/api/v1/me/profile",
+            """{"countryCode":"BR","subdivisionCode":"BR-SP","bio":"Synthetic profile"}""", "\"0\"");
+        Assert.Equal(HttpStatusCode.OK, profile.StatusCode);
+        using var languages = await browser.PutAsync("/api/v1/me/preferences",
+            """{"communicationLanguages":["en","pt"],"allowDifferentDisplayLocales":false}""",
+            new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = "\"0\"" }));
+        Assert.Equal(HttpStatusCode.OK, languages.StatusCode);
+        var paths = new[] { "/api/v1/me/profile", "/api/v1/me/preferences", "/api/v1/me/locale" };
+        var original = new List<(string Body, string? ETag)>();
+        foreach (var path in paths)
+        {
+            using var read = await browser.GetAsync(path);
+            Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+            original.Add((await read.Content.ReadAsStringAsync(Ct), read.Headers.ETag?.ToString()));
+        }
+
+        using var us = await PutAsync(browser, """{"mode":"countries","countryCodes":["US"]}""", "0");
+        Assert.Equal(HttpStatusCode.OK, us.StatusCode);
+        using var reloaded = await scenario.SignedInBrowserAsync(account);
+        using var usRead = await reloaded.GetAsync("/api/v1/me/regional-preferences");
+        Assert.Equal(HttpStatusCode.OK, usRead.StatusCode);
+        Assert.Equal("\"1\"", usRead.Headers.ETag!.ToString());
+        var usBody = JsonNode.Parse(await usRead.Content.ReadAsStringAsync(Ct))!;
+        Assert.Equal("countries", (string?)usBody["mode"]);
+        Assert.Equal("US", (string?)Assert.Single(usBody["countryCodes"]!.AsArray()));
+
+        using var both = await PutAsync(reloaded, """{"mode":"countries","countryCodes":["US","BR"]}""", "1");
+        Assert.Equal(HttpStatusCode.OK, both.StatusCode);
+        using var stale = await PutAsync(browser, """{"mode":"countries","countryCodes":["BR"]}""", "1");
+        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
+        using var finalSession = await scenario.SignedInBrowserAsync(account);
+        using var bothRead = await finalSession.GetAsync("/api/v1/me/regional-preferences");
+        Assert.Equal(HttpStatusCode.OK, bothRead.StatusCode);
+        Assert.Equal("\"2\"", bothRead.Headers.ETag!.ToString());
+        var body = JsonNode.Parse(await bothRead.Content.ReadAsStringAsync(Ct))!;
+        Assert.Equal("countries", (string?)body["mode"]);
+        Assert.Equal(new[] { "BR", "US" }, body["countryCodes"]!.AsArray().Select(code => (string?)code));
+        for (var index = 0; index < paths.Length; index++)
+        {
+            using var read = await finalSession.GetAsync(paths[index]);
+            Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+            Assert.Equal(original[index], (await read.Content.ReadAsStringAsync(Ct), read.Headers.ETag?.ToString()));
+        }
+
+        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        await connection.OpenAsync(Ct);
+        await using var stored = new NpgsqlCommand("""
+            select p.mode,p.version,array(select country_code from profiles.regional_preference_countries
+              where user_id=p.user_id order by country_code)
+            from profiles.regional_preferences p where user_id=$1
+            """, connection);
+        stored.Parameters.AddWithValue(account.UserId);
+        await using var reader = await stored.ExecuteReaderAsync(Ct);
+        Assert.True(await reader.ReadAsync(Ct));
+        Assert.Equal("countries", reader.GetString(0));
+        Assert.Equal(2L, reader.GetInt64(1));
+        Assert.Equal(["BR", "US"], reader.GetFieldValue<string[]>(2));
+        Assert.False(await reader.ReadAsync(Ct));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ConcurrentUpdatesHaveOneWinnerAndNoPartialCountries(bool previouslySaved)
