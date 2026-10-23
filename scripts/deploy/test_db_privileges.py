@@ -12,6 +12,9 @@ append-only com o REVOKE da convenção) e roda reconcile-privileges.sql como o 
 from __future__ import annotations
 
 import os
+import hashlib
+import json
+import re
 import subprocess
 import tempfile
 import time
@@ -20,6 +23,7 @@ import uuid
 from pathlib import Path
 
 import duora_deploy as deploy
+import reconcile_payload as payload
 
 IMAGE = os.environ.get("DUORA_POSTGRES_IMAGE", "")
 READY_TIMEOUT_SECONDS = 60
@@ -43,6 +47,62 @@ CREATE TABLE rooms.rooms (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, na
 CREATE TABLE ops.audit_events (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, action text NOT NULL);
 CREATE FUNCTION rooms.room_count() RETURNS bigint LANGUAGE sql AS 'SELECT count(*) FROM rooms.rooms';
 """
+
+
+@unittest.skipUnless(IMAGE, "native image proof runs with DUORA_POSTGRES_IMAGE in both CI architectures")
+class MigratorPayloadImageTests(unittest.TestCase):
+    def test_real_stopped_image_payload_matches_canonical_sql(self) -> None:
+        commands: list[list[str]] = []
+        observations: list[dict] = []
+        archives: list[dict] = []
+
+        def capture(command: list[str]) -> bytes:
+            commands.append(command)
+            result = payload.capture_binary(command)
+            if command[:3] == ["docker", "container", "inspect"]:
+                item = json.loads(result)
+                observations.append({"id": item["Id"], "image": item["Image"],
+                                     "state": item["State"], "mounts": item["Mounts"],
+                                     "network": item["HostConfig"]["NetworkMode"]})
+            if command[:2] == ["docker", "cp"]:
+                archives.append({"path": command[-2].split(":", 1)[1], "bytes": len(result),
+                                 "sha256": hashlib.sha256(result).hexdigest()})
+            return result
+
+        image = payload._inspect("image", "duora-migrator:ci", capture)
+        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        self.assertRegex(revision, r"^[a-f0-9]{40}$")
+        self.assertEqual(image["Config"]["Labels"]["org.opencontainers.image.revision"], revision)
+        self.assertEqual(image["Config"]["Labels"]["org.opencontainers.image.title"], "duora-migrator")
+        self.assertEqual(image["Config"]["Labels"]["org.opencontainers.image.source"],
+                         "https://github.com/BipoXDXD/duora")
+        self.assertIn(image["Config"].get("Volumes"), [None, {}])
+        expected_arch = {"x86_64": "amd64", "aarch64": "arm64"}[os.uname().machine]
+        self.assertEqual(image["Architecture"], expected_arch)
+        self.assertEqual(image["Os"], "linux")
+        image_id = image["Id"]
+        self.assertTrue(re.fullmatch(r"sha256:[a-f0-9]{64}", image_id))
+        sql = payload._copy_stopped_sql(image_id, image_id, capture=capture)
+        canonical = Path(__file__).resolve().parents[2] / "infra/images/dotnet/reconcile-privileges.sql"
+        self.assertEqual(sql.encode("utf-8"), canonical.read_bytes())
+        self.assertTrue(observations)
+        self.assertEqual(len(archives), 2)
+        for item in observations:
+            self.assertEqual(item["image"], image_id)
+            self.assertFalse(item["state"]["Running"])
+            self.assertEqual(item["state"]["Status"], "created")
+            self.assertTrue(item["state"]["StartedAt"].startswith("0001-01-01"))
+            self.assertEqual(item["mounts"], [])
+            self.assertEqual(item["network"], "none")
+        self.assertFalse(any(c[:2] in [["docker", "start"], ["docker", "run"], ["docker", "exec"]]
+                             for c in commands))
+        self.assertTrue(any(c[:2] == ["docker", "rm"] for c in commands))
+        with self.assertRaises(payload.PayloadError):
+            payload.capture_binary(["docker", "container", "inspect", observations[-1]["id"]])
+        print("[reconcile-native] " + json.dumps({"origin": "Actions candidate build, not published GHCR",
+              "revision": revision, "architecture": expected_arch, "image_id": image_id,
+              "sql_sha256": hashlib.sha256(sql.encode()).hexdigest(), "archives": archives,
+              "container_observations": observations, "owned_container_removed": True}))
 
 
 @unittest.skipUnless(IMAGE, "defina DUORA_POSTGRES_IMAGE com a imagem derivada (docker)")

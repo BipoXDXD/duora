@@ -141,6 +141,27 @@ def verify_sql(sql_archive: bytes, checksum_archive: bytes) -> str:
         raise PayloadError("SQL must be UTF-8") from error
 
 
+def _unique_pairs(items: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in items:
+        if key in result:
+            raise PayloadError("Duplicate daemon metadata field")
+        result[key] = value
+    return result
+
+def _inspect(kind: str, reference: str, capture: Callable[[list[str]], bytes]) -> dict:
+    raw = capture(["docker", kind, "inspect", "--format", "{{json .}}", reference])
+    if len(raw) > MAX_CAPTURE_BYTES:
+        raise PayloadError("Daemon metadata budget exceeded")
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs)
+    except (ValueError, UnicodeError, RecursionError) as error:
+        raise PayloadError("Invalid daemon metadata") from error
+    if not isinstance(value, dict):
+        raise PayloadError("Daemon metadata must be an object")
+    return value
+
+
 def extract_sql(image_reference: str, *, revision: str, architecture: str,
                 capture: Callable[[list[str]], bytes] = capture_binary) -> str:
     """Copy authenticated release files without starting the image or creating volumes."""
@@ -148,27 +169,7 @@ def extract_sql(image_reference: str, *, revision: str, architecture: str,
             or not re.fullmatch(r"[a-f0-9]{40}", revision) or architecture not in ("amd64", "arm64")):
         raise PayloadError("Invalid migrator release identity")
 
-    def pairs(items: list[tuple[str, object]]) -> dict:
-        result = {}
-        for key, value in items:
-            if key in result:
-                raise PayloadError("Duplicate daemon metadata field")
-            result[key] = value
-        return result
-
-    def inspect(kind: str, reference: str) -> dict:
-        raw = capture(["docker", kind, "inspect", "--format", "{{json .}}", reference])
-        if len(raw) > MAX_CAPTURE_BYTES:
-            raise PayloadError("Daemon metadata budget exceeded")
-        try:
-            value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs)
-        except (ValueError, UnicodeError, RecursionError) as error:
-            raise PayloadError("Invalid daemon metadata") from error
-        if not isinstance(value, dict):
-            raise PayloadError("Daemon metadata must be an object")
-        return value
-
-    image = inspect("image", image_reference)
+    image = _inspect("image", image_reference, capture)
     config = image.get("Config")
     if not isinstance(config, dict):
         raise PayloadError("Missing migrator configuration")
@@ -188,13 +189,30 @@ def extract_sql(image_reference: str, *, revision: str, architecture: str,
             or labels.get("org.opencontainers.image.title") != "duora-migrator"):
         raise PayloadError("Migrator image differs from the authenticated release")
 
+    return _copy_stopped_sql(image_reference, image_id, capture=capture)
+
+
+def _copy_stopped_sql(image_reference: str, image_id: str, *,
+                      capture: Callable[[list[str]], bytes] = capture_binary) -> str:
+    """Shared transport after caller provenance checks; native CI may supply an immutable build ID."""
+    if (not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id)
+            or (image_reference != image_id and not re.fullmatch(
+                r"ghcr\.io/bipoxdxd/duora-migrator@sha256:[a-f0-9]{64}", image_reference))):
+        raise PayloadError("Invalid stopped-image identity")
+    metadata = _inspect("image", image_id, capture)
+    config = metadata.get("Config")
+    if metadata.get("Id") != image_id or not isinstance(config, dict):
+        raise PayloadError("Stopped-image metadata changed")
+    volumes = config.get("Volumes")
+    if volumes is not None and (not isinstance(volumes, dict) or volumes):
+        raise PayloadError("Stopped image declares volumes")
     nonce = secrets.token_hex(16)
     name = "duora-reconcile-" + nonce
     owner_key = "duora.reconcile-nonce"
     container_id = None
 
     def owned_container() -> str:
-        item = inspect("container", name)
+        item = _inspect("container", name, capture)
         identifier = item.get("Id")
         item_config = item.get("Config")
         state = item.get("State")
