@@ -9,6 +9,7 @@ import signal
 import subprocess
 import tarfile
 import time
+from collections.abc import Callable
 
 MAX_CAPTURE_BYTES = 128 * 1024
 MAX_SQL_BYTES = 64 * 1024
@@ -136,3 +137,8 @@ def verify_sql(sql_archive: bytes, checksum_archive: bytes) -> str:
         return sql.decode("utf-8")
     except UnicodeDecodeError as error:
         raise PayloadError("SQL must be UTF-8") from error
+
+
+def extract_sql(image_reference: str, *, revision: str, architecture: str,
+                capture: Callable[[list[str]], bytes] = capture_binary) -> str:
+    raise NotImplementedError("Extract from an authenticated stopped migrator without volumes or execution")
