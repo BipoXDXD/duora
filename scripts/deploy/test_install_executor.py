@@ -120,14 +120,18 @@ class InstallationTests(unittest.TestCase):
             changed.write_bytes(original)
 
     def test_interrupted_activation_has_explicit_hash_guarded_recovery_under_real_locks(self) -> None:
-        for boundary in ["pending", "baseline", "entry", "receipt"]:
+        receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "installer_crash_receiver")
+        for boundary in ["fence", "pending", "baseline", "entry", "receipt"]:
             with self.subTest(boundary=boundary):
-                if boundary != "pending": self.setUp()
+                if boundary != "fence": self.setUp()
+                setattr(receiver, "STATE", self.paths.ingress)
                 original_write, original_sync = installer._write, installer._sync
                 def interrupted_write(path, raw, **kwargs):
                     original_write(path, raw, **kwargs)
                     if path.name == {"pending": "executor-install-pending.json", "baseline": guard.BASELINE_NAME,
                                       "receipt": "executor-install-receipt.json"}.get(boundary):
+                        os.kill(os.getpid(), signal.SIGKILL)
+                    if boundary == "fence" and path == self.paths.ingress / "duora-executor-install/pending.json":
                         os.kill(os.getpid(), signal.SIGKILL)
                 def interrupted_sync(path):
                     original_sync(path)
@@ -142,19 +146,69 @@ class InstallationTests(unittest.TestCase):
                     finally: os._exit(91)
                 _pid, status = os.waitpid(child, 0)
                 self.assertTrue(os.WIFSIGNALED(status), "Expected the actual child to die at " + boundary)
-                pending = json.loads((self.paths.state / "executor-install-pending.json").read_text())
+                fence = self.paths.ingress / "duora-executor-install/pending.json"
+                pending = json.loads(fence.read_text())
+                with self.assertRaises(ValueError): receiver.require_host_idle()
                 with self.assertRaises(installer.InstallError): self.invoke(apply=True)
+                def idle():
+                    installer.require_ingress_idle(receiver, self.paths, expected_commit=COMMIT, manifest_sha256=self.manifest_hash)
+                if boundary == "fence":
+                    original_fence = fence.read_bytes()
+                    fence.write_text(json.dumps(dict(pending, attemptSha256="0" * 64)))
+                    with self.assertRaises(installer.InstallError):
+                        installer.recover_installation(paths=self.paths, pending=pending, require_idle=idle)
+                    self.assertNotEqual(fence.read_bytes(), original_fence, "Never rewrite an unowned fence")
+                    fence.write_bytes(original_fence)
+                foreign = self.paths.ingress / "duora/pending.json"
+                foreign.write_text('{"release":"foreign-owned-intent"}')
+                with self.assertRaises(installer.InstallError):
+                    installer.recover_installation(paths=self.paths, pending=pending, require_idle=idle)
+                self.assertTrue(foreign.exists(), "Recovery cannot remove a foreign pending release")
+                foreign.unlink()  # Test-owned synthetic intent, never a production recovery operation.
                 # Foreign baseline means recovery must refuse before replacing either file.
                 if boundary == "entry":
                     baseline_path = self.paths.state / guard.BASELINE_NAME
                     original = baseline_path.read_bytes()
                     baseline_path.write_text("foreign intervention")
                     with self.assertRaises(installer.InstallError):
-                        installer.recover_installation(paths=self.paths, pending=pending, require_idle=lambda: None)
+                        installer.recover_installation(paths=self.paths, pending=pending, require_idle=idle)
                     self.assertTrue(self.entry.is_symlink())
                     baseline_path.write_bytes(original)
-                installer.recover_installation(paths=self.paths, pending=pending, require_idle=lambda: None)
+                installer.recover_installation(paths=self.paths, pending=pending, require_idle=idle)
                 self.assertFalse(self.entry.is_symlink())
                 self.assertEqual(installer._sha(self.entry), self.old_hash)
                 self.assertFalse((self.paths.state / guard.BASELINE_NAME).exists())
                 self.assertFalse((self.paths.state / "executor-install-pending.json").exists())
+                self.assertFalse(fence.exists())
+                receiver.require_host_idle()
+
+    def test_sigkill_during_own_recovery_is_resumable_without_unfencing_receiver(self) -> None:
+        original_sync = installer._sync
+        def kill_after_swap(path):
+            original_sync(path)
+            if path == self.entry.parent and self.entry.is_symlink(): os.kill(os.getpid(), signal.SIGKILL)
+        child = os.fork()
+        if child == 0:
+            try:
+                with patch.object(installer, "_sync", side_effect=kill_after_swap): self.invoke(apply=True)
+            finally: os._exit(91)
+        _pid, status = os.waitpid(child, 0)
+        self.assertTrue(os.WIFSIGNALED(status))
+        fence = self.paths.ingress / "duora-executor-install/pending.json"
+        pending = json.loads(fence.read_text())
+        original_write = installer._write
+        def kill_after_restoration(path, raw, **kwargs):
+            original_write(path, raw, **kwargs)
+            if path == self.entry: os.kill(os.getpid(), signal.SIGKILL)
+        child = os.fork()
+        if child == 0:
+            try:
+                with patch.object(installer, "_write", side_effect=kill_after_restoration):
+                    installer.recover_installation(paths=self.paths, pending=pending, require_idle=lambda: None)
+            finally: os._exit(92)
+        _pid, status = os.waitpid(child, 0)
+        self.assertTrue(os.WIFSIGNALED(status))
+        self.assertTrue(fence.exists())
+        self.assertEqual(installer._sha(self.entry), self.old_hash)
+        installer.recover_installation(paths=self.paths, pending=pending, require_idle=lambda: None)
+        self.assertFalse(fence.exists())

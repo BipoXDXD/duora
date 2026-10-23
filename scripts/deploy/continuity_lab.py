@@ -23,7 +23,8 @@ import smoke_local
 def validate_observations(samples: list[dict], *, start: float, end: float,
                           errors: list[str], events_alive: bool) -> None:
     if errors or not events_alive or len(samples) < 2 or end <= start:
-        raise RuntimeError("Continuity observer or event stream failed")
+        raise RuntimeError("Continuity observer or event stream failed: " + json.dumps(
+            {"errors": errors, "eventsAlive": events_alive, "samples": len(samples), "start": start, "end": end}))
     times = [sample["at"] for sample in samples]
     if (times != sorted(times) or times[0] > start + 3 or times[-1] < end - 3
             or any(right - left > 3 for left, right in zip(times, times[1:]))
@@ -113,8 +114,10 @@ def _root_lab() -> dict:
     events = None
     stop = threading.Event()
     samples: list[dict] = []
+    app_samples: list[dict] = []
     observer_errors: list[str] = []
     monitor = None
+    app_monitor = None
     try:
         command(["docker", "run", "--detach", "--rm", "--name", registry_name,
                  "--publish", "127.0.0.1:5050:5000", smoke_local.REGISTRY_IMAGE])
@@ -205,14 +208,29 @@ def _root_lab() -> dict:
                         at = time.time()
                         db = subprocess.run(["docker", "exec", pg, "pg_isready", "-h", "127.0.0.1", "-U", "duora_app"],
                                             capture_output=True, check=False, timeout=2).returncode
-                        app = subprocess.run(current_compose + ["exec", "--no-TTY", "edge", "wget", "--quiet", "--spider",
-                            "--timeout=1", "http://duora-web:8080/health/ready"], capture_output=True, check=False, timeout=2).returncode
-                        samples.append({"at": at, "database_ready": db == 0, "application_ready": app == 0})
+                        samples.append({"at": at, "database_ready": db == 0})
                         stop.wait(0.25)
                 except Exception as error:
-                    observer_errors.append(type(error).__name__)  # No command output or credentials in proof.
+                    observer_errors.append("database:" + type(error).__name__)  # No output or credentials in proof.
+            def sample_application() -> None:
+                try:
+                    while not stop.is_set():
+                        at = time.time()
+                        timed_out = False
+                        try:
+                            result = subprocess.run(current_compose + ["exec", "--no-TTY", "edge", "wget", "--quiet", "--spider",
+                                "--timeout=1", "http://duora-web:8080/health/ready"], capture_output=True, check=False, timeout=8)
+                            ready = result.returncode == 0
+                        except subprocess.TimeoutExpired:
+                            ready, timed_out = False, True  # Expected app outage is measured independently of database continuity.
+                        app_samples.append({"at": at, "application_ready": ready, "timedOut": timed_out})
+                        stop.wait(0.25)
+                except Exception as error:
+                    observer_errors.append("application-observer:" + type(error).__name__)
             monitor = threading.Thread(target=sample, daemon=True)
+            app_monitor = threading.Thread(target=sample_application, daemon=True)
             monitor.start()
+            app_monitor.start()
             deadline = time.monotonic() + 5
             while not samples and not observer_errors and time.monotonic() < deadline: time.sleep(0.05)
             if not samples or observer_errors: raise RuntimeError("Readiness sampler did not start")
@@ -231,7 +249,7 @@ def _root_lab() -> dict:
             live_inventory = executor.runtime_inventory(initial, paths)
             before_install = _instances(current_compose)
             receiver = installer._module(repo / "scripts/release/coolify/receiver.py", "duora_lab_receiver")
-            receiver.STATE = install_paths.ingress
+            setattr(receiver, "STATE", install_paths.ingress)
             def idle() -> None:
                 receiver.require_host_idle()
             def inspect() -> dict: return executor.runtime_inventory(initial, paths)
@@ -304,6 +322,13 @@ def _root_lab() -> dict:
             active.deploy(second, paths, active.run_command, verify_backup=False)
             guard.require_preserved(live_inventory["profile"], active.runtime_inventory(second, paths)["profile"])
             if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("Application deployment lost SQL session")
+            acl_query = ("select md5(string_agg(n.nspname||'.'||c.relname||':'||p.priv||':'||"
+                "has_table_privilege('duora_app',c.oid,p.priv)::text,',' order by n.nspname,c.relname,p.priv)) "
+                "from pg_class c join pg_namespace n on n.oid=c.relnamespace cross join "
+                "(values('SELECT'),('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'))p(priv) "
+                "where c.relkind in ('r','p') and n.nspname not in ('pg_catalog','information_schema') "
+                "and n.nspname not like 'pg_%'")
+            acl_before = query(acl_query)
             # A genuine post-worker-stop failure must keep current B and permit its concrete recorded A rollback.
             bad_tag = registry + "migrator:qualified-failure"
             bad_dockerfile = root / "failed.Dockerfile"
@@ -321,8 +346,10 @@ def _root_lab() -> dict:
                 raise RuntimeError("Failed product deployment did not preserve current/staging boundary")
             # A concrete immutable v2 target, actually served before and after the newer application image.
             active.deploy(first, paths, active.run_command, verify_backup=False)
+            acl_after = query(acl_query)
             if (query("select pg_backend_pid()") != backend_pid
                     or query("select count(*)||':'||min(value) from ops.deploy_continuity_sentinel") != sentinel_before
+                    or acl_after != acl_before
                     or query('select string_agg("MigrationId",\',\' order by "MigrationId") from ops.__ef_migrations_history') != history_before):
                 raise RuntimeError("Compatible rollback changed SQL session, sentinel or schema")
             guard.require_preserved(live_inventory["profile"], active.runtime_inventory(first, paths)["profile"])
@@ -355,10 +382,13 @@ def _root_lab() -> dict:
             refuses("real_unknown_schema_head_refuses_legacy", legacy)
             command(["docker", "exec", pg, "psql", "-U", "postgres", "-d", "duora", "-v", "ON_ERROR_STOP=1", "-c",
                 'delete from ops.__ef_migrations_history where "MigrationId"=\'20990101000000_SyntheticGuard\''])
+            after_positive = active.runtime_inventory(first, paths)
+            guard.require_preserved(live_inventory["profile"], after_positive["profile"])
+            window_end = time.time()
             stop.set()
             monitor.join(timeout=15)
-            window_end = time.time()
-            if monitor.is_alive():
+            app_monitor.join(timeout=10)
+            if monitor.is_alive() or app_monitor.is_alive() or not app_samples:
                 raise RuntimeError("Database readiness continuity failed")
             validate_observations(samples, start=window_start, end=window_end, errors=observer_errors,
                                   events_alive=events.poll() is None)
@@ -371,7 +401,12 @@ def _root_lab() -> dict:
             events.terminate()
             events.wait(timeout=10)
             events_file.close()
-            actions = [json.loads(line).get("Action", "") for line in (root / "events.jsonl").read_text().splitlines()]
+            raw_events = [json.loads(line) for line in (root / "events.jsonl").read_text().splitlines()]
+            event_records = [{"action": event.get("Action"), "id": event.get("Actor", {}).get("ID"),
+                              "timeNano": event.get("timeNano")} for event in raw_events]
+            if any(event["id"] not in {pg, backup} or type(event["timeNano"]) is not int for event in event_records):
+                raise RuntimeError("Event observation has a foreign or unbound identity")
+            actions = [event["action"] for event in event_records]
             if not actions or not any(a.startswith("exec_") for a in actions) or any(a in {"create", "start", "stop", "restart", "kill", "die", "destroy", "oom"} for a in actions):
                 raise RuntimeError("Database/backup lifecycle event during application-only window")
             events = None
@@ -415,6 +450,9 @@ def _root_lab() -> dict:
                 "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,
                     "maximumAllowedGapSeconds": 3, "startedBefore": first.release_id, "endedAfter": "compatible rollback and negative read-only guards"},
                 "staticInstallation": receipt, "manifestSha256": manifest_sha, "readiness": samples,
+                "applicationReadiness": app_samples,
+                "afterPositiveRuntime": after_positive, "databaseBackupEvents": event_records,
+                "rollbackAclFingerprintBefore": acl_before, "rollbackAclFingerprintAfter": acl_after,
                 "databaseBackupEventActions": sorted(set(actions)), "backendPid": backend_pid,
                 "rollbackArtifact": first_raw, "newerArtifact": second_raw, "invariantsSha256": invariant_hash,
                 "payloadOrigin": "Real candidate build in disposable loopback OCI registry; production GHCR path remains a separate pre-worker gate",
@@ -429,6 +467,7 @@ def _root_lab() -> dict:
     finally:
         stop.set()
         if monitor is not None: monitor.join(timeout=15)
+        if app_monitor is not None: app_monitor.join(timeout=10)
         if session is not None:
             session.kill()
             session.wait(timeout=10)

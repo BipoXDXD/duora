@@ -29,8 +29,9 @@ class PreservationDeploymentTests(unittest.TestCase):
 
     def _preflight(self, release, runner):
         profile = {"services": {"postgres": {"id": "1" * 64}}}
+        private_json = deploy._private_json
         with patch.object(deploy, "runtime_inventory", return_value={"profile": profile}), \
-                patch.object(deploy, "_private_json", return_value=profile), \
+                patch.object(deploy, "_private_json", side_effect=lambda path: profile if path.name == guard.BASELINE_NAME else private_json(path)), \
                 patch.object(guard, "require_preserved"), \
                 patch.object(deploy, "_read_migration_head", return_value=self.release.latest_migration):
             return deploy.runtime_preflight(release, self.paths, runner)
@@ -70,6 +71,55 @@ class PreservationDeploymentTests(unittest.TestCase):
         with patch.object(deploy._payload, "capture_binary", side_effect=AssertionError("Never materialize legacy SQL")):
             self.assertIsNone(self._preflight(self.release, runner))
         self.assertEqual(runner.commands, [])
+
+    def test_v1_a_v2_b_rollback_a_then_new_v1_c_cannot_reset_contract_floor(self) -> None:
+        self.paths.state_dir.mkdir()
+        recorded = self.paths.state_dir / deploy.RELEASES_DIR
+        recorded.mkdir()
+        first = dict(valid_manifest(), releaseId="legacy-a")
+        second = dict(first, releaseId="external-b", contractVersion="v2", previousReleaseId="legacy-a")
+        for value in [first, second]:
+            (recorded / (value["releaseId"] + ".json")).write_text(json.dumps(value))
+        # Application rollback A succeeded; the qualified B history must still constrain later new releases.
+        (self.paths.state_dir / "current.json").write_text(json.dumps({"releaseId": "legacy-a"}))
+        target = parse(dict(first, releaseId="new-legacy-c", previousReleaseId="legacy-a"))
+        runner = InputRunner()
+        with patch.object(deploy._payload, "capture_binary", side_effect=AssertionError("Never reach legacy SQL after v2")):
+            with self.assertRaises(deploy.DeployError): self._preflight(target, runner)
+        self.assertEqual(runner.commands, [])
+
+    def test_failed_first_v2_migrator_keeps_durable_floor_before_worker_stop_and_before_recording_release(self) -> None:
+        release = parse(dict(valid_manifest(), releaseId="first-v2", contractVersion="v2"))
+        runner = InputRunner(fail_on="run --rm --no-deps migrator")
+        with patch.object(deploy, "runtime_preflight", return_value="SELECT 1;\n"):
+            with self.assertRaises(deploy.DeployError):
+                deploy.deploy(release, self.paths, runner, sleep=lambda _: None)
+        floor = self.paths.state_dir / "v2-contract-floor.json"
+        self.assertTrue(floor.is_file(), "A partial v2 attempt must not permit weaker later legacy SQL")
+        self.assertEqual(json.loads(floor.read_text())["minimumContract"], "v2")
+        self.assertFalse((self.paths.state_dir / deploy.RELEASES_DIR / "first-v2.json").exists())
+        with patch.object(deploy._payload, "capture_binary", side_effect=AssertionError("No legacy access after failed v2")):
+            with self.assertRaises(deploy.DeployError): self._preflight(self.release, InputRunner())
+
+    def test_failed_first_v2_can_restore_qualified_current_v1_app_only_without_lowering_floor(self) -> None:
+        self.paths.state_dir.mkdir()
+        recorded = self.paths.state_dir / deploy.RELEASES_DIR
+        recorded.mkdir()
+        (self.paths.state_dir / "current.json").write_text(json.dumps({"releaseId": self.release.release_id}))
+        (recorded / (self.release.release_id + ".json")).write_text(json.dumps(self.release.raw))
+        floor = self.paths.state_dir / "v2-contract-floor.json"
+        floor.write_text(json.dumps({"schema": 1, "minimumContract": "v2", "releaseId": "first-v2-failed",
+            "commit": "b" * 40, "sqlSha256": "c" * 64}))
+        floor.chmod(0o600)
+        original = floor.read_bytes()
+        with patch.object(deploy._payload, "capture_binary", side_effect=AssertionError("Never weaker SQL")):
+            self.assertIsNone(self._preflight(self.release, InputRunner()))
+        runner = InputRunner()
+        with patch.object(deploy, "runtime_preflight", return_value=None):
+            deploy.deploy(self.release, self.paths, runner, sleep=lambda _: None)
+        self.assertFalse(any("migrator" in command and "run" in command for command in runner.commands))
+        self.assertFalse(any(text is not None for text in runner.inputs))
+        self.assertEqual(floor.read_bytes(), original)
 
     def test_runtime_or_payload_refusal_precedes_pull_worker_migration_and_staging(self) -> None:
         runner = InputRunner()
