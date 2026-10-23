@@ -180,6 +180,10 @@ public sealed class PostgresFixture : IAsyncLifetime
             // one idle backend per database until the process exits, starving unrelated HTTP tests. These
             // administrative connections are short-lived; application pools and the server budget stay intact.
             Pooling = role != "duora_migrator",
+            // Scratch databases also create distinct application pools. Reclaim only idle backends promptly;
+            // leased connections and the shared server/concurrency budgets remain unchanged.
+            ConnectionIdleLifetime = 10,
+            ConnectionPruningInterval = 1,
         }.ConnectionString;
 }
 
