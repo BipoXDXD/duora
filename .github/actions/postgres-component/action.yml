@@ -1,0 +1,137 @@
+name: Reviewed PostgreSQL component
+description: Reuse the qualified native runtime; refuse drift or expired provenance before publication.
+inputs:
+  architecture:
+    description: Native Linux architecture, amd64 or arm64
+    required: true
+  token:
+    description: Ephemeral job token with actions and packages read access
+    required: true
+outputs:
+  image:
+    description: Exact reviewed native PostgreSQL repository digest
+    value: ${{ steps.plan.outputs.image }}
+runs:
+  using: composite
+  steps:
+    - name: Select the reviewed runtime without rebuilding it
+      id: plan
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        COMPONENT_ARCH: ${{ inputs.architecture }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/postgres-component"
+        python3 scripts/release/postgres_component.py select \
+          --lock infra/images/postgres-component-lock.json --architecture "$COMPONENT_ARCH" \
+          > "$RUNNER_TEMP/postgres-component/plan.json"
+        jq -r '"image=" + .image, "run_id=" + (.run_id|tostring),
+          "attempt=" + (.attempt|tostring), "source_commit=" + .source_commit' \
+          "$RUNNER_TEMP/postgres-component/plan.json" >> "$GITHUB_OUTPUT"
+
+    - name: Require the retained proof from its authenticated source run
+      id: metadata
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        COMPONENT_ARCH: ${{ inputs.architecture }}
+        SOURCE_RUN: ${{ steps.plan.outputs.run_id }}
+        SOURCE_ATTEMPT: ${{ steps.plan.outputs.attempt }}
+      run: |
+        gh api "repos/BipoXDXD/duora/actions/runs/$SOURCE_RUN/attempts/$SOURCE_ATTEMPT" \
+          > "$RUNNER_TEMP/postgres-component/source-run.json"
+        gh api "repos/BipoXDXD/duora/actions/runs/$SOURCE_RUN/artifacts?per_page=100" \
+          > "$RUNNER_TEMP/postgres-component/artifacts.json"
+        artifact_id=$(python3 scripts/release/postgres_component.py select-proof \
+          --lock infra/images/postgres-component-lock.json --architecture "$COMPONENT_ARCH" \
+          --inventory-json "$RUNNER_TEMP/postgres-component/artifacts.json")
+        echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+
+    - name: Download the exact retained native publication
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        artifact-ids: ${{ steps.metadata.outputs.artifact_id }}
+        merge-multiple: true
+        digest-mismatch: error
+        github-token: ${{ inputs.token }}
+        repository: BipoXDXD/duora
+        run-id: ${{ steps.plan.outputs.run_id }}
+        path: ${{ runner.temp }}/postgres-component-native
+
+    - name: Read the runtime inputs from the authenticated source commit
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: BipoXDXD/duora
+        ref: ${{ steps.plan.outputs.source_commit }}
+        token: ${{ inputs.token }}
+        persist-credentials: false
+        fetch-depth: 1
+        path: .postgres-component-source
+        sparse-checkout-cone-mode: false
+        sparse-checkout: |
+          /.dockerignore
+          /infra/images/postgres/
+
+    - name: Bind source inputs, current inputs, artifact and digest
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        COMPONENT_ARCH: ${{ inputs.architecture }}
+      run: |
+        python3 scripts/release/postgres_component.py select \
+          --root "$GITHUB_WORKSPACE/.postgres-component-source" \
+          --lock "$GITHUB_WORKSPACE/infra/images/postgres-component-lock.json" \
+          --architecture "$COMPONENT_ARCH" > "$RUNNER_TEMP/postgres-component/source-plan.json"
+        cmp "$RUNNER_TEMP/postgres-component/plan.json" "$RUNNER_TEMP/postgres-component/source-plan.json"
+        python3 scripts/release/postgres_component.py verify-origin \
+          --lock infra/images/postgres-component-lock.json --architecture "$COMPONENT_ARCH" \
+          --run-json "$RUNNER_TEMP/postgres-component/source-run.json" \
+          --publication-json "$RUNNER_TEMP/postgres-component-native/publication.json"
+
+    - name: Authenticate the hosted runner for the immutable component
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.token }}
+
+    - name: Pull and verify the exact native runtime
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        COMPONENT_ARCH: ${{ inputs.architecture }}
+        COMPONENT_IMAGE: ${{ steps.plan.outputs.image }}
+      run: |
+        docker pull --platform "linux/$COMPONENT_ARCH" "$COMPONENT_IMAGE"
+        docker tag "$COMPONENT_IMAGE" duora-postgres:ci
+        docker image inspect duora-postgres:ci --format '{{json .}}' \
+          > "$RUNNER_TEMP/postgres-component/selected-image.json"
+        python3 scripts/release/postgres_component.py verify-image \
+          --lock infra/images/postgres-component-lock.json --architecture "$COMPONENT_ARCH" \
+          --image-json "$RUNNER_TEMP/postgres-component/selected-image.json"
+
+    - name: Prepare the existing pinned OCI transport on the hosted runner
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.10'
+        cache: false
+
+    - name: Install pinned OCI transport
+      shell: bash
+      run: go install github.com/google/go-containerregistry/cmd/crane@v0.22.1
+
+    - name: Qualify immutable OCI transport and the actual AMD64 ingress
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        COMPONENT_ARCH: ${{ inputs.architecture }}
+        COMPONENT_PROOF_ID: ${{ steps.metadata.outputs.artifact_id }}
+      run: |
+        python3 scripts/release/qualify_postgres_transport.py \
+          --architecture "$COMPONENT_ARCH" --lock infra/images/postgres-component-lock.json \
+          --publication "$RUNNER_TEMP/postgres-component-native/publication.json" \
+          --run-json "$RUNNER_TEMP/postgres-component/source-run.json" \
+          --stage "$RUNNER_TEMP/postgres-component-transport" \
+          --evidence "$RUNNER_TEMP/postgres-component/qualification.json" \
+          --artifact-id "$COMPONENT_PROOF_ID"

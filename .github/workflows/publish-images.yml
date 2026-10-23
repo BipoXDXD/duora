@@ -75,6 +75,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: read
     name: images (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -102,6 +103,13 @@ jobs:
           echo "uname -m: $(uname -m)"
           echo "Runner: $(. /etc/os-release && echo "$PRETTY_NAME"), $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Qualify the reviewed PostgreSQL runtime without rebuilding it
+        id: postgres-component
+        uses: ./.github/actions/postgres-component
+        with:
+          architecture: ${{ matrix.arch }}
+          token: ${{ github.token }}
+
       # BuildKit recebe a licença somente durante o build do worker (ADR-0025).
       - name: Build web, worker e migrator
         id: build-dotnet
@@ -123,15 +131,12 @@ jobs:
           SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
         run: python3 scripts/supply-chain/check_image_secret.py duora-worker:ci SIXLABORS_LICENSE_KEY
 
-      - name: Build edge e postgres
+      - name: Build edge with the qualified PostgreSQL component retained
         id: build-edge-postgres
         run: |
           docker buildx build --file infra/images/edge/Dockerfile --platform "$PLATFORM" \
               --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --build-arg GIT_COMMIT="$RELEASE_COMMIT" --tag duora-edge:ci --load .
-          docker buildx build --file infra/images/postgres/Dockerfile --platform "$PLATFORM" \
-              --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --tag duora-postgres:ci --load .
 
       # Executa cada binário nativo na arquitetura do runner, sem subir o ambiente.
       - name: Verificar as imagens
@@ -220,11 +225,24 @@ jobs:
           tag="$RELEASE_COMMIT-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH"
           echo '{}' > "$RUNNER_TEMP/release/images.json"
           for image in web worker migrator edge postgres; do
-            reference="$prefix-$image:$tag"
-            docker tag "duora-$image:ci" "$reference"
-            docker push "$reference"
-            digest=$(docker image inspect --format '{{json .RepoDigests}}' "$reference" \
-              | jq -er --arg prefix "$prefix-$image@" '.[] | select(startswith($prefix))')
+            if [[ "$image" == postgres ]]; then
+              python3 scripts/release/postgres_component.py select \
+                --lock infra/images/postgres-component-lock.json --architecture "$ARCH" \
+                > "$RUNNER_TEMP/postgres-component/final-plan.json"
+              cmp "$RUNNER_TEMP/postgres-component/plan.json" "$RUNNER_TEMP/postgres-component/final-plan.json"
+              docker image inspect duora-postgres:ci --format '{{json .}}' \
+                > "$RUNNER_TEMP/postgres-component/publication-image.json"
+              python3 scripts/release/postgres_component.py verify-image \
+                --lock infra/images/postgres-component-lock.json --architecture "$ARCH" \
+                --image-json "$RUNNER_TEMP/postgres-component/publication-image.json"
+              digest=$(jq -er .image "$RUNNER_TEMP/postgres-component/final-plan.json")
+            else
+              reference="$prefix-$image:$tag"
+              docker tag "duora-$image:ci" "$reference"
+              docker push "$reference"
+              digest=$(docker image inspect --format '{{json .RepoDigests}}' "$reference" \
+                | jq -er --arg prefix "$prefix-$image@" '.[] | select(startswith($prefix))')
+            fi
             [[ "$digest" =~ @sha256:[0-9a-f]{64}$ ]]
             jq --arg image "$image" --arg digest "$digest" '. + {($image): $digest}' \
               "$RUNNER_TEMP/release/images.json" > "$RUNNER_TEMP/release/images.next.json"
@@ -237,6 +255,8 @@ jobs:
             '{commit: $commit, architecture: $architecture, ciRun: $ciRun, publishRun: $publishRun, images: $images[0]}' \
             > "$RUNNER_TEMP/release/publication.json"
           cat "$RUNNER_TEMP/release/publication.json" >> "$GITHUB_STEP_SUMMARY"
+          cp "$RUNNER_TEMP/postgres-component/qualification.json" \
+            "$RUNNER_TEMP/release/postgres-component-qualification.json"
 
       - name: Upload digests and SBOMs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
