@@ -23,6 +23,7 @@ class PostgresComponentTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.runtime = self.root / "infra/images/postgres"
         shutil.copytree(ROOT / "infra/images/postgres", self.runtime)
+        shutil.copyfile(ROOT / ".dockerignore", self.root / ".dockerignore")
 
     def lock(self) -> dict[str, Any]:
         return {
@@ -285,6 +286,42 @@ class PostgresComponentTests(unittest.TestCase):
                           "--architecture", "amd64")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
+
+    def test_build_context_policy_change_requires_component_review(self) -> None:
+        lock = self.lock()
+        (self.root / ".dockerignore").write_text("*\n")
+        with self.assertRaises(ValueError):
+            component.select_image(self.root, lock, "amd64")
+
+    def artifacts(self) -> dict[str, Any]:
+        return {"total_count": 1, "artifacts": [{
+            "id": 12470357181, "name": "release-amd64-1", "expired": False,
+            "workflow_run": {"id": 39880434067,
+                             "head_sha": "8d7c3c756a74cd4f4d8c2f93f9f171c1ffd81362"},
+        }]}
+
+    def test_proof_artifact_from_exact_run_is_selected(self) -> None:
+        self.assertEqual(component.select_proof_artifact(self.lock(), self.artifacts(), "amd64"),
+                         12470357181)
+
+    def test_missing_expired_duplicate_or_incomplete_proof_is_refused(self) -> None:
+        for transform in [lambda response: response.update(total_count=2),
+                          lambda response: response.update(total_count=0, artifacts=[]),
+                          lambda response: response["artifacts"][0].update(expired=True),
+                          lambda response: response["artifacts"][0].update(name="release-amd64-2"),
+                          lambda response: response.update(total_count=2,
+                                                           artifacts=response["artifacts"] * 2)]:
+            inventory = self.artifacts()
+            transform(inventory)
+            with self.subTest(inventory=inventory), self.assertRaises(ValueError):
+                component.select_proof_artifact(self.lock(), inventory, "amd64")
+
+    def test_proof_artifact_metadata_cannot_substitute_source_or_run(self) -> None:
+        for field, value in [("id", 1), ("head_sha", "a" * 40)]:
+            inventory = self.artifacts()
+            inventory["artifacts"][0]["workflow_run"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                component.select_proof_artifact(self.lock(), inventory, "amd64")
 
 
 if __name__ == "__main__":

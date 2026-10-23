@@ -100,3 +100,7 @@ def validate_origin(lock: dict[str, Any], run: dict[str, Any], publication: dict
 
 def validate_local_image(lock: dict[str, Any], image: dict[str, Any], architecture: str) -> None:
     raise NotImplementedError("Pulled PostgreSQL component identity")
+
+
+def select_proof_artifact(lock: dict[str, Any], inventory: dict[str, Any], architecture: str) -> int:
+    raise NotImplementedError("Unexpired component proof from the exact trusted run")
