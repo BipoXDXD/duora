@@ -87,6 +87,14 @@ observer pin and pinned release manifest, and receiver code by hash. All are re-
 and after activation; this does not disclose their contents or change them.
 The Compose path and SHA come from the protected observer pin, including a customized `compose.coolify.json`;
 the static installer must not assume the repository's `compose.prod.yml` is the active host configuration.
+The one qualified symlink exception is `/opt/coolify-release/receiver.py` pointing literally and absolutely
+to `/opt/coolify-release/versions/2.0.2-1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb/receiver.py`.
+The entry must be root-owned and single-linked; Linux symlink mode 0777 is normal and is not changed.
+Its parent ancestry and the regular single-linked target ancestry must be root-owned, protected and contain
+no other symlink. Target source SHA256 must equal the qualified 2.0.2 pin. The snapshot binds literal readlink,
+resolved path, source hash and entry/target metadata; retargeting or content drift refuses. The idle gate
+loads only that verified resolved target. No generic file reader, Compose/Caddy path or unrelated link gains
+an exception; no receiver link, target or permissions are changed by this installer.
 
 1. Verify the exact reviewed bundle SHA-256, closed manifest/source/hash/modes and qualification evidence.
    Inspect candidate files statically; reject unsupported contracts or dependencies before writing a host path.

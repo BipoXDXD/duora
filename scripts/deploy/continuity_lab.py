@@ -146,6 +146,55 @@ def _root_lab() -> dict:
                 pinned_json.write_bytes(pinned_bytes)
                 pinned_json.chmod(0o600)
                 link.unlink(missing_ok=True)
+        receiver_link = root / "receiver-policy/receiver.py"
+        receiver_target = receiver_link.parent / "versions" / ("2.0.2-" + installer.RECEIVER_SHA256) / "receiver.py"
+        receiver_target.parent.mkdir(parents=True)
+        receiver_source = (repo / "scripts/release/coolify/receiver.py").read_bytes()
+        receiver_target.write_bytes(receiver_source)
+        receiver_target.chmod(0o755)
+        receiver_link.symlink_to(receiver_target)
+        receiver_negatives = []
+        with patch.object(installer, "RECEIVER_PATH", receiver_link):
+            binding = installer.receiver_binding()
+            verified_receiver = installer._module(Path(binding["resolvedTarget"]), "duora_lab_versioned_receiver")
+            if verified_receiver.receiver_digest() != installer.RECEIVER_SHA256:
+                raise RuntimeError("Verified receiver load differs from its bound source")
+            for unsafe in ("link-owner", "target-owner", "parent-owner", "parent-mode", "retarget", "relative-link", "content", "target-symlink", "hardlink"):
+                other = receiver_link.parent / "unqualified.py"
+                saved = receiver_target.parent / "saved-receiver.py"
+                extra = receiver_target.parent / "extra-link.py"
+                if unsafe == "link-owner": os.lchown(receiver_link, 65534, 65534)
+                elif unsafe == "target-owner": os.chown(receiver_target, 65534, 65534)
+                elif unsafe == "parent-owner": os.chown(receiver_target.parent, 65534, 65534)
+                elif unsafe == "parent-mode": receiver_target.parent.chmod(0o770)
+                elif unsafe in {"retarget", "relative-link"}:
+                    other.write_bytes(receiver_source)
+                    receiver_link.unlink()
+                    target = other if unsafe == "retarget" else Path("versions") / receiver_target.parent.name / "receiver.py"
+                    receiver_link.symlink_to(target)
+                elif unsafe == "content": receiver_target.write_text("unqualified receiver")
+                elif unsafe == "target-symlink":
+                    receiver_target.rename(saved)
+                    receiver_target.symlink_to(saved)
+                else: os.link(receiver_target, extra)
+                try:
+                    try: installer.receiver_binding()
+                    except installer.InstallError: receiver_negatives.append(unsafe)
+                    else: raise RuntimeError("Receiver accepted unsafe " + unsafe)
+                finally:
+                    os.chown(receiver_target.parent, 0, 0)
+                    receiver_target.parent.chmod(0o755)
+                    extra.unlink(missing_ok=True)
+                    if saved.exists():
+                        receiver_target.unlink()
+                        saved.rename(receiver_target)
+                    os.chown(receiver_target, 0, 0)
+                    receiver_target.write_bytes(receiver_source)
+                    receiver_target.chmod(0o755)
+                    receiver_link.unlink()
+                    receiver_link.symlink_to(receiver_target)
+                    other.unlink(missing_ok=True)
+            if installer.receiver_binding() != binding: raise RuntimeError("Receiver fixture restoration changed its binding")
         command(["docker", "run", "--detach", "--rm", "--name", registry_name,
                  "--publish", "127.0.0.1:5050:5000", smoke_local.REGISTRY_IMAGE])
         images = {"postgres": guard.LEGACY_DIGESTS[architecture]}
@@ -496,6 +545,9 @@ def _root_lab() -> dict:
                 "first_failed_v2_current_v1_app_recovery_preserved_floor": True,
                 "pinnedComposePolicy": {"realRootFilesystem": True, "customJsonPathSelected": True,
                     "unsafeParentFileModeDigestSymlinkRefused": True, "scope": "Synthetic pin policy fixture; actual host pin is qualified under installer locks"},
+                "receiverVersionedLinkPolicy": {"realRootFilesystem": True, "sourceSha256": installer.RECEIVER_SHA256,
+                    "layout": "versions/2.0.2-<qualified-sha256>/receiver.py", "verifiedTargetLoaded": True,
+                    "negativeCases": receiver_negatives, "bindingRestoredExactly": True},
                 "receiver_installer_interlock_proved": True,
                 "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,
                     "maximumAllowedGapSeconds": 3, "startedBefore": first.release_id, "endedAfter": "compatible rollback and negative read-only guards"},

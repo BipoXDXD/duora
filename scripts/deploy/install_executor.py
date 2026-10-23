@@ -24,6 +24,8 @@ import runtime_guard as guard
 
 FILES = ("duora_deploy.py", "reconcile_payload.py", "runtime_guard.py", "install_executor.py")
 FENCE_DIRECTORY = "duora-executor-install"
+RECEIVER_PATH = Path("/opt/coolify-release/receiver.py")
+RECEIVER_SHA256 = "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb"
 
 
 class InstallError(ValueError):
@@ -123,7 +125,8 @@ def installation_context(paths: InstallPaths, preserved_files: tuple[Path, ...])
             raise InstallError("Invalid current release identity")
         files = (paths.state / "current.json", paths.state / "releases" / (current + ".json"),
                  paths.state / "releases" / (current + ".env"), *preserved_files)
-        result: dict = {str(path): hashlib.sha256(_protected_bytes(path)).hexdigest() for path in files}
+        result: dict = {str(path): (receiver_binding() if path == RECEIVER_PATH else hashlib.sha256(_protected_bytes(path)).hexdigest())
+                        for path in files}
         floor = paths.state / "v2-contract-floor.json"
         raw_floor = _optional(floor)
         result[str(floor)] = hashlib.sha256(raw_floor).hexdigest() if raw_floor is not None else None
@@ -157,6 +160,40 @@ def _require_root_path(path: Path, *, directory: bool = False) -> None:
         expected = stat.S_ISDIR if directory or item != path else stat.S_ISREG
         if not expected(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
             raise InstallError("Root-owned path and ancestry without symlinks or unprivileged writes required")
+
+
+def receiver_binding() -> dict:
+    """The only symlink exception: the exact qualified receiver leaf and immutable 2.0.2 target."""
+    try:
+        _require_root_path(RECEIVER_PATH.parent, directory=True)
+        info = RECEIVER_PATH.lstat()
+        if info.st_uid != 0 or info.st_nlink != 1: raise InstallError("Unowned receiver entry")
+        raw_link = None
+        if stat.S_ISLNK(info.st_mode):
+            # Linux symlink permission bits are normally 0777 and do not authorize modifying its target.
+            raw_link = os.readlink(RECEIVER_PATH)
+            target = RECEIVER_PATH.parent / "versions" / ("2.0.2-" + RECEIVER_SHA256) / "receiver.py"
+            if raw_link != str(target): raise InstallError("Receiver link is outside the exact qualified version")
+        else:
+            target = RECEIVER_PATH
+        _require_root_path(target)
+        resolved = RECEIVER_PATH.resolve(strict=True)
+        if resolved != target: raise InstallError("Receiver resolution differs from the qualified target")
+        content = _protected_bytes(target)
+        checksum = hashlib.sha256(content).hexdigest()
+        if checksum != RECEIVER_SHA256: raise InstallError("Receiver source differs from qualified 2.0.2")
+        after = RECEIVER_PATH.lstat()
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_uid, value.st_gid, value.st_nlink, value.st_mode)
+        if identity(info) != identity(after) or (raw_link is not None and os.readlink(RECEIVER_PATH) != raw_link):
+            raise InstallError("Receiver changed during protected inspection")
+        target_info = target.lstat()
+        return {"kind": "qualified-versioned-symlink" if raw_link is not None else "qualified-regular",
+                "readlink": raw_link, "resolvedTarget": str(resolved), "sha256": checksum,
+                "entry": {"uid": info.st_uid, "gid": info.st_gid, "mode": stat.S_IMODE(info.st_mode), "nlink": info.st_nlink},
+                "target": {"uid": target_info.st_uid, "gid": target_info.st_gid,
+                           "mode": stat.S_IMODE(target_info.st_mode), "nlink": target_info.st_nlink}}
+    except (OSError, ValueError, TypeError) as error:
+        raise InstallError("Cannot bind the protected qualified receiver") from error
 
 
 @contextmanager
@@ -427,12 +464,8 @@ def _module(path: Path, name: str):
 
 
 def _production_idle(paths: InstallPaths, *, expected_commit: str, manifest_sha256: str) -> None:
-    path = Path("/opt/coolify-release/receiver.py")
-    if path.stat().st_uid != 0 or path.stat().st_mode & 0o022:
-        raise InstallError("Untrusted installed receiver")
-    if _sha(path) != "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb":
-        raise InstallError("Shared receiver is outside the qualified version")
-    receiver = _module(path, "duora_installer_reviewed_receiver")
+    binding = receiver_binding()
+    receiver = _module(Path(binding["resolvedTarget"]), "duora_installer_reviewed_receiver")
     require_ingress_idle(receiver, paths, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
     if receiver.api("deployments") != []:
         raise InstallError("Coolify global queue is active or unknown")
@@ -510,7 +543,7 @@ def main() -> int:
         pin = guard.decode_json(pin_raw)
         deploy_paths = executor.Paths(pinned_compose(pin), Path("/etc/duora/duora.env"), paths.state)
         preserved = (deploy_paths.compose_file, deploy_paths.host_env, pinned, Path(pin["caddy"]),
-                     Path(pin["manifest"]), Path("/opt/coolify-release/receiver.py"), paths.ingress / "duora/current.json")
+                     Path(pin["manifest"]), RECEIVER_PATH, paths.ingress / "duora/current.json")
         context = installation_context(paths, preserved)
         if hashlib.sha256(pin_raw).hexdigest() != context[str(pinned)]:
             raise InstallError("Pinned configuration changed during initial inspection")

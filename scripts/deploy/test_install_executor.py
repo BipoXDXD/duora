@@ -136,6 +136,57 @@ class InstallationTests(unittest.TestCase):
             actual.write_text("unreviewed changed configuration")
             with self.assertRaises(installer.InstallError): installer.pinned_compose(pin)
 
+    def test_only_the_qualified_receiver_link_binds_literal_target_content_and_context(self) -> None:
+        receiver = self.root / "coolify-release/receiver.py"
+        target = receiver.parent / "versions" / ("2.0.2-" + installer.RECEIVER_SHA256) / "receiver.py"
+        target.parent.mkdir(parents=True)
+        source = Path(__file__).resolve().parents[1] / "release/coolify/receiver.py"
+        original = source.read_bytes()
+        target.write_bytes(original)
+        target.chmod(0o755)
+        receiver.symlink_to(target)
+        state = self.paths.state
+        (state / "releases").mkdir()
+        (state / "current.json").write_text('{"releaseId":"current"}')
+        for name in ["current.json", "current.env"]: (state / "releases" / name).write_text("synthetic")
+        real_stat = Path.lstat
+        foreign_owner = None
+        def root_metadata(path):
+            metadata = list(real_stat(path))
+            metadata[4], metadata[5] = (1001 if path == foreign_owner else 0), 0
+            if path != self.root and self.root not in path.parents:
+                metadata[0] = int(metadata[0]) & ~0o022
+            return os.stat_result(metadata)
+        with patch.object(installer, "RECEIVER_PATH", receiver), patch.object(Path, "lstat", root_metadata), \
+                patch.object(os, "geteuid", return_value=0):
+            binding = installer.receiver_binding()
+            self.assertEqual(binding["readlink"], str(target))
+            self.assertEqual(binding["resolvedTarget"], str(target))
+            self.assertEqual(binding["sha256"], installer.RECEIVER_SHA256)
+            context = installer.installation_context(self.paths, (receiver,))
+            self.assertEqual(context[str(receiver)], binding)
+            for foreign_owner in [receiver, target]:
+                with self.subTest(foreign_owner=foreign_owner), self.assertRaises(installer.InstallError):
+                    installer.receiver_binding()
+            foreign_owner = None
+            target.parent.chmod(0o770)
+            with self.assertRaises(installer.InstallError): installer.receiver_binding()
+            target.parent.chmod(0o755)
+            other = receiver.parent / "arbitrary.py"
+            other.write_bytes(original)
+            receiver.unlink()
+            receiver.symlink_to(other)
+            with self.assertRaises(installer.InstallError):
+                installer.require_installation_context(context, self.paths, (receiver,))
+            receiver.unlink()
+            receiver.symlink_to(target)
+            target.write_text("unqualified content")
+            with self.assertRaises(installer.InstallError): installer.receiver_binding()
+            target.write_bytes(original)
+            arbitrary = self.root / "unrelated-config-link"
+            arbitrary.symlink_to(target)
+            with self.assertRaises(installer.InstallError): installer.installation_context(self.paths, (arbitrary,))
+
     def test_interrupted_activation_has_explicit_hash_guarded_recovery_under_real_locks(self) -> None:
         receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "installer_crash_receiver")
         for boundary in ["fence", "pending", "baseline", "entry", "receipt"]:
