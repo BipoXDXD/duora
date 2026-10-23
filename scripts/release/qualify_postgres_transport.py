@@ -33,6 +33,9 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     reference = component.select_image(ROOT, lock, args.architecture)
     publication = component.read_lock(args.publication)
     component.validate_origin(lock, component.read_lock(args.run_json), publication, args.architecture)
+    if args.architecture == "amd64":
+        # Match the production ingress protocol; never patch the receiver to fit an older runner daemon.
+        os.environ["DOCKER_API_VERSION"] = "1.52"
     before = json.loads(command(["docker", "image", "inspect", reference, "--format", "{{json .}}"]))
     component.validate_local_image(lock, before, args.architecture)
     stage = args.stage
@@ -79,6 +82,8 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         "candidate_checkout": command(["git", "rev-parse", "HEAD"]).strip(),
         "qualification_run": "https://github.com/BipoXDXD/duora/actions/runs/" + os.environ["GITHUB_RUN_ID"],
         "qualifier_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "docker_server": json.loads(command(["docker", "version", "--format", "{{json .Server}}"])),
+        "ingress_api": "1.52" if args.architecture == "amd64" else "ARM64 native-only qualification",
     }
     if args.architecture == "amd64":
         # The production ingress is deliberately AMD64-only. Do not broaden it for this proof.

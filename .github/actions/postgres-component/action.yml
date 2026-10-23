@@ -29,6 +29,77 @@ runs:
           "attempt=" + (.attempt|tostring), "source_commit=" + .source_commit' \
           "$RUNNER_TEMP/postgres-component/plan.json" >> "$GITHUB_OUTPUT"
 
+    - name: Match the disposable AMD64 daemon to the reviewed ingress runtime
+      if: ${{ inputs.architecture == 'amd64' }}
+      shell: bash
+      env:
+        TARGET_ENGINE_VERSION: '29.9.1'
+        TARGET_CONTAINERD_VERSION: '2.4.2'
+      run: |
+        docker version --format '{{json .}}' > "$RUNNER_TEMP/postgres-component/docker-runtime-before.json"
+        before_status=$(curl --silent --show-error --unix-socket /var/run/docker.sock \
+          --output "$RUNNER_TEMP/postgres-component/docker-api-before.json" --write-out '%{http_code}' \
+          http://localhost/v1.52/version)
+        echo "Docker API 1.52 before fixture setup: $before_status"
+        sudo install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o "$RUNNER_TEMP/component-docker.asc"
+        fingerprint=$(gpg --show-keys --with-colons "$RUNNER_TEMP/component-docker.asc" | awk -F: '$1=="fpr" {print $10; exit}')
+        test "$fingerprint" = 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+        sudo install -m 0644 "$RUNNER_TEMP/component-docker.asc" /etc/apt/keyrings/duora-component-docker.asc
+        apt_root=$(mktemp -d /tmp/duora-component-apt.XXXXXX)
+        trap 'sudo rm -rf -- "$apt_root"' EXIT
+        chmod 0755 "$apt_root"
+        mkdir "$apt_root/sources" "$apt_root/lists"
+        cp /etc/apt/sources.list.d/ubuntu.sources "$apt_root/sources/ubuntu.sources"
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/duora-component-docker.asc] https://download.docker.com/linux/ubuntu noble stable" > "$apt_root/sources/docker.list"
+        apt_options=(-o "Dir::Etc::sourcelist=/dev/null"
+          -o "Dir::Etc::sourceparts=$apt_root/sources"
+          -o "Dir::State::lists=$apt_root/lists"
+          -o "APT::Update::Error-Mode=any")
+        sudo apt-get "${apt_options[@]}" update -qq
+        engine_package=$(apt-cache "${apt_options[@]}" madison docker-ce | awk -F'|' '{gsub(/ /,"",$2);print $2}' \
+          | awk -v prefix="5:$TARGET_ENGINE_VERSION-" 'index($0,prefix)==1 && !found {print;found=1}')
+        containerd_package=$(apt-cache "${apt_options[@]}" madison containerd.io | awk -F'|' '{gsub(/ /,"",$2);print $2}' \
+          | awk -v prefix="$TARGET_CONTAINERD_VERSION-" 'index($0,prefix)==1 && !found {print;found=1}')
+        test -n "$engine_package" && test -n "$containerd_package"
+        conflicts=()
+        for package in docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc moby-engine moby-cli moby-containerd moby-runc; do
+          if dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'install ok installed'; then conflicts+=("$package"); fi
+        done
+        if [ "${#conflicts[@]}" -gt 0 ]; then sudo apt-get "${apt_options[@]}" remove -y "${conflicts[@]}"; fi
+        sudo apt-get "${apt_options[@]}" install -y --no-install-recommends \
+          "docker-ce=$engine_package" "docker-ce-cli=$engine_package" "containerd.io=$containerd_package" \
+          docker-buildx-plugin docker-compose-plugin
+        python3 - "$RUNNER_TEMP/component-daemon.json" "$RUNNER_TEMP/postgres-component-docker" <<'PY'
+        import json, pathlib, sys
+        source=pathlib.Path('/etc/docker/daemon.json')
+        config=json.loads(source.read_text()) if source.exists() else {}
+        config.setdefault('features', {})['containerd-snapshotter']=True
+        config['data-root']=sys.argv[2]
+        pathlib.Path(sys.argv[1]).write_text(json.dumps(config))
+        PY
+        sudo install -m 0644 "$RUNNER_TEMP/component-daemon.json" /etc/docker/daemon.json
+        sudo systemctl restart docker
+        test "$(readlink -f "$(command -v docker)")" = /usr/bin/docker
+        docker version --format '{{json .}}' > "$RUNNER_TEMP/postgres-component/docker-runtime-after.json"
+        after_status=$(curl --silent --show-error --unix-socket /var/run/docker.sock \
+          --output "$RUNNER_TEMP/postgres-component/docker-api-after.json" --write-out '%{http_code}' \
+          http://localhost/v1.52/version)
+        test "$after_status" = 200
+        docker info --format '{{json .DriverStatus}}' > "$RUNNER_TEMP/postgres-component/docker-store.json"
+        python3 - "$RUNNER_TEMP/postgres-component" "$TARGET_ENGINE_VERSION" "$TARGET_CONTAINERD_VERSION" <<'PY'
+        import json, pathlib, sys
+        root=pathlib.Path(sys.argv[1])
+        runtime=json.loads((root/'docker-runtime-after.json').read_text())
+        server=json.loads((root/'docker-api-after.json').read_text())
+        assert runtime['Client']['Version']==sys.argv[2] and server['Version']==sys.argv[2]
+        components={item['Name']:item['Version'] for item in server['Components']}
+        assert components['containerd'].removeprefix('v')==sys.argv[3]
+        assert tuple(map(int,server['MinAPIVersion'].split('.'))) <= (1,52) <= tuple(map(int,server['ApiVersion'].split('.')))
+        assert ['driver-type','io.containerd.snapshotter.v1'] in json.loads((root/'docker-store.json').read_text())
+        print('Qualified native engine',server['Version'],'API',server['ApiVersion'],'containerd snapshotter')
+        PY
+
     - name: Require the retained proof from its authenticated source run
       id: metadata
       shell: bash

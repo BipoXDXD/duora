@@ -314,6 +314,11 @@ jobs:
             ${{ runner.temp }}/postgres-component/plan.json
             ${{ runner.temp }}/postgres-component/source-plan.json
             ${{ runner.temp }}/postgres-component/qualification.json
+            ${{ runner.temp }}/postgres-component/docker-runtime-before.json
+            ${{ runner.temp }}/postgres-component/docker-api-before.json
+            ${{ runner.temp }}/postgres-component/docker-runtime-after.json
+            ${{ runner.temp }}/postgres-component/docker-api-after.json
+            ${{ runner.temp }}/postgres-component/docker-store.json
           if-no-files-found: warn
           retention-days: 90
 
