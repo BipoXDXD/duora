@@ -49,6 +49,10 @@ CREATE FUNCTION rooms.room_count() RETURNS bigint LANGUAGE sql AS 'SELECT count(
 """
 
 
+def apply_candidate_sql(container: str) -> subprocess.CompletedProcess[str]:
+    raise NotImplementedError("Apply the verified real migrator SQL payload through local PostgreSQL stdin")
+
+
 @unittest.skipUnless(IMAGE, "native image proof runs with DUORA_POSTGRES_IMAGE in both CI architectures")
 class MigratorPayloadImageTests(unittest.TestCase):
     def test_real_stopped_image_payload_matches_canonical_sql(self) -> None:
@@ -202,6 +206,30 @@ class AppRolePrivilegesTests(unittest.TestCase):
                     "TRUNCATE ops.audit_events"]:
             with self.subTest(sql=sql):
                 self.assert_denied(sql)
+
+    def test_real_payload_reconciles_deliberate_acl_drift_and_preserves_rows(self) -> None:
+        sentinel = "reconciliation-sentinel-" + uuid.uuid4().hex
+        self.assert_allowed("INSERT INTO ops.audit_events (action) VALUES ('" + sentinel + "')")
+        _run(self._psql_superuser() + ["--command", "GRANT UPDATE, DELETE, TRUNCATE ON ops.audit_events TO duora_app"])
+        try:
+            self.assertEqual("t|t|t", self.assert_allowed(
+                "SELECT has_table_privilege('duora_app','ops.audit_events','UPDATE'),"
+                "has_table_privilege('duora_app','ops.audit_events','DELETE'),"
+                "has_table_privilege('duora_app','ops.audit_events','TRUNCATE')"))
+            applied = apply_candidate_sql(self.container)
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            self.assertEqual("f|f|f", self.assert_allowed(
+                "SELECT has_table_privilege('duora_app','ops.audit_events','UPDATE'),"
+                "has_table_privilege('duora_app','ops.audit_events','DELETE'),"
+                "has_table_privilege('duora_app','ops.audit_events','TRUNCATE')"))
+            self.assertEqual("1", self.assert_allowed("SELECT count(*) FROM ops.audit_events WHERE action='" + sentinel + "'"))
+            self.assert_allowed("INSERT INTO ops.audit_events (action) VALUES ('reconciliation-legitimate-append')")
+            for sql in ["UPDATE ops.audit_events SET action = action WHERE false",
+                        "DELETE FROM ops.audit_events WHERE false"]:
+                self.assert_denied(sql)
+        finally:
+            # Keep other native cases independent even while the new application seam is intentionally absent.
+            _run(self._psql_superuser() + ["--command", "REVOKE UPDATE, DELETE, TRUNCATE ON ops.audit_events FROM duora_app"])
 
     def test_reconcile_fails_when_app_can_still_rewrite_the_audit_trail(self) -> None:
         # Privilégio herdado (PUBLIC) não sai com o REVOKE de duora_app: a checagem final tem de barrar o deploy.

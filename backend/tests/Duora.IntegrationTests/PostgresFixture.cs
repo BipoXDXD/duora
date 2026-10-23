@@ -162,6 +162,9 @@ public sealed class PostgresFixture : IAsyncLifetime
         }
     }
 
+    internal Task ReconcilePrivilegesAsync(string database, CancellationToken cancellationToken) =>
+        throw new NotImplementedException("Canonical SQL reconciliation for an existing database");
+
     private async Task ExecuteAsSuperuserAsync(string sql, CancellationToken cancellationToken)
     {
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
