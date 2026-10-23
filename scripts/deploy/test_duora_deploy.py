@@ -568,7 +568,7 @@ class DeployTests(unittest.TestCase):
     def test_missing_backup_command_stops_deploy_before_stopping_anything(self) -> None:
         fake = FakeRunner()
 
-        def runner(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+        def runner(command: list[str], *, capture: bool = False, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
             if command[0].endswith("duora-backup"):
                 raise FileNotFoundError(command[0])
             return fake(command, capture=capture)

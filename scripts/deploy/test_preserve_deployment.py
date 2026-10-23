@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import duora_deploy as deploy
+import runtime_guard as guard
 from test_duora_deploy import FakeRunner, parse, valid_manifest
 
 
@@ -25,6 +26,37 @@ class PreservationDeploymentTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.paths = deploy.Paths(self.root / "compose.yml", self.root / "host.env", self.root / "state")
         self.release = parse(valid_manifest())
+
+    def _preflight(self, release, runner):
+        profile = {"services": {"postgres": {"id": "1" * 64}}}
+        with patch.object(deploy, "runtime_inventory", return_value={"profile": profile}), \
+                patch.object(deploy, "_private_json", return_value=profile), \
+                patch.object(guard, "require_preserved"), \
+                patch.object(deploy, "_read_migration_head", return_value=self.release.latest_migration):
+            return deploy.runtime_preflight(release, self.paths, runner)
+
+    def test_cold_migrator_is_pulled_by_digest_before_external_sql_authentication(self) -> None:
+        runner = InputRunner()
+        release = parse(dict(valid_manifest(), contractVersion="v2"))
+        def cold_image(reference, **_kwargs):
+            self.assertIn(["docker", "pull", "--quiet", reference], runner.commands)
+            return "SELECT 1;\n"
+        with patch.object(deploy._payload, "extract_sql", side_effect=cold_image):
+            self.assertEqual(self._preflight(release, runner), "SELECT 1;\n")
+        self.assertFalse(any("stop" in command or "create" in command for command in runner.commands))
+
+    def test_same_schema_new_legacy_release_after_v2_is_refused_before_any_sql_or_pull(self) -> None:
+        self.paths.state_dir.mkdir()
+        recorded = self.paths.state_dir / deploy.RELEASES_DIR
+        recorded.mkdir()
+        current = dict(valid_manifest(), contractVersion="v2", releaseId="current-v2")
+        (self.paths.state_dir / "current.json").write_text(json.dumps({"releaseId": current["releaseId"]}))
+        (recorded / "current-v2.json").write_text(json.dumps(current))
+        runner = InputRunner()
+        with patch.object(deploy._payload, "capture_binary", side_effect=AssertionError("No legacy SQL access")):
+            with self.assertRaises(deploy.DeployError):
+                self._preflight(self.release, runner)
+        self.assertEqual(runner.commands, [])
 
     def test_runtime_or_payload_refusal_precedes_pull_worker_migration_and_staging(self) -> None:
         runner = InputRunner()

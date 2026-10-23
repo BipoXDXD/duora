@@ -1,6 +1,5 @@
 """Disposable Actions-only end-to-end qualification, never a production entry point."""
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +18,11 @@ import install_executor as installer
 import reconcile_payload as payload
 import runtime_guard as guard
 import smoke_local
+
+
+def validate_observations(samples: list[dict], *, start: float, end: float,
+                          errors: list[str], events_alive: bool) -> None:
+    raise NotImplementedError("Continuous readiness and event-stream proof required")
 
 
 def command(argv: list[str]) -> str:
@@ -126,6 +130,16 @@ def _root_lab() -> dict:
         command(compose + ["up", "--detach", "--wait", "postgres", "backup"])
         inventory = executor.runtime_inventory(bootstrap, paths)
         installer._write(state / guard.BASELINE_NAME, installer._json(inventory["profile"]))
+        def identity_metadata() -> dict:
+            return {role: {key: value for key, value in payload._inspect("container", item["id"], payload.capture_binary).items()
+                          if key in {"Config", "HostConfig", "Mounts", "NetworkSettings", "RestartCount", "Created", "Image", "Id"}}
+                    for role, item in inventory["profile"]["services"].items()}
+        initial_metadata = identity_metadata()
+        def difference_paths(left, right, prefix="") -> list[str]:
+            if isinstance(left, dict) and isinstance(right, dict):
+                return [path for key in sorted(set(left) | set(right))
+                        for path in difference_paths(left.get(key), right.get(key), prefix + "." + key)]
+            return [prefix] if left != right else []
 
         def native_build_payload(reference: str, *, revision: str, architecture: str) -> str:
             if not reference.startswith(registry + "migrator@sha256:") or revision != os.environ["GITHUB_SHA"]:
@@ -145,7 +159,13 @@ def _root_lab() -> dict:
         with patch.object(payload, "extract_sql", side_effect=native_build_payload):
             first_raw = dict(manifest, releaseId="qualified-v2-a", previousReleaseId="qualified-bootstrap")
             first = executor.parse_manifest(json.dumps(first_raw), image_prefix="")
-            executor.deploy(first, paths, executor.run_command, verify_backup=False)
+            try:
+                executor.deploy(first, paths, executor.run_command, verify_backup=False)
+            except executor.DeployError:
+                # Metadata values may contain secrets; disclose only changed field paths.
+                print("[baseline-diagnostic] " + json.dumps({"metadataPaths": difference_paths(initial_metadata, identity_metadata()),
+                    "profilePaths": difference_paths(inventory["profile"], executor.runtime_inventory(first, paths)["profile"])}), flush=True)
+                raise
             current_compose = executor._compose_command(paths, state / "releases/qualified-v2-a.env")
             pg = inventory["profile"]["services"]["postgres"]["id"]
             backup = inventory["profile"]["services"]["backup"]["id"]
@@ -275,6 +295,7 @@ def _root_lab() -> dict:
             if monitor.is_alive() or not samples or any(not s["database_ready"] for s in samples):
                 raise RuntimeError("Database readiness continuity failed")
             if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("Read-only guards lost SQL session")
+            assert session.stdin is not None
             session.stdin.write("\\q\n")
             session.stdin.flush()
             session.wait(timeout=10)

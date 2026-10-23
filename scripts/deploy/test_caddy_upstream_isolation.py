@@ -85,7 +85,7 @@ class DualNetworkUpstreamTests(unittest.TestCase):
         self.assertNotEqual(0, foreign.returncode)
         self.assertIn("401", foreign.stderr)
 
-        def runner(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+        def runner(command: list[str], *, capture: bool = False, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
             # Adaptar só o transporte Compose ao nome do contêiner descartável; a URL vem do código de produção.
             wget = command.index("wget")
             return subprocess.run(["docker", "exec", self.edge, *command[wget:]],

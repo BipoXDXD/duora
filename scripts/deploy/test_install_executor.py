@@ -3,6 +3,9 @@ import hashlib
 import json
 import tempfile
 import unittest
+import os
+import signal
+from unittest.mock import patch
 from pathlib import Path
 
 import install_executor as installer
@@ -102,3 +105,59 @@ class InstallationTests(unittest.TestCase):
         self.entry.write_text("changed by someone else\n")
         with self.assertRaises(installer.InstallError): self.invoke(apply=True)
         self.assertEqual(self.entry.read_text(), "changed by someone else\n")
+
+    def test_release_and_preservation_files_are_rechecked_against_the_reviewed_snapshot(self) -> None:
+        state = self.paths.state
+        (state / "releases").mkdir()
+        (state / "current.json").write_text('{"releaseId":"current"}')
+        for name in ["current.json", "current.env"]:
+            (state / "releases" / name).write_text("synthetic current identity")
+        pin = self.root / "coolify-deploy.json"
+        pin.write_text("synthetic pinned manifest and Compose/Caddy hashes")
+        baseline = installer.installation_context(self.paths, (pin,))
+        for changed in [state / "current.json", state / "releases/current.json", state / "releases/current.env", pin]:
+            original = changed.read_bytes()
+            changed.write_bytes(original + b" changed")
+            with self.subTest(changed=changed.name), self.assertRaises(installer.InstallError):
+                installer.require_installation_context(baseline, self.paths, (pin,))
+            changed.write_bytes(original)
+
+    def test_interrupted_activation_has_explicit_hash_guarded_recovery_under_real_locks(self) -> None:
+        for boundary in ["pending", "baseline", "entry", "receipt"]:
+            with self.subTest(boundary=boundary):
+                if boundary != "pending": self.setUp()
+                original_write, original_sync = installer._write, installer._sync
+                def interrupted_write(path, raw, **kwargs):
+                    original_write(path, raw, **kwargs)
+                    if path.name == {"pending": "executor-install-pending.json", "baseline": guard.BASELINE_NAME,
+                                      "receipt": "executor-install-receipt.json"}.get(boundary):
+                        os.kill(os.getpid(), signal.SIGKILL)
+                def interrupted_sync(path):
+                    original_sync(path)
+                    if boundary == "entry" and path == self.entry.parent and self.entry.is_symlink():
+                        os.kill(os.getpid(), signal.SIGKILL)
+                child = os.fork()
+                if child == 0:
+                    try:
+                        with patch.object(installer, "_write", side_effect=interrupted_write), \
+                                patch.object(installer, "_sync", side_effect=interrupted_sync):
+                            self.invoke(apply=True)
+                    finally: os._exit(91)
+                _pid, status = os.waitpid(child, 0)
+                self.assertTrue(os.WIFSIGNALED(status), "Expected the actual child to die at " + boundary)
+                pending = json.loads((self.paths.state / "executor-install-pending.json").read_text())
+                with self.assertRaises(installer.InstallError): self.invoke(apply=True)
+                # Foreign baseline means recovery must refuse before replacing either file.
+                if boundary == "entry":
+                    baseline_path = self.paths.state / guard.BASELINE_NAME
+                    original = baseline_path.read_bytes()
+                    baseline_path.write_text("foreign intervention")
+                    with self.assertRaises(installer.InstallError):
+                        installer.recover_installation(paths=self.paths, pending=pending, require_idle=lambda: None)
+                    self.assertTrue(self.entry.is_symlink())
+                    baseline_path.write_bytes(original)
+                installer.recover_installation(paths=self.paths, pending=pending, require_idle=lambda: None)
+                self.assertFalse(self.entry.is_symlink())
+                self.assertEqual(installer._sha(self.entry), self.old_hash)
+                self.assertFalse((self.paths.state / guard.BASELINE_NAME).exists())
+                self.assertFalse((self.paths.state / "executor-install-pending.json").exists())

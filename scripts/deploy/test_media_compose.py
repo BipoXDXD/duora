@@ -102,7 +102,7 @@ class ProductionMediaComposeTests(unittest.TestCase):
                        "COMPOSE_ENV_FILES": "override.env"}
         with patch.dict(os.environ, environment, clear=True), patch.object(subprocess, "run") as run:
             deploy.run_command(["docker", "compose", "config"])
-            self.assertEqual({"PATH": "/usr/bin"}, run.call_args.kwargs["env"])
+            self.assertEqual({"PATH": "/usr/bin:/bin", "LC_ALL": "C"}, run.call_args.kwargs["env"])
 
 
 @unittest.skipUnless(shutil.which("docker"), "Docker Compose não instalado")

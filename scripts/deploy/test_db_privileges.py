@@ -132,7 +132,8 @@ class RuntimeContinuityLabTests(unittest.TestCase):
         from continuity_lab import run_preservation_lab
         report = run_preservation_lab()
         for field in ["sql_session_survived", "database_backup_identity_preserved", "negative_guards_passed",
-                      "static_installation_preserved_services", "compatible_v2_rollback_passed"]:
+                      "static_installation_preserved_services", "compatible_v2_rollback_passed",
+                      "two_forward_deploys_under_observation", "failed_product_recovered", "receiver_installer_interlock_proved"]:
             self.assertTrue(report[field], field)
         print("[continuity-lab] " + json.dumps(report))
 

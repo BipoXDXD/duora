@@ -663,7 +663,7 @@ def run_command(command: list[str], *, capture: bool = False,
     # substituir DUORA_* nem injetar arquivos/profiles via COMPOSE_*. Outros comandos preservam seu ambiente.
     environment = None
     if command and command[0] == "docker":
-        environment = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C", "HOME": "/root"}
+        environment = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
     try:
         return subprocess.run(command, text=True, check=False, capture_output=capture,
                               timeout=COMMAND_TIMEOUT_SECONDS, env=environment, input=input_text)
