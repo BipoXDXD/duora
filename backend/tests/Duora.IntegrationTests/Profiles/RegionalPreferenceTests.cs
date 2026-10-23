@@ -7,6 +7,7 @@ namespace Duora.IntegrationTests.Profiles;
 
 public sealed class RegionalPreferenceTests(PostgresFixture postgres) : IAsyncDisposable
 {
+    private static readonly string[] BrazilAndUnitedStates = ["BR", "US"];
     private readonly DuoraWebFactory _factory = new(postgres.ConnectionString);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
     public ValueTask DisposeAsync() => _factory.DisposeAsync();
@@ -80,7 +81,7 @@ public sealed class RegionalPreferenceTests(PostgresFixture postgres) : IAsyncDi
         Assert.Equal("\"2\"", bothRead.Headers.ETag!.ToString());
         var body = JsonNode.Parse(await bothRead.Content.ReadAsStringAsync(Ct))!;
         Assert.Equal("countries", (string?)body["mode"]);
-        Assert.Equal(new[] { "BR", "US" }, body["countryCodes"]!.AsArray().Select(code => (string?)code));
+        Assert.Equal(BrazilAndUnitedStates, body["countryCodes"]!.AsArray().Select(code => (string?)code));
         for (var index = 0; index < paths.Length; index++)
         {
             using var read = await finalSession.GetAsync(paths[index]);
@@ -100,7 +101,7 @@ public sealed class RegionalPreferenceTests(PostgresFixture postgres) : IAsyncDi
         Assert.True(await reader.ReadAsync(Ct));
         Assert.Equal("countries", reader.GetString(0));
         Assert.Equal(2L, reader.GetInt64(1));
-        Assert.Equal(["BR", "US"], reader.GetFieldValue<string[]>(2));
+        Assert.Equal(BrazilAndUnitedStates, reader.GetFieldValue<string[]>(2));
         Assert.False(await reader.ReadAsync(Ct));
     }
 
