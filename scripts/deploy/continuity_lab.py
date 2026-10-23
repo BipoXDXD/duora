@@ -1,5 +1,6 @@
 """Disposable Actions-only end-to-end qualification, never a production entry point."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -70,7 +71,7 @@ def _root_lab() -> dict:
         raise RuntimeError("Refusing to adopt an existing stack")
     if "duora_pgdata" in command(["docker", "volume", "ls", "--format", "{{.Name}}","--filter","name=^duora_pgdata$"]).split():
         raise RuntimeError("Refusing to adopt an existing data volume")
-    root = Path(tempfile.mkdtemp(prefix="duora-qualified-actions-"))
+    root = Path(tempfile.mkdtemp(prefix="duora-qualified-actions-", dir="/root"))
     repo = Path(__file__).resolve().parents[2]
     compose_file = root / "compose.yml"
     raw_compose = (repo / "infra/compose/compose.prod.yml").read_text()
@@ -119,6 +120,32 @@ def _root_lab() -> dict:
     monitor = None
     app_monitor = None
     try:
+        pin_fixture = root / "pin-policy"
+        pin_fixture.mkdir(mode=0o700)
+        pinned_json = pin_fixture / "compose.coolify.json"
+        pinned_bytes = b'{"name":"synthetic-pin-policy","services":{}}\n'
+        pinned_json.write_bytes(pinned_bytes)
+        pinned_json.chmod(0o600)
+        pin = {"compose": str(pinned_json), "compose_sha256": hashlib.sha256(pinned_bytes).hexdigest()}
+        if installer.pinned_compose(pin) != pinned_json: raise RuntimeError("Actual pinned JSON path was not selected")
+        for unsafe in ("parent-mode", "file-mode", "digest", "symlink"):
+            candidate = dict(pin)
+            link = pin_fixture / "linked.json"
+            if unsafe == "parent-mode": pin_fixture.chmod(0o770)
+            elif unsafe == "file-mode": pinned_json.chmod(0o620)
+            elif unsafe == "digest": pinned_json.write_text("changed synthetic config")
+            else:
+                link.symlink_to(pinned_json)
+                candidate["compose"] = str(link)
+            try:
+                try: installer.pinned_compose(candidate)
+                except installer.InstallError: pass
+                else: raise RuntimeError("Pinned JSON accepted unsafe " + unsafe)
+            finally:
+                pin_fixture.chmod(0o700)
+                pinned_json.write_bytes(pinned_bytes)
+                pinned_json.chmod(0o600)
+                link.unlink(missing_ok=True)
         command(["docker", "run", "--detach", "--rm", "--name", registry_name,
                  "--publish", "127.0.0.1:5050:5000", smoke_local.REGISTRY_IMAGE])
         images = {"postgres": guard.LEGACY_DIGESTS[architecture]}
@@ -467,6 +494,8 @@ def _root_lab() -> dict:
                 "compatible_v2_rollback_passed": True, "baseline": live_inventory["profile"],
                 "two_forward_deploys_under_observation": True, "failed_product_recovered": True,
                 "first_failed_v2_current_v1_app_recovery_preserved_floor": True,
+                "pinnedComposePolicy": {"realRootFilesystem": True, "customJsonPathSelected": True,
+                    "unsafeParentFileModeDigestSymlinkRefused": True, "scope": "Synthetic pin policy fixture; actual host pin is qualified under installer locks"},
                 "receiver_installer_interlock_proved": True,
                 "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,
                     "maximumAllowedGapSeconds": 3, "startedBefore": first.release_id, "endedAfter": "compatible rollback and negative read-only guards"},

@@ -123,9 +123,18 @@ class InstallationTests(unittest.TestCase):
         actual = self.root / "compose.coolify.json"
         actual.write_text('{"name":"duora","services":{},"syntheticRegionalCut":"preserved"}')
         pin = {"compose": str(actual), "compose_sha256": hashlib.sha256(actual.read_bytes()).hexdigest()}
-        self.assertEqual(installer.pinned_compose(pin), actual)
-        actual.write_text("unreviewed changed configuration")
-        with self.assertRaises(installer.InstallError): installer.pinned_compose(pin)
+        # Ops runs unprivileged: model root-only filesystem metadata at the syscall boundary.
+        # The native Actions lab separately exercises real root ownership/ancestry and unsafe parents/links.
+        real_stat = Path.lstat
+        def protected_metadata(path):
+            metadata = list(real_stat(path))
+            metadata[4] = 0
+            metadata[0] = int(metadata[0]) & ~0o022
+            return os.stat_result(metadata)
+        with patch.object(Path, "lstat", protected_metadata), patch.object(os, "geteuid", return_value=0):
+            self.assertEqual(installer.pinned_compose(pin), actual)
+            actual.write_text("unreviewed changed configuration")
+            with self.assertRaises(installer.InstallError): installer.pinned_compose(pin)
 
     def test_interrupted_activation_has_explicit_hash_guarded_recovery_under_real_locks(self) -> None:
         receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "installer_crash_receiver")

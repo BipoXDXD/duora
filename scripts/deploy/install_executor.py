@@ -138,7 +138,25 @@ def require_installation_context(expected: dict, paths: InstallPaths, preserved_
 
 
 def pinned_compose(pin: dict) -> Path:
-    raise NotImplementedError("Select and verify the actual protected observer-pinned Compose")
+    try:
+        path = Path(pin["compose"])
+        _require_root_path(path)
+        checksum = pin["compose_sha256"]
+        if (not path.is_absolute() or not isinstance(checksum, str) or not re.fullmatch(r"[a-f0-9]{64}", checksum)
+                or hashlib.sha256(_protected_bytes(path)).hexdigest() != checksum):
+            raise InstallError("Actual observer-pinned Compose identity differs")
+        return path
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        raise InstallError("Cannot qualify the actual observer-pinned Compose") from error
+
+
+def _require_root_path(path: Path, *, directory: bool = False) -> None:
+    if not path.is_absolute(): raise InstallError("Absolute protected root path required")
+    for item in (path, *path.parents):
+        info = item.lstat()
+        expected = stat.S_ISDIR if directory or item != path else stat.S_ISREG
+        if not expected(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise InstallError("Root-owned path and ancestry without symlinks or unprivileged writes required")
 
 
 @contextmanager
@@ -469,10 +487,7 @@ def main() -> int:
     try:
         if os.geteuid() != 0: raise InstallError("Administrative root entry required")
         os.umask(0o077)
-        for item in (args.bundle, *args.bundle.parents):
-            info = item.lstat()
-            if not item.is_absolute() or not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
-                raise InstallError("Candidate bundle must have protected root-owned directory ancestry")
+        _require_root_path(args.bundle, directory=True)
         manifest = validate_bundle(args.bundle, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256)
         if _sha(Path(__file__)) != manifest["files"]["install_executor.py"]["sha256"]:
             raise InstallError("Invoke the installer from the exact verified bundle")
