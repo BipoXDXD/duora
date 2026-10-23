@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "profile": "postgres-embedded-reconcile-v1",
+  "fingerprint": "sha256:e0e99374eff9c3776450791e8275168619f8f9b5e4a9615700c52ae4ac394198",
+  "source_commit": "ebad1ec9c272d3631fed4207f65e5edf3ceb86a0",
+  "publish_run": "https://github.com/BipoXDXD/duora/actions/runs/39885198914/attempts/1",
+  "images": {
+    "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c",
+    "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:a626e902dfc8165bf5b866ea03fd4b6c2eec739ec7b76872154504bee99dd930"
+  }
+}
