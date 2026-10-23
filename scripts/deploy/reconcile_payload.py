@@ -2,8 +2,10 @@
 
 import hashlib
 import io
+import json
 import os
 import re
+import secrets
 import selectors
 import signal
 import subprocess
@@ -141,4 +143,89 @@ def verify_sql(sql_archive: bytes, checksum_archive: bytes) -> str:
 
 def extract_sql(image_reference: str, *, revision: str, architecture: str,
                 capture: Callable[[list[str]], bytes] = capture_binary) -> str:
-    raise NotImplementedError("Extract from an authenticated stopped migrator without volumes or execution")
+    """Copy authenticated release files without starting the image or creating volumes."""
+    if (not re.fullmatch(r"ghcr\.io/bipoxdxd/duora-migrator@sha256:[a-f0-9]{64}", image_reference)
+            or not re.fullmatch(r"[a-f0-9]{40}", revision) or architecture not in ("amd64", "arm64")):
+        raise PayloadError("Invalid migrator release identity")
+
+    def pairs(items: list[tuple[str, object]]) -> dict:
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise PayloadError("Duplicate daemon metadata field")
+            result[key] = value
+        return result
+
+    def inspect(kind: str, reference: str) -> dict:
+        raw = capture(["docker", kind, "inspect", "--format", "{{json .}}", reference])
+        if len(raw) > MAX_CAPTURE_BYTES:
+            raise PayloadError("Daemon metadata budget exceeded")
+        try:
+            value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs)
+        except (ValueError, UnicodeError, RecursionError) as error:
+            raise PayloadError("Invalid daemon metadata") from error
+        if not isinstance(value, dict):
+            raise PayloadError("Daemon metadata must be an object")
+        return value
+
+    image = inspect("image", image_reference)
+    config = image.get("Config")
+    if not isinstance(config, dict):
+        raise PayloadError("Missing migrator configuration")
+    volumes = config.get("Volumes")
+    # Docker creates declared anonymous volumes even for a never-started container.
+    if volumes is not None and (not isinstance(volumes, dict) or volumes):
+        raise PayloadError("Migrator declares volumes")
+    labels = config.get("Labels")
+    image_id = image.get("Id")
+    digests = image.get("RepoDigests")
+    if (not isinstance(image_id, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", image_id)
+            or not isinstance(digests, list) or image_reference not in digests
+            or image.get("Os") != "linux" or image.get("Architecture") != architecture
+            or not isinstance(labels, dict)
+            or labels.get("org.opencontainers.image.revision") != revision
+            or labels.get("org.opencontainers.image.source") != "https://github.com/BipoXDXD/duora"
+            or labels.get("org.opencontainers.image.title") != "duora-migrator"):
+        raise PayloadError("Migrator image differs from the authenticated release")
+
+    nonce = secrets.token_hex(16)
+    name = "duora-reconcile-" + nonce
+    owner_key = "duora.reconcile-nonce"
+    container_id = None
+
+    def owned_container() -> str:
+        item = inspect("container", name)
+        identifier = item.get("Id")
+        item_config = item.get("Config")
+        state = item.get("State")
+        host = item.get("HostConfig")
+        if (not isinstance(identifier, str) or not re.fullmatch(r"[a-f0-9]{64}", identifier)
+                or (container_id is not None and identifier != container_id)
+                or item.get("Name") != "/" + name or item.get("Image") != image_id
+                or not isinstance(item_config, dict) or not isinstance(item_config.get("Labels"), dict)
+                or item_config["Labels"].get(owner_key) != nonce
+                or not isinstance(state, dict) or state.get("Running") is not False
+                or state.get("Status") != "created" or item.get("Mounts") != []
+                or not isinstance(host, dict) or host.get("NetworkMode") != "none"):
+            raise PayloadError("Refusing a foreign or non-isolated extraction container")
+        return identifier
+
+    try:
+        # An ambiguous create failure still reaches ownership-checked cleanup by nonce.
+        created = capture(["docker", "create", "--name", name, "--label", owner_key + "=" + nonce,
+                           "--network", "none", "--read-only", "--cap-drop", "ALL",
+                           "--entrypoint", "/bin/false", image_reference])
+        try:
+            container_id = created.decode("ascii").strip()
+        except UnicodeError as error:
+            raise PayloadError("Invalid extraction container identity") from error
+        if not re.fullmatch(r"[a-f0-9]{64}", container_id):
+            raise PayloadError("Invalid extraction container identity")
+        owned_container()
+        sql = capture(["docker", "cp", container_id + ":/app/" + SQL_NAME, "-"])
+        checksum = capture(["docker", "cp", container_id + ":/app/" + CHECKSUM_NAME, "-"])
+        return verify_sql(sql, checksum)
+    finally:
+        # Never force-remove, prune, or touch a different/running container.
+        identifier = owned_container()
+        capture(["docker", "rm", identifier])
