@@ -97,8 +97,9 @@ class MigratorPayloadImageTests(unittest.TestCase):
         self.assertFalse(any(c[:2] in [["docker", "start"], ["docker", "run"], ["docker", "exec"]]
                              for c in commands))
         self.assertTrue(any(c[:2] == ["docker", "rm"] for c in commands))
-        with self.assertRaises(payload.PayloadError):
-            payload.capture_binary(["docker", "container", "inspect", observations[-1]["id"]])
+        absent = payload.capture_binary(["docker", "ps", "--all", "--quiet", "--no-trunc",
+                                         "--filter", "id=" + observations[-1]["id"]])
+        self.assertEqual(absent.strip(), b"", "successful daemon listing must prove container absence")
         print("[reconcile-native] " + json.dumps({"origin": "Actions candidate build, not published GHCR",
               "revision": revision, "architecture": expected_arch, "image_id": image_id,
               "sql_sha256": hashlib.sha256(sql.encode()).hexdigest(), "archives": archives,
