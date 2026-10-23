@@ -5,6 +5,7 @@ import copy
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 from typing import Any
@@ -150,6 +151,140 @@ class PostgresComponentTests(unittest.TestCase):
             path.write_text(document)
             with self.assertRaises(ValueError):
                 component.read_lock(path)
+
+    def test_executable_mode_change_invalidates_the_component(self) -> None:
+        lock = self.lock()
+        path = self.runtime / "pg_hba.duora.conf"
+        path.chmod(path.stat().st_mode | 0o100)
+        with self.assertRaises(ValueError):
+            component.select_image(self.root, lock, "amd64")
+
+    def test_copy_outside_the_closed_input_tree_cannot_be_reviewed_as_complete(self) -> None:
+        path = self.runtime / "Dockerfile"
+        with path.open("a") as handle:
+            handle.write("\nCOPY backend/uninventoried.sql /usr/local/share/duora/extra.sql\n")
+        lock = self.lock()
+        with self.assertRaises(ValueError):
+            component.select_image(self.root, lock, "amd64")
+
+    def test_mutable_base_and_unreviewed_build_arguments_refuse_selection(self) -> None:
+        path = self.runtime / "Dockerfile"
+        original = path.read_text()
+        changed = [original.replace("postgres:18.6-trixie@sha256:" +
+                                    "74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336",
+                                    "postgres:latest"),
+                   original + "\nARG UNREVIEWED_CONTENT\n"]
+        for recipe in changed:
+            path.write_text(recipe)
+            lock = self.lock()
+            with self.subTest(recipe=recipe[-100:]), self.assertRaises(ValueError):
+                component.select_image(self.root, lock, "amd64")
+
+    def origin(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        lock = self.lock()
+        run: dict[str, Any] = {
+            "id": 39880434067, "run_attempt": 1,
+            "head_sha": lock["source_commit"], "path": ".github/workflows/coolify.yml",
+            "event": "workflow_run", "status": "completed", "conclusion": "success",
+            "repository": {"full_name": "BipoXDXD/duora"},
+            "head_repository": {"full_name": "BipoXDXD/duora"},
+        }
+        publication: dict[str, Any] = {
+            "commit": lock["source_commit"], "architecture": "amd64",
+            "publishRun": lock["publish_run"],
+            "ciRun": "https://github.com/BipoXDXD/duora/actions/runs/39879009709/attempts/1",
+            "images": {role: "ghcr.io/bipoxdxd/duora-" + role + "@sha256:" + "b" * 64
+                       for role in ["web", "worker", "migrator", "edge", "postgres"]},
+        }
+        return lock, run, publication
+
+    def test_authenticated_run_and_native_artifact_must_match_the_lock(self) -> None:
+        lock, run, publication = self.origin()
+        component.validate_origin(lock, run, publication, "amd64")
+
+    def test_foreign_failed_forked_or_wrong_attempt_origin_is_refused(self) -> None:
+        lock, run, publication = self.origin()
+        for field, value in [("id", 1), ("run_attempt", 2), ("head_sha", "a" * 40),
+                             ("path", ".github/workflows/other.yml"), ("event", "pull_request"),
+                             ("status", "in_progress"), ("conclusion", "failure"),
+                             ("repository", {"full_name": "attacker/duora"}),
+                             ("head_repository", {"full_name": "attacker/duora"})]:
+            changed = copy.deepcopy(run)
+            changed[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                component.validate_origin(lock, changed, publication, "amd64")
+
+    def test_artifact_cannot_substitute_commit_architecture_run_ci_or_digest(self) -> None:
+        lock, run, publication = self.origin()
+        for field, value in [("commit", "a" * 40), ("architecture", "arm64"),
+                             ("publishRun", lock["publish_run"].replace("attempts/1", "attempts/2")),
+                             ("ciRun", "https://github.com/attacker/duora/actions/runs/1/attempts/1"),
+                             ("images", publication["images"] | {"postgres":
+                              "ghcr.io/bipoxdxd/duora-postgres@sha256:" + "d" * 64})]:
+            changed = copy.deepcopy(publication)
+            changed[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                component.validate_origin(lock, run, changed, "amd64")
+
+    def local_image(self, lock: dict[str, Any]) -> dict[str, Any]:
+        return {"Id": "sha256:" + "d" * 64, "Os": "linux", "Architecture": "amd64",
+                "RepoDigests": [lock["images"]["amd64"]],
+                "Config": {"Labels": {"org.opencontainers.image.source":
+                                       "https://github.com/BipoXDXD/duora"}}}
+
+    def test_pulled_native_image_retains_reviewed_repository_digest(self) -> None:
+        lock = self.lock()
+        component.validate_local_image(lock, self.local_image(lock), "amd64")
+
+    def test_wrong_pulled_platform_source_or_manifest_is_refused(self) -> None:
+        lock = self.lock()
+        image = self.local_image(lock)
+        for field, value in [("Architecture", "arm64"), ("Os", "windows"),
+                             ("RepoDigests", ["ghcr.io/bipoxdxd/duora-postgres@sha256:" + "e" * 64]),
+                             ("Config", {"Labels": {"org.opencontainers.image.source":
+                                                    "https://github.com/attacker/duora"}})]:
+            changed = copy.deepcopy(image)
+            changed[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                component.validate_local_image(lock, changed, "amd64")
+
+    def cli(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([sys.executable, str(ROOT / "scripts/release/postgres_component.py"),
+                               *arguments], capture_output=True, text=True, check=False, timeout=10)
+
+    def test_cli_selects_exact_component_and_scoped_proof_artifact(self) -> None:
+        path = self.root / "lock.json"
+        lock = self.lock()
+        path.write_text(json.dumps(lock))
+        result = self.cli("select", "--root", str(self.root), "--lock", str(path),
+                          "--architecture", "amd64")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.strip(), "selection must return a verifiable component plan")
+        selected = json.loads(result.stdout)
+        self.assertEqual(selected, {"image": lock["images"]["amd64"], "run_id": 39880434067,
+                                    "attempt": 1, "artifact": "release-amd64-1",
+                                    "source_commit": lock["source_commit"]})
+
+    def test_cli_refuses_drift_without_returning_a_publication_plan(self) -> None:
+        path = self.root / "lock.json"
+        path.write_text(json.dumps(self.lock()))
+        (self.runtime / "pgbackrest.conf").write_text("changed runtime")
+        result = self.cli("select", "--root", str(self.root), "--lock", str(path),
+                          "--architecture", "amd64")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_cli_cannot_verify_a_failed_publication_origin(self) -> None:
+        lock, run, publication = self.origin()
+        run["conclusion"] = "failure"
+        for name, document in [("lock", lock), ("run", run), ("publication", publication)]:
+            (self.root / (name + ".json")).write_text(json.dumps(document))
+        result = self.cli("verify-origin", "--lock", str(self.root / "lock.json"),
+                          "--run-json", str(self.root / "run.json"),
+                          "--publication-json", str(self.root / "publication.json"),
+                          "--architecture", "amd64")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
 
 
 if __name__ == "__main__":
