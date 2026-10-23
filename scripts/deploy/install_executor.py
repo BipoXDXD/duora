@@ -9,6 +9,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import platform
 import re
 import shutil
 import stat
@@ -108,7 +109,8 @@ def _json(value: dict) -> bytes:
 def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                    reviewed_inventory_sha256: str, expected_executor_sha256: str,
                    paths: InstallPaths, inspect_runtime: Callable[[], dict],
-                   require_idle: Callable[[], None], apply: bool = False) -> dict:
+                   require_idle: Callable[[], None], apply: bool = False,
+                   qualification_artifact: int | None = None) -> dict:
     manifest = validate_bundle(source, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
     lock_paths = (paths.ingress / "host.lock", paths.ingress / "duora/release.lock", paths.state / ".deploy.lock")
     with ExitStack() as locks:
@@ -131,7 +133,7 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                 "manifestSha256": manifest_sha256, "inventorySha256": actual_inventory,
                 "baselineSha256": hashlib.sha256(_json(inventory["profile"])).hexdigest(),
                 "executorSha256": manifest["files"]["duora_deploy.py"]["sha256"], "files": manifest["files"],
-                "qualificationRun": manifest["qualificationRun"]}
+                "qualificationRun": manifest["qualificationRun"], "qualificationArtifactId": qualification_artifact}
             if not apply:
                 return receipt
             for directory in (paths.versions, paths.preimages):
@@ -239,17 +241,32 @@ def _production_idle() -> None:
         raise InstallError("Coolify global queue is active or unknown")
 
 
-def _verify_provenance(manifest: dict) -> None:
+def _verify_provenance(manifest: dict, artifact_id: int) -> None:
+    def get(path: str) -> dict:
+        request = urllib.request.Request("https://api.github.com/repos/BipoXDXD/duora/" + path,
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "duora-static-installer"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return guard.decode_json(response.read(256 * 1024 + 1))
     run = manifest["qualificationRun"].rsplit("/", 1)[1]
-    request = urllib.request.Request("https://api.github.com/repos/BipoXDXD/duora/actions/runs/" + run,
-                                     headers={"Accept": "application/vnd.github+json", "User-Agent": "duora-static-installer"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        record = guard.decode_json(response.read(256 * 1024 + 1))
+    record = get("actions/runs/" + run)
     if (record.get("status") != "completed" or record.get("conclusion") != "success"
             or record.get("head_sha") != manifest["sourceCommit"] or record.get("name") != "CI"
             or record.get("path") != ".github/workflows/ci.yml"
-            or record.get("repository", {}).get("full_name") != "BipoXDXD/duora"):
+            or record.get("repository", {}).get("full_name") != "BipoXDXD/duora"
+            or record.get("head_repository", {}).get("full_name") != "BipoXDXD/duora"
+            or record.get("event") not in {"pull_request", "push"}):
         raise InstallError("Bundle qualification is not a successful exact-source CI run")
+    jobs = get("actions/runs/" + run + "/jobs?per_page=100")
+    required = {"backend", "frontend", "e2e", "ops", "images (amd64)", "images (arm64)", "contract", "secret-scan", "supply-chain"}
+    conclusions = {job["name"]: job["conclusion"] for job in jobs["jobs"]}
+    if jobs["total_count"] > 100 or any(conclusions.get(name) != "success" for name in required):
+        raise InstallError("Every mandatory final-source check must succeed without skips")
+    artifact = get("actions/artifacts/" + str(artifact_id))
+    architecture = {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine())
+    if (artifact.get("expired") is not False or artifact.get("name") != "duora-executor-" + str(architecture)
+            or artifact.get("workflow_run", {}).get("id") != int(run)
+            or artifact.get("workflow_run", {}).get("head_sha") != manifest["sourceCommit"]):
+        raise InstallError("Qualification artifact is expired, foreign or not native")
     for name, info in manifest["files"].items():
         url = "https://raw.githubusercontent.com/BipoXDXD/duora/" + manifest["sourceCommit"] + "/scripts/deploy/" + name
         with urllib.request.urlopen(url, timeout=30) as response:
@@ -263,6 +280,7 @@ def main() -> int:
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--manifest-sha256", required=True)
+    parser.add_argument("--artifact-id", type=int, required=True)
     parser.add_argument("--reviewed-inventory-sha256")
     parser.add_argument("--expected-executor-sha256")
     parser.add_argument("--apply", action="store_true")
@@ -273,7 +291,8 @@ def main() -> int:
         manifest = validate_bundle(args.bundle, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256)
         if _sha(Path(__file__)) != manifest["files"]["install_executor.py"]["sha256"]:
             raise InstallError("Invoke the installer from the exact verified bundle")
-        _verify_provenance(manifest)
+        if args.artifact_id <= 0: raise InstallError("Exact qualification artifact ID required")
+        _verify_provenance(manifest, args.artifact_id)
         paths = InstallPaths(Path("/usr/local/sbin/duora-deploy"), Path("/opt/duora-executor/releases"),
             Path("/opt/duora-executor/preimages"), Path("/var/lib/duora"), Path("/var/lib/coolify-release"))
         executor = _module(args.bundle / "duora_deploy.py", "duora_candidate_executor")
@@ -300,7 +319,7 @@ def main() -> int:
         result = install_bundle(args.bundle, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256,
             reviewed_inventory_sha256=args.reviewed_inventory_sha256 or inspect()["inventorySha256"],
             expected_executor_sha256=args.expected_executor_sha256 or _sha(paths.entry), paths=paths,
-            inspect_runtime=inspect, require_idle=_production_idle, apply=args.apply)
+            inspect_runtime=inspect, require_idle=_production_idle, apply=args.apply, qualification_artifact=args.artifact_id)
         if not args.apply: result["inventory"] = inspect()
         print(json.dumps(result, sort_keys=True))
         return 0

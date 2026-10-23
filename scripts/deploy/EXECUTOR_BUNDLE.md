@@ -1,7 +1,7 @@
 # Candidate executor installation contract — version 1
 
-This is a reviewable contract for the approved database-deployment correction. The installer, runtime guard,
-final bundle manifest and qualification receipt do not exist yet. This document is not an installable release,
+This is a reviewable contract for the approved database-deployment correction. The installer and guard are implemented; qualification is still required.
+A bundle is usable only after exact-source CI, native artifacts, independent review and hashes. This document is not a production handoff,
 a production handoff or permission to invoke an actuator. The coordinating chat must release a window after
 the implementation, remote proofs and independent review. No new OpenClaw action or second installer is included.
 
@@ -60,8 +60,13 @@ worker, migrate/reconcile SQL, verify/write backups or WAL, restart a unit, or p
 
 ## Ordered static installation procedure
 
-The implementation must provide distinct inspect/preflight and apply modes. The exact CLI is frozen only
-with the tested installer commit; there is deliberately no command here that invokes an absent installer.
+The CLI defaults to read-only inspection/preflight. Invoke the installer from the exact root-owned verified
+bundle with required arguments: `--bundle <bundle-directory> --source-commit <reviewed-40-hex-commit>
+--manifest-sha256 <reviewed-manifest-sha256> --artifact-id <native-qualification-artifact-id>`.
+Only after review and coordinated handoff, add `--apply --reviewed-inventory-sha256 <reviewed-inventory-sha256>
+--expected-executor-sha256 <reviewed-current-executor-sha256>`. There is no deployment action in this CLI.
+The installer checks successful exact-source CI, all nine mandatory jobs, native artifact identity/expiry and
+all code hashes against immutable public source. The artifact ID is external to avoid a circular archive hash.
 
 1. Verify the exact reviewed bundle SHA-256, closed manifest/source/hash/modes and qualification evidence.
    Inspect candidate files statically; reject unsupported contracts or dependencies before writing a host path.
@@ -75,7 +80,9 @@ with the tested installer commit; there is deliberately no command here that inv
    reference and Compose. A matching `com.docker.compose.config-hash` only describes creation configuration;
    it cannot automatically legitimize preexisting `docker update` or network drift. Review differences first.
 5. A read-only preflight stops here with a bounded diagnostic result. It does not write enrollment, pull/create
-   images, execute SQL, stop services or update release/backup state. Missing or uncertain evidence is failure.
+   images, execute SQL writes/reconciliation, stop services or update release/backup state. Read-only schema
+   metadata and the legacy SQL hash are checked; external-v2 extraction is separately mandatory before any
+   worker stop in the actual deployment. Missing or uncertain evidence is failure.
 6. Only in explicitly authorized apply mode, stage and hash-check the entire bundle, preserve installer-owned
    preimages, then atomically enroll the reviewed baseline and switch the single entry point last. All helpers
    must already exist at their versioned paths. No mixed version is allowed to execute.
@@ -110,5 +117,5 @@ three-project success claim or newly enabled OpenClaw action is part of this con
 Keep the regional cut at 2026-10-22 22:34:50 UTC and Compose hash
 `0a8df3fdc4dc5303d2b5f8b05520ebcdac86639fe184e071583bf6e88fb1b8ad`.
 All nine final-head/base checks and triggered native proofs, independent review and the coordinator's explicit
-handoff remain required. The final installer CLI, bundle commit/SHA-256 and manifest hashes remain pending code
-and qualification; publishing this candidate does not assert that they exist.
+handoff remain required. Bundle commit, native artifact ID and manifest hashes must come from the successful qualification run;
+publishing implementation code does not assert qualification or release a production window.
