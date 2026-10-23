@@ -90,11 +90,8 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse(self.entry.is_symlink())
 
     def test_failed_postcheck_recovers_only_own_files_and_keeps_original_executor(self) -> None:
-        calls = 0
         def inspect() -> dict:
-            nonlocal calls
-            calls += 1
-            if calls > 1: raise installer.InstallError("synthetic post-activation failure")
+            if self.entry.is_symlink(): raise installer.InstallError("synthetic post-activation failure")
             return self.inventory
         with self.assertRaises(installer.InstallError): self.invoke(apply=True, inspect=inspect)
         self.assertFalse(self.entry.is_symlink())

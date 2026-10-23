@@ -33,6 +33,10 @@ The legacy profile binds the current #228 PostgreSQL native digest, embedded SQL
 It does not accept arbitrary v1 releases. V2 requires external SQL from the authenticated immutable migrator;
 missing files never select v1. Rollback keeps the safe executor and cumulative schema/ACL, without Down,
 database restore or reapplying weaker legacy SQL.
+After current v2, a new v1 release is refused even with an unchanged schema. Only its exact recorded eligible
+previous target can be served as application rollback, executing neither legacy SQL nor migrations.
+The actual v2 preflight pulls the authenticated migrator digest before extraction, after the runtime/schema
+guards and before staging or any worker stop; OCI ingress is not assumed to populate its GHCR RepoDigest.
 
 ## Candidate host footprint
 
@@ -47,6 +51,8 @@ entry point 0755. Existing unrelated paths and their permissions remain untouche
 | `/usr/local/sbin/duora-deploy` | Atomic final switch to the verified versioned executor; preserve the original file/symlink first |
 | `/var/lib/duora/executor-runtime-baseline.json` | Atomic, explicitly reviewed runtime enrollment; never enroll from a deploy or read-only preflight |
 | `/var/lib/duora/executor-install-receipt.json` | Atomic installation journal/receipt with exact installed source/helper/manifest/baseline hashes |
+| `/var/lib/duora/executor-install-pending.json` | Durable own-attempt pointer, written before baseline or entry changes; unresolved intent blocks another apply and the new executor |
+| `/var/lib/duora/executor-recovery-receipt.json` | Record an explicitly recovered own attempt, without asserting product remediation |
 | `/var/lib/healthchecks-diagnostics/remediation-proof.json` | Informational proof only after actual installation and qualification; schema agreed with the monitor |
 
 Staging and temporary files must remain inside these installer-owned roots. Resolve helpers from the
@@ -67,6 +73,10 @@ Only after review and coordinated handoff, add `--apply --reviewed-inventory-sha
 --expected-executor-sha256 <reviewed-current-executor-sha256>`. There is no deployment action in this CLI.
 The installer checks successful exact-source CI, all nine mandatory jobs, native artifact identity/expiry and
 all code hashes against immutable public source. The artifact ID is external to avoid a circular archive hash.
+The candidate input directory and its ancestry must also be protected and root-owned. Inspection binds both
+application current pointers, the current recorded manifest/environment, host environment, Compose, Caddy,
+observer pin and pinned release manifest, and receiver code by hash. All are re-read under the locks before
+and after activation; this does not disclose their contents or change them.
 
 1. Verify the exact reviewed bundle SHA-256, closed manifest/source/hash/modes and qualification evidence.
    Inspect candidate files statically; reject unsupported contracts or dependencies before writing a host path.
@@ -86,17 +96,27 @@ all code hashes against immutable public source. The artifact ID is external to 
 6. Only in explicitly authorized apply mode, stage and hash-check the entire bundle, preserve installer-owned
    preimages, then atomically enroll the reviewed baseline and switch the single entry point last. All helpers
    must already exist at their versioned paths. No mixed version is allowed to execute.
-7. While locks remain held, run the new executor's nonmutating preflight against the unchanged application/runtime,
+7. While locks remain held, run the new executor's read-only inventory/schema/contract checks against the unchanged application/runtime,
    confirm exact installed hashes and absence of service/container/state changes, and atomically write the receipt.
    Product promotion requires a later coordinated handoff; installation never triggers it.
 8. On installation failure, recover only this installation's own files/preimages, after checking the current
    hash/target still belongs to this attempt. Never overwrite an intervening change, restore an entire snapshot
    or roll back database/application/configuration state. Recovery and partial-failure cases need Actions tests.
+   A synced preimage/journal and pending pointer precede every activation write. SIGKILL leaves that pointer
+   for explicit administrative recovery, never an automatic re-enrollment/retry. From the same qualified bundle,
+   use the base verification arguments plus `--recover-attempt <installation-id>
+   --recover-attempt-sha256 <reviewed-journal-sha256>` without `--apply`. Recovery acquires the same three locks,
+   requires idle ingress/queue and validates all preimage, current baseline, receipt and entry identities before
+   restoring either file. A foreign change refuses every replacement. Successful recovery clears only its
+   pending marker and leaves the preimages for review. SIGKILL at pending/baseline/entry/receipt is exercised
+   by real child processes in Actions; no local process termination or Docker is needed.
 
 Enrollment binds host/project, two database/backup containers and volumes, IDs/Created/StartedAt/RestartCount,
 image references/IDs, Compose/config hashes, guard/tool versions and hashes of stable Config/HostConfig/Mounts/
 Networks. Do not store Env or secrets in cleartext. Running/healthy is checked anew; volatile health logs/PIDs
 do not enter the stable fingerprint. Missing baseline or drift refuses before worker shutdown or migrations.
+Docker Mounts enumeration order is normalized while retaining every record and field, including duplicates.
+Ordering is not a mount identity; changes in sources, targets, permissions, IDs or any other mount field still fail.
 Re-enrollment after a legitimate restart/upgrade is a separate explicit administrative operation, never automatic.
 
 ## Gates and receipts

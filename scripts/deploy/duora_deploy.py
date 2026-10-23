@@ -163,11 +163,20 @@ def runtime_inventory(release: Release, paths: Paths) -> dict:
 
 def runtime_preflight(release: Release, paths: Paths, run: Runner, *, authenticate_payload: bool = True) -> str | None:
     try:
+        if (paths.state_dir / "executor-install-pending.json").exists():
+            raise DeployError("Interrupted executor activation requires explicit own-attempt recovery")
         inventory = runtime_inventory(release, paths)
         _guard.require_preserved(_private_json(paths.state_dir / _guard.BASELINE_NAME), inventory["profile"])
         current = _current_release_id(paths.state_dir)
         compose = _compose_command(paths, paths.state_dir / RELEASES_DIR / (str(current) + ".env"))
         head = _read_migration_head(compose, run)
+        _require_release_not_rewritten(release, paths.state_dir)
+        rollback = _is_rollback(release, head, paths.state_dir)
+        current_manifest = _recorded_manifest(paths.state_dir, current)
+        if current_manifest is not None and current_manifest.get("contractVersion") == "v2" and release.contract_version == "v1":
+            if rollback:
+                return None  # The recorded compatible target never executes legacy migrations or SQL.
+            raise DeployError("A new legacy-v1 release cannot weaken the current v2 contract")
         legacy_hash = ""
         if release.contract_version == "v1":
             identifier = inventory["profile"]["services"]["postgres"]["id"]
@@ -177,7 +186,10 @@ def runtime_preflight(release: Release, paths: Paths, run: Runner, *, authentica
                 raise DeployError("Cannot bind the qualified legacy SQL snapshot")
             legacy_hash = result[0]
         _guard.require_contract(release.raw, schema_head=head, legacy_sql_sha256=legacy_hash)
-        if release.contract_version == "v2" and authenticate_payload:
+        if release.contract_version == "v2" and authenticate_payload and not rollback:
+            # OCI ingress need not populate this GHCR RepoDigest. Resolve the authenticated digest before extraction,
+            # while all runtime/schema guards have passed and before staging, stopping a worker or migrating.
+            _check(run(["docker", "pull", "--quiet", release.images["migrator"]]), "pull do payload por digest")
             sql = _payload.extract_sql(release.images["migrator"], revision=release.commit, architecture=release.architecture)
             _step("SQL externo autenticado sha256=" + hashlib.sha256(sql.encode()).hexdigest())
             return sql

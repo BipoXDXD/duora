@@ -35,7 +35,10 @@ def container_identity(metadata: dict) -> dict:
                 or not isinstance(metadata["Mounts"], list)
                 or not isinstance(metadata["NetworkSettings"]["Networks"], dict)):
             raise GuardError("Missing runtime configuration")
-        fingerprint = {key: metadata[key] for key in ("Config", "HostConfig", "Mounts")}
+        fingerprint = {key: metadata[key] for key in ("Config", "HostConfig")}
+        # Docker's inspect Mounts is assembled from a map; ordering is not part of a mount's identity.
+        # Preserve every record and every field, including duplicates, while sorting that one set-like list.
+        fingerprint["Mounts"] = sorted(metadata["Mounts"], key=lambda item: json.dumps(item, sort_keys=True))
         fingerprint["Networks"] = metadata["NetworkSettings"]["Networks"]
         return {"id": metadata["Id"], "createdAt": metadata["Created"], "startedAt": state["StartedAt"],
                 "restartCount": metadata["RestartCount"], "imageId": metadata["Image"],
@@ -188,7 +191,8 @@ def collect_runtime(compose: list[str], *, postgres_reference: str, compose_sha2
                 "hostConfig": {k: actual.get(k) for k in ("Memory", "MemorySwap", "MemoryReservation", "NanoCpus",
                 "CpuShares", "CpuPeriod", "CpuQuota", "CpusetCpus", "PidsLimit", "Privileged", "ReadonlyRootfs",
                 "CapDrop", "CapAdd", "SecurityOpt", "RestartPolicy", "NetworkMode", "ShmSize", "IpcMode")},
-                "mounts": item["Mounts"], "networks": item["NetworkSettings"]["Networks"],
+                "mounts": sorted(item["Mounts"], key=lambda mount: json.dumps(mount, sort_keys=True)),
+                "networks": item["NetworkSettings"]["Networks"],
                 "environmentSha256": digest(item["Config"].get("Env", []))}
         volume = read(["docker", "volume", "inspect", "--format", "{{json .}}", "duora_pgdata"])
         profile["volumes"] = [volume_identity(volume)]

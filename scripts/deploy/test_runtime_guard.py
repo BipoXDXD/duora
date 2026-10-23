@@ -37,6 +37,15 @@ def reviewed_profile() -> dict:
 
 
 class RuntimeIdentityTests(unittest.TestCase):
+    def test_docker_mount_enumeration_order_is_ignored_but_no_mount_record_or_field_is_lost(self) -> None:
+        original = container()
+        original["Mounts"].append({"Type": "bind", "Source": "/synthetic/config", "Destination": "/config", "RW": False})
+        changed = copy.deepcopy(original)
+        changed["Mounts"].reverse()
+        self.assertEqual(guard.container_identity(original), guard.container_identity(changed))
+        changed["Mounts"][0]["RW"] = True
+        self.assertNotEqual(guard.container_identity(original), guard.container_identity(changed))
+
     def test_stable_identity_hides_environment_and_ignores_only_volatile_health_logs_and_pid(self) -> None:
         original = container()
         identity = guard.container_identity(original)

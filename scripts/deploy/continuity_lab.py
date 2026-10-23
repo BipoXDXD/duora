@@ -22,7 +22,13 @@ import smoke_local
 
 def validate_observations(samples: list[dict], *, start: float, end: float,
                           errors: list[str], events_alive: bool) -> None:
-    raise NotImplementedError("Continuous readiness and event-stream proof required")
+    if errors or not events_alive or len(samples) < 2 or end <= start:
+        raise RuntimeError("Continuity observer or event stream failed")
+    times = [sample["at"] for sample in samples]
+    if (times != sorted(times) or times[0] > start + 3 or times[-1] < end - 3
+            or any(right - left > 3 for left, right in zip(times, times[1:]))
+            or any(not sample["database_ready"] for sample in samples)):
+        raise RuntimeError("Database readiness coverage has a failure or an uncovered interval")
 
 
 def command(argv: list[str]) -> str:
@@ -107,6 +113,7 @@ def _root_lab() -> dict:
     events = None
     stop = threading.Event()
     samples: list[dict] = []
+    observer_errors: list[str] = []
     monitor = None
     try:
         command(["docker", "run", "--detach", "--rm", "--name", registry_name,
@@ -157,16 +164,16 @@ def _root_lab() -> dict:
             return sql
 
         with patch.object(payload, "extract_sql", side_effect=native_build_payload):
-            first_raw = dict(manifest, releaseId="qualified-v2-a", previousReleaseId="qualified-bootstrap")
-            first = executor.parse_manifest(json.dumps(first_raw), image_prefix="")
+            initial_raw = dict(manifest, releaseId="qualified-initial", previousReleaseId="qualified-bootstrap")
+            initial = executor.parse_manifest(json.dumps(initial_raw), image_prefix="")
             try:
-                executor.deploy(first, paths, executor.run_command, verify_backup=False)
+                executor.deploy(initial, paths, executor.run_command, verify_backup=False)
             except executor.DeployError:
                 # Metadata values may contain secrets; disclose only changed field paths.
                 print("[baseline-diagnostic] " + json.dumps({"metadataPaths": difference_paths(initial_metadata, identity_metadata()),
-                    "profilePaths": difference_paths(inventory["profile"], executor.runtime_inventory(first, paths)["profile"])}), flush=True)
+                    "profilePaths": difference_paths(inventory["profile"], executor.runtime_inventory(initial, paths)["profile"])}), flush=True)
                 raise
-            current_compose = executor._compose_command(paths, state / "releases/qualified-v2-a.env")
+            current_compose = executor._compose_command(paths, state / "releases/qualified-initial.env")
             pg = inventory["profile"]["services"]["postgres"]["id"]
             backup = inventory["profile"]["services"]["backup"]["id"]
             command(["docker", "exec", pg, "psql", "-U", "postgres", "-d", "duora", "-v", "ON_ERROR_STOP=1", "-c",
@@ -189,18 +196,26 @@ def _root_lab() -> dict:
             sentinel_before = query("select count(*)||':'||min(value) from ops.deploy_continuity_sentinel")
             history_before = query('select string_agg("MigrationId",\',\' order by "MigrationId") from ops.__ef_migrations_history')
             events_file = (root / "events.jsonl").open("w")
-            events = subprocess.Popen(["docker", "events", "--format", "{{json .}}", "--filter", "type=container",
+            window_start = time.time()
+            events = subprocess.Popen(["docker", "events", "--since", str(window_start), "--format", "{{json .}}", "--filter", "type=container",
                 "--filter", "container=" + pg, "--filter", "container=" + backup], stdout=events_file, stderr=subprocess.DEVNULL)
             def sample() -> None:
-                while not stop.is_set():
-                    db = subprocess.run(["docker", "exec", pg, "pg_isready", "-h", "127.0.0.1", "-U", "duora_app"],
-                                        capture_output=True, check=False, timeout=10).returncode
-                    app = subprocess.run(current_compose + ["exec", "--no-TTY", "edge", "wget", "--quiet", "--spider",
-                        "--timeout=2", "http://duora-web:8080/health/ready"], capture_output=True, check=False, timeout=8).returncode
-                    samples.append({"at": time.time(), "database_ready": db == 0, "application_ready": app == 0})
-                    stop.wait(0.25)
+                try:
+                    while not stop.is_set():
+                        at = time.time()
+                        db = subprocess.run(["docker", "exec", pg, "pg_isready", "-h", "127.0.0.1", "-U", "duora_app"],
+                                            capture_output=True, check=False, timeout=2).returncode
+                        app = subprocess.run(current_compose + ["exec", "--no-TTY", "edge", "wget", "--quiet", "--spider",
+                            "--timeout=1", "http://duora-web:8080/health/ready"], capture_output=True, check=False, timeout=2).returncode
+                        samples.append({"at": at, "database_ready": db == 0, "application_ready": app == 0})
+                        stop.wait(0.25)
+                except Exception as error:
+                    observer_errors.append(type(error).__name__)  # No command output or credentials in proof.
             monitor = threading.Thread(target=sample, daemon=True)
             monitor.start()
+            deadline = time.monotonic() + 5
+            while not samples and not observer_errors and time.monotonic() < deadline: time.sleep(0.05)
+            if not samples or observer_errors: raise RuntimeError("Readiness sampler did not start")
 
             # Root-owned real filesystem activation and rollback-on-postcheck failure, without touching services.
             install_paths = installer.InstallPaths(root / "duora-deploy", root / "versions", root / "preimages", state, root / "ingress")
@@ -213,11 +228,13 @@ def _root_lab() -> dict:
             run_url = "https://github.com/BipoXDXD/duora/actions/runs/" + os.environ["GITHUB_RUN_ID"]
             bundle = root / "bundle"
             manifest_sha = installer.build_bundle(repo / "scripts/deploy", bundle, commit=source_commit, run_url=run_url)
-            live_inventory = executor.runtime_inventory(first, paths)
+            live_inventory = executor.runtime_inventory(initial, paths)
             before_install = _instances(current_compose)
+            receiver = installer._module(repo / "scripts/release/coolify/receiver.py", "duora_lab_receiver")
+            receiver.STATE = install_paths.ingress
             def idle() -> None:
-                if (install_paths.ingress / "pending.json").exists(): raise installer.InstallError("Synthetic pending ingress")
-            def inspect() -> dict: return executor.runtime_inventory(first, paths)
+                receiver.require_host_idle()
+            def inspect() -> dict: return executor.runtime_inventory(initial, paths)
             options = dict(expected_commit=source_commit, manifest_sha256=manifest_sha,
                 reviewed_inventory_sha256=live_inventory["inventorySha256"],
                 expected_executor_sha256=installer._sha(install_paths.entry), paths=install_paths,
@@ -225,11 +242,33 @@ def _root_lab() -> dict:
             preflight = installer.install_bundle(bundle, **options)
             if preflight["status"] != "preflight" or (state / "executor-install-receipt.json").exists():
                 raise RuntimeError("Static preflight wrote activation state")
-            count = 0
+            # The actual receiver's durable intent and lock code fence this actual installer.
+            pending = install_paths.ingress / "duora/pending.json"
+            pending.write_text('{"release":"synthetic-in-flight"}')
+            try:
+                try: installer.install_bundle(bundle, **options)
+                except installer.InstallError: pass
+                else: raise RuntimeError("Installer accepted the receiver's pending intent")
+            finally: pending.unlink()
+            def competing_receiver() -> dict:
+                child = os.fork()
+                if child == 0:
+                    try:
+                        with receiver.release_locks(install_paths.ingress / "host.lock"):
+                            os._exit(92)
+                    except BlockingIOError: os._exit(0)
+                    except BaseException: os._exit(93)
+                _pid, status = os.waitpid(child, 0)
+                if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+                    raise RuntimeError("Actual receiver acquired a lock held by installer")
+                return inspect()
+            installer.install_bundle(bundle, **{**options, "inspect_runtime": competing_receiver})
+            with receiver.release_locks(install_paths.ingress / "host.lock"):
+                try: installer.install_bundle(bundle, **options)
+                except installer.InstallError: pass
+                else: raise RuntimeError("Installer acquired an active receiver lock")
             def fail_after_activation() -> dict:
-                nonlocal count
-                count += 1
-                if count > 1: raise installer.InstallError("Intentional disposable postcheck failure")
+                if install_paths.entry.is_symlink(): raise installer.InstallError("Intentional disposable postcheck failure")
                 return inspect()
             try:
                 installer.install_bundle(bundle, **{**options, "inspect_runtime": fail_after_activation}, apply=True)
@@ -241,20 +280,45 @@ def _root_lab() -> dict:
             static_preserved = _instances(current_compose) == before_install
             if not static_preserved: raise RuntimeError("Static installation changed services")
             active = installer._module(install_paths.entry, "duora_lab_installed_executor")
-            active.runtime_preflight(first, paths, active.run_command, authenticate_payload=False)
+            active.runtime_preflight(initial, paths, active.run_command, authenticate_payload=False)
 
-            second_tag = registry + "web:qualified-b"
-            dockerfile = root / "second.Dockerfile"
-            dockerfile.write_text("FROM " + images["web"] + '\nLABEL duora.synthetic.release="b"\n')
-            command(["docker", "build", "--file", str(dockerfile), "--tag", second_tag, str(root)])
-            command(["docker", "push", "--quiet", second_tag])
-            refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", second_tag]))
-            second_images = dict(images, web=next(r for r in refs if r.startswith(registry + "web@sha256:")))
+            def next_web(label: str) -> str:
+                tagged = registry + "web:qualified-" + label
+                dockerfile = root / (label + ".Dockerfile")
+                dockerfile.write_text("FROM " + images["web"] + '\nLABEL duora.synthetic.release="' + label + '"\n')
+                command(["docker", "build", "--file", str(dockerfile), "--tag", tagged, str(root)])
+                command(["docker", "push", "--quiet", tagged])
+                refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", tagged]))
+                return next(ref for ref in refs if ref.startswith(registry + "web@sha256:"))
+            first_raw = dict(initial_raw, releaseId="qualified-v2-a", previousReleaseId=initial.release_id,
+                             images=dict(images, web=next_web("a")))
+            first = active.parse_manifest(json.dumps(first_raw), image_prefix="")
+            # Remove the pushed digest alias. The real executor must cold-pull it before native SQL extraction.
+            command(["docker", "image", "rm", images["migrator"]])
+            active.deploy(first, paths, active.run_command, verify_backup=False)
+            if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("First forward lost SQL session")
+
+            second_images = dict(images, web=next_web("b"))
             second_raw = dict(first_raw, releaseId="qualified-v2-b", previousReleaseId=first.release_id, images=second_images)
             second = active.parse_manifest(json.dumps(second_raw), image_prefix="")
             active.deploy(second, paths, active.run_command, verify_backup=False)
             guard.require_preserved(live_inventory["profile"], active.runtime_inventory(second, paths)["profile"])
             if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("Application deployment lost SQL session")
+            # A genuine post-worker-stop failure must keep current B and permit its concrete recorded A rollback.
+            bad_tag = registry + "migrator:qualified-failure"
+            bad_dockerfile = root / "failed.Dockerfile"
+            bad_dockerfile.write_text("FROM " + images["migrator"] + '\nENTRYPOINT ["/bin/sh","-c","exit 47"]\n')
+            command(["docker", "build", "--file", str(bad_dockerfile), "--tag", bad_tag, str(root)])
+            command(["docker", "push", "--quiet", bad_tag])
+            refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", bad_tag]))
+            bad_raw = dict(second_raw, releaseId="qualified-failed", previousReleaseId=second.release_id,
+                images=dict(second_images, migrator=next(r for r in refs if r.startswith(registry + "migrator@sha256:"))))
+            try: active.deploy(active.parse_manifest(json.dumps(bad_raw), image_prefix=""), paths, active.run_command, verify_backup=False)
+            except active.DeployError: pass
+            else: raise RuntimeError("The deliberately failed migrator was accepted")
+            if (active._current_release_id(state) != second.release_id or (state / "releases/qualified-failed.json").exists()
+                    or "worker" in command(current_compose + ["ps", "--services", "--status", "running"]).split()):
+                raise RuntimeError("Failed product deployment did not preserve current/staging boundary")
             # A concrete immutable v2 target, actually served before and after the newer application image.
             active.deploy(first, paths, active.run_command, verify_backup=False)
             if (query("select pg_backend_pid()") != backend_pid
@@ -284,16 +348,20 @@ def _root_lab() -> dict:
             compose_file.write_text(raw_compose.replace("  pgdata:\n", "  pgdata:\n    name: duora_forbidden_qualification\n"))
             refuses("desired_volume_rebinding_without_touching_existing_data")
             compose_file.write_text(raw_compose)
+            legacy = active.parse_manifest(json.dumps(dict(first_raw, releaseId="qualified-legacy-refusal", contractVersion="v1")), image_prefix="")
+            refuses("real_same_schema_contract_downgrade_refused", legacy)
             command(["docker", "exec", pg, "psql", "-U", "postgres", "-d", "duora", "-v", "ON_ERROR_STOP=1", "-c",
                 'insert into ops.__ef_migrations_history values(\'20990101000000_SyntheticGuard\',\'10.0.13\')'])
-            legacy = active.parse_manifest(json.dumps(dict(first_raw, releaseId="qualified-legacy-refusal", contractVersion="v1")), image_prefix="")
             refuses("real_unknown_schema_head_refuses_legacy", legacy)
             command(["docker", "exec", pg, "psql", "-U", "postgres", "-d", "duora", "-v", "ON_ERROR_STOP=1", "-c",
                 'delete from ops.__ef_migrations_history where "MigrationId"=\'20990101000000_SyntheticGuard\''])
             stop.set()
             monitor.join(timeout=15)
-            if monitor.is_alive() or not samples or any(not s["database_ready"] for s in samples):
+            window_end = time.time()
+            if monitor.is_alive():
                 raise RuntimeError("Database readiness continuity failed")
+            validate_observations(samples, start=window_start, end=window_end, errors=observer_errors,
+                                  events_alive=events.poll() is None)
             if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("Read-only guards lost SQL session")
             assert session.stdin is not None
             session.stdin.write("\\q\n")
@@ -304,10 +372,30 @@ def _root_lab() -> dict:
             events.wait(timeout=10)
             events_file.close()
             actions = [json.loads(line).get("Action", "") for line in (root / "events.jsonl").read_text().splitlines()]
-            if any(a in {"create", "start", "stop", "restart", "kill", "die", "destroy", "oom"} for a in actions):
+            if not actions or not any(a.startswith("exec_") for a in actions) or any(a in {"create", "start", "stop", "restart", "kill", "die", "destroy", "oom"} for a in actions):
                 raise RuntimeError("Database/backup lifecycle event during application-only window")
             events = None
-            # Intentional interruption is confined to this disposable negative fixture AFTER the continuity window.
+            # Every destructive negative is explicit administrative fixture work AFTER the positive window.
+            # Each subsequent negative gets a separately audited synthetic baseline, never product auto-enrollment.
+            command(["docker", "stop", backup])
+            command(["docker", "rm", backup])
+            command(current_compose + ["up", "--detach", "--wait", "--no-deps", "backup"])
+            refuses("real_backup_container_id_replacement_after_positive_window")
+            installer._write(state / guard.BASELINE_NAME, installer._json(active.runtime_inventory(first, paths)["profile"]))
+            backup = command(current_compose + ["ps", "--all", "--quiet", "backup"])
+            command(["docker", "stop", backup])
+            command(["docker", "rm", backup])
+            foreign_volume = "duora_foreign_" + root.name
+            compose_file.write_text(raw_compose.replace("  pgdata:\n", "  pgdata:\n    name: " + foreign_volume + "\n"))
+            try: command(current_compose + ["up", "--detach", "--wait", "--no-deps", "backup"])
+            finally: compose_file.write_text(raw_compose)
+            refuses("real_backup_foreign_volume_mount_after_positive_window")
+            backup = command(current_compose + ["ps", "--all", "--quiet", "backup"])
+            command(["docker", "stop", backup])
+            command(["docker", "rm", backup])
+            command(current_compose + ["up", "--detach", "--wait", "--no-deps", "backup"])
+            command(["docker", "volume", "rm", foreign_volume])
+            installer._write(state / guard.BASELINE_NAME, installer._json(active.runtime_inventory(first, paths)["profile"]))
             command(["docker", "restart", pg])
             deadline = time.monotonic() + 60
             while time.monotonic() < deadline:
@@ -322,12 +410,16 @@ def _root_lab() -> dict:
                 "runUrl": run_url, "sql_session_survived": True, "database_backup_identity_preserved": True,
                 "negative_guards_passed": negatives, "static_installation_preserved_services": static_preserved,
                 "compatible_v2_rollback_passed": True, "baseline": live_inventory["profile"],
+                "two_forward_deploys_under_observation": True, "failed_product_recovered": True,
+                "receiver_installer_interlock_proved": True,
+                "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,
+                    "maximumAllowedGapSeconds": 3, "startedBefore": first.release_id, "endedAfter": "compatible rollback and negative read-only guards"},
                 "staticInstallation": receipt, "manifestSha256": manifest_sha, "readiness": samples,
                 "databaseBackupEventActions": sorted(set(actions)), "backendPid": backend_pid,
                 "rollbackArtifact": first_raw, "newerArtifact": second_raw, "invariantsSha256": invariant_hash,
                 "payloadOrigin": "Real candidate build in disposable loopback OCI registry; production GHCR path remains a separate pre-worker gate",
                 "backupScope": "No production backup touched; existing mandatory restore/PITR job remains separate",
-                "negativeRestartScope": "Intentional administrative fixture restart occurred only AFTER successful continuity/rollback window"}
+                "negativeRestartScope": "Intentional backup recreation/foreign mount and PG restart only AFTER positive window; separate synthetic audited enrollments isolate negatives, no product auto-enrollment"}
             output = Path(os.environ["RUNNER_TEMP"]) / "duora-executor-lab" / architecture
             output.mkdir(parents=True, exist_ok=True)
             shutil.copytree(bundle, output / "bundle")

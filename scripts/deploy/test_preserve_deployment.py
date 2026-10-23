@@ -58,6 +58,19 @@ class PreservationDeploymentTests(unittest.TestCase):
                 self._preflight(self.release, runner)
         self.assertEqual(runner.commands, [])
 
+    def test_recorded_compatible_legacy_rollback_after_v2_never_materializes_legacy_sql(self) -> None:
+        self.paths.state_dir.mkdir()
+        recorded = self.paths.state_dir / deploy.RELEASES_DIR
+        recorded.mkdir()
+        current = dict(valid_manifest(), contractVersion="v2", releaseId="current-v2", previousReleaseId=self.release.release_id)
+        (self.paths.state_dir / "current.json").write_text(json.dumps({"releaseId": current["releaseId"]}))
+        (recorded / "current-v2.json").write_text(json.dumps(current))
+        (recorded / (self.release.release_id + ".json")).write_text(json.dumps(self.release.raw))
+        runner = InputRunner()
+        with patch.object(deploy._payload, "capture_binary", side_effect=AssertionError("Never materialize legacy SQL")):
+            self.assertIsNone(self._preflight(self.release, runner))
+        self.assertEqual(runner.commands, [])
+
     def test_runtime_or_payload_refusal_precedes_pull_worker_migration_and_staging(self) -> None:
         runner = InputRunner()
         with patch.object(deploy, "runtime_preflight", side_effect=deploy.DeployError("unqualified runtime/payload")):
