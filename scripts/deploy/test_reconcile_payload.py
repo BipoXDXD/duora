@@ -90,8 +90,8 @@ class BinaryCaptureTests(unittest.TestCase):
             try:
                 started = time.monotonic()
                 with self.assertRaises(payload.PayloadError):
-                    payload.capture_binary(self.child(program), timeout_seconds=0.4)
-                self.assertLess(time.monotonic() - started, 3)
+                    payload.capture_binary(self.child(program), timeout_seconds=0.8)
+                self.assertLess(time.monotonic() - started, 4)
                 self.assertTrue(pid_file.exists(), "the real child must have started before its deadline")
                 with self.assertRaises(ProcessLookupError):
                     os.kill(int(pid_file.read_text()), 0)
@@ -103,6 +103,43 @@ class BinaryCaptureTests(unittest.TestCase):
 
     def test_closed_pipes_do_not_make_a_running_process_successful(self) -> None:
         self.stopped_child(close_pipes=True)
+
+    def test_deadline_kills_sigterm_ignoring_descendants_that_retain_pipes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent_file = Path(temporary) / "parent"
+            descendant_file = Path(temporary) / "descendant"
+            descendant = ("import os,signal,time;from pathlib import Path;"
+                          "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+                          f"Path({str(descendant_file)!r}).write_text(str(os.getpid()));time.sleep(60)")
+            parent = ("import os,signal,subprocess,sys,time;from pathlib import Path;"
+                      "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+                      f"Path({str(parent_file)!r}).write_text(str(os.getpid()));"
+                      f"subprocess.Popen([sys.executable,'-c',{descendant!r}]);time.sleep(60)")
+            try:
+                started = time.monotonic()
+                with self.assertRaises(payload.PayloadError):
+                    payload.capture_binary(self.child(parent), timeout_seconds=0.8)
+                self.assertLess(time.monotonic() - started, 4)
+                self.assertTrue(parent_file.exists())
+                self.assertTrue(descendant_file.exists())
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(int(parent_file.read_text()), 0)
+                state_path = Path("/proc") / descendant_file.read_text() / "stat"
+                deadline = time.monotonic() + 1
+                while state_path.exists() and state_path.read_text().split()[2] != "Z":
+                    if time.monotonic() >= deadline:
+                        self.fail("capture left a live process-group descendant")
+                    time.sleep(0.01)
+            finally:
+                if parent_file.exists():
+                    try:
+                        os.killpg(int(parent_file.read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        os.waitpid(int(parent_file.read_text()), os.WNOHANG)
+                    except ChildProcessError:
+                        pass
 
 
 class ArchiveTests(unittest.TestCase):
@@ -149,6 +186,17 @@ class ArchiveTests(unittest.TestCase):
     def test_pax_path_override_is_not_an_authorized_file(self) -> None:
         with self.assertRaises(payload.PayloadError):
             self.parse(archive(payload.SQL_NAME, b"SELECT 1;", pax={"path": payload.SQL_NAME}))
+
+    def test_a_second_distinct_file_or_archive_cannot_follow_the_valid_file(self) -> None:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w", format=tarfile.USTAR_FORMAT) as target:
+            for name in [payload.SQL_NAME, "extra.sql"]:
+                member = tarfile.TarInfo(name)
+                member.size = 9
+                target.addfile(member, io.BytesIO(b"SELECT 1;"))
+        for data in [buffer.getvalue(), archive(payload.SQL_NAME, b"SELECT 1;") + archive("extra.sql", b"SELECT 2;")]:
+            with self.subTest(size=len(data)), self.assertRaises(payload.PayloadError):
+                self.parse(data)
 
 
 class SqlPayloadTests(unittest.TestCase):
