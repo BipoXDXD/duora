@@ -28,6 +28,7 @@ class Daemon:
         self.cp_failure = False
         self.rm_failure = False
         self.corrupt_checksum = False
+        self.create_output: bytes | None = None
 
     def __call__(self, command: list[str]) -> bytes:
         self.commands.append(command)
@@ -47,7 +48,7 @@ class Daemon:
                 self.container["Config"]["Labels"] = {}
             if self.create_failure:
                 raise payload.PayloadError("ambiguous create timeout")
-            return (CONTAINER_ID + "\n").encode()
+            return self.create_output if self.create_output is not None else (CONTAINER_ID + "\n").encode()
         if command[:3] == ["docker", "container", "inspect"]:
             return json.dumps(self.container).encode()
         if command[:2] == ["docker", "cp"]:
@@ -151,6 +152,26 @@ class ExtractionTests(unittest.TestCase):
         daemon.rm_failure = True
         with self.assertRaises(payload.PayloadError):
             daemon.extract()
+
+    def test_truncated_create_identity_still_cleans_the_owned_container(self) -> None:
+        for output in [b"truncated\n", b"", b"\xff"]:
+            daemon = Daemon()
+            daemon.create_output = output
+            with self.subTest(output=output):
+                with self.assertRaises(payload.PayloadError):
+                    daemon.extract()
+                self.assertFalse(any(c[:2] == ["docker", "cp"] for c in daemon.commands))
+                removal = [c for c in daemon.commands if c[:2] == ["docker", "rm"]]
+                self.assertEqual(len(removal), 1)
+                self.assertEqual(removal[0][-1], CONTAINER_ID)
+
+    def test_truncated_create_identity_does_not_remove_a_foreign_container(self) -> None:
+        daemon = Daemon()
+        daemon.create_output = b"truncated\n"
+        daemon.foreign_container = True
+        with self.assertRaises(payload.PayloadError):
+            daemon.extract()
+        self.assertFalse(any(c[:2] in [["docker", "cp"], ["docker", "rm"]] for c in daemon.commands))
 
 
 if __name__ == "__main__":
