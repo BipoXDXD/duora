@@ -162,12 +162,21 @@ def runtime_inventory(release: Release, paths: Paths) -> dict:
         raise DeployError("Cannot qualify the unchanged database/backup runtime") from error
 
 
-def runtime_preflight(release: Release, paths: Paths, run: Runner, *, authenticate_payload: bool = True) -> str | None:
+def runtime_recheck(release: Release, paths: Paths) -> dict:
+    """Re-observe the sealed runtime without pulling/authenticating SQL or enrolling any drift."""
     try:
         if (paths.state_dir / "executor-install-pending.json").exists():
             raise DeployError("Interrupted executor activation requires explicit own-attempt recovery")
         inventory = runtime_inventory(release, paths)
         _guard.require_preserved(_private_json(paths.state_dir / _guard.BASELINE_NAME), inventory["profile"])
+        return inventory
+    except (_guard.GuardError, OSError) as error:
+        raise DeployError("Database/backup runtime changed; refusing product effects or success") from error
+
+
+def runtime_preflight(release: Release, paths: Paths, run: Runner, *, authenticate_payload: bool = True) -> str | None:
+    try:
+        inventory = runtime_recheck(release, paths)
         current = _current_release_id(paths.state_dir)
         compose = _compose_command(paths, paths.state_dir / RELEASES_DIR / (str(current) + ".env"))
         head = _read_migration_head(compose, run)
@@ -483,11 +492,14 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
         # schema). O migrador não roda: ele não desfaz migrations e nunca roda Down (spec 17.4).
         _step(f"rollback para {release.release_id}: banco em {head}, migrador não roda")
     else:
+        # Image pulls/backup checks can take minutes. The initial inventory is not a lease on that runtime.
+        runtime_recheck(release, paths)
         if release.contract_version == "v2": _seal_v2_floor(release, paths.state_dir, canonical_sql)
         # Spec 17.3, passo 4: o worker para de adquirir jobs antes da migração; jobs retomam pelo estado persistido.
         _step("pausando o worker")
         _check(run(compose + ["stop", "worker"]), "parada do worker")
 
+        runtime_recheck(release, paths)
         _step("aplicando migrations (job exclusivo)")
         _check(run(compose + ["--profile", "migrate", "run", "--rm", "--no-deps", "migrator"]), "migrator")
         # Default privileges não aceitam exceção: o histórico do EF nasce com DML para o app e perde aqui (script
@@ -503,6 +515,8 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
             raise DeployError(f"banco na migration {migrated_head or '(nenhuma)'} depois do migrador, "
                               f"release espera {release.latest_migration}")
 
+    # The app-only rollback must obey the same preservation guard before it changes application services.
+    if rollback: runtime_recheck(release, paths)
     _step("subindo web, worker e edge da release")
     _check(run(compose + ["up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"]), "subida da aplicação")
 
@@ -510,6 +524,7 @@ def deploy(release: Release, paths: Paths, run: Runner, *,
     _wait_ready(compose, run, readiness_timeout_seconds, sleep)
     _require_services_running(compose, run)
 
+    runtime_recheck(release, paths)
     _record_release(release, paths.state_dir)
     _mark_current(release, paths.state_dir)
     _step(f"release {release.release_id} implantada")

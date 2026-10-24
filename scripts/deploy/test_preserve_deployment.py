@@ -91,7 +91,7 @@ class PreservationDeploymentTests(unittest.TestCase):
     def test_failed_first_v2_migrator_keeps_durable_floor_before_worker_stop_and_before_recording_release(self) -> None:
         release = parse(dict(valid_manifest(), releaseId="first-v2", contractVersion="v2"))
         runner = InputRunner(fail_on="run --rm --no-deps migrator")
-        with patch.object(deploy, "runtime_preflight", return_value="SELECT 1;\n"):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value="SELECT 1;\n"):
             with self.assertRaises(deploy.DeployError):
                 deploy.deploy(release, self.paths, runner, sleep=lambda _: None)
         floor = self.paths.state_dir / "v2-contract-floor.json"
@@ -115,7 +115,7 @@ class PreservationDeploymentTests(unittest.TestCase):
         with patch.object(deploy._payload, "capture_binary", side_effect=AssertionError("Never weaker SQL")):
             self.assertIsNone(self._preflight(self.release, InputRunner()))
         runner = InputRunner(pre_head=self.release.latest_migration)
-        with patch.object(deploy, "runtime_preflight", return_value=None):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=None):
             deploy.deploy(self.release, self.paths, runner, sleep=lambda _: None)
         self.assertFalse(any("migrator" in command and "run" in command for command in runner.commands))
         self.assertFalse(any(text is not None for text in runner.inputs))
@@ -125,7 +125,7 @@ class PreservationDeploymentTests(unittest.TestCase):
 
     def test_runtime_or_payload_refusal_precedes_pull_worker_migration_and_staging(self) -> None:
         runner = InputRunner()
-        with patch.object(deploy, "runtime_preflight", side_effect=deploy.DeployError("unqualified runtime/payload")):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", side_effect=deploy.DeployError("unqualified runtime/payload")):
             with self.assertRaisesRegex(deploy.DeployError, "unqualified"):
                 deploy.deploy(self.release, self.paths, runner)
         self.assertEqual(runner.commands, [])
@@ -134,7 +134,7 @@ class PreservationDeploymentTests(unittest.TestCase):
     def test_preservation_never_up_starts_or_recreates_database_backup_or_dependencies(self) -> None:
         runner = InputRunner()
         sql = "SELECT 'verified canonical payload';\n"
-        with patch.object(deploy, "runtime_preflight", return_value=sql):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=sql):
             deploy.deploy(self.release, self.paths, runner, sleep=lambda _: None)
         for command in runner.commands:
             self.assertFalse(any(op in command for op in ["up", "start", "restart", "create"]) and
@@ -157,7 +157,89 @@ class PreservationDeploymentTests(unittest.TestCase):
         (recorded / (target["releaseId"] + ".json")).write_text(json.dumps(target))
         (recorded / (current["releaseId"] + ".json")).write_text(json.dumps(current))
         runner = InputRunner(pre_head=self.release.latest_migration)
-        with patch.object(deploy, "runtime_preflight", return_value="older SQL that must never be applied"):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value="older SQL that must never be applied"):
             deploy.deploy(self.release, self.paths, runner, sleep=lambda _: None)
         self.assertFalse(any("migrator" in c and "run" in c for c in runner.commands))
         self.assertFalse(any(text is not None for text in runner.inputs))
+
+class RuntimeDriftBoundaryTests(unittest.TestCase):
+    """Regression for the auditor's backup-ID change during a slow application pull."""
+
+    def test_drift_at_pull_worker_stop_or_final_readiness_never_promotes_the_release(self) -> None:
+        import copy
+        from test_runtime_guard import reviewed_profile
+
+        for boundary in ["pull", "stop", "readiness"]:
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                state = root / "state"
+                (state / "releases").mkdir(parents=True)
+                original = dict(valid_manifest(), releaseId="qualified-current", contractVersion="v1")
+                (state / "current.json").write_text(json.dumps({"releaseId": "qualified-current"}))
+                (state / "releases/qualified-current.json").write_text(json.dumps(original))
+                profile = reviewed_profile()
+                baseline = state / guard.BASELINE_NAME
+                baseline.write_text(json.dumps(profile))
+                baseline.chmod(0o600)
+                observed = copy.deepcopy(profile)
+                release = parse(dict(original, releaseId="candidate-v2", contractVersion="v2",
+                                     previousReleaseId="qualified-current"))
+                paths = deploy.Paths(root / "compose.yml", root / "host.env", state)
+
+                class DriftRunner(InputRunner):
+                    def __call__(self, command, **kwargs):
+                        if ((boundary == "pull" and "pull" in command and "web" in command)
+                                or (boundary == "stop" and "stop" in command)
+                                or (boundary == "readiness" and "/health/ready" in " ".join(command))):
+                            observed["services"]["backup"]["id"] = "9" * 64
+                        return super().__call__(command, **kwargs)
+
+                runner = DriftRunner(pre_head=release.latest_migration)
+                with patch.object(deploy, "runtime_inventory", side_effect=lambda *_: {"profile": copy.deepcopy(observed)}), \
+                        patch.object(deploy, "_read_migration_head", return_value=release.latest_migration), \
+                        patch.object(deploy._payload, "extract_sql", return_value="SELECT 1;\n"):
+                    with self.assertRaises(deploy.DeployError):
+                        deploy.deploy(release, paths, runner, sleep=lambda _: None)
+                self.assertEqual(deploy._current_release_id(state), "qualified-current")
+                self.assertFalse((state / "releases/candidate-v2.json").exists())
+                self.assertEqual(json.loads(baseline.read_text()), profile, "Never auto-enroll drift")
+                if boundary == "pull":
+                    self.assertFalse(runner.ran("stop worker"))
+                    self.assertFalse((state / "v2-contract-floor.json").exists())
+                if boundary in {"pull", "stop"}:
+                    self.assertFalse(runner.ran("run --rm --no-deps migrator"))
+
+    def test_application_only_rollback_rechecks_runtime_before_changing_the_application(self) -> None:
+        import copy
+        from test_runtime_guard import reviewed_profile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            (state / "releases").mkdir(parents=True)
+            target = dict(valid_manifest(), releaseId="previous-v2", contractVersion="v2")
+            current = dict(target, releaseId="current-v2", previousReleaseId="previous-v2")
+            (state / "current.json").write_text(json.dumps({"releaseId": "current-v2"}))
+            for raw in [target, current]:
+                (state / "releases" / (raw["releaseId"] + ".json")).write_text(json.dumps(raw))
+            profile = reviewed_profile()
+            baseline = state / guard.BASELINE_NAME
+            baseline.write_text(json.dumps(profile))
+            baseline.chmod(0o600)
+            observed = copy.deepcopy(profile)
+            release = parse(target)
+
+            class RollbackRunner(InputRunner):
+                def __call__(self, command, **kwargs):
+                    if "pull" in command:
+                        observed["services"]["backup"]["id"] = "9" * 64
+                    return super().__call__(command, **kwargs)
+
+            runner = RollbackRunner(pre_head=release.latest_migration)
+            with patch.object(deploy, "runtime_inventory", side_effect=lambda *_: {"profile": copy.deepcopy(observed)}), \
+                    patch.object(deploy, "_read_migration_head", return_value=release.latest_migration):
+                with self.assertRaises(deploy.DeployError):
+                    deploy.deploy(release, deploy.Paths(root / "compose.yml", root / "host.env", state),
+                                  runner, sleep=lambda _: None)
+            self.assertFalse(runner.ran("up --detach"))
+            self.assertEqual(deploy._current_release_id(state), "current-v2")

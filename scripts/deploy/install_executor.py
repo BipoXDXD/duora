@@ -250,7 +250,8 @@ def require_ingress_idle(receiver, paths: InstallPaths, *, expected_commit: str,
         raise InstallError("Ingress is active or the own fence cannot be authenticated") from error
 
 
-def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[], None]) -> dict:
+def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[], None],
+                    expected_bundle: tuple[str, str] | None = None) -> dict:
     require_idle()
     marker = paths.state / "executor-install-pending.json"
     fence = paths.ingress / FENCE_DIRECTORY / "pending.json"
@@ -270,6 +271,8 @@ def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[
         raise InstallError("Recovery journal changed")
     journal = guard.decode_json(raw)
     receipt = journal["installedReceipt"]
+    if expected_bundle is not None and (receipt["sourceCommit"], receipt["manifestSha256"]) != expected_bundle:
+        raise InstallError("Recovery bundle differs from the protected own-attempt journal")
     commit = receipt["sourceCommit"]
     if not re.fullmatch(r"[a-f0-9]{40}", commit): raise InstallError("Invalid recovery source")
     version = paths.versions / commit
@@ -324,9 +327,10 @@ def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[
     return recovery
 
 
-def recover_installation(*, paths: InstallPaths, pending: dict, require_idle: Callable[[], None]) -> dict:
+def recover_installation(*, paths: InstallPaths, pending: dict, require_idle: Callable[[], None],
+                         expected_bundle: tuple[str, str] | None = None) -> dict:
     try:
-        with _locks(paths): return _recover_locked(paths, pending, require_idle)
+        with _locks(paths): return _recover_locked(paths, pending, require_idle, expected_bundle)
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise InstallError("Own-attempt recovery refused without overwriting foreign state") from error
 
@@ -525,7 +529,6 @@ def main() -> int:
         if _sha(Path(__file__)) != manifest["files"]["install_executor.py"]["sha256"]:
             raise InstallError("Invoke the installer from the exact verified bundle")
         if args.artifact_id <= 0: raise InstallError("Exact qualification artifact ID required")
-        _verify_provenance(manifest, args.artifact_id)
         paths = InstallPaths(Path("/usr/local/sbin/duora-deploy"), Path("/opt/duora-executor/releases"),
             Path("/opt/duora-executor/preimages"), Path("/var/lib/duora"), Path("/var/lib/coolify-release"))
         def idle() -> None:
@@ -534,9 +537,13 @@ def main() -> int:
             if args.apply or not args.recover_attempt or not args.recover_attempt_sha256:
                 raise InstallError("Recovery is separate from apply and requires exact attempt and journal SHA")
             result = recover_installation(paths=paths, pending={"attempt": args.recover_attempt,
-                "attemptSha256": args.recover_attempt_sha256}, require_idle=idle)
+                "attemptSha256": args.recover_attempt_sha256}, require_idle=idle,
+                expected_bundle=(args.source_commit, args.manifest_sha256))
             print(json.dumps(result, sort_keys=True))
             return 0
+        # A new inspection/apply must qualify online. Own-attempt recovery instead relies on the protected
+        # local bundle/journal/fence under all three locks, so API outages/retention cannot strand the host.
+        _verify_provenance(manifest, args.artifact_id)
         executor = _module(args.bundle / "duora_deploy.py", "duora_candidate_executor")
         pinned = Path("/etc/duora/coolify-deploy.json")
         pin_raw = _protected_bytes(pinned)

@@ -20,12 +20,14 @@ The candidate bundle has this closed inventory:
 | `reconcile_payload.py` | Bounded binary capture and authenticated stopped-image SQL extraction |
 | `runtime_guard.py` | Read-only runtime identity, contract and drift checks |
 | `install_executor.py` | The single reviewed static installer; no deployment entry point |
-| `bundle.json` | Versioned closed inventory, hashes, compatibility and evidence |
+| `bundle.json` | Versioned closed inventory, member hashes, guard version and qualification run |
 
 `bundle.json` must contain a schema version, source commit, exact relative filenames and SHA-256/modes for
-every code member, guard version, qualified Docker/API/Compose versions, legacy-v1 profile, external-v2
-profile and exact qualification run/artifact identities. The manifest does not hash itself; the separately
-reviewed bundle SHA-256 covers the manifest and every member. Reject extra, missing, duplicate, linked,
+every code member, guard version and exact qualification run URL. Docker/API/Compose versions belong to
+the qualified inventory and native evidence; the contract profiles are enforced by the hashed guard code,
+not additional manifest fields. The artifact ID is an external CLI argument validated against the run.
+The manifest does not hash itself; its separately reviewed SHA-256 binds the closed inventory and member
+hashes. Reject extra, missing, duplicate, linked,
 traversing or special members and inconsistent commit/hash/mode/qualification. Use only Python's standard
 library and the already installed Docker/Compose tools; installation must not install dependencies.
 
@@ -124,7 +126,10 @@ an exception; no receiver link, target or permissions are changed by this instal
    for explicit administrative recovery, never an automatic re-enrollment/retry. From the same qualified bundle,
    use the base verification arguments plus `--recover-attempt <installation-id>
    --recover-attempt-sha256 <reviewed-journal-sha256>` without `--apply`. Recovery acquires the same three locks,
-   requires idle ingress/queue and validates all preimage, current baseline, receipt and entry identities before
+   validates the protected local bundle against this attempt's source/manifest in the journal, and does not
+   query GitHub or require remote artifact retention. The artifact argument remains an identifying CLI input;
+   a fresh inspection or apply still requires all online provenance checks. Recovery cannot install a new bundle.
+   It requires idle ingress/queue and validates all preimage, current baseline, receipt and entry identities before
    restoring either file. A foreign change refuses every replacement. Successful recovery clears only its
    pending marker and leaves the preimages for review. The own receiver fence is always removed last and synced.
    The fence-only crash before private pending is recoverable. Recovery exempts only its exact hash/source/
@@ -137,7 +142,10 @@ an exception; no receiver link, target or permissions are changed by this instal
 Enrollment binds host/project, two database/backup containers and volumes, IDs/Created/StartedAt/RestartCount,
 image references/IDs, Compose/config hashes, guard/tool versions and hashes of stable Config/HostConfig/Mounts/
 Networks. Do not store Env or secrets in cleartext. Running/healthy is checked anew; volatile health logs/PIDs
-do not enter the stable fingerprint. Missing baseline or drift refuses before worker shutdown or migrations.
+do not enter the stable fingerprint. Re-observe the sealed runtime after pulls/backup checks before worker
+shutdown, again before migrations, before app-only rollback effects and before recording release success.
+These checks never authenticate/pull SQL again or write enrollment. Missing baseline or drift refuses that
+boundary without publishing success; effects already performed are not implicitly reversed or repaired.
 Docker Mounts enumeration order is normalized while retaining every record and field, including duplicates.
 Ordering is not a mount identity; changes in sources, targets, permissions, IDs or any other mount field still fail.
 Re-enrollment after a legitimate restart/upgrade is a separate explicit administrative operation, never automatic.

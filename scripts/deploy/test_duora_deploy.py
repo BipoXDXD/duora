@@ -343,7 +343,7 @@ class MediaUploadGateTests(unittest.TestCase):
         self.now = 1_760_000_000.0
 
     def run_deploy(self, runner: "FakeRunner", *, enabled: bool = True) -> None:
-        with patch.object(deploy, "runtime_preflight", return_value=None):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=None):
             deploy.deploy(self.release, self.paths, runner, readiness_timeout_seconds=5, sleep=lambda _: None,
                           media_uploads_enabled=enabled, clock=lambda: self.now)
 
@@ -516,7 +516,7 @@ class DeployTests(unittest.TestCase):
         options = {"readiness_timeout_seconds": 5, "sleep": lambda _: None}
         options.update(overrides)
         # Legacy pipeline fixtures isolate policy; dedicated collector/contract/native tests exercise the real guard.
-        with patch.object(deploy, "runtime_preflight", return_value=None):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=None):
             deploy.deploy(self.release, self.paths, runner, **options)
 
     def test_happy_path_runs_steps_in_order(self) -> None:
@@ -573,7 +573,7 @@ class DeployTests(unittest.TestCase):
                 raise FileNotFoundError(command[0])
             return fake(command, capture=capture)
 
-        with patch.object(deploy, "runtime_preflight", return_value=None), self.assertRaises(FileNotFoundError):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=None), self.assertRaises(FileNotFoundError):
             deploy.deploy(self.release, self.paths, runner, readiness_timeout_seconds=5, sleep=lambda _: None)
         self.assertFalse(fake.ran("stop worker"))
 

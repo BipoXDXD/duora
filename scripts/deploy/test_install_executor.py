@@ -280,3 +280,96 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(installer._sha(self.entry), self.old_hash)
         installer.recover_installation(paths=self.paths, pending=pending, require_idle=lambda: None)
         self.assertFalse(fence.exists())
+
+    def _interrupted_cli_attempt(self) -> dict:
+        def interrupted() -> dict:
+            if self.entry.is_symlink():
+                raise KeyboardInterrupt("synthetic interruption after entry switch")
+            return self.inventory
+        with self.assertRaises(KeyboardInterrupt):
+            self.invoke(apply=True, inspect=interrupted)
+        return json.loads((self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").read_text())
+
+    def _offline_cli(self, pending: dict | None, *, apply: bool = False) -> tuple[int, bool]:
+        """Model only root entry/self-hash and production paths; journal, locks and files are real."""
+        import contextlib
+        import io
+        import sys
+        import urllib.error
+
+        manifest = json.loads((self.source / "bundle.json").read_text())
+        argv = ["install_executor.py", "--bundle", str(self.source), "--source-commit", manifest["sourceCommit"],
+                "--manifest-sha256", self.manifest_hash, "--artifact-id", "123"]
+        if pending:
+            argv += ["--recover-attempt", pending["attempt"], "--recover-attempt-sha256", pending["attemptSha256"]]
+        if apply: argv += ["--apply"]
+        uid, first = os.geteuid(), True
+        def uid_at_boundary() -> int:
+            nonlocal first
+            if first:
+                first = False
+                return 0
+            return uid
+        original_sha = installer._sha
+        def script_sha(path: Path) -> str:
+            return manifest["files"]["install_executor.py"]["sha256"] if path == Path(installer.__file__) else original_sha(path)
+        receiver = installer._module(Path(__file__).resolve().parents[1] / "release/coolify/receiver.py", "offline_cli_receiver")
+        setattr(receiver, "STATE", self.paths.ingress)
+        def idle(*_args, **_kwargs) -> None:
+            installer.require_ingress_idle(receiver, self.paths, expected_commit=manifest["sourceCommit"],
+                                           manifest_sha256=self.manifest_hash)
+        previous_mask = os.umask(0o077)
+        try:
+            with patch.object(sys, "argv", argv), patch.object(installer.os, "geteuid", side_effect=uid_at_boundary), \
+                    patch.object(installer, "_require_root_path"), patch.object(installer, "_sha", side_effect=script_sha), \
+                    patch.object(installer, "InstallPaths", return_value=self.paths), \
+                    patch.object(installer, "_production_idle", side_effect=idle), \
+                    patch.object(installer.urllib.request, "urlopen", side_effect=urllib.error.URLError("GitHub offline")) as network, \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                result = installer.main()
+                return result, network.called
+        finally:
+            os.umask(previous_mask)
+
+    def test_cli_recovers_own_interrupted_attempt_without_github_or_artifact_retention(self) -> None:
+        pending = self._interrupted_cli_attempt()
+        status, network_used = self._offline_cli(pending)
+        self.assertEqual(status, 0)
+        self.assertFalse(network_used, "Own local recovery must survive API outages or expired remote artifacts")
+        self.assertFalse(self.entry.is_symlink())
+        self.assertEqual(hashlib.sha256(self.entry.read_bytes()).hexdigest(), self.old_hash)
+        self.assertFalse((self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").exists())
+        self.assertFalse((self.paths.state / "executor-install-pending.json").exists())
+        self.assertEqual(json.loads((self.paths.state / "executor-recovery-receipt.json").read_text())["status"],
+                         "recovered-own-attempt")
+
+    def test_cli_offline_recovery_preserves_foreign_intents_and_intervening_files(self) -> None:
+        pending = self._interrupted_cli_attempt()
+        foreign = self.paths.ingress / "duora/pending.json"
+        foreign.write_text('{"release":"another-operation"}')
+        self.assertEqual(self._offline_cli(pending), (1, False))
+        self.assertTrue(foreign.exists())
+        self.assertTrue(self.entry.is_symlink())
+        foreign.unlink()  # Remove only this test's fixture to exercise the independent preimage check.
+        self.entry.unlink()
+        self.entry.write_text("foreign intervening executor")
+        self.assertEqual(self._offline_cli(pending), (1, False))
+        self.assertEqual(self.entry.read_text(), "foreign intervening executor")
+        self.assertTrue((self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").exists())
+
+    def test_cli_recovery_rejects_a_different_valid_bundle(self) -> None:
+        pending = self._interrupted_cli_attempt()
+        manifest_path = self.source / "bundle.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["sourceCommit"] = "b" * 40
+        manifest_path.write_text(json.dumps(manifest))
+        self.manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        self.assertEqual(self._offline_cli(pending), (1, False))
+        self.assertTrue(self.entry.is_symlink())
+        self.assertTrue((self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").exists())
+
+    def test_new_apply_still_requires_online_exact_source_qualification(self) -> None:
+        self.assertEqual(self._offline_cli(None, apply=True), (1, True))
+        self.assertEqual(hashlib.sha256(self.entry.read_bytes()).hexdigest(), self.old_hash)
+        self.assertFalse((self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").exists())
+        self.assertFalse(self.paths.versions.exists())
