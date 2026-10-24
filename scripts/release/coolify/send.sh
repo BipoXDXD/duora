@@ -8,12 +8,12 @@ case "${RELEASE_PROJECT:?}" in duora|goblinshift|stillon) ;; *) exit 2 ;; esac
 [[ ${DEPLOY_TARGET:?} =~ ^cfrelease-${RELEASE_PROJECT}@[a-zA-Z0-9.-]+$ ]]
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-mkdir "$stage/images"
+mkdir "$stage/images" "$stage/source-manifests"
 python3 "$script_dir/send.py" requested > "$stage/requested.tsv"
 while IFS=$'\t' read -r role reference; do
-  crane manifest "$reference" > "$stage/index.json"
-  if jq -e 'has("manifests")' "$stage/index.json" >/dev/null; then
-    digest=$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")] | if length == 1 then .[0].digest else error("ambiguous platform") end' "$stage/index.json")
+  crane manifest "$reference" > "$stage/source-manifests/$role.json"
+  if jq -e 'has("manifests")' "$stage/source-manifests/$role.json" >/dev/null; then
+    digest=$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")] | if length == 1 then .[0].digest else error("ambiguous platform") end' "$stage/source-manifests/$role.json")
   else
     digest=$(crane digest "$reference")
   fi
@@ -26,7 +26,8 @@ while IFS=$'\t' read -r role reference; do
   jq -c 'del(.manifests[]?.artifactType)' "$stage/images/$role/index.json" > "$stage/normalized.json"
   mv "$stage/normalized.json" "$stage/images/$role/index.json"
 done < "$stage/requested.tsv"
-python3 "$script_dir/send.py" manifest "$stage/resolved.tsv" "$stage/images"
+SOURCE_MANIFESTS_DIR="$stage/source-manifests" \
+  python3 "$script_dir/send.py" manifest "$stage/resolved.tsv" "$stage/images"
 tar -C "$stage/images" -cf "$stage/release.tar" .
 ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
   -i "${DEPLOY_KEY:?}" -o "UserKnownHostsFile=${DEPLOY_KNOWN_HOSTS:?}" \
