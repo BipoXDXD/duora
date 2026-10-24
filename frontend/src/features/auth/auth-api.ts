@@ -5,6 +5,7 @@ import type { Locale } from '@/shared/i18n/locale'
 import type { EmailLink } from './auth-schemas'
 
 type LoginRequest = components['schemas']['LoginRequest']
+type CreateEmailConfirmationRequest = components['schemas']['CreateEmailConfirmationRequest']
 type ChangePasswordRequest = components['schemas']['ChangePasswordRequest']
 type ConfirmMfaRequest = components['schemas']['ConfirmMfaRequest']
 type MfaEnrollmentResponse = components['schemas']['MfaEnrollmentResponse']
@@ -25,6 +26,15 @@ export interface Registration {
 /** 202 neutro: a resposta não revela se o e-mail já tem conta. */
 export function register(registration: Registration): Promise<void> {
   return sendMutation({ method: 'POST', path: '/api/v1/auth/register', body: registration })
+}
+
+/** 202 neutro; não substitui senha/aceites nem prolonga o cadastro pendente. */
+export function requestEmailConfirmation(email: string, password: string): Promise<void> {
+  return sendMutation({
+    method: 'POST',
+    path: '/api/v1/auth/email-confirmation-requests',
+    body: { email, password } satisfies CreateEmailConfirmationRequest,
+  })
 }
 
 /**

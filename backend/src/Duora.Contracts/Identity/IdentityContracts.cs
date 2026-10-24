@@ -15,6 +15,9 @@ public sealed record RegisterRequest(
 
 public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 
+/// <summary>Pedido explícito e neutro de outro código; preserva senha, aceites e prazo do cadastro pendente.</summary>
+public sealed record CreateEmailConfirmationRequest(string? Email, string? Password);
+
 /// <summary>
 /// Login (API-A04). Conta com MFA ativo manda também <c>twoFactorCode</c> (6 dígitos do autenticador) ou
 /// <c>recoveryCode</c>, nunca os dois.

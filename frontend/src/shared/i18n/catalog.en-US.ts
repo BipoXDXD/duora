@@ -218,12 +218,16 @@ export const en = {
   'checkEmail.body':
     "If an account can be created with that address, you'll get an email with a confirmation code and a link to enter it.",
   'checkEmail.hint':
-    "Didn't get it? Check your spam and promotions folders. The code expires 15 minutes after registration. Register again if it expires.",
+    'Check your spam and promotions folders. Each code expires 15 minutes after issuance. Request another with your sign-up email and password. If sign-up expired or you do not remember that password, register again.',
+  'checkEmail.resend': 'Request another code',
+  'checkEmail.resending': 'Requesting another code…',
+  'checkEmail.resendAccepted':
+    'If the sign-up can still be confirmed and the password matches, another code will be sent. Your password and document acceptances stay unchanged.',
   'checkEmail.signInLink': 'Go to sign in',
 
   'checkEmail.requestAgain': 'Register again to receive another code',
   'confirmEmail.code': 'Confirmation code',
-  'confirmEmail.codeHint': 'Enter the 8 digits from the email. The code expires 15 minutes after registration.',
+  'confirmEmail.codeHint': 'Enter the 8 digits from the email. The code expires 15 minutes after issuance.',
   'validation.emailCodeInvalid': 'Enter the 8-digit code.',
   'confirmEmail.title': 'Confirm email',
   'confirmEmail.intro': 'To finish confirming your address, enter your password and use the button below.',

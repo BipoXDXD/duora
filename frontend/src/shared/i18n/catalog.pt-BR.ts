@@ -221,12 +221,16 @@ export const ptBR = {
   'checkEmail.body':
     'Se for possível criar a conta com esse endereço, você vai receber um e-mail com um código de confirmação e o acesso à página para digitá-lo.',
   'checkEmail.hint':
-    'Não chegou? Confira a caixa de spam e as abas de promoções. O código vale por 15 minutos após o cadastro. Se expirar, faça o cadastro novamente.',
+    'Não chegou? Confira a caixa de spam e as abas de promoções. Cada código vale por 15 minutos após a emissão. Peça outro com o e-mail e a senha do cadastro. Se o cadastro expirou ou você não lembra essa senha, cadastre novamente.',
+  'checkEmail.resend': 'Pedir outro código',
+  'checkEmail.resending': 'Pedindo outro código…',
+  'checkEmail.resendAccepted':
+    'Se o cadastro ainda puder ser confirmado e a senha conferir, outro código será enviado. A senha e os aceites não são alterados.',
   'checkEmail.signInLink': 'Ir para a entrada',
 
   'checkEmail.requestAgain': 'Cadastrar novamente para receber outro código',
   'confirmEmail.code': 'Código de confirmação',
-  'confirmEmail.codeHint': 'Digite os 8 dígitos do e-mail. O código vale por 15 minutos após o cadastro.',
+  'confirmEmail.codeHint': 'Digite os 8 dígitos do e-mail. O código vale por 15 minutos após a emissão.',
   'validation.emailCodeInvalid': 'Informe o código de 8 dígitos.',
   'confirmEmail.title': 'Confirmar e-mail',
   'confirmEmail.intro': 'Para concluir a confirmação do seu endereço, informe sua senha e use o botão abaixo.',
