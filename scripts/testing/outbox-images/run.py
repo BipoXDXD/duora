@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import secrets
 import subprocess
 import sys
@@ -22,6 +23,27 @@ REVISIONS = {
 }
 POSTGRES = ('postgres:18.6-trixie@sha256:'
             '74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336')
+APP_EXCEPTION_TYPES = ('OptionsValidationException', 'InvalidOperationException',
+                       'NpgsqlException', 'PostgresException', 'UnauthorizedAccessException',
+                       'DirectoryNotFoundException', 'IOException')
+CONFIG_KEYS = ('ConnectionStrings:Duora', 'DataProtection', 'Duora:PublicOrigin',
+               'Duora:SupportContact', 'Email:PickupDirectory', 'Media:Storage:FileSystemRoot',
+               'Media:Storage:Provider', 'Outbox:PollInterval')
+CHECK_LABELS = frozenset({
+    'known_id_not_delivered', 'known_id_payload_not_cleared', 'known_id_receipt_missing',
+    'source_revision_mismatch', 'legacy_source_has_new_kind', 'compatible_source_lacks_new_kind',
+    'pin_count', 'duplicate_pin', 'pin_role', 'pin_source', 'pin_manifest', 'pin_platform_user',
+    'pin_entrypoint', 'image_config_digest', 'image_repo_digest', 'image_platform',
+    'image_execution_config', 'image_source_labels', 'missing_pin', 'postgres_not_ready',
+    'postgres_not_loopback_only', 'host_start_marker_missing', 'container_not_running',
+    'container_image_mismatch', 'duplicate_delivery_id', 'unexpected_terminal_status',
+    'delivery_timeout', 'rollback_guard_not_clear', 'receipt_digest',
+    'pending_did_not_block_rollback', 'claim_not_acquired', 'inflight_did_not_block_rollback',
+    'lease_not_recovered', 'negative_control_not_rejected_without_receipt',
+})
+HARNESS_EXCEPTION_TYPES = frozenset({'AssertionError', 'StepError', 'TimeoutExpired',
+                                     'JSONDecodeError', 'KeyError', 'OSError', 'ValueError',
+                                     'RuntimeError', 'FileNotFoundError', 'PermissionError'})
 
 
 class SafetyError(RuntimeError):
@@ -30,6 +52,31 @@ class SafetyError(RuntimeError):
 
 class StepError(RuntimeError):
     pass
+
+
+def classify_app_logs(logs):
+    """Return fixed vocabulary only; never retain a log excerpt in evidence."""
+    return {
+        'exception_types': sorted(name for name in APP_EXCEPTION_TYPES
+                                  if re.search(r'(?<![A-Za-z0-9])' + re.escape(name) +
+                                               r'(?![A-Za-z0-9])', logs)),
+        'config_keys': sorted(name for name in CONFIG_KEYS if name in logs),
+    }
+
+
+def safe_check_label(error):
+    label = str(error)
+    if isinstance(error, AssertionError) and label in CHECK_LABELS:
+        return label
+    if isinstance(error, StepError) and (label == 'docker logs unavailable' or
+                                         re.fullmatch(r'(docker|git|dotnet) exited [0-9]+', label)):
+        return label
+    return None
+
+
+def safe_exception_type(error):
+    name = type(error).__name__
+    return name if name in HARNESS_EXCEPTION_TYPES else 'OtherFailure'
 
 
 def require_hosted_linux():
@@ -69,12 +116,12 @@ class Resources:
             try:
                 self.command(['docker', 'rm', '-fv', name])
             except Exception as error:
-                failures.append(type(error).__name__)
+                failures.append(safe_exception_type(error))
         if self.network:
             try:
                 self.command(['docker', 'network', 'rm', self.network])
             except Exception as error:
-                failures.append(type(error).__name__)
+                failures.append(safe_exception_type(error))
         return failures
 
 
@@ -97,6 +144,7 @@ class Rehearsal:
                        'known_ids': [], 'cleanup': {'complete': False}}
         self.known = {}
         self.containers = {}
+        self.app_containers = set()
         self.container_image_ids = {}
         self.port = None
         self.temp = None
@@ -251,6 +299,7 @@ class Rehearsal:
             args.extend(['-e', f'{key}={value}'])
         args.append(pin['reference'])
         self.resources.add(name)
+        self.app_containers.add(name)
         checked(args)
         self.containers[component] = name
         self.container_image_ids[name] = pin['config_digest']
@@ -283,7 +332,24 @@ class Rehearsal:
         checked(['docker', 'stop', '-t', '15', name], timeout=35)
         checked(['docker', 'rm', '-fv', name])
         self.resources.containers.remove(name)
+        self.app_containers.remove(name)
         del self.container_image_ids[name]
+
+    def failure_diagnostics(self):
+        """Classify logs from our registered app containers before cleanup."""
+        types, keys = set(), set()
+        for name in sorted(self.app_containers.intersection(self.resources.containers)):
+            try:
+                observed = subprocess.run(['docker', 'logs', '--tail', '120', name], cwd=ROOT,
+                                          text=True, capture_output=True, timeout=10, check=False)
+                if observed.returncode:
+                    continue
+                classified = classify_app_logs(observed.stdout + observed.stderr)
+                types.update(classified['exception_types'])
+                keys.update(classified['config_keys'])
+            except Exception:
+                continue
+        return {'exception_types': sorted(types), 'config_keys': sorted(keys)}
 
     def receipt(self, delivery_id, database='duora'):
         pickup = self.path / ('negative-pickup' if database != 'duora' else 'pickup')
@@ -402,7 +468,9 @@ def main():
         rehearsal.run()
     except Exception as error:
         rehearsal.report['failure'] = {'stage': rehearsal.stage,
-                                       'exception_type': type(error).__name__}
+                                       'exception_type': safe_exception_type(error),
+                                       'check_label': safe_check_label(error),
+                                       'app_log_classes': rehearsal.failure_diagnostics()}
     finally:
         failures = rehearsal.resources.cleanup()
         rehearsal.report['cleanup'] = {'complete': not failures,

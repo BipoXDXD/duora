@@ -1,8 +1,10 @@
 """Offline safety and evidence regressions; no Docker or .NET is invoked."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +16,39 @@ spec.loader.exec_module(lab)
 
 
 class SafetyTests(unittest.TestCase):
+    def test_diagnostics_emit_only_fixed_names_and_never_log_values(self):
+        logs = ('OptionsValidationException: Duora:PublicOrigin was invalid for '
+                'private@example.invalid; Password=top-secret-123. '
+                'NpgsqlException: Email:PickupDirectory=/private/path. '
+                'FakeOptionsValidationException should not match.')
+        classified = lab.classify_app_logs(logs)
+        self.assertEqual({'exception_types': ['NpgsqlException', 'OptionsValidationException'],
+                          'config_keys': ['Duora:PublicOrigin', 'Email:PickupDirectory']}, classified)
+        serialized = json.dumps(classified)
+        self.assertNotIn('private@example.invalid', serialized)
+        self.assertNotIn('top-secret-123', serialized)
+        self.assertNotIn('/private/path', serialized)
+        self.assertNotIn('FakeOptionsValidationException', serialized)
+        self.assertEqual('known_id_not_delivered',
+                         lab.safe_check_label(AssertionError('known_id_not_delivered')))
+        self.assertIsNone(lab.safe_check_label(AssertionError('top-secret-123')))
+        self.assertEqual('docker exited 17', lab.safe_check_label(lab.StepError('docker exited 17')))
+        self.assertIsNone(lab.safe_check_label(lab.StepError('docker top-secret-123')))
+        self.assertEqual('OtherFailure', lab.safe_exception_type(type('SecretName', (Exception,), {})()))
+
+    def test_failure_diagnostics_reads_only_registered_app_container(self):
+        rehearsal = lab.Rehearsal()
+        rehearsal.resources.containers = ['postgres', 'worker']
+        rehearsal.app_containers = {'worker'}
+        with patch.object(lab.subprocess, 'run', return_value=SimpleNamespace(
+                returncode=0, stdout='InvalidOperationException: Duora:SupportContact private@example.invalid',
+                stderr='')) as process:
+            result = rehearsal.failure_diagnostics()
+        self.assertEqual({'exception_types': ['InvalidOperationException'],
+                          'config_keys': ['Duora:SupportContact']}, result)
+        process.assert_called_once()
+        self.assertEqual(['docker', 'logs', '--tail', '120', 'worker'], process.call_args.args[0])
+
     def test_local_and_self_hosted_refused_before_process(self):
         for values in ({}, {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'self-hosted'}):
             with self.subTest(values=values), patch.dict(os.environ, values, clear=True), \
