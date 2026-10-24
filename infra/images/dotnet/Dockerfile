@@ -97,5 +97,7 @@ LABEL org.opencontainers.image.title="duora-migrator" \
 WORKDIR /app
 COPY --from=bundle /out/efbundle ./efbundle
 COPY --chmod=755 infra/images/dotnet/migrate.sh ./migrate.sh
+COPY --chmod=644 infra/images/dotnet/reconcile-privileges.sql ./reconcile-privileges.sql
+RUN umask 022 && sha256sum reconcile-privileges.sql > reconcile-privileges.sql.sha256
 USER 1654:1654
 ENTRYPOINT ["/app/migrate.sh"]

@@ -343,8 +343,9 @@ class MediaUploadGateTests(unittest.TestCase):
         self.now = 1_760_000_000.0
 
     def run_deploy(self, runner: "FakeRunner", *, enabled: bool = True) -> None:
-        deploy.deploy(self.release, self.paths, runner, readiness_timeout_seconds=5, sleep=lambda _: None,
-                      media_uploads_enabled=enabled, clock=lambda: self.now)
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=None):
+            deploy.deploy(self.release, self.paths, runner, readiness_timeout_seconds=5, sleep=lambda _: None,
+                          media_uploads_enabled=enabled, clock=lambda: self.now)
 
     def record_media_verify(self, age_seconds: float) -> None:
         (self.paths.state_dir / deploy.MEDIA_VERIFY_OK_FILE).write_text(f"{self.now - age_seconds}\n",
@@ -462,7 +463,8 @@ class FakeRunner:
         self._service_states = service_states
         self._privileged_without_mfa = privileged_without_mfa
 
-    def __call__(self, command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    def __call__(self, command: list[str], *, capture: bool = False,
+                 input_text: str | None = None) -> subprocess.CompletedProcess[str]:
         self.commands.append(command)
         self.captured.append(capture)
         joined = " ".join(command)
@@ -513,7 +515,9 @@ class DeployTests(unittest.TestCase):
     def run_deploy(self, runner: FakeRunner, **overrides) -> None:
         options = {"readiness_timeout_seconds": 5, "sleep": lambda _: None}
         options.update(overrides)
-        deploy.deploy(self.release, self.paths, runner, **options)
+        # Legacy pipeline fixtures isolate policy; dedicated collector/contract/native tests exercise the real guard.
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=None):
+            deploy.deploy(self.release, self.paths, runner, **options)
 
     def test_happy_path_runs_steps_in_order(self) -> None:
         runner = FakeRunner()
@@ -522,10 +526,9 @@ class DeployTests(unittest.TestCase):
 
         order = [runner.index_of(step) for step in [
             "pull",
-            "up --detach --wait postgres",
             "to_regclass",
             "stop worker",
-            "run --rm migrator",
+            "run --rm --no-deps migrator",
             "reconcile-privileges.sql",
             "up --detach --wait --no-deps web worker edge",
             "/health/ready",
@@ -539,7 +542,7 @@ class DeployTests(unittest.TestCase):
 
         verify = runner.index_of("duora-backup verify")
         self.assertEqual([str(self.paths.backup_command), "verify"], runner.commands[verify])
-        self.assertLess(runner.index_of("up --detach --wait postgres backup"), verify)
+        self.assertFalse(runner.ran("up --detach --wait postgres backup"))
         self.assertLess(verify, runner.index_of("stop worker"))
 
     def test_readiness_ignores_foreign_web_alias_on_shared_ingress_network(self) -> None:
@@ -559,18 +562,18 @@ class DeployTests(unittest.TestCase):
         with self.assertRaisesRegex(deploy.DeployError, "backup"):
             self.run_deploy(runner)
         self.assertFalse(runner.ran("stop worker"))
-        self.assertFalse(runner.ran("run --rm migrator"))
+        self.assertFalse(runner.ran("run --rm --no-deps migrator"))
         self.assertFalse((self.paths.state_dir / "current.json").exists())
 
     def test_missing_backup_command_stops_deploy_before_stopping_anything(self) -> None:
         fake = FakeRunner()
 
-        def runner(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+        def runner(command: list[str], *, capture: bool = False, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
             if command[0].endswith("duora-backup"):
                 raise FileNotFoundError(command[0])
             return fake(command, capture=capture)
 
-        with self.assertRaises(FileNotFoundError):
+        with patch.object(deploy, "runtime_recheck"), patch.object(deploy, "runtime_preflight", return_value=None), self.assertRaises(FileNotFoundError):
             deploy.deploy(self.release, self.paths, runner, readiness_timeout_seconds=5, sleep=lambda _: None)
         self.assertFalse(fake.ran("stop worker"))
 
@@ -636,10 +639,10 @@ class DeployTests(unittest.TestCase):
         with self.assertRaisesRegex(deploy.DeployError, "arquitetura"):
             self.run_deploy(runner)
 
-        self.assertFalse(runner.ran("run --rm migrator"))
+        self.assertFalse(runner.ran("run --rm --no-deps migrator"))
 
     def test_failed_migration_does_not_start_new_version(self) -> None:
-        runner = FakeRunner(fail_on="run --rm migrator")
+        runner = FakeRunner(fail_on="run --rm --no-deps migrator")
 
         with self.assertRaisesRegex(deploy.DeployError, "migrator"):
             self.run_deploy(runner)
@@ -716,7 +719,7 @@ class DeployTests(unittest.TestCase):
         manifest = valid_manifest()
         manifest["releaseId"] = "current"
         self.release = parse(manifest)
-        runner = FakeRunner(fail_on="run --rm migrator")
+        runner = FakeRunner(fail_on="run --rm --no-deps migrator")
 
         with self.assertRaises(deploy.DeployError):
             self.run_deploy(runner)
@@ -729,7 +732,7 @@ class DeployTests(unittest.TestCase):
 
         self.run_deploy(runner)
 
-        self.assertTrue(runner.ran("run --rm migrator"))
+        self.assertTrue(runner.ran("run --rm --no-deps migrator"))
 
     def test_eligible_rollback_skips_migrator_and_keeps_newer_schema(self) -> None:
         self.write_current("2026.10.16-1", previous="2026.10.15-1")
@@ -737,7 +740,7 @@ class DeployTests(unittest.TestCase):
 
         self.run_deploy(runner)
 
-        self.assertFalse(runner.ran("run --rm migrator"))
+        self.assertFalse(runner.ran("run --rm --no-deps migrator"))
         self.assertTrue(runner.ran("up --detach --wait --no-deps web worker edge"))
         current = json.loads((self.paths.state_dir / "current.json").read_text())
         self.assertEqual("2026.10.15-1", current["releaseId"])
@@ -785,7 +788,7 @@ class DeployTests(unittest.TestCase):
             self.run_deploy(runner)
 
         self.assertFalse(runner.ran("stop worker"))
-        self.assertFalse(runner.ran("run --rm migrator"))
+        self.assertFalse(runner.ran("run --rm --no-deps migrator"))
         self.assertFalse(runner.ran("up --detach --wait --no-deps"))
 
     def test_database_ahead_without_current_release_is_refused_before_stopping_anything(self) -> None:
@@ -871,7 +874,7 @@ class DeployTests(unittest.TestCase):
         self.assertFalse(runner.ran("stop worker"))
 
     def test_failed_deploy_records_nothing(self) -> None:
-        runner = FakeRunner(fail_on="run --rm migrator")
+        runner = FakeRunner(fail_on="run --rm --no-deps migrator")
 
         with self.assertRaises(deploy.DeployError):
             self.run_deploy(runner)
