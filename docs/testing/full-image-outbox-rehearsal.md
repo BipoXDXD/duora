@@ -1,0 +1,11 @@
+# Full published image outbox rehearsal
+
+This optional GitHub hosted Linux amd64 job runs the four digest pinned, published Web and Worker images. It tests the missing full process boundary after the preserved Infrastructure probe. It does not repeat the SMTP, Resend, Gmail, or production acceptance proofs.
+
+The job checks out the pre-139 (`bbdf0da`), compatible (`f3c52b`), and current probe (`d7ed56b`) sources by full commit. It copies the preserved `Probe.cs` and current project file unchanged, builds only the current Infrastructure probe, and checks that the legacy producer source lacks `RecoveryCodeUsedNotice`. Runtime image checks compare the manifest reference, Docker image/config ID, Linux amd64, user `1654:1654`, entrypoint, and source labels with `image-pins.json` before any app container starts.
+
+One disposable PostgreSQL uses the pinned source's role initialization and privilege reconciliation. The positive database exercises: old Web with compatible Worker; compatible Web after Worker compatibility; Web rollback first; blocked Worker rollback with Pending and InFlight new kind; compatible Worker recovery of the abandoned lease; a proven per-ID drain; and old Worker delivery of an old kind. A separate database proves the old full Worker rejects a new kind as `Failed/InvalidPayload`, clears the payload, and writes no pickup receipt. A zero pending count alone never proves safe rollback.
+
+The isolated Docker bridge has no external route. PostgreSQL publishes only to `127.0.0.1` for the host probe. Web and Worker run with dropped capabilities, read-only roots, synthetic writable pickup mounts, and temporary `/tmp` storage. All recipients use `.invalid`; no participant requests, production volume, SMTP server, or application secret is involved. Containers and network are removed in `finally` even if an assertion fails.
+
+The uploaded JSON contains source revisions, pinned image identities, phase names, synthetic delivery IDs, statuses, receipt SHA-256 values, and cleanup status. It contains no mail bodies, raw host logs, environment values, or synthetic database passwords. A green offline test only verifies the harness safety logic. Full image proof requires a successful hosted run and review of its sanitized evidence. Published historical images are not thereby approved for production deployment.
