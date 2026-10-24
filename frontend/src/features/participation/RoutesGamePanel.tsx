@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { Button } from '@/shared/ui/button'
+import { useGameFocus } from './use-game-focus'
 import type { RoutesAction, RoutesGame } from './participation-api'
 
 export function RoutesGamePanel({
@@ -17,11 +18,12 @@ export function RoutesGamePanel({
   readonly onAction: (action: RoutesAction) => void
 }): React.JSX.Element {
   const { t } = useI18n()
+  const gamePanel = useGameFocus(active)
   const can = (type: RoutesAction['type']) =>
     active && game.status === 'Active' && !busy && game.availableActions.includes(type)
   const stage = game.stage
   return (
-    <section lang={locale} className="flex flex-col gap-4">
+    <section ref={gamePanel} lang={locale} className="flex flex-col gap-4">
       <h2 className="text-xl font-semibold">{game.title}</h2>
       <p>{game.objective}</p>
       <h3 className="font-semibold">{t(`routes.stage.${stage}`)}</h3>

@@ -7,6 +7,7 @@ import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page, TextLink } from '@/shared/ui/page'
+import { useGameFocus } from './use-game-focus'
 import { ExperienceDeadline } from './ExperienceDeadline'
 import { RoutesGamePanel } from './RoutesGamePanel'
 import { act, actOnRoutes, fetchRoom, roomCommand, type RoutesAction, type Room } from './participation-api'
@@ -65,6 +66,7 @@ function RoomBody({
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
   const active = state === 'active'
+  const gamePanel = useGameFocus(active)
   const completed = state === 'completed'
   const expiredGame = state === 'expired' && (room.game !== null || room.routesGame !== null)
   const closed = !invited && !active && !completed && !expiredGame
@@ -86,7 +88,9 @@ function RoomBody({
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>
-            {t('participation.invitationDeadline', { deadline: formatDateTime(new Date(room.invitationExpiresAt)) })}
+            {t('participation.invitationDeadline', {
+              deadline: formatDateTime(new Date(room.invitationExpiresAt)),
+            })}
           </p>
           <Button
             disabled={busy}
@@ -132,19 +136,27 @@ function RoomBody({
         />
       )}
       {room.game === null ? null : (
-        <section lang={room.displayLocale} className="flex flex-col gap-4">
+        <section ref={gamePanel} lang={room.displayLocale} className="flex flex-col gap-4">
           <h2 className="text-xl font-semibold">{room.game.title}</h2>
           <p>{room.game.objective}</p>
+          <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {active ? card?.prompt : null}
+          </p>
           {room.game.awaitingPartner && active ? <p role="status">{t('participation.awaitingPartner')}</p> : null}
           {active && card !== null && card !== undefined ? (
-            <fieldset disabled={busy || room.game.awaitingPartner} className="flex flex-col gap-3">
+            <fieldset disabled={busy || room.game.awaitingPartner} className="flex min-w-0 flex-col gap-3">
               <legend className="mb-3 font-semibold">{card.prompt}</legend>
               {card.options.map((option) => (
                 <Button
                   key={option.optionId}
                   data-option-id={option.optionId}
+                  className="whitespace-normal"
                   onClick={() => {
-                    action.mutate({ type: 'choose-option', cardId: card.cardId, optionId: option.optionId })
+                    action.mutate({
+                      type: 'choose-option',
+                      cardId: card.cardId,
+                      optionId: option.optionId,
+                    })
                   }}
                 >
                   {option.label}
