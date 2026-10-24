@@ -652,5 +652,12 @@ Iniciar/reiniciar inscrição MFA não ativada continua apenas auditado. A ativa
 A14/A16 compartilham a cota por conta existente, inclusive entre sessões e endereços; rejeição por limite não
 muda credenciais, códigos nem outbox. Não há mudança de valores da cota ou aglutinação de avisos.
 
-O adaptador atual entrega arquivos de pickup. Testes de dispatcher validam esse adaptador; entrega SMTP real
-continua uma validação operacional externa, não uma propriedade comprovada por testes de pickup.
+`PickupDirectory` continua sendo o transporte padrão. Os transportes opcionais Resend (#192) e SMTP (#207)
+também estão integrados; essa disponibilidade não comprova sua ativação no ambiente. Configuração e limites
+estão no [runbook Resend](../operations/resend.md) e no [relatório SMTP/outbox](../testing/smtp-outbox-homologation.md).
+
+Testes de pickup não comprovam entrega externa. O relatório registra um aviso sintético enviado pelo Worker
+real e recebido via IMAP na mesma conta Gmail, além de ensaios com a Infrastructure de versões distintas.
+Entrega entre provedores, bounce e rollout/rollback operacional com imagens completas e release intermediária
+continuam pendentes. Consumidor compatível deve anteceder o produtor; confirme o processamento das entregas
+pendentes antes de reverter o worker. Fila vazia não comprova entrega.
