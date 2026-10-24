@@ -67,12 +67,14 @@ public sealed partial class PhotoReviewApprovalTests
         var files = Files();
         var history = await CleanupHistoryAsync();
         var candidate = await CandidateMetadataAsync(item);
+        var projections = await ExpirationProjectionAsync();
         _time.Advance(TimeSpan.FromHours(73));
 
         Assert.Equal(0, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
         Assert.Equal(files, Files());
         Assert.Equal(history, await CleanupHistoryAsync());
         Assert.Equal(candidate, await CandidateMetadataAsync(item));
+        Assert.Equal(projections, await ExpirationProjectionAsync());
     }
 
     [Fact]
@@ -109,8 +111,82 @@ public sealed partial class PhotoReviewApprovalTests
     public async Task ReviewExpirationReadsTheEffectClockAfterWaitingForTheOwnersGuard()
     {
         var item = await CaseAsync();
-        await ExecuteAsync("insert into safety.user_guards(user_id) values($1) on conflict do nothing", item.OwnerId);
         _time.Advance(TimeSpan.FromHours(72));
+        var result = await ExpireWhileGuardedAsync(item, (_, _) =>
+        {
+            _time.Advance(TimeSpan.FromSeconds(10));
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(1, result);
+        await AssertExpiredWithSystemProofAsync(item);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReviewExpirationRevalidatesTheWinnerAfterDiscoveryAndARealGuardWait(bool generationChanged)
+    {
+        var item = await CaseAsync();
+        var files = Files();
+        _time.Advance(TimeSpan.FromHours(72));
+        string? winner = null;
+        var result = await ExpireWhileGuardedAsync(item, async (connection, transaction) =>
+        {
+            // Fixture mutation under the same actual guard; the future owner HTTP command is not simulated as implemented.
+            var sql = generationChanged
+                ? "update safety.photo_review_cases set candidate_generation=$2,version=version+1 where id=$1"
+                : "update media.uploads set state='Deleted',version=version+1 where id=$1";
+            await using var command = new NpgsqlCommand(sql, connection, transaction) { CommandTimeout = 2 };
+            command.Parameters.AddWithValue(generationChanged ? item.CaseId : item.UploadId);
+            if (generationChanged)
+            {
+                command.Parameters.AddWithValue(Guid.NewGuid());
+            }
+
+            Assert.Equal(1, await command.ExecuteNonQueryAsync(Ct));
+            winner = await ReadExpirationProjectionAsync(connection, transaction, Ct);
+        });
+
+        Assert.Equal(0, result);
+        Assert.NotNull(winner);
+        Assert.Equal(winner, await ExpirationProjectionAsync());
+        Assert.Equal(files, Files());
+        Assert.Equal(0, await ScalarAsync("select count(*) from ops.audit_events where action='safety.photo_review_expired'"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReviewExpirationRecoversAnUncertainCommitWithoutConfirmingOrRepeatingIt(bool afterCommit)
+    {
+        var item = await CaseAsync();
+        var before = await ExpirationProjectionAsync();
+        var files = Files();
+        _time.Advance(TimeSpan.FromHours(72));
+        var fault = new ExpirationCommitFault(_connectionString, item.UploadId, afterCommit);
+
+        await Assert.ThrowsAsync<IOException>(() => new PhotoReviewExpirations(Factory(fault), _time).ExpireOnceAsync(Ct));
+
+        Assert.True(fault.Fired);
+        if (afterCommit)
+        {
+            await AssertExpiredWithSystemProofAsync(item);
+        }
+        else
+        {
+            Assert.Equal(before, await ExpirationProjectionAsync());
+        }
+
+        Assert.Equal(afterCommit ? 0 : 1, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
+        await AssertExpiredWithSystemProofAsync(item);
+        Assert.Equal(files, Files());
+    }
+
+    private async Task<int> ExpireWhileGuardedAsync(CaseData item,
+        Func<NpgsqlConnection, NpgsqlTransaction, Task> beforeRelease)
+    {
+        await ExecuteAsync("insert into safety.user_guards(user_id) values($1) on conflict do nothing", item.OwnerId);
         await using var locker = new NpgsqlConnection(_connectionString);
         await locker.OpenAsync(Ct);
         await using var held = await locker.BeginTransactionAsync(Ct);
@@ -123,7 +199,9 @@ public sealed partial class PhotoReviewApprovalTests
         var label = "expiry-" + Guid.NewGuid().ToString("N");
         var options = new DbContextOptionsBuilder<DuoraDbContext>();
         options.UseDuoraNpgsql(new NpgsqlConnectionStringBuilder(_connectionString) { ApplicationName = label }.ConnectionString);
-        var expiration = new PhotoReviewExpirations(new ContextFactory(options.Options), _time).ExpireOnceAsync(Ct);
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var expiration = new PhotoReviewExpirations(new ContextFactory(options.Options), _time).ExpireOnceAsync(attempt.Token);
+        var released = false;
         try
         {
             var waiting = false;
@@ -141,17 +219,102 @@ public sealed partial class PhotoReviewApprovalTests
             }
 
             Assert.True(waiting, "The expiry effect must serialize with the owner's existing Safety guard.");
-            _time.Advance(TimeSpan.FromSeconds(10));
+            await beforeRelease(locker, held);
+            await held.CommitAsync(Ct);
+            released = true;
+            return await expiration.WaitAsync(TimeSpan.FromSeconds(5), Ct);
         }
         finally
         {
             using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            await held.RollbackAsync(cleanup.Token);
-            await expiration.WaitAsync(cleanup.Token);
+            try
+            {
+                if (!released)
+                {
+                    await held.RollbackAsync(cleanup.Token);
+                }
+            }
+            finally
+            {
+                await attempt.CancelAsync();
+                try
+                {
+                    // Cancel the producer and observe it, not just a timeout wrapper over its task.
+                    await expiration;
+                }
+                catch (OperationCanceledException) when (expiration.IsCompleted && expiration.IsCanceled && attempt.IsCancellationRequested)
+                {
+                }
+            }
+        }
+    }
+
+    private async Task<string> ExpirationProjectionAsync()
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(Ct);
+        return await ReadExpirationProjectionAsync(connection, null, Ct);
+    }
+
+    private static async Task<string> ReadExpirationProjectionAsync(NpgsqlConnection connection,
+        NpgsqlTransaction? transaction, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand("""
+            select jsonb_build_array(
+              (select coalesce(jsonb_agg(to_jsonb(u) order by u.id),'[]'::jsonb) from media.uploads u),
+              (select coalesce(jsonb_agg(to_jsonb(r) order by r.id),'[]'::jsonb) from safety.photo_review_cases r),
+              (select coalesce(jsonb_agg(to_jsonb(a) order by a.id),'[]'::jsonb) from media.media_assets a),
+              (select coalesce(jsonb_agg(to_jsonb(v) order by v.media_asset_id,v.kind),'[]'::jsonb) from media.media_variants v),
+              (select coalesce(jsonb_agg(to_jsonb(c) order by c.generation),'[]'::jsonb) from media.review_candidates c),
+              (select coalesce(jsonb_agg(to_jsonb(e) order by e.id),'[]'::jsonb) from ops.audit_events e)
+            )::text
+            """, connection, transaction);
+        return Assert.IsType<string>(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
+    private sealed class ExpirationCommitFault(string connectionString, Guid uploadId, bool afterCommit) : DbTransactionInterceptor
+    {
+        internal bool Fired { get; private set; }
+
+        public override async ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction,
+            TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
+        {
+            if (!afterCommit && !Fired && await HasExpiredAsync(Assert.IsType<NpgsqlConnection>(transaction.Connection),
+                Assert.IsType<NpgsqlTransaction>(transaction), cancellationToken))
+            {
+                Fired = true;
+                throw new IOException("Synthetic failure before expiration commit.");
+            }
+
+            return result;
         }
 
-        Assert.Equal(1, await expiration);
-        await AssertExpiredWithSystemProofAsync(item);
+        public override async Task TransactionCommittedAsync(DbTransaction transaction,
+            TransactionEndEventData eventData, CancellationToken cancellationToken = default)
+        {
+            if (!afterCommit || Fired)
+            {
+                return;
+            }
+
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            if (await HasExpiredAsync(connection, null, cancellationToken))
+            {
+                Fired = true;
+                throw new IOException("Synthetic lost expiration commit response.");
+            }
+        }
+
+        private async Task<bool> HasExpiredAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction,
+            CancellationToken cancellationToken)
+        {
+            await using var command = new NpgsqlCommand("""
+                select exists(select 1 from media.uploads where id=$1 and state='Rejected' and rejection_code='PHOTO_REVIEW_EXPIRED')
+                """, connection, transaction);
+            command.Parameters.AddWithValue(uploadId);
+            return await command.ExecuteScalarAsync(cancellationToken) is true;
+        }
     }
 
     private async Task AssertExpiredWithSystemProofAsync(CaseData item)
