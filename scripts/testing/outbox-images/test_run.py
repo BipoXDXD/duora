@@ -16,6 +16,32 @@ spec.loader.exec_module(lab)
 
 
 class SafetyTests(unittest.TestCase):
+    def test_postgres_address_requires_single_private_ipv4_network_and_no_published_ports(self):
+        def inspected(address, *, networks=None, bindings=None, published=None):
+            return {'NetworkSettings': {'Networks': networks or {'lab': {'IPAddress': address}},
+                                        'Ports': published or {}},
+                    'HostConfig': {'PortBindings': bindings or {}}}
+        for address in ('10.0.0.2', '172.18.0.3', '192.168.4.5'):
+            self.assertEqual(address, lab.private_postgres_address(inspected(address), 'lab'))
+        for address in ('8.8.8.8', '127.0.0.1', '0.0.0.0', '169.254.3.2', '::1', 'bad'):
+            with self.subTest(address=address), self.assertRaises(AssertionError):
+                lab.private_postgres_address(inspected(address), 'lab')
+        for invalid in (inspected('172.18.0.3', networks={'other': {'IPAddress': '172.18.0.3'}}),
+                        inspected('172.18.0.3', networks={'lab': {'IPAddress': '172.18.0.3'},
+                                                         'other': {'IPAddress': '172.19.0.4'}}),
+                        inspected('172.18.0.3', bindings={'5432/tcp': [{'HostPort': '5432'}]}),
+                        inspected('172.18.0.3', published={'5432/tcp': [{'HostPort': '5432'}]})):
+            with self.assertRaises(AssertionError):
+                lab.private_postgres_address(invalid, 'lab')
+
+    def test_checked_failure_reports_only_static_docker_operation_and_exit_code(self):
+        with patch.object(lab.subprocess, 'run', return_value=SimpleNamespace(
+                returncode=1, stdout='', stderr='Password=top-secret-123')):
+            with self.assertRaises(lab.StepError) as raised:
+                lab.checked(['docker', 'network', 'create', '--label', 'top-secret-123'])
+        self.assertEqual('docker network create exited 1', str(raised.exception))
+        self.assertEqual('docker network create exited 1', lab.safe_check_label(raised.exception))
+
     def test_diagnostics_emit_only_fixed_names_and_never_log_values(self):
         logs = ('OptionsValidationException: Duora:PublicOrigin was invalid for '
                 'private@example.invalid; Password=top-secret-123. '
@@ -32,7 +58,7 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual('known_id_not_delivered',
                          lab.safe_check_label(AssertionError('known_id_not_delivered')))
         self.assertIsNone(lab.safe_check_label(AssertionError('top-secret-123')))
-        self.assertEqual('docker exited 17', lab.safe_check_label(lab.StepError('docker exited 17')))
+        self.assertEqual('docker run exited 17', lab.safe_check_label(lab.StepError('docker run exited 17')))
         self.assertIsNone(lab.safe_check_label(lab.StepError('docker top-secret-123')))
         self.assertEqual('OtherFailure', lab.safe_exception_type(type('SecretName', (Exception,), {})()))
 

@@ -1,5 +1,6 @@
 """Hosted-only, synthetic full-image outbox rehearsal. Never print container logs."""
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,13 @@ REVISIONS = {
 }
 POSTGRES = ('postgres:18.6-trixie@sha256:'
             '74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336')
+PRIVATE_V4_NETWORKS = tuple(ipaddress.ip_network(cidr) for cidr in
+                            ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))
+SAFE_OPERATIONS = frozenset({
+    'git', 'dotnet', 'docker pull', 'docker image inspect', 'docker network create',
+    'docker network rm', 'docker run', 'docker exec', 'docker inspect',
+    'docker stop', 'docker rm', 'docker logs',
+})
 APP_EXCEPTION_TYPES = ('OptionsValidationException', 'InvalidOperationException',
                        'NpgsqlException', 'PostgresException', 'UnauthorizedAccessException',
                        'DirectoryNotFoundException', 'IOException')
@@ -35,7 +43,9 @@ CHECK_LABELS = frozenset({
     'pin_count', 'duplicate_pin', 'pin_role', 'pin_source', 'pin_manifest', 'pin_platform_user',
     'pin_entrypoint', 'image_config_digest', 'image_repo_digest', 'image_platform',
     'image_execution_config', 'image_source_labels', 'missing_pin', 'postgres_not_ready',
-    'postgres_not_loopback_only', 'host_start_marker_missing', 'container_not_running',
+    'host_start_marker_missing', 'container_not_running',
+    'postgres_network_not_isolated', 'postgres_ports_published', 'postgres_address_invalid',
+    'postgres_address_not_private_ipv4', 'unsupported_external_process',
     'container_image_mismatch', 'duplicate_delivery_id', 'unexpected_terminal_status',
     'delivery_timeout', 'rollback_guard_not_clear', 'receipt_digest',
     'pending_did_not_block_rollback', 'claim_not_acquired', 'inflight_did_not_block_rollback',
@@ -68,8 +78,9 @@ def safe_check_label(error):
     label = str(error)
     if isinstance(error, AssertionError) and label in CHECK_LABELS:
         return label
-    if isinstance(error, StepError) and (label == 'docker logs unavailable' or
-                                         re.fullmatch(r'(docker|git|dotnet) exited [0-9]+', label)):
+    if isinstance(error, StepError) and (label == 'docker logs unavailable' or any(
+            re.fullmatch(re.escape(operation) + r' exited [0-9]+', label)
+            for operation in SAFE_OPERATIONS)):
         return label
     return None
 
@@ -92,11 +103,41 @@ def require(condition, label):
         raise AssertionError(label)
 
 
+def private_postgres_address(snapshot, network):
+    """Accept only our sole internal bridge and an RFC1918 IPv4 with no port bindings."""
+    networks = snapshot.get('NetworkSettings', {}).get('Networks', {})
+    require(set(networks) == {network}, 'postgres_network_not_isolated')
+    require(not snapshot.get('HostConfig', {}).get('PortBindings'), 'postgres_ports_published')
+    require(all(not bindings for bindings in snapshot['NetworkSettings'].get('Ports', {}).values()),
+            'postgres_ports_published')
+    try:
+        address = ipaddress.ip_address(networks[network]['IPAddress'])
+    except (KeyError, ValueError):
+        raise AssertionError('postgres_address_invalid') from None
+    require(isinstance(address, ipaddress.IPv4Address)
+            and any(address in subnet for subnet in PRIVATE_V4_NETWORKS)
+            and not address.is_loopback and not address.is_unspecified,
+            'postgres_address_not_private_ipv4')
+    return str(address)
+
+
+def operation_label(args):
+    if args and args[0] in ('git', 'dotnet'):
+        label = args[0]
+    elif len(args) > 1 and args[0] == 'docker':
+        label = ' '.join(args[:3] if args[1] in ('image', 'network') else args[:2])
+    else:
+        label = ''
+    require(label in SAFE_OPERATIONS, 'unsupported_external_process')
+    return label
+
+
 def checked(args, *, data=None, env=None, timeout=180):
+    operation = operation_label(args)
     completed = subprocess.run(args, cwd=ROOT, input=data, text=True, env=env,
                                capture_output=True, timeout=timeout, check=False)
     if completed.returncode:
-        raise StepError(f'{Path(args[0]).name} exited {completed.returncode}')
+        raise StepError(f'{operation} exited {completed.returncode}')
     return completed.stdout.strip()
 
 
@@ -146,7 +187,7 @@ class Rehearsal:
         self.containers = {}
         self.app_containers = set()
         self.container_image_ids = {}
-        self.port = None
+        self.private_ip = None
         self.temp = None
 
     def name(self, role):
@@ -205,7 +246,7 @@ class Rehearsal:
         require(len(self.pins) == 4, 'missing_pin')
 
     def setup_database(self):
-        self.stage = 'disposable_database'
+        self.stage = 'database_prepare'
         self.temp = tempfile.TemporaryDirectory(prefix='duora-full-image-')
         self.path = Path(self.temp.name)
         self.path.chmod(0o755)
@@ -219,14 +260,15 @@ class Rehearsal:
             pickup.chmod(0o777)
         network = self.name('network')
         self.resources.network = network
+        self.stage = 'database_network_create'
         checked(['docker', 'network', 'create', '--internal', '--driver', 'bridge',
                  '--label', self.label, network])
+        self.stage = 'database_postgres_start'
         postgres = self.name('postgres')
         self.resources.add(postgres)
         source_script = LAB / 'source/infra/images/postgres/initdb/10-duora-roles.sh'
         checked(['docker', 'run', '-d', '--name', postgres, '--label', self.label,
                  '--network', network, '--network-alias', 'postgres',
-                 '-p', '127.0.0.1::5432',
                  '-e', 'POSTGRES_PASSWORD_FILE=/test-secrets/postgres',
                  '-e', 'DUORA_MIGRATOR_PASSWORD_FILE=/test-secrets/migrator',
                  '-e', 'DUORA_APP_PASSWORD_FILE=/test-secrets/app',
@@ -235,6 +277,7 @@ class Rehearsal:
                  '--mount', f'type=bind,src={source_script},dst=/docker-entrypoint-initdb.d/10-duora-roles.sh,readonly',
                  POSTGRES])
         self.containers['postgres'] = postgres
+        self.stage = 'database_postgres_ready'
         for _ in range(90):
             result = subprocess.run(['docker', 'exec', postgres, 'pg_isready', '-h', '127.0.0.1',
                                      '-U', 'postgres', '-d', 'duora'], capture_output=True,
@@ -244,12 +287,16 @@ class Rehearsal:
             time.sleep(1)
         else:
             raise AssertionError('postgres_not_ready')
-        published = checked(['docker', 'port', postgres, '5432/tcp'])
-        require(published.startswith('127.0.0.1:'), 'postgres_not_loopback_only')
-        self.port = published.rsplit(':', 1)[1]
+        self.stage = 'database_private_address'
+        snapshot = json.loads(checked(['docker', 'inspect', postgres]))[0]
+        self.private_ip = private_postgres_address(snapshot, network)
+        self.stage = 'database_migrate'
         self.probe('migrate', role='migrator')
+        self.stage = 'database_reconcile'
         self.sql((LAB / 'source/infra/images/postgres/reconcile-privileges.sql').read_text())
+        self.stage = 'database_clone'
         self.sql('CREATE DATABASE duora_negative TEMPLATE duora OWNER duora_migrator;', 'postgres')
+        self.stage = 'database_clone_grants'
         self.sql('REVOKE ALL ON DATABASE duora_negative FROM PUBLIC; '
                  'GRANT CONNECT ON DATABASE duora_negative TO duora_app;', 'postgres')
 
@@ -260,7 +307,7 @@ class Rehearsal:
 
     def probe(self, mode, *args, role='app', database='duora'):
         env = os.environ.copy()
-        env['DUORA_TEST_DB'] = (f'Host=127.0.0.1;Port={self.port};Database={database};'
+        env['DUORA_TEST_DB'] = (f'Host={self.private_ip};Port=5432;Database={database};'
                                 f'Username=duora_{role};Password={self.passwords[role]};Pooling=false')
         env['DUORA_TEST_PICKUP'] = str(self.path / 'pickup')
         binary = LAB / 'validation/current/bin/Release/net10.0/Duora.IntegrationTests.dll'
