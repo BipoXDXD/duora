@@ -29,8 +29,8 @@ if (mode == "migrate")
 else if (mode == "produce")
 {
     var kind = Enum.Parse<AccountEmailKind>(args[1]);
-    const string recipient = "synthetic@example.invalid";
-    var request = new AccountEmailRequested(kind, recipient, Guid.CreateVersion7(), null, "en");
+    const string Recipient = "synthetic@example.invalid";
+    var request = new AccountEmailRequested(kind, Recipient, Guid.CreateVersion7(), null, "en");
     var recorded = AccountEmailOutbox.Create(request, DateTimeOffset.UtcNow);
     await using var context = new DuoraDbContext(options);
     context.Add(recorded);
