@@ -19,10 +19,11 @@ Antes do corte, revisar também estes limites da implementação:
   `Participation__RegionalMatchingStartsAt`. Uma chave no arquivo de interpolação do Compose não é,
   por si só, variável do container. Identificar o mecanismo de configuração aprovado no ambiente,
   revisar sua persistência nas releases seguintes e provar o recebimento pela aplicação antes de usá-lo.
-- `MatchingEnabled=false` impede novos claims/conclusões de `build-round` e a construção direta de pares;
-  não bloqueia `PublishAsync`. Suspender publicações por procedimento administrativo revisado e drenar
-  transações de publicação antes de alterar o corte. Retomar publicações somente após retirar processos
-  com configuração antiga: uma publicação que os alcance ainda pode gravar V2.
+- `MatchingEnabled=false` impede novos claims/conclusões de `build-round`, construção direta de pares e,
+  na correção de 24/10/2026, novas chamadas de `PublishAsync` antes de abrir transação. Releases anteriores
+  à correção continuam publicando durante a pausa. Suspender admissões administrativas e drenar transações
+  de publicação antes de alterar o corte. Retomar somente após retirar processos antigos e conferir a pausa
+  em todos os publicadores: uma requisição já em voo ou atendida por processo antigo ainda pode gravar V2.
 - Pausa não desfaz trabalho já em execução. Conferir jobs, leases e operações em curso. Os jobs de
   fechamento/expiração continuam elegíveis; não interromper o ciclo das reservas confirmadas sem plano.
   Uma rodada construída mais de 60 segundos após seu início é cancelada pelo serviço, portanto a pausa
@@ -38,6 +39,12 @@ release/digests, schema/privilégios, configuração efetiva, limites do ensaio,
 Usar instante UTC com `Z` ou offset explícito revisado; este documento não escolhe nem configura o corte.
 
 ## Comunicação para a ativação BR+US
+
+A pausa de publicação de 24/10 não altera defaults, contratos HTTP ou rodadas persistidas. Reutiliza a
+flag de manutenção existente; não implementa recarga dinâmica nem cancela requisições já admitidas.
+`RegionalMatchingTests.MatchingPauseRefusesPublicationWithoutCreatingRoundsOrJobsAndResumeUsesV3`
+verifica em PostgreSQL a recusa sem eventos/rodadas/jobs novos e a retomada explícita com três rodadas V3.
+O resultado executado deve ser vinculado ao CI do head desta correção, sem herdar a prova do #228.
 
 O aviso da SPA descreve agora as rodadas com filtro regional: preferência explícita obrigatória,
 aceitação bilateral e preservação das regras das rodadas publicadas antes da ativação. O texto vale
