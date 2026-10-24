@@ -254,7 +254,8 @@ public sealed partial class PhotoReviewApprovalTests
             await connection.OpenAsync(Ct);
             await using var transaction = await connection.BeginTransactionAsync(Ct);
             await using var command = new NpgsqlCommand("select generation from media.review_candidates where generation=$1 for update nowait",
-                connection, transaction) { CommandTimeout = 2 };
+                connection, transaction)
+            { CommandTimeout = 2 };
             command.Parameters.AddWithValue(generation);
             Assert.Equal(generation, await command.ExecuteScalarAsync(Ct));
             await transaction.RollbackAsync(Ct);
