@@ -17,7 +17,7 @@ using Npgsql;
 
 namespace Duora.IntegrationTests.Safety;
 
-public sealed class PhotoReviewApprovalTests(PostgresFixture postgres) : IAsyncLifetime
+public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) : IAsyncLifetime
 {
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 22, 12, 0, 0, TimeSpan.Zero));
     private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("duora-review-approval-");
