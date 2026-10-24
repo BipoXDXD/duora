@@ -2,13 +2,14 @@ using Duora.Infrastructure.Media;
 
 namespace Duora.Worker.Media;
 
-/// <summary>Recover only prewritten preparation obligations, independently of admission being enabled.</summary>
+/// <summary>Recover prewritten preparation and approved-candidate obligations, independently of admission.</summary>
 internal sealed partial class ReviewCandidateCleanupService(
-    ReviewCandidateCleanupDispatcher dispatcher, ILogger<ReviewCandidateCleanupService> logger) : BackgroundService
+    ReviewCandidateCleanupDispatcher dispatcher, ApprovedCandidateCleanupDispatcher approved,
+    ILogger<ReviewCandidateCleanupService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!dispatcher.Enabled)
+        if (!dispatcher.Enabled && !approved.Enabled)
         {
             return;
         }
@@ -17,7 +18,9 @@ internal sealed partial class ReviewCandidateCleanupService(
         {
             try
             {
-                if (await dispatcher.DispatchOnceAsync(stoppingToken) != 0)
+                var processed = await dispatcher.DispatchOnceAsync(stoppingToken);
+                processed += await approved.DispatchOnceAsync(stoppingToken);
+                if (processed != 0)
                 {
                     continue;
                 }

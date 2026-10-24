@@ -129,6 +129,9 @@ public sealed partial class PhotoReviewApprovalTests
         var first = Assert.IsType<ApprovedCandidateCleanupClaim>(await gc.ClaimAsync(Ct));
         Assert.Null(await ApprovedCleanup(source).ClaimAsync(Ct));
         _time.Advance(TimeSpan.FromSeconds(61));
+        // Expiration must deny ACK even before another collector changes the token.
+        Assert.False(await gc.CompleteSweepAsync(first, Ct));
+        Assert.Equal(0, await ScalarAsync("select count(*) from media.review_candidates where generation=$1 and deleted_at is not null", first.Generation));
         var recovered = Assert.IsType<ApprovedCandidateCleanupClaim>(await ApprovedCleanup(source).ClaimAsync(Ct));
         Assert.Equal(first.Generation, recovered.Generation);
         Assert.NotEqual(first.Token, recovered.Token);
@@ -186,6 +189,83 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Equal(0, await ApprovedCleanup(source, enabled: !disabled).DispatchOnceAsync(Ct));
         Assert.Equal(before, Files());
         Assert.Equal(0, await ScalarAsync("select count(*) from media.review_candidates where generation=$1 and cleanup_token is not null", generation));
+    }
+
+    [Theory]
+    [InlineData("no-marker")]
+    [InlineData("future-marker")]
+    [InlineData("retention")]
+    [InlineData("policy")]
+    [InlineData("case")]
+    public async Task ApprovedStateAloneCannotAuthorizeCleanupWithoutTheExactDecisionObligation(string mismatch)
+    {
+        var (reviewer, item) = await PreparedAsync();
+        Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, Key()));
+        var generation = await CleanupGenerationAsync(item);
+        switch (mismatch)
+        {
+            case "no-marker":
+                await ExecuteAsync("update media.review_candidates set cleanup_requested_at=null where generation=$1", generation);
+                break;
+            case "future-marker":
+                await ExecuteAsync("update media.review_candidates set cleanup_requested_at=$2 where generation=$1",
+                    generation, _time.GetUtcNow().AddMinutes(1));
+                break;
+            case "retention":
+                await ExecuteAsync("update media.review_candidates set retention_until=retention_until+interval '1 second' where generation=$1", generation);
+                break;
+            case "policy":
+                await ExecuteAsync("update safety.photo_review_cases set policy_version='different-policy' where id=$1", item.CaseId);
+                break;
+            case "case":
+                var other = await CaseAsync();
+                await ExecuteAsync("update media.review_candidates set case_id=$2 where generation=$1", generation, other.CaseId);
+                break;
+        }
+
+        var before = Files();
+        var history = await CleanupHistoryAsync();
+        await using var source = NpgsqlDataSource.Create(_connectionString);
+        Assert.Equal(0, await ApprovedCleanup(source).DispatchOnceAsync(Ct));
+        Assert.Equal(before, Files());
+        Assert.Equal(history, await CleanupHistoryAsync());
+        Assert.Equal(0, await ScalarAsync("select count(*) from media.review_candidates where generation=$1 and (cleanup_token is not null or deleted_at is not null)", generation));
+    }
+
+    [Fact]
+    public async Task ApprovedCleanupReleasesItsSqlLockBeforeStartingStorageDeletion()
+    {
+        var (reviewer, item) = await PreparedAsync();
+        Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, Key()));
+        var generation = await CleanupGenerationAsync(item);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new ApprovedCleanupStore(new FileSystemObjectStore(_root.FullName), async (_, ct) =>
+        {
+            entered.TrySetResult();
+            await release.Task.WaitAsync(ct);
+        });
+        await using var source = NpgsqlDataSource.Create(_connectionString);
+        var sweep = ApprovedCleanup(source, store).DispatchOnceAsync(Ct);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync(Ct);
+            await using var transaction = await connection.BeginTransactionAsync(Ct);
+            await using var command = new NpgsqlCommand("select generation from media.review_candidates where generation=$1 for update nowait",
+                connection, transaction) { CommandTimeout = 2 };
+            command.Parameters.AddWithValue(generation);
+            Assert.Equal(generation, await command.ExecuteScalarAsync(Ct));
+            await transaction.RollbackAsync(Ct);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await sweep.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        }
+
+        Assert.Equal(1, await sweep);
     }
 
     private ApprovedCandidateCleanupDispatcher ApprovedCleanup(NpgsqlDataSource source, IObjectStore? store = null, bool enabled = true) =>
