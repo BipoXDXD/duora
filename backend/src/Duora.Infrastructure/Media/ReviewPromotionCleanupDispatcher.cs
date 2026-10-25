@@ -84,6 +84,12 @@ internal sealed class ReviewPromotionCleanupDispatcher
     internal async Task<bool> CompleteSweepAsync(ReviewPromotionCleanupClaim claim, CancellationToken cancellationToken)
     {
         await using var connection = await _source.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        if (!await LockPromotionAsync(connection, transaction, claim.Generation, cancellationToken))
+        {
+            return false;
+        }
+
         var now = _time.GetUtcNow();
         await using var command = Command(connection, """
             update media.review_promotions set last_cleanup_at=$4,
@@ -94,12 +100,21 @@ internal sealed class ReviewPromotionCleanupDispatcher
               and (not $3 or writer_settled_at is not null)
             """, claim.Generation, claim.Token, claim.WriterWasSettled, now, now + UncertainWriterPoll);
         // An uncertain writer never has a terminal ACK, even if it settled while these DELETEs were running.
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        command.Transaction = transaction;
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        await transaction.CommitAsync(cancellationToken);
+        return changed;
     }
 
     internal async Task<bool> RetryAsync(ReviewPromotionCleanupClaim claim, CancellationToken cancellationToken)
     {
         await using var connection = await _source.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        if (!await LockPromotionAsync(connection, transaction, claim.Generation, cancellationToken))
+        {
+            return false;
+        }
+
         var now = _time.GetUtcNow();
         var delay = TimeSpan.FromSeconds(Math.Min(900, 15 * (1 << Math.Min(claim.Attempts - 1, 6))));
         await using var command = Command(connection, """
@@ -107,7 +122,19 @@ internal sealed class ReviewPromotionCleanupDispatcher
             where generation=$1 and cleanup_token=$2 and cleanup_lease_until>$3
               and committed_at is null and deleted_at is null and cleanup_requested_at is not null
             """, claim.Generation, claim.Token, now, now + delay);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        command.Transaction = transaction;
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        await transaction.CommitAsync(cancellationToken);
+        return changed;
+    }
+
+    private static async Task<bool> LockPromotionAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
+        Guid generation, CancellationToken cancellationToken)
+    {
+        await using var command = Command(connection,
+            "select generation from media.review_promotions where generation=$1 for update", generation);
+        command.Transaction = transaction;
+        return await command.ExecuteScalarAsync(cancellationToken) is Guid;
     }
 
     private static NpgsqlCommand Command(NpgsqlConnection connection, string sql, params object[] values)

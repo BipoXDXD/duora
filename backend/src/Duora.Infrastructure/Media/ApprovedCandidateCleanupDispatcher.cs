@@ -101,6 +101,12 @@ public sealed partial class ApprovedCandidateCleanupDispatcher
     internal async Task<bool> CompleteSweepAsync(ApprovedCandidateCleanupClaim claim, CancellationToken cancellationToken)
     {
         await using var connection = await _source.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        if (!await LockCandidateAsync(connection, transaction, claim.Generation, cancellationToken))
+        {
+            return false;
+        }
+
         var now = _time.GetUtcNow();
         await using var command = Command(connection, $"""
             update media.review_candidates c
@@ -108,12 +114,21 @@ public sealed partial class ApprovedCandidateCleanupDispatcher
             where c.generation=$1 and c.cleanup_token=$2 and c.cleanup_lease_until>$3
               and c.cleanup_requested_at<=$3 and {ApprovedObligation}
             """, claim.Generation, claim.Token, now);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        command.Transaction = transaction;
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        await transaction.CommitAsync(cancellationToken);
+        return changed;
     }
 
-    private async Task RetryAsync(ApprovedCandidateCleanupClaim claim, CancellationToken cancellationToken)
+    internal async Task<bool> RetryAsync(ApprovedCandidateCleanupClaim claim, CancellationToken cancellationToken)
     {
         await using var connection = await _source.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        if (!await LockCandidateAsync(connection, transaction, claim.Generation, cancellationToken))
+        {
+            return false;
+        }
+
         var now = _time.GetUtcNow();
         var delay = TimeSpan.FromSeconds(Math.Min(900, 15 * (1 << Math.Min(claim.Attempts - 1, 6))));
         await using var command = Command(connection, $"""
@@ -122,7 +137,19 @@ public sealed partial class ApprovedCandidateCleanupDispatcher
             where c.generation=$1 and c.cleanup_token=$2 and c.cleanup_lease_until>$3
               and c.cleanup_requested_at<=$3 and {ApprovedObligation}
             """, claim.Generation, claim.Token, now, now + delay);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        command.Transaction = transaction;
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        await transaction.CommitAsync(cancellationToken);
+        return changed;
+    }
+
+    private static async Task<bool> LockCandidateAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
+        Guid generation, CancellationToken cancellationToken)
+    {
+        await using var command = Command(connection,
+            "select generation from media.review_candidates where generation=$1 for update", generation);
+        command.Transaction = transaction;
+        return await command.ExecuteScalarAsync(cancellationToken) is Guid;
     }
 
     private static NpgsqlCommand Command(NpgsqlConnection connection, string sql, params object[] values)
