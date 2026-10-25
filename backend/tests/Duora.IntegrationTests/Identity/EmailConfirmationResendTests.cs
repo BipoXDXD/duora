@@ -2,7 +2,6 @@ using System.Data.Common;
 using System.Diagnostics;
 using System.Net;
 using Duora.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
