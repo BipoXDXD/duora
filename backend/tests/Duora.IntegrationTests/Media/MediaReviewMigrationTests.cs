@@ -72,6 +72,7 @@ public sealed class MediaReviewMigrationTests(PostgresFixture postgres)
             await after.Database.MigrateAsync(Ct);
             Assert.False(after.Database.HasPendingModelChanges());
         }
+        await postgres.ReconcilePrivilegesAsync(database.Name, Ct);
         Assert.Equal(original, await RowsAsync(connection));
         await using var check = new NpgsqlCommand("""
             select (select count(*) from safety.photo_review_cases),
