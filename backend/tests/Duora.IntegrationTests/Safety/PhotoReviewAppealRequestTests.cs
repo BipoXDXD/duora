@@ -57,6 +57,29 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Equal(0, await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", data.Item.UploadId));
     }
 
+    [Theory]
+    [InlineData("Restricted")]
+    [InlineData("Suspended")]
+    public async Task OwnerAppealKeepsTheRestrictedAccountChannelWithoutRestoringParticipation(string status)
+    {
+        var data = await RejectedForAppealAsync();
+        await ExecuteAsync("update identity.users set status=$2 where id=$1", data.Owner.UserId, status);
+        var files = Files();
+        var history = await AppealDecisionSnapshotAsync();
+
+        var result = Assert.IsType<PhotoReviewAppealRequestResult.Accepted>(await AppealRequests().RequestAsync(
+            data.Owner, data.Item.UploadId, data.Rejection.PhotoVersion, Key(), Ct));
+
+        Assert.Equal(data.RejectedAt.AddDays(30), result.MaximumRetentionUntil);
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from identity.users owner join media.uploads u on u.owner_id=owner.id
+            where owner.id=$1 and owner.status=$2 and u.id=$3
+              and u.state='Rejected' and u.rejection_code='PHOTO_REVIEW_REJECTED'
+            """, data.Owner.UserId, status, data.Item.UploadId));
+        Assert.Equal(history, await AppealDecisionSnapshotAsync());
+        Assert.Equal(files, Files());
+    }
+
     [Fact]
     public async Task OwnerAppealReplayUsesItsConfirmedReceiptBeforeVersionDeadlineOrStorage()
     {
