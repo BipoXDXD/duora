@@ -64,7 +64,11 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         var images = Path.Combine(RepositoryRoot.Find(), "infra", "images", "postgres");
         var builder = new PostgreSqlBuilder(Image)
-            .WithCreateParameterModifier(parameters => parameters.HostConfig.ShmSize = SharedMemoryBytes)
+            .WithCreateParameterModifier(parameters =>
+            {
+                parameters.HostConfig ??= new();
+                parameters.HostConfig.ShmSize = SharedMemoryBytes;
+            })
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "initdb", "10-duora-roles.sh")),
                 InitdbScriptTarget, fileMode: Executable)
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "reconcile-privileges.sql")),
