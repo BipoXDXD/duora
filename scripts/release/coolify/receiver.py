@@ -9,9 +9,11 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import socket
+import stat
 import sys
 import tarfile
 import tempfile
@@ -43,7 +45,10 @@ SAFE_ENV = {
 }
 BASE = Path("/etc/coolify-release")
 STATE = Path("/var/lib/coolify-release")
-GOBLIN_IMAGES = Path("/srv/goblinshift/executor/images.json")
+GOBLIN_IMAGES = Path("/var/lib/coolify-release/goblinshift/executor-images.json")
+GOBLIN_EXECUTOR_CONFIG = Path("/etc/goblinshift/executor-ctl.json")
+POLICY_LIMIT = 64 * 1024
+POLICY_REFERENCE = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,254}@sha256:[0-9a-f]{64}")
 LIMIT = 4 * 1024**3
 EXPANDED_LIMIT = 4 * LIMIT
 RESERVE = 8 * 1024**3
@@ -63,6 +68,198 @@ def json_unique(text: Any) -> Any:
         return result
 
     return json.loads(text, object_pairs_hook=pairs)
+
+
+def require_admin_metadata(
+    info: Any, directory: bool = False, private: bool = False
+) -> None:
+    kind = stat.S_ISDIR if directory else stat.S_ISREG
+    if (
+        not kind(info.st_mode)
+        or info.st_uid != 0
+        or info.st_gid != 0
+        or info.st_mode & 0o022
+        or (not directory and info.st_nlink != 1)
+        or (private and stat.S_IMODE(info.st_mode) != 0o600)
+    ):
+        raise ValueError("Untrusted administrative policy metadata")
+
+
+@contextmanager
+def admin_directory(path: Path) -> Any:
+    """Pin every component from /; no mkdir, repair, symlinks or UID1001 trust."""
+    if not path.is_absolute() or ".." in path.parts:
+        raise ValueError("Administrative directory must be absolute")
+    descriptors = []
+    links = []
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        descriptors.append(os.open("/", flags))
+        require_admin_metadata(os.fstat(descriptors[0]), directory=True)
+        for name in path.parts[1:]:
+            parent = descriptors[-1]
+            child = os.open(name, flags, dir_fd=parent)
+            descriptors.append(child)
+            links.append((parent, name, child))
+
+        def verify() -> None:
+            for descriptor in descriptors:
+                require_admin_metadata(os.fstat(descriptor), directory=True)
+            for parent, name, child in links:
+                linked = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                pinned = os.fstat(child)
+                if (linked.st_dev, linked.st_ino) != (pinned.st_dev, pinned.st_ino):
+                    raise ValueError("Administrative directory replaced")
+                require_admin_metadata(linked, directory=True)
+
+        verify()
+        yield descriptors[-1], verify
+    except OSError as error:
+        raise ValueError("Administrative directory unavailable") from error
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+def read_admin_file(directory: int, name: str, private: bool = False) -> bytes:
+    descriptor = os.open(
+        name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+    )
+    with os.fdopen(descriptor, "rb") as handle:
+        before = os.fstat(handle.fileno())
+        require_admin_metadata(before, private=private)
+        if before.st_size > POLICY_LIMIT:
+            raise ValueError("Administrative file exceeds limit")
+        raw = handle.read(POLICY_LIMIT + 1)
+        after = os.fstat(handle.fileno())
+        linked = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        if (
+            len(raw) > POLICY_LIMIT
+            or (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            )
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            or (linked.st_dev, linked.st_ino) != (after.st_dev, after.st_ino)
+        ):
+            raise ValueError("Administrative file changed while reading")
+        return raw
+
+
+def allowed_policy(raw: bytes) -> list[str]:
+    policy = json_unique(raw)
+    if (
+        not isinstance(policy, dict)
+        or set(policy) != {"allowed"}
+        or not isinstance(policy["allowed"], list)
+        or not policy["allowed"]
+        or not all(
+            isinstance(ref, str) and POLICY_REFERENCE.fullmatch(ref)
+            for ref in policy["allowed"]
+        )
+    ):
+        raise ValueError("Invalid administrative executor policy")
+    return policy["allowed"]
+
+
+@contextmanager
+def goblin_policy() -> Any:
+    # The active daemon transition is an administrative migration gate, not a
+    # startup repair. Both root-owned on-disk inputs must already be installed.
+    try:
+        with (
+            admin_directory(GOBLIN_IMAGES.parent) as (directory, verify_directory),
+            admin_directory(GOBLIN_EXECUTOR_CONFIG.parent) as (
+                config_directory,
+                verify_config,
+            ),
+        ):
+            raw = read_admin_file(directory, GOBLIN_IMAGES.name, private=True)
+            allowed_policy(raw)
+            config_raw = read_admin_file(config_directory, GOBLIN_EXECUTOR_CONFIG.name)
+            config = json_unique(config_raw)
+            if not isinstance(config, dict) or config.get("images_file") != str(
+                GOBLIN_IMAGES
+            ):
+                raise ValueError("Executor reader and administrative writer differ")
+
+            def verify() -> None:
+                verify_directory()
+                verify_config()
+                if (
+                    read_admin_file(config_directory, GOBLIN_EXECUTOR_CONFIG.name)
+                    != config_raw
+                ):
+                    raise ValueError("Executor configuration changed during release")
+                if read_admin_file(directory, GOBLIN_IMAGES.name, private=True) != raw:
+                    raise ValueError("Executor policy changed during release")
+
+            yield {"directory": directory, "raw": raw, "verify": verify}
+    except OSError as error:
+        raise ValueError("Administrative executor policy unavailable") from error
+
+
+def append_goblin_policy(policy: Any, reference: str) -> None:
+    if not re.fullmatch(
+        re.escape(PROJECTS["goblinshift"]["executor"]) + r"@sha256:" + HEX, reference
+    ):
+        raise ValueError("Unexpected executor repository")
+    previous = allowed_policy(policy["raw"])
+    raw = (
+        json.dumps(
+            {"allowed": list(dict.fromkeys([reference, *previous]))},
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode()
+    if len(raw) > POLICY_LIMIT:
+        raise ValueError("Executor policy would exceed limit")
+    policy["verify"]()
+    directory = policy["directory"]
+    temporary = ".executor-images-" + secrets.token_hex(16) + ".tmp"
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        0o600,
+        dir_fd=directory,
+    )
+    identity = os.fstat(descriptor)
+    renamed = False
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            require_admin_metadata(identity, private=True)
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        policy["verify"]()
+        current = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (identity.st_dev, identity.st_ino):
+            raise ValueError("Executor policy temporary replaced")
+        os.replace(
+            temporary, GOBLIN_IMAGES.name, src_dir_fd=directory, dst_dir_fd=directory
+        )
+        renamed = True
+        os.fsync(directory)
+    finally:
+        if not renamed:
+            try:
+                current = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) == (
+                    identity.st_dev,
+                    identity.st_ino,
+                ):
+                    os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
 
 
 def parse_request(value: Any) -> Any:
@@ -86,7 +283,9 @@ def validate_release(data: Any, project: Any, commit: Any) -> Any:
         raise ValueError("Receiver artifact differs; administrative update required")
     if data["project"] != project or data["commit"] != commit:
         raise ValueError("Release identity mismatch")
-    if not isinstance(data["images"], dict) or set(data["images"]) != set(PROJECTS[project]):
+    if not isinstance(data["images"], dict) or set(data["images"]) != set(
+        PROJECTS[project]
+    ):
         raise ValueError("Unexpected image roles")
     for role, reference in data["images"].items():
         if not isinstance(reference, str) or not re.fullmatch(
@@ -171,7 +370,11 @@ def unpack(
     total = 0
     names = "|".join(re.escape(role) for role in roles)
     file_pattern = re.compile(
-        r"(release\.json|(?:" + names + r")/(?:oci-layout|index\.json|blobs/sha256/" + HEX + r"))"
+        r"(release\.json|(?:"
+        + names
+        + r")/(?:oci-layout|index\.json|blobs/sha256/"
+        + HEX
+        + r"))"
     )
     directory_pattern = re.compile(r"(?:" + names + r")(?:/blobs(?:/sha256)?)?")
     with transport_deadline(timeout), tempfile.TemporaryFile(dir=destination) as raw:
@@ -180,9 +383,15 @@ def unpack(
         with tarfile.open(fileobj=raw, mode="r:") as archive:
             for member in archive:
                 name = member.name.removeprefix("./").rstrip("/")
-                if member.isdir() and (name in {"", "."} or directory_pattern.fullmatch(name)):
+                if member.isdir() and (
+                    name in {"", "."} or directory_pattern.fullmatch(name)
+                ):
                     continue
-                if not member.isfile() or not file_pattern.fullmatch(name) or name in seen:
+                if (
+                    not member.isfile()
+                    or not file_pattern.fullmatch(name)
+                    or name in seen
+                ):
                     raise ValueError("Archive path, type or duplicate refused")
                 seen.add(name)
                 total += member.size
@@ -301,7 +510,10 @@ def validate_runtime(record: Any, uuid: Any, digest: Any = None) -> Any:
 
 
 def validate_runtime_identity(record: Any, uuid: Any, digest: Any) -> None:
-    if uuid is not None and record["Config"]["Labels"].get("coolify.applicationUuid") != uuid:
+    if (
+        uuid is not None
+        and record["Config"]["Labels"].get("coolify.applicationUuid") != uuid
+    ):
         raise ValueError("Unexpected Coolify ownership")
     if digest is not None and record["Image"] != digest:
         raise ValueError("Running release image differs")
@@ -323,7 +535,9 @@ class DockerConnection(http.client.HTTPConnection):
         self.sock.connect("/var/run/docker.sock")
 
 
-def docker_request(method: Any, path: Any, body: Any = None, headers: Any = None) -> Any:
+def docker_request(
+    method: Any, path: Any, body: Any = None, headers: Any = None
+) -> Any:
     connection = DockerConnection()
     try:
         connection.request(method, "/v1.52" + path, body=body, headers=headers or {})
@@ -357,13 +571,17 @@ def command(argv: Any) -> Any:
     if argv[:3] == ["/usr/bin/docker", "image", "inspect"] and len(argv) == 4:
         return (
             b"["
-            + docker_request("GET", "/images/" + urllib.parse.quote(argv[3], safe="") + "/json")
+            + docker_request(
+                "GET", "/images/" + urllib.parse.quote(argv[3], safe="") + "/json"
+            )
             + b"]"
         )
     if argv[:2] == ["/usr/bin/docker", "inspect"] and len(argv) == 3:
         return (
             b"["
-            + docker_request("GET", "/containers/" + urllib.parse.quote(argv[2], safe="") + "/json")
+            + docker_request(
+                "GET", "/containers/" + urllib.parse.quote(argv[2], safe="") + "/json"
+            )
             + b"]"
         )
     if argv[:2] == ["/usr/bin/docker", "tag"] and len(argv) == 4:
@@ -440,13 +658,15 @@ def import_images(release: Any, stage: Any) -> Any:
                     archive.add(path, arcname=path.relative_to(root), recursive=False)
         command(["/usr/bin/docker", "load", "-i", str(bundle)])
         try:
-            actual = json.loads(command(["/usr/bin/docker", "image", "inspect", image_ids[role]]))[
-                0
-            ]
+            actual = json.loads(
+                command(["/usr/bin/docker", "image", "inspect", image_ids[role]])
+            )[0]
         except DockerOperationError as error:
             if error.status != 404:
                 raise
-            actual = json.loads(command(["/usr/bin/docker", "image", "inspect", digest]))[0]
+            actual = json.loads(
+                command(["/usr/bin/docker", "image", "inspect", digest])
+            )[0]
         if (
             actual["Id"] not in {digest, image_ids[role]}
             or actual.get("Descriptor", {}).get("digest", digest) != digest
@@ -461,7 +681,9 @@ def import_images(release: Any, stage: Any) -> Any:
         command(["/usr/bin/docker", "tag", image_ids[role], tag])
         reference = tag + "@" + digest
         # Prove the immutable reference resolves locally before Coolify can use it.
-        resolved = json.loads(command(["/usr/bin/docker", "image", "inspect", reference]))[0]
+        resolved = json.loads(
+            command(["/usr/bin/docker", "image", "inspect", reference])
+        )[0]
         if resolved["Id"] != image_ids[role]:
             raise ValueError("Imported manifest reference differs")
         imported[role] = reference
@@ -495,13 +717,17 @@ def link_previous(manifest: Any, current_id: Any) -> Any:
 
 def require_no_pending(state: Any) -> None:
     if (state / "pending.json").exists():
-        raise ValueError("Unresolved release intent: inspect Coolify and reconcile before retry")
+        raise ValueError(
+            "Unresolved release intent: inspect Coolify and reconcile before retry"
+        )
 
 
 def require_idle(uuid: Any) -> None:
     offset = 0
     while True:
-        result = api("deployments/applications/" + uuid + "?skip=" + str(offset) + "&take=100")
+        result = api(
+            "deployments/applications/" + uuid + "?skip=" + str(offset) + "&take=100"
+        )
         records = result["deployments"]
         for record in records:
             if record["status"] not in {
@@ -543,20 +769,26 @@ def atomic_text(path: Any, text: Any) -> None:
 def configure_duora(release: Any, config: Any) -> Any:
     with release_locks(Path("/var/lib/duora/.deploy.lock")):
         # The existing reviewed executor checks schema, backups, WAL and readiness.
-        current_id = json_unique(Path("/var/lib/duora/current.json").read_bytes())["releaseId"]
+        current_id = json_unique(Path("/var/lib/duora/current.json").read_bytes())[
+            "releaseId"
+        ]
         manifest = link_previous(release["duora"], current_id)
         release["duora"] = manifest
         module_path = Path("/usr/local/sbin/duora-deploy")
         import importlib.util
 
-        loader = importlib.machinery.SourceFileLoader("duora_manifest", str(module_path))
+        loader = importlib.machinery.SourceFileLoader(
+            "duora_manifest", str(module_path)
+        )
         spec = importlib.util.spec_from_loader(loader.name, loader)
         if spec is None:
             raise ValueError("Cannot load reviewed manifest parser")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         loader.exec_module(module)
-        module.parse_manifest(json.dumps(manifest), image_prefix="ghcr.io/bipoxdxd/duora-")
+        module.parse_manifest(
+            json.dumps(manifest), image_prefix="ghcr.io/bipoxdxd/duora-"
+        )
         pinned = Path("/etc/duora/coolify-deploy.json")
         current = json_unique(pinned.read_bytes())
         path = Path("/opt/duora/releases") / (manifest["releaseId"] + ".json")
@@ -565,15 +797,30 @@ def configure_duora(release: Any, config: Any) -> Any:
         atomic_json(path, manifest)
         current["manifest"] = str(path)
         current["manifest_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-        current["observer_environment"]["DUORA_OBSERVER_IMAGE"] = manifest["images"]["edge"]
+        current["observer_environment"]["DUORA_OBSERVER_IMAGE"] = manifest["images"][
+            "edge"
+        ]
         # Git config remains frozen, so all other observer metadata stays pinned.
         atomic_json(pinned, current)
-        update_envs(config["uuid"], {"DUORA_OBSERVER_IMAGE": manifest["images"]["edge"]})
+        update_envs(
+            config["uuid"], {"DUORA_OBSERVER_IMAGE": manifest["images"]["edge"]}
+        )
 
 
-def deploy(release: Any, imported: Any, config: Any, state: Any, image_ids: Any) -> Any:
+def deploy(
+    release: Any,
+    imported: Any,
+    config: Any,
+    state: Any,
+    image_ids: Any,
+    policy: Any = None,
+) -> Any:
     require_no_pending(state)
     require_idle(config["uuid"])
+    if release["project"] == "goblinshift":
+        if policy is None:
+            raise ValueError("Pinned administrative executor policy required")
+        policy["verify"]()
     atomic_json(
         state / "pending.json",
         {"release": release, "deployment_uuid": None, "status": "intent"},
@@ -589,19 +836,16 @@ def deploy(release: Any, imported: Any, config: Any, state: Any, image_ids: Any)
             "GS_WEB_IMAGE": imported["web"],
             "GS_EXECUTOR_IMAGE": release["images"]["executor"],
         }
-        whitelist = GOBLIN_IMAGES
-        previous = json_unique(whitelist.read_bytes())["allowed"]
-        atomic_json(
-            whitelist,
-            {"allowed": list(dict.fromkeys([release["images"]["executor"], *previous]))},
-        )
+        append_goblin_policy(policy, release["images"]["executor"])
     if project == "duora":
         configure_duora(release, config)
     else:
         update_envs(uuid, values)
     result = api("applications/" + uuid + "/start", "POST")
     deployment = result["deployment_uuid"]
-    atomic_json(state / "pending.json", {"release": release, "deployment_uuid": deployment})
+    atomic_json(
+        state / "pending.json", {"release": release, "deployment_uuid": deployment}
+    )
     deadline = time.monotonic() + 1200
     while time.monotonic() < deadline:
         if deployment_finished(api("deployments/" + deployment)):
@@ -623,13 +867,17 @@ def deploy(release: Any, imported: Any, config: Any, state: Any, image_ids: Any)
                 and record["State"]["Status"] == "running"
                 and time.monotonic() < health_deadline
             ):
-                validate_runtime_identity(record, uuid if project != "duora" else None, digest)
+                validate_runtime_identity(
+                    record, uuid if project != "duora" else None, digest
+                )
                 time.sleep(2)
                 continue
             validate_runtime(record, uuid if project != "duora" else None, digest)
             break
     for probe in config["readiness"]:
-        record = json.loads(command(["/usr/bin/docker", "inspect", probe["container"]]))[0]
+        record = json.loads(
+            command(["/usr/bin/docker", "inspect", probe["container"]])
+        )[0]
         address = record["NetworkSettings"]["Networks"][probe["network"]]["IPAddress"]
         address = str(ipaddress.ip_address(address))
         connection = http.client.HTTPConnection(address, probe["port"], timeout=30)
@@ -642,7 +890,9 @@ def deploy(release: Any, imported: Any, config: Any, state: Any, image_ids: Any)
         finally:
             connection.close()
     if project == "stillon":
-        command(["/usr/bin/docker", "tag", imported["app"], "stillon:" + release["commit"]])
+        command(
+            ["/usr/bin/docker", "tag", imported["app"], "stillon:" + release["commit"]]
+        )
         atomic_text(Path("/opt/stillon/versao"), release["commit"] + "\n")
     atomic_json(
         state / "current.json",
@@ -685,7 +935,11 @@ def require_storage(state: Any) -> None:
         raise ValueError("Image storage roots required")
     roots = [docker_root]
     for name in names:
-        if not isinstance(name, str) or not Path(name).is_absolute() or not Path(name).is_dir():
+        if (
+            not isinstance(name, str)
+            or not Path(name).is_absolute()
+            or not Path(name).is_dir()
+        ):
             raise ValueError("Invalid image storage root")
         roots.append(Path(name))
     budgets = {state.stat().st_dev: [state, 2 * LIMIT + RESERVE]}
@@ -713,8 +967,14 @@ def main() -> None:
     with (
         release_locks(STATE / "host.lock"),
         release_locks(state / "release.lock", shared),
+        ExitStack() as resources,
     ):
         require_host_idle()
+        policy = (
+            resources.enter_context(goblin_policy())
+            if project == "goblinshift"
+            else None
+        )
         require_storage(state)
         with tempfile.TemporaryDirectory(prefix="incoming-", dir=state) as temporary:
             stage = Path(temporary)
@@ -722,6 +982,8 @@ def main() -> None:
             release = validate_release(
                 json_unique((stage / "release.json").read_bytes()), project, sha
             )
+            if policy is not None:
+                policy["verify"]()
             # Survives process death: a daemon import/start can outlive its HTTP client.
             atomic_json(
                 STATE / "pending.json",
@@ -729,7 +991,14 @@ def main() -> None:
             )
             imported, image_ids = import_images(release, stage)
             config = json_unique((BASE / (project + ".json")).read_bytes())
-            deployment = deploy(release, imported, config, state, image_ids)
+            deployment = deploy(
+                release,
+                imported,
+                config,
+                state,
+                image_ids,
+                **({"policy": policy} if policy is not None else {}),
+            )
             (STATE / "pending.json").unlink()
             sync_directory(STATE)
             print(
