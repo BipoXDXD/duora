@@ -1,6 +1,6 @@
 # M6b2 — coleta de candidatos com expiração comprovada
 
-Filho do #239/bd7653b, após a expiração lógica M6b1. Contratos ADR0035/P173-5 e API media-review: limpar candidatos privados até24h após a expiração. Este dispatcher consome somente a obrigação criada atomicamente pelo System. Não decide moderação, não publica foto e não matricula rejeições humanas, abandonados ou aprovações.
+Filho do #239/2814b6a, após a expiração lógica M6b1. Contratos ADR0035/P173-5 e API media-review: limpar candidatos privados até24h após a expiração. Este dispatcher consome somente a obrigação criada atomicamente pelo System. Não decide moderação, não publica foto e não matricula rejeições humanas, abandonados ou aprovações.
 
 ## Elegibilidade e preservação
 

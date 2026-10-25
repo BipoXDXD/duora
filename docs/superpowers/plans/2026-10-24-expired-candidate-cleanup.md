@@ -1,6 +1,6 @@
 # Implementação M6b2 — candidatos expirados
 
-1. Preparar testes PostgreSQL/filesystem e scaffold sem coleta, na branch própria filha239/bd7653b. Revisão independente antes de publicar. Não implementar produto antes de RED comportamental hospedado.
+1. Preparar testes PostgreSQL/filesystem e scaffold sem coleta, na branch própria filha239/2814b6a. Revisão independente antes de publicar. Não implementar produto antes de RED comportamental hospedado.
 2. Após qualificação runtime239 e término de seus jobs, publicar draft filho com head fixo; confirmar build/formatação e falhas exclusivamente esperadas no scaffold. Não reexecutar manualmente jobs ou reduzir gates.
 3. Implementar seleção estrita, claim SKIP LOCKED, token/lease, DELETE foraSQL, ACK e retry/backoff. Revalidar vínculos/prova em claim e ACK; nenhuma decisão, grant, tabela ou backfill.
 4. Qualificar CI normal no head produto. Revisar de forma independente. Registrar comandos/resultados/logs e separar falhas herdadas de regressões. Conectar ao Worker de limpeza existente somente no produto qualificado; nenhuma admissão real.
