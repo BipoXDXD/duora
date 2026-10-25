@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Security.Cryptography;
 using System.Transactions;
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
@@ -99,6 +100,24 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Equal(files, Files());
         Assert.Equal(snapshot, await AppealProjectionAsync());
         Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_appeals where original_decision_id=$1", data.DecisionId));
+    }
+
+    [Fact]
+    public async Task OwnerAppealFirstResponseAndReplayUseTheSamePersistedTimestampPrecision()
+    {
+        var data = await RejectedForAppealAsync();
+        _time.Advance(TimeSpan.FromTicks(1));
+        var key = Key();
+
+        var first = Assert.IsType<PhotoReviewAppealRequestResult.Accepted>(await AppealRequests().RequestAsync(
+            data.Owner, data.Item.UploadId, data.Rejection.PhotoVersion, key, Ct));
+        var before = await AppealProjectionAsync();
+        var replay = Assert.IsType<PhotoReviewAppealRequestResult.Accepted>(await AppealRequests().RequestAsync(
+            data.Owner, data.Item.UploadId, data.Rejection.PhotoVersion, key, Ct));
+
+        Assert.Equal(first, replay);
+        Assert.Equal(first.RequestedAt.AddDays(7), first.ResponseTargetAt);
+        Assert.Equal(before, await AppealProjectionAsync());
     }
 
     [Fact]
@@ -327,6 +346,44 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.IsType<PhotoReviewAppealRequestResult.Unavailable>(await AppealRequests().RequestAsync(
             data.Owner, data.Item.UploadId, data.Rejection.PhotoVersion, Key(), Ct));
         Assert.Equal(before, await AppealProjectionAsync());
+        Assert.Equal(files, Files());
+    }
+
+    [Fact]
+    public async Task OwnerAppealCannotReplaceTheEvidenceBoundToTheOriginalHumanRejection()
+    {
+        var data = await RejectedForAppealAsync();
+        var store = new FileSystemObjectStore(_root.FullName);
+        var key = ObjectKey.ForReviewCandidate(data.Generation, PhotoVariant.Card);
+        byte[] replacement;
+        await using (var original = await store.OpenReadAsync(key, Ct))
+        {
+            Assert.NotNull(original);
+            using var buffer = new MemoryStream();
+            await original.CopyToAsync(buffer, Ct);
+            replacement = buffer.ToArray();
+        }
+
+        Assert.NotEmpty(replacement);
+        replacement[0] ^= 1;
+        await store.DeleteAsync(key, Ct);
+        using (var content = new MemoryStream(replacement))
+        {
+            await store.PutAsync(key, content, replacement.Length, "image/webp", Ct);
+        }
+
+        // Current storage and current candidate metadata agree; the immutable rejected manifest deliberately does not.
+        await ExecuteAsync("update media.review_candidate_variants set sha256=$2 where generation=$1 and kind='card'",
+            data.Generation, SHA256.HashData(replacement));
+        var before = await AppealProjectionAsync();
+        var history = await AppealDecisionSnapshotAsync();
+        var files = Files();
+
+        Assert.IsType<PhotoReviewAppealRequestResult.Unavailable>(await AppealRequests().RequestAsync(
+            data.Owner, data.Item.UploadId, data.Rejection.PhotoVersion, Key(), Ct));
+
+        Assert.Equal(before, await AppealProjectionAsync());
+        Assert.Equal(history, await AppealDecisionSnapshotAsync());
         Assert.Equal(files, Files());
     }
 
@@ -644,7 +701,11 @@ public sealed partial class PhotoReviewApprovalTests
         await using var records = new NpgsqlCommand("""
             select jsonb_build_array(
               (select coalesce(jsonb_agg(to_jsonb(a) order by a.id),'[]'::jsonb) from safety.photo_review_appeals a),
-              (select coalesce(jsonb_agg(to_jsonb(c) order by c.actor_id,c.key_hash),'[]'::jsonb) from safety.photo_review_appeal_commands c)
+              (select coalesce(jsonb_agg(to_jsonb(c) order by c.actor_id,c.key_hash),'[]'::jsonb) from safety.photo_review_appeal_commands c),
+              (select coalesce(jsonb_agg(to_jsonb(v) order by v.generation,v.kind),'[]'::jsonb) from media.review_candidate_variants v),
+              (select coalesce(jsonb_agg(to_jsonb(d) order by d.id),'[]'::jsonb) from safety.photo_review_decisions d),
+              (select coalesce(jsonb_agg(to_jsonb(v) order by v.decision_id,v.variant),'[]'::jsonb) from safety.photo_review_decision_variants v),
+              (select coalesce(jsonb_agg(to_jsonb(c) order by c.actor_id,c.operation,c.key_hash),'[]'::jsonb) from safety.photo_review_decision_commands c)
             )::text
             """, connection, transaction);
         return existing + "\n" + Assert.IsType<string>(await records.ExecuteScalarAsync(cancellationToken));
