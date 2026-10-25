@@ -21,7 +21,7 @@ const RETURN_PATHS: ReadonlySet<string> = new Set([
 const PARSING_ORIGIN = 'https://duora.invalid'
 const ROOM_PATH = /^\/rooms\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const RETURN_VIEWS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ['tab', new Set(['sessions', 'photos', 'security'])],
+  ['tab', new Set(['details', 'sessions', 'photos', 'security'])],
   ['aba', new Set(['sessoes', 'fotos', 'seguranca'])],
 ])
 const RETURN_ANCHORS: ReadonlySet<string> = new Set(['#section', '#sessions', '#photos', '#security'])

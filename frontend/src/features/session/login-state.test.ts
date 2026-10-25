@@ -50,6 +50,7 @@ describe('canonical safe returns', () => {
     expect(readLoginState({ from })).toEqual({ from: expected })
   })
   it.each([
+    ['/conta?tab=details#section', '/account?tab=details#section'],
     ['/conta/perfil?tab=photos#section', '/account/profile?tab=photos#section'],
     ['/account/preferences', '/account/preferences'],
     ['/events', '/events'],
