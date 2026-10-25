@@ -245,4 +245,65 @@ describe('um slot de áudio privado por página', () => {
     expect(current.audio.outputs[0]?.buffer).toBeNull()
     await expect(lease.play()).rejects.toMatchObject({ name: 'AbortError' })
   })
+
+  it('dois seeks durante resume pendente preservam reprodução e usam apenas a última posição', async () => {
+    const current = fixture()
+    const operation = current.store.begin(current.owner)
+    const lease = current.coordinator.acquire(operation)
+    await loadOwnedAudio(operation, PATH, lease)
+    await lease.play()
+    let release!: () => void
+    const resumed = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    current.audio.value.resume.mockImplementationOnce(() => resumed)
+
+    const first = lease.seek(0).catch((error: unknown) => error as Error)
+    const last = lease.seek(0.05)
+    release()
+    expect(await first).toMatchObject({ name: 'AbortError' })
+    await last
+
+    expect(lease.getSnapshot().phase).toBe('playing')
+    expect(lease.position()).toBe(0.05)
+    expect(current.audio.outputs).toHaveLength(2)
+    expect(current.audio.outputs[1]?.start).toHaveBeenCalledWith(0, 0.05)
+    lease.dispose()
+  })
+
+  it.each(['pause', 'protect'] as const)('%s durante seek pendente impede reprodução tardia', async (action) => {
+    const current = fixture()
+    const operation = current.store.begin(current.owner)
+    const lease = current.coordinator.acquire(operation)
+    await loadOwnedAudio(operation, PATH, lease)
+    await lease.play()
+    let release!: () => void
+    const resumed = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    current.audio.value.resume.mockImplementationOnce(() => resumed)
+    const seeking = lease.seek(0.05).catch((error: unknown) => error as Error)
+    if (action === 'pause') lease.pause()
+    else current.store.protect('identity')
+    release()
+
+    expect(await seeking).toMatchObject({ name: 'AbortError' })
+    expect(lease.getSnapshot().phase).toBe(action === 'pause' ? 'paused' : 'disposed')
+    expect(current.audio.outputs).toHaveLength(1)
+    lease.dispose()
+  })
+
+  it('seek até o fim encerra a intenção de reproduzir e voltar a uma posição mantém pausa', async () => {
+    const current = fixture()
+    const operation = current.store.begin(current.owner)
+    const lease = current.coordinator.acquire(operation)
+    await loadOwnedAudio(operation, PATH, lease)
+    await lease.play()
+    await lease.seek(0.1)
+    expect(lease.getSnapshot().phase).toBe('ended')
+    await lease.seek(0.05)
+    expect(lease.getSnapshot().phase).toBe('paused')
+    expect(current.audio.outputs).toHaveLength(1)
+    lease.dispose()
+  })
 })

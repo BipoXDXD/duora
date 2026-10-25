@@ -58,6 +58,7 @@ export function createPrivateAudioCoordinator(dependencies: AudioDependencies): 
       let offset = 0
       let beganAt = 0
       let playVersion = 0
+      let pendingPlay: number | null = null
       let snapshot: AudioSnapshot = Object.freeze({ phase: 'empty', duration: 0, muted: true })
       const listeners = new Set<() => void>()
       let unsubscribe = (): void => undefined
@@ -142,28 +143,35 @@ export function createPrivateAudioCoordinator(dependencies: AudioDependencies): 
           assertCurrent()
           if (buffer === null) throw new Error('audio-not-ready')
           const version = ++playVersion
-          await context.resume()
-          assertCurrent()
-          if (version !== playVersion) throw contextAbort()
-          if (output !== null) return
-          if (offset >= snapshot.duration) offset = 0
-          const source = context.createBufferSource()
-          source.buffer = buffer
-          source.connect(gain)
-          source.onended = () => {
-            if (disposed || output !== source) return
-            offset = snapshot.duration
-            stopOutput()
-            publish('ended')
+          pendingPlay = version
+          try {
+            await context.resume()
+            assertCurrent()
+            if (version !== playVersion) throw contextAbort()
+            if (output !== null) return
+            if (offset >= snapshot.duration) offset = 0
+            const source = context.createBufferSource()
+            source.buffer = buffer
+            source.connect(gain)
+            source.onended = () => {
+              if (disposed || output !== source) return
+              offset = snapshot.duration
+              stopOutput()
+              publish('ended')
+            }
+            output = source
+            beganAt = context.currentTime
+            source.start(0, offset)
+            publish('playing')
+          } finally {
+            // Uma continuação antiga não pode apagar a intenção de um seek mais recente.
+            if (pendingPlay === version) pendingPlay = null
           }
-          output = source
-          beganAt = context.currentTime
-          source.start(0, offset)
-          publish('playing')
         },
         pause() {
           assertCurrent()
           playVersion += 1
+          pendingPlay = null
           offset = position()
           stopOutput()
           publish('paused')
@@ -171,7 +179,7 @@ export function createPrivateAudioCoordinator(dependencies: AudioDependencies): 
         async seek(value) {
           assertCurrent()
           if (!Number.isFinite(value) || buffer === null) throw new Error('audio-position')
-          const playing = output !== null
+          const playing = output !== null || pendingPlay !== null
           lease.pause()
           offset = Math.max(0, Math.min(value, snapshot.duration))
           if (playing && offset < snapshot.duration) await lease.play()
@@ -188,6 +196,7 @@ export function createPrivateAudioCoordinator(dependencies: AudioDependencies): 
           if (disposed) return
           disposed = true
           playVersion += 1
+          pendingPlay = null
           unsubscribe()
           stopOutput()
           buffer = null
