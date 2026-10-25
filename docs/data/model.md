@@ -899,6 +899,20 @@ ambas as tabelas e os testes negativos exigem42501 para operações proibidas. A
 manter as mesmas restrições antes de instalação. ClasseP3, apenas IDs/prazos/versões/hashes, sem imagem,
 path, URL ou texto sensível. Decisão do recurso, encerramento/coleta e restore continuam entregas próprias.
 
+### safety.photo_review_appeal_assignments / safety.photo_review_appeal_assignment_commands — atribuição de recurso
+
+M4b2a permite avançar apenas a versão do root de recurso aberto, com CHECK version>=1. Histórico de atribuições
+guarda id, recurso/versão>=2, destinatário, autor e instante finito, com UNIQUE(recurso,versão) e FKs RESTRICT.
+Os recibos próprios guardam actor/keyHash/intençãoSHA256, recurso/versão confirmados e instante; a FK composta
+aponta para a atribuição histórica, nunca para a versão corrente mutável do root. Ambos os objetos são
+append-only SELECT/INSERT, com UPDATE/DELETE/TRUNCATE revogados e negativos42501 na suíte do papel da aplicação.
+
+O ator precisa de autoridade administrativa/MFA/Assign viva; o destinatário precisa de Evidence/Appeal explícitos
+e prontidão, e deve ser distinto do rejeitador humano original. Atribuição não concede acesso. O teto30dias é
+validado contra a decisão humana imutável, sem alterar foto/caso/candidato ou sua retenção. Titular
+Restricted/Suspended mantém o canal assíncrono sem exigir sessão própria viva. Sem rota/DI/ativação ou grant
+pessoal; decisão, leitura privada do recurso e composição canônica dos REVOKEs continuam gates próprios.
+
 ### media.media_assets
 
 - **Colunas:** `id` (= `assetId` de API-M04); `upload_id`; `owner_id`; `state text` (`Approved`, `Rejected`,

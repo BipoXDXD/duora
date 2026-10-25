@@ -41,6 +41,8 @@ internal sealed record AuditAction
 
     public static readonly AuditAction PhotoReviewAppealRequested = new("safety.photo_review_appeal_requested");
 
+    public static readonly AuditAction PhotoReviewAppealAssigned = new("safety.photo_review_appeal_assigned");
+
     public static readonly AuditAction PhotoReviewPermissionGranted = new("safety.photo_review_permission_granted");
 
     public static readonly AuditAction PhotoReviewPermissionRevoked = new("safety.photo_review_permission_revoked");
