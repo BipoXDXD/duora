@@ -170,6 +170,31 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.False(await gc.CompleteSweepAsync(old, Ct));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExpiredCleanupReadsItsAckAndRetryClockAfterWaitingForTheCandidateLock(bool retry)
+    {
+        var (_, generation) = await ExpiredCleanupCaseAsync();
+        var label = "expired-cleanup-lease-" + Guid.NewGuid().ToString("N");
+        var settings = new NpgsqlConnectionStringBuilder(_connectionString) { ApplicationName = label };
+        await using var source = NpgsqlDataSource.Create(settings.ConnectionString);
+        var gc = ExpiredCleanup(source);
+        var claim = Assert.IsType<ExpiredCandidateCleanupClaim>(await gc.ClaimAsync(Ct));
+        _time.Advance(TimeSpan.FromSeconds(59));
+        var before = await ExpirationProjectionAsync();
+        var files = Files();
+
+        Assert.False(await AfterCleanupCandidateWaitAsync(generation, label,
+            ct => retry ? gc.RetryAsync(claim, ct) : gc.CompleteSweepAsync(claim, ct),
+            () => _time.Advance(TimeSpan.FromSeconds(2))));
+
+        Assert.Equal(before, await ExpirationProjectionAsync());
+        Assert.Equal(files, Files());
+        Assert.Equal(1, await gc.DispatchOnceAsync(Ct));
+        Assert.Equal(1, await ScalarAsync("select count(*) from media.review_candidates where generation=$1 and deleted_at is not null", generation));
+    }
+
     [Fact]
     public async Task ExpiredCleanupSkipsALockedObligationAndClaimsAnotherGeneration()
     {
@@ -338,6 +363,66 @@ public sealed partial class PhotoReviewApprovalTests
               (select coalesce(jsonb_agg(to_jsonb(v) order by v.media_asset_id,v.kind),'[]'::jsonb) from media.media_variants v)
             )::text as "Value"
             """).SingleAsync(Ct);
+    }
+
+    private async Task<bool> AfterCleanupCandidateWaitAsync(Guid generation, string label,
+        Func<CancellationToken, Task<bool>> start, Action whileWaiting)
+    {
+        await using var locker = new NpgsqlConnection(_connectionString);
+        await locker.OpenAsync(Ct);
+        await using var held = await locker.BeginTransactionAsync(Ct);
+        await using var hold = new NpgsqlCommand("select generation from media.review_candidates where generation=$1 for update", locker, held);
+        hold.Parameters.AddWithValue(generation);
+        Assert.Equal(generation, await hold.ExecuteScalarAsync(Ct));
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var operation = start(attempt.Token);
+        var released = false;
+        try
+        {
+            using var observation = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+            observation.CancelAfter(TimeSpan.FromSeconds(5));
+            var waiting = false;
+            for (var count = 0; count < 100 && !operation.IsCompleted; count++)
+            {
+                waiting = await ScalarAsync("""
+                    select count(*) from pg_stat_activity where application_name=$1 and $2=any(pg_blocking_pids(pid))
+                    """, label, locker.ProcessID) == 1;
+                if (waiting)
+                {
+                    break;
+                }
+
+                await Task.Delay(10, observation.Token);
+            }
+
+            Assert.True(waiting, "Cleanup finalization must actually wait for the held candidate row.");
+            whileWaiting();
+            await held.CommitAsync(Ct);
+            released = true;
+            return await operation.WaitAsync(TimeSpan.FromSeconds(5), Ct);
+        }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try
+            {
+                if (!released)
+                {
+                    await held.RollbackAsync(cleanup.Token);
+                }
+            }
+            finally
+            {
+                await attempt.CancelAsync();
+                try
+                {
+                    await operation;
+                }
+                catch (OperationCanceledException) when (operation.IsCompleted && operation.IsCanceled && attempt.IsCancellationRequested)
+                {
+                }
+            }
+        }
     }
 
     private ExpiredCandidateCleanupDispatcher ExpiredCleanup(NpgsqlDataSource source, IObjectStore? store = null, bool enabled = true) =>
