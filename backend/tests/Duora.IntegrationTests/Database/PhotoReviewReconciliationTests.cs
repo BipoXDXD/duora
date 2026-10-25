@@ -27,6 +27,12 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
         ["safety.photo_review_grants", "safety.photo_review_evidence_accesses",
             "safety.photo_review_appeal_assignment_commands", "safety.photo_review_appeal_assignments",
             "safety.photo_review_appeal_commands", "safety.photo_review_appeal_evidence_accesses", "safety.photo_review_appeals"];
+    private static readonly Dictionary<string, string> ColumnGrantTargets = new()
+    {
+        ["ops.audit_events"] = "action",
+        ["safety.photo_review_grants"] = "enabled",
+        ["safety.photo_review_appeal_assignments"] = "appeal_version",
+    };
     private const string AppealRoot = "safety.photo_review_appeals";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -115,6 +121,48 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
         await owner.OpenAsync(Ct);
         await using var command = new NpgsqlCommand("select current_database()", owner);
         Assert.Equal(database.Name, await command.ExecuteScalarAsync(Ct));
+    }
+
+    [Theory]
+    [InlineData("ops.audit_events", "action", false)]
+    [InlineData("ops.audit_events", "action", true)]
+    [InlineData("safety.photo_review_grants", "enabled", false)]
+    [InlineData("safety.photo_review_grants", "enabled", true)]
+    [InlineData("safety.photo_review_appeal_assignments", "appeal_version", false)]
+    [InlineData("safety.photo_review_appeal_assignments", "appeal_version", true)]
+    public async Task ColumnUpdatePrivilegesRefuseTheWholePayloadEvenWithoutTableUpdate(string table, string column, bool fromPublic)
+    {
+        Assert.Equal(column, ColumnGrantTargets[table]);
+        await using var database = await CreateMigratedAsync();
+        await using var owner = new NpgsqlConnection(database.MigratorConnectionString);
+        await owner.OpenAsync(Ct);
+        var history = await HistoryAsync(owner);
+        var schema = await SchemaAsync(owner);
+        var grantee = fromPublic ? "public" : "duora_app";
+        await ExecuteAsync(owner, "grant select on ops.__ef_migrations_history to duora_app");
+        await ExecuteAsync(owner, $"grant update({column}) on table {table} to {grantee}");
+        try
+        {
+            Assert.False(await HasPrivilegeAsync(owner, table, "UPDATE"));
+            Assert.True(await HasColumnUpdateAsync(owner, table));
+            await using (var app = new NpgsqlConnection(database.AppConnectionString))
+            {
+                await app.OpenAsync(Ct);
+                await ExecuteAsync(app, $"update {table} set {column}={column} where false");
+            }
+            await Assert.ThrowsAsync<InvalidOperationException>(() => postgres.ReconcilePrivilegesAsync(database.Name, Ct));
+            Assert.True(await HasPrivilegeAsync(owner, "ops.__ef_migrations_history", "SELECT"),
+                "A residual column grant must roll back even the payload's first REVOKE.");
+            Assert.Equal(history, await HistoryAsync(owner));
+            Assert.Equal(schema, await SchemaAsync(owner));
+        }
+        finally
+        {
+            await ExecuteAsync(owner, $"revoke update({column}) on table {table} from {grantee}", CancellationToken.None);
+        }
+        await postgres.ReconcilePrivilegesAsync(database.Name, Ct);
+        Assert.False(await HasColumnUpdateAsync(owner, table));
+        Assert.False(await HasPrivilegeAsync(owner, "ops.__ef_migrations_history", "SELECT"));
     }
 
     [Theory]
@@ -211,6 +259,30 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
                 Assert.True(await HasPrivilegeAsync(admin, AppealRoot, "UPDATE"));
             }
         }
+        foreach (var (table, column) in ColumnGrantTargets)
+        {
+            var role = "review_column_" + Guid.NewGuid().ToString("N");
+            await ExecuteAsync(admin, $"create role {role} nologin");
+            try
+            {
+                await ExecuteAsync(admin, $"grant update({column}) on table {table} to {role}; grant {role} to duora_app");
+                await ExecuteAsync(admin, "grant select on ops.__ef_migrations_history to duora_app");
+                var history = await HistoryAsync(admin);
+                Assert.False(await HasPrivilegeAsync(admin, table, "UPDATE"));
+                Assert.True(await HasColumnUpdateAsync(admin, table));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => isolated.ReconcilePrivilegesAsync(database.Name, Ct));
+                Assert.True(await HasPrivilegeAsync(admin, "ops.__ef_migrations_history", "SELECT"));
+                Assert.Equal(history, await HistoryAsync(admin));
+            }
+            finally
+            {
+                await ExecuteAsync(admin, $"revoke {role} from duora_app; drop owned by {role}; drop role {role}", CancellationToken.None);
+            }
+            await isolated.ReconcilePrivilegesAsync(database.Name, Ct);
+            Assert.False(await HasColumnUpdateAsync(admin, table));
+            Assert.False(await HasPrivilegeAsync(admin, "ops.__ef_migrations_history", "SELECT"));
+            Assert.True(await HasPrivilegeAsync(admin, AppealRoot, "UPDATE"));
+        }
     }
 
     [Fact]
@@ -255,6 +327,13 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
         await using var command = new NpgsqlCommand("select has_table_privilege('duora_app', $1, $2)", connection);
         command.Parameters.AddWithValue(table);
         command.Parameters.AddWithValue(privilege);
+        return (bool)(await command.ExecuteScalarAsync(Ct))!;
+    }
+
+    private static async Task<bool> HasColumnUpdateAsync(NpgsqlConnection connection, string table)
+    {
+        await using var command = new NpgsqlCommand("select has_any_column_privilege('duora_app', $1, 'UPDATE')", connection);
+        command.Parameters.AddWithValue(table);
         return (bool)(await command.ExecuteScalarAsync(Ct))!;
     }
 

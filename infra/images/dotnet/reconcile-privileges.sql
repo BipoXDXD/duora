@@ -27,6 +27,7 @@ DO $$
 BEGIN
   IF to_regclass('ops.audit_events') IS NOT NULL
      AND (has_table_privilege('duora_app', 'ops.audit_events', 'UPDATE')
+          OR has_any_column_privilege('duora_app', 'ops.audit_events', 'UPDATE')
           OR has_table_privilege('duora_app', 'ops.audit_events', 'DELETE')
           OR has_table_privilege('duora_app', 'ops.audit_events', 'TRUNCATE')) THEN
     RAISE EXCEPTION 'duora_app ainda pode alterar ops.audit_events (append-only, D3)';
@@ -87,6 +88,7 @@ BEGIN
   IF to_regclass('safety.photo_review_grants') IS NOT NULL THEN
     REVOKE UPDATE, DELETE, TRUNCATE ON safety.photo_review_grants FROM duora_app;
     IF has_table_privilege('duora_app', 'safety.photo_review_grants', 'UPDATE')
+       OR has_any_column_privilege('duora_app', 'safety.photo_review_grants', 'UPDATE')
        OR has_table_privilege('duora_app', 'safety.photo_review_grants', 'DELETE')
        OR has_table_privilege('duora_app', 'safety.photo_review_grants', 'TRUNCATE') THEN
       RAISE EXCEPTION 'duora_app may not rewrite photo review permission history';
@@ -107,6 +109,7 @@ BEGIN
     IF to_regclass(review_table) IS NOT NULL THEN
       EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON %s FROM duora_app', review_table);
       IF has_table_privilege('duora_app', review_table, 'UPDATE')
+         OR has_any_column_privilege('duora_app', review_table, 'UPDATE')
          OR has_table_privilege('duora_app', review_table, 'DELETE')
          OR has_table_privilege('duora_app', review_table, 'TRUNCATE') THEN
         RAISE EXCEPTION 'duora_app may not rewrite photo review history';

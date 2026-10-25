@@ -907,7 +907,8 @@ A FK composta prende atribuição/raiz/versão/revisor; outra FK prende decisão
 chave de objeto ou sessão. UPDATE/DELETE/TRUNCATE são recusados a `duora_app` pela migration e pelo SQL
 canônico do migrador. A raiz mutável de recurso preserva SELECT/INSERT/UPDATE e perde DELETE/TRUNCATE.
 O candidato inclui verificações adversariais de grants diretos, PUBLIC e roles herdados, com rollback da
-reconciliação inteira em caso de privilégio residual. Qualificação da composição e aceite operacional
+reconciliação inteira em caso de privilégio residual, inclusive UPDATE por coluna nos históricos e na auditoria.
+Qualificação da composição e aceite operacional
 continuam gates antes de instalar. Acesso não estende retenção nem modifica a decisão.
 
 ### safety.photo_review_appeal_assignments / safety.photo_review_appeal_assignment_commands — atribuição de recurso
