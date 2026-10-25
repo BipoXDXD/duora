@@ -29,6 +29,28 @@ def need(condition, message):
         raise ValueError(message)
 
 
+def failure_locations(error: BaseException) -> list[dict]:
+    """Closed source locations only: never exception messages, locals, paths or command output."""
+    sources = {"current_recovery_lab.py", "duora_deploy.py", "runtime_guard.py", "reconcile_payload.py", "install_executor.py"}
+    kinds = {"DeployError", "GuardError", "PayloadError", "ValueError", "KeyError", "TypeError", "OSError", "RuntimeError",
+             "TimeoutExpired", "CalledProcessError"}
+    result, seen = [], set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen and len(result) < 4:
+        seen.add(id(current))
+        frames = []
+        frame = current.__traceback__
+        while frame is not None and len(frames) < 8:
+            source = frame.tb_frame.f_code.co_filename.rsplit("/", 1)[-1]
+            if source in sources and 0 < frame.tb_lineno <= 10000:
+                frames.append({"source": source, "line": frame.tb_lineno})
+            frame = frame.tb_next
+        kind = type(current).__name__
+        result.append({"kind": kind if kind in kinds else "Other", "frames": frames})
+        current = current.__cause__
+    return result
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 

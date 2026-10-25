@@ -30,7 +30,7 @@ from typing import Any
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from old_image_identity import bind_old_image
-from current_recovery_receipt import SCOPE, TRUE, FALSE, EXECUTOR, RECEIVER, SQL, need, validate_receipt
+from current_recovery_receipt import SCOPE, TRUE, FALSE, EXECUTOR, RECEIVER, SQL, need, validate_receipt, failure_locations
 
 LABEL = "io.duora.current-recovery-lab"
 ROOTS = tuple(map(Path, ("/etc/duora", "/opt/duora", "/var/lib/duora", "/etc/coolify-release",
@@ -916,6 +916,7 @@ class NativeLab:
         return json.loads(lines[-1])
 
     def enroll_fixture_control(self):
+        self.report["stage"] = "native_enrollment_manifest"
         current = self.manifest("native-old-" + self.nonce[:12], self.pins["old_commit"], self.pins["old_migrations"])
         self.current = self.executor.parse_manifest(json.dumps(current), image_prefix="ghcr.io/bipoxdxd/duora-")
         self.current_manifest = Path("/opt/duora/releases") / (self.current.release_id + ".json")
@@ -929,10 +930,13 @@ class NativeLab:
         put(self.state / "v2-contract-floor.json", canonical({"schema": 1, "minimumContract": "v2", "releaseId": self.current.release_id,
                                                              "commit": self.current.commit, "sqlSha256": self.pins["historical_sql_sha256"]}))
         # Explicit synthetic administrative bootstrap; runtime_inventory itself is real read-only collection.
+        self.report["stage"] = "native_enrollment_runtime_inventory"
         inventory = self.executor.runtime_inventory(self.current, self.paths)
         put(self.state / "executor-runtime-baseline.json", canonical(inventory["profile"]))
+        self.report["stage"] = "native_enrollment_runtime_recheck"
         self.executor.runtime_recheck(self.current, self.paths)
         self.report["runtime_guard_exercised"] = True
+        self.report["stage"] = "native_enrollment_control_bootstrap"
         self.api = LoopbackFixture(self)
         self.api.value = self.current.images["edge"]
         for project, app in self.api.apps.items():
@@ -972,14 +976,18 @@ class NativeLab:
         observer_data["networks"]["default"].pop("labels")
         self.observer_file.write_bytes(canonical(observer_data))
         self.api.start()
+        self.report["stage"] = "native_enrollment_receiver_idle"
         receiver = self.executor._recovery_verified_receiver()
         for app_uuid in self.api.apps.values():
             receiver.require_idle(app_uuid)  # Real1ccd HTTP queries for all three synthetic resources.
+        self.report["stage"] = "native_enrollment_readonly_projection"
         projection = self.cli("--enroll-current-v2-recovery-control", "--preflight-only")
         need(projection["status"] == "preflight", "read-only enrollment projection missing")
         # Explicit review of this synthetic bootstrap frame; this is not implicit product enrollment.
+        self.report["stage"] = "native_enrollment_projection_binding"
         expected = self.executor.inspect_current_v2_recovery_control(self.current, self.paths)
         need(projection["baseline"] == expected and sha(canonical(expected)) == projection["sha256"], "fixture enrollment projection changed")
+        self.report["stage"] = "native_enrollment_explicit_admission"
         result = self.cli("--enroll-current-v2-recovery-control", "--reviewed-control-sha256", projection["sha256"])
         need(result["status"] == "enrolled", "fixture explicit enrollment failed")
         self.report["fixture_administrative_bootstrap"] = True
@@ -1280,6 +1288,7 @@ def main():
         r["success"] = False
         r["failure_type"] = type(error).__name__
         r["failure_stage"] = r.get("stage", "source_preflight")
+        r["failure_locations"] = failure_locations(error)
         # Exception type/stage only: even third-party failures can embed credentials or SQL.
     finally:
         r["cleanup_successful"] = lab.cleanup()

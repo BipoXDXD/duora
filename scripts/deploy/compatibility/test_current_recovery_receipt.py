@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+import current_recovery_receipt as receipt_module
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from current_recovery_receipt import BINDINGS, EXECUTOR, FALSE, RECEIVER, SCOPE, SQL, TRUE, decode, validate_receipt
@@ -73,6 +74,28 @@ def sample():
 
 
 class NewReceiptBoundaryTests(unittest.TestCase):
+    def test_failure_locations_are_closed_bounded_and_omit_sensitive_details(self):
+        classifier = getattr(receipt_module, "failure_locations", None)
+        self.assertTrue(callable(classifier), "closed source-location diagnostic is missing")
+        assert classifier is not None
+        namespace = {"ValueError": ValueError, "RuntimeError": RuntimeError}
+        exec(compile("def fail():\n raise ValueError('secret SQL token password')\n", "/private/secret/runtime_guard.py", "exec"), namespace)
+        try:
+            try:
+                namespace["fail"]()
+            except ValueError as cause:
+                raise RuntimeError("private command arguments") from cause
+        except RuntimeError as error:
+            result = classifier(error)
+            rendered = json.dumps(result)
+            for private in ("secret", "SQL", "token", "password", "private", "arguments"):
+                self.assertNotIn(private, rendered)
+            self.assertEqual(result[-1], {"kind": "ValueError", "frames": [{"source": "runtime_guard.py", "line": 2}]})
+            self.assertLessEqual(len(result), 4)
+            self.assertTrue(all(len(item["frames"]) <= 8 for item in result))
+            error.__cause__ = error  # A cyclic exception chain must terminate without exposing data.
+            self.assertEqual(len(classifier(error)), 1)
+
     def reject(self, mutate):
         value, pins = sample()
         mutate(value)

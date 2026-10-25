@@ -135,3 +135,9 @@ This config command starts no service. Subsequent runtime calls keep their exist
 and migration-only profile; the restore profile is not started. A closed required-service inventory is recorded
 before any runtime start, and missing definitions fail before provisioning. Bootstrap stage labels separate
 rendering, inventory, MinIO, database and WAL failures without exposing credentials or command output.
+
+Failure diagnostics record at most four explicit exception causes with at most eight source locations each.
+Each location contains only one of five fixed public source basenames and its integer line number. Exception
+kinds also use a fixed allowlist; messages, arbitrary paths, function arguments, locals, SQL and subprocess
+output are never included. Enrollment stages distinguish manifest validation, real runtime inventory/recheck,
+control bootstrap, receiver-idle checks, read-only projection, binding and explicit admission.
