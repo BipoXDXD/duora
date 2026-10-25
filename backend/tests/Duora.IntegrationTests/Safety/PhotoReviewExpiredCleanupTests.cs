@@ -1,6 +1,7 @@
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
 using Duora.Infrastructure.Safety;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
@@ -13,12 +14,22 @@ public sealed partial class PhotoReviewApprovalTests
     [InlineData(31)]
     public async Task ExpiredCleanupDeletesOnlyItsPrivateGenerationAndKeepsTheSystemProofAndOtherBytes(int daysLate)
     {
+        var (reviewer, approvedItem) = await PreparedAsync();
+        var approved = Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, approvedItem, Key()));
         var (item, generation) = await ExpiredCleanupCaseAsync();
         _time.Advance(TimeSpan.FromDays(daysLate));
+        byte[] unrelatedOriginal = [11, 22, 33];
+        using (var content = new MemoryStream(unrelatedOriginal))
+        {
+            await new FileSystemObjectStore(_root.FullName).PutAsync(ObjectKey.NewQuarantine(), content,
+                unrelatedOriginal.Length, "application/octet-stream", Ct);
+        }
+
         var before = Files();
         var retained = before.Where(file => !file.StartsWith($"review-candidates/{generation:N}-", StringComparison.Ordinal)).ToArray();
         Assert.Equal(3, before.Length - retained.Length);
         var history = await CleanupHistoryAsync();
+        var domain = await ExpiredCleanupDomainAsync();
         var proof = await ScalarAsync("select cleanup_audit_id from media.review_candidates where generation=$1", generation);
         await using var source = NpgsqlDataSource.Create(_connectionString);
 
@@ -26,6 +37,8 @@ public sealed partial class PhotoReviewApprovalTests
 
         Assert.Equal(retained, Files());
         Assert.Equal(history, await CleanupHistoryAsync());
+        Assert.Equal(domain, await ExpiredCleanupDomainAsync());
+        Assert.Equal(3, await ScalarAsync("select count(*) from media.media_variants where media_asset_id=$1", approved.AssetId));
         Assert.Equal(1, await ScalarAsync("""
             select count(*) from media.review_candidates c join ops.audit_events e on e.id=c.cleanup_audit_id
             where c.generation=$1 and c.cleanup_audit_id=$2 and c.deleted_at is not null
@@ -73,6 +86,7 @@ public sealed partial class PhotoReviewApprovalTests
     [InlineData("wrong-version")]
     [InlineData("wrong-generation")]
     [InlineData("no-marker-or-proof")]
+    [InlineData("no-proof")]
     [InlineData("future-marker")]
     public async Task ExpiredCleanupRequiresItsExactImmutableSystemFact(string mismatch)
     {
@@ -113,6 +127,10 @@ public sealed partial class PhotoReviewApprovalTests
         else if (mismatch == "no-marker-or-proof")
         {
             await ExecuteAsync("update media.review_candidates set cleanup_audit_id=null,cleanup_requested_at=null where generation=$1", generation);
+        }
+        else if (mismatch == "no-proof")
+        {
+            await ExecuteAsync("update media.review_candidates set cleanup_audit_id=null where generation=$1", generation);
         }
         else
         {
@@ -299,8 +317,27 @@ public sealed partial class PhotoReviewApprovalTests
     {
         var item = await CaseAsync();
         _time.Advance(TimeSpan.FromHours(73));
-        Assert.Equal(1, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
+        var advance = new AdvanceExpirationAuditClock(_time);
+        Assert.Equal(1, await new PhotoReviewExpirations(Factory(advance), _time).ExpireOnceAsync(Ct));
+        Assert.True(advance.Fired);
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from media.review_candidates c join ops.audit_events e on e.id=c.cleanup_audit_id
+            where c.case_id=$1 and e.occurred_at>c.cleanup_requested_at
+            """, item.CaseId));
         return (item, await CleanupGenerationAsync(item));
+    }
+
+    private async Task<string> ExpiredCleanupDomainAsync()
+    {
+        await using var db = Context();
+        return await db.Database.SqlQuery<string>($"""
+            select jsonb_build_array(
+              (select coalesce(jsonb_agg(to_jsonb(u) order by u.id),'[]'::jsonb) from media.uploads u),
+              (select coalesce(jsonb_agg(to_jsonb(r) order by r.id),'[]'::jsonb) from safety.photo_review_cases r),
+              (select coalesce(jsonb_agg(to_jsonb(a) order by a.id),'[]'::jsonb) from media.media_assets a),
+              (select coalesce(jsonb_agg(to_jsonb(v) order by v.media_asset_id,v.kind),'[]'::jsonb) from media.media_variants v)
+            )::text as "Value"
+            """).SingleAsync(Ct);
     }
 
     private ExpiredCandidateCleanupDispatcher ExpiredCleanup(NpgsqlDataSource source, IObjectStore? store = null, bool enabled = true) =>
