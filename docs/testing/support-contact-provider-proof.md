@@ -22,7 +22,9 @@ Não executar antes da CI e revisão deste fonte/artefato e da passagem de uma j
 é realizado pelo autor desta frente. A única coleta solicitada deve usar o inventário/captura que o operador
 já possui, limitada a Web/Worker: vincular container → imagem/recibo/source; obter contexto/args/env e arquivos
 aplicáveis em memória privada; tornar `/app` e o SecretsDirectory reais legíveis apenas em montagem de
-leitura para o helper, com os caminhos do contexto preservados. Não herdar o env real no lançamento do CLR:
+leitura para o helper, com os caminhos do contexto preservados. O helper requer `Microsoft.AspNetCore.App` inclusive para avaliar o Worker: usar runtime ASP.NET
+isolado da versão compatível; a imagem Worker de .NET puro não basta. Não executar este helper dentro
+do processo/container Worker em uso. Não herdar o env real no lançamento do CLR:
 transmiti-lo somente no stdin privado depois que o helper já iniciou. Não instalar nada no container em
 execução, criar endpoint, abrir rede de banco/provedor, alterar arquivo/configuração ou consultar participantes.
 Se um helper descartável isolado exigir recurso/janela adicional, deixar a execução para o operador organizar;
