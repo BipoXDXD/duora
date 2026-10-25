@@ -977,6 +977,17 @@ class NativeLab:
         self.observer_file.write_bytes(canonical(observer_data))
         self.api.start()
         self.report["stage"] = "native_enrollment_receiver_idle"
+        # Observe only this fixed synthetic fixture ancestry; never repair or relax the original installer guard.
+        receiver_root = Path("/opt/coolify-release")
+        receiver_version = receiver_root / "versions" / ("2.0.2-" + RECEIVER)
+        self.report["receiver_fixture_ancestry"] = []
+        for role, path in (("root", Path("/")), ("opt", Path("/opt")), ("receiver_root", receiver_root),
+                           ("versions", receiver_version.parent), ("version", receiver_version),
+                           ("target", receiver_version / "receiver.py"), ("entry", receiver_root / "receiver.py")):
+            info = path.lstat()
+            kind = "directory" if stat.S_ISDIR(info.st_mode) else "regular" if stat.S_ISREG(info.st_mode) else "symlink" if stat.S_ISLNK(info.st_mode) else "other"
+            self.report["receiver_fixture_ancestry"].append({"role": role, "uid": info.st_uid, "gid": info.st_gid,
+                "mode": stat.S_IMODE(info.st_mode), "kind": kind, "links": info.st_nlink})
         receiver = self.executor._recovery_verified_receiver()
         for app_uuid in self.api.apps.values():
             receiver.require_idle(app_uuid)  # Real1ccd HTTP queries for all three synthetic resources.

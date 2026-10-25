@@ -141,3 +141,8 @@ Each location contains only one of five fixed public source basenames and its in
 kinds also use a fixed allowlist; messages, arbitrary paths, function arguments, locals, SQL and subprocess
 output are never included. Enrollment stages distinguish manifest validation, real runtime inventory/recheck,
 control bootstrap, receiver-idle checks, read-only projection, binding and explicit admission.
+
+Before the unchanged receiver binding guard, the driver records lstat metadata for exactly seven fixed
+synthetic fixture paths (root, opt, receiver root, versions, version, target and entry). Records contain only
+those role names, numeric UID/GID/mode/link count and a closed file-type enum. They contain no arbitrary
+path or symlink target, read no file content and perform no chmod/chown/repair. The original guard still decides admission.
