@@ -20,6 +20,11 @@ const RETURN_PATHS: ReadonlySet<string> = new Set([
 ])
 const PARSING_ORIGIN = 'https://duora.invalid'
 const ROOM_PATH = /^\/rooms\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const RETURN_VIEWS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['tab', new Set(['details', 'sessions', 'photos', 'security'])],
+  ['aba', new Set(['sessoes', 'fotos', 'seguranca'])],
+])
+const RETURN_ANCHORS: ReadonlySet<string> = new Set(['#section', '#sessions', '#photos', '#security'])
 
 /** Never return the unparsed input: browser URL normalization must not change the origin. */
 function safeReturnPath(value: string): string | null {
@@ -32,12 +37,15 @@ function safeReturnPath(value: string): string | null {
   if (url.origin !== PARSING_ORIGIN) return null
   const pathname = legacyPaths[url.pathname] ?? url.pathname
   if (!RETURN_PATHS.has(pathname) && !ROOM_PATH.test(pathname)) return null
-  // Authentication credentials never belong in a login return or its history state.
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^(token|userid|code|password)$/i.test(key)) url.searchParams.delete(key)
+  // History state retains navigation choices, never arbitrary query values or fragments.
+  const navigation = new URLSearchParams()
+  for (const [key, allowed] of RETURN_VIEWS) {
+    const selectedView = url.searchParams.get(key)
+    if (selectedView !== null && allowed.has(selectedView)) navigation.set(key, selectedView)
   }
-  const hash = /^#[a-zA-Z][a-zA-Z0-9_-]*$/.test(url.hash) ? url.hash : ''
-  return `${pathname}${url.search}${hash}`
+  const query = navigation.toString()
+  const hash = RETURN_ANCHORS.has(url.hash) ? url.hash : ''
+  return `${pathname}${query === '' ? '' : `?${query}`}${hash}`
 }
 
 const internalPathSchema = z

@@ -39,13 +39,18 @@ internal sealed class IdentityScenario(string connectionString, DuoraWebFactory 
 
     public static string NewEmail() => $"pessoa-{Guid.NewGuid():N}@example.com";
 
-    public static object RegistrationBody(string email, string password = ValidPassword) => new
-    {
-        email,
-        password,
-        acceptedTermsVersion = TermsVersion,
-        acceptedPrivacyVersion = TermsVersion,
-    };
+    public static object RegistrationBody(string email, string password = ValidPassword,
+        Duora.Core.Identity.LegalPublication? publication = null, string termsLocale = "pt-BR", string privacyLocale = "pt-BR") => new
+        {
+            email,
+            password,
+            acceptedTermsVersion = (publication ?? SyntheticLegalPublication.Default).TermsVersion,
+            acceptedPrivacyVersion = (publication ?? SyntheticLegalPublication.Default).PrivacyVersion,
+            acceptedTermsLocale = termsLocale,
+            acceptedPrivacyLocale = privacyLocale,
+            acceptedTermsSha256 = SyntheticLegalPublication.Hash(publication ?? SyntheticLegalPublication.Default, "terms", termsLocale),
+            acceptedPrivacySha256 = SyntheticLegalPublication.Hash(publication ?? SyntheticLegalPublication.Default, "privacy", privacyLocale),
+        };
 
     public static async Task<HttpResponseMessage> RegisterAsync(Browser browser, string email, string password = ValidPassword)
     {
@@ -72,9 +77,10 @@ internal sealed class IdentityScenario(string connectionString, DuoraWebFactory 
     /// de uma conta privilegiada já ativa. O caminho de produção é o bootstrap (<c>admin grant</c>), coberto por
     /// <see cref="AdminBootstrapTests"/>; não existe rota pública que conceda papel.
     /// </summary>
-    public async Task<TestAccount> CreatePrivilegedAccountAsync(string role = Duora.Core.Identity.AccountRoles.Moderator)
+    public async Task<TestAccount> CreatePrivilegedAccountAsync(
+        string role = Duora.Core.Identity.AccountRoles.Moderator, string password = ValidPassword)
     {
-        var account = await CreateConfirmedAccountAsync();
+        var account = await CreateConfirmedAccountAsync(password);
         // O cadastro grava o papel de participante (D13); a conta privilegiada de teste troca de papel, o que o
         // bootstrap nunca faz (ele só cria conta nova, já privilegiada).
         await ScalarAsync(
@@ -132,6 +138,7 @@ internal sealed class IdentityScenario(string connectionString, DuoraWebFactory 
         var browser = new Browser(factory);
         using var response = await LoginAsync(browser, account.Email, account.Password);
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await browser.FetchPrivateContextAsync();
         return browser;
     }
 

@@ -68,12 +68,21 @@ describe('reloadWhenRestoredFromBackForwardCache', () => {
 })
 
 describe('isPrivatePath', () => {
-  it.each(['/', '/register', '/check-email', '/confirm-email', '/login', '/forgot-password', '/reset-password'])(
-    '%s é pública',
-    (pathname) => {
-      expect(isPrivatePath(pathname)).toBe(false)
-    },
-  )
+  it.each([
+    '/',
+    '/register',
+    '/terms',
+    '/privacy',
+    '/terms/2026-10-25/en-US',
+    '/privacy/2026-10-25/pt-BR',
+    '/check-email',
+    '/confirm-email',
+    '/login',
+    '/forgot-password',
+    '/reset-password',
+  ])('%s é pública', (pathname) => {
+    expect(isPrivatePath(pathname)).toBe(false)
+  })
 
   it.each(['/account', '/perfil', '/rota-nova', '/login/', '/ENTRAR'])(
     '%s é privada (negar por padrão)',

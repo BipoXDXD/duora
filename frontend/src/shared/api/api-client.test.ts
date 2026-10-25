@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createApiClient, type ApiClientDependencies } from './api-client'
 import { ApiNetworkError, ApiProblemError, ApiResponseError } from './api-errors'
+import { createSessionContextStore } from '../session-context'
 
 const ORIGIN = 'https://duora.test'
 const CSRF_TOKEN = 'token-antiforgery-123'
@@ -27,13 +28,47 @@ function setup(
   readLocale: ApiClientDependencies['readLocale'] = () => 'pt-BR',
 ) {
   const fetch = vi.fn<FakeFetch>(respond)
-  const client = createApiClient({
+  const context = createSessionContextStore()
+  const operation =
+    token === null
+      ? undefined
+      : (() => {
+          const owner = context.acceptBootstrap(context.beginBootstrap({ kind: 'automatic' }), {
+            userId: '00000000-0000-4000-8000-000000000001',
+            sessionId: '00000000-0000-4000-8000-000000000011',
+            phase: 'active',
+            requestToken: token,
+            authView: { status: 'Active', emailConfirmed: true, mfaEnabled: false, roles: ['participant'] },
+          })
+          context.completeOwnerInstallation(context.getSnapshot().transitionEpoch, owner)
+          return context.begin(owner)
+        })()
+  const bare = createApiClient({
     fetch,
     origin: ORIGIN,
     readAntiforgeryToken: () => token,
     readLocale,
     now: () => NOW,
+    sessionContext: context,
   })
+  const withOperation = (request: Parameters<typeof bare.requestJson>[0]) => {
+    const publicPaths = [
+      '/api/v1/auth/csrf',
+      '/api/v1/auth/register',
+      '/api/v1/auth/confirm-email',
+      '/api/v1/auth/email-confirmation-requests',
+      '/api/v1/auth/login',
+      '/api/v1/auth/password-reset-requests',
+      '/api/v1/auth/password-resets',
+    ]
+    return operation === undefined || publicPaths.includes(request.path) ? request : { ...request, operation }
+  }
+  const client = {
+    ...bare,
+    requestJson: (request: Parameters<typeof bare.requestJson>[0]) => bare.requestJson(withOperation(request)),
+    sendCommand: (request: Parameters<typeof bare.sendCommand>[0]) => bare.sendCommand(withOperation(request)),
+    fetch: operation === undefined ? bare.fetch : bare.fetchFor(operation),
+  }
   const sentRequest = (): Request => {
     const call = fetch.mock.calls[0]
     if (call === undefined) {
@@ -56,9 +91,9 @@ describe('requestJson: sucesso', () => {
   it('envia a requisição para a mesma origem com cookies same-origin', async () => {
     const { client, sentRequest } = setup()
 
-    await client.requestJson({ method: 'GET', path: '/api/v1/me' })
+    await client.requestJson({ method: 'GET', path: '/api/v1/me/time-zone' })
 
-    expect(sentRequest().url).toBe('https://duora.test/api/v1/me')
+    expect(sentRequest().url).toBe('https://duora.test/api/v1/me/time-zone')
     expect(sentRequest().credentials).toBe('same-origin')
   })
 
@@ -94,12 +129,14 @@ describe('requestJson: sucesso', () => {
     expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBe(CSRF_TOKEN)
   })
 
-  it('sem token antiforgery, um header pedido não se passa por ele', async () => {
-    const { client, sentRequest } = setup(undefined, null)
+  it('sem contexto privado, um header pedido não autoriza nem envia a intenção', async () => {
+    const { client, fetch } = setup(undefined, null)
 
-    await client.requestJson({ method: 'PATCH', path: '/api/v1/me/profile', headers: { 'X-XSRF-TOKEN': 'forjado' } })
+    await expect(
+      client.requestJson({ method: 'PATCH', path: '/api/v1/me/profile', headers: { 'X-XSRF-TOKEN': 'forjado' } }),
+    ).rejects.toMatchObject({ name: 'AbortError' })
 
-    expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('não deixa um header pedido substituir o token antiforgery', async () => {
@@ -115,7 +152,7 @@ describe('requestJson: sucesso', () => {
       Promise.resolve(new Response('<html></html>', { status: 200, headers: { 'Content-Type': 'text/html' } })),
     )
 
-    const error = await client.requestJson({ method: 'GET', path: '/api/v1/me' }).catch((e: unknown) => e)
+    const error = await client.requestJson({ method: 'GET', path: '/api/v1/me/time-zone' }).catch((e: unknown) => e)
 
     expect(error).toBeInstanceOf(ApiResponseError)
     expect(error).toMatchObject({ status: 200 })
@@ -158,12 +195,12 @@ describe('requestJson: antiforgery', () => {
     expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBe(CSRF_TOKEN)
   })
 
-  it.each(['GET', 'HEAD', 'OPTIONS'] as const)('não anexa o header antiforgery em %s', async (method) => {
+  it.each(['GET', 'HEAD', 'OPTIONS'] as const)('vincula também a leitura privada %s', async (method) => {
     const { client, sentRequest } = setup(() => Promise.resolve(new Response(null, { status: 204 })))
 
     await client.requestJson({ method, path: '/api/v1/resource' })
 
-    expect(sentRequest().headers.has('X-XSRF-TOKEN')).toBe(false)
+    expect(sentRequest().headers.get('X-XSRF-TOKEN')).toBe(CSRF_TOKEN)
   })
 
   it('envia a mutação sem header quando ainda não há token, deixando o servidor recusar', async () => {
@@ -188,9 +225,9 @@ describe('requestJson: idioma', () => {
     let locale: 'pt-BR' | 'en-US' = 'pt-BR'
     const { client, fetch } = setup(undefined, CSRF_TOKEN, () => locale)
 
-    await client.requestJson({ method: 'GET', path: '/api/v1/me' })
+    await client.requestJson({ method: 'GET', path: '/api/v1/me/time-zone' })
     locale = 'en-US'
-    await client.requestJson({ method: 'GET', path: '/api/v1/me' })
+    await client.requestJson({ method: 'GET', path: '/api/v1/me/time-zone' })
 
     expect(fetch.mock.calls.map(([request]) => request.headers.get('Accept-Language'))).toEqual(['pt-BR', 'en-US'])
   })

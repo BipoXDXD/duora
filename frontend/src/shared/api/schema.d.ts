@@ -93,6 +93,15 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -125,6 +134,79 @@ export interface paths {
             responses: {
                 /** @description No Content */
                 204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/email-confirmation-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateEmailConfirmationRequest"];
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -426,6 +508,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/legal-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LegalDocumentCatalogResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/sessions": {
         parameters: {
             query?: never;
@@ -590,7 +707,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                        "application/problem+json": components["schemas"]["PrivateSessionRestrictionResponse"];
                     };
                 };
                 /** @description Service Unavailable */
@@ -3384,6 +3501,11 @@ export interface components {
         ConfirmMfaRequest: {
             code: null | string;
         };
+        /** @description Pedido explícito e neutro de outro código; preserva senha, aceites e prazo do cadastro pendente. */
+        CreateEmailConfirmationRequest: {
+            email: null | string;
+            password: null | string;
+        };
         CreatePasswordResetRequest: {
             email: null | string;
         };
@@ -3435,6 +3557,27 @@ export interface components {
             code?: string;
             traceId?: string;
         };
+        LegalDocumentCatalogResponse: {
+            registrationAvailable: boolean;
+            termsVersion: string;
+            privacyVersion: string;
+            documents: components["schemas"]["LegalDocumentResponse"][];
+        };
+        LegalDocumentResponse: {
+            document: string;
+            version: string;
+            locale: string;
+            title: string;
+            controllerName: null | string;
+            privacyContact: null | string;
+            published: boolean;
+            sha256: string;
+            sections: components["schemas"]["LegalDocumentSectionResponse"][];
+        };
+        LegalDocumentSectionResponse: {
+            title: string;
+            paragraphs: string[];
+        };
         /**
          * @description Login (API-A04). Conta com MFA ativo manda também `twoFactorCode` (6 dígitos do autenticador) ou
          *     `recoveryCode`, nunca os dois.
@@ -3458,6 +3601,7 @@ export interface components {
             emailConfirmed: boolean;
             mfaEnabled: boolean;
             roles: string[];
+            sessionContext: components["schemas"]["PrivateSessionContextResponse"];
             preferredLocale?: null | string;
             preferredTimeZone?: null | string;
         };
@@ -3545,6 +3689,25 @@ export interface components {
             photoId: string;
             status: string;
         };
+        /** @description Contexto do titular, sem credencial portadora; a prova antiforgery fica só na memória da SPA. */
+        PrivateSessionContextResponse: {
+            /** Format: uuid */
+            userId: string;
+            /** Format: uuid */
+            sessionId: string;
+            phase: string;
+            requestToken: string;
+        };
+        /** @description 403 somente do bootstrap /me na fase da senha temporária; não amplia as permissões da sessão. */
+        PrivateSessionRestrictionResponse: {
+            type: string;
+            title: string;
+            /** Format: int32 */
+            status: number | string;
+            code: string;
+            sessionContext: components["schemas"]["PrivateSessionContextResponse"];
+            traceId: string;
+        };
         ProblemDetails: {
             type?: null | string;
             title?: null | string;
@@ -3589,6 +3752,8 @@ export interface components {
         /** @description Códigos de recuperação (API-A12 e A14): mostrados uma vez; o servidor guarda só o hash. */
         RecoveryCodesResponse: {
             recoveryCodes: string[];
+            /** Format: uuid */
+            resultSessionId: string;
         };
         RegionDetectionCapabilityResponse: {
             enabled: boolean;
@@ -3610,6 +3775,8 @@ export interface components {
             acceptedPrivacyVersion: null | string;
             acceptedTermsLocale?: null | string;
             acceptedPrivacyLocale?: null | string;
+            acceptedTermsSha256?: null | string;
+            acceptedPrivacySha256?: null | string;
         };
         ResetPasswordRequest: {
             /** Format: uuid */

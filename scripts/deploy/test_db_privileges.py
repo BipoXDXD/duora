@@ -134,7 +134,8 @@ class RuntimeContinuityLabTests(unittest.TestCase):
         for field in ["sql_session_survived", "database_backup_identity_preserved", "negative_guards_passed",
                       "static_installation_preserved_services", "compatible_v2_rollback_passed",
                       "two_forward_deploys_under_observation", "failed_product_recovered", "receiver_installer_interlock_proved",
-                      "first_failed_v2_current_v1_app_recovery_preserved_floor", "pinnedComposePolicy", "receiverVersionedLinkPolicy"]:
+                      "first_failed_v2_current_v1_app_recovery_preserved_floor", "pinnedComposePolicy", "receiverVersionedLinkPolicy",
+                      "historical_v1_application_qualified", "legacy_schema_upgraded_preserving_history"]:
             self.assertTrue(report[field], field)
         print("[continuity-lab] " + json.dumps(report))
 

@@ -7,6 +7,8 @@ export const paths = {
   selfie: '/account/selfie',
   home: '/',
   register: '/register',
+  terms: '/terms',
+  privacy: '/privacy',
   checkEmail: '/check-email',
   confirmEmail: '/confirm-email',
   login: '/login',

@@ -1,4 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { usePrivateOperation } from '@/features/session/private-operation'
+import { usePrivateMutation } from '@/features/session/private-mutation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useId, useMemo, useState } from 'react'
 import { useAccount } from '@/features/session/account-context'
 import { meQueryKey } from '@/features/session/query-keys'
@@ -11,14 +13,18 @@ import { TextField } from '@/shared/ui/form-fields'
 import { fetchTimeZone, fetchTimeZones, saveTimeZone, type AccountTimeZone } from './time-zone-api'
 
 export function AccountTimeZoneSection(): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { id } = useAccount()
   const { t } = useI18n()
   const query = useQuery({
     queryKey: ['account', id, 'time-zone'],
-    queryFn: ({ signal }) => fetchTimeZone(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchTimeZone(operation, signal)),
     gcTime: 0,
   })
-  const options = useQuery({ queryKey: ['time-zone-options'], queryFn: ({ signal }) => fetchTimeZones(signal) })
+  const options = useQuery({
+    queryKey: ['time-zone-options'],
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchTimeZones(operation, signal)),
+  })
   if (query.isError || options.isError)
     return <RequestFailureAlert failure={classifyRequestFailure(query.error ?? options.error)} />
   if (query.data === undefined || options.data === undefined) return <p role="status">{t('timeZone.loading')}</p>
@@ -71,8 +77,8 @@ function AccountTimeZoneForm({
     options.find((option) => option.zone === draft.trim() || option.label === draft.trim())?.zone ??
     options.find((option) => canonical !== null && option.canonical === canonical)?.zone ??
     null
-  const save = useMutation({
-    mutationFn: () => saveTimeZone(base.version, selected),
+  const save = usePrivateMutation({
+    mutationFn: (operation) => saveTimeZone(operation, base.version, selected),
     onSuccess: (value) => {
       if (queries.getQueryData<Me>(meQueryKey)?.id !== account.id) return
       setBase(value)
@@ -83,8 +89,8 @@ function AccountTimeZoneForm({
       )
     },
   })
-  const reload = useMutation({
-    mutationFn: () => fetchTimeZone(),
+  const reload = usePrivateMutation({
+    mutationFn: (operation) => fetchTimeZone(operation),
     onSuccess: (value) => {
       setBase(value)
       setReloaded(true)

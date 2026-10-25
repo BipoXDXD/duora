@@ -1,10 +1,11 @@
-import { render, screen, within } from '@testing-library/react'
+import { withSessionContext } from '@/test/private-context'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createIdentityBroadcast } from '@/features/session/identity-broadcast'
 import { LOCALE_STORAGE_KEY } from '@/shared/i18n/locale-preference'
-import { API, problem, server } from '@/test/msw'
+import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { ROUTE_CHUNK_TIMEOUT_MS, waitForRouteChunk } from '@/test/render'
 import { App } from './App'
 
@@ -172,33 +173,80 @@ describe('seletor de idioma', () => {
 })
 
 describe('troca de identidade em outra aba (T-21)', () => {
-  it('a aba some com os dados de quem saiu e reconsulta a identidade', async () => {
+  it('a aba remove os dados e exige um gesto para revalidar a identidade', async () => {
     useBrowserLanguages(['pt-BR'])
     let signedIn = true
     server.use(
       http.get(`${API}/me`, () =>
         signedIn
-          ? HttpResponse.json({
-              id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
-              email: 'ana@exemplo.com',
-              status: 'Active',
-              emailConfirmed: true,
-              mfaEnabled: false,
-              roles: ['participant'],
-            })
+          ? HttpResponse.json(
+              withSessionContext({
+                id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
+                email: 'ana@exemplo.com',
+                status: 'Active',
+                emailConfirmed: true,
+                mfaEnabled: false,
+                roles: ['participant'],
+              }),
+            )
           : problem(401, 'UNAUTHENTICATED'),
       ),
       http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
     )
-    await renderAppAt('/account')
+    const { user } = await renderAppAt('/account')
     expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
 
     signedIn = false
     createIdentityBroadcast(() => 'outra-aba').announce()
 
+    const retry = await screen.findByRole('button', { name: 'Tentar de novo' })
+    expect(screen.queryByText('ana@exemplo.com')).not.toBeInTheDocument()
+    await user.click(retry)
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Entrar' }, { timeout: ROUTE_CHUNK_TIMEOUT_MS }),
     ).toBeInTheDocument()
     expect(screen.queryByText('ana@exemplo.com')).not.toBeInTheDocument()
+  })
+})
+
+describe('entrada no shell real da aplicação', () => {
+  it('mantém o erro conhecido do login sem perder o formulário', async () => {
+    useBrowserLanguages(['pt-BR'])
+    useAntiforgeryEndpoint()
+    server.use(http.post(`${API}/auth/login`, () => problem(401, 'INVALID_CREDENTIALS')))
+    const { user } = await renderAppAt('/login')
+    await user.type(screen.getByLabelText('E-mail', { exact: true }), 'ana@example.test')
+    await user.type(screen.getByLabelText('Senha', { exact: true }), 'frase longa de senha')
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('E-mail ou senha incorretos.')
+  })
+
+  it('instala a conta depois do login público e bootstrap privado', async () => {
+    useBrowserLanguages(['pt-BR'])
+    useAntiforgeryEndpoint()
+    server.use(
+      http.post(`${API}/auth/login`, () => new HttpResponse(null, { status: 204 })),
+      http.get(`${API}/me`, () =>
+        HttpResponse.json(
+          withSessionContext({
+            id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
+            email: 'ana@example.test',
+            status: 'Active',
+            emailConfirmed: true,
+            mfaEnabled: false,
+            roles: ['participant'],
+          }),
+        ),
+      ),
+      http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
+    )
+    const { user } = await renderAppAt('/login')
+    await user.type(screen.getByLabelText('E-mail', { exact: true }), 'ana@example.test')
+    await user.type(screen.getByLabelText('Senha', { exact: true }), 'frase longa de senha')
+    await user.click(screen.getByRole('button', { name: 'Entrar' }))
+    expect(await screen.findByText('ana@example.test')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('anuncio-de-rota')).toHaveTextContent('Página carregada: Sua conta · Duora')
+    })
   })
 })

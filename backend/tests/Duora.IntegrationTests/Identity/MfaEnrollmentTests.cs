@@ -70,11 +70,14 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
         using var other = await Scenario.SignedInBrowserAsync(account);
         using var browser = await Scenario.SignedInBrowserAsync(account);
 
+        var beforeSessionId = await MfaScenario.ReadSessionIdAsync(browser);
         await MfaScenario.StartEnrollmentAsync(browser);
         using var current = await browser.GetAsync("/api/v1/me");
         using var otherMe = await other.GetAsync("/api/v1/me");
 
         Assert.Equal(HttpStatusCode.OK, current.StatusCode);
+        var currentBody = await MfaScenario.ReadObjectAsync(current);
+        Assert.Equal(beforeSessionId, Guid.Parse((string)currentBody["sessionContext"]!["sessionId"]!));
         Assert.Equal(HttpStatusCode.Unauthorized, otherMe.StatusCode);
     }
 
@@ -126,17 +129,24 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
         using var browser = await Scenario.SignedInBrowserAsync(account);
         var sharedKey = await MfaScenario.StartEnrollmentAsync(browser);
         var cookieBefore = browser.Cookie(SessionCookie);
+        var beforeSessionId = await MfaScenario.ReadSessionIdAsync(browser);
 
         using var response = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Next(_time, sharedKey) });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         var body = await MfaScenario.ReadObjectAsync(response);
-        Assert.Equal(["recoveryCodes"], body.Select(p => p.Key));
+        Assert.Equal(["recoveryCodes", "resultSessionId"], body.Select(p => p.Key).Order(StringComparer.Ordinal));
+        var resultSessionId = Guid.Parse((string)body["resultSessionId"]!);
+        Assert.NotEqual(beforeSessionId, resultSessionId);
         var codes = body["recoveryCodes"]!.AsArray().Select(code => (string)code!).ToList();
         Assert.Equal(10, codes.Distinct(StringComparer.Ordinal).Count());
         Assert.NotEqual(cookieBefore, browser.Cookie(SessionCookie));
-        Assert.True(await MfaEnabledAsync(browser));
+        using var confirmedMe = await browser.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK, confirmedMe.StatusCode);
+        var meBody = await MfaScenario.ReadObjectAsync(confirmedMe);
+        Assert.True((bool)meBody["mfaEnabled"]!);
+        Assert.Equal(resultSessionId, Guid.Parse((string)meBody["sessionContext"]!["sessionId"]!));
         using var otherMe = await other.GetAsync("/api/v1/me");
         Assert.Equal(HttpStatusCode.Unauthorized, otherMe.StatusCode);
         var active = Assert.Single(await Scenario.SessionRowsAsync(account.UserId), row => !row.Revoked);

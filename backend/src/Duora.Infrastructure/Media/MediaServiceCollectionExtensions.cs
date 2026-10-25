@@ -1,6 +1,7 @@
 using Duora.Core.Media;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Persistence;
+using Duora.Infrastructure.Safety;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -102,7 +103,7 @@ public static class MediaServiceCollectionExtensions
             provider.GetRequiredService<IOptions<MediaOptions>>(),
             provider.GetRequiredService<ILogger<PhotoUploads>>()));
 
-        return services;
+        return services.AddPrivatePhotoReview();
     }
 
     // Em Production o adaptador não cria nada: área sem o marcador do Ansible quer dizer montagem faltando.

@@ -1,3 +1,4 @@
+import { withSessionContext } from '@/test/private-context'
 import { act, screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,14 +14,16 @@ const revealed = [
 function setup(kind: string, state = 'Active') {
   server.use(
     http.get(`${API}/me`, () =>
-      HttpResponse.json({
-        id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
-        email: 'test@example.com',
-        status: 'Active',
-        emailConfirmed: true,
-        mfaEnabled: false,
-        roles: ['participant'],
-      }),
+      HttpResponse.json(
+        withSessionContext({
+          id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
+          email: 'test@example.com',
+          status: 'Active',
+          emailConfirmed: true,
+          mfaEnabled: false,
+          roles: ['participant'],
+        }),
+      ),
     ),
     http.get(`${API}/rooms/deadline`, () =>
       HttpResponse.json({

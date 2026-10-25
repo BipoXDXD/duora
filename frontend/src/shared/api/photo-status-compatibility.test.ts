@@ -1,3 +1,4 @@
+import { syntheticPrivateOperation } from '@/test/owned-api-context'
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import { createApiClient } from './api-client'
@@ -33,7 +34,12 @@ describe('photo status transport compatibility', () => {
       now: () => 0,
     })
 
-    const result = await client.requestJson({ method: 'GET', path: `/api/v1/me/photos/${payload.photoId}/status` })
+    const operation = syntheticPrivateOperation(client.sessionContext)
+    const result = await client.requestJson({
+      operation,
+      method: 'GET',
+      path: `/api/v1/me/photos/${payload.photoId}/status`,
+    })
 
     expect(result).toEqual({
       photoId: '00000000-0000-4000-8000-000000000001',

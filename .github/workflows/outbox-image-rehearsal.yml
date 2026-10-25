@@ -1,0 +1,74 @@
+name: Full image outbox rehearsal
+
+on:
+  pull_request:
+    paths:
+      - scripts/testing/outbox-images/**
+      - docs/testing/full-image-outbox-rehearsal.md
+      - .github/workflows/outbox-image-rehearsal.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  full-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Require ephemeral hosted Linux amd64 before checkout
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$(uname -m)" = x86_64
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Offline safety and evidence tests
+        run: python3 -m unittest discover -s scripts/testing/outbox-images -p 'test_*.py' -v
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: d7ed56bfb81a8ba25066820101f8c8f842eb2e32
+          path: .mail-lab/source
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: bbdf0da978e4c700872a278e3af0d55592db2f2d
+          path: .mail-lab/source/legacy
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: f3c52b229ac1af1a7d56f17f9e8124a8afe5da23
+          path: .mail-lab/source/compatible
+          persist-credentials: false
+      - name: Preserve the current Infrastructure probe source and package imports
+        run: |
+          mkdir -p .mail-lab/validation/current
+          cp scripts/testing/mail-outbox/Probe.cs .mail-lab/validation/Probe.cs
+          cp scripts/testing/mail-outbox/current/Probe.csproj .mail-lab/validation/current/Probe.csproj
+          cp .mail-lab/source/global.json .mail-lab/global.json
+          printf '<Project><Import Project="source/Directory.Packages.props" /></Project>\n' > .mail-lab/Directory.Packages.props
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: .mail-lab/global.json
+      - name: Build current Infrastructure probe only
+        working-directory: .mail-lab
+        run: |
+          dotnet restore validation/current/Probe.csproj -p:RestoreLockedMode=false
+          dotnet build validation/current/Probe.csproj -c Release --no-restore
+      - name: Run pinned published Web and Worker images with disposable PostgreSQL
+        run: python3 scripts/testing/outbox-images/run.py
+      - name: Upload sanitized evidence, including failure and cleanup status
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v6.0.0
+        with:
+          name: full-image-outbox-evidence
+          path: .mail-lab/artifacts/full-image.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 30

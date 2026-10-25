@@ -1,6 +1,8 @@
+import { pageSessionContext } from '../page-session-context'
 import { DEFAULT_LOCALE, matchLocale } from '@/shared/i18n/locale'
 import { createApiClient, type JsonRequest } from './api-client'
 import { readAntiforgeryTokenFromCookies } from './antiforgery'
+import { isPublicAuthenticationMutation, isLogoutRequest } from './request-purpose'
 import { requestJsonWithFreshAntiforgeryToken, sendWithFreshAntiforgeryToken } from './antiforgery-refresh'
 
 export type { ApiClient, ApiFetch, HttpMethod, JsonRequest } from './api-client'
@@ -11,6 +13,7 @@ export { classifyRequestFailure, isUnauthorized, type RequestFailure } from './r
 
 /** Cliente HTTP da SPA no navegador; testes criam o seu com `createApiClient`. */
 export const apiClient = createApiClient({
+  sessionContext: pageSessionContext,
   fetch: (request) => globalThis.fetch(request),
   origin: globalThis.location.origin,
   readAntiforgeryToken: () => readAntiforgeryTokenFromCookies(document.cookie),
@@ -19,12 +22,17 @@ export const apiClient = createApiClient({
   now: () => Date.now(),
 })
 
-/** Envia uma mutação sem corpo de resposta, sempre com token antiforgery recém-emitido. */
+/** Autenticação pública renova CSRF; escrita privada exige a operação capturada pelo chamador. */
 export function sendMutation(request: JsonRequest): Promise<void> {
-  return sendWithFreshAntiforgeryToken(apiClient, request)
+  return isPublicAuthenticationMutation(request.method, request.path) ||
+    (isLogoutRequest(request.method, request.path) && request.operation === undefined)
+    ? sendWithFreshAntiforgeryToken(apiClient, request)
+    : apiClient.sendCommand(request)
 }
 
-/** Envia uma mutação que devolve o recurso alterado (JSON ainda não validado), com token antiforgery recém-emitido. */
+/** JSON de escrita com a mesma separação de finalidade pública/privada. */
 export function sendMutationForJson(request: JsonRequest): Promise<unknown> {
-  return requestJsonWithFreshAntiforgeryToken(apiClient, request)
+  return isPublicAuthenticationMutation(request.method, request.path)
+    ? requestJsonWithFreshAntiforgeryToken(apiClient, request)
+    : apiClient.requestJson(request)
 }
