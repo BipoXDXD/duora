@@ -1,0 +1,74 @@
+{
+  "commit": "1d713328625c27494b2f9cba9497f3c503f2af7e",
+  "ciRun": "https://github.com/BipoXDXD/duora/actions/runs/40138928892/attempts/1",
+  "publishRun": "https://github.com/BipoXDXD/duora/actions/runs/40139923456/attempts/1",
+  "schema": {
+    "min": "20261015175752_Baseline",
+    "max": "20261022143000_OriginalCleanup"
+  },
+  "migrations": [
+    "20261015175752_Baseline",
+    "20261015191631_Outbox",
+    "20261015192439_Identity",
+    "20261015202005_UserNameFollowsEmail",
+    "20261015230027_Profiles",
+    "20261015231135_AuditEvents",
+    "20261015232049_SafetyBlocks",
+    "20261016022454_AdminMfa",
+    "20261016033807_Media",
+    "20261016034131_ParticipantRoleBackfill",
+    "20261016040215_AgeVerifications",
+    "20261016040228_WebhookReceipts",
+    "20261016062338_ProfileRegion",
+    "20261016062749_AgeVerificationWithoutExpiry",
+    "20261016084712_AgeVerificationInsertionOrder",
+    "20261016085440_AgeVerificationMinorSuspicion",
+    "20261016092914_AgeVerificationMinorSuspicionBackfill",
+    "20261016102312_AdminBootstrap",
+    "20261019133836_LanguagePreferences",
+    "20261019134811_SelfieVerifications",
+    "20261019150000_Participation",
+    "20261021010000_EventTimeZone",
+    "20261021025720_ProfileLocation",
+    "20261021090000_UnlikelyRoutesCatalog",
+    "20261021090001_AccountTimeZone",
+    "20261021090002_ConsentDocumentLocale",
+    "20261021150000_OperationalRetention",
+    "20261021160000_RegionalPreferences",
+    "20261021170000_RegionalMatchingV3",
+    "20261021200000_CountryDatabaseUpdates",
+    "20261021210000_CountryDatabaseOperations",
+    "20261022070000_MediaReviewReaders",
+    "20261022120000_UnitedStatesLocations",
+    "20261022140000_CountryDatabaseDeliveryJournal",
+    "20261022143000_OriginalCleanup"
+  ],
+  "images": {
+    "amd64": {
+      "web": "ghcr.io/bipoxdxd/duora-web@sha256:d223504ac812edc473e05cedcaa0fc46dc93ad6ad5ab5fce36051216eabfb3d8",
+      "worker": "ghcr.io/bipoxdxd/duora-worker@sha256:9a472d843c8a8f1dab42f6936876b95c8b8b08f069a4c11293c1a599601f0068",
+      "migrator": "ghcr.io/bipoxdxd/duora-migrator@sha256:4c3d2e31c916f2171e0127292979188f72cbfa4c8f1522bcac2add75df92de75",
+      "edge": "ghcr.io/bipoxdxd/duora-edge@sha256:069e60121c361c9c5587a6b7fe9b10ad9998de538f18d26668916893e3b25337",
+      "postgres": "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c"
+    },
+    "arm64": {
+      "web": "ghcr.io/bipoxdxd/duora-web@sha256:967d399ff723aed89a55fbb1b66494076e0df3a750e9a7ba5b4072b9e7d22e50",
+      "worker": "ghcr.io/bipoxdxd/duora-worker@sha256:5962cc16adaed90ae5eb36fe3ecbaa018db69db18d4f7b49043a1c1b9f39793b",
+      "migrator": "ghcr.io/bipoxdxd/duora-migrator@sha256:cf5e3358d74ca482e42815e8e3c57dc89e52eb92ffd95bbd8ba4dad02dbdc404",
+      "edge": "ghcr.io/bipoxdxd/duora-edge@sha256:6b14a8f9d7e023b4dc3fd9321aaea4a891d7a0200aacef22c4957ce9f41ff99d",
+      "postgres": "ghcr.io/bipoxdxd/duora-postgres@sha256:a626e902dfc8165bf5b866ea03fd4b6c2eec739ec7b76872154504bee99dd930"
+    }
+  },
+  "evidence": {
+    "nativeJobs": {
+      "amd64": 121009382150,
+      "arm64": 121009382191
+    },
+    "indexJob": 121010823222,
+    "publicationSha256": {
+      "amd64": "e736e1be309763f06a543ddf094e39ffefe61a0fa104e1f19f8469c718fd158c",
+      "arm64": "00091a2e9e565d45d63257c3ac1d2f1bce1c18ae7baf6d6f7f1efe8c140de27f"
+    },
+    "scope": "Historical CI/native builds, restore drills, image scans and immutable publication succeeded. Deployment failed separately; this does not assert production health or signed OCI attestation. This Actions-only fixture must prove actual pulls, metadata, schema, readiness and recovery in its own run."
+  }
+}

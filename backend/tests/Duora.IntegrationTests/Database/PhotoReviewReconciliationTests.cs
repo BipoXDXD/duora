@@ -130,7 +130,7 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
     [InlineData("safety.photo_review_grants", "enabled", true)]
     [InlineData("safety.photo_review_appeal_assignments", "appeal_version", false)]
     [InlineData("safety.photo_review_appeal_assignments", "appeal_version", true)]
-    public async Task ColumnUpdatePrivilegesRefuseTheWholePayloadEvenWithoutTableUpdate(string table, string column, bool fromPublic)
+    public async Task ColumnUpdatePrivilegesRepairDirectGrantsButRefuseResidualPublicGrants(string table, string column, bool fromPublic)
     {
         Assert.Equal(column, ColumnGrantTargets[table]);
         await using var database = await CreateMigratedAsync();
@@ -150,9 +150,25 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
                 await app.OpenAsync(Ct);
                 await ExecuteAsync(app, $"update {table} set {column}={column} where false");
             }
-            await Assert.ThrowsAsync<InvalidOperationException>(() => postgres.ReconcilePrivilegesAsync(database.Name, Ct));
-            Assert.True(await HasPrivilegeAsync(owner, "ops.__ef_migrations_history", "SELECT"),
-                "A residual column grant must roll back even the payload's first REVOKE.");
+            if (fromPublic)
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() => postgres.ReconcilePrivilegesAsync(database.Name, Ct));
+                Assert.True(await HasPrivilegeAsync(owner, "ops.__ef_migrations_history", "SELECT"),
+                    "A residual PUBLIC column grant must roll back even the payload's first REVOKE.");
+                Assert.True(await HasColumnUpdateAsync(owner, table));
+            }
+            else
+            {
+                // PostgreSQL REVOKE on a table also removes that grantee's column privileges.
+                await postgres.ReconcilePrivilegesAsync(database.Name, Ct);
+                Assert.False(await HasColumnUpdateAsync(owner, table));
+                Assert.False(await HasPrivilegeAsync(owner, "ops.__ef_migrations_history", "SELECT"));
+                await using var app = new NpgsqlConnection(database.AppConnectionString);
+                await app.OpenAsync(Ct);
+                var error = await Assert.ThrowsAsync<PostgresException>(() =>
+                    ExecuteAsync(app, $"update {table} set {column}={column} where false"));
+                Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+            }
             Assert.Equal(history, await HistoryAsync(owner));
             Assert.Equal(schema, await SchemaAsync(owner));
         }
