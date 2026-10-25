@@ -1,6 +1,7 @@
 """Specific fail-closed receipt checks; synthetic unit tests do not prove native DB compatibility."""
 
 import re
+import hashlib
 from old_image_identity import validate_old_image_receipt
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
@@ -261,3 +262,16 @@ def validate_receipt(report, pins):
         )
     except (KeyError, TypeError, AttributeError) as error:
         raise ValueError("malformed or incomplete laboratory receipt") from error
+
+
+def classify_startup_log(raw: bytes) -> dict:
+    need(type(raw) is bytes, "startup classification requires bytes")
+    sample = raw[:131072]
+    known = ("OptionsValidationException", "UnauthorizedAccessException", "DirectoryNotFoundException",
+             "FileNotFoundException", "CryptographicException", "SocketException", "NpgsqlException",
+             "AuthenticationException", "InvalidOperationException")
+    lower = sample.lower()
+    return {"exception_types": [name for name in known if name.encode() in sample],
+            "permission_denied": b"permission denied" in lower or b"access to the path" in lower,
+            "tls_error": b"tls" in lower and (b"error" in lower or b"failed" in lower),
+            "log_sha256": hashlib.sha256(sample).hexdigest(), "bytes": len(raw), "truncated": len(raw) > 131072}

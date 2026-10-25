@@ -2,8 +2,9 @@
 
 import copy
 import unittest
+from typing import Any, cast
 
-from current_schema_receipt import check_history, check_preservation, validate_receipt
+from current_schema_receipt import check_history, check_preservation, validate_receipt, classify_startup_log
 
 
 def database():
@@ -282,6 +283,30 @@ class ReceiptTests(unittest.TestCase):
             with self.subTest(actual=actual):
                 with self.assertRaises(ValueError):
                     check_history(actual, expected)
+
+
+
+
+class StartupLogClassificationTests(unittest.TestCase):
+    def test_known_exception_classification_never_returns_message_or_secret(self):
+        marker = b"sensitive-unreported-value"
+        value = classify_startup_log(b"System.UnauthorizedAccessException: Permission denied " + marker)
+        self.assertEqual(value["exception_types"], ["UnauthorizedAccessException"])
+        self.assertTrue(value["permission_denied"])
+        self.assertNotIn(marker.decode(), str(value))
+        self.assertEqual(set(value), {"exception_types", "permission_denied", "tls_error", "log_sha256", "bytes", "truncated"})
+
+    def test_unknown_text_is_only_hashed_without_arbitrary_class_or_message(self):
+        value = classify_startup_log(b"UnknownSecretClass: never-emit-this")
+        self.assertEqual(value["exception_types"], [])
+        self.assertFalse(value["permission_denied"])
+        self.assertNotIn("never-emit-this", str(value))
+
+    def test_log_bound_is_explicit_and_untyped_input_is_refused(self):
+        value = classify_startup_log(b"x" * 131073)
+        self.assertTrue(value["truncated"])
+        self.assertEqual(value["bytes"], 131073)
+        with self.assertRaises(ValueError): classify_startup_log(cast(Any, "not-bytes"))
 
 
 if __name__ == "__main__":

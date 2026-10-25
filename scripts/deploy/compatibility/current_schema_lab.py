@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import shutil
 import socket
 import ssl
@@ -23,6 +24,7 @@ from old_image_identity import bind_old_image
 from current_schema_receipt import (
     check_history,
     check_preservation,
+    classify_startup_log,
     need,
     validate_receipt,
 )
@@ -104,6 +106,7 @@ class Browser:
     def __init__(self, port):
         self.port, self.cookies = port, {}
         self.origin = f"https://localhost:{port}"
+        self.last_status = None
         # Private localhost fixture uses the existing Caddy tls-internal contract only.
         self.context = ssl._create_unverified_context()
 
@@ -147,6 +150,7 @@ class Browser:
 
     def csrf(self):
         status, _, _ = self.request("GET", "/api/v1/auth/csrf")
+        self.last_status = status
         need(
             status == 204 and self.cookies.get("XSRF-TOKEN"),
             "real CSRF endpoint failed",
@@ -771,6 +775,7 @@ class Lab:
             )
 
     def start_web(self):
+        self.report["stage"] = "start_old_web_schema" + str(self.schema_state)
         need(
             self.schema_state in {35, 48} and self.sql_confirmed,
             "lab refuses old web until confirmed canonical SQL",
@@ -853,14 +858,46 @@ class Lab:
             self.report["edge_started"] = True
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
+            probe = Browser(self.port)
             try:
-                Browser(self.port).csrf()
+                probe.csrf()
                 return
             except (OSError, ValueError, http.client.HTTPException):
+                self.report["startup_last_probe"] = {"http_status": probe.last_status if type(probe.last_status) is int and 100 <= probe.last_status <= 599 else None,
+                                                     "issued_xsrf_cookie": bool(probe.cookies.get("XSRF-TOKEN"))}
                 time.sleep(1)
+        self.startup_diagnostics()
         raise RuntimeError(
             "old web startup/CSRF failed; fixture requirements unresolved"
         )
+
+    def startup_diagnostics(self):
+        # Exactly once on failed startup, before own cleanup. No raw logs, environment, requests or secrets emitted.
+        diagnostics = {}
+        for role, name in (("web", self.web), ("edge", self.edge)):
+            public = {"captured": False}
+            try:
+                item = self.owned("container", name)
+                identifier = item["Id"]
+                need(type(identifier) is str and re.fullmatch(r"[a-f0-9]{64}", identifier)
+                     and item["Name"] == "/" + name
+                     and item["Config"]["Image"] == self.pins["old_images"][role]["reference"]
+                     and item["Image"] == self.report["observed_images"][role]["docker_image_id"], "startup diagnostic foreign image/container")
+                state = item["State"]
+                need(state["Status"] in {"created", "running", "paused", "restarting", "removing", "exited", "dead"}
+                     and type(state["ExitCode"]) is int and -255 <= state["ExitCode"] <= 255
+                     and type(state["OOMKilled"]) is bool and type(item["RestartCount"]) is int,
+                     "unknown startup runtime observation")
+                public.update(status=state["Status"], exit_code=state["ExitCode"], oom_killed=state["OOMKilled"], restart_count=item["RestartCount"])
+                # The existing reviewed binary capture imposes one combined stdout/stderr budget, group cleanup and deadline.
+                raw = self.helpers._payload.capture_binary(["/bin/sh", "-c", 'exec /usr/bin/docker logs --tail 100 "$1" 2>&1',
+                                                            "startup-diagnostic", identifier], max_bytes=131072, timeout_seconds=10)
+                public.update(classify_startup_log(raw))
+                public["captured"] = True
+            except Exception:
+                public["captured"] = False  # UNKNOWN remains a failed native qualification; never infer a cause.
+            diagnostics[role] = public
+        self.report["startup_diagnostics"] = diagnostics
 
     def exercise(self, phase):
         self.report["stage"] = phase
@@ -1318,6 +1355,7 @@ def main():
     args.output.chmod(0o644)
     if keeper is not None:
         if code == 0:
+            assert args.recovery_handoff is not None
             handoff = {"schema": 1, "run_id": os.environ["GITHUB_RUN_ID"],
                        "attempt": os.environ["GITHUB_RUN_ATTEMPT"], "workflow_head": workflow_head,
                        "keeper": keeper, "docker_image_id": result["new_migrator"]["docker_image_id"],
