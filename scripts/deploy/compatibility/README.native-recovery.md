@@ -126,3 +126,12 @@ No recursion, content/SDK changes, chown, other parent repair, production host o
 An existing0755 inode is observed without chmod. Unknown state or unconfirmed restoration fails the receipt.
 The structured original/fixture/restored mode and identity evidence is required by the native parser.
 Source: https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-system.sh
+
+## Rendering the disposable runtime model
+
+The native driver enables the migrate and restore profiles only on its Compose config rendering command,
+so the complete JSON model contains both otherwise inactive service definitions before budgeting it.
+This config command starts no service. Subsequent runtime calls keep their existing explicit service lists
+and migration-only profile; the restore profile is not started. A closed required-service inventory is recorded
+before any runtime start, and missing definitions fail before provisioning. Bootstrap stage labels separate
+rendering, inventory, MinIO, database and WAL failures without exposing credentials or command output.

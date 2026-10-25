@@ -784,6 +784,7 @@ class NativeLab:
                 "gates": {"status": "passed", "runUrl": "fixture-bootstrap-not-product-gates"}, "previousReleaseId": previous}
 
     def prepare_runtime(self):
+        self.report["stage"] = "native_bootstrap_secrets"
         self.secrets = self.root / "secrets"
         self.certs = self.root / "certs"
         self.certs.mkdir(mode=0o755)
@@ -822,9 +823,15 @@ class NativeLab:
         env["DUORA_HTTP_PORT"] = "0"
         env.update({"DUORA_" + role.upper() + "_IMAGE": pin["reference"] for role, pin in self.pins["old_images"].items()})
         put(self.host_env, "".join(key + "=" + value + "\n" for key, value in env.items()))
-        rendered = json.loads(self.docker("compose", "--project-name", "duora", "--env-file", self.host_env,
+        self.report["stage"] = "native_bootstrap_compose_render"
+        rendered = json.loads(self.docker("compose", "--project-name", "duora", "--profile", "migrate", "--profile", "restore", "--env-file", self.host_env,
                               "-f", self.args.cohort / "infra/compose/compose.prod.yml", "-f", self.args.workflow_source / "scripts/backup/compose.drill.yml",
                               "config", "--format", "json"))
+        # Profiles are enabled ONLY for rendering. Runtime operations retain their explicit service/profile lists.
+        required_services = {"postgres", "backup", "restore", "web", "worker", "edge", "migrator", "s3", "internet"}
+        self.report["stage"] = "native_bootstrap_service_inventory"
+        self.report["bootstrap_services"] = sorted(required_services.intersection(rendered["services"]))
+        need(required_services.issubset(rendered["services"]), "native compose omitted a required fixture service")
         rendered["name"] = "duora"
         for name, service in rendered["services"].items():
             service.setdefault("labels", {})[LABEL] = self.nonce
@@ -855,14 +862,17 @@ class NativeLab:
         put(self.compose_path, canonical(rendered))
         self.compose = ["/usr/bin/docker", "compose", "--file", str(self.compose_path), "--env-file", str(self.host_env)]
         self.compose_ready = True
+        self.report["stage"] = "native_bootstrap_minio_bucket"
         self.compose_run("up", "--detach", "--wait", "s3", "internet")
         fixture_drill = drill.Drill(self.pins["old_images"]["postgres"]["reference"], self.root)
         fixture_drill._compose = self.compose
         fixture_drill._create_locked_bucket()
+        self.report["stage"] = "native_bootstrap_postgres_backup"
         self.compose_run("up", "--detach", "--wait", "--no-deps", "backup", "postgres")
         self.compose_run("--profile", "migrate", "run", "--rm", "--no-deps", "migrator", timeout=300)
         self.sql_file((self.args.old_source / self.pins["canonical_sql_path"]).read_text())
         need(self.history() == self.pins["old_migrations"], "bootstrap did not produce exact35")
+        self.report["stage"] = "native_bootstrap_backup_wal"
         # Actual bucket protection, full backup and fresh WAL evidence. No fake success wrapper.
         for action in ("stanza-create", "full", "verify"):
             command([str(ENTRIES[1]), action], timeout=600)
