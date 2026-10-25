@@ -17,6 +17,7 @@
   <ItemGroup>
     <!-- Os testes de integração sobem o host pelo mesmo WorkerHost do Program. -->
     <InternalsVisibleTo Include="Duora.IntegrationTests" />
+    <InternalsVisibleTo Include="Duora.MediaCorpusTests" />
   </ItemGroup>
 
   <ItemGroup>
