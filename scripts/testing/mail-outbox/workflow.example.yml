@@ -1,0 +1,58 @@
+# Inactive reference only: this file is outside .github/workflows.
+# Promote in a separately reviewed workflow change; never run on a local/self-hosted runner.
+name: Isolated mail outbox rehearsal
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Offline local-execution safety regression
+        run: python3 -m unittest discover -s scripts/testing/mail-outbox -p 'test_*.py' -v
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a10194a90a4a27df1e95432027c5694eba259b69
+          path: lab/snapshots/legacy
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a4711d6ec2cdd11dda892ed5ab41f66bb2009edc
+          path: lab/snapshots/reader
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: d7ed56bfb81a8ba25066820101f8c8f842eb2e32
+          path: lab/source
+          persist-credentials: false
+      - name: Prepare only the preserved harness
+        run: |
+          mkdir lab/validation
+          cp -R scripts/testing/mail-outbox/. lab/validation/
+          cp lab/source/global.json lab/global.json
+          printf '<Project><Import Project="source/Directory.Packages.props" /></Project>\n' > lab/Directory.Packages.props
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          global-json-file: lab/global.json
+      - name: Build pinned Infrastructure probes
+        working-directory: lab
+        run: |
+          for version in legacy reader current; do
+            dotnet restore validation/$version/Probe.csproj -p:RestoreLockedMode=false
+            dotnet build validation/$version/Probe.csproj -c Release --no-restore
+          done
+      - name: Synthetic PostgreSQL and pickup rehearsal
+        run: python3 lab/validation/cross_version.py
+      - name: Preserve synthetic receipt evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: cross-version-evidence
+          path: lab/artifacts/cross-version.json
+          if-no-files-found: error
+          retention-days: 30

@@ -15,6 +15,9 @@ A implementação usa MailKit/MimeKit 4.18.1 (MIT), com `System.Security.Cryptog
 o limite inferior do MimeKit admite uma versão vulnerável
 ([aviso Microsoft](https://github.com/advisories/GHSA-846f-f764-76mx)). Não há supressão do audit de dependências.
 
+A [preservação mínima e sua derivação sanitizada](mail-validation-preservation.md) mantêm fontes por
+referências Git, resultados e hashes, mesmo após eventual remoção do laboratório temporário.
+
 ## Ensaio entre versões executado
 
 [Execução remota 39799180397, job compatibility](https://github.com/BipoXDXD/duora-mail-validation-20261022/actions/runs/39799180397/job/119894677208).
