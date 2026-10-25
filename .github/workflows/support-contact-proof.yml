@@ -15,6 +15,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Private operator runner boundaries, synthetic subprocesses only
+        run: >-
+          env -i /usr/bin/python3 -m unittest discover
+          -s tools/support-contact-probe -p test_preserved_probe_runner.py
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
           global-json-file: global.json
@@ -41,5 +45,17 @@ jobs:
         with:
           name: readonly-support-contact-probe
           path: ${{ runner.temp }}/support-contact-proof/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Package only the private runner source
+        run: |
+          mkdir -p "$RUNNER_TEMP/support-contact-runner"
+          cp tools/support-contact-probe/run_preserved_probe.py "$RUNNER_TEMP/support-contact-runner/"
+          cd "$RUNNER_TEMP/support-contact-runner"
+          sha256sum run_preserved_probe.py > SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: support-contact-private-runner
+          path: ${{ runner.temp }}/support-contact-runner/
           retention-days: 30
           if-no-files-found: error
