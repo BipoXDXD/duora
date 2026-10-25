@@ -23,9 +23,7 @@ NEW = "ghcr.io/bipoxdxd/goblinshift-executor@sha256:" + "b" * 64
 
 class NativePolicyTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory(
-            prefix="goblin-policy-proof-", dir="/var/lib"
-        )
+        self.temp = tempfile.TemporaryDirectory(prefix="goblin-policy-proof-", dir="/var/lib")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.directory = self.root / "project"
@@ -48,9 +46,7 @@ class NativePolicyTests(unittest.TestCase):
     def test_real_root_chain_appends_without_losing_previous_digests(self) -> None:
         with r.goblin_policy() as policy:
             r.append_goblin_policy(policy, NEW)
-        self.assertEqual(
-            json.loads(self.path.read_bytes()), {"allowed": [NEW, OLD, OTHER]}
-        )
+        self.assertEqual(json.loads(self.path.read_bytes()), {"allowed": [NEW, OLD, OTHER]})
         info = self.path.stat()
         self.assertEqual(
             (info.st_uid, info.st_gid, info.st_nlink, stat.S_IMODE(info.st_mode)),
@@ -58,7 +54,7 @@ class NativePolicyTests(unittest.TestCase):
         )
 
     def test_uid1001_ancestor_refuses_before_policy_write(self) -> None:
-        self.directory.chown(1001, 1001)
+        os.chown(self.directory, 1001, 1001)
         with self.assertRaises(ValueError), r.goblin_policy():
             self.fail("untrusted ancestry admitted")
         self.assertEqual(self.path.read_bytes(), self.raw)
@@ -87,7 +83,7 @@ class NativePolicyTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
 
     def test_foreign_leaf_owner_refuses(self) -> None:
-        self.path.chown(1001, 1001)
+        os.chown(self.path, 1001, 1001)
         with self.assertRaises(ValueError), r.goblin_policy():
             self.fail("foreign-owned file admitted")
 
@@ -105,9 +101,7 @@ class NativePolicyTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), self.raw)
 
     def test_legacy_reader_configuration_refuses(self) -> None:
-        self.config.write_text(
-            json.dumps({"images_file": "/srv/goblinshift/executor/images.json"})
-        )
+        self.config.write_text(json.dumps({"images_file": "/srv/goblinshift/executor/images.json"}))
         with self.assertRaises(ValueError), r.goblin_policy():
             self.fail("legacy reader admitted")
         self.assertEqual(self.path.read_bytes(), self.raw)
@@ -134,7 +128,7 @@ class NativePolicyTests(unittest.TestCase):
                         for role, repo in r.PROJECTS["goblinshift"].items()
                     },
                 }
-                imported = []
+                imported: list[bool] = []
 
                 def unpack(
                     stream: object,
@@ -154,13 +148,9 @@ class NativePolicyTests(unittest.TestCase):
                         self.directory.rename(self.root / "old-pinned")
                         self.directory.mkdir(mode=0o700)
 
-                def import_images(
-                    data: object, stage: Path, calls: list[bool] = imported
-                ) -> None:
+                def import_images(data: object, stage: Path, calls: list[bool] = imported) -> None:
                     calls.append(True)
-                    raise AssertionError(
-                        "Docker import reached before policy revalidation"
-                    )
+                    raise AssertionError("Docker import reached before policy revalidation")
 
                 with (
                     patch.object(r, "STATE", state),
@@ -168,9 +158,7 @@ class NativePolicyTests(unittest.TestCase):
                     patch.object(r, "unpack", side_effect=unpack),
                     patch.object(r, "import_images", side_effect=import_images),
                     patch.object(sys, "argv", ["receiver.py", "goblinshift"]),
-                    patch.dict(
-                        os.environ, {"SSH_ORIGINAL_COMMAND": "release " + "a" * 40}
-                    ),
+                    patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": "release " + "a" * 40}),
                     self.assertRaises(ValueError),
                 ):
                     r.main()

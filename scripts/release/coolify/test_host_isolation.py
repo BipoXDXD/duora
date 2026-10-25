@@ -60,9 +60,7 @@ def worker(root: Path, project: str, mode: str) -> None:
     state = root / "state"
     config = root / "config"
     config.mkdir(exist_ok=True)
-    (config / "storage.json").write_text(
-        json.dumps({"version": 1, "image_roots": [str(root)]})
-    )
+    (config / "storage.json").write_text(json.dumps({"version": 1, "image_roots": [str(root)]}))
     whitelist = root / "executor-images.json"
     if mode.endswith("change-during-input"):
         (root / "policy").mkdir()
@@ -100,8 +98,7 @@ def worker(root: Path, project: str, mode: str) -> None:
         "project": project,
         "commit": SHA,
         "images": {
-            role: repo + "@sha256:" + "b" * 64
-            for role, repo in r.PROJECTS[project].items()
+            role: repo + "@sha256:" + "b" * 64 for role, repo in r.PROJECTS[project].items()
         },
     }
 
@@ -258,9 +255,7 @@ class HostIsolationTests(unittest.TestCase):
         (self.root / "continue").touch()
         self.assertEqual(self.finish(first), 0, (self.root / "duora.log").read_text())
         second = self.start("goblinshift")
-        self.assertEqual(
-            self.finish(second), 0, (self.root / "goblinshift.log").read_text()
-        )
+        self.assertEqual(self.finish(second), 0, (self.root / "goblinshift.log").read_text())
         self.assert_preserved()
 
     def test_killed_import_keeps_host_fenced_until_admin_reconciliation(self) -> None:
@@ -276,9 +271,7 @@ class HostIsolationTests(unittest.TestCase):
         with r.release_locks(self.root / "state" / "host.lock"):
             pending.replace(self.root / "reconciled-import.json")
         second = self.start("goblinshift")
-        self.assertEqual(
-            self.finish(second), 0, (self.root / "goblinshift.log").read_text()
-        )
+        self.assertEqual(self.finish(second), 0, (self.root / "goblinshift.log").read_text())
         self.assert_preserved()
 
     def test_lost_start_response_blocks_other_project_after_process_exit(self) -> None:
@@ -289,13 +282,9 @@ class HostIsolationTests(unittest.TestCase):
         self.assert_refused_before_input("goblinshift")
         with r.release_locks(self.root / "state" / "host.lock"):
             pending.replace(self.root / "reconciled-project.json")
-            (self.root / "state" / "pending.json").replace(
-                self.root / "reconciled-host.json"
-            )
+            (self.root / "state" / "pending.json").replace(self.root / "reconciled-host.json")
         second = self.start("goblinshift")
-        self.assertEqual(
-            self.finish(second), 0, (self.root / "goblinshift.log").read_text()
-        )
+        self.assertEqual(self.finish(second), 0, (self.root / "goblinshift.log").read_text())
         self.assert_preserved()
 
     def test_killed_deployment_does_not_release_other_project(self) -> None:

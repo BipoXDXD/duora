@@ -604,3 +604,186 @@ jobs:
           --include-dev-deps
           --ignorefile .trivyignore
           --exit-code 1
+
+  current-schema-compatibility:
+    name: current3d99 on retained schema48 (PR260 only)
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.number == 260 &&
+      (github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: duora-current-schema-compatibility-pr260
+      cancel-in-progress: false
+    steps:
+      - name: Checkout the actual reviewed PR260 helper/executor source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: gate
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+      - name: Checkout the exact already-qualified cohort259 content
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 1a9b0194d253dee9a810f710a4fdf9ff2a05c07b
+          path: cohort
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+      - name: Checkout historical source only for old SQL and provenance (never rebuild old web)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 3d99eec4f9a78dd9a9ea509ae89bba35f7d85205
+          path: old-source
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+      - name: NEW lightweight receipt parser checks (not native evidence)
+        run: |
+          /usr/bin/python3 -B -m unittest discover \
+            -s gate/scripts/deploy/compatibility -p 'test_*.py'
+      - name: Real old binary and DDL48 on an owned disposable PostgreSQL18.6
+        run: |
+          sudo --non-interactive /usr/bin/env -i \
+            HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_SHA="$GITHUB_SHA" \
+            GITHUB_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" GITHUB_WORKFLOW_REF="$GITHUB_WORKFLOW_REF" \
+            RUNNER_TEMP="$RUNNER_TEMP" \
+            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/gate/scripts/deploy/compatibility/current_schema_lab.py" \
+              --cohort "$GITHUB_WORKSPACE/cohort" \
+              --old-source "$GITHUB_WORKSPACE/old-source" \
+              --workflow-source "$GITHUB_WORKSPACE/gate" \
+              --output "$RUNNER_TEMP/duora-current-schema-compatibility/receipt.json" \
+              --recovery-handoff "$RUNNER_TEMP/duora-current-schema-compatibility/recovery-handoff.json"
+      - name: Composed native current-v2 recovery using the one inherited cohort migrator
+        run: |
+          sudo --non-interactive /usr/bin/env -i \
+            HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_SHA="$GITHUB_SHA" \
+            GITHUB_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" GITHUB_WORKFLOW_REF="$GITHUB_WORKFLOW_REF" \
+            RUNNER_TEMP="$RUNNER_TEMP" \
+            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/gate/scripts/deploy/compatibility/current_recovery_lab.py" \
+              --cohort "$GITHUB_WORKSPACE/cohort" \
+              --old-source "$GITHUB_WORKSPACE/old-source" \
+              --workflow-source "$GITHUB_WORKSPACE/gate" \
+              --functional-receipt "$RUNNER_TEMP/duora-current-schema-compatibility/receipt.json" \
+              --handoff "$RUNNER_TEMP/duora-current-schema-compatibility/recovery-handoff.json" \
+              --output "$RUNNER_TEMP/duora-current-schema-compatibility/recovery-receipt.json"
+      - name: Clean only the transferred cohort keeper tag if an earlier stage refused
+        if: ${{ always() }}
+        run: |
+          sudo --non-interactive /usr/bin/env -i \
+            HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_SHA="$GITHUB_SHA" \
+            GITHUB_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" GITHUB_WORKFLOW_REF="$GITHUB_WORKFLOW_REF" \
+            RUNNER_TEMP="$RUNNER_TEMP" \
+            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/gate/scripts/deploy/compatibility/current_recovery_lab.py" \
+              --cleanup-transferred-keeper "$RUNNER_TEMP/duora-current-schema-compatibility/recovery-handoff.json"
+      - name: Bounded public metadata only; missing evidence fails
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: current3d99-schema48-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/duora-current-schema-compatibility/receipt.json
+            ${{ runner.temp }}/duora-current-schema-compatibility/recovery-receipt.json
+            ${{ runner.temp }}/duora-current-schema-compatibility/recovery-command-trace.ndjson
+            ${{ runner.temp }}/duora-current-schema-compatibility/recovery-public-records.json
+          if-no-files-found: error
+          retention-days: 3
+
+  shared-policy-native-root:
+    name: Shared policy Linux root (PR260 only)
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.number == 260 &&
+      (github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: duora-shared-policy-native-pr260
+      cancel-in-progress: false
+    steps:
+      - name: Exact Duora candidate; no assets or application installation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: duora-policy
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          sparse-checkout: scripts/release/coolify
+      - name: Exact existing GoblinShift PR133 source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: BipoXDXD/GoblinShift
+          ref: 6c5eb8956b146c5644a9638ba47574c33508b05f
+          path: goblin-policy
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          sparse-checkout: |
+            deploy/coolify/release
+            deploy/executor_ctl
+            tests/executor_ctl
+      - name: Exact existing StillOn PR128 source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: BipoXDXD/stillon
+          ref: 7a8085e50901d22d5cb40acc2a1b71dbd76a244a
+          path: stillon-policy
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          sparse-checkout: deploy/coolify/release
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Isolated hash-locked pure wheels; no Docker or application dependencies
+        run: |
+          python -m venv "$RUNNER_TEMP/shared-policy-venv"
+          "$RUNNER_TEMP/shared-policy-venv/bin/python" -m pip install --require-hashes --only-binary=:all: \
+            -r duora-policy/scripts/release/coolify/policy-native-requirements.txt
+          PYTHONPATH="$GITHUB_WORKSPACE/duora-policy/scripts/release/coolify" \
+            "$RUNNER_TEMP/shared-policy-venv/bin/python" -B -m unittest test_policy_gate
+      - name: Real Linux UID0 filesystem and peer byte identity; every native case required
+        run: |
+          sudo --non-interactive /usr/bin/env -i \
+            HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            "$RUNNER_TEMP/shared-policy-venv/bin/python" -B \
+            "$GITHUB_WORKSPACE/duora-policy/scripts/release/coolify/policy_native_gate.py" \
+            --duora "$GITHUB_WORKSPACE/duora-policy" --goblin "$GITHUB_WORKSPACE/goblin-policy" \
+            --stillon "$GITHUB_WORKSPACE/stillon-policy" --output "$RUNNER_TEMP/shared-policy-native/qualification.json"
+      - name: Public result and exact case counts; no production receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: shared-policy-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/shared-policy-native/qualification.json
+            ${{ runner.temp }}/shared-policy-native/reader-native.xml
+          if-no-files-found: error
+          retention-days: 7

@@ -149,7 +149,9 @@ def _root_lab() -> dict:
         receiver_link = root / "receiver-policy/receiver.py"
         receiver_target = receiver_link.parent / "versions" / ("2.0.2-" + installer.RECEIVER_SHA256) / "receiver.py"
         receiver_target.parent.mkdir(parents=True)
-        receiver_source = (repo / "scripts/release/coolify/receiver.py").read_bytes()
+        receiver_source = (repo / "scripts/deploy/fixtures/receiver-2.0.2-1ccd.py.txt").read_bytes()
+        if hashlib.sha256(receiver_source).hexdigest() != installer.RECEIVER_SHA256:
+            raise RuntimeError("Historical qualified receiver fixture differs from installed 2.0.2")
         receiver_target.write_bytes(receiver_source)
         receiver_target.chmod(0o755)
         receiver_link.symlink_to(receiver_target)
