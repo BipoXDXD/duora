@@ -141,6 +141,66 @@ public sealed class AccountService
     }
 
     /// <summary>
+    /// Emite outro código somente para o cadastro pendente ainda admissível e com a senha correta. Não cria,
+    /// substitui ou confirma conta, nem renova sua idade/aceites. Registro e reenvio compartilham o orçamento
+    /// persistente. A linha relida sob a mesma trava da confirmação impede emitir depois de confirmar.
+    /// </summary>
+    public async Task RequestEmailConfirmationAsync(EmailAddress email, string password, CancellationToken cancellationToken)
+    {
+        var code = RandomNumberGenerator.GetInt32(100_000_000).ToString("D8", CultureInfo.InvariantCulture);
+        // Como no cadastro, o hasher não depende do usuário: todos os estados custam este hash e uma prova de senha.
+        var codeHash = _users.PasswordHasher.HashPassword(null!, code);
+        var user = await _users.FindByEmailAsync(email.Value);
+        if (user is null)
+        {
+            VerifyDecoy(password);
+            return;
+        }
+
+        await using var check = await _security.LockAccountAsync(user, cancellationToken);
+        var passwordMatches = false;
+        if (user.PasswordHash is { } passwordHash)
+        {
+            passwordMatches = _users.PasswordHasher.VerifyHashedPassword(user, passwordHash, password) != PasswordVerificationResult.Failed;
+        }
+        else
+        {
+            VerifyDecoy(password);
+        }
+        if (!passwordMatches || user.EmailConfirmed || user.Status != AccountStatus.PendingEmail || IsExpiredPendingRegistration(user))
+        {
+            return;
+        }
+
+        var now = _time.GetUtcNow();
+        if (!await ReserveIssuanceAsync(user.Id, now, cancellationToken))
+        {
+            return;
+        }
+        // A troca invalida também links Data Protection legados; nenhuma sessão é aberta para uma conta pendente.
+        var stamp = NewSecurityStamp();
+        var changed = await _db.Database.ExecuteSqlAsync($"""
+            update identity.users set security_stamp={stamp},concurrency_stamp={Guid.NewGuid().ToString("D")}
+            where id={user.Id} and not email_confirmed and status='PendingEmail' and security_stamp={user.SecurityStamp}
+            """, cancellationToken);
+        if (changed != 1)
+        {
+            return;
+        }
+        var value = $"{stamp}|{now.UtcTicks.ToString(CultureInfo.InvariantCulture)}|{codeHash}";
+        await _db.Database.ExecuteSqlAsync($"""
+            insert into identity.user_tokens(user_id,login_provider,name,value)
+            values({user.Id},{ConfirmationCodeProvider},{ConfirmationCodeName},{value})
+            on conflict(user_id,login_provider,name) do update set value=excluded.value
+            """, cancellationToken);
+        _db.Add(AccountEmailOutbox.Create(new AccountEmailRequested(
+            AccountEmailKind.EmailConfirmation, StoredAddress(user), user.Id, code,
+            user.PreferredLocale ?? EmailLanguageTag.Format(EmailLanguageTag.Default)), now));
+        await _db.SaveChangesAsync(cancellationToken);
+        await check.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// Confirma o e-mail com o código (ou link legado, posse do e-mail) e a senha do cadastro pendente (conhecimento da senha).
     /// Assim um link gerado por outra pessoa, que chegou à caixa da vítima, não confirma a conta dela com a senha
     /// de outra pessoa (TM-66). Senha errada e token inválido dão o mesmo resultado, e toda tentativa custa um hash.
@@ -511,7 +571,7 @@ public sealed class AccountService
 
     private async Task<bool> ReserveIssuanceAsync(Guid userId, DateTimeOffset now, CancellationToken ct)
     {
-        // Registration already owns the user row lock. The budget survives restarts and proof replacement.
+        // The caller owns the user row lock. Registration/resend share this restart-safe budget.
         const string Provider = "Duora.RegistrationBudget";
         const string Name = "Hourly";
         var values = await _db.Database.SqlQuery<string>($"""

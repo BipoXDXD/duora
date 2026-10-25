@@ -20,6 +20,7 @@ public sealed class EndpointAuthorizationTests(PostgresFixture postgres) : IAsyn
         "GET /api/v1/auth/csrf",
         "POST /api/v1/auth/register",
         "POST /api/v1/auth/confirm-email",
+        "POST /api/v1/auth/email-confirmation-requests",
         "POST /api/v1/auth/login",
         "POST /api/v1/auth/logout",
         "POST /api/v1/auth/password-reset-requests",

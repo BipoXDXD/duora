@@ -1,4 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { usePrivateOperation } from '@/features/session/private-operation'
+import { usePrivateMutation } from '@/features/session/private-mutation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useAccount } from '@/features/session/account-context'
 import type { Me } from '@/features/session/session-api'
@@ -23,16 +25,17 @@ import {
 } from './preferences-api'
 
 export function PreferencesPage(): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { id } = useAccount()
   const { t } = useI18n()
   const prefs = useQuery({
     queryKey: ['account', id, 'preferences'],
-    queryFn: ({ signal }) => fetchPreferences(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchPreferences(operation, signal)),
     gcTime: 0,
   })
   const locale = useQuery({
     queryKey: ['account', id, 'locale'],
-    queryFn: ({ signal }) => fetchLocale(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchLocale(operation, signal)),
     gcTime: 0,
   })
   return (
@@ -65,8 +68,12 @@ function PreferenceForm({ initial }: { readonly initial: CommunicationPreference
   const [optIn, setOptIn] = useState(initial.allowDifferentDisplayLocales)
   const [invalid, setInvalid] = useState(false)
   const [reloaded, setReloaded] = useState(false)
-  const save = useMutation({
-    mutationFn: () => savePreferences(base.version, languages, optIn),
+  const save = usePrivateMutation({
+    mutationFn: (operation) =>
+      savePreferences(operation, base.version, {
+        communicationLanguages: languages,
+        allowDifferentDisplayLocales: optIn,
+      }),
     onSuccess: (value) => {
       setBase(value)
       setReloaded(false)
@@ -75,8 +82,8 @@ function PreferenceForm({ initial }: { readonly initial: CommunicationPreference
       if (isUnauthorized(error)) void queries.invalidateQueries({ queryKey: meQueryKey })
     },
   })
-  const reload = useMutation({
-    mutationFn: () => fetchPreferences(),
+  const reload = usePrivateMutation({
+    mutationFn: (operation) => fetchPreferences(operation),
     onSuccess: (value) => {
       setBase(value)
       setReloaded(true)
@@ -174,8 +181,8 @@ function LocaleForm({ initial }: { readonly initial: AccountLocale }): React.JSX
   const queries = useQueryClient()
   const [base, setBase] = useState(initial)
   const [locale, setLocale] = useState(initial.locale)
-  const save = useMutation({
-    mutationFn: () => saveLocale(base.version, locale),
+  const save = usePrivateMutation({
+    mutationFn: (operation) => saveLocale(operation, base.version, locale),
     onSuccess: (value) => {
       if (queries.getQueryData<Me>(meQueryKey)?.id !== account.id) return
       setBase(value)
@@ -185,8 +192,8 @@ function LocaleForm({ initial }: { readonly initial: AccountLocale }): React.JSX
       changeLocale(value.locale)
     },
   })
-  const reload = useMutation({
-    mutationFn: () => fetchLocale(),
+  const reload = usePrivateMutation({
+    mutationFn: (operation) => fetchLocale(operation),
     onSuccess: (value) => {
       setBase(value)
       setLocale(value.locale)

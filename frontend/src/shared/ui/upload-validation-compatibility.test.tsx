@@ -1,3 +1,4 @@
+import { syntheticPrivateOperation } from '@/test/owned-api-context'
 import { screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { createApiClient } from '@/shared/api/api-client'
@@ -61,7 +62,10 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
           headers,
           body: new Uint8Array(0),
         })
-        const error: unknown = await client.fetch(request).catch((failure: unknown) => failure)
+        const operation = syntheticPrivateOperation(client.sessionContext)
+        const error: unknown = await client
+          .fetchFor(operation)(request)
+          .catch((failure: unknown) => failure)
         expect(error).toBeInstanceOf(ApiProblemError)
         expect(error).toMatchObject({ problem: { errors: { body: [fieldValue] } } })
         expect(fetch).toHaveBeenCalledTimes(1)

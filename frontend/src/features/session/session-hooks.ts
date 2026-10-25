@@ -1,18 +1,23 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type UseMutationResult,
-  type UseQueryResult,
-} from '@tanstack/react-query'
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { apiClient, refreshAntiforgeryToken } from '@/shared/api'
+import { apiClient } from '@/shared/api'
 import { paths } from '@/shared/paths'
 import { identityBroadcast } from './identity-broadcast'
 import type { LoginNotice, LoginState } from './login-state'
+import { usePrivateOperation, useSessionContextSnapshot } from './private-operation'
+import { usePrivateMutation, type PrivateMutationResult } from './private-mutation'
 import { meQueryKey, sessionsQueryKey } from './query-keys'
-import { fetchMe, fetchSessions, logout, revokeSession, type AccountSession, type Me } from './session-api'
+import {
+  fetchMe,
+  fetchMeForRevalidation,
+  fetchSessions,
+  logout,
+  revokeSession,
+  SessionRestrictionError,
+  type AccountSession,
+  type Me,
+} from './session-api'
 
 /**
  * Dado privado não fica em memória depois que a área autenticada desmonta (gcTime 0): ao voltar a ela,
@@ -22,13 +27,24 @@ import { fetchMe, fetchSessions, logout, revokeSession, type AccountSession, typ
 const PRIVATE_DATA_GC_TIME_MS = 0
 
 export function useMe(): UseQueryResult<Me> {
-  return useQuery({ queryKey: meQueryKey, queryFn: ({ signal }) => fetchMe(signal), gcTime: PRIVATE_DATA_GC_TIME_MS })
+  useSessionContextSnapshot()
+  return useQuery({
+    queryKey: meQueryKey,
+    queryFn: ({ signal }) => fetchMe(signal),
+    gcTime: PRIVATE_DATA_GC_TIME_MS,
+    structuralSharing: false,
+    enabled: () => {
+      const context = apiClient.sessionContext.getSnapshot()
+      return !context.protected && context.pendingOwner === null
+    },
+  })
 }
 
 export function useSessions(userId: string): UseQueryResult<readonly AccountSession[]> {
+  const privateOperation = usePrivateOperation()
   return useQuery({
     queryKey: sessionsQueryKey(userId),
-    queryFn: ({ signal }) => fetchSessions(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchSessions(operation, signal)),
     gcTime: PRIVATE_DATA_GC_TIME_MS,
   })
 }
@@ -52,15 +68,31 @@ export function useSessionTransitions(): SessionTransitions {
   const navigate = useNavigate()
   return {
     signedIn: async (destination: string): Promise<void> => {
-      queryClient.clear()
+      apiClient.sessionContext.protect('identity')
       identityBroadcast.announce()
-      await renewAntiforgeryTokenAfterIdentityChange()
-      void navigate(destination, { replace: true })
+      const ticket = apiClient.sessionContext.beginExplicitRevalidation()
+      try {
+        await queryClient.query({
+          queryKey: meQueryKey,
+          queryFn: () => fetchMeForRevalidation(ticket),
+          structuralSharing: false,
+          retry: false,
+          staleTime: 0,
+        })
+        void navigate(destination, { replace: true })
+      } catch (error) {
+        if (error instanceof SessionRestrictionError) {
+          void navigate(paths.changePassword, { replace: true })
+          return
+        }
+        throw error
+      }
     },
-    signedOut: async (notice: LoginNotice): Promise<void> => {
+    signedOut: (notice: LoginNotice): Promise<void> => {
+      apiClient.sessionContext.protect('identity')
       void navigate(paths.login, { replace: true, state: { notice } satisfies LoginState })
       identityBroadcast.announce()
-      await renewAntiforgeryTokenAfterIdentityChange()
+      return Promise.resolve()
     },
   }
 }
@@ -74,32 +106,24 @@ export function useSessionTransitions(): SessionTransitions {
 export function useDiscardCachedIdentity(): void {
   const queryClient = useQueryClient()
   useEffect(() => {
+    apiClient.sessionContext.protect('identity')
     queryClient.clear()
   }, [queryClient])
 }
 
-async function renewAntiforgeryTokenAfterIdentityChange(): Promise<void> {
-  try {
-    await refreshAntiforgeryToken(apiClient)
-  } catch {
-    // Sem rede, o token fica para depois: toda mutação pede um token novo antes de ser enviada
-    // (sendMutation), então nenhuma sai com o token da identidade anterior.
-  }
-}
-
-export function useLogout(): UseMutationResult<void, Error, void> {
+export function useLogout(): PrivateMutationResult<void, void> {
   const transitions = useSessionTransitions()
-  return useMutation({
-    mutationFn: logout,
+  return usePrivateMutation({
+    mutationFn: (operation) => logout(operation),
     onSuccess: () => transitions.signedOut('signed-out'),
   })
 }
 
-export function useRevokeSession(userId: string): UseMutationResult<void, Error, AccountSession> {
+export function useRevokeSession(userId: string): PrivateMutationResult<void, AccountSession> {
   const queryClient = useQueryClient()
   const transitions = useSessionTransitions()
-  return useMutation({
-    mutationFn: (session: AccountSession) => revokeSession(session.id),
+  return usePrivateMutation({
+    mutationFn: (operation, session: AccountSession) => revokeSession(operation, session.id),
     onSuccess: (_result, session) =>
       session.current
         ? transitions.signedOut('signed-out')

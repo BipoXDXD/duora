@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using Duora.Contracts.Identity;
 using Duora.Infrastructure.Identity;
@@ -20,25 +21,36 @@ internal static class AuthEndpoints
     {
         var auth = api.MapGroup("/auth").AllowAnonymous().WithTags("Auth");
 
-        auth.MapGet("/csrf", IssueCsrfToken);
+        auth.MapGet("/csrf", IssueCsrfToken).WithMetadata(new PublicAntiforgeryEndpoint());
         auth.MapPost("/register", RegisterAsync)
+            .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.Register)
             .ProducesMutationProblems();
         auth.MapPost("/confirm-email", ConfirmEmailAsync)
+            .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption)
             .ProducesMutationProblems()
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        auth.MapPost("/email-confirmation-requests", RequestEmailConfirmationAsync)
+            .WithMetadata(new PublicAntiforgeryEndpoint())
+            .RequireRateLimiting(AuthRateLimitPolicies.Register)
+            .ProducesMutationProblems()
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         auth.MapPost("/login", LoginAsync)
+            .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.Login)
             .ProducesMutationProblems()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         auth.MapPost("/logout", LogoutAsync)
+            .WithMetadata(new SessionAwareLogoutEndpoint())
             .ProducesProblem(StatusCodes.Status403Forbidden);
         auth.MapPost("/password-reset-requests", RequestPasswordResetAsync)
+            .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.PasswordResetRequest)
             .ProducesMutationProblems();
         auth.MapPost("/password-resets", ResetPasswordAsync)
+            .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption)
             .ProducesMutationProblems();
     }
@@ -88,6 +100,36 @@ internal static class AuthEndpoints
             cancellationToken,
             request.AcceptedTermsLocale,
             request.AcceptedPrivacyLocale);
+        return TypedResults.Accepted((string?)null);
+    }
+
+    private static async Task<Results<Accepted, ValidationProblem, ProblemHttpResult>> RequestEmailConfirmationAsync(
+        CreateEmailConfirmationRequest request,
+        HttpContext context,
+        AccountService accounts,
+        AccountAttemptLimiter limiter,
+        CancellationToken cancellationToken)
+    {
+        var validation = new RequestValidation();
+        validation.Email("email", request.Email, out var email);
+        validation.ExistingPassword("password", request.Password, out var password);
+        if (!validation.IsValid || email is null || password is null)
+        {
+            return ApiProblems.Validation(validation.Errors);
+        }
+        // Mesmo contador do cadastro: a nova rota não multiplica cotas por endereço/conta ou o envio persistido.
+        if (limiter.TryConsume(AccountOperation.Register, email) is { } retryAfter)
+        {
+            return ApiProblems.TooManyRequests(context, retryAfter);
+        }
+        var startedAt = Stopwatch.GetTimestamp();
+        await accounts.RequestEmailConfirmationAsync(email, password, cancellationToken);
+        // Piso monotônico e jitter para todos os 202; fora da transação, sem ocupar conexão durante a espera.
+        var floor = TimeSpan.FromMilliseconds(500 + Random.Shared.Next(101));
+        while (floor - Stopwatch.GetElapsedTime(startedAt) is var remaining && remaining > TimeSpan.Zero)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds)), cancellationToken);
+        }
         return TypedResults.Accepted((string?)null);
     }
 

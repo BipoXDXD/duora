@@ -1,5 +1,5 @@
+import { usePublicMutation, runPublicOperation } from '@/features/session/public-operation'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { classifyRequestFailure } from '@/shared/api'
@@ -21,12 +21,15 @@ export function ForgotPasswordPage(): React.JSX.Element {
     resolver: zodResolver(forgotPasswordSchema),
     defaultValues: { email: '' },
   })
-  const resetRequest = useMutation({ mutationFn: requestPasswordReset })
-  const submit = form.handleSubmit(({ email }) => {
-    if (!resetRequest.isPending) {
-      resetRequest.mutate(email)
-    }
+  const resetRequest = usePublicMutation({
+    mutationFn: (operation) => requestPasswordReset(operation, forgotPasswordSchema.parse(form.getValues()).email),
   })
+  const submit = (event: React.BaseSyntheticEvent) =>
+    runPublicOperation((operation) =>
+      form.handleSubmit(async () => {
+        if (!resetRequest.isPending) await resetRequest.mutateWithOperation(operation, undefined)
+      })(event),
+    )
 
   if (resetRequest.isSuccess) {
     // Resposta neutra (API-A06): a mesma mensagem exista ou não a conta.
@@ -51,7 +54,7 @@ export function ForgotPasswordPage(): React.JSX.Element {
         aria-busy={resetRequest.isPending}
         className="flex flex-col gap-6"
         onSubmit={(event) => {
-          void submit(event)
+          void submit(event).catch(() => undefined)
         }}
       >
         <TextField

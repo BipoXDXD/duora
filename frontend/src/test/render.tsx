@@ -1,3 +1,4 @@
+import { SecurityResultNavigationGuard } from '@/features/auth/SecurityCompletionNotice'
 import type { ReactElement, ReactNode } from 'react'
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor, type RenderResult } from '@testing-library/react'
@@ -58,6 +59,7 @@ export async function renderApp(
     <I18nProvider initialLocale={locale}>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[entry]}>
+          <SecurityResultNavigationGuard />
           <AppRoutes />
           <LocationProbe />
         </MemoryRouter>

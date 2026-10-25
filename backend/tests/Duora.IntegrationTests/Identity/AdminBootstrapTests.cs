@@ -836,6 +836,7 @@ public sealed class AdminBootstrapTests : IAsyncDisposable
         var browser = new Browser(_factory);
         using var login = await IdentityScenario.LoginAsync(browser, email, password);
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        await browser.FetchPrivateContextAsync();
         return browser;
     }
 
@@ -847,6 +848,7 @@ public sealed class AdminBootstrapTests : IAsyncDisposable
             ChangePassword,
             new { currentPassword = temporaryPassword, newPassword = NewPassword });
         Assert.Equal(HttpStatusCode.NoContent, change.StatusCode);
+        await browser.FetchPrivateContextAsync();
         return browser;
     }
 

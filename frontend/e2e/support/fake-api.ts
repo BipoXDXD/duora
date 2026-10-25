@@ -84,6 +84,8 @@ export class FakeDuoraApi {
   readonly #profiles = new Map<string, FakeProfile>()
   #currentSessionId: string | null = null
   #antiforgeryToken: string | null = null
+  #publicProofSessionId: string | null = null
+  readonly #privateProofs = new Map<string, string>()
 
   readonly #page: Page
 
@@ -183,12 +185,35 @@ export class FakeDuoraApi {
       await route.fulfill({ status: 204 })
       return
     }
-    if (
-      !['GET', 'HEAD'].includes(request.method()) &&
-      request.headers()[ANTIFORGERY_HEADER] !== this.#antiforgeryToken
-    ) {
-      await route.fulfill(problem(403, 'CSRF_VALIDATION_FAILED'))
-      return
+    const publicMutation =
+      new Set([
+        'POST /auth/register',
+        'POST /auth/confirm-email',
+        'POST /auth/login',
+        'POST /auth/password-reset-requests',
+        'POST /auth/password-resets',
+        'POST /auth/email-confirmation-requests',
+      ]).has(key) ||
+      (key === 'POST /auth/logout' && this.#currentSessionId === null)
+    const bootstrap = key === 'GET /me'
+    if (publicMutation) {
+      if (
+        request.headers()[ANTIFORGERY_HEADER] !== this.#antiforgeryToken ||
+        this.#publicProofSessionId !== this.#currentSessionId
+      ) {
+        await route.fulfill(problem(403, 'CSRF_VALIDATION_FAILED'))
+        return
+      }
+    } else if (!bootstrap) {
+      if (this.#currentSessionId === null) {
+        await route.fulfill(problem(401, 'UNAUTHENTICATED'))
+        return
+      }
+      const expectedProof = this.#privateProofs.get(this.#currentSessionId)
+      if (expectedProof === undefined || request.headers()[ANTIFORGERY_HEADER] !== expectedProof) {
+        await route.fulfill(problem(403, 'CSRF_VALIDATION_FAILED'))
+        return
+      }
     }
     if (key === 'PATCH /me/profile') {
       await route.fulfill(this.#updateProfile(request.postData(), request.headers()['if-match'] ?? null))
@@ -204,6 +229,7 @@ export class FakeDuoraApi {
 
   async #issueAntiforgeryToken(origin: string): Promise<void> {
     this.#antiforgeryToken = randomUUID()
+    this.#publicProofSessionId = this.#currentSessionId
     await this.#page.context().addCookies([{ name: ANTIFORGERY_COOKIE, value: this.#antiforgeryToken, url: origin }])
   }
 
@@ -315,8 +341,14 @@ export class FakeDuoraApi {
 
   #me(): Fulfillment {
     const user = this.#currentUser()
-    if (user === null) {
+    const sessionId = this.#currentSessionId
+    if (user === null || sessionId === null) {
       return problem(401, 'UNAUTHENTICATED')
+    }
+    let privateProof = this.#privateProofs.get(sessionId)
+    if (privateProof === undefined) {
+      privateProof = randomUUID()
+      this.#privateProofs.set(sessionId, privateProof)
     }
     return json({
       id: user.id,
@@ -325,6 +357,7 @@ export class FakeDuoraApi {
       emailConfirmed: user.emailConfirmed,
       mfaEnabled: false,
       roles: ['participant'],
+      sessionContext: { userId: user.id, sessionId, phase: 'active', requestToken: privateProof },
     })
   }
 

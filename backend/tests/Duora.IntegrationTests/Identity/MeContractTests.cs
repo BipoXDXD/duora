@@ -23,5 +23,7 @@ public sealed class MeContractTests(PostgresFixture postgres) : IAsyncDisposable
         var responses = document.Paths["/api/v1/me"].Operations![System.Net.Http.HttpMethod.Get].Responses!;
         Assert.Contains("PASSWORD_CHANGE_REQUIRED", responses["403"].Description, StringComparison.Ordinal);
         Assert.True(responses.ContainsKey("503"), "GET /me lê o banco e responde 503 quando ele está indisponível.");
+        Assert.Contains("PrivateSessionContextResponse", document.Components!.Schemas!.Keys);
+        Assert.Contains("PrivateSessionRestrictionResponse", document.Components.Schemas.Keys);
     }
 }

@@ -1,6 +1,9 @@
+import { Alert } from '@/shared/ui/alert'
+import { useSecurityResultSnapshot } from '@/features/auth/security-result-hooks'
+import { SecurityCompletionNotice } from '@/features/auth/SecurityCompletionNotice'
 import { useEffect, useState } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router'
-import { ApiProblemError, classifyRequestFailure, isUnauthorized } from '@/shared/api'
+import { apiClient, classifyRequestFailure, isUnauthorized } from '@/shared/api'
 import { AccountTimeZoneProvider } from '@/shared/i18n/AccountTimeZoneProvider'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
@@ -10,6 +13,11 @@ import { DocumentTitle } from '@/shared/ui/document-title'
 import { AccountContext } from './account-context'
 import { readLoginState, type LoginState } from './login-state'
 import { useMe } from './session-hooks'
+import { useQueryClient } from '@tanstack/react-query'
+import { PendingOwnerInstallation, PrivateOperationProvider } from './PrivateOperationProvider'
+import { fetchMeForRevalidation, SessionRestrictionError } from './session-api'
+import { useSessionContextSnapshot } from './private-operation'
+import { meQueryKey } from './query-keys'
 
 /**
  * Rota protegida: só renderiza a área com a identidade confirmada por GET /me. A proteção é de
@@ -17,60 +25,119 @@ import { useMe } from './session-hooks'
  * erro com nova tentativa, sem confundir rede fora do ar com sessão encerrada.
  */
 export function RequireSession(): React.JSX.Element {
+  const security = useSecurityResultSnapshot()
   const me = useMe()
+  const state = useSessionContextSnapshot()
+  const queryClient = useQueryClient()
+  const [retryError, setRetryError] = useState<Error | null>(null)
+  const [retrying, setRetrying] = useState(false)
+  const restrictionError = me.error instanceof SessionRestrictionError ? me.error : null
+  const pairedOwner = restrictionError?.owner ?? me.data?.owner
+  const active = pairedOwner !== undefined && pairedOwner === state.owner && !state.protected
+  const retry = async (): Promise<void> => {
+    setRetrying(true)
+    setRetryError(null)
+    const ticket = apiClient.sessionContext.beginExplicitRevalidation()
+    try {
+      await queryClient.query({
+        queryKey: meQueryKey,
+        queryFn: () => fetchMeForRevalidation(ticket),
+        structuralSharing: false,
+        retry: false,
+        staleTime: 0,
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      if (!(error instanceof SessionRestrictionError) && error instanceof Error) setRetryError(error)
+    } finally {
+      setRetrying(false)
+    }
+  }
   const { pathname } = useLocation()
   const { t, locale, changeLocale } = useI18n()
-  const preferredLocale = me.data?.preferredLocale
+  const preferredLocale = active ? me.data?.preferredLocale : undefined
   useEffect(() => {
     if (preferredLocale !== undefined && preferredLocale !== null && preferredLocale !== locale)
       changeLocale(preferredLocale)
   }, [preferredLocale, locale, changeLocale])
 
-  // Um 401 numa escrita da fase restrita reconsulta /me (query-client.ts). Sem dado em cache, a reconsulta volta a
-  // query para pending; sem lembrar a restrição, a tela viraria "carregando" e remontaria, perdendo o erro que
-  // explicava o 401 e o estado local (a chave do MFA). Estado ajustado durante o render, como o React recomenda
-  // para valor derivado da mudança de outro.
-  const restriction = me.isError ? restrictionDestination(me.error) : null
-  const [lastRestriction, setLastRestriction] = useState<string | null>(null)
-  if (me.isError && restriction !== lastRestriction) setLastRestriction(restriction)
-  if (me.data !== undefined && lastRestriction !== null) setLastRestriction(null)
+  useEffect(() => {
+    const expected = state.pendingOwner ?? state.owner
+    if (expected !== null && pairedOwner !== expected && me.fetchStatus === 'idle') {
+      const current = apiClient.sessionContext.getSnapshot()
+      if (current.transitionEpoch === state.transitionEpoch && (current.pendingOwner ?? current.owner) === expected)
+        apiClient.sessionContext.protect('context')
+    }
+  }, [state, pairedOwner, me.fetchStatus])
 
-  if (me.isError && isUnauthorized(me.error)) {
+  if (state.pendingOwner !== null && pairedOwner === state.pendingOwner) {
+    return (
+      <PendingOwnerInstallation
+        queryClient={queryClient}
+        installation={{ epoch: state.transitionEpoch, owner: state.pendingOwner }}
+      >
+        <p role="status" className="text-text-muted">
+          {t('account.loading')}
+        </p>
+      </PendingOwnerInstallation>
+    )
+  }
+  if (state.protected && (security.phase === 'pending' || me.fetchStatus === 'fetching')) {
+    return (
+      <p role="status" className="text-text-muted">
+        {t('account.loading')}
+      </p>
+    )
+  }
+  const failure = retryError ?? (state.protected && me.error instanceof SessionRestrictionError ? null : me.error)
+  const restriction = restrictionError === null ? null : paths.changePassword
+  if (failure !== null && isUnauthorized(failure)) {
     return <RedirectToLogin sessionExpired={me.data !== undefined} />
   }
-  if (restriction !== null) {
-    return pathname === restriction ? <Outlet /> : <Navigate to={restriction} replace />
+  if (active && restriction !== null) {
+    return (
+      <PrivateOperationProvider owner={pairedOwner}>
+        {pathname === restriction ? <Outlet /> : <Navigate to={restriction} replace />}
+      </PrivateOperationProvider>
+    )
   }
-  // Só mantém a tela em que já estava; a restrição lembrada nunca decide uma navegação nova.
-  if (me.isPending && lastRestriction === pathname) return <Outlet />
-  if (me.data !== undefined) {
+  if (active && me.data !== undefined) {
     const needsMfa = !me.data.mfaEnabled && me.data.roles.some((role) => role !== 'participant')
     if (needsMfa && pathname !== paths.mfaEnrollment) return <Navigate to={paths.mfaEnrollment} replace />
     if (pathname === paths.changePassword) return <Navigate to={paths.account} replace />
     return (
-      <AccountContext value={me.data}>
-        <AccountTimeZoneProvider timeZone={me.data.preferredTimeZone ?? null}>
-          <Outlet key={me.data.id} />
-        </AccountTimeZoneProvider>
-      </AccountContext>
+      <PrivateOperationProvider owner={me.data.owner}>
+        <AccountContext value={me.data}>
+          <AccountTimeZoneProvider timeZone={me.data.preferredTimeZone ?? null}>
+            <Outlet key={state.transitionEpoch} />
+          </AccountTimeZoneProvider>
+        </AccountContext>
+      </PrivateOperationProvider>
     )
   }
-  if (me.isError) {
+  if (failure !== null || state.protected) {
     return (
       <section aria-labelledby="titulo-conta-erro" className="max-w-prose">
         <DocumentTitle page={t('account.title')} />
         <h1 id="titulo-conta-erro" className="text-3xl font-semibold tracking-tight">
           {t('account.title')}
         </h1>
+        <SecurityCompletionNotice />
+        {state.protected && failure === null && security.phase !== 'failed' ? (
+          <Alert variant="info" focusOnMount>
+            {t('account.contextUnverified')}
+          </Alert>
+        ) : null}
         <p className="mt-4 text-text-muted">{t('account.loadError')}</p>
         <div className="mt-4">
-          <RequestFailureAlert failure={classifyRequestFailure(me.error)} />
+          {failure === null ? null : <RequestFailureAlert failure={classifyRequestFailure(failure)} />}
         </div>
         <Button
           variant="secondary"
+          disabled={retrying}
           className="mt-6"
           onClick={() => {
-            void me.refetch()
+            if (!retrying) void retry()
           }}
         >
           {t('common.retry')}
@@ -94,15 +161,4 @@ function RedirectToLogin({ sessionExpired }: { readonly sessionExpired: boolean 
     notice: sessionExpired ? 'session-expired' : 'sign-in-required',
   }
   return <Navigate to={paths.login} replace state={state} />
-}
-
-const RESTRICTION_ROUTES: ReadonlyMap<string, string> = new Map([
-  ['PASSWORD_CHANGE_REQUIRED', paths.changePassword],
-  ['MFA_ENROLLMENT_REQUIRED', paths.mfaEnrollment],
-])
-
-/** Rota da fase restrita que o 403 de /me exige, ou null para qualquer outra falha. */
-function restrictionDestination(error: Error): string | null {
-  if (!(error instanceof ApiProblemError) || error.status !== 403 || error.problem.code === undefined) return null
-  return RESTRICTION_ROUTES.get(error.problem.code) ?? null
 }

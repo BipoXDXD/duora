@@ -15,6 +15,9 @@ public sealed record RegisterRequest(
 
 public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 
+/// <summary>Pedido explícito e neutro de outro código; preserva senha, aceites e prazo do cadastro pendente.</summary>
+public sealed record CreateEmailConfirmationRequest(string? Email, string? Password);
+
 /// <summary>
 /// Login (API-A04). Conta com MFA ativo manda também <c>twoFactorCode</c> (6 dígitos do autenticador) ou
 /// <c>recoveryCode</c>, nunca os dois.
@@ -47,14 +50,22 @@ public sealed record MeResponse(
     bool EmailConfirmed,
     bool MfaEnabled,
     IReadOnlyList<string> Roles,
+    PrivateSessionContextResponse SessionContext,
     string? PreferredLocale = null,
     string? PreferredTimeZone = null);
+
+/// <summary>Contexto do titular, sem credencial portadora; a prova antiforgery fica só na memória da SPA.</summary>
+public sealed record PrivateSessionContextResponse(Guid UserId, Guid SessionId, string Phase, string RequestToken);
+
+/// <summary>403 somente do bootstrap /me na fase da senha temporária; não amplia as permissões da sessão.</summary>
+public sealed record PrivateSessionRestrictionResponse(
+    string Type, string Title, int Status, string Code, PrivateSessionContextResponse SessionContext, string? TraceId = null);
 
 /// <summary>Cadastro do TOTP (API-A11): mostrado uma vez, com <c>Cache-Control: no-store</c>.</summary>
 public sealed record MfaEnrollmentResponse(string SharedKey, string AuthenticatorUri);
 
 /// <summary>Códigos de recuperação (API-A12 e A14): mostrados uma vez; o servidor guarda só o hash.</summary>
-public sealed record RecoveryCodesResponse(IReadOnlyList<string> RecoveryCodes);
+public sealed record RecoveryCodesResponse(IReadOnlyList<string> RecoveryCodes, Guid ResultSessionId);
 
 public sealed record SessionResponse(Guid Id, DateTime CreatedAt, DateTime LastSeenAt, bool Current, string Description);
 

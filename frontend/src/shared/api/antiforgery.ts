@@ -4,7 +4,7 @@
  * estado. O cookie de autenticação continua HttpOnly e nunca é lido aqui.
  */
 export const ANTIFORGERY_COOKIE_NAME = 'XSRF-TOKEN'
-export const ANTIFORGERY_HEADER_NAME = 'X-XSRF-TOKEN'
+export { ANTIFORGERY_HEADER_NAME } from '../session-context'
 
 export function readAntiforgeryTokenFromCookies(cookies: string): string | null {
   for (const pair of cookies.split(';')) {

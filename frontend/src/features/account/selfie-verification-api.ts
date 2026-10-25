@@ -1,3 +1,4 @@
+import type { OperationHandle } from '@/shared/session-context'
 import { z } from 'zod'
 import { apiClient, sendMutationForJson } from '@/shared/api'
 
@@ -30,17 +31,21 @@ const captureSchema = z.object({
 })
 export type SelfieStatus = z.infer<typeof statusSchema>
 export type SelfieCapture = z.infer<typeof captureSchema>
-export async function currentSelfie(signal?: AbortSignal): Promise<SelfieStatus> {
+export async function currentSelfie(operation: OperationHandle, signal?: AbortSignal): Promise<SelfieStatus> {
   return statusSchema.parse(
-    await apiClient.requestJson({ method: 'GET', path: `${path}/current`, ...(signal ? { signal } : {}) }),
+    await apiClient.requestJson({ operation, method: 'GET', path: `${path}/current`, ...(signal ? { signal } : {}) }),
   )
 }
-export async function startSelfie(): Promise<SelfieStatus> {
-  return statusSchema.parse(await sendMutationForJson({ method: 'POST', path, body: {} }))
+export async function startSelfie(operation: OperationHandle): Promise<SelfieStatus> {
+  return statusSchema.parse(await sendMutationForJson({ operation, method: 'POST', path, body: {} }))
 }
-export async function captureSelfie(id: string): Promise<SelfieCapture> {
-  return captureSchema.parse(await sendMutationForJson({ method: 'POST', path: `${path}/${id}/capture`, body: {} }))
+export async function captureSelfie(operation: OperationHandle, id: string): Promise<SelfieCapture> {
+  return captureSchema.parse(
+    await sendMutationForJson({ operation, method: 'POST', path: `${path}/${id}/capture`, body: {} }),
+  )
 }
-export async function completeSelfie(id: string): Promise<SelfieStatus> {
-  return statusSchema.parse(await sendMutationForJson({ method: 'POST', path: `${path}/${id}/complete`, body: {} }))
+export async function completeSelfie(operation: OperationHandle, id: string): Promise<SelfieStatus> {
+  return statusSchema.parse(
+    await sendMutationForJson({ operation, method: 'POST', path: `${path}/${id}/complete`, body: {} }),
+  )
 }

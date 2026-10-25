@@ -1,4 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { usePrivateOperation } from '@/features/session/private-operation'
+import { usePrivateMutation } from '@/features/session/private-mutation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useAccount } from '@/features/session/account-context'
 import type { Me } from '@/features/session/session-api'
@@ -12,11 +14,12 @@ import { RegionSuggestion } from './RegionSuggestion'
 import { fetchRegionalPreferences, saveRegionalPreferences, type RegionalPreferences } from './regional-preferences-api'
 
 export function RegionalPreferenceSection(): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { id } = useAccount()
   const { t } = useI18n()
   const query = useQuery({
     queryKey: ['account', id, 'regional-preferences'],
-    queryFn: ({ signal }) => fetchRegionalPreferences(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchRegionalPreferences(operation, signal)),
     gcTime: 0,
   })
   return query.isError ? (
@@ -38,11 +41,14 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
   const [countries, setCountries] = useState(initial.countryCodes)
   const [invalid, setInvalid] = useState(false)
   const [reloaded, setReloaded] = useState(false)
-  const save = useMutation({
-    mutationFn: () => {
+  const save = usePrivateMutation({
+    mutationFn: (operation) => {
       if (mode === 'pending' || (mode === 'countries' && countries.length === 0))
         throw new Error('Explicit regional choice required')
-      return saveRegionalPreferences(base.version, mode, mode === 'countries' ? countries : [])
+      return saveRegionalPreferences(operation, base.version, {
+        mode,
+        countryCodes: mode === 'countries' ? countries : [],
+      })
     },
     onSuccess: (value) => {
       if (queries.getQueryData<Me>(meQueryKey)?.id !== account.id) return
@@ -53,8 +59,8 @@ function RegionalPreferenceForm({ initial }: { readonly initial: RegionalPrefere
       if (isUnauthorized(error)) void queries.invalidateQueries({ queryKey: meQueryKey })
     },
   })
-  const reload = useMutation({
-    mutationFn: () => fetchRegionalPreferences(),
+  const reload = usePrivateMutation({
+    mutationFn: (operation) => fetchRegionalPreferences(operation),
     onSuccess: (value) => {
       setBase(value)
       setReloaded(true)

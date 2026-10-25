@@ -1,3 +1,4 @@
+import { withSessionContext } from '@/test/private-context'
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -16,7 +17,7 @@ function useBackend(locale: 'pt-BR' | 'en-US') {
   const state = { timeZone: null as string | null, version: 0 }
   const writes: unknown[] = []
   server.use(
-    http.get(`${API}/me`, () => HttpResponse.json({ ...me, preferredLocale: locale })),
+    http.get(`${API}/me`, () => HttpResponse.json(withSessionContext({ ...me, preferredLocale: locale }))),
     http.get(`${API}/me/regional-preferences`, () =>
       HttpResponse.json({ mode: 'pending', countryCodes: [], version: '0' }),
     ),

@@ -6,6 +6,17 @@ import type { Catalog } from './catalog'
  * and keep error messages just as neutral: they never reveal whether an email has an account.
  */
 export const en = {
+  'audio.play': 'Play audio',
+  'audio.pause': 'Pause audio',
+  'audio.restart': 'Restart audio',
+  'audio.sound': 'Enable sound',
+  'audio.mute': 'Mute audio',
+  'audio.elapsed': '{position} / {duration} s',
+  'audio.position': 'Audio position',
+  'audio.loading': 'Preparing audio…',
+  'audio.busy': 'Another audio clip is being prepared. Try again in a moment.',
+  'audio.unavailable': 'The audio could not be played. You can read the transcript.',
+
   'regionSuggestion.action': 'Suggest country from connection',
   'regionSuggestion.hint':
     'Optional approximate suggestion; VPNs may indicate another country. Review and save this form to confirm. Languages stay unchanged.',
@@ -137,6 +148,8 @@ export const en = {
   'changePassword.reauthenticate': 'Sign in again to confirm your identity and continue.',
   'changePassword.csrf': 'We could not validate this attempt. Try again to refresh session protection.',
   'changePassword.signInAgain': 'Sign in again',
+  'mfa.receiptUncertain':
+    'The action may have completed. For your safety, its result was not displayed. Verify your session before trying another action.',
   'mfa.title': 'Enable two-factor authentication',
   'mfa.instructions':
     'Add a TOTP account in your authenticator app using the key below, then confirm with its 6-digit code.',
@@ -218,12 +231,16 @@ export const en = {
   'checkEmail.body':
     "If an account can be created with that address, you'll get an email with a confirmation code and a link to enter it.",
   'checkEmail.hint':
-    "Didn't get it? Check your spam and promotions folders. The code expires 15 minutes after registration. Register again if it expires.",
+    'Check your spam and promotions folders. Each code expires 15 minutes after issuance. Request another with your sign-up email and password. If sign-up expired or you do not remember that password, register again.',
+  'checkEmail.resend': 'Request another code',
+  'checkEmail.resending': 'Requesting another code…',
+  'checkEmail.resendAccepted':
+    'If the sign-up can still be confirmed and the password matches, another code will be sent. Your password and document acceptances stay unchanged.',
   'checkEmail.signInLink': 'Go to sign in',
 
   'checkEmail.requestAgain': 'Register again to receive another code',
   'confirmEmail.code': 'Confirmation code',
-  'confirmEmail.codeHint': 'Enter the 8 digits from the email. The code expires 15 minutes after registration.',
+  'confirmEmail.codeHint': 'Enter the 8 digits from the email. The code expires 15 minutes after issuance.',
   'validation.emailCodeInvalid': 'Enter the 8-digit code.',
   'confirmEmail.title': 'Confirm email',
   'confirmEmail.intro': 'To finish confirming your address, enter your password and use the button below.',
@@ -276,6 +293,7 @@ export const en = {
   'resetPassword.requestNewLink': 'Request a new link',
   'resetPassword.signInLink': 'Sign in',
 
+  'account.contextUnverified': 'The context of this attempt could not be verified. Verify your session to continue.',
   'account.title': 'Your account',
   'account.loading': 'Loading your account…',
   'account.loadError': "We couldn't load your account.",

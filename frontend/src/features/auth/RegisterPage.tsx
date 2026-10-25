@@ -1,5 +1,6 @@
+import type { OperationHandle } from '@/shared/session-context'
+import { usePublicMutation, runPublicOperation } from '@/features/session/public-operation'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router'
 import { z } from 'zod'
@@ -29,8 +30,8 @@ const registerSchema = z.object({
 
 type RegisterForm = z.output<typeof registerSchema>
 
-function submitRegistration({ email, password }: RegisterForm): Promise<void> {
-  return register({
+function submitRegistration(operation: OperationHandle, { email, password }: RegisterForm): Promise<void> {
+  return register(operation, {
     email,
     password,
     acceptedTermsVersion: REGISTRATION_DOCUMENTS.terms.version,
@@ -48,15 +49,16 @@ export function RegisterPage(): React.JSX.Element {
     resolver: zodResolver(registerSchema),
     defaultValues: { email: '', password: '', acceptTerms: false, acceptPrivacy: false },
   })
-  const registration = useMutation({
-    mutationFn: submitRegistration,
+  const registration = usePublicMutation({
+    mutationFn: (operation) => submitRegistration(operation, registerSchema.parse(form.getValues())),
     onSuccess: () => navigate(paths.checkEmail),
   })
-  const submit = form.handleSubmit((values) => {
-    if (!registration.isPending) {
-      registration.mutate(values)
-    }
-  })
+  const submit = (event: React.BaseSyntheticEvent) =>
+    runPublicOperation((operation) =>
+      form.handleSubmit(async () => {
+        if (!registration.isPending) await registration.mutateWithOperation(operation, undefined)
+      })(event),
+    )
   const { errors } = form.formState
 
   return (
@@ -68,7 +70,7 @@ export function RegisterPage(): React.JSX.Element {
         aria-busy={registration.isPending}
         className="flex flex-col gap-6"
         onSubmit={(event) => {
-          void submit(event)
+          void submit(event).catch(() => undefined)
         }}
       >
         <TextField

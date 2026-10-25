@@ -3,6 +3,7 @@ using Duora.Infrastructure.Identity;
 using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Security;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
@@ -18,9 +19,10 @@ internal static class MeEndpoints
         var sessions = me.MapGroup("/sessions").RequireAccountSession();
 
         me.MapGet("", GetMeAsync)
+            .WithMetadata(new SessionContextBootstrapEndpoint())
             .AllowDuringMfaEnrollment()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
-            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .Produces<PrivateSessionRestrictionResponse>(StatusCodes.Status403Forbidden, "application/problem+json")
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .AddOpenApiOperationTransformer(DocumentRestrictedSession);
         sessions.MapGet("", ListSessionsAsync)
@@ -51,6 +53,7 @@ internal static class MeEndpoints
 
     private static async Task<Results<Ok<MeResponse>, UnauthorizedHttpResult>> GetMeAsync(
         HttpContext context,
+        IAntiforgery antiforgery,
         AccountService accounts,
         LocaleStore locales,
         TimeZoneStore timeZones,
@@ -69,6 +72,7 @@ internal static class MeEndpoints
             account.EmailConfirmed,
             account.MfaEnabled,
             account.Roles,
+            PrivateOperationContext.Issue(context, antiforgery),
             (await locales.GetOwnAsync(userId, cancellationToken))?.Locale,
             (await timeZones.GetOwnAsync(userId, cancellationToken))?.TimeZone));
     }

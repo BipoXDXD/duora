@@ -1,5 +1,7 @@
+import { usePrivateOperation } from '@/features/session/private-operation'
+import { usePrivateMutation } from '@/features/session/private-mutation'
 import { lazy, Suspense, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useAccount } from '@/features/session/account-context'
 import { classifyRequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
@@ -52,25 +54,26 @@ export function SelfieVerificationPage(): React.JSX.Element {
 }
 
 function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { locale } = useI18n()
   const copy = COPY[locale]
   const [capture, setCapture] = useState<(Capture & { attemptId: string }) | null>(null)
   const [captureFailed, setCaptureFailed] = useState(false)
   const query = useQuery({
     queryKey: ['selfie', userId],
-    queryFn: ({ signal }) => currentSelfie(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => currentSelfie(operation, signal)),
     refetchInterval: (q) => (q.state.data?.nextStep === 'Wait' || q.state.data?.nextStep === 'Capture' ? 2000 : false),
   })
-  const start = useMutation({
-    mutationFn: startSelfie,
+  const start = usePrivateMutation({
+    mutationFn: (operation) => startSelfie(operation),
     onSuccess: async () => {
       setCapture(null)
       setCaptureFailed(false)
       await query.refetch()
     },
   })
-  const open = useMutation({
-    mutationFn: captureSelfie,
+  const open = usePrivateMutation({
+    mutationFn: (operation, id: string) => captureSelfie(operation, id),
     onSuccess: (session, attemptId) => {
       setCaptureFailed(false)
       setCapture({ ...session, attemptId })
@@ -115,15 +118,19 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
               setCapture(null)
               setCaptureFailed(true)
             }}
-            onComplete={async () => {
-              setCapture(null)
-              try {
-                if (status.id) await completeSelfie(status.id)
-                await query.refetch()
-              } catch {
-                setCaptureFailed(true)
-              }
-            }}
+            onComplete={() =>
+              privateOperation.run(async (operation) => {
+                setCapture(null)
+                try {
+                  if (status.id) await completeSelfie(operation, status.id)
+                  await query.refetch()
+                } catch (completionError) {
+                  privateOperation.assertCurrent()
+                  if (!(completionError instanceof DOMException && completionError.name === 'AbortError'))
+                    setCaptureFailed(true)
+                }
+              })
+            }
           />
         </Suspense>
       ) : null}

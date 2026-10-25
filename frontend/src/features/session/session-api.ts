@@ -1,5 +1,19 @@
 import { z } from 'zod'
-import { apiClient, isUnauthorized, sendMutation } from '@/shared/api'
+import {
+  apiClient,
+  ApiProblemError,
+  ApiResponseError,
+  isUnauthorized,
+  sendMutation,
+  type ApiClient,
+} from '@/shared/api'
+import { parseProblemDetails } from '@/shared/api/problem-details'
+import {
+  type BootstrapSource,
+  type OwnerHandle,
+  type OperationHandle,
+  type RevalidationTicket,
+} from '@/shared/session-context'
 import type { components } from '@/shared/api/schema'
 
 type MeResponse = components['schemas']['MeResponse']
@@ -33,13 +47,38 @@ const meSchema = z.object({
   preferredTimeZone: z.string().nullable().optional(),
   preferredLocale: z.enum(['en-US', 'pt-BR']).nullable().optional(),
 }) satisfies z.ZodType<
-  Omit<MeResponse, 'preferredLocale' | 'preferredTimeZone'> & {
+  Omit<MeResponse, 'preferredLocale' | 'preferredTimeZone' | 'sessionContext'> & {
     preferredLocale?: string | null | undefined
     preferredTimeZone?: string | null | undefined
   }
 >
 
-export type Me = z.output<typeof meSchema>
+export type Me = z.output<typeof meSchema> & { readonly owner: OwnerHandle }
+
+const contextSchema = z.object({
+  userId: z.uuid(),
+  sessionId: z.uuid(),
+  phase: z.enum(['active', 'mfa-enrollment', 'password-change']),
+  requestToken: z.string().min(1),
+})
+const bootstrapSchema = meSchema.extend({ status: z.string(), sessionContext: contextSchema })
+const restrictionSchema = z.object({
+  status: z.literal(403),
+  code: z.literal('PASSWORD_CHANGE_REQUIRED'),
+  sessionContext: contextSchema.extend({ phase: z.literal('password-change') }),
+})
+
+/** Somente o bootstrap restrito de senha inicial carrega uma capacidade, sem corpo/prova no erro. */
+export class SessionRestrictionError extends Error {
+  readonly status = 403
+  readonly code = 'PASSWORD_CHANGE_REQUIRED'
+  readonly owner: OwnerHandle
+  constructor(owner: OwnerHandle) {
+    super('É necessário atualizar a senha para continuar.')
+    this.name = 'SessionRestrictionError'
+    this.owner = owner
+  }
+}
 
 const sessionSchema = z.object({
   id: z.string().min(1),
@@ -53,28 +92,83 @@ const sessionListSchema = z.object({ items: z.array(sessionSchema) })
 
 export type AccountSession = z.output<typeof sessionSchema>
 
-export async function fetchMe(signal?: AbortSignal): Promise<Me> {
-  const body = await apiClient.requestJson({
-    method: 'GET',
-    path: '/api/v1/me',
-    ...(signal === undefined ? {} : { signal }),
-  })
-  return meSchema.parse(body)
+export async function fetchMe(
+  signal?: AbortSignal,
+  source: BootstrapSource = { kind: 'automatic' },
+  client: ApiClient = apiClient,
+): Promise<Me> {
+  const store = client.sessionContext
+  const ticket = store.beginBootstrap(source)
+  try {
+    const { status, body } = await client.readMeBootstrap(ticket, signal)
+    if (status === 403) {
+      const restricted = restrictionSchema.safeParse(body)
+      if (!restricted.success) {
+        const problem = parseProblemDetails(body, status)
+        throw problem === null
+          ? new ApiResponseError(status, 'restrição de sessão inválida')
+          : new ApiProblemError(problem)
+      }
+      const owner = store.acceptBootstrap(ticket, { ...restricted.data.sessionContext, authView: null })
+      throw new SessionRestrictionError(owner)
+    }
+    const parsed = bootstrapSchema.safeParse(body)
+    if (!parsed.success) throw new ApiResponseError(status, 'contexto de sessão inválido')
+    const { sessionContext, ...account } = parsed.data
+    const expectedPhase =
+      !account.mfaEnabled && account.roles.some((role) => role !== 'participant') ? 'mfa-enrollment' : 'active'
+    if (account.id.toLowerCase() !== sessionContext.userId.toLowerCase() || sessionContext.phase !== expectedPhase) {
+      throw new ApiResponseError(status, 'contexto de sessão incoerente')
+    }
+    const owner = store.acceptBootstrap(ticket, {
+      ...sessionContext,
+      authView: {
+        status: account.status,
+        emailConfirmed: account.emailConfirmed,
+        mfaEnabled: account.mfaEnabled,
+        roles: account.roles,
+      },
+    })
+    return { ...account, status: toAccountStatus(account.status), owner }
+  } catch (error) {
+    if (error instanceof SessionRestrictionError || (error instanceof DOMException && error.name === 'AbortError'))
+      throw error
+    // O await que entregou o erro pode ter sido ultrapassado por um bootstrap mais novo.
+    // Erro obsoleto também é aborto, sem proteger/limpar o dono que já foi confirmado.
+    store.assertBootstrap(ticket)
+    if (isUnauthorized(error)) store.acceptAnonymous(ticket)
+    else store.protect('context')
+    throw error
+  } finally {
+    store.finishBootstrap(ticket)
+  }
 }
 
-export async function fetchSessions(signal?: AbortSignal): Promise<readonly AccountSession[]> {
+export function fetchMeForRevalidation(ticket: RevalidationTicket, signal?: AbortSignal): Promise<Me> {
+  return fetchMe(signal, { kind: 'explicit', ticket })
+}
+
+export async function fetchSessions(
+  operation: OperationHandle,
+  signal?: AbortSignal,
+): Promise<readonly AccountSession[]> {
   const body = await apiClient.requestJson({
     method: 'GET',
     path: '/api/v1/me/sessions',
+    operation,
     ...(signal === undefined ? {} : { signal }),
   })
   return sessionListSchema.parse(body).items
 }
 
 /** Encerra a sessão corrente. Se ela já tinha expirado (401), o objetivo foi cumprido. */
-export async function logout(): Promise<void> {
+export async function logout(operation?: OperationHandle): Promise<void> {
   try {
-    await sendMutation({ method: 'POST', path: '/api/v1/auth/logout' })
+    await sendMutation({
+      method: 'POST',
+      path: '/api/v1/auth/logout',
+      ...(operation === undefined ? {} : { operation }),
+    })
   } catch (error) {
     if (!isUnauthorized(error)) {
       throw error
@@ -82,6 +176,6 @@ export async function logout(): Promise<void> {
   }
 }
 
-export async function revokeSession(sessionId: string): Promise<void> {
-  await sendMutation({ method: 'DELETE', path: `/api/v1/me/sessions/${encodeURIComponent(sessionId)}` })
+export async function revokeSession(operation: OperationHandle, sessionId: string): Promise<void> {
+  await sendMutation({ operation, method: 'DELETE', path: `/api/v1/me/sessions/${encodeURIComponent(sessionId)}` })
 }

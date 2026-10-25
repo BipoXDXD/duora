@@ -76,6 +76,8 @@ internal static class DuoraWebApp
         builder.Services.AddAuthorizationBuilder().AddEligibleParticipant();
         builder.Services.AddScoped<IAuthorizationHandler, EligibleParticipantHandler>();
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
+        builder.Services.AddSingleton<Microsoft.AspNetCore.Antiforgery.IAntiforgeryAdditionalDataProvider,
+            SessionAntiforgeryAdditionalDataProvider>();
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();
         builder.Services.AddBlockRateLimiting();
@@ -109,7 +111,7 @@ internal static class DuoraWebApp
         app.MapHealthEndpoints();
         app.MapWebhookEndpoints();
 
-        var api = app.MapGroup("/api/v1");
+        var api = app.MapGroup("/api/v1").WithMetadata(new PrivateOperationEndpoint());
         api.MapAuthEndpoints();
         api.MapMeEndpoints();
         api.MapProfileEndpoints();

@@ -1,3 +1,4 @@
+import type { OperationHandle } from '@/shared/session-context'
 import { z } from 'zod'
 import { apiClient, sendMutationForJson } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
@@ -18,11 +19,19 @@ const resultSchema = z.discriminatedUnion('status', [
   }),
 ]) satisfies z.ZodType<components['schemas']['RegionDetectionResponse']>
 
-export async function fetchRegionDetectionCapability(signal: AbortSignal): Promise<boolean> {
+export async function fetchRegionDetectionCapability(
+  operation: OperationHandle,
+  signal: AbortSignal,
+): Promise<boolean> {
   return capabilitySchema.parse(
-    await apiClient.requestJson({ method: 'GET', path: '/api/v1/me/region-detection/capability', signal }),
+    await apiClient.requestJson({ operation, method: 'GET', path: '/api/v1/me/region-detection/capability', signal }),
   ).enabled
 }
-export async function suggestRegion(signal: AbortSignal): Promise<z.output<typeof resultSchema>> {
-  return resultSchema.parse(await sendMutationForJson({ method: 'POST', path: '/api/v1/me/region-detection', signal }))
+export async function suggestRegion(
+  operation: OperationHandle,
+  signal: AbortSignal,
+): Promise<z.output<typeof resultSchema>> {
+  return resultSchema.parse(
+    await sendMutationForJson({ operation, method: 'POST', path: '/api/v1/me/region-detection', signal }),
+  )
 }

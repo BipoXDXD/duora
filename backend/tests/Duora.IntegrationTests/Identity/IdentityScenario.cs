@@ -132,6 +132,7 @@ internal sealed class IdentityScenario(string connectionString, DuoraWebFactory 
         var browser = new Browser(factory);
         using var response = await LoginAsync(browser, account.Email, account.Password);
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await browser.FetchPrivateContextAsync();
         return browser;
     }
 

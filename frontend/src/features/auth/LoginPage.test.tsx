@@ -1,3 +1,4 @@
+import { withSessionContext } from '@/test/private-context'
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -27,7 +28,7 @@ function useLoginEndpoint(respond: () => Response) {
 
 function useAccountEndpoints() {
   server.use(
-    http.get(`${API}/me`, () => HttpResponse.json(ME)),
+    http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(ME))),
     http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
   )
 }
@@ -66,8 +67,8 @@ describe('tela de entrada', () => {
     expect(received).toEqual([
       { body: { email: 'ana@exemplo.com', password: 'frase longa de senha' }, token: 'token-1' },
     ])
-    // Um token antes do POST e outro depois, já ligado à identidade nova.
-    expect(antiforgery.calls()).toBe(2)
+    // Só o login pede prova pública; /me retorna separadamente a capacidade privada.
+    expect(antiforgery.calls()).toBe(1)
   })
 
   it('descarta o cache da identidade anterior ao entrar (T-21)', async () => {

@@ -1,3 +1,4 @@
+import { usePrivateOperation } from '@/features/session/private-operation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useAccount } from '@/features/session/account-context'
@@ -14,12 +15,13 @@ export function RegionSuggestion({
   readonly onCountry: (country: 'BR' | 'US') => boolean
 }): React.JSX.Element | null {
   const { id } = useAccount()
+  const privateOperation = usePrivateOperation()
   const { t } = useI18n()
   const queries = useQueryClient()
   const [disabledForAccount, setDisabledForAccount] = useState<string | null>(null)
   const capability = useQuery({
     queryKey: ['account', id, 'region-detection-capability'],
-    queryFn: ({ signal }) => fetchRegionDetectionCapability(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchRegionDetectionCapability(operation, signal)),
     gcTime: 0,
   })
   if (capability.isError || capability.data !== true) {
@@ -44,6 +46,7 @@ function SuggestionControls({
   readonly onCountry: (country: 'BR' | 'US') => boolean
   readonly onDisabled: () => void
 }): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { t } = useI18n()
   const queries = useQueryClient()
   const request = useRef<{ sequence: number; controller: AbortController | null }>({ sequence: 0, controller: null })
@@ -64,13 +67,15 @@ function SuggestionControls({
     setMessage(null)
   }
   const start = async () => {
+    const operation = privateOperation.begin()
     cancel()
     const sequence = request.current.sequence
     const controller = new AbortController()
     request.current.controller = controller
     setPending(true)
     try {
-      const result = await suggestRegion(controller.signal)
+      const result = await suggestRegion(operation, controller.signal)
+      privateOperation.store.assertCurrent(operation)
       if (sequence !== request.current.sequence || controller.signal.aborted) return
       if (result.status === 'disabled') {
         onDisabled()
@@ -78,9 +83,12 @@ function SuggestionControls({
       }
       setMessage(result.status === 'detected' ? (onCountry(result.countryCode) ? 'applied' : 'kept') : result.status)
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      privateOperation.store.assertCurrent(operation)
       if (isUnauthorized(error) && !controller.signal.aborted) void queries.invalidateQueries({ queryKey: meQueryKey })
       if (sequence === request.current.sequence && !controller.signal.aborted) setMessage('unavailable')
     } finally {
+      privateOperation.finish(operation)
       if (sequence === request.current.sequence) {
         setPending(false)
         request.current.controller = null
