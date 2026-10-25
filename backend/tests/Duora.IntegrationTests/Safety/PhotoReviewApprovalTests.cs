@@ -22,14 +22,28 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 22, 12, 0, 0, TimeSpan.Zero));
     private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("duora-review-approval-");
     private string _connectionString = "";
+    private ScratchDatabase? _database;
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public async ValueTask InitializeAsync() => _connectionString = await postgres.CreateMigratedDatabaseAsync(Ct);
-
-    public ValueTask DisposeAsync()
+    public async ValueTask InitializeAsync()
     {
-        _root.Delete(recursive: true);
-        return ValueTask.CompletedTask;
+        _database = await postgres.CreateMigratedScratchDatabaseAsync(Ct);
+        _connectionString = _database.AppConnectionString;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            _root.Delete(recursive: true);
+        }
+        finally
+        {
+            if (_database is not null)
+            {
+                await _database.DisposeAsync();
+            }
+        }
     }
 
     [Fact]
@@ -570,7 +584,7 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
     [Fact]
     public async Task ApprovalExpansionPreservesAnExistingRejectionItsReceiptAndReplay()
     {
-        var database = await postgres.CreateEmptyDatabaseAsync(Ct);
+        await using var database = await postgres.CreateEmptyDatabaseAsync(Ct);
         await using (var before = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
             await before.GetService<IMigrator>().MigrateAsync("20261022210000_PrivateReviewPromotions", cancellationToken: Ct);
@@ -1094,6 +1108,19 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
 
     private sealed class ContextFactory(DbContextOptions<DuoraDbContext> options) : IDbContextFactory<DuoraDbContext>
     {
-        public DuoraDbContext CreateDbContext() => new(options);
+        public DuoraDbContext CreateDbContext()
+        {
+            var context = new DuoraDbContext(options);
+            try
+            {
+                PostgresFixture.TrackScratchPool(context.Database.GetConnectionString());
+                return context;
+            }
+            catch
+            {
+                context.Dispose();
+                throw;
+            }
+        }
     }
 }
