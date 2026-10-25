@@ -98,6 +98,7 @@ internal static class AppRoleTableAccess
             ["safety.blocks"] = AppTableAccess.ReadWrite,
             ["safety.photo_review_appeal_assignment_commands"] = AppTableAccess.AppendOnly,
             ["safety.photo_review_appeal_assignments"] = AppTableAccess.AppendOnly,
+            ["safety.photo_review_appeal_evidence_accesses"] = AppTableAccess.AppendOnly,
             ["safety.photo_review_appeal_commands"] = AppTableAccess.AppendOnly,
             ["safety.photo_review_appeals"] = AppTableAccess.ReadWriteWithoutDelete,
             ["safety.photo_review_assignments"] = AppTableAccess.AppendOnly,
