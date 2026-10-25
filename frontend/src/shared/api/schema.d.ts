@@ -93,6 +93,15 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -493,6 +502,41 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/legal-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LegalDocumentCatalogResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3513,6 +3557,27 @@ export interface components {
             code?: string;
             traceId?: string;
         };
+        LegalDocumentCatalogResponse: {
+            registrationAvailable: boolean;
+            termsVersion: string;
+            privacyVersion: string;
+            documents: components["schemas"]["LegalDocumentResponse"][];
+        };
+        LegalDocumentResponse: {
+            document: string;
+            version: string;
+            locale: string;
+            title: string;
+            controllerName: null | string;
+            privacyContact: null | string;
+            published: boolean;
+            sha256: string;
+            sections: components["schemas"]["LegalDocumentSectionResponse"][];
+        };
+        LegalDocumentSectionResponse: {
+            title: string;
+            paragraphs: string[];
+        };
         /**
          * @description Login (API-A04). Conta com MFA ativo manda também `twoFactorCode` (6 dígitos do autenticador) ou
          *     `recoveryCode`, nunca os dois.
@@ -3710,6 +3775,8 @@ export interface components {
             acceptedPrivacyVersion: null | string;
             acceptedTermsLocale?: null | string;
             acceptedPrivacyLocale?: null | string;
+            acceptedTermsSha256?: null | string;
+            acceptedPrivacySha256?: null | string;
         };
         ResetPasswordRequest: {
             /** Format: uuid */

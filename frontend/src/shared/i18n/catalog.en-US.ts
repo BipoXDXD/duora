@@ -6,6 +6,23 @@ import type { Catalog } from './catalog'
  * and keep error messages just as neutral: they never reveal whether an email has an account.
  */
 export const en = {
+  'legal.terms': 'Terms of use',
+  'legal.privacy': 'Privacy policy',
+  'legal.navigation': 'Public documents',
+  'legal.loading': 'Loading documents…',
+  'legal.unavailable': 'Registration is unavailable until document publication is complete.',
+  'legal.notFound': 'This document version and language are unavailable.',
+  'legal.draft': 'Public draft: this document is not yet approved for registration.',
+  'legal.controller': 'Controller',
+  'legal.unknownController': 'The controller identity has not yet been confirmed.',
+  'legal.contact': 'Privacy contact',
+  'legal.version': 'Version',
+  'legal.language': 'Document language',
+  'legal.fingerprint': 'Content SHA-256',
+  'legal.termsLanguage': 'Terms of use language',
+  'legal.privacyLanguage': 'Privacy policy language',
+  'legal.acknowledgement': 'The acceptances below refer to the linked document versions and languages.',
+
   'audio.play': 'Play audio',
   'audio.pause': 'Pause audio',
   'audio.restart': 'Restart audio',

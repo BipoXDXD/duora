@@ -153,7 +153,7 @@ internal sealed class Browser : IDisposable
     }
 
     private bool NeedsPrivateProof(string path) => path.StartsWith("/api/v1/", StringComparison.Ordinal)
-        && path is not ("/api/v1/me" or "/api/v1/auth/csrf" or "/api/v1/auth/register"
+        && path is not ("/api/v1/me" or "/api/v1/legal-documents" or "/api/v1/auth/csrf" or "/api/v1/auth/register"
             or "/api/v1/auth/confirm-email" or "/api/v1/auth/email-confirmation-requests"
             or "/api/v1/auth/login" or "/api/v1/auth/password-reset-requests" or "/api/v1/auth/password-resets")
         && (path != "/api/v1/auth/logout" || Cookie("__Host-duora") is not null);

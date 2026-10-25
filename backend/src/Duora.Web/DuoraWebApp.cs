@@ -113,6 +113,7 @@ internal static class DuoraWebApp
 
         var api = app.MapGroup("/api/v1").WithMetadata(new PrivateOperationEndpoint());
         api.MapAuthEndpoints();
+        api.MapLegalDocumentEndpoints();
         api.MapMeEndpoints();
         api.MapProfileEndpoints();
         api.MapPreferenceEndpoints();

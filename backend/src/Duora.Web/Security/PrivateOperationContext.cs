@@ -21,6 +21,7 @@ internal static class PrivateOperationContext
     private static readonly HashSet<string> PublicErrorRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
         "GET /api/v1/auth/csrf",
+        "GET /api/v1/legal-documents",
         "GET /api/v1/me",
         "POST /api/v1/auth/register",
         "POST /api/v1/auth/confirm-email",

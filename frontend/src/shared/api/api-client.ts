@@ -76,6 +76,7 @@ export function createApiClient(dependencies: ApiClientDependencies): ApiClient 
     if (method === 'GET' && path === '/api/v1/me') throw contextAbort()
     if (
       ((method === 'GET' || method === 'HEAD') && path === '/api/v1/auth/csrf') ||
+      ((method === 'GET' || method === 'HEAD') && path === '/api/v1/legal-documents') ||
       isPublicAuthenticationMutation(method, path)
     )
       return 'public'

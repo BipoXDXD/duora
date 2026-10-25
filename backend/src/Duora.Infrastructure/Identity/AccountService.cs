@@ -58,6 +58,7 @@ public sealed class AccountService
     private readonly DecoyPasswordHash _decoy;
     private readonly AccountLifecycleOptions _lifecycle;
     private readonly TimeProvider _time;
+    private readonly LegalPublication _legal;
 
     internal AccountService(
         DuoraDbContext db,
@@ -65,7 +66,8 @@ public sealed class AccountService
         AccountSecurityService security,
         DecoyPasswordHash decoy,
         AccountLifecycleOptions lifecycle,
-        TimeProvider time)
+        TimeProvider time,
+        LegalPublication legal)
     {
         _db = db;
         _users = users;
@@ -74,6 +76,7 @@ public sealed class AccountService
         _decoy = decoy;
         _lifecycle = lifecycle;
         _time = time;
+        _legal = legal;
     }
 
     /// <summary>
@@ -95,8 +98,14 @@ public sealed class AccountService
         EmailLanguage language,
         CancellationToken cancellationToken,
         string? termsLocale = null,
-        string? privacyLocale = null)
+        string? privacyLocale = null,
+        string? termsSha256 = null,
+        string? privacySha256 = null)
     {
+        if (!_legal.Accepts(termsVersion, privacyVersion, termsLocale, privacyLocale, termsSha256, privacySha256))
+        {
+            throw new InvalidOperationException("Published legal documents and exact acceptance are required before registration.");
+        }
         var now = _time.GetUtcNow();
         // O PasswordHasher padrão não usa o usuário; o hash é calculado antes de saber qual caso é este.
         var passwordHash = _users.PasswordHasher.HashPassword(null!, password);
@@ -109,7 +118,7 @@ public sealed class AccountService
             return;
         }
 
-        await ReplaceConsentsUnlessConfirmedAsync(registration, termsVersion, privacyVersion, termsLocale, privacyLocale, now, cancellationToken);
+        await ReplaceConsentsUnlessConfirmedAsync(registration, termsVersion, privacyVersion, termsLocale, privacyLocale, termsSha256!, privacySha256!, now, cancellationToken);
         await GrantParticipantRoleUnlessAnyAsync(registration.UserId, cancellationToken);
         var user = await _users.FindByIdAsync(registration.UserId.ToString("D"))
             ?? throw new InvalidOperationException("Conta sumiu dentro da transação do cadastro.");
@@ -498,6 +507,8 @@ public sealed class AccountService
         string privacyVersion,
         string? termsLocale,
         string? privacyLocale,
+        string termsSha256,
+        string privacySha256,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -509,10 +520,10 @@ public sealed class AccountService
             cancellationToken);
         await _db.Database.ExecuteSqlAsync(
             $"""
-            insert into identity.consent_records (id, user_id, document, version, accepted_at, document_locale)
-            select v.id, {registration.UserId}, v.document, v.version, {now}, v.document_locale
-            from (values ({Guid.CreateVersion7(now)}, {terms}, {termsVersion}, {termsLocale}),
-                         ({Guid.CreateVersion7(now)}, {privacy}, {privacyVersion}, {privacyLocale})) as v(id, document, version, document_locale)
+            insert into identity.consent_records (id, user_id, document, version, accepted_at, document_locale, document_sha256)
+            select v.id, {registration.UserId}, v.document, v.version, {now}, v.document_locale, v.document_sha256
+            from (values ({Guid.CreateVersion7(now)}, {terms}, {termsVersion}, {termsLocale}, {termsSha256}),
+                         ({Guid.CreateVersion7(now)}, {privacy}, {privacyVersion}, {privacyLocale}, {privacySha256})) as v(id, document, version, document_locale, document_sha256)
             where {replace}
             """,
             cancellationToken);

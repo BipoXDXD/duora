@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Claims;
 using Duora.Contracts.Identity;
+using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Duora.Web.Http;
 using Duora.Web.Identity;
@@ -25,7 +26,8 @@ internal static class AuthEndpoints
         auth.MapPost("/register", RegisterAsync)
             .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.Register)
-            .ProducesMutationProblems();
+            .ProducesMutationProblems()
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         auth.MapPost("/confirm-email", ConfirmEmailAsync)
             .WithMetadata(new PublicAntiforgeryEndpoint())
             .RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption)
@@ -71,6 +73,7 @@ internal static class AuthEndpoints
         RegisterRequest request,
         HttpContext context,
         AccountService accounts,
+        LegalPublication legal,
         AccountAttemptLimiter limiter,
         CancellationToken cancellationToken)
     {
@@ -86,6 +89,23 @@ internal static class AuthEndpoints
             return ApiProblems.Validation(validation.Errors);
         }
 
+        if (!legal.RegistrationAvailable)
+        {
+            return ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable);
+        }
+        if (!legal.Accepts(termsVersion, privacyVersion, request.AcceptedTermsLocale, request.AcceptedPrivacyLocale, request.AcceptedTermsSha256, request.AcceptedPrivacySha256))
+        {
+            return ApiProblems.Validation(new Dictionary<string, string[]>
+            {
+                ["acceptedTermsVersion"] = ["INVALID_FORMAT"],
+                ["acceptedPrivacyVersion"] = ["INVALID_FORMAT"],
+                ["acceptedTermsLocale"] = ["INVALID_FORMAT"],
+                ["acceptedPrivacyLocale"] = ["INVALID_FORMAT"],
+                ["acceptedTermsSha256"] = ["INVALID_FORMAT"],
+                ["acceptedPrivacySha256"] = ["INVALID_FORMAT"],
+            });
+        }
+
         if (limiter.TryConsume(AccountOperation.Register, email) is { } retryAfter)
         {
             return ApiProblems.TooManyRequests(context, retryAfter);
@@ -99,7 +119,9 @@ internal static class AuthEndpoints
             EmailLanguageNegotiation.FromRequest(context.Request),
             cancellationToken,
             request.AcceptedTermsLocale,
-            request.AcceptedPrivacyLocale);
+            request.AcceptedPrivacyLocale,
+            request.AcceptedTermsSha256,
+            request.AcceptedPrivacySha256);
         return TypedResults.Accepted((string?)null);
     }
 

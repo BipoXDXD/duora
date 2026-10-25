@@ -1,3 +1,4 @@
+import { LegalNavigation } from '@/features/legal/LegalNavigation'
 import { Link } from 'react-router'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
@@ -21,6 +22,7 @@ export function LandingPage(): React.JSX.Element {
           <Link to={paths.login}>{t('landing.signIn')}</Link>
         </Button>
       </div>
+      <LegalNavigation />
     </section>
   )
 }

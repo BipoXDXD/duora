@@ -19,9 +19,11 @@ export interface Registration {
   readonly password: string
   readonly acceptedTermsVersion: string
   readonly acceptedPrivacyVersion: string
-  /** Explicit document metadata; omitted/null means unknown, not the interface language. */
-  readonly acceptedTermsLocale?: Locale | null
-  readonly acceptedPrivacyLocale?: Locale | null
+  /** Exact published document language; it is independent of the account/interface preference. */
+  readonly acceptedTermsLocale: Locale
+  readonly acceptedTermsSha256: string
+  readonly acceptedPrivacySha256: string
+  readonly acceptedPrivacyLocale: Locale
 }
 
 /** 202 neutro: a resposta não revela se o e-mail já tem conta. */

@@ -5,6 +5,23 @@
  * Mensagens de erro são neutras: não revelam se um e-mail tem conta (spec 8.2, API-A02 e A06).
  */
 export const ptBR = {
+  'legal.terms': 'Termos de uso',
+  'legal.privacy': 'Política de privacidade',
+  'legal.navigation': 'Documentos públicos',
+  'legal.loading': 'Carregando documentos…',
+  'legal.unavailable': 'O cadastro está indisponível enquanto a publicação dos documentos não estiver concluída.',
+  'legal.notFound': 'Esta versão e idioma do documento não estão disponíveis.',
+  'legal.draft': 'Rascunho público: este documento ainda não está aprovado para cadastro.',
+  'legal.controller': 'Controlador',
+  'legal.unknownController': 'Identidade do controlador ainda não confirmada.',
+  'legal.contact': 'Contato para privacidade',
+  'legal.version': 'Versão',
+  'legal.language': 'Idioma do documento',
+  'legal.fingerprint': 'SHA-256 do conteúdo',
+  'legal.termsLanguage': 'Idioma dos Termos de uso',
+  'legal.privacyLanguage': 'Idioma da Política de privacidade',
+  'legal.acknowledgement': 'Os aceites abaixo se referem às versões e aos idiomas dos documentos vinculados.',
+
   'audio.play': 'Reproduzir áudio',
   'audio.pause': 'Pausar áudio',
   'audio.restart': 'Reiniciar áudio',

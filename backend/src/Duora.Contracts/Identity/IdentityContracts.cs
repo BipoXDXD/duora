@@ -11,7 +11,9 @@ public sealed record RegisterRequest(
     string? AcceptedTermsVersion,
     string? AcceptedPrivacyVersion,
     string? AcceptedTermsLocale = null,
-    string? AcceptedPrivacyLocale = null);
+    string? AcceptedPrivacyLocale = null,
+    string? AcceptedTermsSha256 = null,
+    string? AcceptedPrivacySha256 = null);
 
 public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 

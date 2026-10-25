@@ -65,6 +65,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -384,6 +394,25 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/legal-documents": {
+      "get": {
+        "tags": [
+          "Legal"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegalDocumentCatalogResponse"
                 }
               }
             }
@@ -3650,6 +3679,105 @@
         },
         "additionalProperties": false
       },
+      "LegalDocumentCatalogResponse": {
+        "required": [
+          "registrationAvailable",
+          "termsVersion",
+          "privacyVersion",
+          "documents"
+        ],
+        "type": "object",
+        "properties": {
+          "registrationAvailable": {
+            "type": "boolean"
+          },
+          "termsVersion": {
+            "type": "string"
+          },
+          "privacyVersion": {
+            "type": "string"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegalDocumentResponse"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LegalDocumentResponse": {
+        "required": [
+          "document",
+          "version",
+          "locale",
+          "title",
+          "controllerName",
+          "privacyContact",
+          "published",
+          "sha256",
+          "sections"
+        ],
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "controllerName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "privacyContact": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegalDocumentSectionResponse"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LegalDocumentSectionResponse": {
+        "required": [
+          "title",
+          "paragraphs"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "paragraphs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "LoginRequest": {
         "required": [
           "email",
@@ -4459,6 +4587,18 @@
             ]
           },
           "acceptedPrivacyLocale": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acceptedTermsSha256": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acceptedPrivacySha256": {
             "type": [
               "null",
               "string"
@@ -5322,6 +5462,9 @@
   "tags": [
     {
       "name": "Auth"
+    },
+    {
+      "name": "Legal"
     },
     {
       "name": "Me"

@@ -7,6 +7,8 @@ import { paths } from '@/shared/paths'
 const PUBLIC_PATHS: ReadonlySet<string> = new Set([
   paths.home,
   paths.register,
+  paths.terms,
+  paths.privacy,
   paths.checkEmail,
   paths.confirmEmail,
   paths.login,
@@ -15,7 +17,7 @@ const PUBLIC_PATHS: ReadonlySet<string> = new Set([
 ])
 
 export function isPrivatePath(pathname: string): boolean {
-  return !PUBLIC_PATHS.has(pathname)
+  return !PUBLIC_PATHS.has(pathname) && !/^\/(terms|privacy)\/[A-Za-z0-9._-]{1,32}\/(pt-BR|en-US)$/.test(pathname)
 }
 
 interface BackForwardCacheGuard {
