@@ -5,9 +5,9 @@ using Duora.Infrastructure.Safety;
 using Duora.Web.Accounts;
 using Duora.Web.Http;
 using Duora.Web.Security;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
@@ -95,13 +95,17 @@ internal static class PhotoReviewEndpoints
         operation.Parameters ??= [];
         operation.Parameters.Add(new OpenApiParameter
         {
-            Name = "If-Match", In = ParameterLocation.Header, Required = true,
+            Name = "If-Match",
+            In = ParameterLocation.Header,
+            Required = true,
             Description = "The exact opaque strong ETag of this photo, case or appeal; tags of other resources never match.",
             Schema = new OpenApiSchema { Type = JsonSchemaType.String },
         });
         operation.Parameters.Add(new OpenApiParameter
         {
-            Name = "Idempotency-Key", In = ParameterLocation.Header, Required = true,
+            Name = "Idempotency-Key",
+            In = ParameterLocation.Header,
+            Required = true,
             Description = "A stable key for this exact command intention. Authenticated replay observes the committed receipt.",
             Schema = new OpenApiSchema { Type = JsonSchemaType.String, MinLength = 1, MaxLength = 64, Pattern = "^[A-Za-z0-9_-]+$" },
         });

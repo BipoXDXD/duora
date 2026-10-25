@@ -101,8 +101,10 @@ test('private review pixels render under the unchanged Caddy CSP and clear on cl
   })
 
   await open.click()
-  const canvas = page.getByRole('img', { name: 'Private image for the assigned photo review' })
+  // Keep addressing the same drawing surface after it leaves the accessibility tree on close.
+  const canvas = page.locator('canvas[role="img"]')
   await expect(canvas).toBeVisible()
+  await expect(canvas).toHaveAccessibleName('Private image for the assigned photo review')
   expect(
     await canvas.evaluate((element) => {
       if (!(element instanceof HTMLCanvasElement)) return false

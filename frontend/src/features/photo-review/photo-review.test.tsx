@@ -1,3 +1,4 @@
+import { apiClient, ApiNetworkError, classifyRequestFailure } from '@/shared/api'
 import { PrivateOperationProvider } from '@/features/session/PrivateOperationProvider'
 import { installTestMe } from '@/test/private-context'
 import { screen, waitFor } from '@testing-library/react'
@@ -71,8 +72,7 @@ function problem(status: number, code = 'PHOTO_REVIEW_UNAVAILABLE') {
   )
 }
 
-function mount(path = '/admin/photo-reviews', locale: 'en-US' | 'pt-BR' = 'en-US') {
-  const client = createTestQueryClient()
+function mount(path = '/admin/photo-reviews', locale: 'en-US' | 'pt-BR' = 'en-US', client = createTestQueryClient()) {
   const me = installTestMe({ ...ACCOUNT, roles: [...ACCOUNT.roles] })
   return renderWithI18n(
     <QueryClientProvider client={client}>
@@ -360,8 +360,43 @@ describe('private photo review and appeal UI', () => {
       }),
       http.get(`/api/v1/admin/photo-reviews/${CASE}/evidence/:variant`, evidence),
     )
-    mount()
-    const link = await screen.findByRole('link', { name: `Open case ${CASE}` })
+    const client = createTestQueryClient()
+    mount('/admin/photo-reviews', 'en-US', client)
+    const link = await screen.findByRole(
+      'link',
+      { name: `Open case ${CASE}` },
+      {
+        // Passive failure-only projection: never serialize a query key, body, header or raw cause.
+        onTimeout: (error) => {
+          const context = apiClient.sessionContext.getSnapshot()
+          const reads = client
+            .getQueryCache()
+            .getAll()
+            .map(({ queryKey, state }) => ({
+              phase: queryKey[3] === 'capabilities' ? 'capabilities' : 'queue',
+              status: state.status,
+              failure: state.status === 'error' ? classifyRequestFailure(state.error).kind : null,
+              causeKind:
+                state.error instanceof ApiNetworkError
+                  ? state.error.cause instanceof TypeError
+                    ? 'TypeError'
+                    : state.error.cause instanceof DOMException
+                      ? 'DOMException'
+                      : state.error.cause instanceof Error
+                        ? 'Error'
+                        : 'non-error'
+                  : null,
+            }))
+          const diagnostics = {
+            queueHandlerCalls: cursors.length,
+            contextProtectedAtTimeout: context.protected,
+            ownerPresentAtTimeout: context.owner !== null,
+            reads,
+          }
+          return new Error(`${error.message}\nM7_READ_DIAGNOSTICS ${JSON.stringify(diagnostics)}`)
+        },
+      },
+    )
     expect(link).toHaveAttribute('href', `/admin/photo-reviews/${CASE}`)
     expect(evidence).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
