@@ -12,6 +12,9 @@ append-only com o REVOKE da convenção) e roda reconcile-privileges.sql como o 
 from __future__ import annotations
 
 import os
+import hashlib
+import json
+import re
 import subprocess
 import tempfile
 import time
@@ -20,6 +23,7 @@ import uuid
 from pathlib import Path
 
 import duora_deploy as deploy
+import reconcile_payload as payload
 
 IMAGE = os.environ.get("DUORA_POSTGRES_IMAGE", "")
 READY_TIMEOUT_SECONDS = 60
@@ -43,6 +47,96 @@ CREATE TABLE rooms.rooms (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, na
 CREATE TABLE ops.audit_events (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, action text NOT NULL);
 CREATE FUNCTION rooms.room_count() RETURNS bigint LANGUAGE sql AS 'SELECT count(*) FROM rooms.rooms';
 """
+
+
+def apply_candidate_sql(container: str) -> subprocess.CompletedProcess[str]:
+    image = payload._inspect("image", "duora-migrator:ci", payload.capture_binary)
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    labels = image.get("Config", {}).get("Labels", {})
+    architecture = {"x86_64": "amd64", "aarch64": "arm64"}[os.uname().machine]
+    if (labels.get("org.opencontainers.image.revision") != revision
+            or labels.get("org.opencontainers.image.title") != "duora-migrator"
+            or labels.get("org.opencontainers.image.source") != "https://github.com/BipoXDXD/duora"
+            or image.get("Architecture") != architecture or image.get("Os") != "linux"):
+        raise AssertionError("Native candidate image differs from this reviewed CI build")
+    sql = payload._copy_stopped_sql(image["Id"], image["Id"])
+    canonical = Path(__file__).resolve().parents[2] / "infra/images/dotnet/reconcile-privileges.sql"
+    if sql.encode("utf-8") != canonical.read_bytes():
+        raise AssertionError("Native candidate SQL differs from the canonical source")
+    return subprocess.run(["docker", "exec", "--interactive", container, "psql", "--no-psqlrc",
+                           "-v", "ON_ERROR_STOP=1", "--single-transaction", "--username", "postgres",
+                           "--dbname", "duora", "--file", "/dev/stdin"],
+                          input=sql, capture_output=True, text=True, check=False, timeout=60)
+
+
+@unittest.skipUnless(IMAGE, "native image proof runs with DUORA_POSTGRES_IMAGE in both CI architectures")
+class MigratorPayloadImageTests(unittest.TestCase):
+    def test_real_stopped_image_payload_matches_canonical_sql(self) -> None:
+        commands: list[list[str]] = []
+        observations: list[dict] = []
+        archives: list[dict] = []
+
+        def capture(command: list[str]) -> bytes:
+            commands.append(command)
+            result = payload.capture_binary(command)
+            if command[:3] == ["docker", "container", "inspect"]:
+                item = json.loads(result)
+                observations.append({"id": item["Id"], "image": item["Image"],
+                                     "state": item["State"], "mounts": item["Mounts"],
+                                     "network": item["HostConfig"]["NetworkMode"]})
+            if command[:2] == ["docker", "cp"]:
+                archives.append({"path": command[-2].split(":", 1)[1], "bytes": len(result),
+                                 "sha256": hashlib.sha256(result).hexdigest()})
+            return result
+
+        image = payload._inspect("image", "duora-migrator:ci", capture)
+        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        self.assertRegex(revision, r"^[a-f0-9]{40}$")
+        self.assertEqual(image["Config"]["Labels"]["org.opencontainers.image.revision"], revision)
+        self.assertEqual(image["Config"]["Labels"]["org.opencontainers.image.title"], "duora-migrator")
+        self.assertEqual(image["Config"]["Labels"]["org.opencontainers.image.source"],
+                         "https://github.com/BipoXDXD/duora")
+        self.assertIn(image["Config"].get("Volumes"), [None, {}])
+        expected_arch = {"x86_64": "amd64", "aarch64": "arm64"}[os.uname().machine]
+        self.assertEqual(image["Architecture"], expected_arch)
+        self.assertEqual(image["Os"], "linux")
+        image_id = image["Id"]
+        self.assertTrue(re.fullmatch(r"sha256:[a-f0-9]{64}", image_id))
+        sql = payload._copy_stopped_sql(image_id, image_id, capture=capture)
+        canonical = Path(__file__).resolve().parents[2] / "infra/images/dotnet/reconcile-privileges.sql"
+        self.assertEqual(sql.encode("utf-8"), canonical.read_bytes())
+        self.assertTrue(observations)
+        self.assertEqual(len(archives), 2)
+        for item in observations:
+            self.assertEqual(item["image"], image_id)
+            self.assertFalse(item["state"]["Running"])
+            self.assertEqual(item["state"]["Status"], "created")
+            self.assertTrue(item["state"]["StartedAt"].startswith("0001-01-01"))
+            self.assertEqual(item["mounts"], [])
+            self.assertEqual(item["network"], "none")
+        self.assertFalse(any(c[:2] in [["docker", "start"], ["docker", "run"], ["docker", "exec"]]
+                             for c in commands))
+        self.assertTrue(any(c[:2] == ["docker", "rm"] for c in commands))
+        absent = payload.capture_binary(["docker", "ps", "--all", "--quiet", "--no-trunc",
+                                         "--filter", "id=" + observations[-1]["id"]])
+        self.assertEqual(absent.strip(), b"", "successful daemon listing must prove container absence")
+        print("[reconcile-native] " + json.dumps({"origin": "Actions candidate build, not published GHCR",
+              "revision": revision, "architecture": expected_arch, "image_id": image_id,
+              "sql_sha256": hashlib.sha256(sql.encode()).hexdigest(), "archives": archives,
+              "container_observations": observations, "owned_container_removed": True}))
+
+
+@unittest.skipUnless(IMAGE, "real disposable continuity qualification runs in native Actions images job")
+class RuntimeContinuityLabTests(unittest.TestCase):
+    def test_real_two_deploy_continuity_guards_installer_and_compatible_rollback(self) -> None:
+        from continuity_lab import run_preservation_lab
+        report = run_preservation_lab()
+        for field in ["sql_session_survived", "database_backup_identity_preserved", "negative_guards_passed",
+                      "static_installation_preserved_services", "compatible_v2_rollback_passed",
+                      "two_forward_deploys_under_observation", "failed_product_recovered", "receiver_installer_interlock_proved",
+                      "first_failed_v2_current_v1_app_recovery_preserved_floor", "pinnedComposePolicy", "receiverVersionedLinkPolicy"]:
+            self.assertTrue(report[field], field)
+        print("[continuity-lab] " + json.dumps(report))
 
 
 @unittest.skipUnless(IMAGE, "defina DUORA_POSTGRES_IMAGE com a imagem derivada (docker)")
@@ -69,7 +163,9 @@ class AppRolePrivilegesTests(unittest.TestCase):
               IMAGE])
         cls._wait_ready()
         _run(cls._psql_superuser() + ["--command", MIGRATION_SQL])
-        _run(cls._psql_superuser() + ["--file", "/usr/local/share/duora/reconcile-privileges.sql"])
+        reconciliation = apply_candidate_sql(cls.container)
+        if reconciliation.returncode != 0:
+            raise AssertionError("Canonical reconciliation failed: " + reconciliation.stderr[-800:])
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -142,13 +238,35 @@ class AppRolePrivilegesTests(unittest.TestCase):
             with self.subTest(sql=sql):
                 self.assert_denied(sql)
 
+    def test_real_payload_reconciles_deliberate_acl_drift_and_preserves_rows(self) -> None:
+        sentinel = "reconciliation-sentinel-" + uuid.uuid4().hex
+        self.assert_allowed("INSERT INTO ops.audit_events (action) VALUES ('" + sentinel + "')")
+        _run(self._psql_superuser() + ["--command", "GRANT UPDATE, DELETE, TRUNCATE ON ops.audit_events TO duora_app"])
+        try:
+            self.assertEqual("t|t|t", self.assert_allowed(
+                "SELECT has_table_privilege('duora_app','ops.audit_events','UPDATE'),"
+                "has_table_privilege('duora_app','ops.audit_events','DELETE'),"
+                "has_table_privilege('duora_app','ops.audit_events','TRUNCATE')"))
+            applied = apply_candidate_sql(self.container)
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            self.assertEqual("f|f|f", self.assert_allowed(
+                "SELECT has_table_privilege('duora_app','ops.audit_events','UPDATE'),"
+                "has_table_privilege('duora_app','ops.audit_events','DELETE'),"
+                "has_table_privilege('duora_app','ops.audit_events','TRUNCATE')"))
+            self.assertEqual("1", self.assert_allowed("SELECT count(*) FROM ops.audit_events WHERE action='" + sentinel + "'"))
+            self.assert_allowed("INSERT INTO ops.audit_events (action) VALUES ('reconciliation-legitimate-append')")
+            for sql in ["UPDATE ops.audit_events SET action = action WHERE false",
+                        "DELETE FROM ops.audit_events WHERE false"]:
+                self.assert_denied(sql)
+        finally:
+            # Keep other native cases independent even while the new application seam is intentionally absent.
+            _run(self._psql_superuser() + ["--command", "REVOKE UPDATE, DELETE, TRUNCATE ON ops.audit_events FROM duora_app"])
+
     def test_reconcile_fails_when_app_can_still_rewrite_the_audit_trail(self) -> None:
         # Privilégio herdado (PUBLIC) não sai com o REVOKE de duora_app: a checagem final tem de barrar o deploy.
         _run(self._psql_superuser() + ["--command", "GRANT UPDATE ON ops.audit_events TO PUBLIC"])
         try:
-            result = subprocess.run(
-                self._psql_superuser() + ["--file", "/usr/local/share/duora/reconcile-privileges.sql"],
-                capture_output=True, text=True, check=False)
+            result = apply_candidate_sql(self.container)
             self.assertNotEqual(0, result.returncode, "o reconcile devia falhar")
             self.assertIn("append-only", result.stderr)
         finally:

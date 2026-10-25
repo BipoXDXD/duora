@@ -66,7 +66,7 @@ def make_duora_manifest(publication: Any, images: Any, commit: Any) -> Any:
         "createdAt": datetime.now(UTC).isoformat(timespec="seconds"),
         "architecture": "amd64",
         "images": images,
-        "contractVersion": "v1",
+        "contractVersion": "v2",
         "schema": {"min": migrations[-1], "max": migrations[-1]},
         "migrations": migrations,
         "sbom": {
