@@ -1,3 +1,5 @@
+import { createSessionContextStore } from '@/shared/session-context'
+import { acknowledgeOwnerInstallation } from '@/features/session/owner-installation'
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
 import { ApiNetworkError, ApiProblemError, ApiResponseError } from '@/shared/api/api-errors'
@@ -106,55 +108,63 @@ describe('createQueryClient', () => {
   })
 })
 
-describe('troca de identidade descoberta pela própria identidade (T-21)', () => {
+describe('troca de identidade após o commit neutro (T-21)', () => {
   const anaId = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'
   const brunoId = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c7'
-
-  async function resolveMe(queryClient: ReturnType<typeof createQueryClient>, id: string): Promise<void> {
-    await queryClient.query({ queryKey: meQueryKey, queryFn: () => Promise.resolve({ id }), staleTime: 0 })
+  function fixture() {
+    const store = createSessionContextStore()
+    return { store, client: createQueryClient(store) }
   }
-
-  it('identidade nova descarta os dados privados da anterior', async () => {
-    const queryClient = createQueryClient()
-    await resolveMe(queryClient, anaId)
-    queryClient.setQueryData(sessionsQueryKey(anaId), [{ id: 'sessao-da-ana' }])
-
-    await resolveMe(queryClient, brunoId)
-
-    expect(queryClient.getQueryData(sessionsQueryKey(anaId))).toBeUndefined()
-    expect(queryClient.getQueryData(meQueryKey)).toEqual({ id: brunoId })
-  })
-
-  it('identidade nova descarta também as escritas da anterior, com as variables', async () => {
-    const queryClient = createQueryClient()
-    await resolveMe(queryClient, anaId)
-    await queryClient
+  function resolveMe({ client, store }: ReturnType<typeof fixture>, id: string) {
+    const ticket = store.beginBootstrap({ kind: 'automatic' })
+    const owner = store.acceptBootstrap(ticket, {
+      userId: id,
+      sessionId: '0199f1a2-3b4c-7d5e-8f60-000000000001',
+      phase: 'active',
+      requestToken: 'synthetic',
+      authView: { status: 'Active', emailConfirmed: true, mfaEnabled: false, roles: ['participant'] },
+    })
+    store.finishBootstrap(ticket)
+    client.setQueryData(meQueryKey, { id, owner })
+    return Promise.resolve(owner)
+  }
+  it('novo dono só remove consultas e escritas após confirmação da desmontagem', async () => {
+    const current = fixture()
+    const first = await resolveMe(current, anaId)
+    await acknowledgeOwnerInstallation(current.store, current.client, {
+      owner: first,
+      epoch: current.store.getSnapshot().transitionEpoch,
+    })
+    current.client.setQueryData(sessionsQueryKey(anaId), [{ id: 'sessao-da-ana' }])
+    await current.client
       .getMutationCache()
-      .build(queryClient, { mutationFn: (bio: string) => Promise.resolve(bio.length) })
-      .execute('texto que a Ana escreveu')
-
-    await resolveMe(queryClient, brunoId)
-
-    expect(queryClient.getMutationCache().getAll()).toEqual([])
+      .build(current.client, { mutationFn: (bio: string) => Promise.resolve(bio.length) })
+      .execute('rascunho privado')
+    const next = await resolveMe(current, brunoId)
+    expect(current.store.getSnapshot().owner).toBeNull()
+    expect(current.client.getQueryData(sessionsQueryKey(anaId))).toBeDefined()
+    expect(current.client.getMutationCache().getAll()).toHaveLength(1)
+    await acknowledgeOwnerInstallation(current.store, current.client, {
+      owner: next,
+      epoch: current.store.getSnapshot().transitionEpoch,
+    })
+    expect(current.client.getQueryData(sessionsQueryKey(anaId))).toBeUndefined()
+    expect(current.client.getMutationCache().getAll()).toEqual([])
+    expect(current.client.getQueryData(meQueryKey)).toEqual({ id: brunoId, owner: next })
+    current.client.clear()
   })
-
-  it('a mesma identidade reconsultada mantém o cache', async () => {
-    const queryClient = createQueryClient()
-    await resolveMe(queryClient, anaId)
-    queryClient.setQueryData(sessionsQueryKey(anaId), [{ id: 'sessao-da-ana' }])
-
-    await resolveMe(queryClient, anaId)
-
-    expect(queryClient.getQueryData(sessionsQueryKey(anaId))).toEqual([{ id: 'sessao-da-ana' }])
-  })
-
-  it('a primeira identidade da aba não descarta nada', async () => {
-    const queryClient = createQueryClient()
-    queryClient.setQueryData(['publico'], 'dado anônimo')
-
-    await resolveMe(queryClient, anaId)
-
-    expect(queryClient.getQueryData(['publico'])).toBe('dado anônimo')
+  it('mesmo contexto reconsultado preserva o cache sem nova barreira', async () => {
+    const current = fixture()
+    const owner = await resolveMe(current, anaId)
+    await acknowledgeOwnerInstallation(current.store, current.client, {
+      owner,
+      epoch: current.store.getSnapshot().transitionEpoch,
+    })
+    current.client.setQueryData(sessionsQueryKey(anaId), [{ id: 'sessao-da-ana' }])
+    expect(await resolveMe(current, anaId)).toBe(owner)
+    expect(current.store.getSnapshot().pendingOwner).toBeNull()
+    expect(current.client.getQueryData(sessionsQueryKey(anaId))).toEqual([{ id: 'sessao-da-ana' }])
+    current.client.clear()
   })
 })
 
@@ -177,3 +187,20 @@ describe('restrições da sessão', () => {
     },
   )
 })
+
+it.each(['INVALID_CREDENTIALS', 'REAUTHENTICATION_REQUIRED'])(
+  'recusa autenticada%s conserva o formulário, sem uma reconsulta de identidade redundante',
+  async (code) => {
+    const context = createSessionContextStore()
+    const client = createQueryClient(context)
+    client.setQueryData(meQueryKey, { id: 'synthetic' })
+    const error = new ApiProblemError({ type: 'about:blank', title: code, status: 401, code })
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => Promise.reject(error) })
+      .execute(undefined)
+      .catch(() => undefined)
+    expect(client.getQueryState(meQueryKey)?.isInvalidated).toBe(false)
+    client.clear()
+  },
+)

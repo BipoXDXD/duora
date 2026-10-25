@@ -1,5 +1,5 @@
+import { usePublicMutation, runPublicOperation } from '@/features/session/public-operation'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { classifyRequestFailure, type RequestFailure } from '@/shared/api'
@@ -53,20 +53,24 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
     defaultValues: { password: '', code: '' },
   })
   const usesCode = link.token === 'code'
-  const confirmation = useMutation({
-    mutationFn: ({ password, code }: { password: string; code: string }) =>
-      confirmEmail({ ...link, token: usesCode ? code : link.token }, password),
+  const confirmation = usePublicMutation({
+    gcTime: 0,
+    mutationFn: (operation) => {
+      const { password, code } = confirmEmailSchema.parse(form.getValues())
+      return confirmEmail(operation, { ...link, token: usesCode ? code.replace(/\s/g, '') : link.token }, password)
+    },
   })
-  const submit = form.handleSubmit(({ password, code }) => {
-    const normalizedCode = code.replace(/\s/g, '')
-    if (usesCode && !/^[0-9]{8}$/.test(normalizedCode)) {
-      form.setError('code', { message: 'validation.emailCodeInvalid' }, { shouldFocus: true })
-      return
-    }
-    if (!confirmation.isPending) {
-      confirmation.mutate({ password, code: normalizedCode })
-    }
-  })
+  const submit = (event: React.BaseSyntheticEvent) =>
+    runPublicOperation((operation) =>
+      form.handleSubmit(async ({ code }) => {
+        const normalizedCode = code.replace(/\s/g, '')
+        if (usesCode && !/^[0-9]{8}$/.test(normalizedCode)) {
+          form.setError('code', { message: 'validation.emailCodeInvalid' }, { shouldFocus: true })
+          return
+        }
+        if (!confirmation.isPending) await confirmation.mutateWithOperation(operation, undefined)
+      })(event),
+    )
 
   if (confirmation.isSuccess) {
     return (
@@ -96,7 +100,7 @@ function ConfirmEmailForm({ link }: { readonly link: EmailLink }): React.JSX.Ele
         aria-busy={confirmation.isPending}
         className="flex flex-col gap-6"
         onSubmit={(event) => {
-          void submit(event)
+          void submit(event).catch(() => undefined)
         }}
       >
         {usesCode ? (

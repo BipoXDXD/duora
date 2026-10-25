@@ -171,13 +171,13 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 ## CSRF
 
 Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logout também são mutações
-(spec 11.3; *Web Application Security*, 2ª ed., caps. 11 e 29). O M1 usa três camadas:
+(spec 11.3; _Web Application Security_, 2ª ed., caps. 11 e 29). O M1 usa três camadas:
 
-| Camada | Especificação |
-|---|---|
-| 1. Token antiforgery | `AddAntiforgery(o => o.HeaderName = "X-XSRF-TOKEN")` e um middleware (`CsrfProtectionMiddleware`) que chama `IAntiforgery.IsRequestValidAsync` em todo método que não é `GET`, `HEAD`, `OPTIONS` ou `TRACE`, **inclusive** API-A02 a A07 (D-AUTH-05). Roda depois da autorização: rota protegida sem sessão responde `401` antes. Cookie interno do antiforgery: `__Host-duora-af`, `HttpOnly`, `Secure`, `SameSite=Strict` |
-| 2. Cookie legível | API-A01 chama `GetAndStoreTokens` e grava o request token no cookie `XSRF-TOKEN` (`Secure`, `Path=/`, `SameSite=Strict`, **sem** `HttpOnly`, para a SPA ler). A SPA o envia no header `X-XSRF-TOKEN` (já implementado em `frontend/src/shared/api/antiforgery.ts`). O token sozinho não basta: precisa casar com o cookie `__Host-` e com a identidade |
-| 3. Origem | Em mutação: `Origin` presente e diferente da origem pública (`Duora:PublicOrigin`; em Development também `https://localhost:5173`) → rejeita; `Sec-Fetch-Site` presente e diferente de `same-origin` → rejeita; os dois ausentes → só a camada 1 decide (cliente não-navegador). No hub, `Origin` é obrigatório e exato (TM-45) |
+| Camada               | Especificação                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Token antiforgery | `AddAntiforgery(o => o.HeaderName = "X-XSRF-TOKEN")` e um middleware (`CsrfProtectionMiddleware`) que chama `IAntiforgery.ValidateRequestAsync` em escritas e nas leituras privadas `GET`/`HEAD`, **inclusive** autenticação pública nas escritas API-A02 a A07 (D-AUTH-05). Roda depois da autorização: rota protegida sem sessão responde `401` antes. Cookie interno do antiforgery: `__Host-duora-af`, `HttpOnly`, `Secure`, `SameSite=Strict`                           |
+| 2. Cookie legível    | API-A01 chama `GetAndStoreTokens` e grava o request token no cookie `XSRF-TOKEN` (`Secure`, `Path=/`, `SameSite=Strict`, **sem** `HttpOnly`, para a SPA ler). A SPA usa esse cookie somente para as seis mutações públicas de autenticação e logout já anônimo. Escritas/leituras privadas usam o request token recebido no corpo de `/me`, capturado pela operação. O token sozinho não basta: precisa casar com o cookie interno, a identidade, a finalidade e o SID atual |
+| 3. Origem            | Em mutação: `Origin` presente e diferente da origem pública (`Duora:PublicOrigin`; em Development também `https://localhost:5173`) → rejeita; `Sec-Fetch-Site` presente e diferente de `same-origin` → rejeita; os dois ausentes → só a camada 1 decide (cliente não-navegador). No hub, `Origin` é obrigatório e exato (TM-45)                                                                                                                                              |
 
 - Falha de antiforgery ou de origem: `403` Problem Details com `code = CSRF_VALIDATION_FAILED`, sem efeito
   (o padrão do framework é `400`; o M1 mapeia para `403`).
@@ -579,61 +579,71 @@ sem artefato do CI (spec 25.19).
   - I5: reset bloqueado para conta privilegiada sem MFA; o pedido manda o aviso `PasswordResetUnavailable`.
   - Novo código `403` `PASSWORD_CHANGE_REQUIRED` e erro de validação `SAME_AS_TEMPORARY_PASSWORD` no A16.
 
-## SPA: senha inicial administrativa e cadastro de MFA
+## SPA: contexto privado, senha inicial e MFA
 
-O fluxo do bootstrap (spec 11.1; API-A04, A08, A11, A12 e A16) é a interface do bootstrap do
-PR #71. A interface não amplia autorização: o servidor continua sendo a fonte da verdade.
+A autorização continua no servidor. O bootstrap `GET /api/v1/me` é a única entrada que emite o
+contexto privado, com `Cache-Control: no-store`: `userId`, `sessionId`, fase e request token do
+antiforgery do ASP.NET Core. O identificador da conta no corpo deve corresponder ao `userId` do contexto.
+Somente o `403 PASSWORD_CHANGE_REQUIRED` desse bootstrap contém o contexto restrito
+`password-change`; outros erros não autorizam uma árvore privada. A fase `mfa-enrollment` continua
+sendo um `200` com os papéis e `mfaEnabled: false`.
 
-- `403 PASSWORD_CHANGE_REQUIRED` em `/me` (descrito no `openapi.json`) leva a `/change-initial-password`,
-  inclusive ao abrir diretamente uma rota protegida. A resposta tem precedência sobre identidade antiga
-  em cache. Na fase do MFA, `/me` está na allowlist do cadastro e responde `200` com `mfaEnabled: false`
-  e o papel privilegiado: é isso que leva a `/account/enable-mfa`. O `403 MFA_ENROLLMENT_REQUIRED` vem das
-  outras rotas; um `403` com qualquer dos dois códigos em consultas ou mutações reconsulta `/me`, e a SPA
-  também aceita `MFA_ENROLLMENT_REQUIRED` vindo de `/me` (leitor tolerante). Não há retry automático da
-  escrita.
-  Enquanto `/me` é reconsultado (por exemplo, depois de um 401 na troca de senha ou no MFA), a tela
-  restrita em que a pessoa está continua montada, com o erro e a chave do MFA preservados.
-- A16 recebe somente `currentPassword` e `newPassword`, sem normalização na SPA. O formulário
-  valida comprimento e confirmação, traduz `SAME_AS_TEMPORARY_PASSWORD`, senha incorreta,
-  CSRF, rate limit e autenticação recente vencida. A temporária vencida exige reemissão pelo operador.
-- Toda mutação renova o CSRF antes do envio. Depois do sucesso de A16, o cookie renovado pelo
-  backend é usado com CSRF novo, cache descartado e aviso entre abas. Uma nova leitura de `/me`
-  decide o destino; papéis privilegiados sem MFA seguem para `/account/enable-mfa`.
-- A11/A12 cadastram o autenticador por chave manual e confirmação de seis dígitos. A chave e os
-  códigos de recuperação ficam somente no estado local da tela; não entram em query/mutation
-  data, variables, URL, storage ou log. Após salvar os códigos, a transição limpa o cache e renova
-  o CSRF. Quando o servidor responde `MFA_REQUIRED`, o login mostra o campo do código do autenticador,
-  com foco nele, e um botão que troca para o código de recuperação; o corpo leva só um dos dois
-  (`twoFactorCode` ou `recoveryCode`), e nenhum fica no MutationCache.
-- As mutações da SPA (A04, A11, A12 e A16) têm limite no servidor: A04 por IP e por e-mail, A11–A16 por
-  conta (`AuthRateLimitOptions`). O `429` chega à tela com a espera do `Retry-After` e não é repetido
-  sozinho.
-- Uma sessão sem autenticação recente recebe orientação para entrar novamente. O botão "Entrar
-  novamente" das duas telas chama o logout (A05) antes de ir à entrada, para a sessão restrita não
-  ficar viva no servidor; se o logout falhar por rede, a tela fica e mostra o erro. Na troca da senha
-  temporária a SPA não tenta reautenticar: o A13 não está disponível nessa fase. Na fase do MFA o A13 é
-  permitido (sessão restrita ao cadastro: A08, A11, A12 e A13), mas a SPA ainda não oferece a
-  reautenticação nessa tela e orienta a entrar novamente. A autorização de
-  cinco minutos e a validade de 24 horas continuam sendo verificadas pelo backend.
+O `IAntiforgeryAdditionalDataProvider` vincula a prova protegida pelo framework à finalidade
+pública/privada e ao SID. Não há criptografia própria, nonce ou prazo paralelo. O middleware valida
+também `GET` e `HEAD` privados com `ValidateRequestAsync`, após autorização e antes dos filtros/handlers.
+Origem e Fetch Metadata continuam nas escritas; bootstrap, rotas públicas, health/static e HMAC
+mantêm exceções explícitas. Nenhum cabeçalho de identidade/prova foi acrescentado à resposta.
 
-Verificação: `ChangePasswordPage.test.tsx` integra componentes, navegação, CSRF e respostas HTTP
-simuladas com MSW, assinando o MutationCache durante a jornada inteira; `query-client.test.ts` cobre a
-reconsulta centralizada; `LoginPage.test.tsx` cobre login normal, TOTP e código de recuperação (formato,
-foco, um fator por corpo, credenciais fora do MutationCache); `MfaEnrollmentPage.test.tsx` simula a fase
-do MFA como o servidor responde (`/me` 200 com `mfaEnabled: false`) e cobre a validação do código com
-foco no campo recusado, os erros de A11/A12, o 429 com `Retry-After`, o foco ao trocar de estado e a
-ausência da chave e dos códigos em cache, storage e URL; `MeContractTests` e
-`EndpointAuthorizationTests` exigem o 403 de sessão restrita no contrato de toda rota com sessão;
-`session-api.test.ts` recusa `/me` sem `roles` ou `mfaEnabled`; `admin-bootstrap.spec.ts` percorre a jornada
-no bundle de produção com API simulada e axe nas três telas (troca de senha, chave e códigos). Os testes não substituem os testes
-HTTP reais de `AdminBootstrapTests` e `AdminMfaTests`. Invariantes pertinentes: INV-05 e INV-12;
-privacidade de sessão: T-14/T-21. Não há mudança de schema, auditoria nem de comportamento de endpoint;
-o contrato de `/me` e de quatro GETs com sessão passou a declarar o 403 que eles já respondiam
-(mudança compatível).
+Cada gesto captura uma referência opaca antes do primeiro `await`, inclusive validação de formulário,
+busca pública de CSRF quando permitida, envio, parsing e callbacks. Leituras/escritas privadas nunca
+buscam `/auth/csrf`. A referência não serializa prova ou identificadores. O transporte gerado/bruto
+exige `fetchFor(operation)`; a entrada sem capacidade é recusada. Corpos e erros tardios são abortos,
+sem retry nem alteração do contexto que já os ultrapassou.
 
-Rollback da SPA retira as telas e deixa as contas de bootstrap sem interface para concluir o
-cadastro; não remove as restrições do servidor. A guarda de rollback do backend permanece.
-O merge desta alteração de autenticação exige revisão humana e os gates do repositório.
+O cache de `/me` recebe somente a conta e o owner opaco, com `structuralSharing: false`. Mesmo
+usuário/SID/fase/visão de autorização conserva owner, campos e chave durante refetch; novo SID,
+restrição ou visão de autorização cria um owner pendente. A árvore anterior desmonta num commit neutro,
+consultas privadas são canceladas/removidas e mutações são descartadas, preservando apenas `/me`.
+Só então um ack do mesmo owner/epoch libera a nova árvore. Um ack atrasado não limpa o cache de outra
+sessão. Broadcast invalida antes de qualquer revalidação; não carrega dados pessoais. Proteção é
+persistente: foco, reconexão e resposta automática não a liberam. Um clique cria um ticket exclusivo.
+
+A16 recebe somente `currentPassword`/`newPassword`, preserva validação, bloqueio, política de senha,
+restrições de papel e limites existentes. A senha incorreta ou `REAUTHENTICATION_REQUIRED` num comando
+não significa expiração: são recusas após a prova de sessão, inclusive o filtro `StepUp`, e conservam o
+formulário sem reconsulta redundante. Outros `401` verificam `/me`; somente o `401` do próprio bootstrap
+leva à entrada. `403 CSRF_VALIDATION_FAILED` protege e retira a árvore, exigindo gesto explícito.
+
+Início/reinício de MFA altera/adota o stamp na mesma sessão; a chave atual só aparece depois da
+confirmação do mesmo SID/fase. Confirmação de MFA renova SID e devolve `recoveryCodes` mais
+`resultSessionId`, identificador não portador. Regeneração conserva SID e stamp e devolve o SID
+corrente. Desativação efetiva e troca de senha renovam SID sem ampliar o limite absoluto; MFA já
+inativo não prova renovação. Reautenticação mantém SID; revogar outra sessão não reinicia formulários.
+Reset público revoga sessões e não cria login.
+
+Chave/códigos ficam num único resultado tipado em memória, fora de QueryCache/MutationCache, URL,
+storage e logs. A entrada própria valida a operação original e protege atomicamente. O bootstrap
+com o ticket exclusivo confirma o usuário e o SID esperado antes de entrar no cache; o resultado só
+é lido pela árvore do owner ativado após a barreira. Qualquer proteção posterior, outro ticket,
+erro, incompatibilidade ou navegação descarta o payload. Falha de recebimento informa que a ação pode
+ter concluído; não repete confirmação nem regeneração automaticamente. Credenciais públicas também
+ficam fora das variáveis do cache de mutações. `429` conserva a espera de `Retry-After`, sem retry.
+
+O botão de entrar novamente encerra a sessão restrita pelo logout privado antes da navegação.
+Não há nova interface de reautenticação, concessão de papel ou mudança nas políticas do serviço.
+A janela recente de cinco minutos e a validade da senha temporária continuam sendo verificadas
+pelo backend.
+
+Compatibilidade exige Web e SPA coerentes: a SPA anterior só consegue as leituras públicas/bootstrap;
+seus acessos privados sem contexto válido recebem `403`. A SPA nova com backend antigo não monta
+área privada. Rollback restaura ambos, preservando a validação; não desliga o provider nem aceita
+prova vazia. Os prazos/avisos e a proteção por suspensão pertencem à fatia posterior, ainda não
+implementada por este contrato. Não fechar #9/#79/#80 por estes resultados.
+
+Testes e limites de evidência: [contexto privado](../testing/private-operation-context.md).
+As execuções reais de PostgreSQL, contrato, imagens e navegador são requisitos da CI do head final;
+testes de componente e revisão de fonte não as substituem. Merge/publicação pertencem à janela
+operacional coordenada.
 
 ## Confirmação e presença — ADR-0029
 

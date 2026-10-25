@@ -1,8 +1,20 @@
 import type { Locale } from '@/shared/i18n/locale'
+import {
+  bindBootstrapRequest,
+  bindPrivateRequest,
+  bindPublicRequest,
+  contextAbort,
+  createSessionContextStore,
+  type BootstrapTicket,
+  type OperationHandle,
+  type SessionContextStore,
+} from '../session-context'
 import { ANTIFORGERY_HEADER_NAME } from './antiforgery'
 import { ApiNetworkError, ApiProblemError, ApiResponseError } from './api-errors'
 import { parseProblemDetails } from './problem-details'
 import { parseRetryAfterSeconds } from './retry-after'
+import { OwnedResponse } from './owned-response'
+import { isLogoutRequest, isPublicAuthenticationMutation } from './request-purpose'
 
 /** Assinatura aceita pelo `fetch` do openapi-fetch quando o contrato OpenAPI existir. */
 export type ApiFetch = (request: Request) => Promise<Response>
@@ -17,6 +29,7 @@ export interface JsonRequest {
   /** Headers do recurso, como `If-Match`; o header antiforgery é sempre do cliente e não pode ser trocado. */
   readonly headers?: Readonly<Record<string, string>>
   readonly signal?: AbortSignal
+  readonly operation?: OperationHandle
 }
 
 export interface ApiClient {
@@ -24,8 +37,15 @@ export interface ApiClient {
   requestJson(request: JsonRequest): Promise<unknown>
   /** Executa um comando cujo sucesso não traz dado (202/204) e descarta o corpo da resposta. */
   sendCommand(request: JsonRequest): Promise<void>
-  /** Mesmas garantias, no formato de `fetch`, para plugar num cliente gerado. */
+  /** Entrada sem capacidade recusada; clientes brutos/gerados usam fetchFor(operation). */
   readonly fetch: ApiFetch
+  /** Cliente gerado/bruto precisa de uma operação iniciada antes de qualquer await da intenção. */
+  fetchFor(operation: OperationHandle): ApiFetch
+  readonly sessionContext: SessionContextStore
+  readMeBootstrap(
+    ticket: BootstrapTicket,
+    signal?: AbortSignal,
+  ): Promise<{ readonly status: number; readonly body: unknown }>
 }
 
 export interface ApiClientDependencies {
@@ -36,6 +56,7 @@ export interface ApiClientDependencies {
   readonly readLocale: () => Locale
   /** Relógio em milissegundos desde a época, para interpretar Retry-After com data. */
   readonly now: () => number
+  readonly sessionContext?: SessionContextStore
 }
 
 const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
@@ -48,13 +69,51 @@ const NO_CONTENT = 204
  * Não faz retry: repetir é decisão de quem chama (TanStack Query só repete leituras).
  */
 export function createApiClient(dependencies: ApiClientDependencies): ApiClient {
-  const send: ApiFetch = async (request) => {
-    assertSameOrigin(request.url, dependencies.origin)
-    const response = await fetchOrThrowNetworkError(dependencies.fetch, withSessionPolicy(request, dependencies))
-    if (!response.ok) {
-      throw await toResponseError(response, dependencies.now())
+  const context = dependencies.sessionContext ?? createSessionContextStore()
+  const purpose = (request: Request): 'public' | 'private' => {
+    const path = new URL(request.url).pathname
+    const method = request.method.toUpperCase()
+    if (method === 'GET' && path === '/api/v1/me') throw contextAbort()
+    if (
+      ((method === 'GET' || method === 'HEAD') && path === '/api/v1/auth/csrf') ||
+      ((method === 'GET' || method === 'HEAD') && path === '/api/v1/legal-documents') ||
+      isPublicAuthenticationMutation(method, path)
+    )
+      return 'public'
+    if (isLogoutRequest(method, path)) {
+      const state = context.getSnapshot()
+      if (state.owner === null && state.pendingOwner === null && !state.protected) return 'public'
     }
-    return response
+    if (!path.startsWith('/api/v1/')) throw contextAbort()
+    return 'private'
+  }
+  const send = async (request: Request, operation: OperationHandle): Promise<Response> => {
+    assertSameOrigin(request.url, dependencies.origin)
+    const scope = purpose(request)
+    const policy = sessionHeaders(request, dependencies, scope === 'public')
+    const outgoing =
+      scope === 'private'
+        ? bindPrivateRequest(context, operation, { request, headers: policy })
+        : bindPublicRequest(context, operation, { request, headers: policy })
+    const response = await fetchOrThrowNetworkError(dependencies.fetch, outgoing)
+    context.assertCurrent(operation)
+    if (response.status === 0) throw new ApiResponseError(0, 'resposta indisponível')
+    const owned = new OwnedResponse(response, {
+      assertCurrent: () => {
+        context.assertCurrent(operation)
+      },
+      signal: outgoing.signal,
+    })
+    if (!owned.ok) {
+      const error = await toResponseError(owned, dependencies.now())
+      context.assertCurrent(operation)
+      if (scope === 'private' && error instanceof ApiProblemError && error.problem.code === 'CSRF_VALIDATION_FAILED') {
+        context.protect('context')
+        throw contextAbort()
+      }
+      throw error
+    }
+    return owned
   }
 
   const toRequest = ({ method, path, body, headers = {}, signal }: JsonRequest): Request =>
@@ -65,30 +124,85 @@ export function createApiClient(dependencies: ApiClientDependencies): ApiClient 
       ...(signal === undefined ? {} : { signal }),
     })
 
+  const execute = async <T>(request: JsonRequest, consume: (response: Response) => Promise<T>): Promise<T> => {
+    const outgoing = toRequest(request)
+    assertSameOrigin(outgoing.url, dependencies.origin)
+    const scope = purpose(outgoing)
+    if (request.operation === undefined && scope === 'private') throw contextAbort()
+    const operation = request.operation ?? context.beginPublic()
+    try {
+      const response = await send(outgoing, operation)
+      const value = await consume(response)
+      context.assertCurrent(operation)
+      return value
+    } finally {
+      if (request.operation === undefined) context.finish(operation)
+    }
+  }
+
   return {
-    fetch: send,
-    async requestJson(request) {
-      return readJsonBody(await send(toRequest(request)))
+    sessionContext: context,
+    fetch: (request) => {
+      assertSameOrigin(request.url, dependencies.origin)
+      return Promise.reject(contextAbort())
     },
-    async sendCommand(request) {
-      const response = await send(toRequest(request))
-      await response.body?.cancel()
+    fetchFor: (operation) => (request) => send(request, operation),
+    requestJson: (request) => execute(request, readJsonBody),
+    sendCommand: (request) =>
+      execute(request, async (response) => {
+        await response.body?.cancel()
+      }),
+    async readMeBootstrap(ticket, signal) {
+      context.assertBootstrap(ticket)
+      const request = toRequest({ method: 'GET', path: '/api/v1/me', ...(signal === undefined ? {} : { signal }) })
+      const outgoing = bindBootstrapRequest(context, ticket, {
+        request,
+        headers: sessionHeaders(request, dependencies, true),
+      })
+      const response = await fetchOrThrowNetworkError(dependencies.fetch, outgoing)
+      context.assertBootstrap(ticket)
+      if (response.status === 0) throw new ApiResponseError(0, 'resposta indisponível')
+      const owned = new OwnedResponse(response, {
+        assertCurrent: () => {
+          context.assertBootstrap(ticket)
+        },
+        signal: outgoing.signal,
+      })
+      if (!owned.ok && owned.status !== 403) {
+        const error = await toResponseError(owned, dependencies.now())
+        context.assertBootstrap(ticket)
+        throw error
+      }
+      if (!['application/json', 'application/problem+json'].includes(mediaTypeOf(owned))) {
+        throw new ApiResponseError(owned.status, 'bootstrap sem corpo JSON')
+      }
+      let body: unknown
+      try {
+        body = await owned.json()
+      } catch (error) {
+        context.assertBootstrap(ticket)
+        if (error instanceof DOMException && error.name === 'AbortError') throw error
+        throw new ApiResponseError(owned.status, 'JSON de bootstrap inválido')
+      }
+      context.assertBootstrap(ticket)
+      return { status: owned.status, body }
     },
   }
 }
 
-function withSessionPolicy(request: Request, dependencies: ApiClientDependencies): Request {
+function sessionHeaders(request: Request, dependencies: ApiClientDependencies, isPublic: boolean): Headers {
   const headers = new Headers(request.headers)
   // O navegador mandaria a preferência dele, não a escolhida no seletor de idioma.
   headers.set('Accept-Language', dependencies.readLocale())
-  if (!SAFE_METHODS.has(request.method.toUpperCase())) {
+  headers.delete(ANTIFORGERY_HEADER_NAME)
+  if (isPublic && !SAFE_METHODS.has(request.method.toUpperCase())) {
     const token = dependencies.readAntiforgeryToken()
     headers.delete(ANTIFORGERY_HEADER_NAME)
     if (token !== null) {
       headers.set(ANTIFORGERY_HEADER_NAME, token)
     }
   }
-  return new Request(request, { credentials: 'same-origin', headers })
+  return headers
 }
 
 async function fetchOrThrowNetworkError(fetch: ApiFetch, request: Request): Promise<Response> {
@@ -96,7 +210,7 @@ async function fetchOrThrowNetworkError(fetch: ApiFetch, request: Request): Prom
     return await fetch(request)
   } catch (error) {
     if (request.signal.aborted) {
-      throw error
+      throw contextAbort()
     }
     throw new ApiNetworkError(error)
   }
@@ -121,15 +235,20 @@ async function readJsonBody(response: Response): Promise<unknown> {
   if (mediaTypeOf(response) !== 'application/json') {
     throw new ApiResponseError(response.status, 'sucesso sem corpo JSON')
   }
-  const body: unknown = await response.json()
-  return body
+  try {
+    return (await response.json()) as unknown
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    throw new ApiResponseError(response.status, 'JSON inválido na resposta')
+  }
 }
 
 async function readJsonOrNull(response: Response): Promise<unknown> {
   try {
     const body: unknown = await response.json()
     return body
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
     // Corpo malformado vira ApiResponseError em quem chama; o conteúdo não é exposto.
     return null
   }

@@ -78,6 +78,17 @@ http://:8080 {{
         }}
         respond `{{"errors":{{"body":["A foto está vazia."]}}}}` 400
     }}
+    @private_audio path /api/v1/rooms/probe/audio/cue
+    handle @private_audio {{
+        header Cache-Control no-store
+        @owned_audio header X-XSRF-TOKEN synthetic-private-audio-proof
+        handle @owned_audio {{
+            root * /srv
+            rewrite * /assets/probe.wav
+            file_server
+        }}
+        respond 403
+    }}
     respond /api/unauthorized 401
     respond /api/forbidden 403
     respond /api/failure 500

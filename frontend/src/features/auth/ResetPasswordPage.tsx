@@ -1,5 +1,8 @@
+import { apiClient } from '@/shared/api'
+import { identityBroadcast } from '@/features/session/identity-broadcast'
+import { usePublicMutation, runPublicOperation } from '@/features/session/public-operation'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { classifyRequestFailure, type RequestFailure } from '@/shared/api'
@@ -45,18 +48,22 @@ function ResetPasswordForm({ link }: { readonly link: EmailLink }): React.JSX.El
     resolver: zodResolver(resetPasswordSchema),
     defaultValues: { newPassword: '' },
   })
-  const reset = useMutation({
-    mutationFn: (newPassword: string) => resetPassword(link, newPassword),
+  const reset = usePublicMutation({
+    mutationFn: (operation) => resetPassword(operation, link, resetPasswordSchema.parse(form.getValues()).newPassword),
+    gcTime: 0,
     // A troca de senha pode revogar sessões (API-A07): nada em cache sobrevive a ela.
     onSuccess: () => {
+      apiClient.sessionContext.protect('identity')
+      identityBroadcast.announce()
       queryClient.clear()
     },
   })
-  const submit = form.handleSubmit(({ newPassword }) => {
-    if (!reset.isPending) {
-      reset.mutate(newPassword)
-    }
-  })
+  const submit = (event: React.BaseSyntheticEvent) =>
+    runPublicOperation((operation) =>
+      form.handleSubmit(async () => {
+        if (!reset.isPending) await reset.mutateWithOperation(operation, undefined)
+      })(event),
+    )
 
   if (reset.isSuccess) {
     return (
@@ -86,7 +93,7 @@ function ResetPasswordForm({ link }: { readonly link: EmailLink }): React.JSX.El
         aria-busy={reset.isPending}
         className="flex flex-col gap-6"
         onSubmit={(event) => {
-          void submit(event)
+          void submit(event).catch(() => undefined)
         }}
       >
         <PasswordField

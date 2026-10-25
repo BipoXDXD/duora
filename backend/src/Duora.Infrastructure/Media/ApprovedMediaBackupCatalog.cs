@@ -61,16 +61,40 @@ internal sealed class ApprovedMediaBackupCatalog(IDbContextFactory<DuoraDbContex
                 and p.detected_type=a.detected_type and p.width=a.width and p.height=a.height
                 and exists(select 1 from safety.photo_review_cases r
                   join safety.photo_review_decisions d on d.case_id=r.id and d.case_version=r.version
-                  join safety.photo_review_decision_commands receipt on receipt.case_id=r.id
-                    and receipt.result_version=r.version and receipt.result_asset_id=a.id
-                    and receipt.result_photo_version=u.version and receipt.operation='decide'
                   where r.id=p.case_id and r.upload_id=u.id and r.candidate_generation=p.candidate_generation
                     and r.policy_version=p.policy_version and r.version=p.case_version+1
                     and d.candidate_generation=p.candidate_generation and d.policy_version=p.policy_version
                     and d.decision='approve' and d.reason_code='meets_policy'
-                    and exists(select 1 from ops.audit_events e where e.target_id=d.id
-                      and e.target_type='photo_review_decision' and e.target_version=d.case_version
-                      and e.action='safety.photo_review_approved' and e.actor_id=d.actor_id))
+                    and ((d.appeal_id is null and p.appeal_id is null and p.appeal_version is null
+                      and exists(select 1 from safety.photo_review_decision_commands receipt
+                        where receipt.case_id=r.id and receipt.actor_id=d.actor_id and receipt.result_version=r.version
+                          and receipt.result_asset_id=a.id and receipt.result_photo_version=u.version
+                          and receipt.operation='decide' and receipt.result_decision='approve')
+                      and exists(select 1 from ops.audit_events e where e.target_id=d.id
+                        and e.target_type='photo_review_decision' and e.target_version=d.case_version
+                        and e.action='safety.photo_review_approved' and e.actor_id=d.actor_id))
+                    or (d.appeal_id=p.appeal_id
+                      and exists(select 1 from safety.photo_review_appeals appeal
+                        join safety.photo_review_decisions original on original.id=appeal.original_decision_id
+                        join safety.photo_review_appeal_decision_commands receipt on receipt.appeal_id=appeal.id
+                        where appeal.id=d.appeal_id and appeal.case_id=r.id and appeal.owner_id=u.owner_id
+                          and appeal.candidate_generation=p.candidate_generation and appeal.policy_version=p.policy_version
+                          and appeal.status='ClosedApproved' and appeal.version=p.appeal_version+1
+                          and appeal.closed_at=d.decided_at and d.decided_at<appeal.maximum_retention_until
+                          and appeal.maximum_retention_until=original.decided_at+interval '720 hours'
+                          and appeal.original_rejected_at=original.decided_at
+                          and original.id=d.original_decision_id and original.appeal_id is null
+                          and original.case_id=r.id and original.case_version=r.version-2
+                          and original.candidate_generation=p.candidate_generation and original.policy_version=p.policy_version
+                          and original.actor_id<>d.actor_id and original.decision='reject'
+                          and original.reason_code='does_not_meet_policy'
+                          and d.candidate_retention_until_snapshot=least(d.decided_at+interval '24 hours',appeal.maximum_retention_until)
+                          and receipt.decision_id=d.id and receipt.actor_id=d.actor_id and receipt.case_id=r.id
+                          and receipt.result_appeal_version=appeal.version and receipt.result_case_version=r.version
+                          and receipt.result_photo_version=u.version and receipt.result_asset_id=a.id and receipt.result_decision='approve')
+                      and exists(select 1 from ops.audit_events e where e.target_id=d.id
+                        and e.target_type='photo_review_decision' and e.target_version=d.case_version
+                        and e.action='safety.photo_review_appeal_approved' and e.actor_id=d.actor_id))))
               end,false) as "BindingValid"
             from media.media_assets a join media.uploads u on u.id=a.upload_id
             left join media.review_promotions p on p.asset_id=a.id
@@ -94,13 +118,15 @@ internal sealed class ApprovedMediaBackupCatalog(IDbContextFactory<DuoraDbContex
               v.width as "Width",v.height as "Height",v.size_bytes as "SizeBytes",
               pv.object_key as "PromotionKey",pv.width as "PromotionWidth",pv.height as "PromotionHeight",
               pv.size_bytes as "PromotionSize",pv.sha256 as "PromotionSha256",
-              dv.size_bytes as "DecisionSize",dv.sha256 as "DecisionSha256"
+              dv.size_bytes as "DecisionSize",dv.sha256 as "DecisionSha256",d.appeal_id as "AppealId",
+              original.size_bytes as "OriginalSize",original.sha256 as "OriginalSha256"
             from media.media_variants v
             left join media.review_promotions p on p.asset_id=v.media_asset_id
             left join media.review_promotion_variants pv on pv.generation=p.generation and pv.kind=v.kind
             left join safety.photo_review_decisions d on d.case_id=p.case_id and d.case_version=p.case_version+1
               and d.decision='approve'
             left join safety.photo_review_decision_variants dv on dv.decision_id=d.id and dv.variant=v.kind
+            left join safety.photo_review_decision_variants original on original.decision_id=d.original_decision_id and original.variant=v.kind
             where v.media_asset_id=any({ids}) order by v.media_asset_id,v.kind limit {3 * maxAssets + 1}
             """).ToListAsync(ct);
         if (variants.Count > 3 * maxAssets)
@@ -158,6 +184,12 @@ internal sealed class ApprovedMediaBackupCatalog(IDbContextFactory<DuoraDbContex
                     {
                         throw Inconsistent();
                     }
+                    if (variant.AppealId is not null && (variant.OriginalSize != variant.SizeBytes
+                        || variant.OriginalSha256 is not { Length: 32 } originalHash
+                        || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(originalHash, decisionHash)))
+                    {
+                        throw Inconsistent();
+                    }
                     hash = Convert.ToHexStringLower(promotionHash);
                 }
                 // Legacy has no persisted derivative hash. An original hash is never a substitute.
@@ -182,5 +214,5 @@ internal sealed class ApprovedMediaBackupCatalog(IDbContextFactory<DuoraDbContex
 
     private sealed record StoredVariant(Guid AssetId, string Kind, string ObjectKey, int Width, int Height, long SizeBytes,
         string? PromotionKey, int? PromotionWidth, int? PromotionHeight, long? PromotionSize, byte[]? PromotionSha256,
-        long? DecisionSize, byte[]? DecisionSha256);
+        long? DecisionSize, byte[]? DecisionSha256, Guid? AppealId, long? OriginalSize, byte[]? OriginalSha256);
 }

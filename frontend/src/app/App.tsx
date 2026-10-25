@@ -1,6 +1,8 @@
+import { SecurityResultNavigationGuard } from '@/features/auth/SecurityCompletionNotice'
 import { useEffect, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router'
+import { apiClient } from '@/shared/api'
 import { identityBroadcast } from '@/features/session/identity-broadcast'
 import { I18nProvider } from '@/shared/i18n/I18nProvider'
 import { resolveInitialLocale, type Locale } from '@/shared/i18n/locale'
@@ -22,7 +24,7 @@ export function App(): React.JSX.Element {
   useEffect(
     () =>
       identityBroadcast.subscribe(() => {
-        void queryClient.resetQueries()
+        apiClient.sessionContext.protect('identity')
       }),
     [queryClient],
   )
@@ -31,6 +33,7 @@ export function App(): React.JSX.Element {
     <I18nProvider initialLocale={initialLocale}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
+          <SecurityResultNavigationGuard />
           <AppRoutes />
         </BrowserRouter>
       </QueryClientProvider>

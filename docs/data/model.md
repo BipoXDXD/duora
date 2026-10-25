@@ -1386,3 +1386,16 @@ caso/atribuição/decisão/recurso. Leitores, constraints, índices e as consult
 preceder escritores; metadados de geração/versão impedem publicação ou limpeza por tentativa obsoleta.
 M0 não cria migração, tabela, grant, enum ou valor persistido. Recurso/retention_until e cleanup precisam
 de serialização no PostgreSQL real; restore não reconstrói candidato ausente por metadados.
+
+
+### safety.photo_review_appeal_decision_commands — decisões independentes de recurso
+
+A migração forward `20261025120000_PhotoReviewAppealDecisions` preserva fatos e recibos iniciais. Cada novo fato humano de recurso grava `appeal_id` e `original_decision_id` juntos, tem no máximo uma decisão por raiz e mantém o autor distinto do autor original. A raiz encerra como ClosedApproved ou ClosedRejected antes do limite original de30dias. Seu instante real de encerramento, versões da raiz/caso/foto e resultado/asset ficam em recibo append-only próprio. Decisão inicial conserva as igualdades de retenção24h/168h; recurso usa `min(decidedAt+24h,originalRejectedAt+30dias)`, estritamente posterior à decisão. Não há reescrita/backfill de fatos anteriores.
+
+A promoção de recurso tem contexto fechado `appeal_id`+`appeal_version` (ambos presentes ou ambosNULL), validado contra a rejeição original e atribuição corrente. O preparador inicial continua restrito a AwaitingReview. Aprovação exige três derivados promovidos e manifestos completos; rejeição não cria asset e nenhuma decisão seleciona foto de perfil ou sanciona conta. Todas as guardas de sessão/MFA/capacidade/titular/versões são refeitas no efeito e após cópias, antes de COMMIT. Recibo é consultado após autenticação viva e antes da versão atual.
+
+Perda comprovada de evidência ou limite vencido permitem somente encerramento System ClosedUnavailable, mantendo a rejeição humana. O coordenador grava o instante efetivo (inclusive se atrasado), preserva fatos/manifestos e salva identidade real da auditoria no marcador de limpeza. Não emite decisão humana. Sua chamada é interna e no fluxo de recurso; nenhum novo scheduler/HostedService ou admissão de política foi adicionado. O processamento periódico completo e o GC de rejeições iniciais continuam dependências M6 explícitas.
+
+`AppealCandidateCleanupDispatcher` consome exclusivamente obrigações fechadas de recurso com prova original+root+decisão/recibo/auditoria (ou System indisponível), prazo vencido, lease e token atuais. Só remove as três chaves canônicas da geração privada. Os coletores iniciais não recebem autoridade de recurso. O catálogo Approved liga aprovações de recurso ao seu recibo/root/original e mantém as mesmas verificações de manifestos finais no mesmo snapshot somente leitura. Nada disso admite restore, qualifica provedor ou prova inventário real.
+
+O novo histórico usa SELECT/INSERT de duora_app, sem UPDATE/DELETE/TRUNCATE, incluindo privilégios por coluna residuais e reconciliação no payload canônico do migrador. A raiz mutável continua sem DELETE/TRUNCATE. Nenhum grant a uma pessoa real é criado por migration ou HTTP.

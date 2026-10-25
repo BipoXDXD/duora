@@ -1,3 +1,4 @@
+import { withSessionContext } from '@/test/private-context'
 import { screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
@@ -9,14 +10,16 @@ describe('selfie sem idade', () => {
   it('explica presença e qualidade sem solicitar documento', async () => {
     server.use(
       http.get(`${API}/me`, () =>
-        HttpResponse.json({
-          id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
-          email: 'test@example.com',
-          status: 'PendingEligibility',
-          emailConfirmed: true,
-          mfaEnabled: false,
-          roles: ['participant'],
-        }),
+        HttpResponse.json(
+          withSessionContext({
+            id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
+            email: 'test@example.com',
+            status: 'PendingEligibility',
+            emailConfirmed: true,
+            mfaEnabled: false,
+            roles: ['participant'],
+          }),
+        ),
       ),
       http.get(`${API}/me/selfie-verifications/current`, () =>
         HttpResponse.json({ id: null, state: 'NotStarted', nextStep: 'Start', feedbackCode: null, expiresAt: null }),
@@ -43,14 +46,16 @@ it('após expirar solicita credenciais novas para a nova tentativa', async () =>
   let expired = false
   server.use(
     http.get(`${API}/me`, () =>
-      HttpResponse.json({
-        id: firstId,
-        email: 'test@example.com',
-        status: 'PendingEligibility',
-        emailConfirmed: true,
-        mfaEnabled: false,
-        roles: ['participant'],
-      }),
+      HttpResponse.json(
+        withSessionContext({
+          id: firstId,
+          email: 'test@example.com',
+          status: 'PendingEligibility',
+          emailConfirmed: true,
+          mfaEnabled: false,
+          roles: ['participant'],
+        }),
+      ),
     ),
     http.get(`${API}/me/selfie-verifications/current`, () =>
       HttpResponse.json({

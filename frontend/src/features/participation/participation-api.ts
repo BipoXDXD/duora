@@ -1,3 +1,4 @@
+import type { OperationHandle } from '@/shared/session-context'
 import { z } from 'zod'
 import { apiClient, sendMutation } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
@@ -105,9 +106,10 @@ const roomSchema = z.object({
 >
 export type Room = z.output<typeof roomSchema>
 export type Event = z.output<typeof eventSchema>
-export async function fetchEvents(signal?: AbortSignal): Promise<Event[]> {
+export async function fetchEvents(operation: OperationHandle, signal?: AbortSignal): Promise<Event[]> {
   return z.array(eventSchema).parse(
     await apiClient.requestJson({
+      operation,
       method: 'GET',
       path: '/api/v1/events',
       ...(signal === undefined ? {} : { signal }),
@@ -115,54 +117,66 @@ export async function fetchEvents(signal?: AbortSignal): Promise<Event[]> {
   )
 }
 export async function fetchParticipation(
+  operation: OperationHandle,
   id: string,
   signal?: AbortSignal,
 ): Promise<z.output<typeof participationSchema>> {
   return participationSchema.parse(
     await apiClient.requestJson({
+      operation,
       method: 'GET',
       path: `/api/v1/events/${encodeURIComponent(id)}/participation`,
       ...(signal === undefined ? {} : { signal }),
     }),
   )
 }
-export async function fetchRoom(id: string, signal?: AbortSignal): Promise<Room> {
+export async function fetchRoom(operation: OperationHandle, id: string, signal?: AbortSignal): Promise<Room> {
   return roomSchema.parse(
     await apiClient.requestJson({
+      operation,
       method: 'GET',
       path: `/api/v1/rooms/${encodeURIComponent(id)}`,
       ...(signal === undefined ? {} : { signal }),
     }),
   )
 }
-export async function register(id: string): Promise<void> {
+export async function register(operation: OperationHandle, id: string): Promise<void> {
   return sendMutation({
+    operation,
     method: 'PUT',
     path: `/api/v1/events/${encodeURIComponent(id)}/registration`,
     headers: { 'Idempotency-Key': crypto.randomUUID() },
   })
 }
-export async function checkIn(id: string): Promise<void> {
+export async function checkIn(operation: OperationHandle, id: string): Promise<void> {
   return sendMutation({
+    operation,
     method: 'POST',
     path: `/api/v1/events/${encodeURIComponent(id)}/check-in`,
     headers: { 'Idempotency-Key': crypto.randomUUID() },
   })
 }
-export async function roomCommand(id: string, command: 'accept' | 'reject' | 'exit'): Promise<void> {
+export async function roomCommand(
+  operation: OperationHandle,
+  id: string,
+  command: 'accept' | 'reject' | 'exit',
+): Promise<void> {
   return sendMutation({
+    operation,
     method: 'POST',
     path: `/api/v1/rooms/${encodeURIComponent(id)}/${command}`,
     headers: { 'Idempotency-Key': crypto.randomUUID() },
   })
 }
 export async function act(
+  operation: OperationHandle,
   room: Room,
   choice: { type: 'choose-option' | 'skip-card'; cardId: string; optionId?: string },
 ): Promise<void> {
   const { type, cardId, optionId } = choice
   const actionId = crypto.randomUUID()
   return sendMutation({
+    operation,
     method: 'POST',
     path: `/api/v1/rooms/${encodeURIComponent(room.roomId)}/actions`,
     headers: { 'Idempotency-Key': actionId },
@@ -170,9 +184,10 @@ export async function act(
   })
 }
 
-export async function actOnRoutes(room: Room, choice: RoutesAction): Promise<void> {
+export async function actOnRoutes(operation: OperationHandle, room: Room, choice: RoutesAction): Promise<void> {
   const actionId = crypto.randomUUID()
   return sendMutation({
+    operation,
     method: 'POST',
     path: `/api/v1/rooms/${encodeURIComponent(room.roomId)}/routes-actions`,
     headers: { 'Idempotency-Key': actionId },

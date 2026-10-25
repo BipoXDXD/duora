@@ -29,7 +29,7 @@ export function SessionList({ userId }: SessionListProps): React.JSX.Element {
       <SessionListBody
         sessions={sessions.data}
         failure={sessions.isError ? sessions.error : null}
-        revokingId={revoke.isPending ? revoke.variables.id : null}
+        revokingId={revoke.isPending ? (revoke.variables?.id ?? null) : null}
         onRetry={() => {
           void sessions.refetch()
         }}

@@ -1,3 +1,4 @@
+import { withSessionContext } from './support/private-context.ts'
 import { expect, test } from '@playwright/test'
 
 for (const locale of ['pt-BR', 'en-US']) {
@@ -9,14 +10,14 @@ for (const locale of ['pt-BR', 'en-US']) {
       const sp = browserName === 'webkit' && process.platform === 'darwin' ? 'São Paulo Time' : 'Sao Paulo Time'
       await page.route('**/api/v1/me', (route) =>
         route.fulfill({
-          json: {
+          json: withSessionContext({
             id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
             email: 'synthetic@example.com',
             status: 'Active',
             emailConfirmed: true,
             mfaEnabled: false,
             roles: ['participant'],
-          },
+          }),
         }),
       )
       await page.route('**/api/v1/events', (route) =>

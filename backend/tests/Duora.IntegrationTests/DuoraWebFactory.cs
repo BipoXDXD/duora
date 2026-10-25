@@ -1,9 +1,12 @@
 using System.Globalization;
+using Duora.Core.Identity;
+using Duora.IntegrationTests.Identity;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace Duora.IntegrationTests;
@@ -36,6 +39,9 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
 
     /// <summary>Relógio da aplicação; nulo usa o do sistema.</summary>
     public TimeProvider? Time { get; init; }
+
+    /// <summary>Explicit synthetic documents use the real publication policy. Null loads actual draft resources.</summary>
+    public LegalPublication? LegalDocuments { get; init; } = SyntheticLegalPublication.Default;
 
     public string EnvironmentName { get; init; } = "Testing";
 
@@ -94,6 +100,15 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
                 ["DataProtection:KeysDirectory"] = KeyRing.FullName,
                 ["DataProtection:RequireMountedVolume"] = "false",
             }));
+
+        if (LegalDocuments is not null)
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<LegalPublication>();
+                services.AddSingleton(LegalDocuments);
+            });
+        }
 
         if (Time is not null)
         {

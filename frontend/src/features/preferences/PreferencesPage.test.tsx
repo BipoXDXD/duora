@@ -1,3 +1,4 @@
+import { withSessionContext } from '@/test/private-context'
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -18,7 +19,7 @@ function useBackend() {
   server.use(
     http.get(`${API}/me/time-zone`, () => HttpResponse.json({ timeZone: null, version: '0' })),
     http.get(`${API}/me/time-zone/options`, () => HttpResponse.json({ timeZones: ['UTC'] })),
-    http.get(`${API}/me`, () => HttpResponse.json(me)),
+    http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
     http.get(`${API}/me/regional-preferences`, () =>
       HttpResponse.json({ mode: 'pending', countryCodes: [], version: '0' }),
     ),
@@ -87,7 +88,7 @@ describe('private communication preferences', () => {
 
 it('loads the account display locale and persists header changes without declaring communication languages', async () => {
   const api = useBackend()
-  server.use(http.get(`${API}/me`, () => HttpResponse.json({ ...me, preferredLocale: 'en-US' })))
+  server.use(http.get(`${API}/me`, () => HttpResponse.json(withSessionContext({ ...me, preferredLocale: 'en-US' }))))
   let savedLocale: unknown
   server.use(
     http.put(`${API}/me/locale`, async ({ request }) => {

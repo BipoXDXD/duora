@@ -103,6 +103,7 @@ BEGIN
   FOREACH review_table IN ARRAY ARRAY['media.review_promotion_variants',
     'safety.photo_review_appeal_assignment_commands','safety.photo_review_appeal_assignments',
     'safety.photo_review_appeal_commands','safety.photo_review_appeal_evidence_accesses',
+    'safety.photo_review_appeal_decision_commands',
     'safety.photo_review_assignments','safety.photo_review_commands',
     'safety.photo_review_decision_commands','safety.photo_review_decision_variants','safety.photo_review_decisions',
     'safety.photo_review_evidence_accesses'] LOOP

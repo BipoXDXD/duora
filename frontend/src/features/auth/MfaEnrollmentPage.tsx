@@ -1,6 +1,11 @@
+import { usePrivateMutation } from '@/features/session/private-mutation'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { useSessionTransitions } from '@/features/session/session-hooks'
+import { useNavigate } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import { useOwnedSecurityResult, useSecurityResultSnapshot } from './security-result-hooks'
+import { pageSecurityResult } from './page-security-result'
+import { executeSecurityAction } from './security-action'
+import { SecurityCompletionNotice } from './SecurityCompletionNotice'
 import { classifyRequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
@@ -15,9 +20,12 @@ import { SignInAgainButton } from './SignInAgainButton'
 /** Segredo e códigos só em memória local; nunca no cache de consultas, URL ou armazenamento. */
 export function MfaEnrollmentPage(): React.JSX.Element {
   const { t } = useI18n()
-  const transitions = useSessionTransitions()
-  const [sharedKey, setSharedKey] = useState<string | null>(null)
-  const [recoveryCodes, setRecoveryCodes] = useState<readonly string[] | null>(null)
+  const navigate = useNavigate()
+  const cache = useQueryClient()
+  const result = useOwnedSecurityResult()
+  const resultState = useSecurityResultSnapshot()
+  const sharedKey = result?.kind === 'mfa-enrollment' ? result.sharedKey : null
+  const recoveryCodes = result?.kind === 'recovery-codes' ? result.codes : null
   const [code, setCode] = useState('')
   const [invalid, setInvalid] = useState(false)
   const [rejections, setRejections] = useState(0)
@@ -26,22 +34,33 @@ export function MfaEnrollmentPage(): React.JSX.Element {
   useEffect(() => {
     if (rejections > 0) codeInput.current?.focus()
   }, [rejections])
-  const start = useMutation({
+  const start = usePrivateMutation({
     gcTime: 0,
-    mutationFn: async () => {
-      const enrollment = await startMfaEnrollment()
-      setSharedKey(enrollment.sharedKey)
-    },
+    mutationFn: (operation) =>
+      executeSecurityAction(
+        operation,
+        async () => ({ kind: 'mfa-enrollment', ...(await startMfaEnrollment(operation)) }),
+        cache,
+      ),
   })
-  const confirm = useMutation({
+  const confirm = usePrivateMutation({
     gcTime: 0,
-    mutationFn: async () => {
-      const codes = await confirmMfa(totpCodeSchema.parse(code))
-      setSharedKey(null)
-      setCode('')
-      setRecoveryCodes(codes)
-    },
+    mutationFn: (operation) =>
+      executeSecurityAction(
+        operation,
+        async () => {
+          const received = await confirmMfa(operation, totpCodeSchema.parse(code))
+          return { kind: 'recovery-codes', codes: received.recoveryCodes, resultSessionId: received.resultSessionId }
+        },
+        cache,
+      ),
   })
+  if (resultState.phase === 'pending')
+    return (
+      <Page title={t('mfa.title')}>
+        <p role="status">{t('account.loading')}</p>
+      </Page>
+    )
   if (recoveryCodes !== null)
     return (
       <Page title={t('mfa.recoveryTitle')}>
@@ -59,8 +78,8 @@ export function MfaEnrollmentPage(): React.JSX.Element {
         </ul>
         <Button
           onClick={() => {
-            setRecoveryCodes(null)
-            void transitions.signedIn(paths.account)
+            pageSecurityResult.discard()
+            void navigate(paths.account, { replace: true })
           }}
         >
           {t('mfa.saved')}
@@ -71,6 +90,7 @@ export function MfaEnrollmentPage(): React.JSX.Element {
   return (
     <Page title={t('mfa.title')}>
       <p>{t('mfa.instructions')}</p>
+      <SecurityCompletionNotice />
       {error !== null ? (
         <RequestFailureAlert
           failure={classifyRequestFailure(error)}

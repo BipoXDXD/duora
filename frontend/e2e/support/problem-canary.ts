@@ -1,3 +1,4 @@
+import { withSessionContext } from './private-context.ts'
 import { AxeBuilder } from '@axe-core/playwright'
 import { expect, type Page, type Route } from '@playwright/test'
 
@@ -73,7 +74,7 @@ export async function expectSafeDocument(page: Page, locale: Locale): Promise<vo
 export async function authenticatedPage(page: Page, locale: Locale): Promise<void> {
   await page.route('**/api/v1/me', (route) =>
     route.fulfill({
-      json: {
+      json: withSessionContext({
         id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
         email: 'canary@example.com',
         status: 'Active',
@@ -82,7 +83,7 @@ export async function authenticatedPage(page: Page, locale: Locale): Promise<voi
         roles: ['participant'],
         preferredLocale: locale,
         preferredTimeZone: null,
-      },
+      }),
     }),
   )
   await page.route('**/api/v1/me/region-detection/capability', (route) => route.fulfill({ json: { enabled: false } }))
