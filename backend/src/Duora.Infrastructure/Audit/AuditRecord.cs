@@ -38,6 +38,7 @@ internal sealed record AuditAction
     public static readonly AuditAction PhotoReviewRejected = new("safety.photo_review_rejected");
 
     public static readonly AuditAction PhotoReviewExpired = new("safety.photo_review_expired");
+    public static readonly AuditAction PhotoReviewUnavailable = new("safety.photo_review_unavailable");
 
     public static readonly AuditAction PhotoReviewAppealRequested = new("safety.photo_review_appeal_requested");
 
