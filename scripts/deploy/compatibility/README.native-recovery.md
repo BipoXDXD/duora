@@ -156,3 +156,20 @@ receiver and synthetic-media directory one component at a time with explicit0700
 root-owned parent and the actual new root:root directory mode. Existing paths are refused, never chmodded,
 chowned or repaired. This constructor is limited to descendants of the nonce-owned fresh fixture roots.
 The original product/installer path checks and the subsequent receiver ancestry observation remain unchanged.
+
+## Conservative SQL command audit and cleanup diagnostics
+
+SQL options are examined only after the actual psql executable token; the outer Compose --file option is
+never a SQL-file witness. File/transaction modes, duplicate executable tokens and unknown/unqualified SQL
+remain conservatively classified as producers. A read classification requires both the exact argv shape of
+the frozen executor's _query helper and an actual stack frame whose code object is the registered function
+from the already hash-verified immutable root bundle. Registration and observation patch no function, args,
+input, result or transport. The stack walk is bounded to64 frames and reads code identity only, never locals
+or SQL content. This is a qualification of the frozen helper and its reviewed read-only callers, not a general
+SQL parser. Trace records add only a closed classification-origin enum. The zero replay assertion stays unchanged.
+
+Cleanup failures retain their original refusal behavior and now record closed phase names plus bounded public
+source locations. Existing own-resource inspections add only hashed identity, kind, ownership and network
+endpoint count metadata, never raw names, messages, command output or secrets. A separate boolean records
+whether keeper cleanup was attempted, distinguishing an upstream refusal from a keeper-removal failure.
+No retry, extra force, unowned cleanup, existing-path repair or success-gate exception is introduced.

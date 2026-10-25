@@ -29,6 +29,29 @@ def need(condition, message):
         raise ValueError(message)
 
 
+def classify_command(argv, *, qualified_query=False):
+    """Observe argv only; unqualified or unknown SQL remains conservatively a producer."""
+    args = list(map(str, argv))
+    positions = [index for index, value in enumerate(args) if value.rsplit("/", 1)[-1] == "psql"]
+    if positions:
+        if len(positions) != 1:
+            return "sql_writes"
+        sql_args = args[positions[0] + 1:]
+        if any(value in {"--file", "-f", "--single-transaction", "-1"} or value.startswith("--file=") for value in sql_args):
+            return "sql_writes"
+        query_prefix = ["--no-psqlrc", "--quiet", "--tuples-only", "--no-align", "--username", "postgres", "--dbname", "duora", "--command"]
+        if qualified_query is True and len(sql_args) == len(query_prefix) + 1 and sql_args[:-1] == query_prefix and sql_args[-1]:
+            return "sql_reads"
+        return "sql_writes"
+    if any(value.rsplit("/", 1)[-1] in {"duora-backup", "duora_backup.py"} for value in args):
+        return "backup"
+    if "compose" in args and "up" in args:
+        return "compose_up"
+    if "compose" in args and "run" in args and "migrator" in args:
+        return "migrator"
+    return "read_or_other"
+
+
 def failure_locations(error: BaseException) -> list[dict]:
     """Closed source locations only: never exception messages, locals, paths or command output."""
     sources = {"current_recovery_lab.py", "duora_deploy.py", "runtime_guard.py", "reconcile_payload.py", "install_executor.py"}

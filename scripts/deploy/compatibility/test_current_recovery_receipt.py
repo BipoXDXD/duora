@@ -74,6 +74,23 @@ def sample():
 
 
 class NewReceiptBoundaryTests(unittest.TestCase):
+    def test_sql_classification_respects_psql_boundary_and_requires_qualified_query(self):
+        classifier = getattr(receipt_module, "classify_command", None)
+        self.assertTrue(callable(classifier), "bounded psql classifier is missing")
+        assert classifier is not None
+        prefix = ["docker", "compose", "--file", "/owned/compose.json", "exec", "--no-TTY", "postgres", "psql"]
+        query = ["--no-psqlrc", "--quiet", "--tuples-only", "--no-align", "--username", "postgres", "--dbname", "duora", "--command", "select 1"]
+        self.assertEqual(classifier(prefix + query, qualified_query=True), "sql_reads")
+        self.assertEqual(classifier(prefix + query), "sql_writes")
+        for suffix in (["--file", "/dev/stdin"], ["--single-transaction", "--file", "/dev/stdin"],
+                       ["--file=/owned/payload.sql"], ["-f", "/owned/payload.sql"], ["-1"],
+                       ["--command", "delete from synthetic"], ["--unknown"], query + ["--unknown"]):
+            self.assertEqual(classifier(prefix + suffix, qualified_query=True), "sql_writes")
+        self.assertEqual(classifier(prefix + ["psql"] + query, qualified_query=True), "sql_writes")
+        exec_prefix = ["docker", "exec", "owned-postgres", "/usr/bin/psql"]
+        self.assertEqual(classifier(exec_prefix + query, qualified_query=True), "sql_reads")
+        self.assertEqual(classifier(exec_prefix + ["--file", "/dev/stdin"], qualified_query=True), "sql_writes")
+
     def test_failure_locations_are_closed_bounded_and_omit_sensitive_details(self):
         classifier = getattr(receipt_module, "failure_locations", None)
         self.assertTrue(callable(classifier), "closed source-location diagnostic is missing")

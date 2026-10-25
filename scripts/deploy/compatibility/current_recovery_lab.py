@@ -26,11 +26,12 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs
 from typing import Any
+from types import CodeType, FrameType
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from old_image_identity import bind_old_image
-from current_recovery_receipt import SCOPE, TRUE, FALSE, EXECUTOR, RECEIVER, SQL, need, validate_receipt, failure_locations
+from current_recovery_receipt import SCOPE, TRUE, FALSE, EXECUTOR, RECEIVER, SQL, need, validate_receipt, failure_locations, classify_command
 
 LABEL = "io.duora.current-recovery-lab"
 ROOTS = tuple(map(Path, ("/etc/duora", "/opt/duora", "/var/lib/duora", "/etc/coolify-release",
@@ -42,6 +43,8 @@ BUNDLE = {"duora_deploy.py": EXECUTOR,
           "install_executor.py": "0113832a49e021d4c3444115bbb97969f4b06859b7d43fbecabdc0ece8d55f99"}
 SAFE = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
 BOUND = 2 * 1024 * 1024
+QUERY_SOURCE = "/opt/duora/executor/versions/frozen135/duora_deploy.py"
+QUERY_CODE: CodeType | None = None
 
 
 def sha(raw):
@@ -109,16 +112,30 @@ def require_actions():
 
 def command_kind(argv):
     """Public producer classes; never record args, SQL, env, HTTP payload or credentials."""
-    args = list(map(str, argv))
-    if "psql" in args:
-        return "sql_writes" if ("--file" in args or "--single-transaction" in args) else "sql_reads"
-    if any(Path(arg).name in {"duora-backup", "duora_backup.py"} for arg in args):
-        return "backup"
-    if "compose" in args and "up" in args:
-        return "compose_up"
-    if "compose" in args and "run" in args and "migrator" in args:
-        return "migrator"
-    return "read_or_other"
+    return classify_command(argv, qualified_query=qualified_query_frame())
+
+
+def bind_query_audit(executor):
+    """Bind the actual function code from the already hash-verified immutable root bundle; no patching."""
+    global QUERY_CODE
+    code = executor._query.__code__
+    need(code.co_filename == QUERY_SOURCE and code.co_name == "_query"
+         and (QUERY_CODE is None or QUERY_CODE is code), "query audit code identity differs")
+    QUERY_CODE = code
+
+
+def qualified_query_frame():
+    frame: FrameType | None = sys._getframe()
+    try:
+        for _ in range(64):
+            if frame is None:
+                return False
+            if QUERY_CODE is not None and frame.f_code is QUERY_CODE:
+                return True
+            frame = frame.f_back
+        return False
+    finally:
+        del frame
 
 
 def audit_to(path):
@@ -126,7 +143,9 @@ def audit_to(path):
         if event == "subprocess.Popen":
             argv = arguments[1]
             need(type(argv) in (list, tuple), "shell subprocess forbidden")
-            raw = canonical({"kind": command_kind(argv), "pid": os.getpid(), "at_ns": time.time_ns()})
+            kind = command_kind(argv)
+            origin = "executor_query_code" if kind == "sql_reads" else "sql_producer_or_unknown" if kind == "sql_writes" else "argv_structure"
+            raw = canonical({"kind": kind, "classification_origin": origin, "pid": os.getpid(), "at_ns": time.time_ns()})
             fd = os.open(path, os.O_APPEND | os.O_WRONLY | os.O_NOFOLLOW)
             try:
                 os.write(fd, raw)
@@ -170,6 +189,7 @@ def fixture_entry():
         need(sha((Path(config["bundle"]) / name).read_bytes()) == expected, "entry bundle drift")
     sys.path.insert(0, config["bundle"])
     executor = module(Path(config["bundle"]) / "duora_deploy.py", "duora_native_executor")
+    bind_query_audit(executor)
     bind_origin(executor, config["origin"])
     audit_to(config["trace"])
     return executor.main(sys.argv[2:])
@@ -754,6 +774,7 @@ class NativeLab:
             put(bundle / name, (self.args.workflow_source / "scripts/deploy" / name).read_bytes(), 0o755 if name == "duora_deploy.py" else 0o600)
         sys.path.insert(0, str(bundle))
         self.executor = module(bundle / "duora_deploy.py", "native_recovery_executor_parent")
+        bind_query_audit(self.executor)
         self.observer = module(self.args.workflow_source / "scripts/release/coolify/observer.py", "native_recovery_observer")
         self.paths = self.executor.Paths(self.compose_path, self.host_env, self.state)
         # Incoming reference is a declared fixture envelope identity, never a fabricated daemon RepoDigest.
@@ -1168,6 +1189,13 @@ class NativeLab:
 
     def cleanup(self):
         errors = []
+        failures = []
+        phase = "observers"
+        self.report["keeper_cleanup_attempted"] = False
+        self.report["cleanup_resources"] = []
+        def failed(error):
+            errors.append(phase)
+            failures.append({"phase": phase, "locations": failure_locations(error)})
         try:
             if self.continuity:
                 self.continuity.stop()
@@ -1176,69 +1204,93 @@ class NativeLab:
             if self.session and self.session.poll() is None:
                 self.session.terminate()
                 self.session.wait(timeout=5)
-        except Exception:
-            errors.append("observers")
+        except Exception as error:
+            failed(error)
         # Never Compose down/restart/prune. Remove only the own resources after evidence has been captured.
         if self.compose_ready:
             try:
+                phase = "enumerate_owned_containers"
                 for identifier in self.docker("ps", "--all", "--quiet", "--filter", "label=" + LABEL + "=" + self.nonce).split():
+                    phase = "verify_owned_container"
                     item = self.inspect("container", identifier)
                     labels = item["Config"]["Labels"]
                     need(labels.get(LABEL) == self.nonce, "cleanup foreign container")
                     if LABEL + ".barrier" in labels:
+                        phase = "verify_owned_marker"
                         Continuity.require_owned_marker(self, identifier, labels[LABEL + ".barrier"])
+                        phase = "remove_owned_marker"
                         self.docker("container", "rm", identifier)  # Only the verified never-started own marker; no force.
                     else:
+                        phase = "remove_owned_container"
                         self.docker("container", "rm", "--force", identifier)
                 if hasattr(self, "original_pin"):
+                    phase = "inspect_own_observer"
                     assert self.api is not None
                     name = self.original_pin["observer_container_name"]
                     result = command(["/usr/bin/docker", "container", "inspect", name], checked=False)
                     if result.returncode == 0:
+                        phase = "verify_own_observer"
                         item = json.loads(result.stdout)[0]
                         need(item["Config"]["Labels"].get("com.docker.compose.project") == self.api.apps["duora"]
                              and item["Image"] == self.report["old_images"]["edge"]["docker_image_id"], "cleanup observer foreign identity")
+                        phase = "remove_own_observer"
                         self.docker("container", "rm", "--force", item["Id"])
                 for kind in ("volume", "network"):
+                    phase = "enumerate_owned_volumes" if kind == "volume" else "enumerate_owned_networks"
                     for name in self.docker(kind, "ls", "--quiet", "--filter", "label=" + LABEL + "=" + self.nonce).split():
+                        phase = "verify_owned_volume" if kind == "volume" else "verify_owned_network"
                         item = self.inspect(kind, name)
                         need((item.get("Labels") or {}).get(LABEL) == self.nonce, "cleanup foreign persistent resource")
+                        need(len(self.report["cleanup_resources"]) < 32, "closed cleanup inventory bound")
+                        self.report["cleanup_resources"].append({"kind": kind, "identity_sha256": sha(canonical({"name": name, "id": item.get("Id")})),
+                            "active_containers": len(item.get("Containers") or {}) if kind == "network" else None, "owned_nonce": True})
+                        phase = "remove_owned_volume" if kind == "volume" else "remove_owned_network"
                         self.docker(kind, "rm", name)
                 if self.api:
+                    phase = "inspect_own_observer_network"
                     network = self.api.apps["duora"] + "_default"
                     result = command(["/usr/bin/docker", "network", "inspect", network], checked=False)
                     if result.returncode == 0:
+                        phase = "verify_own_observer_network"
                         item = json.loads(result.stdout)[0]
                         need(item["Labels"].get("com.docker.compose.project") == self.api.apps["duora"] and not item["Containers"], "cleanup observer network foreign")
+                        phase = "remove_own_observer_network"
                         self.docker("network", "rm", item["Id"])
-            except Exception:
-                errors.append("owned-native-resources")
+            except Exception as error:
+                failed(error)
         if not errors and hasattr(self, "keeper"):
             try:
+                self.report["keeper_cleanup_attempted"] = True
+                phase = "verify_transferred_keeper"
                 item = self.inspect("image", self.keeper)
                 need(item["Id"] == self.migrator, "keeper identity changed before final owned image cleanup")
+                phase = "remove_transferred_keeper"
                 self.docker("image", "rm", self.keeper)
                 self.report["keeper_cleaned_last"] = True
-            except Exception:
-                errors.append("keeper")
+            except Exception as error:
+                failed(error)
         # Audit hook remains active through return: preserve its file until no subprocesses remain.
         for entry in reversed(self.created_entries):
             try:
+                phase = "remove_own_launcher"
                 need(entry.is_file() and not entry.is_symlink(), "cleanup root entry changed")
                 entry.unlink()
-            except Exception:
-                errors.append("entry")
+            except Exception as error:
+                failed(error)
         if not errors:
             for root in reversed(self.created_roots):
                 try:
+                    phase = "remove_own_root"
                     need((root / ".native-recovery-owner").read_text() == self.nonce + "\n", "cleanup foreign root")
                     shutil.rmtree(root)
-                except Exception:
-                    errors.append("root")
+                except Exception as error:
+                    failed(error)
         try:
+            phase = "restore_actions_opt"
             self.restore_actions_opt_fixture()
-        except Exception:
-            errors.append("Actions-opt-restoration")
+        except Exception as error:
+            failed(error)
+        self.report["cleanup_failures"] = failures
         return not errors
 
     def execute(self):
