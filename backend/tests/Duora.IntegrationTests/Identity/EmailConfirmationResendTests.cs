@@ -215,7 +215,9 @@ public sealed class EmailConfirmationResendTests(PostgresFixture postgres)
         var proof = await scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
         using var confirmed = await registrar.PostJsonAsync("/api/v1/auth/confirm-email", new
         {
-            userId = proof.UserId, token = proof.Token, password = NewPassword,
+            userId = proof.UserId,
+            token = proof.Token,
+            password = NewPassword,
         });
         Assert.Equal(HttpStatusCode.NoContent, confirmed.StatusCode);
     }
@@ -362,7 +364,9 @@ public sealed class EmailConfirmationResendTests(PostgresFixture postgres)
     private static Task<HttpResponseMessage> ConfirmAsync(Browser browser, AccountLink proof) =>
         browser.PostJsonAsync("/api/v1/auth/confirm-email", new
         {
-            userId = proof.UserId, token = proof.Token, password = IdentityScenario.ValidPassword,
+            userId = proof.UserId,
+            token = proof.Token,
+            password = IdentityScenario.ValidPassword,
         });
 
     private static async Task<string> SnapshotAsync(IdentityScenario scenario, Guid id) =>
