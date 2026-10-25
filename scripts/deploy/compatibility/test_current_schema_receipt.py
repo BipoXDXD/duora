@@ -83,6 +83,9 @@ def receipt():
         "failed_transaction_rolled_back": True,
     }
     return {
+        "browser_transport": {"kind": "owned_internal_bridge_https", "address": "172.18.0.4", "port": 443,
+                              "server_name": "localhost", "http_host": "localhost", "origin": "https://localhost",
+                              "container_id": "a" * 64, "network_id": "b" * 64},
         "repair_forward": repair,
         "product_sql_helpers": {
             "source_sha256": "8" * 64,

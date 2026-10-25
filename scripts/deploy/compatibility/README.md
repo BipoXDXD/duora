@@ -57,8 +57,8 @@ and durable attempt-receipt contract explicitly.
    contracts from compose/continuity fixtures. PostgreSQL18.6 uses its real
    image/initdb role setup and app/migrator separation. `archive_mode=off` is an
    **explicit lab-only difference**: this is not pgBackRest/PITR/backup acceptance.
-   The private network is internal, with only loopback HTTPS published by old
-   Caddy using `tls internal`; no external mail, B2 or participant data.
+   The private network remains internal. The host reaches the validated owned edge IP directly over real TLS/443, with fixed SNI/Host/Origin localhost; no port is published. The old
+   Caddy uses `tls internal`; no external mail, B2 or participant data.
 4. Apply the **real old migrator** to35, reconcile the old literal SQL, and prove
    exact35 migration IDs. Start actual old web/edge. Through HTTPS and real CSRF,
    register, read the synthetic confirmation code from its DB outbox, confirm by
@@ -126,7 +126,7 @@ establish the new helper interface: M2 must freeze/review the final actual260
 head. If the helper names are absent from that checkout, the lab refuses before
 Docker resources/builds. The native helper module has not been imported locally. Local stdlib tests use **synthetic parser
 outcomes** and prove rejection logic only; they are not native database evidence.
-The loopback TLS/network and initdb fixtures require actual Actions acceptance.
+The owned internal TLS/network and initdb fixtures require actual Actions acceptance.
 The job refuses unresolved startup/configuration instead of using permissive
 fallbacks. No app settings are injected to bypass authorization or auto-migration.
 
@@ -141,3 +141,10 @@ no job has been dispatched and existing259 CI is not rerun by this preparation.
 API coverage uses existing API-A01/A02/A03/A04 and API-P01/P02, preserving CSRF,
 ETag and role boundaries (T-13/T-19 relevance). This adds no API/DTO, does not
 alter modules, migration source, runtime grants, assets or any executor/receptor.
+
+
+The internal-only Docker bridge does not materialize published host ports. The functional browser therefore
+selects the owned edge CID/network/IPAM/private IPv4 endpoint before any dial, uses a direct TCP socket
+with SNI and HTTP Host `localhost`, and keeps `Duora__PublicOrigin=https://localhost`. There is no DNS,
+proxy, external network, tunnel, fallback transport or host route change. The previous unverified internal-CA
+context is restricted to this synthetic fixture; the receipt does not qualify public HTTPS or www.

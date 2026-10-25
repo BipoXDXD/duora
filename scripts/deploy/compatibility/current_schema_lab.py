@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from old_image_identity import bind_old_image
+from owned_edge_transport import select_owned_edge
 from current_schema_receipt import (
     check_history,
     check_preservation,
@@ -104,10 +105,26 @@ def require_actions():
     return event["pull_request"]["head"]["sha"]
 
 
+class OwnedHTTPSConnection(http.client.HTTPSConnection):
+    """Real TLS to the previously validated owned bridge IP; fixed SNI/HTTP host, no DNS or fallback."""
+    def __init__(self, address: str, context: ssl.SSLContext):
+        super().__init__("localhost", 443, context=context, timeout=10)
+        self.owned_address = address
+        self.fixture_context = context
+
+    def connect(self) -> None:
+        raw = socket.create_connection((self.owned_address, 443), timeout=10)
+        try:
+            self.sock = self.fixture_context.wrap_socket(raw, server_hostname="localhost")
+        except BaseException:
+            raw.close()
+            raise
+
+
 class Browser:
-    def __init__(self, port):
-        self.port, self.cookies = port, {}
-        self.origin = f"https://localhost:{port}"
+    def __init__(self, address: str):
+        self.address, self.cookies = address, {}
+        self.origin = "https://localhost"
         self.last_status = None
         self.phase = "idle"
         # Private localhost fixture uses the existing Caddy tls-internal contract only.
@@ -126,9 +143,9 @@ class Browser:
             body = json.dumps(body).encode()
             headers["Content-Type"] = "application/json"
         headers.update(extra or {})
-        connection = http.client.HTTPSConnection(
-            "localhost", self.port, context=self.context, timeout=10
-        )
+        headers["Host"] = "localhost"
+        headers["Origin"] = self.origin
+        connection = OwnedHTTPSConnection(self.address, self.context)
         try:
             self.phase = "send_request"
             connection.request(method, path, body=body, headers=headers)
@@ -180,6 +197,7 @@ class Lab:
         self.root = None
         self.schema_state = 0
         self.sql_confirmed = False
+        self.edge_endpoint = None
         self.helper_counts = {
             "quiescent_calls": 0,
             "execute_sql_calls": 0,
@@ -672,9 +690,6 @@ class Lab:
         self.subnet = self.inspect("network", self.network)["IPAM"]["Config"][0][
             "Subnet"
         ]
-        with socket.socket() as reserved:
-            reserved.bind(("127.0.0.1", 0))
-            self.port = reserved.getsockname()[1]
 
     def start_database(self):
         assert self.root is not None
@@ -808,7 +823,7 @@ class Lab:
             "SecretsDirectory": "/run/secrets",
             "Media__Storage__Provider": "FileSystem",
             "Media__Storage__FileSystemRoot": "/var/lib/duora-media",
-            "Duora__PublicOrigin": f"https://localhost:{self.port}",
+            "Duora__PublicOrigin": "https://localhost",
             "DataProtection__KeysDirectory": "/home/app/.aspnet/DataProtection-Keys",
             "ReverseProxy__KnownNetworks__0": self.subnet,
         }
@@ -859,16 +874,21 @@ class Lab:
                     "DUORA_DOMAIN=localhost",
                     "--env",
                     "DUORA_TLS=internal",
-                    "--publish",
-                    f"127.0.0.1:{self.port}:443",
                 ],
                 self.pins["old_images"]["edge"]["reference"],
                 detached=True,
             )
             self.report["edge_started"] = True
+        endpoint = select_owned_edge(self.owned("container", self.edge), self.owned("network", self.network),
+                                     nonce=self.nonce, name=self.edge, network_name=self.network,
+                                     reference=self.pins["old_images"]["edge"]["reference"],
+                                     image_id=self.report["observed_images"]["edge"]["docker_image_id"])
+        need(self.edge_endpoint is None or self.edge_endpoint == endpoint, "owned edge transport changed between schema35 and48")
+        self.edge_endpoint = endpoint
+        self.report["browser_transport"] = endpoint
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
-            probe = Browser(self.port)
+            probe = Browser(endpoint["address"])
             try:
                 probe.csrf()
                 return
@@ -914,7 +934,8 @@ class Lab:
 
     def exercise(self, phase):
         self.report["stage"] = phase
-        browser = Browser(self.port)
+        assert self.edge_endpoint is not None
+        browser = Browser(self.edge_endpoint["address"])
         browser.csrf()
         email = "compat-" + uuid.uuid4().hex + "@example.com"
         password = "synthetic compatibility phrase 259"

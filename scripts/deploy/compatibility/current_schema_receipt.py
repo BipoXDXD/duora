@@ -5,6 +5,7 @@ import hashlib
 import ssl
 import http.client
 from old_image_identity import validate_old_image_receipt
+from owned_edge_transport import validate_transport
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
 HEX64 = re.compile(r"[a-f0-9]{64}")
@@ -119,6 +120,7 @@ def validate_receipt(report, pins):
                 pins["old_images"][role],
             )
             validate_old_image_receipt(observed, expected)
+        validate_transport(report["browser_transport"])
         need(
             len(pins["old_migrations"]) == 35 and len(pins["new_migrations"]) == 48,
             "qualified schema counts differ",
