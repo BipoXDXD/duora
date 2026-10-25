@@ -11,7 +11,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCi,
   retries: isCi ? 1 : 0,
-  reporter: isCi ? [['list'], ['html', { open: 'never' }]] : 'list',
+  reporter: isCi ? [['list', { printFailuresInline: true }], ['github'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: BASE_URL,
     // O idioma da interface segue o navegador; sem isto o Playwright anuncia en-US. O inglês tem spec própria.
@@ -19,9 +19,11 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
-    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },
+    { name: 'chromium', testIgnore: '**/edge-csp-probe.spec.ts', use: { ...devices['Desktop Chrome'] } },
+    { name: 'webkit', testIgnore: '**/edge-csp-probe.spec.ts', use: { ...devices['Desktop Safari'] } },
+    { name: 'mobile-chromium', testIgnore: '**/edge-csp-probe.spec.ts', use: { ...devices['Pixel 7'] } },
+    // The existing real-Caddy Chromium probe runs once, outside the three application/device variants.
+    { name: 'edge-csp-probe', testMatch: '**/edge-csp-probe.spec.ts' },
   ],
   webServer: {
     // Sem "pnpm" aqui: o pnpm vem do Corepack e pode não estar no PATH; o script e2e já põe node_modules/.bin no PATH.

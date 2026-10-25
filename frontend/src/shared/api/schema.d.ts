@@ -3641,7 +3641,7 @@ export interface components {
             status: number | string;
             code: string;
             sessionContext: components["schemas"]["PrivateSessionContextResponse"];
-            traceId?: null | string;
+            traceId: string;
         };
         ProblemDetails: {
             type?: null | string;

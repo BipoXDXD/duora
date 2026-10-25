@@ -299,3 +299,88 @@ describe('fronteira real do cliente HTTP', () => {
     expect(await pending).toMatchObject({ name: 'AbortError' })
   })
 })
+
+// Browser response.body can be a stream even for 204: https://developer.mozilla.org/en-US/docs/Web/API/Response/body
+describe('respostas nativas sem conteúdo com stream exposto pelo navegador', () => {
+  it.each([204, 205])('aceita o status %i sem reconstruir um corpo proibido', async (status) => {
+    const store = createSessionContextStore()
+    let canceled = 0
+    const response = new Response(null, { status })
+    Object.defineProperty(response, 'body', {
+      value: new ReadableStream<Uint8Array>(
+        {
+          cancel() {
+            canceled += 1
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    })
+    const client = clientFor(store, () => Promise.resolve(response))
+    await expect(client.sendCommand({ method: 'GET', path: '/api/v1/auth/csrf' })).resolves.toBeUndefined()
+    expect(canceled).toBe(1)
+  })
+
+  it('leva o mesmo gesto de CSRF204 até o login204 no comportamento do navegador', async () => {
+    const store = createSessionContextStore()
+    const paths: string[] = []
+    let canceled = 0
+    const client = clientFor(store, (request) => {
+      paths.push(new URL(request.url).pathname)
+      const response = new Response(null, { status: 204 })
+      Object.defineProperty(response, 'body', {
+        value: new ReadableStream<Uint8Array>(
+          {
+            cancel() {
+              canceled += 1
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+      })
+      return Promise.resolve(response)
+    })
+    await expect(
+      sendWithFreshAntiforgeryToken(client, {
+        method: 'POST',
+        path: '/api/v1/auth/login',
+        body: { email: 'synthetic@example.test', password: 'synthetic' },
+      }),
+    ).resolves.toBeUndefined()
+    expect(paths).toEqual(['/api/v1/auth/csrf', '/api/v1/auth/login'])
+    expect(canceled).toBe(2)
+  })
+})
+
+it('uma resposta304 com stream continua sendo recusa tipada, com descarte do corpo', async () => {
+  const store = createSessionContextStore()
+  let canceled = false
+  const response = new Response(null, { status: 304 })
+  Object.defineProperty(response, 'body', {
+    value: new ReadableStream<Uint8Array>(
+      {
+        cancel() {
+          canceled = true
+        },
+      },
+      { highWaterMark: 0 },
+    ),
+  })
+  const client = clientFor(store, () => Promise.resolve(response))
+  await expect(client.sendCommand({ method: 'GET', path: '/api/v1/auth/csrf' })).rejects.toBeInstanceOf(
+    ApiResponseError,
+  )
+  expect(canceled).toBe(true)
+})
+
+it('a normalização204 não permite ler ou clonar uma conclusão depois da proteção', async () => {
+  const store = createSessionContextStore()
+  const operation = activeOperation(store)
+  const response = new Response(null, { status: 204 })
+  Object.defineProperty(response, 'body', { value: new ReadableStream<Uint8Array>() })
+  const client = clientFor(store, () => Promise.resolve(response))
+  const owned = await client.fetchFor(operation)(new Request(`${ORIGIN}/api/v1/me/profile`))
+  store.protect('identity')
+  await expect(owned.text()).rejects.toMatchObject({ name: 'AbortError' })
+  expect(() => owned.clone()).toThrow(expect.objectContaining({ name: 'AbortError' }))
+})

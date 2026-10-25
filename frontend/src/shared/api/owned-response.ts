@@ -82,11 +82,15 @@ export class OwnedResponse extends Response {
     ownership: { readonly assertCurrent: () => void; readonly signal: AbortSignal },
     metadata: ResponseMetadata = response,
   ) {
-    super(guardedBody(response.body, ownership.assertCurrent, ownership.signal), {
+    // Browsers can expose a stream for a no-content response; Response's constructor rejects it.
+    const nullBody = response.status === 204 || response.status === 205 || response.status === 304
+    const body = response.body
+    super(nullBody ? null : guardedBody(body, ownership.assertCurrent, ownership.signal), {
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
     })
+    if (nullBody && body !== null) void body.cancel().catch(() => undefined)
     this.#assertCurrent = ownership.assertCurrent
     this.#signal = ownership.signal
     this.#metadata = { url: metadata.url, redirected: metadata.redirected, type: metadata.type }

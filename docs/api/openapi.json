@@ -4146,7 +4146,8 @@
           "title",
           "status",
           "code",
-          "sessionContext"
+          "sessionContext",
+          "traceId"
         ],
         "type": "object",
         "properties": {
@@ -4171,10 +4172,7 @@
             "$ref": "#/components/schemas/PrivateSessionContextResponse"
           },
           "traceId": {
-            "type": [
-              "null",
-              "string"
-            ]
+            "type": "string"
           }
         },
         "additionalProperties": false,

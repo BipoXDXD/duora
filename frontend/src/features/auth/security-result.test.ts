@@ -68,7 +68,9 @@ describe('entrega exclusiva de resultado de segurança', () => {
     const current = fixture()
     const ticket = codes(current)
     const owner = confirm(current, ticket, binding)
-    expect(() => { current.results.accept(ticket, { owner, mfaEnabled: true }); }).toThrow('security-result-owner')
+    expect(() => {
+      current.results.accept(ticket, { owner, mfaEnabled: true })
+    }).toThrow('security-result-owner')
     expect(current.results.forOwner(owner)).toBeNull()
     expect(current.results.getSnapshot().phase).toBe('failed')
   })

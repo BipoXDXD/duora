@@ -236,6 +236,8 @@ describe('contexto privado em memória', () => {
     const operation = store.begin(owner)
     store.beginExplicitRevalidation()
     expect(store.getSnapshot()).toMatchObject({ protected: true, owner: null, pendingOwner: null })
-    expect(() => { store.assertCurrent(operation); }).toThrow(expect.objectContaining({ name: 'AbortError' }))
+    expect(() => {
+      store.assertCurrent(operation)
+    }).toThrow(expect.objectContaining({ name: 'AbortError' }))
   })
 })

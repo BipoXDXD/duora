@@ -59,7 +59,7 @@ public sealed record PrivateSessionContextResponse(Guid UserId, Guid SessionId, 
 
 /// <summary>403 somente do bootstrap /me na fase da senha temporária; não amplia as permissões da sessão.</summary>
 public sealed record PrivateSessionRestrictionResponse(
-    string Type, string Title, int Status, string Code, PrivateSessionContextResponse SessionContext, string? TraceId = null);
+    string Type, string Title, int Status, string Code, PrivateSessionContextResponse SessionContext, string TraceId);
 
 /// <summary>Cadastro do TOTP (API-A11): mostrado uma vez, com <c>Cache-Control: no-store</c>.</summary>
 public sealed record MfaEnrollmentResponse(string SharedKey, string AuthenticatorUri);

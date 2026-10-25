@@ -16,6 +16,17 @@ namespace Duora.IntegrationTests.Identity;
 /// <summary>HTTP real: a intenção/prova de uma sessão não pode ler/escrever sob outro cookie, mesmo sem Broadcast.</summary>
 public sealed class PrivateOperationContextTests(PostgresFixture postgres) : IAsyncDisposable
 {
+    private static readonly string[] PublicAntiforgeryRoutes =
+    [
+        "GET /api/v1/auth/csrf",
+        "POST /api/v1/auth/confirm-email",
+        "POST /api/v1/auth/email-confirmation-requests",
+        "POST /api/v1/auth/login",
+        "POST /api/v1/auth/password-reset-requests",
+        "POST /api/v1/auth/password-resets",
+        "POST /api/v1/auth/register",
+    ];
+
     private readonly DuoraWebFactory _factory = new(postgres.ConnectionString);
 
     private IdentityScenario Scenario => new(postgres, _factory);
@@ -226,16 +237,7 @@ public sealed class PrivateOperationContextTests(PostgresFixture postgres) : IAs
                 .Select(method => $"{method} {endpoint.RoutePattern.RawText?.TrimEnd('/')}"))
             .Order(StringComparer.Ordinal);
 
-        Assert.Equal(new[]
-        {
-            "GET /api/v1/auth/csrf",
-            "POST /api/v1/auth/confirm-email",
-            "POST /api/v1/auth/email-confirmation-requests",
-            "POST /api/v1/auth/login",
-            "POST /api/v1/auth/password-reset-requests",
-            "POST /api/v1/auth/password-resets",
-            "POST /api/v1/auth/register",
-        }, routes);
+        Assert.Equal(PublicAntiforgeryRoutes, routes);
     }
 
     private async Task<Binding> BootstrapAsync(Browser browser, HttpStatusCode expected = HttpStatusCode.OK)
@@ -246,6 +248,10 @@ public sealed class PrivateOperationContextTests(PostgresFixture postgres) : IAs
         Assert.DoesNotContain(response.Headers, header => header.Key.Contains("Session-Id", StringComparison.OrdinalIgnoreCase));
         var body = await response.Content.ReadFromJsonAsync<JsonObject>(TestContext.Current.CancellationToken);
         Assert.NotNull(body);
+        if (expected == HttpStatusCode.Forbidden)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(body["traceId"]?.GetValue<string>()));
+        }
         var context = body["sessionContext"]!.AsObject();
         var binding = new Binding(context["userId"]!.GetValue<Guid>(), context["sessionId"]!.GetValue<Guid>(),
             context["phase"]!.GetValue<string>(), context["requestToken"]!.GetValue<string>());
