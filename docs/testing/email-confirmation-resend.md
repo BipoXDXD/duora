@@ -11,7 +11,8 @@ de RegisterPerIp/RegisterPerAccount são compartilhados com cadastro, com429/Ret
 Corpos válidos recebem202 sem conteúdo/Location para conta inexistente, confirmada, senha errada, pendência
 expirada, orçamento consumido ou reenvio aceito. O endpoint não cria sessão/conta nem altera senha/aceites.
 
-Todos os estados fazem dois hashes lentos (código novo e prova de senha/isca). Um piso monotônico500ms com
+Cada estado calcula o hash do código e verifica a senha ou isca. A iscaLazy pode calcular um hash adicional
+no primeiro uso; não se afirma igualdade exata de trabalho ou distribuição. Um piso monotônico500ms com
 jitter até100ms aplica-se aos202, depois de liberar a transação/conexão. Isso segue a mitigação explícita de
 latência do login; não é alegação matemática de tempo constante ou prova de capacidade sob carga.
 Erros de infraestrutura/contensão conservam503 e o fluxo de segurança existente; não são mascarados como202.
@@ -34,11 +35,15 @@ storage. Sucesso neutro recebe foco. A recusa não informa existência/status, n
 
 Testes PostgreSQL/HTTP propostos em EmailConfirmationResendTests: senha/aceites/CreatedAt preservados;
 link legado recusado e código novo válido; inexistente/confirmada/senha errada/expirada neutros sem nova
-emissão/conta; orçamento compartilhado após restart; corrida confirmação/reenvio com resultado serializável;
-limite compartilhado/Retry-After. A allowlist pública e a suíteCSRF incluem a rota explicitamente.
+emissão/conta; orçamento compartilhado após restart e limite/Retry-After. Após review, o delta dirigido
+substitui a corrida não determinística por duas ordens de commit reais viaHTTP, interpostas apósSELECT
+e antes da materializaçãoEF; sincroniza dois resends antes dos locks na última permissão; intercala
+recadastro com nova senha; e injeta falha antes do save da outbox para provar rollback de stamp/prova/orçamento
+e retry. São12casosPG propostos, ainda não executados. A allowlist pública e a suíteCSRF incluem a rota.
+Normalização/destino/IP reutilizam o parser, quotas e provas existentes de TM-67/AuthLimitsAcrossAccountsAndAddresses.
 
 Testes DOM em CheckEmailPage.test.tsx: RED2falhas na página originalH233 (formulário/botão ausentes),
-seguido de GREEN2/2 em1,30s no candidato. A primeira execução do candidato revelou um handlerCSRF ausente
+seguido de GREEN2/2 em1,30s e verificação final2/2 em1,41s no candidato. A primeira execução do candidato revelou um handlerCSRF ausente
 somente na segunda fixture; corrigida essa fixture, os dois passaram. Cobrem nenhum envio automático,
 credenciais+CSRF só no clique, mensagem neutra e senha apagada após202/429, sem submissão vazia.
 Não constituem ensaio físico assistivo. Dependências já instaladas foram clonadas por copy-on-write para
@@ -54,3 +59,11 @@ qualificação hospedada da composição final, sem duplicar CI válida ou reduz
 Revisão deve avaliar abuso/enumeração, piso sem conexão retida, limites após restart, concorrência e conteúdo
 neutro antes de autorizar merge. Nada desta entrega aceita G2operacional/G3/G4/G5, sessão integral/T23,
 entrega realGmail ou fecha #9/#79/#80 por inferência.
+
+## Revisão independente
+
+O head9ea90abbc5e6df6fc100acd9d87257725dd347cc recebeu parecer independente favorável à qualificação
+hospedada, semP1/P2 demonstrado, SHA2563042467f7cb9cd460c9996af41f2263576ac1592785a7214b41d59d7704590a9.
+A revisão não executou CI/testes e não autorizou merge. O delta posterior altera somente esta documentação
+e os testes dirigidos acima; o produto permanece byteidêntico ao head revisado. Requer conferência dirigida
+desse delta e todos os gates/backend/contract do head final antes da integração.
