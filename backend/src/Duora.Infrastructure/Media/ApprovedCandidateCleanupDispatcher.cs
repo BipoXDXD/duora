@@ -111,7 +111,7 @@ public sealed partial class ApprovedCandidateCleanupDispatcher
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
-    private async Task RetryAsync(ApprovedCandidateCleanupClaim claim, CancellationToken cancellationToken)
+    internal async Task<bool> RetryAsync(ApprovedCandidateCleanupClaim claim, CancellationToken cancellationToken)
     {
         await using var connection = await _source.OpenConnectionAsync(cancellationToken);
         var now = _time.GetUtcNow();
@@ -122,7 +122,7 @@ public sealed partial class ApprovedCandidateCleanupDispatcher
             where c.generation=$1 and c.cleanup_token=$2 and c.cleanup_lease_until>$3
               and c.cleanup_requested_at<=$3 and {ApprovedObligation}
             """, claim.Generation, claim.Token, now, now + delay);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     private static NpgsqlCommand Command(NpgsqlConnection connection, string sql, params object[] values)
