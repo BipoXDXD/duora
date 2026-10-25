@@ -658,6 +658,9 @@ estão no [runbook Resend](../operations/resend.md) e no [relatório SMTP/outbox
 
 Testes de pickup não comprovam entrega externa. O relatório registra um aviso sintético enviado pelo Worker
 real e recebido via IMAP na mesma conta Gmail, além de ensaios com a Infrastructure de versões distintas.
-Entrega entre provedores, bounce e rollout/rollback operacional com imagens completas e release intermediária
-continuam pendentes. Consumidor compatível deve anteceder o produtor; confirme o processamento das entregas
-pendentes antes de reverter o worker. Fila vazia não comprova entrega.
+O [ensaio isolado com imagens completas](https://github.com/BipoXDXD/duora/actions/runs/40145260141) validou
+a matriz histórica e a sequência Web antigo + Worker compatível, drenagem comprovada e reversão do consumidor.
+Isso não qualifica por si só as imagens ou o manifesto para produção. Entrega entre provedores, bounce e
+homologação operacional da configuração/versão publicada continuam pendentes. Consumidor compatível deve
+anteceder o produtor; confirme processamento e recibos por ID antes de reverter o worker. Fila vazia não
+comprova entrega.
