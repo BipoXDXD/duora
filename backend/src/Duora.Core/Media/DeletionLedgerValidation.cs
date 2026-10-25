@@ -113,7 +113,7 @@ public static class DeletionLedgerValidation
                 || (entry.FenceGeneration == expected.FenceGeneration && entry.WriterEpoch != expected.ClosedWriterEpoch)
                 || entry.OperationId == Guid.Empty || entry.PhotoId == Guid.Empty
                 || entry.IntentSha256 is not { Length: 32 } || entry.PreviousHash is not { Length: 32 }
-                || entry.Hash is not { Length: 32 } || !CryptographicOperations.FixedTimeEquals(entry.PreviousHash, previous))
+                || entry.Hash is not { Length: 32 })
             {
                 return refused;
             }
@@ -124,7 +124,8 @@ public static class DeletionLedgerValidation
             }
             epochs[entry.FenceGeneration] = entry.WriterEpoch;
             fence = entry.FenceGeneration;
-            if (!CryptographicOperations.FixedTimeEquals(Hash(entry), entry.Hash)
+            if (!CryptographicOperations.FixedTimeEquals(entry.PreviousHash, previous)
+                || !CryptographicOperations.FixedTimeEquals(Hash(entry), entry.Hash)
                 || (sequence == expected.MinimumSequence && !CryptographicOperations.FixedTimeEquals(entry.Hash, minimumRoot)))
             {
                 return refused;
