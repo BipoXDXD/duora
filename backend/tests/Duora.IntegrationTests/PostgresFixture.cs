@@ -50,6 +50,9 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// <summary>Teto de conexões do servidor de teste (ver o construtor); conferido por um teste.</summary>
     public const int MaxConnections = 400;
 
+    // Explicit test-only POSIX DSM capacity within the existing hosted runner's RAM; no production profile change.
+    public const long SharedMemoryBytes = 256L * 1024 * 1024;
+
     private readonly PostgreSqlContainer _container;
     private readonly ConcurrentDictionary<string, ScratchDatabase> _scratchDatabases = new(StringComparer.Ordinal);
 
@@ -61,6 +64,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         var images = Path.Combine(RepositoryRoot.Find(), "infra", "images", "postgres");
         var builder = new PostgreSqlBuilder(Image)
+            .WithCreateParameterModifier(parameters => parameters.HostConfig.ShmSize = SharedMemoryBytes)
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "initdb", "10-duora-roles.sh")),
                 InitdbScriptTarget, fileMode: Executable)
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "reconcile-privileges.sql")),
