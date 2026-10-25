@@ -102,7 +102,8 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
         await browser.FetchCsrfTokenAsync();
         using var registered = await browser.PostJsonAsync("/api/v1/auth/register", new
         {
-            email, password = IdentityScenario.ValidPassword,
+            email,
+            password = IdentityScenario.ValidPassword,
             acceptedTermsVersion = IdentityScenario.TermsVersion,
             acceptedPrivacyVersion = IdentityScenario.TermsVersion,
         });

@@ -20,7 +20,13 @@ public sealed record PublicLegalDocument(
     // Approval is a publication decision; content identity includes the controller and contact.
     public string Sha256 => Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
     {
-        Document, Version, Locale, Title, ControllerName, PrivacyContact, Sections,
+        Document,
+        Version,
+        Locale,
+        Title,
+        ControllerName,
+        PrivacyContact,
+        Sections,
     }, Json)));
 }
 
@@ -77,5 +83,6 @@ public sealed class LegalPublication
         && string.Equals(address.Address, document.PrivacyContact, StringComparison.Ordinal);
 
     private static bool ValidVersion(string version) => version.Length is > 0 and <= 32
+        && char.IsAsciiLetterOrDigit(version[0])
         && version.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-');
 }

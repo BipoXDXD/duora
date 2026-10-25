@@ -8,7 +8,8 @@ namespace Duora.Web.Accounts;
 internal static class LegalDocumentEndpoints
 {
     public static void MapLegalDocumentEndpoints(this IEndpointRouteBuilder api) => api
-        .MapGet("/legal-documents", Read)
+        .MapGroup("/legal-documents")
+        .MapGet("", Read)
         .AllowAnonymous()
         .WithTags("Legal")
         .WithMetadata(new PublicAntiforgeryEndpoint());

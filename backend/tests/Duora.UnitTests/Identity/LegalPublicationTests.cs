@@ -31,6 +31,15 @@ public sealed class LegalPublicationTests
         Assert.False(publication.Accepts("terms-v2", "privacy-v3", "pt-BR", "fr"));
     }
 
+    [Theory]
+    [InlineData(".")]
+    [InlineData("..")]
+    public void UrlPathSegmentsCannotBeDocumentVersions(string version)
+    {
+        var documents = Create().Documents.Select(document => document with { Version = version }).ToArray();
+        Assert.False(new LegalPublication(version, version, documents).RegistrationAvailable);
+    }
+
     [Fact]
     public void MissingOrDuplicatedVariantsFailClosedWithoutInventingTranslations()
     {

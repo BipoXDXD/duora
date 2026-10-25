@@ -4,7 +4,7 @@ import { apiClient } from '@/shared/api'
 import { runPublicOperation } from '@/features/session/public-operation'
 import type { Locale } from '@/shared/i18n/locale'
 
-const version = z.string().regex(/^[A-Za-z0-9._-]{1,32}$/)
+const version = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/)
 const nonempty = z.string().refine((text) => text.trim().length > 0)
 const legalDocumentSchema = z.object({
   document: z.enum(['terms', 'privacy']),

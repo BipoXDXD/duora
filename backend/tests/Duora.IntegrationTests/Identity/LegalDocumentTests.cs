@@ -52,9 +52,12 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
         var publication = SyntheticLegalPublication.Default;
         using var response = await browser.PostJsonAsync("/api/v1/auth/register", new
         {
-            email, password = IdentityScenario.ValidPassword,
-            acceptedTermsVersion = termsVersion, acceptedPrivacyVersion = publication.PrivacyVersion,
-            acceptedTermsLocale = termsLocale, acceptedPrivacyLocale = "en-US",
+            email,
+            password = IdentityScenario.ValidPassword,
+            acceptedTermsVersion = termsVersion,
+            acceptedPrivacyVersion = publication.PrivacyVersion,
+            acceptedTermsLocale = termsLocale,
+            acceptedPrivacyLocale = "en-US",
             acceptedTermsSha256 = termsSha256,
             acceptedPrivacySha256 = SyntheticLegalPublication.Hash(publication, "privacy", "en-US"),
         });

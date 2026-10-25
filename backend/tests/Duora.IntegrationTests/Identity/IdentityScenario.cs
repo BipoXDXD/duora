@@ -41,16 +41,16 @@ internal sealed class IdentityScenario(string connectionString, DuoraWebFactory 
 
     public static object RegistrationBody(string email, string password = ValidPassword,
         Duora.Core.Identity.LegalPublication? publication = null, string termsLocale = "pt-BR", string privacyLocale = "pt-BR") => new
-    {
-        email,
-        password,
-        acceptedTermsVersion = (publication ?? SyntheticLegalPublication.Default).TermsVersion,
-        acceptedPrivacyVersion = (publication ?? SyntheticLegalPublication.Default).PrivacyVersion,
-        acceptedTermsLocale = termsLocale,
-        acceptedPrivacyLocale = privacyLocale,
-        acceptedTermsSha256 = SyntheticLegalPublication.Hash(publication ?? SyntheticLegalPublication.Default, "terms", termsLocale),
-        acceptedPrivacySha256 = SyntheticLegalPublication.Hash(publication ?? SyntheticLegalPublication.Default, "privacy", privacyLocale),
-    };
+        {
+            email,
+            password,
+            acceptedTermsVersion = (publication ?? SyntheticLegalPublication.Default).TermsVersion,
+            acceptedPrivacyVersion = (publication ?? SyntheticLegalPublication.Default).PrivacyVersion,
+            acceptedTermsLocale = termsLocale,
+            acceptedPrivacyLocale = privacyLocale,
+            acceptedTermsSha256 = SyntheticLegalPublication.Hash(publication ?? SyntheticLegalPublication.Default, "terms", termsLocale),
+            acceptedPrivacySha256 = SyntheticLegalPublication.Hash(publication ?? SyntheticLegalPublication.Default, "privacy", privacyLocale),
+        };
 
     public static async Task<HttpResponseMessage> RegisterAsync(Browser browser, string email, string password = ValidPassword)
     {

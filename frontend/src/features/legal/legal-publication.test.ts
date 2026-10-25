@@ -11,6 +11,9 @@ describe('published legal identity', () => {
     expect(receipt?.terms.sha256).toBe('1'.repeat(64))
     expect(receipt?.privacy.sha256).toBe('4'.repeat(64))
   })
+  it.each(['.', '..'])('rejects a URL path segment as a legal version: %s', (version) => {
+    expect(legalCatalogSchema.safeParse({ ...syntheticLegalCatalog, termsVersion: version }).success).toBe(false)
+  })
   it('rejects false readiness, missing translations and duplicate identities', () => {
     const catalog = legalCatalogSchema.parse(syntheticLegalCatalog)
     expect(registrationReceipt({ ...catalog, registrationAvailable: false }, 'pt-BR', 'pt-BR')).toBeNull()
