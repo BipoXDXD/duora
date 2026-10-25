@@ -14,6 +14,8 @@ Descobrir caso/upload/titular/geração sem locks. Em READCOMMITTED própria, se
 
 Atualizar upload/caso por CAS, anexar AuditAction.PhotoReviewExpired/System com targetcase/version, obter por SELECT o único idbigint dessa ação/caso/versão na mesma transação e ligá-lo ao candidato. AuditTrail atual não muda: não inferir id porMAX, UUID ou sequência global. Consulta ambígua/inexistente é falha fechada e rollback integral. Falha/resposta incerta de COMMIT não confirma resultado falso; retry consulta estado persistido.
 
+O produtor existente confirma retenção em awaiting_review_at+96h, isto é, review_deadline+24h. A seleção/revalidação preservam essa correspondência exata; não igualar retenção ao prazo72h nem reescrever snapshots existentes. cleanup_requested_at usa o relógio do efeito após locks; AuditTrail lê o relógio novamente e occurred_at pode ser posterior. O vínculo é o idbigint imutável com ação/caso/versão, sem exigir igualdade de timestamps distintos. Testes avançam o relógio antes do append para expor essa diferença.
+
 ## Persistência e coleta
 
 Migração aditiva: media.review_candidates.cleanup_audit_id bigint nullable com FK restrict para ops.audit_events; valores existentes ficamNULL. Índice parcial apenas sobre marcadores confirmados do novo fluxo. Nenhuma tabela/grant/backfill, mudança de migração aplicada ou ACLlegada.

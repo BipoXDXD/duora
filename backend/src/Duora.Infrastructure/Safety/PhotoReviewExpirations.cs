@@ -26,7 +26,7 @@ internal sealed class PhotoReviewExpirations(IDbContextFactory<DuoraDbContext> c
             join media.review_candidates c on c.generation=r.candidate_generation and c.case_id=r.id and c.upload_id=u.id
             where u.state='AwaitingReview' and r.policy_version={PolicyVersion} and r.review_deadline<={observedAt}
               and u.version<9223372036854775807 and r.version<9223372036854775807
-              and c.upload_version=u.version-1 and c.retention_until=r.review_deadline
+              and c.upload_version=u.version-1 and c.retention_until=r.review_deadline+interval '24 hours'
               and c.committed_at is not null and c.writer_settled_at is not null
               and c.cleanup_requested_at is null and c.cleanup_audit_id is null and c.deleted_at is null
             order by r.review_deadline,r.id limit 1
@@ -65,7 +65,8 @@ internal sealed class PhotoReviewExpirations(IDbContextFactory<DuoraDbContext> c
               and r.candidate_generation={discovered.Generation} and r.policy_version={PolicyVersion}
               and u.state='AwaitingReview' and u.version={discovered.UploadVersion} and r.version={discovered.CaseVersion}
               and u.version<9223372036854775807 and r.version<9223372036854775807
-              and c.upload_version=u.version-1 and r.review_deadline<={now} and c.retention_until=r.review_deadline
+              and c.upload_version=u.version-1 and r.review_deadline<={now}
+              and c.retention_until=r.review_deadline+interval '24 hours'
               and c.committed_at is not null and c.writer_settled_at is not null
               and c.cleanup_requested_at is null and c.cleanup_audit_id is null and c.deleted_at is null
             """).SingleOrDefaultAsync(cancellationToken);

@@ -29,6 +29,45 @@ public sealed partial class PhotoReviewApprovalTests
     }
 
     [Fact]
+    public async Task ReviewExpirationKeepsTheProducerRetentionContractAndRejectsADivergentSnapshot()
+    {
+        var item = await CaseAsync();
+        var generation = await CleanupGenerationAsync(item);
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from media.review_candidates c join safety.photo_review_cases r on r.id=c.case_id
+            where c.generation=$1 and c.retention_until=r.review_deadline+interval '24 hours'
+            """, generation));
+        await ExecuteAsync("update media.review_candidates set retention_until=retention_until-interval '1 second' where generation=$1", generation);
+        _time.Advance(TimeSpan.FromHours(73));
+        var before = await ExpirationProjectionAsync();
+        var files = Files();
+
+        Assert.Equal(0, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
+
+        Assert.Equal(before, await ExpirationProjectionAsync());
+        Assert.Equal(files, Files());
+    }
+
+    [Fact]
+    public async Task ReviewExpirationKeepsTheEffectMarkerWhenTheAuditClockAdvancesBeforeAppend()
+    {
+        var item = await CaseAsync();
+        _time.Advance(TimeSpan.FromHours(72));
+        var effectAt = _time.GetUtcNow();
+        var advance = new AdvanceExpirationAuditClock(_time);
+
+        Assert.Equal(1, await new PhotoReviewExpirations(Factory(advance), _time).ExpireOnceAsync(Ct));
+
+        Assert.True(advance.Fired);
+        await AssertExpiredWithSystemProofAsync(item, effectAt);
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from media.review_candidates c join ops.audit_events e on e.id=c.cleanup_audit_id
+            where c.case_id=$1 and c.cleanup_requested_at=$2 and e.occurred_at=$3
+            """, item.CaseId, effectAt, _time.GetUtcNow()));
+        Assert.Equal(effectAt.AddSeconds(1), _time.GetUtcNow());
+    }
+
+    [Fact]
     public async Task ConcurrentReviewExpirationsCommitExactlyOneResultAndAudit()
     {
         var item = await CaseAsync();
@@ -352,7 +391,7 @@ public sealed partial class PhotoReviewApprovalTests
         }
     }
 
-    private async Task AssertExpiredWithSystemProofAsync(CaseData item)
+    private async Task AssertExpiredWithSystemProofAsync(CaseData item, DateTimeOffset? effectAt = null)
     {
         Assert.Equal(1, await ScalarAsync("""
             select count(*) from media.uploads u join safety.photo_review_cases r on r.upload_id=u.id
@@ -361,13 +400,30 @@ public sealed partial class PhotoReviewApprovalTests
             where u.id=$1 and u.state='Rejected' and u.rejection_code='PHOTO_REVIEW_EXPIRED' and u.version=$2
               and r.version=2 and r.review_deadline<=$3 and c.committed_at is not null
               and c.writer_settled_at is not null and c.cleanup_requested_at=$3 and c.cleanup_available_at<=$3
-              and c.cleanup_token is null and c.deleted_at is null and c.retention_until=r.review_deadline
+              and c.cleanup_token is null and c.deleted_at is null and c.retention_until=r.review_deadline+interval '24 hours'
               and e.actor_kind='System' and e.actor_id is null and e.action='safety.photo_review_expired'
               and e.target_type='photo_review_case' and e.target_id=r.id and e.target_version=r.version
-            """, item.UploadId, item.UploadVersion + 1, _time.GetUtcNow()));
+            """, item.UploadId, item.UploadVersion + 1, effectAt ?? _time.GetUtcNow()));
         Assert.Equal(1, await ScalarAsync("select count(*) from ops.audit_events where action='safety.photo_review_expired' and target_id=$1", item.CaseId));
         Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1", item.CaseId));
         Assert.Equal(0, await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", item.UploadId));
+    }
+
+    private sealed class AdvanceExpirationAuditClock(Microsoft.Extensions.Time.Testing.FakeTimeProvider time) : DbCommandInterceptor
+    {
+        internal bool Fired { get; private set; }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (!Fired && command.CommandText.Contains("update media.uploads set state='Rejected'", StringComparison.Ordinal))
+            {
+                Fired = true;
+                time.Advance(TimeSpan.FromSeconds(1));
+            }
+
+            return ValueTask.FromResult(result);
+        }
     }
 
     private sealed class RefuseExpirationAudit : DbCommandInterceptor
