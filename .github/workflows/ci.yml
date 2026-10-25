@@ -174,6 +174,10 @@ jobs:
     name: images (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -193,6 +197,13 @@ jobs:
         run: |
           echo "uname -m: $(uname -m)"
           echo "Runner: $(. /etc/os-release && echo "$PRETTY_NAME"), $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Qualify the reviewed PostgreSQL runtime without rebuilding it
+        id: postgres-component
+        uses: ./.github/actions/postgres-component
+        with:
+          architecture: ${{ matrix.arch }}
+          token: ${{ github.token }}
 
       # Licença da Six Labors (ADR-0025, docs/operations/deploy.md): o build Release do worker a recebe como secret do
       # BuildKit, lido da variável do passo, sem ARG nem ENV na imagem. Sem o secret (PR de fork; PR do Dependabot sem o
@@ -224,13 +235,11 @@ jobs:
           SIXLABORS_LICENSE_KEY: ${{ secrets.SIXLABORS_LICENSE_KEY }}
         run: python3 scripts/supply-chain/check_image_secret.py duora-worker:ci SIXLABORS_LICENSE_KEY
 
-      - name: Build edge e postgres
+      - name: Build edge with the qualified PostgreSQL component retained
         id: build-edge-postgres
         run: |
           docker buildx build --file infra/images/edge/Dockerfile --platform "$PLATFORM" \
             --build-arg GIT_COMMIT="$GITHUB_SHA" --tag duora-edge:ci --load .
-          docker buildx build --file infra/images/postgres/Dockerfile --platform "$PLATFORM" \
-            --tag duora-postgres:ci --load .
 
       # Executa cada binário nativo na arquitetura do runner, sem subir o ambiente.
       - name: Verificar as imagens
@@ -295,6 +304,32 @@ jobs:
               echo "- duora-$image: $count"
             done
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve PostgreSQL component transport evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: postgres-component-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/postgres-component/plan.json
+            ${{ runner.temp }}/postgres-component/source-plan.json
+            ${{ runner.temp }}/postgres-component/qualification.json
+            ${{ runner.temp }}/postgres-component/docker-runtime-before.json
+            ${{ runner.temp }}/postgres-component/docker-api-before.json
+            ${{ runner.temp }}/postgres-component/docker-runtime-after.json
+            ${{ runner.temp }}/postgres-component/docker-api-after.json
+            ${{ runner.temp }}/postgres-component/docker-store.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Preserve qualified executor bundle and disposable continuity evidence
+        if: ${{ !cancelled() && hashFiles('scripts/deploy/continuity_lab.py') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: duora-executor-${{ matrix.arch }}
+          path: ${{ runner.temp }}/duora-executor-lab/${{ matrix.arch }}/
+          if-no-files-found: error
+          retention-days: 90
 
   # Ferramentas Python do repositório (scripts de operação, Ansible e pipeline de ilustrações): testes, tipos e lint
   # com versões fixadas.

@@ -71,7 +71,8 @@ public sealed class PostgresFixture : IAsyncLifetime
             })
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "initdb", "10-duora-roles.sh")),
                 InitdbScriptTarget, fileMode: Executable)
-            .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "reconcile-privileges.sql")),
+            .WithResourceMapping(File.ReadAllBytes(Path.Combine(RepositoryRoot.Find(), "infra", "images", "dotnet",
+                    "reconcile-privileges.sql")),
                 ReconcileScriptTarget)
             .WithResourceMapping(System.Text.Encoding.UTF8.GetBytes(_migratorPassword), MigratorPasswordTarget)
             .WithResourceMapping(System.Text.Encoding.UTF8.GetBytes(_appPassword), AppPasswordTarget)
@@ -255,8 +256,13 @@ public sealed class PostgresFixture : IAsyncLifetime
             await dbContext.Database.MigrateAsync(cancellationToken);
         }
 
+        await ReconcilePrivilegesAsync(database, cancellationToken);
+    }
+
+    internal async Task ReconcilePrivilegesAsync(string database, CancellationToken cancellationToken)
+    {
         var reconcile = await _container.ExecAsync(
-            ["psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1", "--username", "postgres", "--dbname", database,
+            ["psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1", "--single-transaction", "--username", "postgres", "--dbname", database,
                 "--file", ReconcileScriptTarget],
             cancellationToken);
         if (reconcile.ExitCode != 0)
