@@ -290,7 +290,7 @@ public sealed partial class PhotoReviewApprovalTests
             AppealRequests().RequestAsync(data.Owner, data.Item.UploadId, data.Rejection.PhotoVersion, Key(), Ct));
 
         Assert.Single(results.OfType<PhotoReviewAppealRequestResult.Accepted>());
-        Assert.Single(results.Where(result => result is PhotoReviewAppealRequestResult.PreconditionFailed or PhotoReviewAppealRequestResult.StateConflict));
+        Assert.Single(results, result => result is PhotoReviewAppealRequestResult.PreconditionFailed or PhotoReviewAppealRequestResult.StateConflict);
         Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_appeals where original_decision_id=$1", data.DecisionId));
         Assert.Equal(1, await ScalarAsync("select count(*) from ops.audit_events where action='safety.photo_review_appeal_requested'"));
     }
