@@ -1,0 +1,45 @@
+name: Support contact provider proof
+on:
+  pull_request:
+    paths:
+      - tools/support-contact-probe/**
+      - docs/testing/support-contact-provider-proof.md
+      - .github/workflows/support-contact-proof.yml
+permissions:
+  contents: read
+jobs:
+  synthetic-provider-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          global-json-file: global.json
+      - name: Verify the actual application graph remains locked
+        run: dotnet restore backend/src/Duora.Web/Duora.Web.csproj --locked-mode
+      - name: Build the synthetic source application and standalone helper
+        run: |
+          dotnet build backend/src/Duora.Web/Duora.Web.csproj --no-restore
+          dotnet restore tools/support-contact-probe/Probe.csproj -p:RestoreLockedMode=false
+          dotnet build tools/support-contact-probe/Probe.csproj --no-restore
+      - name: Real providers and actual Infrastructure IOptions, synthetic inputs only
+        run: >-
+          python3 tools/support-contact-probe/verify_replay.py
+          tools/support-contact-probe/bin/Debug/net10.0/Duora.IntegrationTests.dll
+          backend/src/Duora.Web/bin/Debug/net10.0/Duora.Web.dll
+      - name: Package only the helper assembly and runtime configuration
+        run: |
+          mkdir -p "$RUNNER_TEMP/support-contact-proof"
+          cp tools/support-contact-probe/bin/Debug/net10.0/Duora.IntegrationTests.dll "$RUNNER_TEMP/support-contact-proof/"
+          cp tools/support-contact-probe/bin/Debug/net10.0/Duora.IntegrationTests.runtimeconfig.json "$RUNNER_TEMP/support-contact-proof/"
+          cd "$RUNNER_TEMP/support-contact-proof"
+          sha256sum Duora.IntegrationTests.dll Duora.IntegrationTests.runtimeconfig.json > SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: readonly-support-contact-probe
+          path: ${{ runner.temp }}/support-contact-proof/
+          retention-days: 30
+          if-no-files-found: error
