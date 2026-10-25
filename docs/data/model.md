@@ -884,6 +884,21 @@ separados de PhotoRejection técnico. A consulta de cota conta AwaitingReview me
 Leitores e replay preservam o valor explícito. Não existem escritores HumanReview nesta entrega.
 Ver [compatibilidade e reversão](../testing/reports/media-review-readers.md).
 
+### safety.photo_review_appeals / safety.photo_review_appeal_commands — pedido de recurso
+
+Preparação interna M4b1, sem rota, DI, grant pessoal ou ativação. O root referencia caso, decisão humana inicial,
+titular, geração e política; começa Open/version1. UNIQUE por caso e por decisão original impede cadeias de
+recursos. `original_rejected_at`, `requested_at`, `response_target_at` e `maximum_retention_until` são finitos:
+pedido em até7dias, alvo7dias após pedido e teto30dias desde a rejeição original. FKs RESTRICT preservam os
+vínculos. Decisões antigas mantêm `appeal_id` nullable/NULL; a coluna é leitor compatível antes do futuro escritor.
+
+Os recibos guardam actor/keyHash/intençãoSHA256, recurso/foto e resultado confirmado, com PK(actor,keyHash).
+São append-only; repetir chave/intenção autenticada devolve a mesma precisão temporal persistida. O root
+permite SELECT/INSERT/UPDATE, sem DELETE/TRUNCATE; recibos permitem só SELECT/INSERT. A allowlist enumera
+ambas as tabelas e os testes negativos exigem42501 para operações proibidas. A reconciliação canônica deve
+manter as mesmas restrições antes de instalação. ClasseP3, apenas IDs/prazos/versões/hashes, sem imagem,
+path, URL ou texto sensível. Decisão do recurso, encerramento/coleta e restore continuam entregas próprias.
+
 ### media.media_assets
 
 - **Colunas:** `id` (= `assetId` de API-M04); `upload_id`; `owner_id`; `state text` (`Approved`, `Rejected`,
