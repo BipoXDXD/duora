@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Duora.Infrastructure.Safety;
 
-/// <summary>Unregistered private evidence service; all contexts end before storage or consumer pauses.</summary>
+/// <summary>Internal private evidence service; all contexts end before storage or consumer pauses.</summary>
 internal sealed class PhotoReviewAppealEvidence
 {
     private readonly IDbContextFactory<DuoraDbContext> _contexts;

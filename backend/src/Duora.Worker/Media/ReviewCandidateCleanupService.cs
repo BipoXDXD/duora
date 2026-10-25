@@ -2,15 +2,15 @@ using Duora.Infrastructure.Media;
 
 namespace Duora.Worker.Media;
 
-/// <summary>Recover preparation, approval and system-expiration obligations, independently of admission.</summary>
+/// <summary>Recover preparation, approval, expiration and unavailable obligations, independently of admission.</summary>
 internal sealed partial class ReviewCandidateCleanupService(
     ReviewCandidateCleanupDispatcher dispatcher, ApprovedCandidateCleanupDispatcher approved,
-    ExpiredCandidateCleanupDispatcher expired,
+    ExpiredCandidateCleanupDispatcher expired, UnavailableCandidateCleanupDispatcher unavailable,
     ILogger<ReviewCandidateCleanupService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!dispatcher.Enabled && !approved.Enabled && !expired.Enabled)
+        if (!dispatcher.Enabled && !approved.Enabled && !expired.Enabled && !unavailable.Enabled)
         {
             return;
         }
@@ -22,6 +22,7 @@ internal sealed partial class ReviewCandidateCleanupService(
                 var processed = await dispatcher.DispatchOnceAsync(stoppingToken);
                 processed += await approved.DispatchOnceAsync(stoppingToken);
                 processed += await expired.DispatchOnceAsync(stoppingToken);
+                processed += await unavailable.DispatchOnceAsync(stoppingToken);
                 if (processed != 0)
                 {
                     continue;

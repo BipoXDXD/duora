@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Duora.Infrastructure.Safety;
 
-/// <summary>A system deadline, never a human decision. Not registered or exposed before the final composition.</summary>
+/// <summary>A system deadline, never a human decision. Internal composition does not expose or schedule this operation.</summary>
 internal sealed class PhotoReviewExpirations(IDbContextFactory<DuoraDbContext> contexts, TimeProvider time)
 {
     private const string PolicyVersion = "human-review-v1";

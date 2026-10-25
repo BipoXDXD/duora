@@ -210,7 +210,7 @@ internal sealed class PhotoReviewEvidenceLease : IAsyncDisposable
     }
 }
 
-/// <summary>Unregistered private evidence service; all contexts end before storage or consumer pauses.</summary>
+/// <summary>Internal private evidence service; all contexts end before storage or consumer pauses.</summary>
 internal sealed class PhotoReviewEvidence
 {
     private readonly IDbContextFactory<DuoraDbContext> _contexts;
