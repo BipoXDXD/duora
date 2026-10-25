@@ -40,6 +40,11 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
   </ItemGroup>
 
+  <ItemGroup Label="Benchmark externo - nunca publicado no produto">
+    <!-- Cliente oficial Microsoft (MIT), somente Duora.CapacityClient; aprovado no escopo da issue86. -->
+    <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
+  </ItemGroup>
+
   <ItemGroup Label="Testes">
     <!-- Property-based testing: Apache-2.0, sem dependências transitivas; escrito para C# (o FsCheck traz FSharp.Core). -->
     <PackageVersion Include="CsCheck" Version="4.9.1" />

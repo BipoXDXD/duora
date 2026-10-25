@@ -1,0 +1,21 @@
+{
+  "coverage": null,
+  "target": null,
+  "sourceCommit": null,
+  "dataset": null,
+  "capability": null,
+  "certificateAuthority": null,
+  "clientCertificate": null,
+  "clientKey": null,
+  "serverCertificateSha256": null,
+  "leasePath": null,
+  "leaseProducerSha256": null,
+  "qualificationReceiptSha256": null,
+  "externalSupervisorReceiptSha256": null,
+  "admittedUntil": null,
+  "startedAt": null,
+  "phases": null,
+  "maxRequestsPerPhase": 0,
+  "maxInFlight": 0,
+  "tickMilliseconds": 0
+}

@@ -16,4 +16,8 @@
     <Project Path="tests/Duora.SelfieProcessHost/Duora.SelfieProcessHost.csproj" />
     <Project Path="tests/Duora.UnitTests/Duora.UnitTests.csproj" />
   </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Duora.CapacityClient/Duora.CapacityClient.csproj" />
+    <Project Path="benchmarks/Duora.CapacityClient.Tests/Duora.CapacityClient.Tests.csproj" />
+  </Folder>
 </Solution>
