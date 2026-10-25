@@ -14,4 +14,4 @@ condition = "AND"
 commits = ["f9ecb5b6742d531340dce20be119bc1a55a81ba7"]
 paths = ['^scripts/deploy/compatibility/current_schema_pins\.json$']
 regexTarget = "line"
-regexes = ['''^[ \t]*"scripts/deploy/duora_secrets\.py": "952888b30720215404b28bc1d603e1670b8cfc7584d913602dbbc7e05cbd478b",[ \t]*$''']
+regexes = ['''^\n?[ \t]*"scripts/deploy/duora_secrets\.py": "952888b30720215404b28bc1d603e1670b8cfc7584d913602dbbc7e05cbd478b",[ \t]*$''']

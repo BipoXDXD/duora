@@ -2,9 +2,10 @@
 
 import copy
 import unittest
+import ssl
 from typing import Any, cast
 
-from current_schema_receipt import check_history, check_preservation, validate_receipt, classify_startup_log
+from current_schema_receipt import check_history, check_preservation, validate_receipt, classify_startup_log, classify_probe_failure, classify_tls_conditions
 
 
 def database():
@@ -294,7 +295,7 @@ class StartupLogClassificationTests(unittest.TestCase):
         self.assertEqual(value["exception_types"], ["UnauthorizedAccessException"])
         self.assertTrue(value["permission_denied"])
         self.assertNotIn(marker.decode(), str(value))
-        self.assertEqual(set(value), {"exception_types", "permission_denied", "tls_error", "log_sha256", "bytes", "truncated"})
+        self.assertEqual(set(value), {"exception_types", "permission_denied", "mentions_tls_and_error", "log_sha256", "bytes", "truncated"})
 
     def test_unknown_text_is_only_hashed_without_arbitrary_class_or_message(self):
         value = classify_startup_log(b"UnknownSecretClass: never-emit-this")
@@ -308,6 +309,39 @@ class StartupLogClassificationTests(unittest.TestCase):
         self.assertEqual(value["bytes"], 131073)
         with self.assertRaises(ValueError): classify_startup_log(cast(Any, "not-bytes"))
 
+
+
+class ProbeDiagnosticClassificationTests(unittest.TestCase):
+    def test_standard_ssl_reason_is_preserved_without_error_text(self):
+        error = ssl.SSLError(1, "never-emit-credential")
+        error.reason = "TLSV1_ALERT_INTERNAL_ERROR"
+        value = classify_probe_failure(error)
+        self.assertEqual(value, {"kind": "ssl_error", "errno": 1, "ssl_reason": "TLSV1_ALERT_INTERNAL_ERROR"})
+        self.assertNotIn("never-emit-credential", str(value))
+
+    def test_unknown_ssl_reason_is_not_echoed(self):
+        error = ssl.SSLError(1, "private-message")
+        error.reason = "private-reason"
+        self.assertEqual(classify_probe_failure(error)["ssl_reason"], "unknown")
+        self.assertNotIn("private", str(classify_probe_failure(error)))
+
+    def test_non_ssl_error_is_a_closed_kind_and_bounded_errno(self):
+        self.assertEqual(classify_probe_failure(ConnectionRefusedError(111, "private")),
+                         {"kind": "connection_refused", "errno": 111, "ssl_reason": None})
+        self.assertEqual(classify_probe_failure(ValueError("private")),
+                         {"kind": "response_rejected", "errno": None, "ssl_reason": None})
+
+    def test_tls_words_on_separate_lines_do_not_become_a_handshake_condition(self):
+        value = classify_tls_conditions(b"tls initialized\nother error unrelated\n")
+        self.assertFalse(any(value.values()))
+        self.assertTrue(classify_tls_conditions(b"http: TLS handshake error from synthetic peer: no certificate available")["handshake_error"])
+        self.assertTrue(classify_tls_conditions(b"http: TLS handshake error from synthetic peer: no certificate available")["no_certificate_available"])
+
+    def test_unknown_tls_log_text_is_not_returned_and_input_type_is_strict(self):
+        value = classify_tls_conditions(b"private-reason and unrelated words")
+        self.assertFalse(any(value.values()))
+        self.assertNotIn("private-reason", str(value))
+        with self.assertRaises(ValueError): classify_tls_conditions(cast(Any, "not-bytes"))
 
 if __name__ == "__main__":
     unittest.main()

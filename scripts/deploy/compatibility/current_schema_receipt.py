@@ -2,6 +2,8 @@
 
 import re
 import hashlib
+import ssl
+import http.client
 from old_image_identity import validate_old_image_receipt
 
 HEX40 = re.compile(r"[a-f0-9]{40}")
@@ -273,5 +275,34 @@ def classify_startup_log(raw: bytes) -> dict:
     lower = sample.lower()
     return {"exception_types": [name for name in known if name.encode() in sample],
             "permission_denied": b"permission denied" in lower or b"access to the path" in lower,
-            "tls_error": b"tls" in lower and (b"error" in lower or b"failed" in lower),
+            "mentions_tls_and_error": b"tls" in lower and (b"error" in lower or b"failed" in lower),
             "log_sha256": hashlib.sha256(sample).hexdigest(), "bytes": len(raw), "truncated": len(raw) > 131072}
+
+
+def classify_probe_failure(error: BaseException) -> dict:
+    kind = ("ssl_error" if isinstance(error, ssl.SSLError) else
+            "connection_refused" if isinstance(error, ConnectionRefusedError) else
+            "timeout" if isinstance(error, TimeoutError) else
+            "http_error" if isinstance(error, http.client.HTTPException) else
+            "response_rejected" if isinstance(error, ValueError) else "other_transport")
+    number = getattr(error, "errno", None)
+    reason = None
+    if isinstance(error, ssl.SSLError):
+        known = {"TLSV1_ALERT_INTERNAL_ERROR", "TLSV1_UNRECOGNIZED_NAME", "SSLV3_ALERT_HANDSHAKE_FAILURE",
+                 "CERTIFICATE_VERIFY_FAILED", "UNEXPECTED_EOF_WHILE_READING", "WRONG_VERSION_NUMBER",
+                 "TLSV1_ALERT_PROTOCOL_VERSION", "UNSUPPORTED_PROTOCOL"}
+        observed = getattr(error, "reason", None)
+        reason = observed if type(observed) is str and observed in known else "unknown"
+    return {"kind": kind, "errno": number if type(number) is int and -4096 <= number <= 4096 else None, "ssl_reason": reason}
+
+
+def classify_tls_conditions(raw: bytes) -> dict:
+    need(type(raw) is bytes, "TLS classification requires bytes")
+    lines = raw[:131072].lower().splitlines()
+    return {"handshake_error": any(b"tls handshake error" in line for line in lines),
+            "no_certificate_available": any(b"no certificate available" in line for line in lines),
+            "certificate_obtain_error": any(b"tls.obtain" in line and (b"error" in line or b"failed" in line) for line in lines),
+            "root_trust_install_error": any(b"install" in line and b"root certificate" in line and (b"error" in line or b"failed" in line) for line in lines),
+            "storage_permission_denied": any(b"permission denied" in line and b"/data" in line for line in lines),
+            "unrecognized_name": any(b"unrecognized name" in line for line in lines),
+            "connection_refused": any(b"connection refused" in line for line in lines)}

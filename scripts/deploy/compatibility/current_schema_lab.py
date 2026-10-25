@@ -25,6 +25,8 @@ from current_schema_receipt import (
     check_history,
     check_preservation,
     classify_startup_log,
+    classify_probe_failure,
+    classify_tls_conditions,
     need,
     validate_receipt,
 )
@@ -107,6 +109,7 @@ class Browser:
         self.port, self.cookies = port, {}
         self.origin = f"https://localhost:{port}"
         self.last_status = None
+        self.phase = "idle"
         # Private localhost fixture uses the existing Caddy tls-internal contract only.
         self.context = ssl._create_unverified_context()
 
@@ -127,10 +130,15 @@ class Browser:
             "localhost", self.port, context=self.context, timeout=10
         )
         try:
+            self.phase = "send_request"
             connection.request(method, path, body=body, headers=headers)
+            self.phase = "response_headers"
             response = connection.getresponse()
+            self.last_status = response.status
+            self.phase = "response_body"
             raw = response.read(65537)
             need(len(raw) <= 65536, "HTTP response exceeded bound")
+            self.phase = "response_cookies"
             for key, value in response.getheaders():
                 if key.lower() == "set-cookie":
                     parsed = SimpleCookie()
@@ -140,6 +148,7 @@ class Browser:
                             self.cookies.pop(name, None)
                         else:
                             self.cookies[name] = morsel.value
+            self.phase = "complete"
             return (
                 response.status,
                 dict((key.lower(), value) for key, value in response.getheaders()),
@@ -151,6 +160,7 @@ class Browser:
     def csrf(self):
         status, _, _ = self.request("GET", "/api/v1/auth/csrf")
         self.last_status = status
+        self.phase = "csrf_acceptance"
         need(
             status == 204 and self.cookies.get("XSRF-TOKEN"),
             "real CSRF endpoint failed",
@@ -862,9 +872,11 @@ class Lab:
             try:
                 probe.csrf()
                 return
-            except (OSError, ValueError, http.client.HTTPException):
+            except (OSError, ValueError, http.client.HTTPException) as error:
                 self.report["startup_last_probe"] = {"http_status": probe.last_status if type(probe.last_status) is int and 100 <= probe.last_status <= 599 else None,
-                                                     "issued_xsrf_cookie": bool(probe.cookies.get("XSRF-TOKEN"))}
+                                                     "issued_xsrf_cookie": bool(probe.cookies.get("XSRF-TOKEN")),
+                                                     "phase": probe.phase if probe.phase in {"idle", "send_request", "response_headers", "response_body", "response_cookies", "complete", "csrf_acceptance"} else "unknown",
+                                                     "failure": classify_probe_failure(error)}
                 time.sleep(1)
         self.startup_diagnostics()
         raise RuntimeError(
@@ -875,7 +887,7 @@ class Lab:
         # Exactly once on failed startup, before own cleanup. No raw logs, environment, requests or secrets emitted.
         diagnostics = {}
         for role, name in (("web", self.web), ("edge", self.edge)):
-            public = {"captured": False}
+            public: dict[str, object] = {"captured": False}
             try:
                 item = self.owned("container", name)
                 identifier = item["Id"]
@@ -893,6 +905,7 @@ class Lab:
                 raw = self.helpers._payload.capture_binary(["/bin/sh", "-c", 'exec /usr/bin/docker logs --tail 100 "$1" 2>&1',
                                                             "startup-diagnostic", identifier], max_bytes=131072, timeout_seconds=10)
                 public.update(classify_startup_log(raw))
+                public["tls_conditions"] = classify_tls_conditions(raw)
                 public["captured"] = True
             except Exception:
                 public["captured"] = False  # UNKNOWN remains a failed native qualification; never infer a cause.
