@@ -549,6 +549,10 @@ class NativeLab:
         self.continuity: Continuity | None = None
         self.api: LoopbackFixture | None = None
         self.functional: dict[str, Any] | None = None
+        self.opt_fd: int | None = None
+        self.opt_identity: tuple[int, int, int, int] | None = None
+        self.opt_original_mode: int | None = None
+        self.opt_changed = False
         self.marker_image_id: str | None = None
         self.executor: Any = None
         self.observer: Any = None
@@ -622,12 +626,82 @@ class NativeLab:
             raw_manifest = (self.args.workflow_source / "scripts/deploy/compatibility/old-oci" / (role + ".json")).read_bytes()
             self.report["old_images"][role] = bind_old_image(raw_manifest, image, pin, role=role, revision=self.pins["old_commit"])
 
+    def prepare_actions_opt_fixture(self):
+        # GitHub-hosted Ubuntu intentionally ships /opt mode0777. Normalize ONLY this top inode in this disposable VM.
+        require_actions()
+        need(self.opt_fd is None, "Actions /opt prerequisite cannot be repeated")
+        parent = Path("/").lstat()
+        need(stat.S_ISDIR(parent.st_mode) and parent.st_uid == parent.st_gid == 0 and not parent.st_mode & 0o022, "unsafe prerequisite parent")
+        descriptor = os.open("/opt", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            observed, visible = os.fstat(descriptor), Path("/opt").lstat()
+            identity = (observed.st_dev, observed.st_ino, observed.st_uid, observed.st_gid)
+            need(stat.S_ISDIR(observed.st_mode) and observed.st_uid == observed.st_gid == 0
+                 and stat.S_ISDIR(visible.st_mode) and (visible.st_dev, visible.st_ino, visible.st_uid, visible.st_gid) == identity
+                 and stat.S_IMODE(observed.st_mode) in {0o755, 0o777}, "unknown real hosted Actions /opt preimage")
+            self.opt_fd, self.opt_identity, self.opt_original_mode = descriptor, identity, stat.S_IMODE(observed.st_mode)
+            self.report["actions_opt_fixture"] = {"path": "/opt", "scope": "disposable_hosted_actions_only",
+                "original_mode": self.opt_original_mode, "fixture_mode": None, "restored_mode": None, "changed": False,
+                "root_owned": True, "non_recursive": True, "identity_unchanged": False,
+                "identity_sha256": sha(canonical(identity)), "restored": False}
+            if self.opt_original_mode == 0o777:
+                os.fchmod(descriptor, 0o755)
+                self.opt_changed = True
+                self.report["actions_opt_fixture"]["changed"] = True
+                os.fsync(descriptor)
+            after, visible = os.fstat(descriptor), Path("/opt").lstat()
+            need((after.st_dev, after.st_ino, after.st_uid, after.st_gid) == identity
+                 and (visible.st_dev, visible.st_ino, visible.st_uid, visible.st_gid) == identity
+                 and stat.S_ISDIR(visible.st_mode) and stat.S_IMODE(after.st_mode) == stat.S_IMODE(visible.st_mode) == 0o755,
+                 "Actions /opt prerequisite identity/mode drift")
+            self.report["actions_opt_fixture"]["fixture_mode"] = 0o755
+        except BaseException:
+            if self.opt_fd is None:
+                os.close(descriptor)
+            raise  # The main finally restores any known successful fchmod before reporting failure.
+
+    def restore_actions_opt_fixture(self):
+        if self.opt_fd is None:
+            return
+        descriptor = self.opt_fd
+        try:
+            observed, visible = os.fstat(descriptor), Path("/opt").lstat()
+            need(self.opt_identity is not None and self.opt_original_mode in {0o755, 0o777}
+                 and stat.S_ISDIR(visible.st_mode)
+                 and (observed.st_dev, observed.st_ino, observed.st_uid, observed.st_gid) == self.opt_identity
+                 and (visible.st_dev, visible.st_ino, visible.st_uid, visible.st_gid) == self.opt_identity
+                 and stat.S_IMODE(observed.st_mode) == stat.S_IMODE(visible.st_mode) == 0o755,
+                 "refuse restoring unknown Actions /opt identity/mode")
+            if self.opt_changed:
+                need(self.opt_original_mode == 0o777, "unknown Actions /opt changed preimage")
+                os.fchmod(descriptor, 0o777)
+                os.fsync(descriptor)
+            observed, visible = os.fstat(descriptor), Path("/opt").lstat()
+            need((observed.st_dev, observed.st_ino, observed.st_uid, observed.st_gid) == self.opt_identity
+                 and (visible.st_dev, visible.st_ino, visible.st_uid, visible.st_gid) == self.opt_identity
+                 and stat.S_ISDIR(visible.st_mode)
+                 and stat.S_IMODE(observed.st_mode) == stat.S_IMODE(visible.st_mode) == self.opt_original_mode,
+                 "Actions /opt preimage restoration unconfirmed")
+            self.report["actions_opt_fixture"].update(restored_mode=self.opt_original_mode, identity_unchanged=True, restored=True)
+        finally:
+            os.close(descriptor)
+            self.opt_fd = None
+
     def reserve_fresh_root(self):
+        self.report["stage"] = "actions_opt_fixture_prerequisite"
+        self.prepare_actions_opt_fixture()
+        self.report["stage"] = "fresh_owned_root_bootstrap"
+        self.report["fixture_ancestry"] = []
+        recorded = set()
         # Refuse before first mutation; this is not an installer for an existing host.
         for path in (*ROOTS, *ENTRIES):
             need(not path.exists() and not path.is_symlink(), "existing root fixture path refused")
             for parent in path.parents:
                 info = parent.lstat()
+                if str(parent) not in recorded:
+                    self.report["fixture_ancestry"].append({"path": str(parent), "uid": info.st_uid, "gid": info.st_gid,
+                        "mode": stat.S_IMODE(info.st_mode), "directory": stat.S_ISDIR(info.st_mode)})
+                    recorded.add(str(parent))
                 need(stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and info.st_gid == 0
                      and not info.st_mode & 0o022, "unsafe fixture ancestry")
         need(not self.docker("ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=duora"), "existing duora containers refused")
@@ -1117,6 +1191,10 @@ class NativeLab:
                     shutil.rmtree(root)
                 except Exception:
                     errors.append("root")
+        try:
+            self.restore_actions_opt_fixture()
+        except Exception:
+            errors.append("Actions-opt-restoration")
         return not errors
 
     def execute(self):

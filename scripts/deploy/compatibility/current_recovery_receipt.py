@@ -77,6 +77,18 @@ def validate_event_barriers(continuity: dict[str, Any]):
     sha(continuity["events_sha256"])
 
 
+def validate_actions_opt_fixture(value):
+    need(type(value) is dict and set(value) == {"path", "scope", "original_mode", "fixture_mode", "restored_mode", "changed", "root_owned", "non_recursive", "identity_unchanged", "identity_sha256", "restored"}, "exact hosted Actions /opt prerequisite receipt required")
+    need(value["path"] == "/opt" and value["scope"] == "disposable_hosted_actions_only"
+         and type(value["original_mode"]) is int and value["original_mode"] in {0o755, 0o777}
+         and type(value["fixture_mode"]) is int and value["fixture_mode"] == 0o755
+         and type(value["restored_mode"]) is int and value["restored_mode"] == value["original_mode"]
+         and type(value["changed"]) is bool and value["changed"] == (value["original_mode"] == 0o777)
+         and all(value[key] is True for key in ("root_owned", "non_recursive", "identity_unchanged", "restored")),
+         "unknown fixture preimage, drift or incomplete restoration")
+    sha(value["identity_sha256"])
+
+
 def validate_receipt(r, pins):
     need(r.get("schema") == 1 and type(r["schema"]) is int and r.get("scope") == SCOPE, "receipt scope")
     need(r.get("success") is True and r.get("payload_origin") == "local_cohort_build"
@@ -85,6 +97,7 @@ def validate_receipt(r, pins):
         need(r.get(name) is True, "missing native evidence flag: " + name)
     for name in FALSE:
         need(r.get(name) is False, "overclaimed boundary: " + name)
+    validate_actions_opt_fixture(r["actions_opt_fixture"])
     runtime, run, source = r["runtime"], r["run"], r["source"]
     need(runtime == {"system": "Linux", "architecture": "x86_64", "uid": 0,
                      "github_hosted": True, "python": "3.12"}, "native runtime")

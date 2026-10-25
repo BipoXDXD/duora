@@ -114,3 +114,15 @@ The config digest is explicitly derived from the frozen manifest, never describe
 Application and observer identities compare actual Docker IDs.
 The one new local migrator build and its same-job keeper handoff record only `docker_image_id`,
 without inventing an OCI config identity, registry provenance, another build or publication.
+
+
+## Disposable hosted Actions /opt prerequisite
+
+The Ubuntu runner image intentionally grants mode0777 to /opt. Before creating any fixed fixture path,
+the native root wrapper observes that exact directory by NOFOLLOW FD and requires root:root, canonical
+path/inode identity and only the known0755/0777 modes. On0777 it changes ONLY that top inode to0755,
+retains the FD/preimage and restores0777 in the main cleanup after rechecking the same root inode/mode.
+No recursion, content/SDK changes, chown, other parent repair, production host or Mac operation is permitted.
+An existing0755 inode is observed without chmod. Unknown state or unconfirmed restoration fails the receipt.
+The structured original/fixture/restored mode and identity evidence is required by the native parser.
+Source: https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-system.sh

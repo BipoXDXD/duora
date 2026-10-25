@@ -23,6 +23,7 @@ def sample():
     old = pins["old_commit"]
     result = {"schema": 1, "scope": SCOPE, "success": True, "payload_origin": "local_cohort_build", "control_plane": "CoolifyHTTP_fixture",
               **{key: True for key in TRUE}, **{key: False for key in FALSE},
+              "actions_opt_fixture": {"path": "/opt", "scope": "disposable_hosted_actions_only", "original_mode": 493, "fixture_mode": 493, "restored_mode": 493, "changed": False, "root_owned": True, "non_recursive": True, "identity_unchanged": True, "identity_sha256": h, "restored": True},
               "runtime": {"system": "Linux", "architecture": "x86_64", "uid": 0, "github_hosted": True, "python": "3.12"},
               "run": {"id": "1", "attempt": "1", "pull_request": 260, "workflow_sha": commit, "merge_sha": commit, "workflow_head": commit},
               "source": {"executor_sha256": EXECUTOR, "receiver_sha256": RECEIVER, "canonical_sql_sha256": SQL,
@@ -88,6 +89,17 @@ class NewReceiptBoundaryTests(unittest.TestCase):
             mutation(bad)
             with self.assertRaises((ValueError, KeyError, TypeError)):
                 validate_receipt(bad, pins)
+
+    def test_actions_opt_fixture_preimage_and_restore_are_required(self):
+        self.reject(lambda value: value.pop("actions_opt_fixture"))
+        for key, bad in (("path", "/usr/local"), ("scope", "production"), ("original_mode", 511),
+                         ("fixture_mode", 511), ("restored_mode", 511), ("changed", True),
+                         ("root_owned", False), ("non_recursive", False), ("identity_unchanged", False), ("restored", False)):
+            with self.subTest(key=key):
+                self.reject(lambda value: value["actions_opt_fixture"].__setitem__(key, bad))
+        value, pins = sample()
+        value["actions_opt_fixture"].update(original_mode=511, changed=True, restored_mode=511)
+        self.assertIs(validate_receipt(value, pins), value)
 
     def test_scoped_example_roundtrip(self):
         value, pins = sample()
