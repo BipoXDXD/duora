@@ -41,6 +41,26 @@ public sealed partial class PhotoReviewApprovalTests
         await AssertExpiredWithSystemProofAsync(item);
     }
 
+    [Fact]
+    public async Task ReviewExpirationSkipsADivergentOldestCaseWithoutStarvingLaterDeadlines()
+    {
+        var oldest = await CaseAsync();
+        _time.Advance(TimeSpan.FromSeconds(1));
+        var next = await CaseAsync();
+        _time.Advance(TimeSpan.FromHours(73));
+        await ExecuteAsync("update safety.photo_review_cases set candidate_generation=$2 where id=$1", oldest.CaseId, Guid.NewGuid());
+        var before = await ExpirationCaseProjectionAsync(oldest);
+        var files = Files();
+
+        Assert.Equal(1, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
+
+        await AssertExpiredWithSystemProofAsync(next);
+        Assert.Equal(before, await ExpirationCaseProjectionAsync(oldest));
+        Assert.Equal(files, Files());
+        Assert.Equal(0, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
+        Assert.Equal(before, await ExpirationCaseProjectionAsync(oldest));
+    }
+
     [Theory]
     [InlineData("approved")]
     [InlineData("rejected")]
@@ -254,6 +274,21 @@ public sealed partial class PhotoReviewApprovalTests
         await using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync(Ct);
         return await ReadExpirationProjectionAsync(connection, null, Ct);
+    }
+
+    private async Task<string> ExpirationCaseProjectionAsync(CaseData item)
+    {
+        await using var db = Context();
+        return await db.Database.SqlQuery<string>($"""
+            select jsonb_build_array(
+              (select to_jsonb(u) from media.uploads u where u.id={item.UploadId}),
+              (select to_jsonb(r) from safety.photo_review_cases r where r.id={item.CaseId}),
+              (select coalesce(jsonb_agg(to_jsonb(c) order by c.generation),'[]'::jsonb)
+                from media.review_candidates c where c.upload_id={item.UploadId}),
+              (select coalesce(jsonb_agg(to_jsonb(e) order by e.id),'[]'::jsonb)
+                from ops.audit_events e where e.target_type='photo_review_case' and e.target_id={item.CaseId})
+            )::text as "Value"
+            """).SingleAsync(Ct);
     }
 
     private static async Task<string> ReadExpirationProjectionAsync(NpgsqlConnection connection,
