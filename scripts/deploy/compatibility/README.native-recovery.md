@@ -173,3 +173,9 @@ source locations. Existing own-resource inspections add only hashed identity, ki
 endpoint count metadata, never raw names, messages, command output or secrets. A separate boolean records
 whether keeper cleanup was attempted, distinguishing an upstream refusal from a keeper-removal failure.
 No retry, extra force, unowned cleanup, existing-path repair or success-gate exception is introduced.
+
+The own-container cleanup enumeration requests --no-trunc so its IDs meet the unchanged full64hex marker
+guard. The native49a refusal was at that initial identity guard; the original enumeration requested only --quiet,
+whose default IDs are abbreviated. The old receipt did not record the raw ID length, so that length is inferred
+from the frozen command and documented CLI behavior. No shortened-ID acceptance or ownership/isolation
+exception is added. Marker verification and non-force removal remain mandatory.

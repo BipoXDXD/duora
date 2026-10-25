@@ -1210,7 +1210,7 @@ class NativeLab:
         if self.compose_ready:
             try:
                 phase = "enumerate_owned_containers"
-                for identifier in self.docker("ps", "--all", "--quiet", "--filter", "label=" + LABEL + "=" + self.nonce).split():
+                for identifier in self.docker("ps", "--all", "--quiet", "--no-trunc", "--filter", "label=" + LABEL + "=" + self.nonce).split():
                     phase = "verify_owned_container"
                     item = self.inspect("container", identifier)
                     labels = item["Config"]["Labels"]
