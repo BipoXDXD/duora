@@ -10,6 +10,8 @@ namespace Duora.Infrastructure.Safety;
 /// <summary>Initial-review reconciliation, never a human decision or a restore health certificate.</summary>
 internal sealed class PhotoReviewCandidateAvailability(IDbContextFactory<DuoraDbContext> contexts, IObjectStore store, TimeProvider time)
 {
+    private static readonly string[] VariantNames = ["card", "full", "thumb"];
+
     internal async Task<int> ReconcileAsync(Guid caseId, CancellationToken cancellationToken)
     {
         RequireOwnTransaction();
@@ -134,7 +136,7 @@ internal sealed class PhotoReviewCandidateAvailability(IDbContextFactory<DuoraDb
             select kind as "Kind",object_key as "ObjectKey",size_bytes as "SizeBytes",sha256 as "Sha256"
             from media.review_candidate_variants where generation={state.Generation} order by kind
             """).ToArrayAsync(cancellationToken);
-        if (variants.Length != 3 || !variants.Select(v => v.Kind).SequenceEqual(new[] { "card", "full", "thumb" })
+        if (variants.Length != 3 || !variants.Select(v => v.Kind).SequenceEqual(VariantNames)
             || variants.Any(v => v.SizeBytes is < 1 or > 16_777_216 || v.Sha256.Length != 32
                 || !PhotoVariants.All.Any(kind => PhotoVariants.Name(kind) == v.Kind
                     && v.ObjectKey == ObjectKey.ForReviewCandidate(state.Generation, kind).Value)))
