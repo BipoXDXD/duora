@@ -97,12 +97,18 @@ public sealed class PostgresFixture : IAsyncLifetime
     internal string ContainerId => _container.Id;
 
     /// <summary>Disposable test-only admin connection for scratch role membership regressions; never logged.</summary>
-    internal string ScratchSuperuserConnectionString(ScratchDatabase database) =>
-        new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+    internal string ScratchSuperuserConnectionString(ScratchDatabase database)
+    {
+        if (!_scratchDatabases.TryGetValue(database.Name, out var registered) || !ReferenceEquals(registered, database))
+        {
+            throw new InvalidOperationException("Only this fixture's registered scratch handle may obtain test administration.");
+        }
+        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
         {
             Database = database.Name,
             Pooling = false,
         }.ConnectionString;
+    }
 
     /// <summary>Conexão do migrador, dono das tabelas: para inspecionar o catálogo sem o filtro de privilégios do
     /// <c>information_schema</c> e para ler o histórico de migrations, que o app não enxerga.</summary>

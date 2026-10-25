@@ -98,7 +98,10 @@ END $$;
 DO $$
 DECLARE review_table text;
 BEGIN
-  FOREACH review_table IN ARRAY ARRAY['media.review_promotion_variants','safety.photo_review_assignments','safety.photo_review_commands',
+  FOREACH review_table IN ARRAY ARRAY['media.review_promotion_variants',
+    'safety.photo_review_appeal_assignment_commands','safety.photo_review_appeal_assignments',
+    'safety.photo_review_appeal_commands','safety.photo_review_appeal_evidence_accesses',
+    'safety.photo_review_assignments','safety.photo_review_commands',
     'safety.photo_review_decision_commands','safety.photo_review_decision_variants','safety.photo_review_decisions',
     'safety.photo_review_evidence_accesses'] LOOP
     IF to_regclass(review_table) IS NOT NULL THEN
@@ -110,4 +113,16 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
+END $$;
+
+-- The mutable appeal root must retain SELECT/INSERT/UPDATE; deletion must never erase its retained history.
+DO $$
+BEGIN
+  IF to_regclass('safety.photo_review_appeals') IS NOT NULL THEN
+    REVOKE DELETE, TRUNCATE ON safety.photo_review_appeals FROM duora_app;
+    IF has_table_privilege('duora_app', 'safety.photo_review_appeals', 'DELETE')
+       OR has_table_privilege('duora_app', 'safety.photo_review_appeals', 'TRUNCATE') THEN
+      RAISE EXCEPTION 'duora_app may not rewrite photo review history through appeal root deletion';
+    END IF;
+  END IF;
 END $$;

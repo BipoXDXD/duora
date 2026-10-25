@@ -904,8 +904,11 @@ path, URL ou texto sensível. Decisão do recurso, encerramento/coleta e restore
 O histórico append-only `safety.photo_review_appeal_evidence_accesses` registra leituras privadas de recurso:
 `id`, raiz/versão, atribuição, ator, decisão humana original, geração, política, variante, hash e instante finito.
 A FK composta prende atribuição/raiz/versão/revisor; outra FK prende decisão/variante. Não armazena bytes,
-chave de objeto ou sessão. UPDATE/DELETE/TRUNCATE são recusados a `duora_app`; os REVOKEs precisam integrar
-a reconciliação canônica do #226 antes de instalar. Acesso não estende retenção nem modifica a decisão.
+chave de objeto ou sessão. UPDATE/DELETE/TRUNCATE são recusados a `duora_app` pela migration e pelo SQL
+canônico do migrador. A raiz mutável de recurso preserva SELECT/INSERT/UPDATE e perde DELETE/TRUNCATE.
+O candidato inclui verificações adversariais de grants diretos, PUBLIC e roles herdados, com rollback da
+reconciliação inteira em caso de privilégio residual. Qualificação da composição e aceite operacional
+continuam gates antes de instalar. Acesso não estende retenção nem modifica a decisão.
 
 ### safety.photo_review_appeal_assignments / safety.photo_review_appeal_assignment_commands — atribuição de recurso
 

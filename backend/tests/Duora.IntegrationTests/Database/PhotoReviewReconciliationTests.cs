@@ -9,6 +9,10 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
 {
     private static readonly Dictionary<string, string> ProtectedTables = new Dictionary<string, string>
     {
+        ["safety.photo_review_appeal_assignment_commands"] = "actor_id",
+        ["safety.photo_review_appeal_assignments"] = "id",
+        ["safety.photo_review_appeal_commands"] = "actor_id",
+        ["safety.photo_review_appeal_evidence_accesses"] = "id",
         ["safety.photo_review_grants"] = "id",
         ["safety.photo_review_assignments"] = "id",
         ["safety.photo_review_commands"] = "actor_id",
@@ -20,13 +24,16 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
     };
     private static readonly string[] ForbiddenPrivileges = ["UPDATE", "DELETE", "TRUNCATE"];
     private static readonly string[] InheritedGrantTargets =
-        ["safety.photo_review_grants", "safety.photo_review_evidence_accesses"];
+        ["safety.photo_review_grants", "safety.photo_review_evidence_accesses",
+            "safety.photo_review_appeal_assignment_commands", "safety.photo_review_appeal_assignments",
+            "safety.photo_review_appeal_commands", "safety.photo_review_appeal_evidence_accesses", "safety.photo_review_appeals"];
+    private const string AppealRoot = "safety.photo_review_appeals";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task ReconciliationRepairsAllEightHistoriesWithoutChangingRowsSchemaOrLegitimateAppend()
+    public async Task ReconciliationRepairsAllTwelveHistoriesWithoutChangingRowsSchemaOrLegitimateAppend()
     {
-        var database = await CreateMigratedAsync();
+        await using var database = await CreateMigratedAsync();
         await using var owner = new NpgsqlConnection(database.MigratorConnectionString);
         await owner.OpenAsync(Ct);
         var user = await RoleSeparationTests.InsertUserAsync(owner);
@@ -43,6 +50,9 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
                 Assert.True(await HasPrivilegeAsync(owner, table, privilege));
             }
         }
+        await ExecuteAsync(owner, $"grant delete, truncate on table {AppealRoot} to duora_app");
+        Assert.True(await HasPrivilegeAsync(owner, AppealRoot, "DELETE"));
+        Assert.True(await HasPrivilegeAsync(owner, AppealRoot, "TRUNCATE"));
 
         await postgres.ReconcilePrivilegesAsync(database.Name, Ct);
 
@@ -72,6 +82,39 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
         }
         await InsertGrantAsync(app, user, 3, enabled: true);
         Assert.Equal("1:true,2:false,3:true", await GrantsAsync(owner, user));
+        Assert.True(await HasPrivilegeAsync(owner, AppealRoot, "SELECT"));
+        Assert.True(await HasPrivilegeAsync(owner, AppealRoot, "INSERT"));
+        Assert.True(await HasPrivilegeAsync(owner, AppealRoot, "UPDATE"));
+        foreach (var sql in new[] { $"delete from {AppealRoot} where false", $"truncate {AppealRoot}" })
+        {
+            await using var transaction = await app.BeginTransactionAsync(Ct);
+            await using var command = new NpgsqlCommand(sql, app, transaction);
+            var error = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync(Ct));
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+            await transaction.RollbackAsync(Ct);
+        }
+        await ExecuteAsync(app, $"update {AppealRoot} set version=version where false");
+        await postgres.ReconcilePrivilegesAsync(database.Name, Ct);
+        Assert.Equal(history, await HistoryAsync(owner));
+        Assert.Equal(schema, await SchemaAsync(owner));
+        Assert.Equal("1:true,2:false,3:true", await GrantsAsync(owner, user));
+    }
+
+    [Fact]
+    public async Task ScratchTestAdministrationRejectsForgedOrSharedDatabaseHandles()
+    {
+        await using var database = await postgres.CreateEmptyDatabaseAsync(Ct);
+        foreach (var forged in new[] { database with { }, database with { Name = PostgresFixture.DatabaseName } })
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                _ = postgres.ScratchSuperuserConnectionString(forged);
+            });
+        }
+        await using var owner = new NpgsqlConnection(postgres.ScratchSuperuserConnectionString(database));
+        await owner.OpenAsync(Ct);
+        await using var command = new NpgsqlCommand("select current_database()", owner);
+        Assert.Equal(database.Name, await command.ExecuteScalarAsync(Ct));
     }
 
     [Theory]
@@ -81,11 +124,25 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
     [InlineData("safety.photo_review_evidence_accesses", "UPDATE")]
     [InlineData("safety.photo_review_evidence_accesses", "DELETE")]
     [InlineData("safety.photo_review_evidence_accesses", "TRUNCATE")]
+    [InlineData("safety.photo_review_appeal_assignment_commands", "UPDATE")]
+    [InlineData("safety.photo_review_appeal_assignment_commands", "DELETE")]
+    [InlineData("safety.photo_review_appeal_assignment_commands", "TRUNCATE")]
+    [InlineData("safety.photo_review_appeal_assignments", "UPDATE")]
+    [InlineData("safety.photo_review_appeal_assignments", "DELETE")]
+    [InlineData("safety.photo_review_appeal_assignments", "TRUNCATE")]
+    [InlineData("safety.photo_review_appeal_commands", "UPDATE")]
+    [InlineData("safety.photo_review_appeal_commands", "DELETE")]
+    [InlineData("safety.photo_review_appeal_commands", "TRUNCATE")]
+    [InlineData("safety.photo_review_appeal_evidence_accesses", "UPDATE")]
+    [InlineData("safety.photo_review_appeal_evidence_accesses", "DELETE")]
+    [InlineData("safety.photo_review_appeal_evidence_accesses", "TRUNCATE")]
+    [InlineData("safety.photo_review_appeals", "DELETE")]
+    [InlineData("safety.photo_review_appeals", "TRUNCATE")]
     public async Task PublicPrivilegesRefuseEitherBlockAndRollBackAllReconciliationRevokes(string table, string privilege)
     {
-        Assert.Contains(table, ProtectedTables.Keys);
+        Assert.Contains(table, ProtectedTables.Keys.Append(AppealRoot));
         Assert.Contains(privilege, ForbiddenPrivileges);
-        var database = await CreateMigratedAsync();
+        await using var database = await CreateMigratedAsync();
         await using var owner = new NpgsqlConnection(database.MigratorConnectionString);
         await owner.OpenAsync(Ct);
         var history = await HistoryAsync(owner);
@@ -116,13 +173,17 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
         // pg_auth_members is cluster-wide: a private server avoids racing the shared role-inventory tests.
         await using var isolated = new PostgresFixture();
         await isolated.InitializeAsync();
-        var database = await CreateMigratedAsync(isolated);
+        await using var database = await CreateMigratedAsync(isolated);
         await using var admin = new NpgsqlConnection(isolated.ScratchSuperuserConnectionString(database));
         await admin.OpenAsync(Ct);
         foreach (var table in InheritedGrantTargets)
         {
             foreach (var privilege in ForbiddenPrivileges)
             {
+                if (table == AppealRoot && privilege == "UPDATE")
+                {
+                    continue; // UPDATE is legitimate for a mutable appeal root; never revoke it.
+                }
                 var role = "review_acl_" + Guid.NewGuid().ToString("N");
                 await ExecuteAsync(admin, $"create role {role} nologin");
                 try
@@ -147,6 +208,7 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
                 await isolated.ReconcilePrivilegesAsync(database.Name, Ct);
                 Assert.False(await HasPrivilegeAsync(admin, table, privilege));
                 Assert.False(await HasPrivilegeAsync(admin, "safety.photo_review_grants", "UPDATE"));
+                Assert.True(await HasPrivilegeAsync(admin, AppealRoot, "UPDATE"));
             }
         }
     }
@@ -154,11 +216,11 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
     [Fact]
     public async Task CanonicalPayloadBeforeReviewMigrationsDoesNotCreateSchemaOrFabricateMigrationHistory()
     {
-        var database = await postgres.CreateEmptyDatabaseAsync(Ct);
+        await using var database = await postgres.CreateEmptyDatabaseAsync(Ct);
         await using var owner = new NpgsqlConnection(database.MigratorConnectionString);
         await owner.OpenAsync(Ct);
         await postgres.ReconcilePrivilegesAsync(database.Name, Ct);
-        foreach (var table in ProtectedTables.Keys.Append("ops.__ef_migrations_history"))
+        foreach (var table in ProtectedTables.Keys.Append(AppealRoot).Append("ops.__ef_migrations_history"))
         {
             await using var absent = new NpgsqlCommand("select to_regclass($1) is null", owner);
             absent.Parameters.AddWithValue(table);
@@ -174,17 +236,13 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
             Assert.False(await HasPrivilegeAsync(owner, table, "UPDATE"));
             Assert.True(await HasPrivilegeAsync(owner, table, "INSERT"));
         }
+        Assert.True(await HasPrivilegeAsync(owner, AppealRoot, "UPDATE"));
+        Assert.False(await HasPrivilegeAsync(owner, AppealRoot, "DELETE"));
+        Assert.False(await HasPrivilegeAsync(owner, AppealRoot, "TRUNCATE"));
     }
 
-    private async Task<ScratchDatabase> CreateMigratedAsync(PostgresFixture? fixture = null)
-    {
-        var server = fixture ?? postgres;
-        var database = await server.CreateEmptyDatabaseAsync(Ct);
-        await using var db = PostgresFixture.CreateDbContext(database.MigratorConnectionString);
-        await db.Database.MigrateAsync(Ct);
-        await server.ReconcilePrivilegesAsync(database.Name, Ct);
-        return database;
-    }
+    private Task<ScratchDatabase> CreateMigratedAsync(PostgresFixture? fixture = null) =>
+        (fixture ?? postgres).CreateMigratedScratchDatabaseAsync(Ct);
 
     private static async Task ExecuteAsync(NpgsqlConnection connection, string sql, CancellationToken? cancellationToken = null)
     {
@@ -223,7 +281,7 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
               from pg_index i join targets t on t.oid=i.indrelid)
             select string_agg(definition,E'\n' order by definition) from definitions
             """, connection);
-        command.Parameters.AddWithValue(ProtectedTables.Keys.ToArray());
+        command.Parameters.AddWithValue(ProtectedTables.Keys.Append(AppealRoot).ToArray());
         return (string)(await command.ExecuteScalarAsync(Ct))!;
     }
 
