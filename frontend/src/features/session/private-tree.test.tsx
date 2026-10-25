@@ -8,7 +8,7 @@ import { createQueryClient } from '@/app/query-client'
 import { apiClient } from '@/shared/api'
 import { I18nProvider } from '@/shared/i18n/I18nProvider'
 import { API, problem, server } from '@/test/msw'
-import { withSessionContext } from '@/test/private-context'
+import { installTestMe, withSessionContext } from '@/test/private-context'
 import { RequireSession } from './RequireSession'
 import { usePrivateOperation } from './private-operation'
 import { meQueryKey } from './query-keys'
@@ -48,8 +48,7 @@ function Probe() {
     </section>
   )
 }
-function mount(path = '/account') {
-  const cache = createQueryClient()
+function mount(path = '/account', cache = createQueryClient()) {
   render(
     <I18nProvider initialLocale="pt-BR">
       <QueryClientProvider client={cache}>
@@ -133,4 +132,35 @@ describe('árvore privada vinculada ao bootstrap', () => {
     })
     cache.clear()
   })
+})
+
+it('não monta o owner em cache ao voltar até o bootstrap desta montagem concluir', async () => {
+  let release!: () => void
+  let arrived!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const requested = new Promise<void>((resolve) => {
+    arrived = resolve
+  })
+  server.use(
+    http.get(`${API}/me`, async () => {
+      arrived()
+      await held
+      return problem(503, 'TEMPORARILY_UNAVAILABLE')
+    }),
+  )
+  const me = installTestMe({ ...ACCOUNT, status: 'Active' })
+  const cache = createQueryClient()
+  cache.setQueryData(meQueryKey, me)
+  mount('/account', cache)
+  await requested
+  try {
+    expect(screen.queryByText('private-tree')).not.toBeInTheDocument()
+  } finally {
+    release()
+  }
+  await screen.findByText('Não foi possível carregar sua conta.')
+  expect(screen.queryByText('private-tree')).not.toBeInTheDocument()
+  cache.clear()
 })

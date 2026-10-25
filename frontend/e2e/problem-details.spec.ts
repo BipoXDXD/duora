@@ -1,3 +1,4 @@
+import { withSessionContext, passwordChangeBootstrap } from './support/private-context.ts'
 import { AxeBuilder } from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { FakeDuoraApi } from './support/fake-api.ts'
@@ -157,7 +158,18 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
 
     test('MFA enrollment and restricted password form ignore server text', async ({ page }) => {
       await FakeDuoraApi.install(page)
-      await fail(page, '/me', [403, 'MFA_ENROLLMENT_REQUIRED'])
+      await page.route('**/api/v1/me', (route) =>
+        route.fulfill({
+          json: withSessionContext({
+            id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
+            email: 'synthetic@example.test',
+            status: 'Active',
+            emailConfirmed: true,
+            mfaEnabled: false,
+            roles: ['operator'],
+          }),
+        }),
+      )
       await fail(page, '/me/mfa/enrollments', [503, 'TEMPORARILY_UNAVAILABLE'])
       await page.goto('/account/enable-mfa')
       await page
@@ -165,7 +177,13 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
         .click()
       await safeAlert(page)
       await page.unroute('**/api/v1/me')
-      await fail(page, '/me', [403, 'PASSWORD_CHANGE_REQUIRED'])
+      await page.route('**/api/v1/me', (route) =>
+        route.fulfill({
+          status: 403,
+          contentType: 'application/problem+json',
+          json: { ...passwordChangeBootstrap('0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'), title: CANARY, detail: CANARY },
+        }),
+      )
       await fail(page, '/me/password-changes', [400, 'VALIDATION_FAILED'])
       await page.goto('/change-initial-password')
       await page.getByLabel(pt ? 'Senha temporária' : 'Temporary password', { exact: true }).fill(PASSWORD)
@@ -173,6 +191,19 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       await page.getByLabel(pt ? 'Confirme a nova senha' : 'Confirm new password', { exact: true }).fill(PASSWORD)
       await page.getByRole('button', { name: pt ? 'Salvar senha nova' : 'Save new password', exact: true }).click()
       await safeAlert(page)
+    })
+
+    test('unsupported or untyped bootstrap403 remains blocked without provisioning', async ({ page }) => {
+      await FakeDuoraApi.install(page)
+      for (const code of ['MFA_ENROLLMENT_REQUIRED', 'PASSWORD_CHANGE_REQUIRED']) {
+        await fail(page, '/me', [403, code])
+        await page.goto(code === 'MFA_ENROLLMENT_REQUIRED' ? '/account/enable-mfa' : '/change-initial-password')
+        await safeAlert(page)
+        await expect(
+          page.getByRole('button', { name: pt ? 'Configurar autenticador' : 'Set up authenticator', exact: true }),
+        ).toHaveCount(0)
+        await expect(page.getByLabel(pt ? 'Senha temporária' : 'Temporary password', { exact: true })).toHaveCount(0)
+      }
     })
 
     test('session bootstrap failure uses localized fallback', async ({ page }) => {

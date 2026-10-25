@@ -109,14 +109,21 @@ export function createPrivateAudioCoordinator(dependencies: AudioDependencies): 
             const description = inspectCanonicalPcm(encoded)
             const decoded = await context.decodeAudioData(encoded.buffer)
             assertCurrent()
+            // A conversão pode terminar no último instante amostrado ou no fim nominal do WAV.
+            // A janela deriva de UM intervalo da origem, sem padding nem tolerância temporal arbitrária.
+            const minimumFrames =
+              Math.floor(((description.frames - 1) * context.sampleRate) / description.sampleRate) + 1
+            const maximumFrames = Math.ceil((description.frames * context.sampleRate) / description.sampleRate)
             if (
               decoded.numberOfChannels !== description.channels ||
               decoded.sampleRate !== context.sampleRate ||
-              decoded.length < 1 ||
+              !Number.isSafeInteger(decoded.length) ||
+              decoded.length < minimumFrames ||
+              decoded.length > maximumFrames ||
               decoded.length * decoded.numberOfChannels * 4 > MAX_AUDIO_PCM_BYTES ||
               !Number.isFinite(decoded.duration) ||
               decoded.duration > 60 ||
-              Math.abs(decoded.duration - description.duration) > 1 / context.sampleRate
+              decoded.duration !== decoded.length / decoded.sampleRate
             )
               throw new Error('audio-format')
             buffer = decoded

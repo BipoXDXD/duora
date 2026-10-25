@@ -72,9 +72,10 @@ internal sealed class IdentityScenario(string connectionString, DuoraWebFactory 
     /// de uma conta privilegiada já ativa. O caminho de produção é o bootstrap (<c>admin grant</c>), coberto por
     /// <see cref="AdminBootstrapTests"/>; não existe rota pública que conceda papel.
     /// </summary>
-    public async Task<TestAccount> CreatePrivilegedAccountAsync(string role = Duora.Core.Identity.AccountRoles.Moderator)
+    public async Task<TestAccount> CreatePrivilegedAccountAsync(
+        string role = Duora.Core.Identity.AccountRoles.Moderator, string password = ValidPassword)
     {
-        var account = await CreateConfirmedAccountAsync();
+        var account = await CreateConfirmedAccountAsync(password);
         // O cadastro grava o papel de participante (D13); a conta privilegiada de teste troca de papel, o que o
         // bootstrap nunca faz (ele só cria conta nova, já privilegiada).
         await ScalarAsync(

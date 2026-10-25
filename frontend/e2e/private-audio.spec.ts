@@ -20,6 +20,34 @@ function canonicalWave(): Buffer {
 }
 
 test('player privado: gesto, teclado e PCM real com a CSP literal da borda', async ({ page, baseURL }) => {
+  await page.addInitScript(() => {
+    if (typeof AudioContext === 'undefined') return
+    class ObservedAudioContext extends AudioContext {
+      override async decodeAudioData(data: ArrayBuffer): Promise<AudioBuffer> {
+        const inputBytes = data.byteLength
+        try {
+          const decoded = await super.decodeAudioData(data)
+          Reflect.set(window, '__syntheticPcmDecode', {
+            inputBytes,
+            contextRate: this.sampleRate,
+            decodedRate: decoded.sampleRate,
+            channels: decoded.numberOfChannels,
+            frames: decoded.length,
+            duration: decoded.duration,
+          })
+          return decoded
+        } catch (error) {
+          Reflect.set(window, '__syntheticPcmDecode', {
+            inputBytes,
+            contextRate: this.sampleRate,
+            error: error instanceof Error ? error.name : 'unknown',
+          })
+          throw error
+        }
+      }
+    }
+    Reflect.set(window, 'AudioContext', ObservedAudioContext)
+  })
   const caddyfile = readFileSync(new URL('../../infra/caddy/Caddyfile', import.meta.url), 'utf8')
   const csp = /^\s*Content-Security-Policy "([^"]+)"$/m.exec(caddyfile)?.[1]
   expect(csp).toBeDefined()
@@ -107,7 +135,16 @@ test('player privado: gesto, teclado e PCM real com a CSP literal da borda', asy
   await expect(play).toHaveAttribute('aria-disabled', 'true')
   releaseAudio?.()
   const pause = page.getByRole('button', { name: 'Pausar áudio', exact: true })
-  await expect(pause).toBeFocused()
+  try {
+    await expect(pause).toBeFocused()
+  } catch (error) {
+    const diagnostic: unknown = await page.evaluate(() => {
+      const value: unknown = Reflect.get(window, '__syntheticPcmDecode')
+      return value
+    })
+    console.info('Synthetic PCM decoder metadata:', JSON.stringify(diagnostic))
+    throw error
+  }
   const sound = page.getByRole('button', { name: 'Ativar som', exact: true })
   await expect(sound).toHaveAttribute('aria-pressed', 'false')
   await sound.click()

@@ -180,9 +180,25 @@ public sealed class PrivateOperationContextTests(PostgresFixture postgres) : IAs
     }
 
     [Fact]
+    public async Task RoutingRejectionRetainsThePrivatePurposeAndNeverReachesTheUploadHandler()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        var binding = await BootstrapAsync(browser);
+        using var valid = await RawAsync(browser, HttpMethod.Post, "/api/v1/me/photos", binding.Proof, new { invalid = "synthetic" });
+        using var publicProof = await RawAsync(browser, HttpMethod.Post, "/api/v1/me/photos", browser.Cookie("XSRF-TOKEN"), new { invalid = "synthetic" });
+        using var missingProof = await RawAsync(browser, HttpMethod.Post, "/api/v1/me/photos", proof: null, body: new { invalid = "synthetic" });
+
+        await ProblemAssert.IsProblemAsync(valid, HttpStatusCode.UnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE");
+        await ProblemAssert.IsProblemAsync(publicProof, HttpStatusCode.Forbidden, "CSRF_VALIDATION_FAILED");
+        await ProblemAssert.IsProblemAsync(missingProof, HttpStatusCode.Forbidden, "CSRF_VALIDATION_FAILED");
+        Assert.Equal(0, await Scenario.ScalarAsync("select count(*) from media.uploads where owner_id=$1", account.UserId));
+    }
+
+    [Fact]
     public async Task RestrictedPasswordBootstrapCarriesContextOnlyOnMeAndDoesNotGrantOtherRoutes()
     {
-        var account = await Scenario.CreatePrivilegedAccountAsync(AccountRoles.Operator);
+        var account = await Scenario.CreatePrivilegedAccountAsync(AccountRoles.Operator, password: Duora.Infrastructure.Identity.TemporaryPassword.Generate());
         await Scenario.ScalarAsync(
             "update identity.users set temporary_password_expires_at=now()+interval '1 hour' where id=$1 returning 1",
             account.UserId);

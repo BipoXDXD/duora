@@ -33,6 +33,7 @@ export function RequireSession(): React.JSX.Element {
   const [retrying, setRetrying] = useState(false)
   const restrictionError = me.error instanceof SessionRestrictionError ? me.error : null
   const pairedOwner = restrictionError?.owner ?? me.data?.owner
+  const [entryHadPendingBootstrap] = useState(() => state.pendingOwner !== null && pairedOwner === state.pendingOwner)
   const active = pairedOwner !== undefined && pairedOwner === state.owner && !state.protected
   const retry = async (): Promise<void> => {
     setRetrying(true)
@@ -76,7 +77,7 @@ export function RequireSession(): React.JSX.Element {
         queryClient={queryClient}
         installation={{ epoch: state.transitionEpoch, owner: state.pendingOwner }}
       >
-        <p role="status" className="text-text-muted">
+        <p role="status" data-route-pending className="text-text-muted">
           {t('account.loading')}
         </p>
       </PendingOwnerInstallation>
@@ -84,7 +85,7 @@ export function RequireSession(): React.JSX.Element {
   }
   if (state.protected && (security.phase === 'pending' || me.fetchStatus === 'fetching')) {
     return (
-      <p role="status" className="text-text-muted">
+      <p role="status" data-route-pending className="text-text-muted">
         {t('account.loading')}
       </p>
     )
@@ -93,6 +94,14 @@ export function RequireSession(): React.JSX.Element {
   const restriction = restrictionError === null ? null : paths.changePassword
   if (failure !== null && isUnauthorized(failure)) {
     return <RedirectToLogin sessionExpired={me.data !== undefined} />
+  }
+  // A cached owner from an earlier private visit cannot mount before this visit's bootstrap settles.
+  if (active && !entryHadPendingBootstrap && !me.isFetchedAfterMount) {
+    return (
+      <p role="status" data-route-pending className="text-text-muted">
+        {t('account.loading')}
+      </p>
+    )
   }
   if (active && restriction !== null) {
     return (
@@ -146,7 +155,7 @@ export function RequireSession(): React.JSX.Element {
     )
   }
   return (
-    <p role="status" className="text-text-muted">
+    <p role="status" data-route-pending className="text-text-muted">
       <DocumentTitle page={t('account.title')} />
       {t('account.loading')}
     </p>

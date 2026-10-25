@@ -114,6 +114,92 @@ describe('um slot de áudio privado por página', () => {
     expect(current.audio.value.createBufferSource).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { sampleRate: 8_000, frames: 64_000, targetRate: 48_000, decodedFrames: 383_995 },
+    { sampleRate: 8_000, frames: 64_000, targetRate: 48_000, decodedFrames: 384_000 },
+    { sampleRate: 44_100, frames: 352_800, targetRate: 48_000, decodedFrames: 383_999 },
+    { sampleRate: 48_000, frames: 384_000, targetRate: 48_000, decodedFrames: 384_000 },
+    { sampleRate: 48_000, frames: 384_000, targetRate: 8_000, decodedFrames: 64_000 },
+  ])(
+    'aceita PCM completo $sampleRate Hz/$frames frames convertido a$targetRate Hz/$decodedFrames frames',
+    async ({ sampleRate, frames, targetRate, decodedFrames }) => {
+      const current = fixture(
+        () =>
+          Promise.resolve(new Response(pcmWave({ sampleRate, frames }), { headers: { 'Content-Type': 'audio/wav' } })),
+        fakeAudioContext({
+          sampleRate: targetRate,
+          decode: () =>
+            Promise.resolve(
+              fakePcmBuffer({
+                sampleRate: targetRate,
+                length: decodedFrames,
+                duration: decodedFrames / targetRate,
+              }),
+            ),
+        }),
+      )
+      const operation = current.store.begin(current.owner)
+      const lease = current.coordinator.acquire(operation)
+      await loadOwnedAudio(operation, PATH, lease)
+      expect(lease.getSnapshot()).toMatchObject({ phase: 'ready', duration: decodedFrames / targetRate })
+      await lease.play()
+      expect(lease.getSnapshot().phase).toBe('playing')
+      lease.dispose()
+    },
+  )
+
+  it.each([
+    { sampleRate: 8_000, frames: 64_000, targetRate: 48_000, decodedFrames: 383_994 },
+    { sampleRate: 8_000, frames: 64_000, targetRate: 48_000, decodedFrames: 384_001 },
+    { sampleRate: 44_100, frames: 352_800, targetRate: 48_000, decodedFrames: 383_998 },
+    { sampleRate: 48_000, frames: 384_000, targetRate: 48_000, decodedFrames: 383_999 },
+    { sampleRate: 48_000, frames: 384_000, targetRate: 48_000, decodedFrames: 384_001 },
+    { sampleRate: 48_000, frames: 384_000, targetRate: 8_000, decodedFrames: 63_999 },
+    { sampleRate: 48_000, frames: 384_000, targetRate: 8_000, decodedFrames: 64_001 },
+  ])(
+    'recusa PCM fora da janela $sampleRate Hz/$frames frames para$targetRate Hz/$decodedFrames frames',
+    async ({ sampleRate, frames, targetRate, decodedFrames }) => {
+      const current = fixture(
+        () =>
+          Promise.resolve(new Response(pcmWave({ sampleRate, frames }), { headers: { 'Content-Type': 'audio/wav' } })),
+        fakeAudioContext({
+          sampleRate: targetRate,
+          decode: () =>
+            Promise.resolve(
+              fakePcmBuffer({
+                sampleRate: targetRate,
+                length: decodedFrames,
+                duration: decodedFrames / targetRate,
+              }),
+            ),
+        }),
+      )
+      const operation = current.store.begin(current.owner)
+      const lease = current.coordinator.acquire(operation)
+      await expect(loadOwnedAudio(operation, PATH, lease)).rejects.toThrow('audio-format')
+      expect(lease.getSnapshot().phase).toBe('disposed')
+      expect(current.audio.value.createBufferSource).not.toHaveBeenCalled()
+    },
+  )
+
+  it('WAV truncado e recusa HTTP de prova privada não chegam ao decoder', async () => {
+    for (const response of [
+      new Response(pcmWave({ frames: 64_000 }).slice(0, -2), { headers: { 'Content-Type': 'audio/wav' } }),
+      new Response(
+        JSON.stringify({ type: 'about:blank', title: 'Forbidden', status: 403, code: 'CSRF_VALIDATION_FAILED' }),
+        { status: 403, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    ]) {
+      const current = fixture(() => Promise.resolve(response))
+      const operation = current.store.begin(current.owner)
+      const lease = current.coordinator.acquire(operation)
+      await expect(loadOwnedAudio(operation, PATH, lease)).rejects.toBeInstanceOf(Error)
+      expect(lease.getSnapshot().phase).toBe('disposed')
+      expect(current.audio.value.decodeAudioData).not.toHaveBeenCalled()
+      expect(current.audio.value.createBufferSource).not.toHaveBeenCalled()
+    }
+  })
+
   it('decode não cancelável mantém o slot ocupado entre árvores até seu finally, sem som tardio', async () => {
     let resolve!: (value: AudioBuffer) => void
     let entered!: () => void

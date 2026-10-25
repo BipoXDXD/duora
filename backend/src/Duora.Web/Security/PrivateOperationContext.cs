@@ -17,10 +17,26 @@ internal static class PrivateOperationContext
 {
     private static readonly object PrivateIssuance = new();
 
+    // Routing errors (404/405/415) can select an endpoint without the group's metadata.
+    private static readonly HashSet<string> PublicErrorRoutes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "GET /api/v1/auth/csrf",
+        "GET /api/v1/me",
+        "POST /api/v1/auth/register",
+        "POST /api/v1/auth/confirm-email",
+        "POST /api/v1/auth/email-confirmation-requests",
+        "POST /api/v1/auth/login",
+        "POST /api/v1/auth/password-reset-requests",
+        "POST /api/v1/auth/password-resets",
+    };
+
+
     public static bool RequiresPrivateProof(HttpContext context)
     {
         var metadata = context.GetEndpoint()?.Metadata;
-        if (metadata?.GetMetadata<SessionAwareLogoutEndpoint>() is not null)
+        var route = $"{context.Request.Method} {context.Request.Path.Value?.TrimEnd('/')}";
+        if (metadata?.GetMetadata<SessionAwareLogoutEndpoint>() is not null
+            || string.Equals(route, "POST /api/v1/auth/logout", StringComparison.OrdinalIgnoreCase))
         {
             return context.User.Identity?.IsAuthenticated == true;
         }
@@ -30,7 +46,9 @@ internal static class PrivateOperationContext
         {
             return false;
         }
-        return metadata?.GetMetadata<PrivateOperationEndpoint>() is not null;
+        return metadata?.GetMetadata<PrivateOperationEndpoint>() is not null
+            || (context.Request.Path.StartsWithSegments("/api/v1", StringComparison.OrdinalIgnoreCase)
+                && !PublicErrorRoutes.Contains(route));
     }
 
     public static PrivateSessionContextResponse Issue(HttpContext context, IAntiforgery antiforgery)

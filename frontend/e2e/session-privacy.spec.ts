@@ -123,7 +123,7 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
     await page.goBack()
 
     await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
-    await expect(page.getByRole('status')).toContainText('Entre para continuar.')
+    await expect(page.getByRole('status')).toContainText('Sua sessão expirou. Entre de novo para continuar.')
     expect(await anaTraces()).toEqual([])
   })
 

@@ -39,6 +39,16 @@ O parser espelha `ParticipationService.Catalog.RequirePcmWave`: RIFF/fmt/data ca
 1–2 canais, 8–48kHz, até60s e6MiB. Tamanho declarado, stream acumulado e dimensões do buffer decodificado
 são conferidos. A frequência real do AudioContext não pode exceder48kHz.
 
+Como política local de consistência, para `N` frames PCM validados à taxa `Fs` e contexto à taxa `Ft`, o decoder deve produzir entre
+`floor((N-1)*Ft/Fs)+1` e `ceil(N*Ft/Fs)` frames: do último instante amostrado inclusivo até o fim
+nominal exclusivo. A janela só admite a quantização de um intervalo da origem na reamostragem;
+não admite perda de um intervalo inteiro, crescimento além do teto quantizado ou padding. Quando a
+conversão não é integral, `ceil` permite menos de um frame alvo acima da duração nominal. Taxas iguais
+exigem exatamente `N` frames. A duração segue [AudioBuffer.duration](https://www.w3.org/TR/webaudio-1.1/#dom-audiobuffer-duration),
+o quociente real `length/sampleRate`, mantendo os
+tetos de60s/PCM. No WAV sintético de64.000 frames a8kHz convertido a48kHz, a janela é
+383.995–384.000 frames, cobrindo o resultado nativo observado no WebKit;383.994 e384.001 são recusados.
+
 | Representação reservada                          |           Limite |
 | ------------------------------------------------ | ---------------: |
 | Quatro entradas/cópias/headroom de6MiB           | 25.165.824 bytes |

@@ -1,5 +1,5 @@
 import { withSessionContext } from '@/test/private-context'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -245,5 +245,8 @@ describe('entrada no shell real da aplicação', () => {
     await user.type(screen.getByLabelText('Senha', { exact: true }), 'frase longa de senha')
     await user.click(screen.getByRole('button', { name: 'Entrar' }))
     expect(await screen.findByText('ana@example.test')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('anuncio-de-rota')).toHaveTextContent('Página carregada: Sua conta · Duora')
+    })
   })
 })
