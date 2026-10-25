@@ -426,4 +426,18 @@ export const ptBR = {
   'sessions.revoking': 'Encerrando…',
   // Nome acessível do botão: a ação seguida da sessão a que ela se aplica.
   'sessions.actionFor': '{action}: {session}',
+
+  'emergency.navigation': 'Segurança',
+  'emergency.title': 'Segurança e contatos de emergência',
+  'emergency.countryGuidance':
+    'Estes números valem apenas nos países indicados. Se você estiver em outro país, procure o serviço de emergência local. A Duora não presta atendimento de emergência.',
+  'emergency.brazil': 'Brasil',
+  'emergency.unitedStates': 'Estados Unidos',
+  'emergency.brazilPolice': 'Brasil: {number} — Polícia Militar, emergência',
+  'emergency.brazilMedical': 'Brasil: {number} — SAMU, emergência médica',
+  'emergency.brazilWomen': 'Brasil: {number} — orientação e denúncia de violência contra a mulher; não é emergência',
+  'emergency.unitedStatesEmergency': 'Estados Unidos: {number} — emergência policial, de bombeiros ou médica',
+  'emergency.brazilWomenSource': 'Fonte oficial: Ligue 180 e emergência policial 190',
+  'emergency.brazilMedicalSource': 'Fonte oficial: SAMU 192',
+  'emergency.unitedStatesSource': 'Fonte oficial: National 911 Program',
 } as const
