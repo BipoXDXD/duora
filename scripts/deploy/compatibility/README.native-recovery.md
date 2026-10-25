@@ -146,3 +146,13 @@ Before the unchanged receiver binding guard, the driver records lstat metadata f
 synthetic fixture paths (root, opt, receiver root, versions, version, target and entry). Records contain only
 those role names, numeric UID/GID/mode/link count and a closed file-type enum. They contain no arbitrary
 path or symlink target, read no file content and perform no chmod/chown/repair. The original guard still decides admission.
+
+## Fresh private directory construction
+
+The native8e3 receipt observed the intermediate receiver versions directory at mode0777 while its explicit
+version leaf was0700 and its target was0600. Recursive mkdir applies its requested mode only to the final
+directory; intermediate creation cannot rely on the process umask. The driver now creates each fresh bundle,
+receiver and synthetic-media directory one component at a time with explicit0700, checking an already protected
+root-owned parent and the actual new root:root directory mode. Existing paths are refused, never chmodded,
+chowned or repaired. This constructor is limited to descendants of the nonce-owned fresh fixture roots.
+The original product/installer path checks and the subsequent receiver ancestry observation remain unchanged.

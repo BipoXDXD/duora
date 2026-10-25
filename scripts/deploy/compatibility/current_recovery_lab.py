@@ -735,9 +735,21 @@ class NativeLab:
         # Tiny public classification trace only; all real commands still execute unchanged.
         audit_to(self.trace)
 
+    def private_fixture_directory(self, path):
+        path = Path(path)
+        need(any(path != root and path.is_relative_to(root) for root in self.created_roots), "directory outside owned fixture roots")
+        parent = path.parent.lstat()
+        need(stat.S_ISDIR(parent.st_mode) and parent.st_uid == parent.st_gid == 0 and not parent.st_mode & 0o022,
+             "unsafe parent of fresh private fixture directory")
+        path.mkdir(mode=0o700)  # No parents/exist_ok: each fresh ancestor gets an explicit restrictive mode.
+        created = path.lstat()
+        need(stat.S_ISDIR(created.st_mode) and created.st_uid == created.st_gid == 0 and stat.S_IMODE(created.st_mode) == 0o700,
+             "fresh fixture directory is not private root state")
+
     def install_fixture_bundle(self):
         bundle = Path("/opt/duora/executor/versions/frozen135")
-        bundle.mkdir(parents=True, mode=0o700)
+        for directory in (bundle.parent.parent, bundle.parent, bundle):
+            self.private_fixture_directory(directory)
         for name in BUNDLE:
             put(bundle / name, (self.args.workflow_source / "scripts/deploy" / name).read_bytes(), 0o755 if name == "duora_deploy.py" else 0o600)
         sys.path.insert(0, str(bundle))
@@ -763,6 +775,8 @@ class NativeLab:
         put(ENTRIES[0], launcher, 0o755)
         self.created_entries.append(ENTRIES[0])
         receiver_path = Path("/opt/coolify-release/versions") / ("2.0.2-" + RECEIVER) / "receiver.py"
+        for directory in (receiver_path.parent.parent, receiver_path.parent):
+            self.private_fixture_directory(directory)
         put(receiver_path, self.receiver_bytes)
         Path("/opt/coolify-release/receiver.py").symlink_to(receiver_path)
         for path in (Path("/var/lib/coolify-release/host.lock"), Path("/var/lib/coolify-release/duora/release.lock"), self.state / ".deploy.lock"):
@@ -806,9 +820,10 @@ class NativeLab:
         put(pgpass, "127.0.0.1:5432:duora:duora_app:" + (self.secrets / "db_app_password").read_text().strip() + "\n", 0o400)
         os.chown(pgpass, 999, 999)
         self.media = self.root / "media"
+        self.private_fixture_directory(self.media)
         for area in ("quarantine", "derivatives"):
             folder = self.media / area
-            folder.mkdir(parents=True, mode=0o700)
+            self.private_fixture_directory(folder)
             put(folder / ".duora-media-area", "synthetic-native-recovery-fixture\n", 0o400)
             os.chown(folder / ".duora-media-area", 1654, 1654)
             os.chown(folder, 1654, 1654)
