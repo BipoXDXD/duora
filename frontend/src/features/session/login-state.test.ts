@@ -41,6 +41,15 @@ describe('readLoginState', () => {
 
 describe('canonical safe returns', () => {
   it.each([
+    ['/account?email=owner%40example.com&access_token=private&secret=private', '/account'],
+    ['/account/preferences?draft=private&verificationCode=123456#private_payload', '/account/preferences'],
+    ['/account?tab=private-draft#private_payload', '/account'],
+    ['/account?tab=sessions&tab=private&aba=sessoes', '/account?tab=sessions&aba=sessoes'],
+    ['/account?tab=photos&redirect=https%3A%2F%2Fevil.example#photos', '/account?tab=photos#photos'],
+  ])('does not retain arbitrary private values in return state: %s', (from, expected) => {
+    expect(readLoginState({ from })).toEqual({ from: expected })
+  })
+  it.each([
     ['/conta/perfil?tab=photos#section', '/account/profile?tab=photos#section'],
     ['/account/preferences', '/account/preferences'],
     ['/events', '/events'],
