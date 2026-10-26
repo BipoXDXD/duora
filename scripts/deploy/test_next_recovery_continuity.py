@@ -6,10 +6,43 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import duora_deploy as deploy
 from compatibility import current_recovery49_lab as driver
 
 
 class NextObserverProofTests(unittest.TestCase):
+    def test_next_release_stages_real_files_before_recording_and_uses_incoming_env(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "state"
+            old = state / "releases" / "old.json"
+            old.parent.mkdir(parents=True)
+            old.write_bytes(b"original immutable fixture release\n")
+            images = {role: "local.example/" + role + "@sha256:" + "1" * 64
+                      for role in ("web", "worker", "edge", "postgres", "migrator")}
+            raw = {"releaseId": "next-fixture-only", "images": images}
+            lab = object.__new__(driver.Native49Lab)
+            lab.root, lab.state, lab.executor = root, state, deploy
+            lab.paths = deploy.Paths(root / "compose.json", root / "host.env", state)
+            lab.incoming = deploy.Release("next-fixture-only", "2" * 40, "amd64", images, "v2",
+                "20261025120000_PhotoReviewAppealDecisions", None, raw)
+            compose = lab.prepare_next_release()
+            staged = state / "staging" / "next-fixture-only.env"
+            self.assertEqual(compose, ["docker", "compose", "--file", str(lab.paths.compose_file),
+                "--env-file", str(lab.paths.host_env), "--env-file", str(staged),
+                "--env-file", str(root / "incoming-local-migrator.env")])
+            self.assertIn("DUORA_RELEASE_ID=next-fixture-only\n", staged.read_text())
+            for role, reference in images.items():
+                self.assertIn("DUORA_" + role.upper() + "_IMAGE=" + reference + "\n", staged.read_text())
+            env_before = staged.read_bytes()
+            json_before = staged.with_suffix(".json").read_bytes()
+            deploy._record_release(lab.incoming, state)
+            self.assertEqual((state / "releases/next-fixture-only.env").read_bytes(), env_before)
+            self.assertEqual((state / "releases/next-fixture-only.json").read_bytes(), json_before)
+            self.assertFalse(staged.exists())
+            self.assertFalse(staged.with_suffix(".json").exists())
+            self.assertEqual(old.read_bytes(), b"original immutable fixture release\n")
+
     def test_next_observer_retires_only_owned_old_ids_and_preserves_first_events(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

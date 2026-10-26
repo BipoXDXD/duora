@@ -273,6 +273,12 @@ class Native49Lab(shared.NativeLab):
             "first_events_sha256": first["events_sha256"], "next_events_file_disjoint": True}
         return continuity
 
+    def prepare_next_release(self):
+        # Match the normal executor staging/recording lifecycle; these are only new own fixture files.
+        release_env = self.executor._stage_release_files(self.incoming, self.state)
+        return self.executor._compose_command(self.paths, release_env) + [
+            "--env-file", str(self.root / "incoming-local-migrator.env")]
+
     def qualify_retained_origin_and_return(self):
         # New state only. The earlier completed recovery/archive/control proof stays immutable.
         trace_start = len(self.trace.read_bytes())
@@ -305,8 +311,7 @@ class Native49Lab(shared.NativeLab):
             assert store is not None
             # Execute the real bounded forward producers with the same already-built incoming migrator.
             # This is a fixture containing old application images, NOT product publication of the cohort application.
-            env = self.root / "incoming-local-migrator.env"
-            compose = self.executor._compose_command(self.paths, self.state / "releases" / (self.current.release_id + ".env")) + ["--env-file", str(env)]
+            compose = self.prepare_next_release()
             producers = (("worker-stop", compose + ["stop", "worker"], None),
                          ("migration", compose + ["--profile", "migrate", "run", "--rm", "--no-deps", "migrator"], None),
                          ("privileges", compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1", "--single-transaction", "--username", "postgres", "--dbname", "duora", "--file", "/dev/stdin"], incoming_sql),
