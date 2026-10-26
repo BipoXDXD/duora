@@ -141,3 +141,17 @@ class Exact48To49Tests(_Exact48To49Fixture):
             deploy._recovery_acl_witness(["compose"], FakeRunner(),
                 catalog=CATALOG + ["20990101000000_Unknown"])
         query.assert_not_called()
+
+
+class NormalLegacyUpgradeDoesNotEnrollV2RecoveryTests(_Exact48To49Fixture):
+    def test_normal_v1_to_v2_does_not_request_v2_current_control(self):
+        legacy_raw = dict(self.old.raw, contractVersion="v1", migrations=CATALOG[:35],
+                          schema={"min": CATALOG[0], "max": CATALOG[34]})
+        legacy = parse(legacy_raw)
+        incoming_raw = dict(self.new.raw, migrations=CATALOG[:-1],
+                            schema={"min": CATALOG[-2], "max": CATALOG[-2]})
+        incoming = parse(incoming_raw)
+        with patch.object(deploy, "_recovery_recorded_current", return_value=legacy), \
+             patch.object(deploy, "observe_current_v2_recovery", side_effect=AssertionError("v1 must use its normal guarded contract")):
+            self.assertIsNone(deploy.arm_current_v2_deploy(incoming, self.paths,
+                (Path(__file__).parent / "fixtures/recovery-48-privileges.sql").read_text()))

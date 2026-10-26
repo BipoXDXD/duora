@@ -37,6 +37,7 @@ class RootExact48To49DurabilityTests(_Exact48To49Fixture):
         with patch.object(deploy, "_recovery_require_cached_images", return_value={}):
             store = deploy.arm_current_v2_deploy(self.new, self.paths, SQL, observe=lambda: context)
         self.assertIsInstance(store, deploy.RecoveryStore)
+        assert store is not None
         self.assertEqual(store.load()["current"], self.old.raw)
         self.assertEqual(store.load()["incoming"], self.new.raw)
         self.assertEqual(store.load()["sqlSha256"], SQL_HASH)

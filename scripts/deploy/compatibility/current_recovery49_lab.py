@@ -28,7 +28,7 @@ from old_image_identity import bind_old_image
 from owned_edge_transport import LABEL as HTTPS_LABEL, select_owned_edge
 
 need, sha, canonical, put, command = shared.need, shared.sha, shared.canonical, shared.put, shared.command
-CORE = "f5d9589eb8b2955f1aaa2d6ccf3737b25495c050c008f76eeb5edf0ff3e88d57"
+CORE = "487aa4b05fef2661b22c36be3f90345f6dc747e5628fef09e7822cc0f3ea47d8"
 
 
 class VerifiedBrowser(Browser):
@@ -110,6 +110,16 @@ class Native49Lab(shared.NativeLab):
         network_names = list(edge["NetworkSettings"]["Networks"])
         need(len(network_names) == 1, "owned single edge network")
         network = self.inspect("network", network_names[0])
+        # Only bounded boolean schema observations of already inspected OWN fixture metadata; no alternate endpoint or fallback.
+        endpoint_data = edge["NetworkSettings"]["Networks"][network_names[0]]
+        ipam = network.get("IPAM", {}).get("Config", [])
+        member = network.get("Containers", {}).get(edge["Id"], {})
+        self.report["edge_transport_schema"] = {
+            "network_required_keys": {key: key in network for key in ("Id", "Name", "Driver", "Internal", "EnableIPv6", "Labels", "IPAM", "Containers")},
+            "endpoint_required_keys": {key: key in endpoint_data for key in ("NetworkID", "IPAddress")},
+            "one_ipam_config": type(ipam) is list and len(ipam) == 1,
+            "ipam_required_keys": {key: type(ipam) is list and len(ipam) == 1 and key in ipam[0] for key in ("Subnet", "Gateway")},
+            "member_required_keys": {key: key in member for key in ("Name", "IPv4Address")}}
         endpoint = select_owned_edge(edge, network, nonce=self.nonce, name="duora-edge-1", network_name=network_names[0],
                                     reference=self.current.images["edge"], image_id=self.report["old_images"]["edge"]["docker_image_id"])
         cert = self.docker("exec", edge["Id"], "cat", "/data/caddy/pki/authorities/local/root.crt")
@@ -262,6 +272,7 @@ class Native49Lab(shared.NativeLab):
             incoming_sql = self.executor._payload.extract_sql(self.incoming.images["migrator"], revision=self.incoming.commit, architecture="amd64")
             store = self.executor.arm_current_v2_deploy(self.incoming, self.paths, incoming_sql, run=self.executor.run_command)
             need(store is not None and store.load()["expandedOrigin"] == origin, "next attempt records actual immutable origin49")
+            assert store is not None
             # Execute the real bounded forward producers with the same already-built incoming migrator.
             # This is a fixture containing old application images, NOT product publication of the cohort application.
             env = self.root / "incoming-local-migrator.env"
@@ -360,6 +371,8 @@ def main():
     except BaseException as error:
         r.update(success=False, failure_type=type(error).__name__, failure_stage=r.get("stage", "source_preflight"),
                  failure_locations=shared.failure_locations(error))
+        if isinstance(error, KeyError) and error.args and error.args[0] in {"Gateway", "Subnet", "Containers", "Name", "IPv4Address", "IPAddress", "NetworkID", "Id", "Labels", "Config", "Image", "State", "Running", "RestartCount", "OOMKilled", "Status", "PortBindings", "EnableIPv6", "Driver", "Internal", "IPAM"}:
+            r["missing_fixture_schema_key"] = error.args[0]
     finally:
         r["cleanup_successful"] = lab.cleanup()
     try:

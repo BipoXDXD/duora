@@ -54,7 +54,7 @@ def classify_command(argv, *, qualified_query=False):
 
 def failure_locations(error: BaseException) -> list[dict]:
     """Closed source locations only: never exception messages, locals, paths or command output."""
-    sources = {"current_recovery_lab.py", "current_recovery49_lab.py", "current_recovery49_receipt.py", "duora_deploy.py", "runtime_guard.py", "reconcile_payload.py", "install_executor.py"}
+    sources = {"current_recovery_lab.py", "current_recovery49_lab.py", "current_recovery49_receipt.py", "owned_edge_transport.py", "duora_deploy.py", "runtime_guard.py", "reconcile_payload.py", "install_executor.py"}
     kinds = {"DeployError", "GuardError", "PayloadError", "ValueError", "KeyError", "TypeError", "OSError", "RuntimeError",
              "TimeoutExpired", "CalledProcessError"}
     result, seen = [], set()

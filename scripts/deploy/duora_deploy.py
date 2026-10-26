@@ -1600,8 +1600,8 @@ def arm_current_v2_deploy(incoming: Release, paths: Paths, sql: str | None, *,
         return None
     if observe is None:
         current = _recovery_recorded_current(paths)
-        if _recovery_digest(current.raw["migrations"]) != RECOVERY_CATALOG_35_SHA256:
-            return None  # Same-schema/future releases retain their existing contract; no implicit reenrollment.
+        if current.contract_version != "v2" or _recovery_digest(current.raw["migrations"]) != RECOVERY_CATALOG_35_SHA256:
+            return None  # Legacy-v1 and same-schema/future releases retain their normal guarded contract.
         context = observe_current_v2_recovery(incoming, paths)
     else: context = observe()
     current = context["current"]
