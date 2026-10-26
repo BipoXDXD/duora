@@ -378,6 +378,7 @@ def qualify(output):
                 return docker("start", "-a", "-i", name, payload=payload, timeout=15, output_limit=16384, strict_stderr=True, phase=phase + "_start")
             smoke = """import errno,json,os,sys
 assert sys.version_info[:2] == (3,13) and os.getuid() == os.getgid() == 1654
+assert os.path.isdir('/opt/python/lib/python3.13/lib-dynload') and not os.path.islink('/opt/python/lib/python3.13/lib-dynload')
 try:
  open('/opt/probe/write-denied','w')
  raise AssertionError()

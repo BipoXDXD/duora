@@ -22,8 +22,17 @@ CPython LICENSE.txt; exclui site-packages/pip/ensurepip, idlelib/tkinter,
 turtledemo, tests e arquivos nativos opcionais como `_dbm`/`_tkinter`.
 539 arquivos sao incluidos e3989 excluidos. O fechamento Python ja observado e
 `d7749183848fca298b7404d5849d0c166733192c04ddde7975732fe303b1b617`;
-a selecao tem SHA `6576d578a1a6b38a9f67eed6b7eecc6fd42a9d30eab6c878f90e31569b194263`.
+a selecao, incluindo seu diretorio de runtime obrigatorio, tem SHA
+`d986bc6b784585d80896900be5ad3593cc10c27830df6fde4c2372a1bf21b466`.
 A selecao de arquivos nao remove codigo nativo compilado dentro do interpreter.
+
+O diretorio vazio `python/lib/python3.13/lib-dynload` permanece no contexto TAR,
+com modo0755, uid/gid0 e mtime0. O [getpath do CPython3.13.17](https://github.com/python/cpython/blob/v3.13.17/Modules/getpath.py#L600)
+consulta esse landmark por `isdir`; sua ausencia pode emitir diagnostico de
+exec_prefix mesmo quando todos os modulos nativos retidos sao builtins.
+Manter esse recurso nao reintroduz `_dbm`, `_tkinter` ou qualquer binario,
+nem altera os hashes dos539 arquivos selecionados. O smoke remoto exige sua
+presenca; stderr continua sendo recusado.
 
 As entradas atuais possuem **19 notices verbatim e23 arquivos no manifesto
 fechado** `python-license-review-manifest.json`, SHA
@@ -94,7 +103,11 @@ imagem a presenca, bytes e SHA de cada material publico/notice e binario central
 Essa verificacao esta implementada e ainda nao observada numa imagem atual.
 
 A primeira qualificacao apos a admissao terminou com `command_failed`, sem
-diagnostico suficiente para atribuir causa. A falha agora registra somente fase
+diagnostico suficiente para atribuir causa. A execucao seguinte identificou
+`python_smoke_start`, codigo0 e `diagnostics_observed`; nao publicou texto bruto.
+A regressao local confirmou a remocao indevida do landmark vazio; a eliminacao
+do diagnostico e o sucesso do runtime ainda dependem do novo CI remoto.
+A falha registra somente fase
 de uma lista fechada, codigo de saida, categoria fixa e, quando reconhecido,
 basename de biblioteca de uma lista fixa. Ate4KiB de stderr sao inspecionados
 apenas em RAM; seu texto, argumentos, ambiente e capturas nao sao preservados.
@@ -120,6 +133,8 @@ verificacao de imagem;14 testes de empacotamento e10 de qualificacao passaram
 naquele snapshot. O delta posterior de diagnostico e a regressao de nao-mutacao
 do lock foram verificados em3 testes direcionados; essa regressao cobre tanto
 NOT_ADMITTED quanto PROFILE_ONLY_ADMITTED, sem pressupor estado permanente.
+O delta do landmark observou RED com o diretorio ausente e GREEN em5 testes
+afetados de selecao/contexto, incluindo modo/uid/gid/mtime e reproducibilidade.
 Comandos locais: `env -i PATH=/usr/bin:/bin /usr/bin/python3 -B -m unittest discover
 -s tools/support-contact-runtime -p test_profile.py -v` e o mesmo com
 `-p test_qualification.py`. Somente fixtures/stdLib Python novas foram executadas.

@@ -192,6 +192,36 @@ class ProfileTests(unittest.TestCase):
                 with self.assertRaises(module.Refusal):
                     module.unpack_python(io.BytesIO(raw), Path(tmp) / "out", hashlib.sha256(raw).hexdigest(), max_bytes=cap)
 
+    def test_empty_platform_stdlib_landmark_survives_selection_and_context(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            context = root / "context"
+            files = {"python/bin/python3.13": b"synthetic-interpreter",
+                     "python/lib/libpython3.13.so.1.0": b"synthetic-core",
+                     "python/lib/python3.13/os.py": b"synthetic-source",
+                     "python/lib/python3.13/LICENSE.txt": b"synthetic-notice",
+                     "python/lib/python3.13/lib-dynload/_dbm.cpython-313-x86_64-linux-gnu.so": b"excluded"}
+            for name, raw in files.items():
+                path = context / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw)
+            selection = module.select_minimal_python(context)
+            landmark = "python/lib/python3.13/lib-dynload"
+            self.assertTrue((context / landmark).is_dir(), "CPython getpath requires this directory even without shared modules")
+            self.assertEqual(list((context / landmark).iterdir()), [])
+            self.assertEqual(selection["required_runtime_directories"], [landmark])
+            first, second = root / "first.tar", root / "second.tar"
+            module.write_context(context, first)
+            (context / landmark).chmod(0o700)
+            module.write_context(context, second)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            with tarfile.open(first) as archive:
+                directory = archive.getmember(landmark)
+                self.assertTrue(directory.isdir())
+                self.assertEqual((directory.mode, directory.uid, directory.gid, directory.mtime), (0o755, 0, 0, 0))
+                self.assertFalse(any("_dbm" in member.name for member in archive))
+
     def test_context_tar_is_reproducible_and_excludes_ambient_files(self):
         module = self.load()
         with tempfile.TemporaryDirectory() as tmp:

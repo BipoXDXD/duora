@@ -196,6 +196,7 @@ MINIMAL_NATIVE_MODULES = frozenset({
     "_md5", "_blake2", "_random", "_bisect", "math", "binascii", "unicodedata",
 })
 EXCLUDED_PACKAGES = frozenset({"site-packages", "ensurepip", "idlelib", "tkinter", "turtledemo", "test", "tests"})
+RUNTIME_DIRECTORIES = ("python/lib/python3.13/lib-dynload",)
 
 
 def select_minimal_python(directory, original_inventory=None):
@@ -243,7 +244,14 @@ def select_minimal_python(directory, original_inventory=None):
     for path in sorted(directory.rglob("*"), reverse=True):
         if path.is_dir() and not any(path.iterdir()):
             path.rmdir()
+    # CPython getpath uses this directory as its exec_prefix landmark even
+    # when every selected native module is compiled into the core binaries.
+    for name in RUNTIME_DIRECTORIES:
+        path = directory / name
+        path.mkdir(parents=True, exist_ok=True)
+        path.chmod(0o755)
     return {"policy": "explicit_minimal_cpython_runtime_v1", "included": included, "excluded": excluded,
+            "required_runtime_directories": list(RUNTIME_DIRECTORIES),
             "compiled_in_modules_removed": False, "native_dependency_license_review": "PENDING"}
 
 
@@ -257,6 +265,11 @@ def write_context(directory, output):
                     if path.is_symlink():
                         raise Refusal("context_link_invalid")
                     if path.is_dir():
+                        if path.relative_to(directory).as_posix() in RUNTIME_DIRECTORIES:
+                            member = tarfile.TarInfo(path.relative_to(directory).as_posix())
+                            member.type, member.mode = tarfile.DIRTYPE, 0o755
+                            member.uid, member.gid, member.mtime = 0, 0, 0
+                            archive.addfile(member)
                         continue
                     if not path.is_file():
                         raise Refusal("context_type_invalid")
@@ -407,6 +420,7 @@ def prepare(python_archive, artifact_dir, runner, output):
                     "python_closure_sha256": sha256(closure_raw), "profile_lock_sha256": sha256(lock_raw),
                     "python_original_inventory_sha256": sha256(original_inventory_raw),
                     "python_selection_sha256": sha256(selection_raw),
+                    "required_runtime_directories": selection["required_runtime_directories"],
                     "python_license_inventory_sha256": sha256(inventory_raw),
                     "notice_manifest_sha256": sha256(notice_manifest_raw),
                     "notices": notice_manifest["notices"],
