@@ -35,9 +35,15 @@ def validate49_receipt(receipt, pins, functional, rootcase):
                                       "locale_after": "pt-BR", "version_after": 1}
          and functional["after"] == {"login": 204, "locale_before": "pt-BR", "version_before": 1,
                                      "locale_after": "en-US", "version_after": 2}, "two actual persisted conditional operations")
-    need(receipt["new49_acl"]["relation_and_explicit_column_unsafe_before"] is True
-         and receipt["new49_acl"]["explicit_column_payload_refused_atomically"] is True
-         and receipt["new49_acl"]["only_owned_column_fault_removed_by_fixture"] is True
+    need(all(type(receipt["new49_acl"][key]) is int for key in
+             ("explicit_column_grants_before", "explicit_column_grants_after", "recovery_sql_terminal_count"))
+         and receipt["new49_acl"]["relation_and_explicit_column_unsafe_before"] is True
+         and receipt["new49_acl"]["scope"] == "initial_fault_and_first_recovery_only"
+         and receipt["new49_acl"]["explicit_column_grants_before"] == 1
+         and receipt["new49_acl"]["explicit_column_grants_after"] == 0
+         and receipt["new49_acl"]["recovery_sql_terminal_count"] == 1
+         and receipt["new49_acl"]["recovery_sql_acknowledged"] is True
+         and receipt["new49_acl"]["authenticated_sql_sha256"] == SQL
          and receipt["new49_acl"]["relation_and_column_safe_after"] is True,
          "new append-only relation and column privileges independently witnessed")
     need(receipt["new49_root_case_sha256"] == hashlib.sha256((json.dumps(rootcase, sort_keys=True) + "\n").encode()).hexdigest(),
@@ -48,8 +54,10 @@ def validate49_receipt(receipt, pins, functional, rootcase):
     need(returned["origin_catalog_sha256"] == NEW_CATALOG
          and returned["scope"] == "native_fixture_protocol_forward_old_app_images_not_product_cohort_publication"
          and all(returned[key] is True for key in ("finish_forward_CLI", "normal_previous_executor_return",
-             "catalog49_retained", "database_backup_assets_preserved", "new_owned_ingress_retired", "prior_pointer_preserved"))
-         and type(returned["return_sql_writes"]) is int and returned["return_sql_writes"] == 0,
+             "catalog49_retained", "database_backup_assets_preserved", "new_owned_ingress_retired", "prior_pointer_preserved",
+             "first_events_preserved", "next_events_file_disjoint", "marker_histories_disjoint"))
+         and type(returned["return_sql_writes"]) is int and returned["return_sql_writes"] == 0
+         and returned["prior_markers_removed"] == 2,
          "actual new origin forward completion and no-SQL previous return")
     need(type(returned["command_trace_sha256"]) is str and len(returned["command_trace_sha256"]) == 64,
          "separate actual new-phase trace binding")

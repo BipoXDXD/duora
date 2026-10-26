@@ -209,30 +209,37 @@ class Native49Lab(shared.NativeLab):
         self.sql_file("grant update,delete,truncate on safety.photo_review_appeal_decision_commands to duora_app;\n"
                       "grant update(appeal_id) on safety.photo_review_appeal_decision_commands to duora_app;\n")
         need(json.loads(self.new_acl()) == [True, True, True, True], "positive unsafe effective relation and column ACL")
-        # Unlike information_schema.column_privileges, attacl distinguishes the actual explicit column grant.
-        need(self.sql("select count(*) from pg_attribute a join pg_class c on c.oid=a.attrelid "
-                      "join pg_namespace n on n.oid=c.relnamespace cross join lateral aclexplode(a.attacl) x "
-                      "where n.nspname='safety' and c.relname='photo_review_appeal_decision_commands' "
-                      "and a.attname='appeal_id' and x.grantee=(select oid from pg_roles where rolname='duora_app') "
-                      "and x.privilege_type='UPDATE';") == "1", "explicit adversarial column privilege exists")
+        need(self.explicit_column_grants() == 1, "explicit adversarial column privilege exists")
         need(sha(incoming_sql.encode()) == SQL, "same actually extracted native SQL49")
-        # The exact payload deliberately refuses column ACL drift atomically; do not weaken it to repair this fault.
-        result = command(self.compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1",
-                         "--single-transaction", "--username", "postgres", "--dbname", "duora", "--file", "/dev/stdin"],
-                         text=incoming_sql, checked=False)
-        need(result.returncode != 0 and "duora_app may not rewrite photo review history" in result.stderr
-             and json.loads(self.new_acl()) == [True] * 4, "positive exact payload column-drift refusal and transaction rollback")
-        # Undo only the explicit column fault introduced above by this fixture; keep table faults for real recovery.
-        self.sql_file("revoke update(appeal_id) on safety.photo_review_appeal_decision_commands from duora_app;\n")
-        need(json.loads(self.new_acl()) == [True] * 4, "relation faults remain for native recovery")
-        self.report["new49_acl"] = {"relation_and_explicit_column_unsafe_before": True,
-            "explicit_column_payload_refused_atomically": True, "only_owned_column_fault_removed_by_fixture": True,
+        # PostgreSQL18 REVOKE(table) also removes direct column grants. Do not apply the payload outside recovery.
+        self.report["new49_acl"] = {"scope": "initial_fault_and_first_recovery_only",
+            "relation_and_explicit_column_unsafe_before": True, "explicit_column_grants_before": 1,
             "relation_and_column_safe_after": False}
+
+    def explicit_column_grants(self):
+        return int(self.sql("select count(*) from pg_attribute a join pg_class c on c.oid=a.attrelid "
+                           "join pg_namespace n on n.oid=c.relnamespace cross join lateral aclexplode(a.attacl) x "
+                           "where n.nspname='safety' and c.relname='photo_review_appeal_decision_commands' "
+                           "and a.attname='appeal_id' and x.grantee=(select oid from pg_roles where rolname='duora_app') "
+                           "and x.privilege_type='UPDATE';"))
 
     def after_native_control(self):
         self.report["stage"] = "native49_verified_https_and_effective_acl_after_recovery"
         need(json.loads(self.new_acl()) == [False, False, False, False], "effective new49 ACL safe after exact payload")
-        self.report["new49_acl"]["relation_and_column_safe_after"] = True
+        need(self.explicit_column_grants() == 0, "actual recovery removed the explicit column grant")
+        history = self.state / "current-v2-recovery-history" / self.attempt["nonce"]
+        terminals = list(history.glob("operation-recovery-sql-*-terminal.json"))
+        need(len(terminals) == 1, "one actual first-recovery SQL producer")
+        terminal_raw = self.executor._recovery_root_read(terminals[0])
+        terminal = json.loads(terminal_raw)
+        intent_raw = self.executor._recovery_root_read(terminals[0].with_name(terminals[0].name.replace("-terminal.json", "-intent.json")))
+        outcome = json.loads(self.executor._recovery_root_read(history / "application-outcome.json"))
+        need(terminal["acknowledged"] is True and terminal["returncode"] == 0
+             and terminal["intentSha256"] == sha(intent_raw)
+             and outcome["stage"] == "expanded" and outcome["sqlSha256"] == SQL, "actual acknowledged authenticated SQL49 recovery")
+        self.report["new49_acl"].update(relation_and_column_safe_after=True, explicit_column_grants_after=0,
+            recovery_sql_terminal_count=1, recovery_sql_acknowledged=True, authenticated_sql_sha256=SQL,
+            recovery_sql_terminal_sha256=sha(terminal_raw))
         self.http["after"] = self.exercise_locale("pt-BR", "en-US", 1)
         need(self.identity_fields() == self.initial_identity, "hash stamps and role unchanged between phases")
         self.http.update(same_seeded_account_hash_stamps_roles=True, TLSVerified=True, success=True)
@@ -245,13 +252,32 @@ class Native49Lab(shared.NativeLab):
         self.report["stage"] = "native49_retained_origin_next_forward_and_previous_return"
         self.qualify_retained_origin_and_return()
 
-    def qualify_retained_origin_and_return(self):
-        # New state only. The earlier completed recovery/archive/control proof stays immutable.
-        trace_start = len(self.trace.read_bytes())
-        before_db, before_runtime, before_assets = self.database(), self.executor.runtime_recheck(self.current, self.paths)["profile"], self.assets()
+    def prepare_next_continuity(self):
+        first = self.report["continuity"]
+        boundaries = first["event_barriers"]
+        need(boundaries["reader_complete"] is True and boundaries["end_consumed"] is True,
+             "first event reader must be completely closed before retiring its own markers")
+        need(sha((self.root / "events.ndjson").read_bytes()) == first["events_sha256"], "first raw events remain hash-bound")
+        next_events = self.root / "next-events.ndjson"
+        need(not next_events.exists() and not next_events.is_symlink(), "new own event path must be absent")
+        for phase in ("start", "end"):
+            identifier = boundaries[phase]["id"]
+            shared.Continuity.require_owned_marker(self, identifier, phase)
+            self.docker("container", "rm", identifier)  # Only the verified own never-started marker; no force.
         continuity = shared.Continuity(self)
         self.continuity = continuity
         continuity.start()
+        # start assigns its default; select a separate O_EXCL result before receipt writes any event bytes.
+        continuity.events_path = next_events
+        self.report["next_observer_setup"] = {"prior_markers_removed": 2, "first_reader_complete": True,
+            "first_events_sha256": first["events_sha256"], "next_events_file_disjoint": True}
+        return continuity
+
+    def qualify_retained_origin_and_return(self):
+        # New state only. The earlier completed recovery/archive/control proof stays immutable.
+        trace_start = len(self.trace.read_bytes())
+        continuity = self.prepare_next_continuity()
+        before_db, before_runtime, before_assets = self.database(), self.executor.runtime_recheck(self.current, self.paths)["profile"], self.assets()
         with self.executor.recovery_administrative_locks(self.paths):
             # Fresh, exact fixture ingress for the NEXT attempt. Never overwrite the first manifest/receipt/archive.
             old_pointer = (self.state / "current-v2-compatibility.json").read_bytes()
@@ -328,6 +354,13 @@ class Native49Lab(shared.NativeLab):
         continuity.stop(complete=True)
         evidence = continuity.receipt({before_db["id"], before_runtime["services"]["backup"]["id"]})
         self.continuity = None
+        first = self.report["continuity"]
+        first_ids = {first["event_barriers"][phase]["id"] for phase in ("start", "end")}
+        next_ids = {evidence["event_barriers"][phase]["id"] for phase in ("start", "end")}
+        need(first_ids.isdisjoint(next_ids)
+             and sha((self.root / "events.ndjson").read_bytes()) == first["events_sha256"]
+             and sha((self.root / "next-events.ndjson").read_bytes()) == evidence["events_sha256"],
+             "two distinct real marker/event proofs preserve the first raw observation")
         next_trace = self.trace.read_bytes()[trace_start:]
         need(0 < len(next_trace) <= shared.BOUND, "bounded actual next-phase command trace")
         put(self.args.output.with_name("recovery49-next-command-trace.ndjson"), next_trace, 0o644)
@@ -336,7 +369,8 @@ class Native49Lab(shared.NativeLab):
             "prior_pointer_preserved": (self.state / "current-v2-compatibility.json").read_bytes() == old_pointer, "finish_forward_CLI": True,
             "normal_previous_executor_return": True, "return_sql_writes": 0, "catalog49_retained": True,
             "database_backup_assets_preserved": True, "continuity": evidence,
-            "command_trace_sha256": sha(next_trace),
+            "command_trace_sha256": sha(next_trace), "prior_markers_removed": 2,
+            "first_events_preserved": True, "next_events_file_disjoint": True, "marker_histories_disjoint": True,
             "scope": "native_fixture_protocol_forward_old_app_images_not_product_cohort_publication"}
 
 

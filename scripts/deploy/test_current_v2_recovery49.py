@@ -151,7 +151,14 @@ class NormalLegacyUpgradeDoesNotEnrollV2RecoveryTests(_Exact48To49Fixture):
         incoming_raw = dict(self.new.raw, migrations=CATALOG[:-1],
                             schema={"min": CATALOG[-2], "max": CATALOG[-2]})
         incoming = parse(incoming_raw)
-        with patch.object(deploy, "_recovery_recorded_current", return_value=legacy), \
+        frames = {self.paths.state_dir / "current.json": json.dumps({"releaseId": legacy.release_id,
+                    "commit": legacy.commit, "deployedAt": "2026-10-26T00:00:00+00:00"}).encode(),
+                  self.paths.state_dir / "releases" / (legacy.release_id + ".json"): json.dumps(legacy.raw).encode()}
+        def protected_input(path):
+            if path not in frames:
+                raise deploy.DeployError("Synthetic protected reader refuses an unknown path")
+            return frames[path]
+        with patch.object(deploy, "_recovery_root_read", side_effect=protected_input), \
              patch.object(deploy, "observe_current_v2_recovery", side_effect=AssertionError("v1 must use its normal guarded contract")):
             self.assertIsNone(deploy.arm_current_v2_deploy(incoming, self.paths,
                 (Path(__file__).parent / "fixtures/recovery-48-privileges.sql").read_text()))
