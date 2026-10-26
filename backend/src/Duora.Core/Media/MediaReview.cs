@@ -8,6 +8,12 @@ public enum MediaReviewPolicy
     /// pode depender dela, por isso o boot a recusa em <c>Production</c>.
     /// </summary>
     TechnicalOnly,
+
+    /// <summary>
+    /// Candidato sanitizado privado que aguarda decisão humana. Qualificado apenas com dados sintéticos nesta
+    /// etapa; a admissão em Production/Staging depende dos aceites operacionais do ADR-0035.
+    /// </summary>
+    HumanReview,
 }
 
 public static class MediaReview
@@ -20,7 +26,7 @@ public static class MediaReview
 
     public static bool IsPermitted(MediaReviewPolicy policy, string environmentName) => policy switch
     {
-        MediaReviewPolicy.TechnicalOnly =>
+        MediaReviewPolicy.TechnicalOnly or MediaReviewPolicy.HumanReview =>
             SyntheticDataEnvironments.Contains(environmentName, StringComparer.OrdinalIgnoreCase),
         _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, "Política de revisão desconhecida."),
     };
@@ -28,6 +34,7 @@ public static class MediaReview
     public static UploadState VerdictAfterSanitizing(MediaReviewPolicy policy) => policy switch
     {
         MediaReviewPolicy.TechnicalOnly => UploadState.Approved,
+        MediaReviewPolicy.HumanReview => UploadState.AwaitingReview,
         _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, "Política de revisão desconhecida."),
     };
 }
