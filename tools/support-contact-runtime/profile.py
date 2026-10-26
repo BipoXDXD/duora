@@ -318,6 +318,46 @@ def notice_inputs(source_root=None):
     return inventory_raw, files, {"inventory_sha256": sha256(inventory_raw), "notices": records}
 
 
+def public_metadata_inputs(lock):
+    contract = lock["python"]["profile_license_contract"]
+    root = ROOT.parents[1]
+    manifest_raw = verified_file(ROOT / "python-license-review-manifest.json", contract["review_manifest_sha256"],
+                                 1024 * 1024, "public_metadata_untrusted")
+    manifest = json.loads(manifest_raw)
+    inventory_raw, notes, _ = notice_inputs()
+    fixed = {"tools/support-contact-runtime/python-license-inventory.json": "python-license-inventory.json",
+             "tools/support-contact-runtime/upstream-PYTHON.json": "upstream-PYTHON.json",
+             "tools/support-contact-runtime/upstream-distribution-provenance.json": "upstream-distribution-provenance.json",
+             "docs/testing/support-contact-runtime-licenses.md": "support-contact-runtime-licenses.md"}
+    expected = set(fixed) | {"tools/support-contact-runtime/notices/" + name for name in notes}
+    rows = manifest["files"]
+    if len(rows) != len(expected) or {row["path"] for row in rows} != expected:
+        raise Refusal("public_metadata_untrusted")
+    files, records = {}, {}
+    for row in rows:
+        raw = verified_file(root / row["path"], row["sha256"], 1024 * 1024, "public_metadata_untrusted")
+        if len(raw) != row["bytes"]:
+            raise Refusal("public_metadata_untrusted")
+        if row["path"] in fixed:
+            name = fixed[row["path"]]
+            files[name] = raw
+            records[name] = {"sha256": sha256(raw), "bytes": len(raw)}
+    if records["upstream-PYTHON.json"]["sha256"] != contract["upstream_python_sha256"]:
+        raise Refusal("public_metadata_untrusted")
+    provenance = json.loads(files["upstream-distribution-provenance.json"])["full_to_stripped_static_analysis_v2"]
+    review = provenance["independent_review"]
+    if (provenance["receipt_sha256"] != contract["provenance_v2_receipt_sha256"]
+            or review["sha256"] != contract["independent_review_sha256"]
+            or sha256(review["content_utf8"].encode()) != contract["independent_review_sha256"]
+            or {row["stripped_path"]: row["stripped"]["sha256"] for row in provenance["receipt"]["bindings"]} != contract["core_binaries"]):
+        raise Refusal("public_metadata_untrusted")
+    files["python-license-review-manifest.json"] = manifest_raw
+    files["repository-license-policy.json"] = verified_file(root / "scripts/supply-chain/license-policy.json", contract["policy_sha256"], 1024 * 1024, "public_metadata_untrusted")
+    for name in files:
+        records[name] = {"sha256": sha256(files[name]), "bytes": len(files[name])}
+    return files, records
+
+
 def prepare(python_archive, artifact_dir, runner, output):
     # No captures, application config, ambient environment or arbitrary directory copies.
     lock_raw = (ROOT / "profile-lock.json").read_bytes()
@@ -326,6 +366,7 @@ def prepare(python_archive, artifact_dir, runner, output):
     helper, runner_raw = verify_artifact(artifact_dir), verified_runner(runner)
     inventory_raw, notice_files, notice_manifest = notice_inputs()
     notice_manifest_raw = canonical(notice_manifest)
+    public_files, public_records = public_metadata_inputs(lock)
     archive_path = Path(python_archive)
     if archive_path.is_symlink() or not archive_path.is_file() or archive_path.stat().st_size != lock["python"]["size_bytes"]:
         raise Refusal("archive_size_mismatch")
@@ -342,6 +383,8 @@ def prepare(python_archive, artifact_dir, runner, output):
         (context / "python-selection.json").write_bytes(selection_raw)
         (context / "python-license-inventory.json").write_bytes(inventory_raw)
         (context / "notice-manifest.json").write_bytes(notice_manifest_raw)
+        for name, raw in public_files.items():
+            (context / name).write_bytes(raw)
         (context / "notices").mkdir()
         for name, raw in notice_files.items():
             (context / "notices" / name).write_bytes(raw)
@@ -367,6 +410,13 @@ def prepare(python_archive, artifact_dir, runner, output):
                     "python_license_inventory_sha256": sha256(inventory_raw),
                     "notice_manifest_sha256": sha256(notice_manifest_raw),
                     "notices": notice_manifest["notices"],
+                    "public_metadata": public_records,
+                    "core_binaries": {name: selection["included"][name]["sha256"] for name in lock["python"]["profile_license_contract"]["core_binaries"]},
+                    "packaged_public_files": {
+                        **{"/opt/" + name: selection["included"][name] for name in lock["python"]["profile_license_contract"]["core_binaries"]},
+                        **{"/opt/probe/notices/" + name: item for name, item in notice_manifest["notices"].items()},
+                        **{"/opt/probe/provenance/" + name: item for name, item in public_records.items()},
+                        "/opt/probe/provenance/notice-manifest.json": {"sha256": sha256(notice_manifest_raw), "bytes": len(notice_manifest_raw)}},
                     "native_dependency_license_review": "PENDING",
                     "reviewed_python_aliases_sha256": sha256(aliases_raw),
                     "dockerfile_sha256": sha256(dockerfile_raw), "packager_sha256": sha256(Path(__file__).read_bytes()),

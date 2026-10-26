@@ -31,51 +31,86 @@ C934 = "ghcr.io/bipoxdxd/duora-web@sha256:2dfea2ca945197c09bdd4f6d924b2a9c44e82c
 HELPER_ZIP = "29d949db278a7976b16b02da55c05203ce9b99d2e9988b8dbb6790163be3dd03"
 
 
+PROFILE_CASES = ("bzip2-1.0.6", "X11", "Zlib", "SQLite-public-domain", "Python-2.0-history-summary")
+
+
+def validate_profile_license_receipt(receipt, expected):
+    required = {"schema_version", "status", "scope", "bindings", "global_policy_effect", "operational_effect", "case_decisions"}
+    if (not isinstance(receipt, dict) or set(receipt) != required or receipt["schema_version"] != 2
+            or receipt["status"] != "PROFILE_ONLY_ADMITTED"
+            or receipt["scope"] != "synthetic_support_contact_profile"
+            or receipt["global_policy_effect"] != "UNCHANGED" or receipt["operational_effect"] != "NONE"
+            or receipt["bindings"] != expected):
+        raise Refusal("LICENSE_NOT_ADMITTED")
+    decisions = receipt["case_decisions"]
+    binding_digest = hashlib.sha256(packager.canonical(expected)).hexdigest()
+    if (not isinstance(decisions, list) or len(decisions) != len(PROFILE_CASES)
+            or any(not isinstance(item, dict) for item in decisions)
+            or {item.get("case_id") for item in decisions} != set(PROFILE_CASES)):
+        raise Refusal("LICENSE_NOT_ADMITTED")
+    for item in decisions:
+        proof = item.get("decision_receipt_sha256")
+        if (set(item) != {"case_id", "decision", "bindings_sha256", "decision_receipt_sha256"}
+                or item["decision"] != "PROFILE_ONLY_APPROVED" or item["bindings_sha256"] != binding_digest
+                or not isinstance(proof, str) or len(proof) != 64 or any(c not in "0123456789abcdef" for c in proof)):
+            raise Refusal("LICENSE_NOT_ADMITTED")
+    return True
+
+
+def profile_license_bindings(lock):
+    """Unsigned public input plan for independent review; grants no admission."""
+    _, public = packager.public_metadata_inputs(lock)
+    inventory_raw, _, notice_manifest = packager.notice_inputs()
+    contract = lock["python"]["profile_license_contract"]
+    return {"archive_sha256": lock["python"]["sha256"], "base_reference": lock["base"]["reference"],
+                "selected_python_closure_sha256": contract["selected_python_closure_sha256"],
+                "selection_sha256": contract["selection_sha256"], "core_binaries": contract["core_binaries"],
+                "runner_sha256": packager.RUNNER_SHA256, "helper_files": packager.HELPER_FILES,
+                "inventory_sha256": hashlib.sha256(inventory_raw).hexdigest(),
+                "notice_manifest_sha256": hashlib.sha256(packager.canonical(notice_manifest)).hexdigest(),
+                "review_manifest_sha256": contract["review_manifest_sha256"],
+                "upstream_python_sha256": contract["upstream_python_sha256"],
+                "provenance_v2_receipt_sha256": contract["provenance_v2_receipt_sha256"],
+                "independent_review_sha256": contract["independent_review_sha256"],
+                "policy_sha256": contract["policy_sha256"], "public_metadata": public,
+                "source_hashes": {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
+                                  for name in ("profile.py", "Dockerfile", "reviewed-python-aliases.json", "qualify.py")}}
+
+
 def require_license_admission(lock):
-    """An absent independently reviewed, hash-bound receipt blocks all build/export."""
     admission = lock.get("python", {}).get("license_admission", {})
     expected = admission.get("receipt_sha256")
-    if admission.get("status") != "ADMITTED" or not isinstance(expected, str) or len(expected) != 64:
+    if admission.get("status") != "PROFILE_ONLY_ADMITTED" or not isinstance(expected, str) or len(expected) != 64:
         raise Refusal("LICENSE_NOT_ADMITTED")
     try:
-        raw = packager.verified_file(ROOT / "license-admission.json", expected, 65536, "LICENSE_NOT_ADMITTED")
-        receipt = json.loads(raw)
-        if (receipt.get("status") != "ADMITTED" or receipt.get("archive_sha256") != lock["python"]["sha256"]
-                or receipt.get("static_native_dependencies_reviewed") is not True
-                or receipt.get("required_notices_complete") is not True
-                or receipt.get("license_policy_exceptions") != []
-                or receipt.get("base_reference") != lock["base"]["reference"]
-                or receipt.get("runner_sha256") != packager.RUNNER_SHA256
-                or receipt.get("helper_files") != packager.HELPER_FILES):
-            raise Refusal("LICENSE_NOT_ADMITTED")
-        closure = receipt.get("selected_python_closure_sha256")
-        if not isinstance(closure, str) or len(closure) != 64 or any(c not in "0123456789abcdef" for c in closure):
-            raise Refusal("LICENSE_NOT_ADMITTED")
-        sources = receipt.get("source_hashes", {})
-        fixed = {"python-license-inventory.json", "profile.py", "Dockerfile", "reviewed-python-aliases.json"}
-        if set(sources) != fixed:
-            raise Refusal("LICENSE_NOT_ADMITTED")
-        for name in sorted(fixed):
-            packager.verified_file(ROOT / name, sources[name], 1024 * 1024, "LICENSE_NOT_ADMITTED")
-        try:
-            _, _, notice_manifest = packager.notice_inputs(ROOT)
-        except Refusal:
-            raise Refusal("LICENSE_NOT_ADMITTED") from None
-        if hashlib.sha256(packager.canonical(notice_manifest)).hexdigest() != receipt.get("notice_manifest_sha256"):
-            raise Refusal("LICENSE_NOT_ADMITTED")
+        receipt = json.loads(packager.verified_file(ROOT / "license-admission.json", expected, 262144, "LICENSE_NOT_ADMITTED"))
+        bindings = profile_license_bindings(lock)
+        validate_profile_license_receipt(receipt, bindings)
         return receipt
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, Refusal):
         raise Refusal("LICENSE_NOT_ADMITTED") from None
 
 
 def verify_constructed_admission(receipt, manifest):
-    if (manifest.get("python_closure_sha256") != receipt["selected_python_closure_sha256"]
-            or manifest.get("base", {}).get("reference") != receipt["base_reference"]
-            or manifest.get("python_archive_sha256") != receipt["archive_sha256"]
-            or manifest.get("helper") != receipt["helper_files"]
-            or manifest.get("runner_sha256") != receipt["runner_sha256"]
-            or manifest.get("notice_manifest_sha256") != receipt.get("notice_manifest_sha256")):
+    bound = receipt["bindings"]
+    fields = {"python_closure_sha256": "selected_python_closure_sha256", "python_selection_sha256": "selection_sha256",
+              "python_archive_sha256": "archive_sha256", "runner_sha256": "runner_sha256",
+              "notice_manifest_sha256": "notice_manifest_sha256", "core_binaries": "core_binaries",
+              "public_metadata": "public_metadata", "helper": "helper_files"}
+    if (any(manifest.get(actual) != bound[expected] for actual, expected in fields.items())
+            or manifest.get("base", {}).get("reference") != bound["base_reference"]
+            or manifest.get("packager_sha256") != bound["source_hashes"]["profile.py"]
+            or manifest.get("dockerfile_sha256") != bound["source_hashes"]["Dockerfile"]):
         raise Refusal("LICENSE_NOT_ADMITTED")
+
+
+def verify_image_public_files(raw, expected):
+    try:
+        if json.loads(raw) != expected:
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise Refusal("image_public_metadata_mismatch") from None
+    return True
 
 
 def bounded_download(stream, size, digest):
@@ -318,6 +353,18 @@ print(json.dumps({'python_stdlib':True,'readonly_denied':True,'network_none':Tru
                 capture = {"Role": role, "ApplicationAssembly": "/app/Duora.Web.dll", "ContentRoot": "/fixture", "Environment": {"DOTNET_ENVIRONMENT": "Production", "ASPNETCORE_ENVIRONMENT": "Production"}, "Arguments": []}
                 mounts = ["--mount=type=bind,src=" + str(app) + ",dst=/app,readonly", "--mount=type=bind,src=" + str(fixture) + ",dst=/fixture,readonly"]
                 mechanical_reply(sandbox([*mounts, image_id], packager.canonical(capture)))
+            image_files = manifest["packaged_public_files"]
+            image_verifier = """import hashlib,json,sys
+from pathlib import Path
+expected=json.load(sys.stdin)
+observed={}
+for name in sorted(expected):
+ raw=Path(name).read_bytes()
+ observed[name]={'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
+print(json.dumps(observed,sort_keys=True,separators=(',',':')))"""
+            observed_files = sandbox([image_id, "-I", "-B", "-c", image_verifier],
+                                     packager.canonical(image_files), entrypoint="/opt/python/bin/python3.13")
+            verify_image_public_files(observed_files, image_files)
             saved = output / "profile-image.tar"
             docker("image", "save", "--output", str(saved), image_id, timeout=120)
             if saved.stat().st_size > 1024 * 1024 * 1024:
@@ -334,6 +381,8 @@ print(json.dumps({'python_stdlib':True,'readonly_denied':True,'network_none':Tru
                            profile_archive_sha256=digest.hexdigest(), source_head=os.environ.get("GITHUB_SHA"),
                            public_image_environment=environment, synthetic_mechanical_roles=["web", "worker"],
                            app_graph=C934, actual_worker_graph_proven=False, runtime_controls_verified=True,
+                           profile_only_license_receipt_sha256=lock["python"]["license_admission"]["receipt_sha256"],
+                           image_public_file_hashes=json.loads(observed_files),
                            qualification_source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
         except Refusal as error:
             receipt["failure_reason"] = str(error)

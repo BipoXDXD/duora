@@ -27,42 +27,48 @@ class QualificationTests(unittest.TestCase):
             with self.subTest(lock=lock), self.assertRaisesRegex(module.Refusal, "LICENSE_NOT_ADMITTED"):
                 module.require_license_admission(lock)
 
-    def test_stale_inventory_or_source_license_receipt_is_refused_before_download(self):
+    def test_unsigned_profile_bindings_are_exact_public_inputs_without_admission(self):
         module = self.load()
-        names = ("python-license-inventory.json", "profile.py", "Dockerfile", "reviewed-python-aliases.json")
-        with tempfile.TemporaryDirectory() as tmp, patch.object(module, "ROOT", Path(tmp)):
-            root = Path(tmp)
-            for name in names:
-                (root / name).write_bytes(b"reviewed-source")
-            (root / "notices").mkdir()
-            (root / "notices/LICENSE.fixture.txt").write_bytes(b"verbatim")
-            note_hash = hashlib.sha256(b"verbatim").hexdigest()
-            inventory = json.dumps({"supplemental_notice_files": [{"path": "tools/support-contact-runtime/notices/LICENSE.fixture.txt", "bytes": 8, "sha256": note_hash, "verbatim": True}]}).encode()
-            (root / "python-license-inventory.json").write_bytes(inventory)
-            notice_manifest = {"inventory_sha256": hashlib.sha256(inventory).hexdigest(), "notices": {"LICENSE.fixture.txt": {"sha256": note_hash, "bytes": 8}}}
-            receipt = {"status": "ADMITTED", "archive_sha256": "a" * 64,
-                       "static_native_dependencies_reviewed": True, "required_notices_complete": True,
-                       "license_policy_exceptions": [], "base_reference": "public-base@sha256:" + "b" * 64,
-                       "selected_python_closure_sha256": "c" * 64,
-                       "runner_sha256": module.packager.RUNNER_SHA256,
-                       "helper_files": module.packager.HELPER_FILES,
-                       "source_hashes": {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names},
-                       "notice_manifest_sha256": hashlib.sha256(module.packager.canonical(notice_manifest)).hexdigest()}
-            raw = json.dumps(receipt).encode()
-            (root / "license-admission.json").write_bytes(raw)
-            lock = {"base": {"reference": receipt["base_reference"]}, "python": {"sha256": "a" * 64,
-                    "license_admission": {"status": "ADMITTED", "receipt_sha256": hashlib.sha256(raw).hexdigest()}}}
-            module.require_license_admission(lock)
-            for name in names:
-                with self.subTest(name=name):
-                    original = (root / name).read_bytes()
-                    (root / name).write_bytes(b"changed-source")
-                    with self.assertRaisesRegex(module.Refusal, "LICENSE_NOT_ADMITTED"):
-                        module.require_license_admission(lock)
-                    (root / name).write_bytes(original)
-            (root / "notices/LICENSE.fixture.txt").write_bytes(b"modified")
-            with self.assertRaisesRegex(module.Refusal, "LICENSE_NOT_ADMITTED"):
-                module.require_license_admission(lock)
+        self.assertTrue(hasattr(module, "profile_license_bindings"), "unsigned Hub binding plan missing")
+        lock = json.loads((ROOT / "profile-lock.json").read_text())
+        bindings = module.profile_license_bindings(lock)
+        self.assertEqual(bindings["selected_python_closure_sha256"], "d7749183848fca298b7404d5849d0c166733192c04ddde7975732fe303b1b617")
+        self.assertEqual(bindings["policy_sha256"], "f2880c90e41e77c402703be4420ced16d3ed2ecc1ae91ade693999ec2774df7c")
+        self.assertEqual(bindings["upstream_python_sha256"], "6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b")
+        self.assertEqual(lock["python"]["license_admission"]["status"], "NOT_ADMITTED")
+        self.assertNotIn("status", bindings)
+
+    def test_scoped_case_admission_rejects_stale_bindings_and_generic_approval(self):
+        module = self.load()
+        self.assertTrue(hasattr(module, "validate_profile_license_receipt"), "digest-scoped admission schema missing")
+        expected = {"inventory_sha256": "a" * 64, "source_hashes": {"profile.py": "b" * 64},
+                    "core_binaries": {"python/bin/python3.13": "c" * 64}, "policy_sha256": "d" * 64}
+        receipt = {"schema_version": 2, "status": "PROFILE_ONLY_ADMITTED", "scope": "synthetic_support_contact_profile",
+                   "bindings": expected, "global_policy_effect": "UNCHANGED", "operational_effect": "NONE",
+                   "case_decisions": [{"case_id": name, "decision": "PROFILE_ONLY_APPROVED",
+                       "bindings_sha256": hashlib.sha256(module.packager.canonical(expected)).hexdigest(),
+                       "decision_receipt_sha256": "e" * 64} for name in module.PROFILE_CASES]}
+        module.validate_profile_license_receipt(receipt, expected)
+        for field in ("inventory_sha256", "source_hashes", "core_binaries", "policy_sha256"):
+            changed = json.loads(json.dumps(expected))
+            changed[field] = "f" * 64
+            with self.subTest(field=field), self.assertRaises(module.Refusal):
+                module.validate_profile_license_receipt(receipt, changed)
+        for field, value in [("case_decisions", []), ("case_decisions", [True] * 5), ("status", "ADMITTED"), ("global_policy_effect", "WAIVER")]:
+            changed = dict(receipt, **{field: value})
+            with self.subTest(field=field), self.assertRaises(module.Refusal):
+                module.validate_profile_license_receipt(changed, expected)
+
+    def test_image_metadata_reply_requires_observed_hashes_and_complete_file_set(self):
+        module = self.load()
+        self.assertTrue(hasattr(module, "verify_image_public_files"), "image metadata verification missing")
+        expected = {"/opt/probe/notices/LICENSE.txt": {"sha256": "a" * 64, "bytes": 12}}
+        module.verify_image_public_files(json.dumps(expected).encode(), expected)
+        with self.assertRaises(module.Refusal):
+            module.verify_image_public_files(b"{}", expected)
+        changed = {"/opt/probe/notices/LICENSE.txt": {"sha256": "b" * 64, "bytes": 12}}
+        with self.assertRaises(module.Refusal):
+            module.verify_image_public_files(json.dumps(changed).encode(), expected)
 
     def test_constructed_closure_or_base_change_blocks_before_docker_build(self):
         module = self.load()
@@ -71,6 +77,11 @@ class QualificationTests(unittest.TestCase):
                    "archive_sha256": "b" * 64, "helper_files": {"helper": "c" * 64}, "runner_sha256": "d" * 64, "notice_manifest_sha256": "f" * 64}
         manifest = {"python_closure_sha256": "a" * 64, "base": {"reference": "public-base"},
                     "python_archive_sha256": "b" * 64, "helper": {"helper": "c" * 64}, "runner_sha256": "d" * 64, "notice_manifest_sha256": "f" * 64}
+        receipt.update(selection_sha256="1" * 64, core_binaries={}, public_metadata={},
+                       source_hashes={"profile.py": "2" * 64, "Dockerfile": "3" * 64})
+        manifest.update(python_selection_sha256="1" * 64, core_binaries={}, public_metadata={},
+                        packager_sha256="2" * 64, dockerfile_sha256="3" * 64)
+        receipt = {"bindings": receipt}
         module.verify_constructed_admission(receipt, manifest)
         for name in ("python_closure_sha256", "python_archive_sha256", "runner_sha256", "notice_manifest_sha256"):
             changed = dict(manifest, **{name: "e" * 64})

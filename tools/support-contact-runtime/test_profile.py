@@ -134,6 +134,19 @@ class ProfileTests(unittest.TestCase):
             with self.assertRaises(module.Refusal):
                 module.notice_inputs()
 
+    def test_scoped_public_metadata_requires_exact_closed_review_manifest(self):
+        module = self.load()
+        self.assertTrue(hasattr(module, "public_metadata_inputs"), "closed metadata packaging missing")
+        lock = json.loads((ROOT / "profile-lock.json").read_text())
+        files, records = module.public_metadata_inputs(lock)
+        self.assertIn("upstream-PYTHON.json", files)
+        self.assertIn("support-contact-runtime-licenses.md", files)
+        self.assertEqual(records["upstream-PYTHON.json"]["sha256"], "6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b")
+        changed = json.loads(json.dumps(lock))
+        changed["python"]["profile_license_contract"]["review_manifest_sha256"] = "0" * 64
+        with self.assertRaises(module.Refusal):
+            module.public_metadata_inputs(changed)
+
     def test_published_digest_checked_before_destination_is_created(self):
         module = self.load()
         with tempfile.TemporaryDirectory() as tmp:

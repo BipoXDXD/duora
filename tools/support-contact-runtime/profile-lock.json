@@ -24,7 +24,7 @@
     "closure": "Explicit minimal runtime selection after full pinned archive verification; original inventory and included/excluded hashes retained",
     "runtime_requirements_source": "https://github.com/astral-sh/python-build-standalone/blob/20261021/docs/running.rst",
     "distribution_source": "https://github.com/astral-sh/python-build-standalone/blob/20261021/docs/distributions.rst",
-    "licenses": "PENDING review of all bundled native and Python license texts; preserve all notices; no dependency allowlist exception",
+    "licenses": "Five exact cases reviewed for the pinned synthetic candidate; retained notices and supporting documentation must be verified in the image before export; global policy unchanged",
     "reviewed_aliases_file": "reviewed-python-aliases.json",
     "reviewed_aliases_sha256": "67e9070ba7bc197fb4d926de490f896b49d033accef0632ab5f5edd13cd6c967",
     "reviewed_aliases_count": 1048,
@@ -80,9 +80,31 @@
       }
     },
     "license_admission": {
-      "status": "NOT_ADMITTED",
-      "receipt_sha256": null,
-      "reason": "Compiled-in native dependency license inventory and required notices are not admitted; file trimming does not remove compiled-in code"
+      "status": "PROFILE_ONLY_ADMITTED",
+      "receipt_sha256": "3fa75e892f728f19b035e54219355cc8db767a6fed6f391a9471db23dcc41dc4",
+      "reason": "Five exact digest-scoped decisions approved for this synthetic candidate only; global policy unchanged and in-image notices verification required before export"
+    },
+    "profile_license_contract": {
+      "schema_version": 2,
+      "scope": "synthetic_support_contact_profile",
+      "required_cases": [
+        "bzip2-1.0.6",
+        "X11",
+        "Zlib",
+        "SQLite-public-domain",
+        "Python-2.0-history-summary"
+      ],
+      "review_manifest_sha256": "d841ef9a6815f05635286ac205cd20e2f9a0a083b2ad777f3d285f09b813d6cf",
+      "upstream_python_sha256": "6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b",
+      "provenance_v2_receipt_sha256": "1adb68dc7df6308a60471335f4e76c72a2fcc4bffcd5084d86af21e2ae8aa915",
+      "independent_review_sha256": "19dc08ed669ff2b38222abb7ab025348c936cb14f6aab1c621eb104cd1dbee96",
+      "policy_sha256": "f2880c90e41e77c402703be4420ced16d3ed2ecc1ae91ade693999ec2774df7c",
+      "selected_python_closure_sha256": "d7749183848fca298b7404d5849d0c166733192c04ddde7975732fe303b1b617",
+      "selection_sha256": "6576d578a1a6b38a9f67eed6b7eecc6fd42a9d30eab6c878f90e31569b194263",
+      "core_binaries": {
+        "python/bin/python3.13": "06176065174ea24f24d109e55a374022ef5c4390234516c683d4726431be027d",
+        "python/lib/libpython3.13.so.1.0": "4947d07a1740d5a8f8d99fab08285a06a063fa821582cecce6ec2f51759692ee"
+      }
     }
   },
   "preserved": {

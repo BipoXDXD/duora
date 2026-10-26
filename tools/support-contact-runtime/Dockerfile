@@ -4,7 +4,7 @@ COPY --chown=0:0 python/ /opt/python/
 COPY --chown=0:0 notices/ /opt/probe/notices/
 COPY --chown=0:0 artifact/ /opt/probe/artifact/
 COPY --chown=0:0 run_preserved_probe.py /opt/probe/run_preserved_probe.py
-COPY --chown=0:0 profile-lock.json reviewed-python-aliases.json python-closure.json python-selection.json python-original-inventory.json python-license-inventory.json notice-manifest.json construction-manifest.json /opt/probe/provenance/
+COPY --chown=0:0 profile-lock.json reviewed-python-aliases.json python-closure.json python-selection.json python-original-inventory.json python-license-inventory.json notice-manifest.json upstream-PYTHON.json upstream-distribution-provenance.json support-contact-runtime-licenses.md python-license-review-manifest.json repository-license-policy.json construction-manifest.json /opt/probe/provenance/
 ENV PATH=/usr/bin:/bin DOTNET_NOLOGO=true DOTNET_CLI_TELEMETRY_OPTOUT=true DOTNET_EnableDiagnostics=0 COMPlus_DbgEnableMiniDump=0
 WORKDIR /opt/probe
 USER 1654:1654
