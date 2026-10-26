@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "state": "NOT_BUILT_NOT_QUALIFIED_NOT_ADMITTED",
+  "platform": "linux/amd64",
+  "base": {
+    "reference": "mcr.microsoft.com/dotnet/aspnet:10.0.13-noble-chiseled-extra@sha256:3ed6558056b54d5c9dfefb7ff473728e022ff2bf1d976cbf8ee07b05ec594374",
+    "provenance": "infra/images/dotnet/Dockerfile",
+    "qualification": "NOT_QUALIFIED_FOR_COMPOSED_PROFILE"
+  },
+  "python": {
+    "project": "astral-sh/python-build-standalone",
+    "version": "3.13.17",
+    "release": "20261021",
+    "release_id": 419936095,
+    "asset_id": 663545914,
+    "asset_name": "cpython-3.13.17+20261021-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.13.17%2B20261021-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+    "size_bytes": 35356674,
+    "sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+    "digest_provenance": "https://api.github.com/repos/astral-sh/python-build-standalone/releases/419936095",
+    "digest_source": "GitHub published release asset digest, retrieved through managed GitHubApp; no binary downloaded",
+    "target": "x86_64-unknown-linux-gnu",
+    "flavor": "install_only_stripped",
+    "closure": "Explicit minimal runtime selection after full pinned archive verification; original inventory and included/excluded hashes retained",
+    "runtime_requirements_source": "https://github.com/astral-sh/python-build-standalone/blob/20261021/docs/running.rst",
+    "distribution_source": "https://github.com/astral-sh/python-build-standalone/blob/20261021/docs/distributions.rst",
+    "licenses": "PENDING review of all bundled native and Python license texts; preserve all notices; no dependency allowlist exception",
+    "reviewed_aliases_file": "reviewed-python-aliases.json",
+    "reviewed_aliases_sha256": "67e9070ba7bc197fb4d926de490f896b49d033accef0632ab5f5edd13cd6c967",
+    "reviewed_aliases_count": 1048,
+    "selection_policy": {
+      "native_extension_files_allowlist": [
+        "_bisect",
+        "_blake2",
+        "_json",
+        "_md5",
+        "_posixsubprocess",
+        "_random",
+        "_sha1",
+        "_sha2",
+        "_sha3",
+        "_struct",
+        "binascii",
+        "math",
+        "select",
+        "unicodedata"
+      ],
+      "pure_stdlib": "*.py only, excluding site-packages/ensurepip/idlelib/tkinter/turtledemo/test/tests",
+      "core_files": [
+        "python/bin/python3.13",
+        "python/lib/libpython3.13.so.1.0"
+      ],
+      "required_notice": "python/lib/python3.13/LICENSE.txt",
+      "compiled_in_modules_removed": false,
+      "native_dependency_license_review": "PENDING"
+    },
+    "static_elf_dependencies": {
+      "python/bin/python3.13": {
+        "sha256": "06176065174ea24f24d109e55a374022ef5c4390234516c683d4726431be027d",
+        "DT_NEEDED": [
+          "libpthread.so.0",
+          "libdl.so.2",
+          "libutil.so.1",
+          "libm.so.6",
+          "librt.so.1",
+          "libc.so.6"
+        ]
+      },
+      "python/lib/libpython3.13.so.1.0": {
+        "sha256": "4947d07a1740d5a8f8d99fab08285a06a063fa821582cecce6ec2f51759692ee",
+        "DT_NEEDED": [
+          "libm.so.6",
+          "libpthread.so.0",
+          "librt.so.1",
+          "libdl.so.2",
+          "libutil.so.1",
+          "libc.so.6",
+          "ld-linux-x86-64.so.2"
+        ]
+      }
+    },
+    "license_admission": {
+      "status": "NOT_ADMITTED",
+      "receipt_sha256": null,
+      "reason": "Compiled-in native dependency license inventory and required notices are not admitted; file trimming does not remove compiled-in code"
+    }
+  },
+  "preserved": {
+    "pins_sha256": "9c779cebc3dc3af2a0b0c0c945fef86460210bd19bcd6187f68e0a6e536bf128",
+    "runner_sha256": "87e09073a60a5c2ab12804c25160fa8d67c8cb53a297a052b0bd4d3733ab8211",
+    "artifact_head": "4da134f32f3cc0a2c699f776365f647549858f1a"
+  },
+  "runtime": {
+    "python": "/opt/python/bin/python3.13",
+    "dotnet": "/usr/share/dotnet/dotnet",
+    "uid_gid": "1654:1654"
+  },
+  "admission": {
+    "profile_oci_leaf_digest": null,
+    "profile_config_digest": null,
+    "python_closure_sha256": null,
+    "qualification_receipt_sha256": null,
+    "independent_review_sha256": null,
+    "operational_capture_performed": false
+  }
+}

@@ -1,0 +1,2169 @@
+{
+  "schema_version": 1,
+  "status": "NOTICE_TEXTS_SUPPLEMENTED_POLICY_REVIEW_AND_EXACT_NATIVE_METADATA_PENDING",
+  "scope": "Candidate offline SupportContact profile only; inventory is not permission, qualification or operational acceptance.",
+  "archive": {
+    "publisher_repository": "astral-sh/python-build-standalone",
+    "release_tag": "20261021",
+    "release_url": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261021",
+    "asset_id": 663545914,
+    "asset_api_url": "https://api.github.com/repos/astral-sh/python-build-standalone/releases/assets/663545914",
+    "format": "install_only gzip tar",
+    "bytes": 35356674,
+    "sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+    "member_count": 4528,
+    "expanded_bytes_reported": 99189121,
+    "PYTHON_json_present": false,
+    "native_root_license_texts_present": false,
+    "source_release_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e"
+  },
+  "license_and_notice_files": [
+    {
+      "path": "python/lib/python3.13/LICENSE.txt",
+      "bytes": 13809,
+      "sha256": "78b12c3a81360b357002334f0e70ea0e92eebf7a9b358805c03c48484945f3bb",
+      "kind": "license_text",
+      "component": "cpython",
+      "spdx_expression": null,
+      "spdx_basis": "Historical PSF/BeOpen/CNRI/CWI license sections; exact combined SPDX interpretation remains reviewed separately.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/AUTHORS.txt",
+      "bytes": 12139,
+      "sha256": "4eb1fb1705e2def898e81bcba19c3aac80620d27ba3569d6a6df7b4629d1b5c2",
+      "kind": "authors_notice",
+      "component": "pip",
+      "spdx_expression": null,
+      "spdx_basis": "Attribution list; not a license grant.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/LICENSE.txt",
+      "bytes": 1093,
+      "sha256": "634300a669d49aeae65b12c6c48c924c51a4cdf3d1ff086dc3456dc8bcaa2104",
+      "kind": "license_text",
+      "component": "pip",
+      "spdx_expression": "MIT",
+      "spdx_basis": "pip METADATA declares License-Expression MIT and corresponding bundled MIT text.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/cachecontrol/LICENSE.txt",
+      "bytes": 558,
+      "sha256": "86eeee87be2a43f3ff1f56496f451f69243926f025fedbb033666c304c4c161b",
+      "kind": "license_text",
+      "component": "cachecontrol",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/certifi/LICENSE",
+      "bytes": 989,
+      "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+      "kind": "license_text",
+      "component": "certifi",
+      "spdx_expression": "MPL-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/distlib/LICENSE.txt",
+      "bytes": 14531,
+      "sha256": "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d",
+      "kind": "license_text",
+      "component": "distlib",
+      "spdx_expression": null,
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/distro/LICENSE",
+      "bytes": 11325,
+      "sha256": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14",
+      "kind": "license_text",
+      "component": "distro",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md",
+      "bytes": 1541,
+      "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04",
+      "kind": "license_text",
+      "component": "idna",
+      "spdx_expression": "BSD-3-Clause",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/msgpack/COPYING",
+      "bytes": 614,
+      "sha256": "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427",
+      "kind": "license_text",
+      "component": "msgpack",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE",
+      "bytes": 197,
+      "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+      "kind": "license_text",
+      "component": "packaging",
+      "spdx_expression": "Apache-2.0 OR BSD-2-Clause",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.APACHE",
+      "bytes": 10174,
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "kind": "license_text",
+      "component": "packaging",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/packaging/LICENSE.BSD",
+      "bytes": 1344,
+      "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+      "kind": "license_text",
+      "component": "packaging",
+      "spdx_expression": "BSD-2-Clause",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pkg_resources/LICENSE",
+      "bytes": 1023,
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+      "kind": "license_text",
+      "component": "pkg_resources",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/platformdirs/LICENSE",
+      "bytes": 1089,
+      "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6",
+      "kind": "license_text",
+      "component": "platformdirs",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pygments/LICENSE",
+      "bytes": 1331,
+      "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17",
+      "kind": "license_text",
+      "component": "pygments",
+      "spdx_expression": "BSD-2-Clause",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/pyproject_hooks/LICENSE",
+      "bytes": 1081,
+      "sha256": "1b22b049b5267d6dfc23a67bf4a84d8ec04b9fdfb1a51d360e42b4342c8b4154",
+      "kind": "license_text",
+      "component": "pyproject_hooks",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/requests/LICENSE",
+      "bytes": 10142,
+      "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+      "kind": "license_text",
+      "component": "requests",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/resolvelib/LICENSE",
+      "bytes": 751,
+      "sha256": "f388fd38cad13112c1dc0f669bbe80e7f84541edbafb72f3030d2ca7642c3c9d",
+      "kind": "license_text",
+      "component": "resolvelib",
+      "spdx_expression": "ISC",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/rich/LICENSE",
+      "bytes": 1056,
+      "sha256": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15",
+      "kind": "license_text",
+      "component": "rich",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/tomli/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+      "kind": "license_text",
+      "component": "tomli",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/tomli_w/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+      "kind": "license_text",
+      "component": "tomli_w",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/truststore/LICENSE",
+      "bytes": 1086,
+      "sha256": "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca",
+      "kind": "license_text",
+      "component": "truststore",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/licenses/src/pip/_vendor/urllib3/LICENSE.txt",
+      "bytes": 1093,
+      "sha256": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686",
+      "kind": "license_text",
+      "component": "urllib3",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/cachecontrol/LICENSE.txt",
+      "bytes": 558,
+      "sha256": "86eeee87be2a43f3ff1f56496f451f69243926f025fedbb033666c304c4c161b",
+      "kind": "license_text",
+      "component": "cachecontrol",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/certifi/LICENSE",
+      "bytes": 989,
+      "sha256": "e93716da6b9c0d5a4a1df60fe695b370f0695603d21f6f83f053e42cfc10caf7",
+      "kind": "license_text",
+      "component": "certifi",
+      "spdx_expression": "MPL-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/distlib/LICENSE.txt",
+      "bytes": 14531,
+      "sha256": "808e10c8a6ab8deb149ff9b3fb19f447a808094606d712a9ca57fead3552599d",
+      "kind": "license_text",
+      "component": "distlib",
+      "spdx_expression": null,
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/distro/LICENSE",
+      "bytes": 11325,
+      "sha256": "cb5e8e7e5f4a3988e1063c142c60dc2df75605f4c46515e776e3aca6df976e14",
+      "kind": "license_text",
+      "component": "distro",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/idna/LICENSE.md",
+      "bytes": 1541,
+      "sha256": "1a9a4f0e3d479a27240ddd59a9137a66ab4a0f9dfdc8ca6188cc0bfd85187f04",
+      "kind": "license_text",
+      "component": "idna",
+      "spdx_expression": "BSD-3-Clause",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/msgpack/COPYING",
+      "bytes": 614,
+      "sha256": "492dedba85da5872f78e6091bcd1fea474d660d35acb4dee964b8aab3f007427",
+      "kind": "license_text",
+      "component": "msgpack",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/packaging/LICENSE",
+      "bytes": 197,
+      "sha256": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+      "kind": "license_text",
+      "component": "packaging",
+      "spdx_expression": "Apache-2.0 OR BSD-2-Clause",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/packaging/LICENSE.APACHE",
+      "bytes": 10174,
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "kind": "license_text",
+      "component": "packaging",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/packaging/LICENSE.BSD",
+      "bytes": 1344,
+      "sha256": "b70e7e9b742f1cc6f948b34c16aa39ffece94196364bc88ff0d2180f0028fac5",
+      "kind": "license_text",
+      "component": "packaging",
+      "spdx_expression": "BSD-2-Clause",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/packaging/licenses/__init__.py",
+      "bytes": 7293,
+      "sha256": "fc9c745d1883ff9f296a5b169f22eb2ee879f59a4608f20f5cb29d668f4e26f4",
+      "kind": "source_with_license_header",
+      "component": "packaging",
+      "spdx_expression": "MIT",
+      "spdx_basis": "MIT grant in this source header only.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/packaging/licenses/_spdx.py",
+      "bytes": 51122,
+      "sha256": "596ec35e2ca0ebcba9fd8343ff0a51625af548786257815f24b41f7e08613314",
+      "kind": "license_identifier_data_source",
+      "component": "packaging",
+      "spdx_expression": null,
+      "spdx_basis": "SPDX identifier table is metadata, not a license grant for all listed IDs.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/pkg_resources/LICENSE",
+      "bytes": 1023,
+      "sha256": "86da0f01aeae46348a3c3d465195dc1ceccde79f79e87769a64b8da04b2a4741",
+      "kind": "license_text",
+      "component": "pkg_resources",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/platformdirs/LICENSE",
+      "bytes": 1089,
+      "sha256": "29e0fd62e929850e86eb28c3fdccf0cefdf4fa94879011cffb3d0d4bed6d4db6",
+      "kind": "license_text",
+      "component": "platformdirs",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/pygments/LICENSE",
+      "bytes": 1331,
+      "sha256": "a9d66f1d526df02e29dce73436d34e56e8632f46c275bbdffc70569e882f9f17",
+      "kind": "license_text",
+      "component": "pygments",
+      "spdx_expression": "BSD-2-Clause",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/pyproject_hooks/LICENSE",
+      "bytes": 1081,
+      "sha256": "1b22b049b5267d6dfc23a67bf4a84d8ec04b9fdfb1a51d360e42b4342c8b4154",
+      "kind": "license_text",
+      "component": "pyproject_hooks",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/requests/LICENSE",
+      "bytes": 10142,
+      "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b",
+      "kind": "license_text",
+      "component": "requests",
+      "spdx_expression": "Apache-2.0",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/resolvelib/LICENSE",
+      "bytes": 751,
+      "sha256": "f388fd38cad13112c1dc0f669bbe80e7f84541edbafb72f3030d2ca7642c3c9d",
+      "kind": "license_text",
+      "component": "resolvelib",
+      "spdx_expression": "ISC",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/rich/LICENSE",
+      "bytes": 1056,
+      "sha256": "deed7c17a4318158190a3ea239cc879a5a50271cebb98ae7025f48fbe58dca15",
+      "kind": "license_text",
+      "component": "rich",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/tomli/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+      "kind": "license_text",
+      "component": "tomli",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/tomli_w/LICENSE",
+      "bytes": 1072,
+      "sha256": "b80816b0d530b8accb4c2211783790984a6e3b61922c2b5ee92f3372ab2742fe",
+      "kind": "license_text",
+      "component": "tomli_w",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/truststore/LICENSE",
+      "bytes": 1086,
+      "sha256": "33be7b7e8fa4fd19b1760e1a8ed8a668bdab852c91b692dd41424bcb725a9fca",
+      "kind": "license_text",
+      "component": "truststore",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/urllib3/LICENSE.txt",
+      "bytes": 1093,
+      "sha256": "130e3a64d5fdd5d096a752694634a7d9df284469de86e5732100268041e3d686",
+      "kind": "license_text",
+      "component": "urllib3",
+      "spdx_expression": "MIT",
+      "spdx_basis": "Observed bundled license grant/title; no inference about full native closure.",
+      "provenance": {
+        "container_archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+        "member_type": "regular",
+        "text_encoding": "UTF-8",
+        "extracted_to_disk": false
+      }
+    }
+  ],
+  "archive_public_build_metadata": [
+    {
+      "path": "python/include/python3.13/patchlevel.h",
+      "bytes": 1301,
+      "sha256": "5e7d2a64e92f9dd677331f5de0759a0b7c6708afbbe03377947702a9818cc965",
+      "version_macro": "#define PY_VERSION              \"3.13.17\""
+    },
+    {
+      "path": "python/lib/python3.13/_sysconfigdata__linux_x86_64-linux-gnu.py",
+      "bytes": 52436,
+      "sha256": "a10a6164ff0924702bbb5ccd52c5e857ed00e8ee66a2ca2c18c381bc4a88b177",
+      "read_method": "AST literal_eval of data assignment; no import or execution",
+      "selected_build_metadata": {
+        "CONFIG_ARGS": "'--build=x86_64-unknown-linux-gnu' '--host=x86_64-unknown-linux-gnu' '--prefix=/install' '--with-openssl=/tools/deps' '--with-system-expat' '--without-ensurepip' '--with-readline=editline' '--with-system-libmpdec' 'MODULE_BUILDTYPE=static' '--enable-loadable-sqlite-extensions' '--enable-static-libpython-for-interpreter' '--enable-shared' '--with-mimalloc' '--enable-optimizations' '--enable-bolt' '--enable-experimental-jit=yes-off' '--with-lto=full' '--with-build-python=/tools/host/bin/python3.13' '--with-dbmliborder=bdb' 'build_alias=x86_64-unknown-linux-gnu' 'host_alias=x86_64-unknown-linux-gnu' 'PKG_CONFIG=pkg-config --static' 'PKG_CONFIG_PATH=/tools/deps/share/pkgconfig:/tools/deps/lib/pkgconfig' 'CC=clang' 'CFLAGS=  -O3  -fstack-protector -fstack-clash-protection -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2  -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer  -fPIC  ' 'LDFLAGS= -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now -Wl,--build-id=sha1   -Wl,--exclude-libs,ALL' 'CPPFLAGS=  -O3  -fstack-protector -fstack-clash-protection -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2  -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer  -fPIC  ' 'PROFILE_TASK=-m test --pgo -j 4 --ignore test.test_bytes.BytesTest.test_from_format' 'BOLT_COMMON_FLAGS=-update-debug-sections -skip-funcs=_Py_trampoline_func_.*,RC4_options/1,sha256_update/.*,sha512_update/.*,PyBlake2_blake2b_compress/.*,PyBlake2_blake2s_compress/.*,update_block.*' 'BOLT_APPLY_FLAGS=-update-debug-sections -skip-funcs=_Py_trampoline_func_.*,RC4_options/1,sha256_update/.*,sha512_update/.*,PyBlake2_blake2b_compress/.*,PyBlake2_blake2s_compress/.*,update_block.* -reorder-blocks=ext-tsp -reorder-functions=cdsort -split-functions -split-strategy=cdsplit -icf=safe -inline-all -split-eh -reorder-functions-use-hot-size -peepholes=none -jump-tables=aggressive -inline-ap -indirect-call-promotion=all -dyno-stats -frame-opt=hot'",
+        "LIBS": "-lpthread -ldl  -lutil",
+        "MODBUILT_NAMES": "_dbm  _testbuffer  _testcapi  _testlimitedcapi  _tkinter  array  _asyncio  _bisect  _contextvars  _csv  _heapq  _json  _lsprof  _opcode  _pickle  _queue  _random  _struct  _interpreters  _interpchannels  _interpqueues  _zoneinfo  math  cmath  _statistics  _datetime  _decimal  binascii  _bz2  _lzma  zlib  readline  _md5  _sha1  _sha2  _sha3  _blake2  pyexpat  _elementtree  _codecs_cn  _codecs_hk  _codecs_iso2022  _codecs_jp  _codecs_kr  _codecs_tw  _multibytecodec  unicodedata  fcntl  grp  mmap  _posixsubprocess  resource  select  _socket  syslog  termios  _posixshmem  _multiprocessing  _ctypes  _curses  _curses_panel  _sqlite3  _ssl  _hashlib  _uuid  xxsubtype  _xxtestfuzz  _testinternalcapi  _testimportmultiple  _testmultiphase  _testsinglephase  _testexternalinspection  _ctypes_test  atexit  faulthandler  posix  _signal  _tracemalloc  _suggestions  _codecs  _collections  errno  _io  itertools  _sre  _sysconfig  _thread  time  _typing  _weakref  _abc  _functools  _locale  _operator  _stat  _symtable  pwd",
+        "MODLIBS": "-lm -lm -lm -lm  -lmpdec -lm  -lz -lbz2  -llzma -pthread -lpthread  -lz  -ledit -lncursesw    Modules/_hacl/libHacl_Hash_SHA2.a   -lexpat                   -lrt   -lffi  -ldl -lncursesw -lpanelw -lncursesw  -lsqlite3 -lm -ldl -lpthread   -lssl -lcrypto    -lcrypto -luuid",
+        "MODSHARED_NAMES": "_dbm _testbuffer _testcapi _testlimitedcapi _tkinter _testimportmultiple _testmultiphase _testsinglephase _testexternalinspection _ctypes_test",
+        "MODULE_BINASCII_LDFLAGS": " -lz",
+        "MODULE_CMATH_LDFLAGS": "-lm",
+        "MODULE_MATH_LDFLAGS": "-lm",
+        "MODULE_PYEXPAT_LDFLAGS": "-lexpat",
+        "MODULE_READLINE_LDFLAGS": " -ledit -lncursesw",
+        "MODULE_ZLIB_LDFLAGS": " -lz",
+        "MODULE__BZ2_LDFLAGS": "-lbz2",
+        "MODULE__CTYPES_LDFLAGS": " -lffi  -ldl",
+        "MODULE__CTYPES_TEST_LDFLAGS": "-lm",
+        "MODULE__CURSES_LDFLAGS": "-lncursesw",
+        "MODULE__CURSES_PANEL_LDFLAGS": "-lpanelw -lncursesw",
+        "MODULE__DATETIME_LDFLAGS": "-lm",
+        "MODULE__DBM_LDFLAGS": "-ldb",
+        "MODULE__DECIMAL_LDFLAGS": " -lmpdec -lm",
+        "MODULE__HASHLIB_LDFLAGS": "   -lcrypto",
+        "MODULE__LZMA_LDFLAGS": " -llzma -pthread -lpthread",
+        "MODULE__POSIXSHMEM_LDFLAGS": "-lrt",
+        "MODULE__SQLITE3_LDFLAGS": " -lsqlite3 -lm -ldl -lpthread",
+        "MODULE__SSL_LDFLAGS": "  -lssl -lcrypto",
+        "MODULE__STATISTICS_LDFLAGS": "-lm",
+        "MODULE__TKINTER_LDFLAGS": " -ldl -lz -lpthread -lm   -lz -ltcl9tk9.0 -ltkstub  -lX11 -ltcl9.0 -ltclstub -ldl -lz -lpthread -lm   -lz  -lX11 -lpthread  -lxcb  -lXau",
+        "MODULE__UUID_LDFLAGS": "-luuid"
+      }
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip-26.2.2.dist-info/METADATA",
+      "bytes": 4617,
+      "sha256": "fe157a60a970b288770fad79a124001f538a325b0a2270c594792b6a475eb798",
+      "declared_license_and_package_fields": [
+        "Name: pip",
+        "Version: 26.2.2",
+        "License-Expression: MIT",
+        "License-File: AUTHORS.txt",
+        "License-File: LICENSE.txt",
+        "License-File: src/pip/_vendor/cachecontrol/LICENSE.txt",
+        "License-File: src/pip/_vendor/certifi/LICENSE",
+        "License-File: src/pip/_vendor/distlib/LICENSE.txt",
+        "License-File: src/pip/_vendor/distro/LICENSE",
+        "License-File: src/pip/_vendor/idna/LICENSE.md",
+        "License-File: src/pip/_vendor/msgpack/COPYING",
+        "License-File: src/pip/_vendor/packaging/LICENSE",
+        "License-File: src/pip/_vendor/packaging/LICENSE.APACHE",
+        "License-File: src/pip/_vendor/packaging/LICENSE.BSD",
+        "License-File: src/pip/_vendor/pkg_resources/LICENSE",
+        "License-File: src/pip/_vendor/platformdirs/LICENSE",
+        "License-File: src/pip/_vendor/pygments/LICENSE",
+        "License-File: src/pip/_vendor/pyproject_hooks/LICENSE",
+        "License-File: src/pip/_vendor/requests/LICENSE",
+        "License-File: src/pip/_vendor/resolvelib/LICENSE",
+        "License-File: src/pip/_vendor/rich/LICENSE",
+        "License-File: src/pip/_vendor/tomli/LICENSE",
+        "License-File: src/pip/_vendor/tomli_w/LICENSE",
+        "License-File: src/pip/_vendor/truststore/LICENSE",
+        "License-File: src/pip/_vendor/urllib3/LICENSE.txt"
+      ]
+    },
+    {
+      "path": "python/lib/python3.13/site-packages/pip/_vendor/vendor.txt",
+      "bytes": 318,
+      "sha256": "2b44b4bc5b7da9dcda38099dc92c52cc3dda2a714cd189b439c0668401418630",
+      "declared_vendor_versions": [
+        "CacheControl==0.14.4",
+        "distlib==0.4.2",
+        "distro==1.9.0",
+        "msgpack==1.1.2",
+        "packaging==26.2",
+        "platformdirs==4.10.0",
+        "pyproject-hooks==1.2.0",
+        "requests==2.34.2",
+        "    certifi==2026.10.19",
+        "    idna==3.18",
+        "    urllib3==2.7.0",
+        "rich==14.2.0",
+        "    pygments==2.20.0",
+        "resolvelib==1.2.1",
+        "setuptools==70.3.0",
+        "tomli==2.4.1",
+        "tomli-w==1.2.0",
+        "truststore==0.10.4"
+      ]
+    }
+  ],
+  "native_member_metadata": [
+    {
+      "path": "python/lib/itcl4.3.8/libtcl9itcl4.3.8.so",
+      "bytes": 298880,
+      "binary_read_or_executed": false
+    },
+    {
+      "path": "python/lib/libpython3.13.so.1.0",
+      "bytes": 32382304,
+      "binary_read_or_executed": false
+    },
+    {
+      "path": "python/lib/libpython3.so",
+      "bytes": 8480,
+      "binary_read_or_executed": false
+    },
+    {
+      "path": "python/lib/libtcl9.0.so",
+      "bytes": 2346344,
+      "binary_read_or_executed": false
+    },
+    {
+      "path": "python/lib/libtcl9tk9.0.so",
+      "bytes": 3119072,
+      "binary_read_or_executed": false
+    },
+    {
+      "path": "python/lib/python3.13/lib-dynload/_dbm.cpython-313-x86_64-linux-gnu.so",
+      "bytes": 2370096,
+      "binary_read_or_executed": false
+    },
+    {
+      "path": "python/lib/python3.13/lib-dynload/_tkinter.cpython-313-x86_64-linux-gnu.so",
+      "bytes": 134816,
+      "binary_read_or_executed": false
+    },
+    {
+      "path": "python/lib/thread3.0.6/libtcl9thread3.0.6.so",
+      "bytes": 103128,
+      "binary_read_or_executed": false
+    }
+  ],
+  "authoritative_source_files": [
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+      "git_blob_sha1": "a612ad9813b006ce81d1ee438dd784da99a54007",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "upstream build system license only; not the entire runtime bundle license",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.bdb.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.bdb.txt",
+      "bytes": 7293,
+      "sha256": "3bdff06e69991c94664f2ef5c5f8096f60b7dbec071756ea6cc26b445e06ec5b",
+      "git_blob_sha1": "0601b45e01c6bda505d9d6697c77a28edf378722",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.bdb.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.bzip2.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.bzip2.txt",
+      "bytes": 1743,
+      "sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441",
+      "git_blob_sha1": "a5c4cdbc3f5e894f765d903f3c5939d7aa009615",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.bzip2.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.cpython.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.cpython.txt",
+      "bytes": 36164,
+      "sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd",
+      "git_blob_sha1": "1007a80520a7ff53a8dd5d8847bd4c0a34d46442",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.cpython.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.expat.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.expat.txt",
+      "bytes": 1144,
+      "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534",
+      "git_blob_sha1": "ce9e5939291e45f9633f540efc6ae58a26c041ef",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.expat.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.libX11.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libX11.txt",
+      "bytes": 47018,
+      "sha256": "2daec087a88e7c9b8082557cdeebad5bbb8155a4137472f0b22e269cd99d0c1e",
+      "git_blob_sha1": "b065516e4437c493f9cbf32cc7d15db60f68bc74",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libX11.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.libXau.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libXau.txt",
+      "bytes": 1148,
+      "sha256": "56abe29bb1d9806a9e04fa9f80fed2c0f18027594df3f098148d814aef6bddfa",
+      "git_blob_sha1": "64492ad8091f917787b14f12ba236e56de7addd2",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libXau.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.libedit.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libedit.txt",
+      "bytes": 1614,
+      "sha256": "29cea33c32bbc9785142386377915612a2fa786482c46843383384aded2e09b1",
+      "git_blob_sha1": "52c8707dc590da3ef3b8a487475e4fe0b191f976",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libedit.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.libffi.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libffi.txt",
+      "bytes": 1132,
+      "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0",
+      "git_blob_sha1": "acb2f7a07d7c5093f258ce7f6e8711fa63e68747",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libffi.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.liblzma.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.liblzma.txt",
+      "bytes": 660,
+      "sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02",
+      "git_blob_sha1": "2d7885199716b722b52832f73fa75285459b08ae",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.liblzma.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.libuuid.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libuuid.txt",
+      "bytes": 1432,
+      "sha256": "122ee1f7e258f2c3c0e538a75c037684f420454bf3850ddc74ce750bbf5fe86b",
+      "git_blob_sha1": "ec87a77f17f3f9415bd05ae1fb21c6009765f8b1",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libuuid.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.libxcb.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libxcb.txt",
+      "bytes": 1337,
+      "sha256": "c5ffbfeaa501071ceeb97b7de2c0d703fdaa35de01c0fb6cbac1c28453a3e9fd",
+      "git_blob_sha1": "54bfbe5b02074d0c276959c9140072ccba0dc670",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libxcb.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.mpdecimal.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.mpdecimal.txt",
+      "bytes": 1284,
+      "sha256": "669512af7219f58be03a398766d7c9da11a3b3df9d3f05cb74c5ceca25c8da3b",
+      "git_blob_sha1": "c7688a928cd5292e5c2a729431fab7b30fd44a05",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.mpdecimal.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.ncurses.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.ncurses.txt",
+      "bytes": 1447,
+      "sha256": "87a4c4442337b8968ef956031c406b74f9cb7149b7ba87311bdaba534816201c",
+      "git_blob_sha1": "3a229753681327c4089d8fdaf9293658c7befe4a",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.ncurses.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.openssl-3.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.openssl-3.txt",
+      "bytes": 10175,
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "git_blob_sha1": "49cc83d2ee29d13453188217f0e4edd70c7f842f",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.openssl-3.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.sqlite.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.sqlite.txt",
+      "bytes": 1481,
+      "sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719",
+      "git_blob_sha1": "68b36ebd1990e92998ca64a30af0a726357ebdea",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.sqlite.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.tcl.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.tcl.txt",
+      "bytes": 2255,
+      "sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16",
+      "git_blob_sha1": "d8049cd9e7ca055f7e584a76f88861a294b30c9c",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.tcl.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "LICENSE.zlib.txt",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.zlib.txt",
+      "bytes": 995,
+      "sha256": "818922b2620f12801a12bf78e399644a30990e66824abd8ca8ec24d451d6f92c",
+      "git_blob_sha1": "5eb28a147858fcb57ed306ed6fbd9c03f22f9452",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.zlib.txt"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "cpython-unix/build.py",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/cpython-unix/build.py",
+      "bytes": 47449,
+      "sha256": "eaa0bf22836e12108783ee14c3408adf3be4536efd5b7734530c2b01cf67d316",
+      "git_blob_sha1": "b28b64cb0ccb2191a480a127b19ba1eda3d067d0",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/cpython-unix/build.py"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "cpython-unix/extension-modules.yml",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/cpython-unix/extension-modules.yml",
+      "bytes": 24139,
+      "sha256": "a48f6a73007a96c14cbdf776e2f4cca09a25e401b04c00e6152bb81be550cded",
+      "git_blob_sha1": "afaf14ed599098aad9c4f457705f5c489dc87560",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/cpython-unix/extension-modules.yml"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "docs/distributions.md",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/docs/distributions.md",
+      "bytes": 19198,
+      "sha256": "91669ca5a25cecd4c8ac62c3229295ace373bbef16b5bb2079fa4ca5cd422c35",
+      "git_blob_sha1": "e5e67c83072179f7c8a60f265408a61756cfc5db",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/docs/distributions.md"
+    },
+    {
+      "repository": "astral-sh/python-build-standalone",
+      "ref": "20261021",
+      "path": "pythonbuild/downloads.json",
+      "url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/pythonbuild/downloads.json",
+      "bytes": 18448,
+      "sha256": "510d5b18ac3902627cab1c5e0c0a77b2e0e18b6f298df0610de3fcb8a2406db4",
+      "git_blob_sha1": "78bf86b1f8e7115ccac54c261ec546006877eb02",
+      "git_blob_bytes_verified": true,
+      "provenance": "Managed GitHub App official public repository source; no executable artifact",
+      "scope": "tag source/package declaration or corresponding license text; exact installed binary mapping still incomplete",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "immutable_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/pythonbuild/downloads.json"
+    }
+  ],
+  "native_component_declarations": [
+    {
+      "component": "cpython-3.13",
+      "source_version": "3.13.17",
+      "source_url": "https://www.python.org/ftp/python/3.13.17/Python-3.13.17.tar.xz",
+      "source_archive_sha256": "6020bd10aff3bf4821be16f088ebb1591beb7b811dcd8fab1da8f7c22a7b27e7",
+      "source_archive_bytes": 23233336,
+      "declared_spdx_ids": [
+        "Python-2.0",
+        "CNRI-Python"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.cpython.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd",
+      "license_text_bytes": 36164,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.cpython.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "ACTUAL_ARCHIVE_HEADER_CONFIRMED",
+      "actual_binary_component_version": "3.13.17",
+      "component_presence_evidence": "PY_VERSION 3.13.17 in installed patchlevel.h",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.cpython.txt",
+        "supplemental_repository_sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "bdb",
+      "source_version": "6.0.19",
+      "source_url": "https://ftp.osuosl.org/pub/blfs/conglomeration/db/db-6.0.19.tar.gz",
+      "source_archive_sha256": "2917c28f60903908c2ca4587ded1363b812c4e830a5326aaa77c9879d13ae18e",
+      "source_archive_bytes": 36541923,
+      "declared_spdx_ids": [
+        "Sleepycat"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.bdb.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "3bdff06e69991c94664f2ef5c5f8096f60b7dbec071756ea6cc26b445e06ec5b",
+      "license_text_bytes": 7293,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.bdb.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__DBM_LDFLAGS=-ldb and --with-dbmliborder=bdb",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.bdb.txt",
+        "supplemental_repository_sha256": "3bdff06e69991c94664f2ef5c5f8096f60b7dbec071756ea6cc26b445e06ec5b",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt.",
+      "additional_distribution_condition_not_proven": "Sleepycat requires source availability information for DB and accompanying software using it, subject to exact terms; source offering/compliance receipt is absent. Notice copying alone does not satisfy this."
+    },
+    {
+      "component": "bzip2",
+      "source_version": "1.0.8",
+      "source_url": "https://astral-sh.github.io/mirror/files/bzip2-1.0.8.tar.gz",
+      "source_archive_sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269",
+      "source_archive_bytes": 810029,
+      "declared_spdx_ids": [
+        "bzip2-1.0.6"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.bzip2.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441",
+      "license_text_bytes": 1743,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.bzip2.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__BZ2_LDFLAGS=-lbz2",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.bzip2.txt",
+        "supplemental_repository_sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "expat",
+      "source_version": "2.9.0",
+      "source_url": "https://github.com/libexpat/libexpat/releases/download/R_2_9_0/expat-2.9.0.tar.xz",
+      "source_archive_sha256": "1e6371862cc31999b368c3b89b49994f0677e1bab5f1b2b85ae3741f5d803051",
+      "source_archive_bytes": 534052,
+      "declared_spdx_ids": [
+        "MIT"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.expat.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534",
+      "license_text_bytes": 1144,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.expat.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE_PYEXPAT_LDFLAGS=-lexpat",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.expat.txt",
+        "supplemental_repository_sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "libedit",
+      "source_version": "20240808-3.1",
+      "source_url": "https://thrysoee.dk/editline/libedit-20240808-3.1.tar.gz",
+      "source_archive_sha256": "5f0573349d77c4a48967191cdd6634dd7aa5f6398c6a57fe037cc02696d6099f",
+      "source_archive_bytes": 538611,
+      "declared_spdx_ids": [
+        "BSD-3-Clause"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.libedit.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "29cea33c32bbc9785142386377915612a2fa786482c46843383384aded2e09b1",
+      "license_text_bytes": 1614,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libedit.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE_READLINE_LDFLAGS includes -ledit",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.libedit.txt",
+        "supplemental_repository_sha256": "29cea33c32bbc9785142386377915612a2fa786482c46843383384aded2e09b1",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "libffi",
+      "source_version": "3.8.0",
+      "source_url": "https://github.com/libffi/libffi/releases/download/v3.8.0/libffi-3.8.0.tar.gz",
+      "source_archive_sha256": "7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4",
+      "source_archive_bytes": 1581626,
+      "declared_spdx_ids": [
+        "MIT"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.libffi.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0",
+      "license_text_bytes": 1132,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libffi.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__CTYPES_LDFLAGS includes -lffi",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.libffi.txt",
+        "supplemental_repository_sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "libX11",
+      "source_version": "1.8.13",
+      "source_url": "https://www.x.org/releases/individual/lib/libX11-1.8.13.tar.gz",
+      "source_archive_sha256": "acf0e7cd7541110e6330ecb539441a2d53061f386ec7be6906dfde0de2598470",
+      "source_archive_bytes": 3217264,
+      "declared_spdx_ids": [
+        "MIT",
+        "X11"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.libX11.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "2daec087a88e7c9b8082557cdeebad5bbb8155a4137472f0b22e269cd99d0c1e",
+      "license_text_bytes": 47018,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libX11.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__TKINTER_LDFLAGS includes -lX11",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.libX11.txt",
+        "supplemental_repository_sha256": "2daec087a88e7c9b8082557cdeebad5bbb8155a4137472f0b22e269cd99d0c1e",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "libXau",
+      "source_version": "1.0.12",
+      "source_url": "https://www.x.org/releases/individual/lib/libXau-1.0.12.tar.gz",
+      "source_archive_sha256": "2402dd938da4d0a332349ab3d3586606175e19cb32cb9fe013c19f1dc922dcee",
+      "source_archive_bytes": 418722,
+      "declared_spdx_ids": [
+        "MIT"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.libXau.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "56abe29bb1d9806a9e04fa9f80fed2c0f18027594df3f098148d814aef6bddfa",
+      "license_text_bytes": 1148,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libXau.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__TKINTER_LDFLAGS includes -lXau",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.libXau.txt",
+        "supplemental_repository_sha256": "56abe29bb1d9806a9e04fa9f80fed2c0f18027594df3f098148d814aef6bddfa",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "libxcb",
+      "source_version": "1.17.0",
+      "source_url": "https://xcb.freedesktop.org/dist/libxcb-1.17.0.tar.gz",
+      "source_archive_sha256": "2c69287424c9e2128cb47ffe92171e10417041ec2963bceafb65cb3fcf8f0b85",
+      "source_archive_bytes": 661593,
+      "declared_spdx_ids": [
+        "MIT"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.libxcb.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "c5ffbfeaa501071ceeb97b7de2c0d703fdaa35de01c0fb6cbac1c28453a3e9fd",
+      "license_text_bytes": 1337,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libxcb.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__TKINTER_LDFLAGS includes -lxcb",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.libxcb.txt",
+        "supplemental_repository_sha256": "c5ffbfeaa501071ceeb97b7de2c0d703fdaa35de01c0fb6cbac1c28453a3e9fd",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "mpdecimal",
+      "source_version": "4.0.0",
+      "source_url": "https://astral-sh.github.io/mirror/files/mpdecimal-4.0.0.tar.gz",
+      "source_archive_sha256": "942445c3245b22730fd41a67a7c5c231d11cb1b9936b9c0f76334fb7d0b4468c",
+      "source_archive_bytes": 315325,
+      "declared_spdx_ids": [
+        "BSD-2-Clause"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.mpdecimal.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "669512af7219f58be03a398766d7c9da11a3b3df9d3f05cb74c5ceca25c8da3b",
+      "license_text_bytes": 1284,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.mpdecimal.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__DECIMAL_LDFLAGS includes -lmpdec",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.mpdecimal.txt",
+        "supplemental_repository_sha256": "669512af7219f58be03a398766d7c9da11a3b3df9d3f05cb74c5ceca25c8da3b",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "ncurses",
+      "source_version": "6.5",
+      "source_url": "https://astral-sh.github.io/mirror/files/ncurses-6.5.tar.gz",
+      "source_archive_sha256": "136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6",
+      "source_archive_bytes": 3688489,
+      "declared_spdx_ids": [
+        "X11"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.ncurses.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "87a4c4442337b8968ef956031c406b74f9cb7149b7ba87311bdaba534816201c",
+      "license_text_bytes": 1447,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.ncurses.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE_READLINE/MODULE__CURSES LDFLAGS include -lncursesw/-lpanelw",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.ncurses.txt",
+        "supplemental_repository_sha256": "87a4c4442337b8968ef956031c406b74f9cb7149b7ba87311bdaba534816201c",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "openssl-3.5",
+      "source_version": "3.5.9",
+      "source_url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+      "source_archive_sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+      "source_archive_bytes": 53279637,
+      "declared_spdx_ids": [
+        "Apache-2.0"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.openssl-3.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "license_text_bytes": 10175,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.openssl-3.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__SSL/MODULE__HASHLIB LDFLAGS include -lssl/-lcrypto",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.openssl-3.txt",
+        "supplemental_repository_sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "sqlite",
+      "source_version": "3530100",
+      "source_url": "https://www.sqlite.org/2026/sqlite-autoconf-3530100.tar.gz",
+      "source_archive_sha256": "83e6b2020a034e9a7ad4a72feea59e1ad52f162e09cbd26735a3ffb98359fc4f",
+      "source_archive_bytes": 3275272,
+      "declared_spdx_ids": [],
+      "declared_public_domain": true,
+      "license_source_path": "LICENSE.sqlite.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719",
+      "license_text_bytes": 1481,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.sqlite.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__SQLITE3_LDFLAGS includes -lsqlite3",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Public-domain declaration in upstream notice",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.sqlite.txt",
+        "supplemental_repository_sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "tcl",
+      "source_version": "9.0.4",
+      "source_url": "https://prdownloads.sourceforge.net/tcl/tcl9.0.4-src.tar.gz",
+      "source_archive_sha256": "d0aed49230bc02a65c1e0229e65f34590a4b037ec40d546f32573b467f7551ea",
+      "source_archive_bytes": 11866337,
+      "declared_spdx_ids": [
+        "TCL"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.tcl.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16",
+      "license_text_bytes": 2255,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.tcl.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__TKINTER_LDFLAGS includes -ltcl9.0",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.tcl.txt",
+        "supplemental_repository_sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "tk",
+      "source_version": "9.0.4",
+      "source_url": "https://prdownloads.sourceforge.net/tcl/tk9.0.4-src.tar.gz",
+      "source_archive_sha256": "d7a146d2917eb8b5cc95276dbf0e3d03c7464d2b19c1675357857c989301dbb4",
+      "source_archive_bytes": 4613019,
+      "declared_spdx_ids": [
+        "TCL"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.tcl.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16",
+      "license_text_bytes": 2255,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.tcl.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__TKINTER_LDFLAGS includes -ltcl9tk9.0",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.tcl.txt",
+        "supplemental_repository_sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "uuid",
+      "source_version": "1.0.3",
+      "source_url": "https://sourceforge.net/projects/libuuid/files/libuuid-1.0.3.tar.gz",
+      "source_archive_sha256": "46af3275291091009ad7f1b899de3d0cea0252737550e7919d17237997db5644",
+      "source_archive_bytes": 318256,
+      "declared_spdx_ids": [
+        "BSD-3-Clause"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.libuuid.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "122ee1f7e258f2c3c0e538a75c037684f420454bf3850ddc74ce750bbf5fe86b",
+      "license_text_bytes": 1432,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.libuuid.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__UUID_LDFLAGS=-luuid",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.libuuid.txt",
+        "supplemental_repository_sha256": "122ee1f7e258f2c3c0e538a75c037684f420454bf3850ddc74ce750bbf5fe86b",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "xz",
+      "source_version": "5.8.4",
+      "source_url": "https://github.com/tukaani-project/xz/releases/download/v5.8.4/xz-5.8.4.tar.gz",
+      "source_archive_sha256": "0014c7886930454fe8bd4228665b51af55eeae560ea135c9c4cd33f55b2591d9",
+      "source_archive_bytes": 2799797,
+      "declared_spdx_ids": [
+        "0BSD"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.liblzma.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02",
+      "license_text_bytes": 660,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.liblzma.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE__LZMA_LDFLAGS includes -llzma",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.liblzma.txt",
+        "supplemental_repository_sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    },
+    {
+      "component": "zlib",
+      "source_version": "1.3.2",
+      "source_url": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz",
+      "source_archive_sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16",
+      "source_archive_bytes": 1502830,
+      "declared_spdx_ids": [
+        "Zlib"
+      ],
+      "declared_public_domain": false,
+      "license_source_path": "LICENSE.zlib.txt",
+      "metadata_source_path": "pythonbuild/downloads.json",
+      "exact_binary_component_version_receipt": null,
+      "evidence_limit": "Tag source declaration plus archive build LDFLAGS; no exact omitted PYTHON.json binary-build mapping.",
+      "license_text_sha256": "818922b2620f12801a12bf78e399644a30990e66824abd8ca8ec24d451d6f92c",
+      "license_text_bytes": 995,
+      "license_text_url": "https://github.com/astral-sh/python-build-standalone/blob/20261021/LICENSE.zlib.txt",
+      "license_text_present_in_install_only_at_declared_root_path": false,
+      "version_classification": "UPSTREAM_BUILD_RECIPE_DECLARED_NOT_EXACT_BINARY_CONFIRMED",
+      "actual_binary_component_version": null,
+      "component_presence_evidence": "MODULE_ZLIB_LDFLAGS includes -lz",
+      "conditional_use_or_redistribution_grant_observed": true,
+      "grant_observation": "Conditional grant in the pinned upstream license text; not a conclusion that all distribution conditions are satisfied.",
+      "notice_repair": {
+        "upstream_notice_absent_from_install_only_root": true,
+        "supplemental_repository_path": "tools/support-contact-runtime/notices/LICENSE.zlib.txt",
+        "supplemental_repository_sha256": "818922b2620f12801a12bf78e399644a30990e66824abd8ca8ec24d451d6f92c",
+        "candidate_image_inclusion_proven": false
+      },
+      "remaining_missing_artifact": "Exact corresponding full-distribution PYTHON.json build/link/license mapping; image notice inclusion receipt."
+    }
+  ],
+  "policy_snapshot": {
+    "path": "scripts/supply-chain/license-policy.json",
+    "sha256": "f2880c90e41e77c402703be4420ced16d3ed2ecc1ae91ade693999ec2774df7c",
+    "allowed_spdx_ids": [
+      "0BSD",
+      "Apache-2.0",
+      "BlueOak-1.0.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "CC0-1.0",
+      "ISC",
+      "MIT",
+      "MIT-0",
+      "PostgreSQL",
+      "Python-2.0",
+      "Unlicense"
+    ],
+    "Python-2.0_allowed": true,
+    "PSF-2.0_allowed": false,
+    "CNRI-Python_allowed": false,
+    "matching_exception_for_python_bundle_or_certifi_or_native_components": false,
+    "policy_modified": false
+  },
+  "completeness": {
+    "whole_bundle_license_complete": false,
+    "whole_native_closure_exact_build_receipt_available": false,
+    "whole_bundle_spdx_expression": null,
+    "policy_admitted": false,
+    "unknowns": [
+      "install_only omits exact PYTHON.json build/link/license mapping and root licenses by upstream design.",
+      "Official source declarations at tag are evidence about source packages, not a substitute for an exact binary build receipt.",
+      "Python-2.0 is allowed; historical PSF/CNRI text is not treated as a separate additional obligation without a term proving it. Exact source metadata/composite reconciliation remains recorded.",
+      "Bundled Tcl extensions itcl/thread, mimalloc, HACL/JIT/static support and system dynamic-library closure require complete per-component attribution/build mapping.",
+      "Presence of 45 license-related paths includes AUTHORS and two Python metadata/source files, not 45 independent complete license grants."
+    ],
+    "exact_missing_artifact": "PYTHON.json from the exact matching full distribution, intentionally omitted from this install_only archive; no substitute exact build/license mapping receipt is present.",
+    "repository_notice_texts_supplemented": true,
+    "candidate_image_notice_inclusion_proven": false
+  },
+  "policy_gaps": [
+    {
+      "component": "bdb",
+      "not_literally_allowlisted_spdx_ids": [
+        "Sleepycat"
+      ],
+      "classification": "INTERNAL_ALLOWLIST_REVIEW_PENDING_CONDITIONAL_GRANT_OBSERVED",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true
+    },
+    {
+      "component": "bzip2",
+      "not_literally_allowlisted_spdx_ids": [
+        "bzip2-1.0.6"
+      ],
+      "classification": "INTERNAL_ALLOWLIST_REVIEW_PENDING_CONDITIONAL_GRANT_OBSERVED",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true
+    },
+    {
+      "component": "cpython-3.13",
+      "not_literally_allowlisted_spdx_ids": [
+        "CNRI-Python"
+      ],
+      "classification": "HISTORICAL_COMPOSITE_METADATA_RECONCILIATION_ONLY",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true,
+      "note": "Python-2.0 is allowed. Historical CNRI/PSF sections do not establish a separate additional obligation without terms proving one; upstream extra identifier is retained as a declaration, not an independent ban."
+    },
+    {
+      "component": "libX11",
+      "not_literally_allowlisted_spdx_ids": [
+        "X11"
+      ],
+      "classification": "INTERNAL_ALLOWLIST_REVIEW_PENDING_CONDITIONAL_GRANT_OBSERVED",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true
+    },
+    {
+      "component": "ncurses",
+      "not_literally_allowlisted_spdx_ids": [
+        "X11"
+      ],
+      "classification": "INTERNAL_ALLOWLIST_REVIEW_PENDING_CONDITIONAL_GRANT_OBSERVED",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true
+    },
+    {
+      "component": "pip-vendored-certifi",
+      "version": "2026.10.19",
+      "not_literally_allowlisted_spdx_ids": [
+        "MPL-2.0"
+      ],
+      "classification": "INTERNAL_ALLOWLIST_REVIEW_PENDING_CONDITIONAL_GRANT_OBSERVED",
+      "approved": false,
+      "evidence": "Bundled certifi LICENSE explicitly declares MPL2.0; existing MPL exceptions apply to other named packages only.",
+      "not_a_finding_of_no_legal_permission": true
+    },
+    {
+      "component": "sqlite",
+      "declared_spdx_ids": [],
+      "declared_public_domain": true,
+      "classification": "PUBLIC_DOMAIN_DECLARATION_REQUIRES_POLICY_MAPPING_NOT_AUTOMATIC_UNLICENSE",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true
+    },
+    {
+      "component": "tcl",
+      "not_literally_allowlisted_spdx_ids": [
+        "TCL"
+      ],
+      "classification": "INTERNAL_ALLOWLIST_REVIEW_PENDING_CONDITIONAL_GRANT_OBSERVED",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true
+    },
+    {
+      "component": "tk",
+      "not_literally_allowlisted_spdx_ids": [
+        "TCL"
+      ],
+      "classification": "INTERNAL_ALLOWLIST_REVIEW_PENDING_CONDITIONAL_GRANT_OBSERVED",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true
+    },
+    {
+      "component": "zlib",
+      "not_literally_allowlisted_spdx_ids": [
+        "Zlib"
+      ],
+      "classification": "INTERNAL_ALLOWLIST_REVIEW_PENDING_CONDITIONAL_GRANT_OBSERVED",
+      "approved": false,
+      "not_a_finding_of_no_legal_permission": true
+    }
+  ],
+  "method": {
+    "downloaded_new_binary_or_full_archive": false,
+    "archive_extractall_or_execution": false,
+    "executed_runtime_or_tests": false,
+    "source_retrieval": "Managed GitHub App, public official astral-sh/python-build-standalone tag20261021, bounded source/license text files only.",
+    "private_or_production_inputs": false
+  },
+  "additional_notice_like_member_metadata": [],
+  "summary": {
+    "license_related_paths": 45,
+    "actual_license_text_paths": 42,
+    "authors_paths": 1,
+    "source_or_identifier_metadata_paths": 2,
+    "official_source_text_records": 22,
+    "all_official_source_bytes_match_git_blob": true,
+    "policy_gap_components": [
+      "bdb",
+      "bzip2",
+      "cpython-3.13",
+      "libX11",
+      "ncurses",
+      "pip-vendored-certifi",
+      "sqlite",
+      "tcl",
+      "tk",
+      "zlib"
+    ],
+    "supplemental_verbatim_notice_files": 18,
+    "allowlist_omission_is_not_legal_permission_denial": true
+  },
+  "supplemental_notice_files": [
+    {
+      "path": "tools/support-contact-runtime/notices/MPL-2.0.txt",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE",
+      "source_git_blob_sha1": "a612ad9813b006ce81d1ee438dd784da99a54007",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.bdb.txt",
+      "bytes": 7293,
+      "sha256": "3bdff06e69991c94664f2ef5c5f8096f60b7dbec071756ea6cc26b445e06ec5b",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.bdb.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.bdb.txt",
+      "source_git_blob_sha1": "0601b45e01c6bda505d9d6697c77a28edf378722",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.bzip2.txt",
+      "bytes": 1743,
+      "sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.bzip2.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.bzip2.txt",
+      "source_git_blob_sha1": "a5c4cdbc3f5e894f765d903f3c5939d7aa009615",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.cpython.txt",
+      "bytes": 36164,
+      "sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.cpython.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.cpython.txt",
+      "source_git_blob_sha1": "1007a80520a7ff53a8dd5d8847bd4c0a34d46442",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.expat.txt",
+      "bytes": 1144,
+      "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.expat.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.expat.txt",
+      "source_git_blob_sha1": "ce9e5939291e45f9633f540efc6ae58a26c041ef",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libX11.txt",
+      "bytes": 47018,
+      "sha256": "2daec087a88e7c9b8082557cdeebad5bbb8155a4137472f0b22e269cd99d0c1e",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.libX11.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libX11.txt",
+      "source_git_blob_sha1": "b065516e4437c493f9cbf32cc7d15db60f68bc74",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libXau.txt",
+      "bytes": 1148,
+      "sha256": "56abe29bb1d9806a9e04fa9f80fed2c0f18027594df3f098148d814aef6bddfa",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.libXau.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libXau.txt",
+      "source_git_blob_sha1": "64492ad8091f917787b14f12ba236e56de7addd2",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libedit.txt",
+      "bytes": 1614,
+      "sha256": "29cea33c32bbc9785142386377915612a2fa786482c46843383384aded2e09b1",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.libedit.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libedit.txt",
+      "source_git_blob_sha1": "52c8707dc590da3ef3b8a487475e4fe0b191f976",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libffi.txt",
+      "bytes": 1132,
+      "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.libffi.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libffi.txt",
+      "source_git_blob_sha1": "acb2f7a07d7c5093f258ce7f6e8711fa63e68747",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.liblzma.txt",
+      "bytes": 660,
+      "sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.liblzma.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.liblzma.txt",
+      "source_git_blob_sha1": "2d7885199716b722b52832f73fa75285459b08ae",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libuuid.txt",
+      "bytes": 1432,
+      "sha256": "122ee1f7e258f2c3c0e538a75c037684f420454bf3850ddc74ce750bbf5fe86b",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.libuuid.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libuuid.txt",
+      "source_git_blob_sha1": "ec87a77f17f3f9415bd05ae1fb21c6009765f8b1",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libxcb.txt",
+      "bytes": 1337,
+      "sha256": "c5ffbfeaa501071ceeb97b7de2c0d703fdaa35de01c0fb6cbac1c28453a3e9fd",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.libxcb.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.libxcb.txt",
+      "source_git_blob_sha1": "54bfbe5b02074d0c276959c9140072ccba0dc670",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.mpdecimal.txt",
+      "bytes": 1284,
+      "sha256": "669512af7219f58be03a398766d7c9da11a3b3df9d3f05cb74c5ceca25c8da3b",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.mpdecimal.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.mpdecimal.txt",
+      "source_git_blob_sha1": "c7688a928cd5292e5c2a729431fab7b30fd44a05",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.ncurses.txt",
+      "bytes": 1447,
+      "sha256": "87a4c4442337b8968ef956031c406b74f9cb7149b7ba87311bdaba534816201c",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.ncurses.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.ncurses.txt",
+      "source_git_blob_sha1": "3a229753681327c4089d8fdaf9293658c7befe4a",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.openssl-3.txt",
+      "bytes": 10175,
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.openssl-3.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.openssl-3.txt",
+      "source_git_blob_sha1": "49cc83d2ee29d13453188217f0e4edd70c7f842f",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.sqlite.txt",
+      "bytes": 1481,
+      "sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.sqlite.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.sqlite.txt",
+      "source_git_blob_sha1": "68b36ebd1990e92998ca64a30af0a726357ebdea",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.tcl.txt",
+      "bytes": 2255,
+      "sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.tcl.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.tcl.txt",
+      "source_git_blob_sha1": "d8049cd9e7ca055f7e584a76f88861a294b30c9c",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.zlib.txt",
+      "bytes": 995,
+      "sha256": "818922b2620f12801a12bf78e399644a30990e66824abd8ca8ec24d451d6f92c",
+      "verbatim": true,
+      "source_repository": "astral-sh/python-build-standalone",
+      "source_ref": "20261021",
+      "source_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e",
+      "source_path": "LICENSE.zlib.txt",
+      "source_url": "https://github.com/astral-sh/python-build-standalone/blob/0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e/LICENSE.zlib.txt",
+      "source_git_blob_sha1": "5eb28a147858fcb57ed306ed6fbd9c03f22f9452",
+      "source_git_blob_bytes_verified": true,
+      "purpose": "Preserve conditional license/attribution terms verbatim; copied notice is not a new license approval.",
+      "repository_notice_availability": "REPAIRED",
+      "candidate_image_inclusion_proven": false
+    }
+  ],
+  "legal_and_policy_distinctions": {
+    "missing_notice_packaging": "Known upstream legal texts are now included verbatim under notices. Presence in a built candidate image is not yet demonstrated.",
+    "conditional_license_grant": "Source texts grant use/redistribution subject to their conditions. An internal allowlist omission does not mean absence of legal permission.",
+    "grant_or_compliance_not_proven": "Whole-bundle grant/compliance is not established without exact omitted PYTHON.json mapping, remaining component terms, and condition-specific evidence. Sleepycat source-availability compliance is not demonstrated by copying its notice.",
+    "internal_allowlist_review": "Literal identifiers outside the current policy require internal review; this inventory grants no approval and changes no policy."
+  }
+}

@@ -1,0 +1,38 @@
+name: SupportContact runtime qualification
+
+on:
+  pull_request:
+    paths:
+      - 'tools/support-contact-runtime/**'
+      - 'tools/support-contact-probe/run_preserved_probe.py'
+      - '.github/workflows/support-contact-runtime.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/support-contact-runtime/**'
+      - 'tools/support-contact-probe/run_preserved_probe.py'
+      - '.github/workflows/support-contact-runtime.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  support-contact-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Qualify only the new synthetic runtime profile
+        run: python3 -I -B tools/support-contact-runtime/qualify.py --output "$RUNNER_TEMP/support-runtime"
+      - name: Preserve public profile proof and OCI bytes
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: support-contact-runtime-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/support-runtime/qualification.json
+            ${{ runner.temp }}/support-runtime/profile-oci.tar
+          retention-days: 7
+          if-no-files-found: error
