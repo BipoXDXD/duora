@@ -25,7 +25,7 @@ public sealed partial class ApprovedCandidateCleanupDispatcher
           join safety.photo_review_cases r on r.id=d.case_id
           where d.case_id=c.case_id and d.candidate_generation=c.generation
             and r.candidate_generation=c.generation and r.upload_id=c.upload_id
-            and d.policy_version=r.policy_version and d.decision='approve' and d.reason_code='meets_policy'
+            and d.appeal_id is null and d.policy_version=r.policy_version and d.decision='approve' and d.reason_code='meets_policy'
             and d.decided_at=c.cleanup_requested_at and d.candidate_retention_until_snapshot=c.retention_until)
         """;
 

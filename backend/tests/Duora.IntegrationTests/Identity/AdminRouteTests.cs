@@ -33,6 +33,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
         _factory = new DuoraWebFactory(postgres.ConnectionString)
         {
             Time = _time,
+            Settings = new Dictionary<string, string?> { ["Media:Review"] = null, ["Media:Storage:Provider"] = null },
             TestServices = services => services.AddSingleton(new AdminRoutes(admin =>
             {
                 admin.MapGet("/probe", () => TypedResults.NoContent());
@@ -129,7 +130,10 @@ public sealed class AdminRouteTests : IAsyncDisposable
                 : await SendAsync(browser, route);
             // Product commands receive an intentionally empty body: reaching validation is expected here.
             var expected = route.Path is AdminPrefix + "/events" or AdminPrefix + "/experience-versions" or AdminPrefix + "/route-experience-versions"
-                ? HttpStatusCode.BadRequest : HttpStatusCode.NoContent;
+                ? HttpStatusCode.BadRequest
+                : route.Path.StartsWith(AdminPrefix + "/photo-reviews", StringComparison.Ordinal)
+                    || route.Path.StartsWith(AdminPrefix + "/photo-appeals", StringComparison.Ordinal)
+                    ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.NoContent;
             Assert.True(response.StatusCode == expected, $"{route.Name} respondeu {(int)response.StatusCode}.");
         }
     }
@@ -262,6 +266,10 @@ public sealed class AdminRouteTests : IAsyncDisposable
         {
             "GET" => browser.GetAsync(path),
             "DELETE" => browser.DeleteAsync(path),
+            "POST" when path.EndsWith("/assignments", StringComparison.Ordinal) =>
+                browser.PostJsonAsync(path, new { reviewerId = Guid.NewGuid() }),
+            "POST" when path.EndsWith("/decisions", StringComparison.Ordinal) =>
+                browser.PostJsonAsync(path, new { decision = "approve", reasonCode = "meets_policy" }),
             "POST" => browser.PostJsonAsync(path, body: null),
             var method => throw new InvalidOperationException($"Método {method} sem caso no teste."),
         };

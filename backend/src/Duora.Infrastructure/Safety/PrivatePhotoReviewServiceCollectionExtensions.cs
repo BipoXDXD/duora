@@ -33,6 +33,9 @@ internal static class PrivatePhotoReviewServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>()));
         services.TryAddScoped(provider => new PhotoReviewAppealAssignments(
             provider.GetRequiredService<IDbContextFactory<DuoraDbContext>>(), provider.GetRequiredService<TimeProvider>()));
+        services.TryAddScoped(provider => new PhotoReviewAppealDecisions(
+            provider.GetRequiredService<IDbContextFactory<DuoraDbContext>>(), provider.GetRequiredService<IObjectStore>(),
+            provider.GetRequiredService<TimeProvider>()));
         services.TryAddScoped(provider => new PhotoReviewAppealEvidence(
             provider.GetRequiredService<IDbContextFactory<DuoraDbContext>>(), provider.GetRequiredService<IObjectStore>(),
             provider.GetRequiredService<TimeProvider>()));
@@ -43,6 +46,12 @@ internal static class PrivatePhotoReviewServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>()));
         services.TryAddScoped(provider => new ApprovedMediaBackupCatalog(
             provider.GetRequiredService<IDbContextFactory<DuoraDbContext>>(), provider.GetRequiredService<TimeProvider>()));
+        services.TryAddScoped(provider => new PhotoReviewAppealAvailability(
+            provider.GetRequiredService<IDbContextFactory<DuoraDbContext>>(), provider.GetRequiredService<IObjectStore>(),
+            provider.GetRequiredService<TimeProvider>()));
+        services.TryAddScoped(provider => new PhotoReviewService(
+            provider.GetRequiredService<IDbContextFactory<DuoraDbContext>>(), provider.GetRequiredService<IObjectStore>(),
+            provider.GetRequiredService<TimeProvider>()));
         return services;
     }
 }

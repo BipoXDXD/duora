@@ -59,6 +59,7 @@ export function AccountPage(): React.JSX.Element {
         <TextLink to={paths.selfie}>{locale === 'pt-BR' ? 'Confirmar presença' : 'Confirm presence'}</TextLink>
       </p>
       <TextLink to={paths.preferences}>{t('preferences.title')}</TextLink>
+      <TextLink to={paths.photos}>{t('photoReview.myPhotos')}</TextLink>
       <TextLink to={paths.events}>{t('participation.events')}</TextLink>
       <SessionList userId={account.id} />
     </Page>

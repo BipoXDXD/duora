@@ -9,7 +9,7 @@ import tempfile
 import time
 import traceback
 import unittest
-from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Any
@@ -19,41 +19,6 @@ import receiver as r
 
 SHA = "a" * 40
 CONFIG_ID = "sha256:" + "c" * 64
-PREVIOUS_EXECUTOR = "ghcr.io/bipoxdxd/goblinshift-executor@sha256:" + "c" * 64
-
-
-@contextmanager
-def synthetic_goblin_policy(path: Path, reader_config: Path | None = None) -> Any:
-    """Only the kernel trust boundary is synthetic; append/rename/fsync stay real.
-
-    These host-lock tests run without root. Native ownership/ancestry acceptance
-    belongs to the separate Linux runner proof, never to this fixture.
-    """
-    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-    previous = path.read_bytes()
-    config_raw = reader_config.read_bytes() if reader_config is not None else None
-    metadata = r.require_admin_metadata
-
-    def root_metadata(info: Any, **kwargs: Any) -> None:
-        values = list(info)
-        values[4:6] = [0, 0]
-        metadata(os.stat_result(values), **kwargs)
-
-    def verify() -> None:
-        pinned = os.fstat(directory)
-        current = path.parent.stat()
-        if (current.st_dev, current.st_ino) != (pinned.st_dev, pinned.st_ino):
-            raise ValueError("Synthetic pinned directory replaced")
-        if reader_config is not None and reader_config.read_bytes() != config_raw:
-            raise ValueError("Synthetic reader configuration changed")
-        if path.read_bytes() != previous:
-            raise ValueError("Synthetic policy changed")
-
-    try:
-        with patch.object(r, "require_admin_metadata", side_effect=root_metadata):
-            yield {"directory": directory, "raw": previous, "verify": verify}
-    finally:
-        os.close(directory)
 
 
 def worker(root: Path, project: str, mode: str) -> None:
@@ -62,14 +27,8 @@ def worker(root: Path, project: str, mode: str) -> None:
     config.mkdir(exist_ok=True)
     (config / "storage.json").write_text(json.dumps({"version": 1, "image_roots": [str(root)]}))
     whitelist = root / "executor-images.json"
-    if mode.endswith("change-during-input"):
-        (root / "policy").mkdir()
-        whitelist = root / "policy/executor-images.json"
     if not whitelist.exists():
-        whitelist.write_text(json.dumps({"allowed": [PREVIOUS_EXECUTOR]}))
-        whitelist.chmod(0o600)
-    reader_config = config / "executor-ctl.json"
-    reader_config.write_text(json.dumps({"images_file": str(whitelist)}))
+        whitelist.write_text('{"allowed":["previous-executor"]}')
     (config / (project + ".json")).write_text(
         json.dumps(
             {
@@ -84,15 +43,6 @@ def worker(root: Path, project: str, mode: str) -> None:
     def unpack(stream: Any, destination: Path, roles: Any) -> None:
         (root / (project + ".unpacked")).touch()
         (destination / "release.json").write_text("{}")
-        if mode == "policy-change-during-input":
-            whitelist.write_text(json.dumps({"allowed": []}))
-        if mode == "config-change-during-input":
-            reader_config.write_text(
-                json.dumps({"images_file": "/srv/goblinshift/executor/images.json"})
-            )
-        if mode == "directory-change-during-input":
-            whitelist.parent.rename(root / "pinned-policy")
-            whitelist.parent.mkdir()
 
     release: dict[str, Any] = {
         "project": project,
@@ -146,15 +96,6 @@ def worker(root: Path, project: str, mode: str) -> None:
         patch.object(r, "STATE", state),
         patch.object(r, "BASE", config),
         patch.object(r, "GOBLIN_IMAGES", whitelist),
-        (
-            patch.object(
-                r,
-                "goblin_policy",
-                side_effect=lambda: synthetic_goblin_policy(whitelist, reader_config),
-            )
-            if mode != "untrusted-policy"
-            else nullcontext()
-        ),
         patch.object(os, "geteuid", return_value=0),
         patch.object(r, "unpack", side_effect=unpack),
         patch.object(r, "validate_release", return_value=release),
@@ -238,7 +179,7 @@ class HostIsolationTests(unittest.TestCase):
     def assert_preserved(self) -> None:
         allowed = self.root / "executor-images.json"
         if allowed.exists():
-            self.assertIn(PREVIOUS_EXECUTOR, json.loads(allowed.read_text())["allowed"])
+            self.assertIn("previous-executor", json.loads(allowed.read_text())["allowed"])
         for name in ["postgres/data", "uploads/asset", "previous/image"]:
             self.assertEqual((self.root / name).read_bytes(), b"preserve")
 

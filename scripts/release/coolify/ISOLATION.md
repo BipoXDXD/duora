@@ -69,8 +69,8 @@ após confirmar que o processo/import correspondente terminou. Nunca executar pr
 
 ## Versionamento e instalação administrativa (produção não alterada)
 
-`receiver-release.json` identifica a versão 2.1.0/protocolo 2 e o hash exato de `receiver.py`.
-Alterar receptor requer nova versão/hash e PRs coordenados nas três cópias (Duora, GoblinShift e StillOn). O teste de artefato roda
+`receiver-release.json` identifica a versão 2.0.2/protocolo 2 e o hash exato de `receiver.py`.
+Alterar receptor requer nova versão/hash e PRs coordenados nas duas cópias. O teste de artefato roda
 na suíte existente; não é necessária mudança de workflow. Para conferir ambos os checkouts:
 
 ```sh
@@ -93,7 +93,7 @@ Checklist para o administrador, depois da aprovação dos dois PRs:
 3. Adquirir `/var/lib/coolify-release/host.lock` sem recriar seu inode. Sob essa trava, revisar o inventário
    de storage, confirmar ausência de intents e guardar evidência da versão atual, hashes e entrypoints.
 4. Instalar **os bytes aprovados**, sem editar no host, em diretório imutável root-owned
-   `/opt/coolify-release/versions/2.1.0-<sha256>/`, com `receiver.py` e `receiver-release.json`.
+   `/opt/coolify-release/versions/2.0.2-<sha256>/`, com `receiver.py` e `receiver-release.json`.
    Diretórios e executável 0755, metadados 0644; nenhum pai pode ser gravável pelas contas de publicação.
    Conferir a versão instalada com `verify_artifact.py --peer <diretorio-da-versao>`.
 5. Manter `/opt/coolify-release/receiver.py` como entrada estável apontando para a versão aprovada.
@@ -148,9 +148,3 @@ queda da VPS nem durabilidade do daemon. Nenhuma VPS, dado, segredo ou publicaç
 A homologação descartável com Docker/Coolify/PostgreSQL reais está em [HOMOLOGATION.md](HOMOLOGATION.md),
 com versões, resultados, ensaios invalidados e limitações. Paridade com versões, schema, carga e backups
 efetivamente instalados continua exigindo validação operacional própria antes da ativação.
-
-## Política administrativa GoblinShift
-
-A versão2.1.0 fixa a política em estado root-owned e recusa a configuração legada antes de importar.
-A migração e o retorno compatível estão em [GOBLIN_POLICY_MIGRATION.md](GOBLIN_POLICY_MIGRATION.md).
-O processo ativo, as tentativas e as três cópias/senders precisam de qualificação coordenada; a fonte não instala o receptor.

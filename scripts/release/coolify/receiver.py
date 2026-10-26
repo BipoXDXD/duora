@@ -9,11 +9,9 @@ import ipaddress
 import json
 import os
 import re
-import secrets
 import shutil
 import signal
 import socket
-import stat
 import sys
 import tarfile
 import tempfile
@@ -45,10 +43,7 @@ SAFE_ENV = {
 }
 BASE = Path("/etc/coolify-release")
 STATE = Path("/var/lib/coolify-release")
-GOBLIN_IMAGES = Path("/var/lib/coolify-release/goblinshift/executor-images.json")
-GOBLIN_EXECUTOR_CONFIG = Path("/etc/goblinshift/executor-ctl.json")
-POLICY_LIMIT = 64 * 1024
-POLICY_REFERENCE = re.compile(r"[a-z0-9][a-z0-9._/:-]{0,254}@sha256:[0-9a-f]{64}")
+GOBLIN_IMAGES = Path("/srv/goblinshift/executor/images.json")
 LIMIT = 4 * 1024**3
 EXPANDED_LIMIT = 4 * LIMIT
 RESERVE = 8 * 1024**3
@@ -68,186 +63,6 @@ def json_unique(text: Any) -> Any:
         return result
 
     return json.loads(text, object_pairs_hook=pairs)
-
-
-def require_admin_metadata(info: Any, directory: bool = False, private: bool = False) -> None:
-    kind = stat.S_ISDIR if directory else stat.S_ISREG
-    if (
-        not kind(info.st_mode)
-        or info.st_uid != 0
-        or info.st_gid != 0
-        or info.st_mode & 0o022
-        or (not directory and info.st_nlink != 1)
-        or (private and stat.S_IMODE(info.st_mode) != 0o600)
-    ):
-        raise ValueError("Untrusted administrative policy metadata")
-
-
-@contextmanager
-def admin_directory(path: Path) -> Any:
-    """Pin every component from /; no mkdir, repair, symlinks or UID1001 trust."""
-    if not path.is_absolute() or ".." in path.parts:
-        raise ValueError("Administrative directory must be absolute")
-    descriptors = []
-    links = []
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    try:
-        descriptors.append(os.open("/", flags))
-        require_admin_metadata(os.fstat(descriptors[0]), directory=True)
-        for name in path.parts[1:]:
-            parent = descriptors[-1]
-            child = os.open(name, flags, dir_fd=parent)
-            descriptors.append(child)
-            links.append((parent, name, child))
-
-        def verify() -> None:
-            for descriptor in descriptors:
-                require_admin_metadata(os.fstat(descriptor), directory=True)
-            for parent, name, child in links:
-                linked = os.stat(name, dir_fd=parent, follow_symlinks=False)
-                pinned = os.fstat(child)
-                if (linked.st_dev, linked.st_ino) != (pinned.st_dev, pinned.st_ino):
-                    raise ValueError("Administrative directory replaced")
-                require_admin_metadata(linked, directory=True)
-
-        verify()
-        yield descriptors[-1], verify
-    except OSError as error:
-        raise ValueError("Administrative directory unavailable") from error
-    finally:
-        for descriptor in reversed(descriptors):
-            os.close(descriptor)
-
-
-def read_admin_file(directory: int, name: str, private: bool = False) -> bytes:
-    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
-    with os.fdopen(descriptor, "rb") as handle:
-        before = os.fstat(handle.fileno())
-        require_admin_metadata(before, private=private)
-        if before.st_size > POLICY_LIMIT:
-            raise ValueError("Administrative file exceeds limit")
-        raw = handle.read(POLICY_LIMIT + 1)
-        after = os.fstat(handle.fileno())
-        linked = os.stat(name, dir_fd=directory, follow_symlinks=False)
-        if (
-            len(raw) > POLICY_LIMIT
-            or (
-                before.st_dev,
-                before.st_ino,
-                before.st_size,
-                before.st_mtime_ns,
-                before.st_ctime_ns,
-            )
-            != (
-                after.st_dev,
-                after.st_ino,
-                after.st_size,
-                after.st_mtime_ns,
-                after.st_ctime_ns,
-            )
-            or (linked.st_dev, linked.st_ino) != (after.st_dev, after.st_ino)
-        ):
-            raise ValueError("Administrative file changed while reading")
-        return raw
-
-
-def allowed_policy(raw: bytes) -> list[str]:
-    policy = json_unique(raw)
-    if (
-        not isinstance(policy, dict)
-        or set(policy) != {"allowed"}
-        or not isinstance(policy["allowed"], list)
-        or not policy["allowed"]
-        or not all(
-            isinstance(ref, str) and POLICY_REFERENCE.fullmatch(ref) for ref in policy["allowed"]
-        )
-    ):
-        raise ValueError("Invalid administrative executor policy")
-    return policy["allowed"]
-
-
-@contextmanager
-def goblin_policy() -> Any:
-    # The active daemon transition is an administrative migration gate, not a
-    # startup repair. Both root-owned on-disk inputs must already be installed.
-    try:
-        with (
-            admin_directory(GOBLIN_IMAGES.parent) as (directory, verify_directory),
-            admin_directory(GOBLIN_EXECUTOR_CONFIG.parent) as (
-                config_directory,
-                verify_config,
-            ),
-        ):
-            raw = read_admin_file(directory, GOBLIN_IMAGES.name, private=True)
-            allowed_policy(raw)
-            config_raw = read_admin_file(config_directory, GOBLIN_EXECUTOR_CONFIG.name)
-            config = json_unique(config_raw)
-            if not isinstance(config, dict) or config.get("images_file") != str(GOBLIN_IMAGES):
-                raise ValueError("Executor reader and administrative writer differ")
-
-            def verify() -> None:
-                verify_directory()
-                verify_config()
-                if read_admin_file(config_directory, GOBLIN_EXECUTOR_CONFIG.name) != config_raw:
-                    raise ValueError("Executor configuration changed during release")
-                if read_admin_file(directory, GOBLIN_IMAGES.name, private=True) != raw:
-                    raise ValueError("Executor policy changed during release")
-
-            yield {"directory": directory, "raw": raw, "verify": verify}
-    except OSError as error:
-        raise ValueError("Administrative executor policy unavailable") from error
-
-
-def append_goblin_policy(policy: Any, reference: str) -> None:
-    if not re.fullmatch(
-        re.escape(PROJECTS["goblinshift"]["executor"]) + r"@sha256:" + HEX, reference
-    ):
-        raise ValueError("Unexpected executor repository")
-    previous = allowed_policy(policy["raw"])
-    raw = (
-        json.dumps(
-            {"allowed": list(dict.fromkeys([reference, *previous]))},
-            separators=(",", ":"),
-        )
-        + "\n"
-    ).encode()
-    if len(raw) > POLICY_LIMIT:
-        raise ValueError("Executor policy would exceed limit")
-    policy["verify"]()
-    directory = policy["directory"]
-    temporary = ".executor-images-" + secrets.token_hex(16) + ".tmp"
-    descriptor = os.open(
-        temporary,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-        0o600,
-        dir_fd=directory,
-    )
-    identity = os.fstat(descriptor)
-    renamed = False
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            require_admin_metadata(identity, private=True)
-            handle.write(raw)
-            handle.flush()
-            os.fsync(handle.fileno())
-        policy["verify"]()
-        current = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
-        if (current.st_dev, current.st_ino) != (identity.st_dev, identity.st_ino):
-            raise ValueError("Executor policy temporary replaced")
-        os.replace(temporary, GOBLIN_IMAGES.name, src_dir_fd=directory, dst_dir_fd=directory)
-        renamed = True
-        os.fsync(directory)
-    finally:
-        if not renamed:
-            try:
-                current = os.stat(temporary, dir_fd=directory, follow_symlinks=False)
-                if (current.st_dev, current.st_ino) == (
-                    identity.st_dev,
-                    identity.st_ino,
-                ):
-                    os.unlink(temporary, dir_fd=directory)
-            except FileNotFoundError:
-                pass
 
 
 def parse_request(value: Any) -> Any:
@@ -756,20 +571,9 @@ def configure_duora(release: Any, config: Any) -> Any:
         update_envs(config["uuid"], {"DUORA_OBSERVER_IMAGE": manifest["images"]["edge"]})
 
 
-def deploy(
-    release: Any,
-    imported: Any,
-    config: Any,
-    state: Any,
-    image_ids: Any,
-    policy: Any = None,
-) -> Any:
+def deploy(release: Any, imported: Any, config: Any, state: Any, image_ids: Any) -> Any:
     require_no_pending(state)
     require_idle(config["uuid"])
-    if release["project"] == "goblinshift":
-        if policy is None:
-            raise ValueError("Pinned administrative executor policy required")
-        policy["verify"]()
     atomic_json(
         state / "pending.json",
         {"release": release, "deployment_uuid": None, "status": "intent"},
@@ -785,7 +589,12 @@ def deploy(
             "GS_WEB_IMAGE": imported["web"],
             "GS_EXECUTOR_IMAGE": release["images"]["executor"],
         }
-        append_goblin_policy(policy, release["images"]["executor"])
+        whitelist = GOBLIN_IMAGES
+        previous = json_unique(whitelist.read_bytes())["allowed"]
+        atomic_json(
+            whitelist,
+            {"allowed": list(dict.fromkeys([release["images"]["executor"], *previous]))},
+        )
     if project == "duora":
         configure_duora(release, config)
     else:
@@ -904,10 +713,8 @@ def main() -> None:
     with (
         release_locks(STATE / "host.lock"),
         release_locks(state / "release.lock", shared),
-        ExitStack() as resources,
     ):
         require_host_idle()
-        policy = resources.enter_context(goblin_policy()) if project == "goblinshift" else None
         require_storage(state)
         with tempfile.TemporaryDirectory(prefix="incoming-", dir=state) as temporary:
             stage = Path(temporary)
@@ -915,8 +722,6 @@ def main() -> None:
             release = validate_release(
                 json_unique((stage / "release.json").read_bytes()), project, sha
             )
-            if policy is not None:
-                policy["verify"]()
             # Survives process death: a daemon import/start can outlive its HTTP client.
             atomic_json(
                 STATE / "pending.json",
@@ -924,14 +729,7 @@ def main() -> None:
             )
             imported, image_ids = import_images(release, stage)
             config = json_unique((BASE / (project + ".json")).read_bytes())
-            deployment = deploy(
-                release,
-                imported,
-                config,
-                state,
-                image_ids,
-                **({"policy": policy} if policy is not None else {}),
-            )
+            deployment = deploy(release, imported, config, state, image_ids)
             (STATE / "pending.json").unlink()
             sync_directory(STATE)
             print(

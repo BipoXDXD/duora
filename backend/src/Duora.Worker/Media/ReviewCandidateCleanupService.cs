@@ -6,11 +6,12 @@ namespace Duora.Worker.Media;
 internal sealed partial class ReviewCandidateCleanupService(
     ReviewCandidateCleanupDispatcher dispatcher, ApprovedCandidateCleanupDispatcher approved,
     ExpiredCandidateCleanupDispatcher expired, UnavailableCandidateCleanupDispatcher unavailable,
+    AppealCandidateCleanupDispatcher appeals,
     ILogger<ReviewCandidateCleanupService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!dispatcher.Enabled && !approved.Enabled && !expired.Enabled && !unavailable.Enabled)
+        if (!dispatcher.Enabled && !approved.Enabled && !expired.Enabled && !unavailable.Enabled && !appeals.Enabled)
         {
             return;
         }
@@ -23,6 +24,7 @@ internal sealed partial class ReviewCandidateCleanupService(
                 processed += await approved.DispatchOnceAsync(stoppingToken);
                 processed += await expired.DispatchOnceAsync(stoppingToken);
                 processed += await unavailable.DispatchOnceAsync(stoppingToken);
+                processed += await appeals.DispatchOnceAsync(stoppingToken);
                 if (processed != 0)
                 {
                     continue;

@@ -1,0 +1,11 @@
+# Entrada do titular por fotos reais — delta aditivo M7
+
+Pai privado preservado:38c23391e5783bd419024dab6e198ebe2ae17a11 (36paths backend/contrato/gerados sobre764). A base não contém consumidor de photoId para ligar PhotoReviewHistoryLink. Este delta adiciona descoberta autenticada, sem ativar política, criar foto ou alterar perfil.
+
+`GET /api/v1/me/photos?limit=20&cursor=...` responde200 `PhotoReviewPhotoPageResponse { items: PhotoReviewPhotoResponse[], nextCursor: string|null }`. Item: `{photoId:uuid,status:string,rejectionCode:string|null,createdAt:UTC ISO8601}`. Nomes JSON exatos camelCase. Usa somente os estados/códigos públicos atuais; RejectionCode só aparece em Rejected. Fotos Deleted não são listadas. Sem imagens, thumbnails, assetId, storage locator, hash de conteúdo, dados de outro titular ou total global.
+
+Limite1..50, padrão20; cursor opcional opaco, máximo512caracteres, protegido pelo Data Protection existente em propósito próprio e vinculado ao owner da sessão. Ordem estável crescente `(createdAt,photoId)`, estritamente depois do último item da página. Toda consulta aplica owner da sessão como predicado incondicional; não faz lookup global de cursor ou count. Cursor alheio, adulterado, malformado ou limite inválido retorna400/VALIDATION_FAILED, sem detalhe de existência. Ausência de sessão401; contexto/capacidade de titular inválido403; mídia não admitida503/MEDIA_UPLOADS_DISABLED; contenção503/Retry-After. Mesmo cliente same-origin/CSRF e envelope de problemas existentes, nenhum header ou política de autenticação novo. Resposta privada no-store.
+
+SS implementa PhotoReviewOwnerIndex consumindo IDs reais e usa PhotoReviewHistoryLink em cada item. CF controla rota frontend `/account/photos` e link na AccountPage; nenhum ID é inventado. A listagem não fornece ETag: o link obtém o ETag real pela rota de histórico antes de um comando. Não usar cursor/estado local como autorização. Paginação em memória, sem persistir informações de foto em localStorage/telemetria.
+
+Upload UI, produção HumanReview, M6scheduler/GC de rejeição inicial, provedor, restore e aceite operacional continuam fora desta fatia. Geração exata de OpenAPI/tipos, formatação e revisão deste delta entram antes da única composição final e sua CI própria; nenhum head parcial ou CI por corte.
