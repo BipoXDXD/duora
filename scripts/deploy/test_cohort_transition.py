@@ -65,6 +65,24 @@ def root_cases() -> type[unittest.TestCase]:
                 path.touch(mode=0o600)
             self.paths = installer.InstallPaths(self.entry, self.root / "executor-versions",
                                                 self.root / "preimages", state, ingress)
+            self.old_executor_target = self.paths.versions / ("c" * 40) / "duora_deploy.py"
+            self.old_executor_target.parent.mkdir(parents=True, mode=0o700)
+            old_files = {}
+            for name in installer.FILES:
+                content = (self.source / name).read_bytes()
+                if name == "install_executor.py": content = b"# synthetic qualified legacy installer\n"
+                target = self.old_executor_target.parent / name
+                target.write_bytes(content)
+                target.chmod(0o755 if name == "duora_deploy.py" else 0o600)
+                old_files[name] = {"sha256": hashlib.sha256(content).hexdigest(),
+                                   "mode": 0o755 if name == "duora_deploy.py" else 0o600}
+            old_manifest = {"schema": 1, "sourceCommit": "c" * 40, "guardVersion": 1, "files": old_files,
+                            "qualificationRun": "https://github.com/BipoXDXD/duora/actions/runs/12345677"}
+            old_manifest_path = self.old_executor_target.parent / "bundle.json"
+            old_manifest_path.write_text(json.dumps(old_manifest))
+            old_manifest_path.chmod(0o600)
+            self.entry.unlink()
+            self.entry.symlink_to(self.old_executor_target)
             self.receiver = self.root / "coolify-release/receiver.py"
             self.old_target = self.receiver.parent / "versions" / ("2.0.2-" + OLD) / "receiver.py"
             self.old_target.parent.mkdir(parents=True, mode=0o700)
@@ -86,6 +104,23 @@ def root_cases() -> type[unittest.TestCase]:
             self.previous.chmod(0o600)
             self.inventory = {"profile": reviewed_profile(), "audit": {"reviewed": "synthetic root transaction"}}
             self.inventory = self.inspect()
+            self.old_baseline_raw = (json.dumps(self.inventory["profile"], sort_keys=True,
+                                               separators=(",", ":")) + "\n").encode()
+            baseline = state / guard.BASELINE_NAME
+            baseline.write_bytes(self.old_baseline_raw)
+            baseline.chmod(0o600)
+            old_receipt = {"schema": 1, "status": "installed", "sourceCommit": "c" * 40,
+                           "manifestSha256": hashlib.sha256(old_manifest_path.read_bytes()).hexdigest(),
+                           "inventorySha256": self.inventory["inventorySha256"],
+                           "baselineSha256": hashlib.sha256(self.old_baseline_raw).hexdigest(),
+                           "executorSha256": self.old_hash, "files": old_files,
+                           "qualificationRun": old_manifest["qualificationRun"],
+                           "qualificationArtifactId": 122, "appliedAt": 1,
+                           "preimage": str(self.root / "historical-preimage")}
+            self.old_receipt_raw = (json.dumps(old_receipt, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            receipt = state / "executor-install-receipt.json"
+            receipt.write_bytes(self.old_receipt_raw)
+            receipt.chmod(0o600)
 
         def save_manifest(self) -> None:
             path = self.source / "bundle.json"
@@ -132,11 +167,14 @@ def root_cases() -> type[unittest.TestCase]:
                 inspect_runtime=self.inspect)
 
         def assert_old_pair(self) -> None:
-            self.assertFalse(self.entry.is_symlink())
+            self.assertTrue(self.entry.is_symlink())
+            self.assertEqual(os.readlink(self.entry), str(self.old_executor_target))
             self.assertEqual(self.entry.read_bytes(), b"# synthetic unchanged executor\n")
             self.assertEqual(os.readlink(self.receiver), str(self.old_target))
             self.assertEqual(self.sentinel.read_text(), '{"releaseId":"synthetic-current-F3"}')
             self.assertEqual(self.previous.read_text(), '{"releaseId":"synthetic-previous-A0A"}')
+            self.assertEqual((self.paths.state / guard.BASELINE_NAME).read_bytes(), self.old_baseline_raw)
+            self.assertEqual((self.paths.state / "executor-install-receipt.json").read_bytes(), self.old_receipt_raw)
 
         def killed_at_partial_pair(self, *, both_swapped: bool = False) -> dict:
             preflight = self.invoke()
@@ -245,7 +283,7 @@ def root_cases() -> type[unittest.TestCase]:
                 def kill_during_return(path: Path) -> None:
                     original_sync(path)
                     receiver_old = self.receiver.resolve() == self.old_target
-                    executor_old = not self.entry.is_symlink()
+                    executor_old = self.entry.is_symlink() and self.entry.resolve() == self.old_executor_target
                     if receiver_old != executor_old:
                         if not (self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").is_file():
                             os._exit(74)
