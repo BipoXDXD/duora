@@ -80,7 +80,14 @@ internal sealed class PhotoReviewApprovals
                 if (await new PhotoReviewPromotions(media, _store, _time).PrepareAsync(request, cancellationToken)
                     is not ReviewPromotionResult.Prepared prepared)
                 {
-                    return new PhotoReviewApprovalResult.Unavailable();
+                    // Without a prepared generation this phase can only observe an authorized receipt
+                    // or current business state; it cannot commit a new approval.
+                    var observed = await PhaseAsync(actor, caseId, expectedVersion, keyHash, intent, reasonCode,
+                        snapshot, promotion: null, cancellationToken);
+                    var outcome = observed.Result;
+                    return outcome is PhotoReviewApprovalResult.Approved or PhotoReviewApprovalResult.Forbidden
+                        or PhotoReviewApprovalResult.KeyReused or PhotoReviewApprovalResult.StateConflict
+                        ? outcome : new PhotoReviewApprovalResult.Unavailable();
                 }
 
                 generation = prepared.Generation;
@@ -218,7 +225,12 @@ internal sealed class PhotoReviewApprovals
         }
         if (promotion is not { } generation)
         {
-            await transaction.CommitAsync(cancellationToken);
+            // Only the initial phase may persist guard setup. A post-preparation observation has
+            // an expected snapshot and leaves even guard inserts uncommitted on disposal.
+            if (expected is null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
             return new Phase(evidence, null);
         }
 

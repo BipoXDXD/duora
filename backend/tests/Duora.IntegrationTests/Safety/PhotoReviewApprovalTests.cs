@@ -343,6 +343,82 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
         }
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public async Task ApprovalWhosePreparationLosesToACommitRechecksCurrentStateAndAuthority(bool sameKey, bool revokeDecide)
+    {
+        var (reviewer, item) = await PreparedAsync();
+        var key = Key();
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var copied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var puts = 0;
+        var delayedStore = new ApprovalStore(new FileSystemObjectStore(_root.FullName), afterPut: async _ =>
+        {
+            if (Interlocked.Increment(ref puts) == 3)
+            {
+                copied.TrySetResult();
+                await release.Task.WaitAsync(attempt.Token);
+            }
+        });
+        var delayed = new PhotoReviewApprovals(Factory(), delayedStore, _time).ApproveAsync(
+            reviewer, item.CaseId, 2, PhotoReviewApprovalReason.MeetsPolicy, key, attempt.Token);
+        var completed = false;
+        try
+        {
+            await Task.WhenAny(copied.Task, delayed).WaitAsync(Ct);
+            Assert.True(copied.Task.IsCompletedSuccessfully);
+            Assert.Equal(3, delayedStore.PutAttempts);
+            Assert.False(delayed.IsCompleted);
+            var winner = Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, sameKey ? key : Key()));
+            if (revokeDecide)
+            {
+                await GrantAsync(reviewer.UserId, PhotoReviewCapability.Decide, enabled: false);
+            }
+            var committedFiles = Files();
+            release.TrySetResult();
+            var outcome = await delayed;
+            if (revokeDecide)
+            {
+                Assert.IsType<PhotoReviewApprovalResult.Forbidden>(outcome);
+            }
+            else if (sameKey)
+            {
+                Assert.Equal(winner, Assert.IsType<PhotoReviewApprovalResult.Approved>(outcome));
+            }
+            else
+            {
+                Assert.IsType<PhotoReviewApprovalResult.StateConflict>(outcome);
+            }
+            Assert.Equal(committedFiles, Files());
+            Assert.Equal(3, delayedStore.PutAttempts);
+            Assert.Equal(1, await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", item.UploadId));
+            Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1", item.CaseId));
+            Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decision_commands where case_id=$1", item.CaseId));
+            Assert.Equal(1, await ScalarAsync("""
+                select count(*) from media.review_promotions
+                where case_id=$1 and committed_at is null and cleanup_requested_at is not null and writer_settled_at is not null
+                """, item.CaseId));
+            completed = true;
+        }
+        finally
+        {
+            release.TrySetResult();
+            await attempt.CancelAsync();
+            try
+            {
+                await delayed;
+            }
+            catch (Exception) when (!completed)
+            {
+                // Observe the real producer before teardown without replacing the original failure.
+            }
+        }
+    }
+
     [Fact]
     public async Task AModeratorWithoutAnExplicitDecideGrantCannotLocateOrCopyTheCase()
     {
