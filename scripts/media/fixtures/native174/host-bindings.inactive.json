@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "current_product_commit": "f3f8c38d4619cccaf32c0c66c03e7421e0ab5fff",
+  "machine_identity_sha256": null,
+  "worker_uid": null,
+  "worker_gid": null,
+  "launcher_uid": null,
+  "control_gid": null,
+  "control_socket": null,
+  "journal_directory": null,
+  "kit_root": null,
+  "results_root": null,
+  "cgroup_parent": null,
+  "receipts": {
+    "current_preservation": "ca856aa1598bb915e33125a40753cdfdd8f8cec55c5a9ac51c134b28a2f9f7e6",
+    "native174_admission": null,
+    "current_authoritative_activity": null,
+    "integral_resource_budget": null,
+    "device_and_cgroup_enforcement": null,
+    "rootless_launcher_identity_and_profile": null,
+    "carrier_framework_and_uid_mapping": null,
+    "owned_cleanup_and_independent_supervisor": null,
+    "new_finite_passage": null
+  }
+}
