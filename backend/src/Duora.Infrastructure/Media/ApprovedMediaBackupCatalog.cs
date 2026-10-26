@@ -13,6 +13,9 @@ internal sealed record ApprovedMediaCatalogVariant(PhotoVariant Kind, ObjectKey 
 internal sealed record ApprovedMediaCatalogAsset(Guid AssetId, long Version,
     IReadOnlyList<ApprovedMediaCatalogVariant> Variants)
 {
+    public Guid PhotoId { get; init; }
+    public Guid? PromotionGeneration { get; init; }
+
     public override string ToString() => nameof(ApprovedMediaCatalogAsset);
 }
 
