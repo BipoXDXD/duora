@@ -103,6 +103,10 @@ class Native49Lab(shared.NativeLab):
         for service in ("web", "worker"):
             rendered["services"][service]["environment"]["Duora__PublicOrigin"] = "https://localhost"
         rendered["networks"]["edge"].update(internal=True, enable_ipv6=False)
+        ipam = rendered["networks"]["edge"]["ipam"]["config"]
+        need(len(ipam) == 1 and ipam[0] == {"subnet": "172.30.10.0/24"}, "exact own fixture IPv4 subnet")
+        # Explicit own gateway required by the strict selector; verify it from real IPAM without a fallback.
+        ipam[0]["gateway"] = "172.30.10.1"
         rendered["networks"]["edge"]["labels"][HTTPS_LABEL] = self.nonce
 
     def browser(self):
