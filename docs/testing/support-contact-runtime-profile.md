@@ -1,8 +1,11 @@
 # Perfil candidato SupportContact: empacotamento e admissao limitada
 
-Estado atual: **NOT_ADMITTED / NOT_BUILT_NOT_QUALIFIED_NOT_ADMITTED**.
-O lock nao possui recibo positivo. Esta fonte prepara um perfil sintetico da
-#82; nao autoriza captura operacional, cache, configuracao real, merge ou deploy.
+Estado das licencas: cinco casos **PROFILE_ONLY_APPROVED**, limitados aos
+digests do recibo agregado pinado no lock. Estado do runtime: **NOT_QUALIFIED**.
+O recibo positivo nao amplia a politica geral; uma mudanca em seus bindings
+exige reconciliacao antes de download/build. Esta fonte prepara um perfil
+sintetico da #82; nao autoriza captura operacional, cache, configuracao real,
+merge ou deploy.
 INV-05/INV-12 e T-05/T-12 continuam aplicaveis. Os fontes originais do helper e
 runner permanecem inalterados; nenhuma API, permissao ou politica global muda.
 
@@ -90,6 +93,13 @@ realmente construidos. Antes de exportar OCI, o executor verifica dentro da
 imagem a presenca, bytes e SHA de cada material publico/notice e binario central.
 Essa verificacao esta implementada e ainda nao observada numa imagem atual.
 
+A primeira qualificacao apos a admissao terminou com `command_failed`, sem
+diagnostico suficiente para atribuir causa. A falha agora registra somente fase
+de uma lista fechada, codigo de saida, categoria fixa e, quando reconhecido,
+basename de biblioteca de uma lista fixa. Ate4KiB de stderr sao inspecionados
+apenas em RAM; seu texto, argumentos, ambiente e capturas nao sao preservados.
+Os limites existentes de saida, tempo, recursos e limpeza permanecem iguais.
+
 ## Qualificacao e verificacao restante
 
 O workflow dedicado usa Ubuntu24 hosted amd64, checkout/upload pinados,
@@ -106,7 +116,10 @@ o prazo e15s por chamada, com limpeza dos containers possuidos inclusive na falh
 OCI/config/layers e archiveSHA sao vinculados somente apos todas as verificacoes.
 
 TDD do delta atual observou RED antes das funcoes de manifesto, bindings e
-verificacao de imagem;14 testes de empacotamento e10 de qualificacao passaram.
+verificacao de imagem;14 testes de empacotamento e10 de qualificacao passaram
+naquele snapshot. O delta posterior de diagnostico e a regressao de nao-mutacao
+do lock foram verificados em3 testes direcionados; essa regressao cobre tanto
+NOT_ADMITTED quanto PROFILE_ONLY_ADMITTED, sem pressupor estado permanente.
 Comandos locais: `env -i PATH=/usr/bin:/bin /usr/bin/python3 -B -m unittest discover
 -s tools/support-contact-runtime -p test_profile.py -v` e o mesmo com
 `-p test_qualification.py`. Somente fixtures/stdLib Python novas foram executadas.

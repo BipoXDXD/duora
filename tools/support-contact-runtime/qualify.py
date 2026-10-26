@@ -175,10 +175,49 @@ def mechanical_reply(raw):
         raise Refusal("mechanical_pair_failed") from None
 
 
+PUBLIC_PHASES = frozenset({"admission", "python_download", "profile_prepare", "construction_admission",
+    "profile_build", "profile_image_inspect", "c934_pull", "c934_create", "c934_copy_app", "profile_export", "owned_cleanup"} |
+    {name + suffix for name in ("python_smoke", "dotnet_runtime", "mechanical_web", "mechanical_worker", "image_public_files")
+     for suffix in ("_create", "_inspect", "_start")})
+RUNTIME_LIBRARY_NAMES = ("libc.so.6", "libm.so.6", "libpthread.so.0", "libdl.so.2", "libutil.so.1", "librt.so.1",
+                         "ld-linux-x86-64.so.2", "libpython3.13.so.1.0", "libgcc_s.so.1", "libstdc++.so.6")
+
+
+class CommandFailure(Refusal):
+    def __init__(self, reason, exit_code=None, stderr=b"", category=None):
+        super().__init__(reason)
+        self.public = {"command_exit_code": exit_code, "command_error_category": category or "nonzero_exit"}
+        if category is None and b"error while loading shared libraries:" in stderr:
+            self.public["command_error_category"] = "runtime_library_missing"
+            for name in RUNTIME_LIBRARY_NAMES:
+                if ("error while loading shared libraries: " + name + ":").encode() in stderr:
+                    self.public["missing_library"] = name
+                    break
+        elif category is None and (b"OCI runtime create failed" in stderr or b"failed to create task" in stderr):
+            self.public["command_error_category"] = "container_start_failed"
+        elif category is None and b"permission denied" in stderr:
+            self.public["command_error_category"] = "permission_denied"
+        elif category is None and b"no such file or directory" in stderr:
+            self.public["command_error_category"] = "path_missing"
+        elif category is None and exit_code == 0:
+            self.public["command_error_category"] = "diagnostics_observed"
+
+
+def public_failure_details(phase, error):
+    details = {"failure_phase": phase if phase in PUBLIC_PHASES else "unclassified"}
+    details.update(error.public if isinstance(error, CommandFailure) else
+                   {"command_exit_code": None, "command_error_category": "validation_refused"})
+    return details
+
+
 def command(args, work, payload=b"", timeout=120, output_limit=262144, strict_stderr=False):
-    process = subprocess.Popen(args, cwd=work, env={"PATH": "/usr/bin:/bin", "HOME": str(work)},
-                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               close_fds=True, start_new_session=True)
+    try:
+        process = subprocess.Popen(args, cwd=work, env={"PATH": "/usr/bin:/bin", "HOME": str(work)},
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   close_fds=True, start_new_session=True)
+    except OSError:
+        raise CommandFailure("command_failed", category="process_launch_failed") from None
+    stderr_sample = bytearray()
     selector, stdout, sent, total, diagnostics = selectors.DefaultSelector(), bytearray(), 0, 0, False
     deadline = time.monotonic() + timeout
     try:
@@ -187,7 +226,7 @@ def command(args, work, payload=b"", timeout=120, output_limit=262144, strict_st
             selector.register(pipe, event)
         while selector.get_map():
             if time.monotonic() >= deadline:
-                raise Refusal("command_timeout")
+                raise CommandFailure("command_timeout", process.poll(), category="timeout")
             for key, _ in selector.select(0.1):
                 pipe = key.fileobj
                 if pipe is process.stdin:
@@ -204,17 +243,23 @@ def command(args, work, payload=b"", timeout=120, output_limit=262144, strict_st
                         continue
                     total += len(raw)
                     if total > output_limit:
-                        raise Refusal("command_output_limit")
+                        raise CommandFailure("command_output_limit", process.poll(), category="output_limit")
                     if pipe is process.stdout:
                         stdout.extend(raw)
                     else:
                         diagnostics = True
+                        stderr_sample.extend(raw[:max(0, 4096 - len(stderr_sample))])
         remaining = deadline - time.monotonic()
-        if remaining <= 0 or process.wait(timeout=remaining) != 0 or (strict_stderr and diagnostics):
-            raise Refusal("command_failed")
+        if remaining <= 0:
+            raise CommandFailure("command_failed", process.poll(), category="timeout")
+        exit_code = process.wait(timeout=remaining)
+        if exit_code != 0 or (strict_stderr and diagnostics):
+            raise CommandFailure("command_failed", exit_code, bytes(stderr_sample))
         return bytes(stdout)
-    except (OSError, subprocess.TimeoutExpired):
-        raise Refusal("command_failed") from None
+    except OSError:
+        raise CommandFailure("command_failed", process.poll(), category="command_os_error") from None
+    except subprocess.TimeoutExpired:
+        raise CommandFailure("command_failed", process.poll(), category="timeout") from None
     finally:
         selector.close()
         try:
@@ -224,6 +269,7 @@ def command(args, work, payload=b"", timeout=120, output_limit=262144, strict_st
         process.wait()
         for pipe in (process.stdin, process.stdout, process.stderr):
             pipe.close()
+        stderr_sample.clear()
 
 
 def oci_archive(source_path, target_path, expected_config):
@@ -287,13 +333,17 @@ def qualify(output):
                "protected_capture_proven": False, "process_start_stability_proven": False, "permissions_proven": False,
                "native_license_review_proven": False, "supply_chain_admitted": False}
     owned = []
+    current_phase = "admission"
     with tempfile.TemporaryDirectory(prefix="support-runtime-") as temporary:
         work = Path(temporary)
-        def docker(*args, **kwargs):
+        def docker(*args, phase, **kwargs):
+            nonlocal current_phase
+            current_phase = phase
             return command(["docker", *args], work, **kwargs)
         try:
             lock = json.loads((ROOT / "profile-lock.json").read_bytes())
             admission = require_license_admission(lock)
+            current_phase = "python_download"
             with urllib.request.build_opener(PublicRedirects()).open(lock["python"]["url"], timeout=60) as response:
                 raw = bounded_download(response, lock["python"]["size_bytes"], lock["python"]["sha256"])
             archive = work / "python.tar.gz"
@@ -303,12 +353,14 @@ def qualify(output):
             for name, value in helper_bytes(json.loads((ROOT / "preserved-helper.json").read_bytes())).items():
                 (helper / name).write_bytes(value)
             context = work / "context.tar"
+            current_phase = "profile_prepare"
             manifest = packager.prepare(archive, helper, ROOT.parent / "support-contact-probe/run_preserved_probe.py", context)
+            current_phase = "construction_admission"
             verify_constructed_admission(admission, manifest)
             image = "support-contact-qualified:" + uuid.uuid4().hex
             with context.open("rb") as source:
-                docker("build", "--network=none", "--quiet", "--tag", image, "-", payload=source.read(), timeout=180)
-            image_info = json.loads(docker("image", "inspect", image))[0]
+                docker("build", "--network=none", "--quiet", "--tag", image, "-", payload=source.read(), timeout=180, phase="profile_build")
+            image_info = json.loads(docker("image", "inspect", image, phase="profile_image_inspect"))[0]
             image_id = image_info["Id"]
             if image_info.get("Os") != "linux" or image_info.get("Architecture") != "amd64":
                 raise Refusal("profile_architecture_mismatch")
@@ -317,13 +369,13 @@ def qualify(output):
             if any(item.partition("=")[0] not in allowed for item in environment):
                 raise Refusal("image_environment_unreviewed")
             controls = ["--user=1654:1654", "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges:true", "--log-driver=none", "--memory=536870912", "--memory-swap=536870912", "--cpus=0.5", "--pids-limit=64", "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16777216,mode=1777", "--ulimit=core=0:0", "--ipc=private"]
-            def sandbox(extra, payload=b"", entrypoint=None):
+            def sandbox(extra, payload=b"", entrypoint=None, phase="python_smoke"):
                 name = "support-probe-" + uuid.uuid4().hex
                 owned.append(name)
                 options = ["--entrypoint=" + entrypoint] if entrypoint else []
-                docker("create", "--name", name, "-i", *controls, *options, *extra)
-                verify_isolation(json.loads(docker("inspect", name))[0])
-                return docker("start", "-a", "-i", name, payload=payload, timeout=15, output_limit=16384, strict_stderr=True)
+                docker("create", "--name", name, "-i", *controls, *options, *extra, phase=phase + "_create")
+                verify_isolation(json.loads(docker("inspect", name, phase=phase + "_inspect"))[0])
+                return docker("start", "-a", "-i", name, payload=payload, timeout=15, output_limit=16384, strict_stderr=True, phase=phase + "_start")
             smoke = """import errno,json,os,sys
 assert sys.version_info[:2] == (3,13) and os.getuid() == os.getgid() == 1654
 try:
@@ -337,22 +389,22 @@ print(json.dumps({'python_stdlib':True,'readonly_denied':True,'network_none':Tru
             smoke_result = json.loads(sandbox([image_id, "-I", "-B", "-c", smoke], entrypoint="/opt/python/bin/python3.13"))
             if smoke_result != {"python_stdlib": True, "readonly_denied": True, "network_none": True}:
                 raise Refusal("runtime_smoke_failed")
-            runtimes = sandbox([image_id, "--list-runtimes"], entrypoint="/usr/share/dotnet/dotnet")
+            runtimes = sandbox([image_id, "--list-runtimes"], entrypoint="/usr/share/dotnet/dotnet", phase="dotnet_runtime")
             if b"Microsoft.AspNetCore.App 10.0.13 " not in runtimes or b"Microsoft.NETCore.App 10.0.13 " not in runtimes:
                 raise Refusal("dotnet_runtime_mismatch")
-            docker("pull", "--platform=linux/amd64", C934, timeout=180)
+            docker("pull", "--platform=linux/amd64", C934, timeout=180, phase="c934_pull")
             source_name = "support-source-" + uuid.uuid4().hex
             owned.append(source_name)
-            docker("create", "--name", source_name, "--network=none", C934)
+            docker("create", "--name", source_name, "--network=none", C934, phase="c934_create")
             app = work / "app"
-            docker("cp", source_name + ":/app", str(app))
+            docker("cp", source_name + ":/app", str(app), phase="c934_copy_app")
             fixture = work / "fixture"
             fixture.mkdir(mode=0o755)
             (fixture / "appsettings.json").write_text(json.dumps({"Duora": {"SupportContact": "support@meetduora.com"}}))
             for role in ("web", "worker"):
                 capture = {"Role": role, "ApplicationAssembly": "/app/Duora.Web.dll", "ContentRoot": "/fixture", "Environment": {"DOTNET_ENVIRONMENT": "Production", "ASPNETCORE_ENVIRONMENT": "Production"}, "Arguments": []}
                 mounts = ["--mount=type=bind,src=" + str(app) + ",dst=/app,readonly", "--mount=type=bind,src=" + str(fixture) + ",dst=/fixture,readonly"]
-                mechanical_reply(sandbox([*mounts, image_id], packager.canonical(capture)))
+                mechanical_reply(sandbox([*mounts, image_id], packager.canonical(capture), phase="mechanical_" + role))
             image_files = manifest["packaged_public_files"]
             image_verifier = """import hashlib,json,sys
 from pathlib import Path
@@ -363,10 +415,10 @@ for name in sorted(expected):
  observed[name]={'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
 print(json.dumps(observed,sort_keys=True,separators=(',',':')))"""
             observed_files = sandbox([image_id, "-I", "-B", "-c", image_verifier],
-                                     packager.canonical(image_files), entrypoint="/opt/python/bin/python3.13")
+                                     packager.canonical(image_files), entrypoint="/opt/python/bin/python3.13", phase="image_public_files")
             verify_image_public_files(observed_files, image_files)
             saved = output / "profile-image.tar"
-            docker("image", "save", "--output", str(saved), image_id, timeout=120)
+            docker("image", "save", "--output", str(saved), image_id, timeout=120, phase="profile_export")
             if saved.stat().st_size > 1024 * 1024 * 1024:
                 raise Refusal("profile_archive_limit")
             oci = output / "profile-oci.tar"
@@ -386,15 +438,17 @@ print(json.dumps(observed,sort_keys=True,separators=(',',':')))"""
                            qualification_source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
         except Refusal as error:
             receipt["failure_reason"] = str(error)
+            receipt.update(public_failure_details(current_phase, error))
             raise
         except Exception:
             receipt["failure_reason"] = "qualification_failed"
+            receipt.update(failure_phase=current_phase, command_exit_code=None, command_error_category="unexpected_exception")
             raise
         finally:
             cleaned = True
             for name in reversed(owned):
                 try:
-                    docker("rm", "--force", name, timeout=15)
+                    docker("rm", "--force", name, timeout=15, phase="owned_cleanup")
                 except Exception:
                     cleaned = False
             if not cleaned:

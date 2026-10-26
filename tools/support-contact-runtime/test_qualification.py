@@ -31,12 +31,20 @@ class QualificationTests(unittest.TestCase):
         module = self.load()
         self.assertTrue(hasattr(module, "profile_license_bindings"), "unsigned Hub binding plan missing")
         lock = json.loads((ROOT / "profile-lock.json").read_text())
+        original = json.loads(json.dumps(lock))
         bindings = module.profile_license_bindings(lock)
+        self.assertEqual(lock, original)
         self.assertEqual(bindings["selected_python_closure_sha256"], "d7749183848fca298b7404d5849d0c166733192c04ddde7975732fe303b1b617")
         self.assertEqual(bindings["policy_sha256"], "f2880c90e41e77c402703be4420ced16d3ed2ecc1ae91ade693999ec2774df7c")
         self.assertEqual(bindings["upstream_python_sha256"], "6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b")
-        self.assertEqual(lock["python"]["license_admission"]["status"], "NOT_ADMITTED")
         self.assertNotIn("status", bindings)
+        for status in ("NOT_ADMITTED", "PROFILE_ONLY_ADMITTED"):
+            fixture = json.loads(json.dumps(original))
+            fixture["python"]["license_admission"]["status"] = status
+            before = json.loads(json.dumps(fixture))
+            with self.subTest(status=status):
+                self.assertEqual(module.profile_license_bindings(fixture), bindings)
+                self.assertEqual(fixture, before)
 
     def test_scoped_case_admission_rejects_stale_bindings_and_generic_approval(self):
         module = self.load()
@@ -90,6 +98,39 @@ class QualificationTests(unittest.TestCase):
         changed = dict(manifest, base={"reference": "different-base"})
         with self.assertRaises(module.Refusal):
             module.verify_constructed_admission(receipt, changed)
+
+    def test_public_command_failure_keeps_only_closed_reason_phase_and_library(self):
+        module = self.load()
+        with tempfile.TemporaryDirectory() as tmp:
+            code = "import sys;sys.stderr.write('error while loading shared libraries: libutil.so.1: cannot open shared object file: TOKEN_SYNTHETIC_123 PRIVATE_SENTINEL');sys.exit(7)"
+            try:
+                module.command(["/usr/bin/python3", "-c", code], Path(tmp), strict_stderr=True)
+            except module.Refusal as error:
+                self.assertTrue(hasattr(module, "public_failure_details"), "closed command diagnosis missing")
+                public = module.public_failure_details("python_smoke_start", error)
+            else:
+                self.fail("nonzero synthetic command accepted")
+            self.assertEqual(public, {"failure_phase": "python_smoke_start", "command_exit_code": 7,
+                                      "command_error_category": "runtime_library_missing", "missing_library": "libutil.so.1"})
+            serialized = json.dumps(public)
+            self.assertNotIn("TOKEN_SYNTHETIC_123", serialized)
+            self.assertNotIn("PRIVATE_SENTINEL", serialized)
+            self.assertNotIn("stderr", serialized)
+
+    def test_command_diagnostic_does_not_export_unknown_library_or_change_output_limit(self):
+        module = self.load()
+        self.assertTrue(hasattr(module, "public_failure_details"), "closed bounded diagnosis missing")
+        for code, limit, category in [
+            ("import sys;sys.stderr.write('error while loading shared libraries: PRIVATE_SENTINEL.so: cannot open shared object file');sys.exit(9)", 16384, "runtime_library_missing"),
+            ("import sys;sys.stdout.write('x'*17000)", 16384, "output_limit"),
+        ]:
+            with self.subTest(category=category), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(module.Refusal) as caught:
+                    module.command(["/usr/bin/python3", "-c", code], Path(tmp), output_limit=limit)
+                public = module.public_failure_details("python_smoke_start", caught.exception)
+                self.assertEqual(public["command_error_category"], category)
+                self.assertNotIn("PRIVATE_SENTINEL", json.dumps(public))
+                self.assertNotIn("missing_library", public)
 
     def test_bounded_download_rejects_extra_byte_and_digest_mismatch(self):
         module = self.load()

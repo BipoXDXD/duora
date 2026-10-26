@@ -81,7 +81,7 @@
     },
     "license_admission": {
       "status": "PROFILE_ONLY_ADMITTED",
-      "receipt_sha256": "3fa75e892f728f19b035e54219355cc8db767a6fed6f391a9471db23dcc41dc4",
+      "receipt_sha256": "7c0ad08b954cc322473e4073c87667090c38f5a798c290a3134b2c4159819232",
       "reason": "Five exact digest-scoped decisions approved for this synthetic candidate only; global policy unchanged and in-image notices verification required before export"
     },
     "profile_license_contract": {

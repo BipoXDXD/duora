@@ -1,12 +1,11 @@
 {
   "schema_version": 2,
-  "reviewed_utc": "2026-10-26T13:26:19.837380+00:00",
+  "reviewed_utc": "2026-10-26T13:45:33.691801+00:00",
   "reviewer": "HUB independent source reviewer",
-  "decision": "FIVE_EXACT_CASES_PROFILE_ONLY_APPROVED_FOR_SYNTHETIC_QUALIFICATION",
+  "decision": "REAFFIRM_FIVE_PROFILE_ONLY_DECISIONS_FOR_ONE_DIAGNOSTIC_SOURCE_HASH_REBIND",
   "scope": "synthetic_support_contact_profile",
   "global_policy_effect": "UNCHANGED",
   "operational_effect": "NONE",
-  "bindings_sha256": "acf6db9ba7ece99a386a4563378e83bbf33a530ed7a9313af5a45746b7efd9d5",
   "bindings": {
     "archive_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
     "base_reference": "mcr.microsoft.com/dotnet/aspnet:10.0.13-noble-chiseled-extra@sha256:3ed6558056b54d5c9dfefb7ff473728e022ff2bf1d976cbf8ee07b05ec594374",
@@ -57,12 +56,16 @@
     "source_hashes": {
       "Dockerfile": "3617d729f3ad6053e8b8d4dc5694901f3250852ad4045d41b74f1dc9ef2d9817",
       "profile.py": "2f89d54006ecca3891e25f5575faa3f75ee218d24419b9dc9f55af6f8a8e1d6f",
-      "qualify.py": "9c7d69a0861c363b6b5b0efd3cc8268d471285dc369cc37095573e4217e43a26",
+      "qualify.py": "7244a9873314f8d7a0fbdc88507267cfa5161a71745fd8656018893252aeea39",
       "reviewed-python-aliases.json": "67e9070ba7bc197fb4d926de490f896b49d033accef0632ab5f5edd13cd6c967"
     },
     "upstream_python_sha256": "6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b"
   },
-  "unsigned_packet_sha256": "2651ebade76dc35aaeea726998134049774b5582eb404a3b4411892600632065",
+  "bindings_sha256": "5d648a747616bf591644637858ef6db699433ae3164b4b2c66528ff8c2f86353",
+  "prior_case_proof_sha256": "63236bf41837b6e8174a4d87bfaf2ce38bc3518731adbb10c4712814d24598f1",
+  "prior_bindings_sha256": "acf6db9ba7ece99a386a4563378e83bbf33a530ed7a9313af5a45746b7efd9d5",
+  "rebind_packet_sha256": "ecf7617af9d1f415762039556105df3bd820f50a63b6426ec1fbdf311241975b",
+  "independent_source_delta_review_sha256": "dbe239beb340ebfd277ffe9d6d2bfec2edbcd073c6cc61145dd38a990c60d4ce",
   "case_decisions": [
     {
       "case_id": "bzip2-1.0.6",
@@ -72,7 +75,7 @@
       "reason": "The retained exact notice permits binary/source use and redistribution, including modified forms, under origin, source-notice, altered-source marking and no-endorsement conditions. This profile preserves the notice and does not edit native source. Product acknowledgment is optional.",
       "source": "https://sourceware.org/bzip2/",
       "decision": "PROFILE_ONLY_APPROVED",
-      "bindings_sha256": "acf6db9ba7ece99a386a4563378e83bbf33a530ed7a9313af5a45746b7efd9d5",
+      "bindings_sha256": "5d648a747616bf591644637858ef6db699433ae3164b4b2c66528ff8c2f86353",
       "notice_hashes": {
         "LICENSE.bzip2.txt": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441"
       },
@@ -88,7 +91,7 @@
       "reason": "The exact ncurses permission permits copying, use, modification and distribution. Full copyright/permission retention is required and provided in source; copyright holder names cannot be used for promotion without permission. X11 denotes these terms, not inclusion of excluded libX11.",
       "source": "https://invisible-island.net/ncurses/ncurses-license.html",
       "decision": "PROFILE_ONLY_APPROVED",
-      "bindings_sha256": "acf6db9ba7ece99a386a4563378e83bbf33a530ed7a9313af5a45746b7efd9d5",
+      "bindings_sha256": "5d648a747616bf591644637858ef6db699433ae3164b4b2c66528ff8c2f86353",
       "notice_hashes": {
         "LICENSE.ncurses.txt": "87a4c4442337b8968ef956031c406b74f9cb7149b7ba87311bdaba534816201c"
       },
@@ -106,7 +109,7 @@
         "https://raw.githubusercontent.com/zlib-ng/zlib-ng/2.2.4/LICENSE.md"
       ],
       "decision": "PROFILE_ONLY_APPROVED",
-      "bindings_sha256": "acf6db9ba7ece99a386a4563378e83bbf33a530ed7a9313af5a45746b7efd9d5",
+      "bindings_sha256": "5d648a747616bf591644637858ef6db699433ae3164b4b2c66528ff8c2f86353",
       "notice_hashes": {
         "LICENSE.zlib.txt": "818922b2620f12801a12bf78e399644a30990e66824abd8ca8ec24d451d6f92c",
         "LICENSE.zlib-ng.txt": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee"
@@ -121,7 +124,7 @@
       "reason": "Explicit mapping of the retained upstream dedication for deliverable SQLite code/documentation permits this bounded copying/use/distribution. Build-script terms are not relabeled as final-library terms; no invented Unlicense/CC0/SPDX conversion or global license-policy addition.",
       "source": "https://sqlite.org/copyright.html",
       "decision": "PROFILE_ONLY_APPROVED",
-      "bindings_sha256": "acf6db9ba7ece99a386a4563378e83bbf33a530ed7a9313af5a45746b7efd9d5",
+      "bindings_sha256": "5d648a747616bf591644637858ef6db699433ae3164b4b2c66528ff8c2f86353",
       "notice_hashes": {
         "LICENSE.sqlite.txt": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719"
       },
@@ -135,7 +138,7 @@
       "reason": "Full PSF/BeOpen/CNRI/CWI and incorporated notices remain byte-exact. PSF section3 and CNRI section3 change-summary obligations are directly addressed by the factual upstream-stripped/selected-file summary. CWI copyright and permission are reproduced verbatim in supporting documentation. No native recompile, removal of compiled builtins, endorsement or raw-binary identity is claimed.",
       "source": "https://docs.python.org/3.13/license.html",
       "decision": "PROFILE_ONLY_APPROVED",
-      "bindings_sha256": "acf6db9ba7ece99a386a4563378e83bbf33a530ed7a9313af5a45746b7efd9d5",
+      "bindings_sha256": "5d648a747616bf591644637858ef6db699433ae3164b4b2c66528ff8c2f86353",
       "notice_hashes": {
         "LICENSE.cpython.txt": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd"
       },
@@ -144,11 +147,10 @@
   ],
   "findings": [],
   "verified": [
-    "23 closed manifest paths, all sizes/SHA verified; flat19 notices exact and notice-manifest8e889 binding recomputed without importing candidate code.",
-    "Inventory6250/docsdd57/upstream6912/provenance45e0/source2f89/qualify9c7d/Docker3617/aliases67e9 and globalpolicyf288 all match frozen bindings acf6.",
-    "V2receipt1adb and independentreview19dc are preserved/rehashed; provenance is accepted only for the stated normalized static projection. No binary was rescanned or executed.",
-    "Factual derivative/curation summary and complete CWI supporting-documentation block verified against inventory and exact retained CPython notice. No additional native code modifications alleged.",
-    "Independent code gate reviewd1bd reused for schema2 five-case binding and actual image notice/document/hash assertions before export. No positive built-image or runtime result exists here."
+    "Exact recursive comparison against prior acf6 bindings shows only source_hashes.qualify.py changed9c7d→7244. New canonical binding digest5d648 independently recomputed; actual source bytes match.",
+    "All23manifest paths/sizes/SHA unchanged and reverified; exact19notices, legal supporting summary/CWI, inventory6250, policyf288, closure/selection/base/core/helper/runner and upstream/V2 provenance bindings retained. Original five term decisions reused, not reconsidered or broadened.",
+    "Independent diagnostic source reviewdbe verified/read and affected test/docs hashes match. It approves closed phase/exit/category/allowlisted library diagnostics with4096Bstderr sample onlyRAM, existing output/deadline/cleanup boundaries preserved. No raw stderr/argv/env or arbitrary filenames added to public result.",
+    "Previous command_failed root cause remains unresolved; diagnostics may expose later evidence but do not establish successful image build, runtime, test or delivery. Source hash reconciliation is the sole effect of this receipt."
   ],
   "admitted_acts": [
     "Use and copy exact selected prebuilt files for the isolated synthetic SupportContact profile.",
@@ -165,6 +167,6 @@
   "image_inclusion_proven": false,
   "runtime_qualified": false,
   "production_authorized": false,
-  "instructions_to_integrator": "The integrator may reference this receipt SHA for each of these five exact decisions in the schema2 aggregated license-admission receipt bound to acf6, then pin that aggregate under the reviewed code path. Keep this decision receipt immutable; any binding/source/notice change needs reconciliation. Run only the already planned affected synthetic qualification; do not invent old green results or bypass image assertions.",
-  "reviewer_actions": "Local source/notice/JSON/hash review and primary official public license reference lookup only. No candidate import/execution/tests, Docker, binary scan, CI/operational API, SSH/VPS or owner-worktree mutation."
+  "instructions_to_integrator": "Reference this new immutable receipt SHA for all five exact cases in the schema2 aggregate bound to5d648, then pin that aggregate through reviewed gate. Preserve original63236 and failure receipts. Do not transfer old CI greens, claim root cause resolved, rerun closed gates or bypass in-image notice assertions. No further source-case ACK required for this exact rebind.",
+  "reviewer_actions": "Cached local JSON/hash/closed-manifest and independent diagnostic source-review reconciliation only. No candidate execution/import/tests, CI query/dispatch, binaries/Docker, SSH/VPS or owner-worktree mutation."
 }
