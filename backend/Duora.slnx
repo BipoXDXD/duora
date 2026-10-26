@@ -13,6 +13,7 @@
     <Project Path="tests/Duora.ArchitectureTests/Duora.ArchitectureTests.csproj" />
     <Project Path="tests/Duora.IntegrationTests/Duora.IntegrationTests.csproj" />
     <Project Path="tests/Duora.MediaBaselineHost/Duora.MediaBaselineHost.csproj" />
+    <Project Path="tests/Duora.MediaCorpusTests/Duora.MediaCorpusTests.csproj" />
     <Project Path="tests/Duora.SelfieProcessHost/Duora.SelfieProcessHost.csproj" />
     <Project Path="tests/Duora.UnitTests/Duora.UnitTests.csproj" />
   </Folder>

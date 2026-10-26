@@ -457,6 +457,21 @@ export const en = {
   'sessions.revoking': 'Ending…',
   'sessions.actionFor': '{action}: {session}',
 
+  'emergency.navigation': 'Safety',
+  'emergency.title': 'Safety and emergency contacts',
+  'emergency.countryGuidance':
+    'These numbers apply only in the countries shown. If you are elsewhere, contact local emergency services. Duora does not provide emergency assistance.',
+  'emergency.brazil': 'Brazil',
+  'emergency.unitedStates': 'United States',
+  'emergency.brazilPolice': 'Brazil: {number} — Military Police emergency',
+  'emergency.brazilMedical': 'Brazil: {number} — SAMU medical emergency',
+  'emergency.brazilWomen':
+    'Brazil: {number} — information and reporting violence against women; not an emergency service',
+  'emergency.unitedStatesEmergency': 'United States: {number} — police, fire or medical emergency',
+  'emergency.brazilWomenSource': 'Official source: Ligue 180 and police emergency 190',
+  'emergency.brazilMedicalSource': 'Official source: SAMU 192',
+  'emergency.unitedStatesSource': 'Official source: National 911 Program',
+
   'photoReview.navigation': 'Photo review',
   'photoReview.reviewsTitle': 'Photo reviews',
   'photoReview.appealsTitle': 'Photo appeals',

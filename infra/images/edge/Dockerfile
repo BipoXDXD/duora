@@ -51,7 +51,8 @@ LABEL org.opencontainers.image.title="duora-edge" \
       org.opencontainers.image.revision="${GIT_COMMIT}"
 
 # CVE-2026-111497: atualizar só a biblioteca da base Alpine; pacote assinado disponível em ambas as arquiteturas.
-RUN apk add --no-cache --upgrade 'brotli-libs=1.2.1-r0'
+# CVE-2026-92392: curl e libcurl corrigidos, disponíveis nas duas arquiteturas.
+RUN apk add --no-cache --upgrade 'brotli-libs=1.2.1-r0' 'curl=8.23.0-r0' 'libcurl=8.23.0-r0'
 
 # /data guarda certificados e chaves do ACME e /config o autosave; os volumes nomeados herdam dono e modo 0700.
 RUN addgroup -S -g 10001 caddy \
