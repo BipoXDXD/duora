@@ -606,7 +606,7 @@ jobs:
           --exit-code 1
 
   current-schema-compatibility:
-    name: current3d99 on retained schema48 (PR260 only)
+    name: currentC934 on retained schema49 (PR260 only)
     if: >-
       github.event_name == 'pull_request' && github.event.pull_request.number == 260 &&
       (github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened')
@@ -627,10 +627,10 @@ jobs:
           fetch-depth: 1
           submodules: false
           lfs: false
-      - name: Checkout the exact already-qualified cohort259 content
+      - name: Checkout the exact already-qualified existing258 content
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 1a9b0194d253dee9a810f710a4fdf9ff2a05c07b
+          ref: df19cff5d9991f584fd3fe83e8987fca551fbd51
           path: cohort
           persist-credentials: false
           fetch-depth: 1
@@ -639,17 +639,14 @@ jobs:
       - name: Checkout historical source only for old SQL and provenance (never rebuild old web)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 3d99eec4f9a78dd9a9ea509ae89bba35f7d85205
+          ref: c9341ab39a5e3133067eb579021efdd8c19b0033
           path: old-source
           persist-credentials: false
           fetch-depth: 1
           submodules: false
           lfs: false
-      - name: NEW lightweight receipt parser checks (not native evidence)
-        run: |
-          /usr/bin/python3 -B -m unittest discover \
-            -s gate/scripts/deploy/compatibility -p 'test_*.py'
-      - name: Real old binary and DDL48 on an owned disposable PostgreSQL18.6
+      # Closed35-to48 functional/recovery evidence remains in C043. Only the new pair executes here.
+      - name: One NEW root journal case; separate from binary proof
         run: |
           sudo --non-interactive /usr/bin/env -i \
             HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
@@ -659,52 +656,36 @@ jobs:
             GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_SHA="$GITHUB_SHA" \
             GITHUB_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" GITHUB_WORKFLOW_REF="$GITHUB_WORKFLOW_REF" \
             RUNNER_TEMP="$RUNNER_TEMP" \
-            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/gate/scripts/deploy/compatibility/current_schema_lab.py" \
+            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/gate/scripts/deploy/native_recovery49_case.py" \
+              "$RUNNER_TEMP/duora-current-schema49/rootcase.json"
+      - name: NEW exact currentC934 binary at schema49 and real recovery CLI
+        run: |
+          sudo --non-interactive /usr/bin/env -i \
+            HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_SHA="$GITHUB_SHA" \
+            GITHUB_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" GITHUB_WORKFLOW_REF="$GITHUB_WORKFLOW_REF" \
+            RUNNER_TEMP="$RUNNER_TEMP" \
+            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/gate/scripts/deploy/compatibility/current_recovery49_lab.py" \
               --cohort "$GITHUB_WORKSPACE/cohort" \
               --old-source "$GITHUB_WORKSPACE/old-source" \
               --workflow-source "$GITHUB_WORKSPACE/gate" \
-              --output "$RUNNER_TEMP/duora-current-schema-compatibility/receipt.json" \
-              --recovery-handoff "$RUNNER_TEMP/duora-current-schema-compatibility/recovery-handoff.json"
-      - name: Composed native current-v2 recovery using the one inherited cohort migrator
-        run: |
-          sudo --non-interactive /usr/bin/env -i \
-            HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
-            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
-            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
-            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
-            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_SHA="$GITHUB_SHA" \
-            GITHUB_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" GITHUB_WORKFLOW_REF="$GITHUB_WORKFLOW_REF" \
-            RUNNER_TEMP="$RUNNER_TEMP" \
-            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/gate/scripts/deploy/compatibility/current_recovery_lab.py" \
-              --cohort "$GITHUB_WORKSPACE/cohort" \
-              --old-source "$GITHUB_WORKSPACE/old-source" \
-              --workflow-source "$GITHUB_WORKSPACE/gate" \
-              --functional-receipt "$RUNNER_TEMP/duora-current-schema-compatibility/receipt.json" \
-              --handoff "$RUNNER_TEMP/duora-current-schema-compatibility/recovery-handoff.json" \
-              --output "$RUNNER_TEMP/duora-current-schema-compatibility/recovery-receipt.json"
-      - name: Clean only the transferred cohort keeper tag if an earlier stage refused
-        if: ${{ always() }}
-        run: |
-          sudo --non-interactive /usr/bin/env -i \
-            HOME=/root PATH=/usr/local/bin:/usr/bin:/bin \
-            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
-            GITHUB_REPOSITORY="$GITHUB_REPOSITORY" GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
-            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
-            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_SHA="$GITHUB_SHA" \
-            GITHUB_WORKFLOW_SHA="$GITHUB_WORKFLOW_SHA" GITHUB_WORKFLOW_REF="$GITHUB_WORKFLOW_REF" \
-            RUNNER_TEMP="$RUNNER_TEMP" \
-            /usr/bin/python3 -I -B "$GITHUB_WORKSPACE/gate/scripts/deploy/compatibility/current_recovery_lab.py" \
-              --cleanup-transferred-keeper "$RUNNER_TEMP/duora-current-schema-compatibility/recovery-handoff.json"
+              --rootcase "$RUNNER_TEMP/duora-current-schema49/rootcase.json" \
+              --output "$RUNNER_TEMP/duora-current-schema49/recovery49-receipt.json"
       - name: Bounded public metadata only; missing evidence fails
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: current3d99-schema48-${{ github.run_id }}-${{ github.run_attempt }}
+          name: currentC934-schema49-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/duora-current-schema-compatibility/receipt.json
-            ${{ runner.temp }}/duora-current-schema-compatibility/recovery-receipt.json
-            ${{ runner.temp }}/duora-current-schema-compatibility/recovery-command-trace.ndjson
-            ${{ runner.temp }}/duora-current-schema-compatibility/recovery-public-records.json
+            ${{ runner.temp }}/duora-current-schema49/rootcase.json
+            ${{ runner.temp }}/duora-current-schema49/functional49-receipt.json
+            ${{ runner.temp }}/duora-current-schema49/recovery49-receipt.json
+            ${{ runner.temp }}/duora-current-schema49/recovery-command-trace.ndjson
+            ${{ runner.temp }}/duora-current-schema49/recovery49-next-command-trace.ndjson
+            ${{ runner.temp }}/duora-current-schema49/recovery-public-records.json
           if-no-files-found: error
           retention-days: 3
 
