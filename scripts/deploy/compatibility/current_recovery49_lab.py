@@ -28,7 +28,7 @@ from old_image_identity import bind_old_image
 from owned_edge_transport import LABEL as HTTPS_LABEL, select_owned_edge
 
 need, sha, canonical, put, command = shared.need, shared.sha, shared.canonical, shared.put, shared.command
-CORE = "487aa4b05fef2661b22c36be3f90345f6dc747e5628fef09e7822cc0f3ea47d8"
+CORE = "6c8eb2803717915edc68050b606972adef497ae71904fb3af058922efd18e898"
 
 
 class VerifiedBrowser(Browser):

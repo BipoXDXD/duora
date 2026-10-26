@@ -1571,9 +1571,35 @@ def _recovery_recorded_current(paths: Paths) -> Release:
         raise DeployError("Qualified recorded current is unavailable") from error
 
 
+def _recovery_same_catalog_current(incoming: Release, paths: Paths) -> bool:
+    """Decline extra enrollment only for exact same-catalog normal v2; never admit recovery or relax its registry."""
+    if (incoming.contract_version != "v2" or _recovery_digest(incoming.raw["migrations"]) not in
+            {RECOVERY_CATALOG_48_SHA256, RECOVERY_CATALOG_49_SHA256}):
+        return False
+    try:
+        record = _guard.decode_json(_recovery_root_read(paths.state_dir / "current.json"))
+        _require_exact_keys(record, {"releaseId", "commit", "deployedAt"}, "same-catalog recorded current")
+        _require_match(record["releaseId"], _RELEASE_ID, "same-catalog recorded id")
+        _require_match(record["commit"], _COMMIT, "same-catalog recorded commit")
+        _require_utc_timestamp(record["deployedAt"], "same-catalog recorded time")
+        # The normal immutable-history reader uses this same complete syntax validator without a registry selector.
+        # This result can only decline enrollment; all admitted recovery paths below retain their strict GHCR parser.
+        current = parse_manifest(_recovery_root_read(paths.state_dir / RELEASES_DIR /
+            (record["releaseId"] + ".json")).decode(), image_prefix="")
+        if current.release_id != record["releaseId"] or current.commit != record["commit"]:
+            raise DeployError("Recorded same-catalog identity differs")
+        return (current.contract_version == "v2" and current.architecture == incoming.architecture
+                and current.images["postgres"] == incoming.images["postgres"]
+                and current.raw["migrations"] == incoming.raw["migrations"])
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError) as error:
+        raise DeployError("Cannot classify protected same-catalog current; no enrollment was changed") from error
+
+
 def arm_current_v2_deploy(incoming: Release, paths: Paths, sql: str | None, *,
                           observe: Callable[[], dict] | None = None, run: Runner | None = None) -> RecoveryStore | None:
     """Arm only a closed admitted pair, after authenticated SQL/pulls/WAL and before the first producer."""
+    if observe is None and _recovery_same_catalog_current(incoming, paths):
+        return None  # Normal same-schema v2 still executes all existing runtime/contract/payload/backup guards.
     if incoming.contract_version == "v2" and _recovery_digest(incoming.raw["migrations"]) == RECOVERY_CATALOG_49_SHA256:
         if observe is None:
             current = _recovery_recorded_current(paths)
