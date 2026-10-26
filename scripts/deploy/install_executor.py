@@ -26,6 +26,7 @@ FILES = ("duora_deploy.py", "reconcile_payload.py", "runtime_guard.py", "install
 FENCE_DIRECTORY = "duora-executor-install"
 RECEIVER_PATH = Path("/opt/coolify-release/receiver.py")
 RECEIVER_SHA256 = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
+LEGACY_RECEIVER_SHA256 = "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb"
 
 
 class InstallError(ValueError):
@@ -196,6 +197,225 @@ def receiver_binding() -> dict:
         raise InstallError("Cannot bind the protected qualified receiver") from error
 
 
+def _legacy_receiver_binding() -> dict:
+    """The single legacy preimage; never used by ordinary ingress or recovery binding."""
+    try:
+        _require_root_path(RECEIVER_PATH.parent, directory=True)
+        before = RECEIVER_PATH.lstat()
+        if before.st_uid != 0 or before.st_nlink != 1:
+            raise InstallError("Unowned legacy receiver entry")
+        link = os.readlink(RECEIVER_PATH) if stat.S_ISLNK(before.st_mode) else None
+        target = (RECEIVER_PATH.parent / "versions" / ("2.0.2-" + LEGACY_RECEIVER_SHA256) / "receiver.py"
+                  if link is not None else RECEIVER_PATH)
+        if link is not None and link != str(target):
+            raise InstallError("Legacy receiver target differs from the single qualified version")
+        _require_root_path(target)
+        if RECEIVER_PATH.resolve(strict=True) != target:
+            raise InstallError("Legacy receiver resolution changed")
+        if hashlib.sha256(_protected_bytes(target)).hexdigest() != LEGACY_RECEIVER_SHA256:
+            raise InstallError("Legacy receiver preimage differs")
+        after = RECEIVER_PATH.lstat()
+        if ((before.st_dev, before.st_ino, before.st_uid, before.st_gid, before.st_mode, before.st_nlink)
+                != (after.st_dev, after.st_ino, after.st_uid, after.st_gid, after.st_mode, after.st_nlink)
+                or (link is not None and os.readlink(RECEIVER_PATH) != link)):
+            raise InstallError("Legacy receiver changed during inspection")
+        target_info = target.lstat()
+        return {"kind": "qualified-versioned-symlink" if link is not None else "qualified-regular",
+                "readlink": link, "resolvedTarget": str(target), "sha256": LEGACY_RECEIVER_SHA256,
+                "entry": {"uid": before.st_uid, "gid": before.st_gid,
+                          "mode": stat.S_IMODE(before.st_mode), "nlink": before.st_nlink},
+                "target": {"uid": target_info.st_uid, "gid": target_info.st_gid,
+                           "mode": stat.S_IMODE(target_info.st_mode), "nlink": target_info.st_nlink}}
+    except (OSError, ValueError, TypeError) as error:
+        raise InstallError("Cannot bind the exact legacy cohort preimage") from error
+
+
+def _cohort_receiver_state() -> dict:
+    # This two-state classifier is private to authenticated static transactions.
+    # receiver_binding() itself continues to refuse the legacy receiver.
+    try:
+        return receiver_binding()
+    except InstallError:
+        return _legacy_receiver_binding()
+
+
+def _new_receiver_target() -> Path:
+    return RECEIVER_PATH.parent / "versions" / ("2.1.1-" + RECEIVER_SHA256) / "receiver.py"
+
+
+def _cohort_after_binding() -> dict:
+    return {"kind": "qualified-versioned-symlink", "readlink": str(_new_receiver_target()),
+            "resolvedTarget": str(_new_receiver_target()), "sha256": RECEIVER_SHA256,
+            "entry": {"uid": 0, "gid": 0, "mode": 0o777, "nlink": 1},
+            "target": {"uid": 0, "gid": 0, "mode": 0o755, "nlink": 1}}
+
+
+def _cohort_plan(source: Path, manifest: dict, paths: InstallPaths, expected_executor_sha256: str) -> dict:
+    if os.geteuid() != 0 or os.getegid() != 0:
+        raise InstallError("Receiver cohort transition requires the administrative root identity")
+    _require_root_path(source)
+    if hashlib.sha256(_protected_bytes(source)).hexdigest() != RECEIVER_SHA256:
+        raise InstallError("Candidate receiver is not the exact qualified e9 source")
+    before = _legacy_receiver_binding()
+    if before["entry"]["gid"] != 0 or before["target"]["gid"] != 0:
+        raise InstallError("Cohort preimages require the reviewed root group ownership")
+    if manifest["files"]["duora_deploy.py"]["sha256"] != expected_executor_sha256:
+        raise InstallError("Cohort transition cannot change executor code at the same time")
+    _require_root_path(paths.entry.parent, directory=True)
+    info = paths.entry.lstat()
+    if not stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1:
+        raise InstallError("Cohort transition requires the qualified installed versioned executor")
+    link = os.readlink(paths.entry)
+    target = Path(link)
+    if (not target.is_absolute() or target.name != "duora_deploy.py"
+            or target.parent.parent != paths.versions or not re.fullmatch(r"[a-f0-9]{40}", target.parent.name)):
+        raise InstallError("Legacy executor target is outside the qualified version inventory")
+    _require_root_path(target)
+    target_info = target.lstat()
+    if target_info.st_gid != 0 or stat.S_IMODE(target_info.st_mode) != 0o755:
+        raise InstallError("Legacy executor target mode or group differs")
+    old_receipt_raw = _protected_bytes(paths.state / "executor-install-receipt.json")
+    old_receipt = guard.decode_json(old_receipt_raw)
+    old_manifest = validate_bundle(target.parent, expected_commit=target.parent.name,
+                                   manifest_sha256=old_receipt["manifestSha256"])
+    if any(old_manifest["files"][name] != manifest["files"][name]
+           for name in FILES if name != "install_executor.py"):
+        raise InstallError("Cohort transition must preserve all executor and sidecar bytes")
+    baseline_raw = _protected_bytes(paths.state / guard.BASELINE_NAME)
+    if (old_receipt.get("status") != "installed" or old_receipt["sourceCommit"] != target.parent.name
+            or old_receipt["files"] != old_manifest["files"]
+            or old_receipt["executorSha256"] != expected_executor_sha256
+            or _sha(paths.entry) != expected_executor_sha256
+            or old_receipt["baselineSha256"] != hashlib.sha256(baseline_raw).hexdigest()):
+        raise InstallError("Legacy executor receipt, baseline or preimage differs")
+    return {"schema": 1, "receiverBefore": before, "receiverAfter": _cohort_after_binding(),
+            "executorBefore": {"readlink": link, "sha256": expected_executor_sha256},
+            "oldReceiptSha256": hashlib.sha256(old_receipt_raw).hexdigest(),
+            "oldBaselineSha256": hashlib.sha256(baseline_raw).hexdigest()}
+
+
+def _stage_cohort_receiver(source: Path) -> None:
+    target = _new_receiver_target()
+    _require_root_path(target.parent.parent, directory=True)
+    if not target.parent.exists():
+        target.parent.mkdir(mode=0o700)
+        _sync(target.parent.parent)
+    _require_root_path(target.parent, directory=True)
+    if target.exists() or target.is_symlink():
+        _require_root_path(target)
+        if hashlib.sha256(_protected_bytes(target)).hexdigest() != RECEIVER_SHA256:
+            raise InstallError("Existing receiver version cannot be overwritten")
+    else:
+        content = _protected_bytes(source)
+        if hashlib.sha256(content).hexdigest() != RECEIVER_SHA256:
+            raise InstallError("Candidate receiver changed during staging")
+        _write(target, content, mode=0o755)
+    info = target.lstat()
+    if info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o755:
+        raise InstallError("Staged receiver ownership or mode differs")
+
+
+def _cohort_record(journal: dict, paths: InstallPaths, preimage: Path) -> dict | None:
+    if "receiverCohort" not in journal:
+        return None
+    cohort = journal["receiverCohort"]
+    if (not isinstance(cohort, dict) or set(cohort) != {"schema", "receiverBefore", "receiverAfter",
+            "executorBefore", "oldReceiptSha256", "oldBaselineSha256", "inventorySha256"}
+            or any(not isinstance(cohort[name], dict) for name in ("receiverBefore", "receiverAfter", "executorBefore"))
+            or type(cohort["schema"]) is not int or cohort["schema"] != 1
+            or cohort["receiverBefore"].get("sha256") != LEGACY_RECEIVER_SHA256
+            or cohort["receiverAfter"] != _cohort_after_binding()
+            or set(cohort["executorBefore"]) != {"readlink", "sha256"}
+            or cohort["executorBefore"]["sha256"] != journal["oldExecutorSha256"]
+            or cohort["executorBefore"]["sha256"] != journal["installedReceipt"]["executorSha256"]
+            or cohort["inventorySha256"] != journal["installedReceipt"]["inventorySha256"]
+            or cohort["oldReceiptSha256"] != journal["oldReceiptSha256"]
+            or cohort["oldBaselineSha256"] != journal["oldBaselineSha256"]):
+        raise InstallError("Unsupported or inconsistent receiver cohort journal")
+    old = cohort["receiverBefore"]
+    binding_keys = {"kind", "readlink", "resolvedTarget", "sha256", "entry", "target"}
+    if (set(old) != binding_keys or set(cohort["receiverAfter"]) != binding_keys
+            or any(not isinstance(binding.get(key), dict) or set(binding[key]) != {"uid", "gid", "mode", "nlink"}
+                   for binding in (old, cohort["receiverAfter"]) for key in ("entry", "target"))):
+        raise InstallError("Receiver cohort binding inventory differs")
+    if any(type(value) is not int for key in ("entry", "target") for value in old[key].values()):
+        raise InstallError("Receiver preimage metadata must use exact integer fields")
+    if any(old[key]["uid"] != 0 or old[key]["gid"] != 0 or old[key]["nlink"] != 1
+           for key in ("entry", "target")):
+        raise InstallError("Receiver preimage is outside the reviewed root ownership")
+    expected_old_target = RECEIVER_PATH.parent / "versions" / ("2.0.2-" + LEGACY_RECEIVER_SHA256) / "receiver.py"
+    if (old.get("kind") not in {"qualified-versioned-symlink", "qualified-regular"}
+            or old.get("readlink") not in (None, str(expected_old_target))
+            or old.get("resolvedTarget") != str(expected_old_target if old["readlink"] is not None else RECEIVER_PATH)):
+        raise InstallError("Journal contains an unqualified receiver preimage")
+    if (old["kind"] != ("qualified-versioned-symlink" if old["readlink"] is not None else "qualified-regular")
+            or (old["readlink"] is None and old["entry"] != old["target"])):
+        raise InstallError("Receiver preimage kind and target metadata disagree")
+    saved = preimage / "receiver-before"
+    info = saved.lstat()
+    if (info.st_uid != 0 or info.st_nlink != 1 or info.st_gid != old["entry"]["gid"]
+            or stat.S_IMODE(info.st_mode) != old["entry"]["mode"]):
+        raise InstallError("Receiver preimage ownership changed")
+    if old["readlink"] is not None:
+        if not saved.is_symlink() or os.readlink(saved) != old["readlink"]:
+            raise InstallError("Receiver preimage link changed")
+        _require_root_path(expected_old_target)
+        content = _protected_bytes(expected_old_target)
+        info_old = expected_old_target.lstat()
+        actual_old = {"uid": info_old.st_uid, "gid": info_old.st_gid,
+                      "mode": stat.S_IMODE(info_old.st_mode), "nlink": info_old.st_nlink}
+        if actual_old != old["target"]:
+            raise InstallError("Legacy receiver target metadata changed before recovery")
+    else:
+        content = _protected_bytes(saved)
+        if stat.S_IMODE(info.st_mode) != old["entry"]["mode"]:
+            raise InstallError("Receiver regular preimage mode changed")
+    if hashlib.sha256(content).hexdigest() != LEGACY_RECEIVER_SHA256:
+        raise InstallError("Receiver preimage bytes changed")
+    old_executor = Path(cohort["executorBefore"]["readlink"])
+    if (old_executor.parent.parent != paths.versions or old_executor.name != "duora_deploy.py"
+            or not re.fullmatch(r"[a-f0-9]{40}", old_executor.parent.name)):
+        raise InstallError("Receiver cohort journal contains a foreign executor target")
+    _require_root_path(old_executor)
+    old_executor_info = old_executor.lstat()
+    if (old_executor_info.st_gid != 0 or old_executor_info.st_nlink != 1
+            or stat.S_IMODE(old_executor_info.st_mode) != 0o755
+            or _sha(old_executor) != cohort["executorBefore"]["sha256"]):
+        raise InstallError("Legacy executor target bytes or metadata changed")
+    actual = _cohort_receiver_state()
+    if actual not in (old, cohort["receiverAfter"]):
+        raise InstallError("Intervening receiver entry or target; refusing overwrite")
+    temporary = RECEIVER_PATH.with_name(".receiver-cohort-" + preimage.name)
+    if temporary.exists() or temporary.is_symlink():
+        temp_info = temporary.lstat()
+        if (not temporary.is_symlink() or temp_info.st_uid != 0 or temp_info.st_nlink != 1
+                or os.readlink(temporary) not in {str(_new_receiver_target()), old["readlink"]}):
+            raise InstallError("Intervening receiver temporary entry")
+    return cohort
+
+
+def _cohort_runtime(cohort: dict, inspect_runtime: Callable[[], dict] | None) -> None:
+    if inspect_runtime is None:
+        raise InstallError("Cohort recovery requires the reviewed read-only runtime and release context")
+    actual = inspect_runtime()
+    digest = guard.digest({"profile": actual["profile"], "audit": actual["audit"]})
+    if digest != actual["inventorySha256"] or digest != cohort["inventorySha256"]:
+        raise InstallError("Cohort runtime or current/previous release context changed")
+
+
+def _cohort_receiver_replace(preimage: Path, binding: dict) -> None:
+    temporary = RECEIVER_PATH.with_name(".receiver-cohort-" + preimage.name)
+    if temporary.is_symlink():
+        temporary.unlink()
+    if binding["readlink"] is not None:
+        temporary.symlink_to(binding["readlink"])
+        _sync(temporary.parent)
+        temporary.replace(RECEIVER_PATH)
+        _sync(RECEIVER_PATH.parent)
+    else:
+        _write(RECEIVER_PATH, _protected_bytes(preimage / "receiver-before"), mode=binding["entry"]["mode"])
+
+
 @contextmanager
 def _locks(paths: InstallPaths):
     with ExitStack() as locks:
@@ -251,8 +471,8 @@ def require_ingress_idle(receiver, paths: InstallPaths, *, expected_commit: str,
 
 
 def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[], None],
-                    expected_bundle: tuple[str, str] | None = None) -> dict:
-    require_idle()
+                    expected_bundle: tuple[str, str] | None = None,
+                    inspect_runtime: Callable[[], dict] | None = None) -> dict:
     marker = paths.state / "executor-install-pending.json"
     fence = paths.ingress / FENCE_DIRECTORY / "pending.json"
     if (set(pending) != {"attempt", "attemptSha256"}
@@ -305,6 +525,15 @@ def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[
     if (not (is_old or is_new) or ((temporary_link.exists() or temporary_link.is_symlink())
             and (not temporary_link.is_symlink() or os.readlink(temporary_link) not in owned_targets))):
         raise InstallError("Intervening executor/link change; refusing recovery overwrite")
+    cohort = _cohort_record(journal, paths, preimage)
+    if cohort is not None:
+        if (not previous.is_symlink() or os.readlink(previous) != cohort["executorBefore"]["readlink"]
+                or _sha(previous) != cohort["executorBefore"]["sha256"]):
+            raise InstallError("Cohort executor preimage differs from its reviewed identity")
+        _cohort_runtime(cohort, inspect_runtime)
+    # Do not import an unvalidated active receiver through the idle callback.
+    # Both receiver and executor states have been authenticated before this call or any write.
+    require_idle()
     # All ownership/preimage checks precede either replacement. Never touch runtime, data or release state.
     temporary_link.unlink(missing_ok=True)
     if old_baseline is None: baseline.unlink(missing_ok=True)
@@ -315,6 +544,14 @@ def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[
             temporary_link.replace(paths.entry)
             _sync(paths.entry.parent)
         else: _write(paths.entry, previous.read_bytes(), mode=stat.S_IMODE(previous.stat().st_mode))
+    if cohort is not None:
+        _cohort_record(journal, paths, preimage)
+        _cohort_receiver_replace(preimage, cohort["receiverBefore"])
+        if _legacy_receiver_binding() != cohort["receiverBefore"]:
+            raise InstallError("Restored receiver differs; keep the durable fence")
+        _cohort_runtime(cohort, inspect_runtime)
+        _write(preimage / "cohort-phase.json", _json({"attemptSha256": pending["attemptSha256"],
+                                                     "phase": "pair-restored"}))
     if old_receipt is None: current_receipt_path.unlink(missing_ok=True)
     else: _write(current_receipt_path, old_receipt)
     recovery = {"status": "recovered-own-attempt", **pending, "recoveredAt": int(time.time()),
@@ -328,9 +565,10 @@ def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[
 
 
 def recover_installation(*, paths: InstallPaths, pending: dict, require_idle: Callable[[], None],
-                         expected_bundle: tuple[str, str] | None = None) -> dict:
+                         expected_bundle: tuple[str, str] | None = None,
+                         inspect_runtime: Callable[[], dict] | None = None) -> dict:
     try:
-        with _locks(paths): return _recover_locked(paths, pending, require_idle, expected_bundle)
+        with _locks(paths): return _recover_locked(paths, pending, require_idle, expected_bundle, inspect_runtime)
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise InstallError("Own-attempt recovery refused without overwriting foreign state") from error
 
@@ -339,7 +577,9 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                    reviewed_inventory_sha256: str, expected_executor_sha256: str,
                    paths: InstallPaths, inspect_runtime: Callable[[], dict],
                    require_idle: Callable[[], None], apply: bool = False,
-                   qualification_artifact: int | None = None) -> dict:
+                   qualification_artifact: int | None = None,
+                   _cohort_receiver_source: Path | None = None,
+                   reviewed_cohort_sha256: str | None = None) -> dict:
     manifest = validate_bundle(source, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
     try:
         with _locks(paths):
@@ -347,6 +587,10 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
             fence = fence_dir / "pending.json"
             if ((paths.state / "executor-install-pending.json").exists() or fence.exists() or fence.is_symlink()):
                 raise InstallError("Resolve the outstanding interrupted installation explicitly first")
+            cohort = (_cohort_plan(_cohort_receiver_source, manifest, paths, expected_executor_sha256)
+                      if _cohort_receiver_source is not None else None)
+            if cohort is None and reviewed_cohort_sha256 is not None:
+                raise InstallError("Cohort approval cannot alter ordinary installer binding")
             require_idle()
             if paths.entry.is_symlink() and not Path(os.readlink(paths.entry)).is_absolute():
                 raise InstallError("Relative previous executor target requires explicit administrative review")
@@ -356,13 +600,21 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
             actual_inventory = guard.digest({"profile": inventory["profile"], "audit": inventory["audit"]})
             if actual_inventory != inventory["inventorySha256"] or actual_inventory != reviewed_inventory_sha256:
                 raise InstallError("Inventory differs from the explicitly reviewed reference")
+            cohort_result = {}
+            if cohort is not None:
+                cohort["inventorySha256"] = actual_inventory
+                cohort_sha256 = guard.digest(cohort)
+                if apply and cohort_sha256 != reviewed_cohort_sha256:
+                    raise InstallError("Cohort differs from its explicitly reviewed static preimages")
+                cohort_result = {"cohortSha256": cohort_sha256, "receiverBefore": cohort["receiverBefore"],
+                                 "receiverAfter": cohort["receiverAfter"]}
             receipt = {"schema": 1, "status": "preflight", "sourceCommit": expected_commit,
                 "manifestSha256": manifest_sha256, "inventorySha256": actual_inventory,
                 "baselineSha256": hashlib.sha256(_json(inventory["profile"])).hexdigest(),
                 "executorSha256": manifest["files"]["duora_deploy.py"]["sha256"], "files": manifest["files"],
                 "qualificationRun": manifest["qualificationRun"], "qualificationArtifactId": qualification_artifact}
             if not apply:
-                return {**receipt, "inventory": inventory}
+                return {**receipt, "inventory": inventory, **cohort_result}
             for directory in (paths.versions, paths.preimages, fence_dir):
                 if directory.exists() and (directory.is_symlink() or directory.stat().st_uid != os.geteuid()
                                            or directory.stat().st_mode & 0o077):
@@ -383,6 +635,9 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                     _sync(paths.versions)
                 finally:
                     if stage.exists(): shutil.rmtree(stage)
+            if cohort is not None:
+                assert _cohort_receiver_source is not None
+                _stage_cohort_receiver(_cohort_receiver_source)
             preimage = Path(tempfile.mkdtemp(prefix="installation-", dir=paths.preimages))
             previous_entry = preimage / "duora-deploy"
             if paths.entry.is_symlink():
@@ -395,14 +650,33 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
             new_baseline = _json(inventory["profile"])
             if old_baseline is not None: _write(preimage / guard.BASELINE_NAME, old_baseline)
             if old_receipt is not None: _write(preimage / "executor-install-receipt.json", old_receipt)
+            if cohort is not None:
+                saved_receiver = preimage / "receiver-before"
+                if cohort["receiverBefore"]["readlink"] is not None:
+                    saved_receiver.symlink_to(cohort["receiverBefore"]["readlink"])
+                    _sync(preimage)
+                else:
+                    _write(saved_receiver, _protected_bytes(RECEIVER_PATH), mode=cohort["receiverBefore"]["entry"]["mode"])
             receipt.update(status="installed", appliedAt=int(time.time()), preimage=str(preimage))
             journal = {"installedReceipt": receipt, "oldExecutorSha256": expected_executor_sha256,
                 "oldBaselineSha256": hashlib.sha256(old_baseline).hexdigest() if old_baseline is not None else None,
                 "oldReceiptSha256": hashlib.sha256(old_receipt).hexdigest() if old_receipt is not None else None}
+            if cohort is not None:
+                if (journal["oldReceiptSha256"] != cohort["oldReceiptSha256"]
+                        or journal["oldBaselineSha256"] != cohort["oldBaselineSha256"]):
+                    raise InstallError("Legacy cohort baseline or receipt changed before journaling")
+                journal["receiverCohort"] = cohort
             journal_raw = _json(journal)
             _write(preimage / "attempt.json", journal_raw)
             _sync(paths.preimages)
             pending = {"attempt": preimage.name, "attemptSha256": hashlib.sha256(journal_raw).hexdigest()}
+            if cohort is not None:
+                _cohort_record(journal, paths, preimage)
+                if (_legacy_receiver_binding() != cohort["receiverBefore"]
+                        or os.readlink(paths.entry) != cohort["executorBefore"]["readlink"]):
+                    raise InstallError("Cohort changed before activation")
+                _write(preimage / "cohort-phase.json", _json({"attemptSha256": pending["attemptSha256"],
+                                                             "phase": "prepared"}))
             # The durable marker/journal precede every activation write. SIGKILL needs explicit guarded recovery.
             if _sha(paths.entry) != expected_executor_sha256: raise InstallError("Executor changed before activation")
             after_staging = inspect_runtime()
@@ -414,6 +688,12 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
             temporary_link = paths.entry.with_name(".duora-deploy-" + preimage.name)
             try:
                 _write(paths.state / "executor-install-pending.json", _json(pending))
+                if cohort is not None:
+                    _cohort_receiver_replace(preimage, cohort["receiverAfter"])
+                    if receiver_binding() != cohort["receiverAfter"]:
+                        raise InstallError("Activated receiver differs from the exact planned e9 binding")
+                    _write(preimage / "cohort-phase.json", _json({"attemptSha256": pending["attemptSha256"],
+                                                                 "phase": "receiver-active"}))
                 _write(baseline_path, new_baseline)
                 temporary_link.symlink_to(version / "duora_deploy.py")
                 temporary_link.replace(paths.entry)
@@ -425,20 +705,39 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
                 if (after["inventorySha256"] != actual_inventory or _sha(paths.entry) != receipt["executorSha256"]
                         or hashlib.sha256(_protected_bytes(baseline_path)).hexdigest() != receipt["baselineSha256"]):
                     raise InstallError("Post-activation identity changed")
+                if cohort is not None:
+                    if receiver_binding() != cohort["receiverAfter"]:
+                        raise InstallError("Receiver changed before completing the coherent pair")
+                    _write(preimage / "cohort-phase.json", _json({"attemptSha256": pending["attemptSha256"],
+                                                                 "phase": "pair-verified"}))
                 _write(paths.state / "executor-install-receipt.json", _json(receipt))
                 (paths.state / "executor-install-pending.json").unlink()
                 _sync(paths.state)
                 fence.unlink()
                 _sync(fence_dir)
-                return receipt
+                return {**receipt, **cohort_result}
             except Exception:
-                _recover_locked(paths, pending, require_idle)
+                _recover_locked(paths, pending, require_idle, inspect_runtime=inspect_runtime)
                 raise
             finally:
                 if temporary_link.is_symlink() and os.readlink(temporary_link) == str(version / "duora_deploy.py"):
                     temporary_link.unlink()
     except Exception as error:
         raise InstallError("Static installation/preflight refused; no product deployment invoked") from error
+
+
+def transition_cohort(source: Path, receiver_source: Path, *, expected_commit: str, manifest_sha256: str,
+                      reviewed_inventory_sha256: str, expected_executor_sha256: str, paths: InstallPaths,
+                      inspect_runtime: Callable[[], dict], require_idle: Callable[[], None],
+                      reviewed_cohort_sha256: str | None = None, apply: bool = False,
+                      qualification_artifact: int | None = None) -> dict:
+    """One existing lock/journal transaction; never a nested install or a product deployment."""
+    result = install_bundle(source, expected_commit=expected_commit, manifest_sha256=manifest_sha256,
+        reviewed_inventory_sha256=reviewed_inventory_sha256, expected_executor_sha256=expected_executor_sha256,
+        paths=paths, inspect_runtime=inspect_runtime, require_idle=require_idle, apply=apply,
+        qualification_artifact=qualification_artifact, _cohort_receiver_source=receiver_source,
+        reviewed_cohort_sha256=reviewed_cohort_sha256)
+    return {**result, "status": "cohort-installed" if apply else "cohort-preflight"}
 
 
 def build_bundle(source: Path, destination: Path, *, commit: str, run_url: str) -> str:
@@ -467,12 +766,40 @@ def _module(path: Path, name: str):
     return module
 
 
-def _production_idle(paths: InstallPaths, *, expected_commit: str, manifest_sha256: str) -> None:
-    binding = receiver_binding()
+def _production_idle(paths: InstallPaths, *, expected_commit: str, manifest_sha256: str,
+                     receiver_cohort: bool = False) -> None:
+    binding = _cohort_receiver_state() if receiver_cohort else receiver_binding()
     receiver = _module(Path(binding["resolvedTarget"]), "duora_installer_reviewed_receiver")
     require_ingress_idle(receiver, paths, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
     if receiver.api("deployments") != []:
         raise InstallError("Coolify global queue is active or unknown")
+
+
+def _cohort_recovery_mode(paths: InstallPaths, pending: dict, expected_bundle: tuple[str, str]) -> bool:
+    """Authenticate the local attempt before selecting the narrowly scoped legacy binding."""
+    if (set(pending) != {"attempt", "attemptSha256"}
+            or not isinstance(pending["attempt"], str)
+            or not re.fullmatch(r"installation-[a-z0-9_]+", pending["attempt"])
+            or not isinstance(pending["attemptSha256"], str)
+            or not re.fullmatch(r"[a-f0-9]{64}", pending["attemptSha256"])):
+        raise InstallError("Invalid recovery attempt identity")
+    fence = paths.ingress / FENCE_DIRECTORY / "pending.json"
+    if guard.decode_json(_protected_bytes(fence)) != pending:
+        raise InstallError("Recovery fence differs from the exact requested attempt")
+    preimage = paths.preimages / pending["attempt"]
+    _require_root_path(preimage, directory=True)
+    if preimage.stat().st_mode & 0o077:
+        raise InstallError("Recovery attempt directory is not private")
+    raw = _protected_bytes(preimage / "attempt.json")
+    if hashlib.sha256(raw).hexdigest() != pending["attemptSha256"]:
+        raise InstallError("Recovery journal hash differs")
+    journal = guard.decode_json(raw)
+    receipt = journal["installedReceipt"]
+    if (receipt["sourceCommit"], receipt["manifestSha256"]) != expected_bundle:
+        raise InstallError("Recovery source or bundle differs from the owned attempt")
+    validate_bundle(paths.versions / expected_bundle[0], expected_commit=expected_bundle[0],
+                    manifest_sha256=expected_bundle[1])
+    return _cohort_record(journal, paths, preimage) is not None
 
 
 def _verify_provenance(manifest: dict, artifact_id: int) -> None:
@@ -520,6 +847,8 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--recover-attempt")
     parser.add_argument("--recover-attempt-sha256")
+    parser.add_argument("--cohort-receiver", type=Path)
+    parser.add_argument("--reviewed-cohort-sha256")
     args = parser.parse_args()
     try:
         if os.geteuid() != 0: raise InstallError("Administrative root entry required")
@@ -531,19 +860,30 @@ def main() -> int:
         if args.artifact_id <= 0: raise InstallError("Exact qualification artifact ID required")
         paths = InstallPaths(Path("/usr/local/sbin/duora-deploy"), Path("/opt/duora-executor/releases"),
             Path("/opt/duora-executor/preimages"), Path("/var/lib/duora"), Path("/var/lib/coolify-release"))
+        recovering = bool(args.recover_attempt or args.recover_attempt_sha256)
+        pending = None
+        cohort_mode = args.cohort_receiver is not None
+        if recovering:
+            if (args.apply or not args.recover_attempt or not args.recover_attempt_sha256
+                    or args.cohort_receiver is not None or args.reviewed_cohort_sha256 is not None):
+                raise InstallError("Recovery is separate from apply/new cohort and requires exact attempt and journal SHA")
+            pending = {"attempt": args.recover_attempt, "attemptSha256": args.recover_attempt_sha256}
+            cohort_mode = _cohort_recovery_mode(paths, pending, (args.source_commit, args.manifest_sha256))
+        elif args.reviewed_cohort_sha256 is not None and not cohort_mode:
+            raise InstallError("Cohort approval requires the explicit candidate receiver source")
         def idle() -> None:
-            _production_idle(paths, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256)
-        if args.recover_attempt or args.recover_attempt_sha256:
-            if args.apply or not args.recover_attempt or not args.recover_attempt_sha256:
-                raise InstallError("Recovery is separate from apply and requires exact attempt and journal SHA")
-            result = recover_installation(paths=paths, pending={"attempt": args.recover_attempt,
-                "attemptSha256": args.recover_attempt_sha256}, require_idle=idle,
+            _production_idle(paths, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256,
+                             receiver_cohort=cohort_mode)
+        if recovering and not cohort_mode:
+            assert pending is not None
+            result = recover_installation(paths=paths, pending=pending, require_idle=idle,
                 expected_bundle=(args.source_commit, args.manifest_sha256))
             print(json.dumps(result, sort_keys=True))
             return 0
         # A new inspection/apply must qualify online. Own-attempt recovery instead relies on the protected
         # local bundle/journal/fence under all three locks, so API outages/retention cannot strand the host.
-        _verify_provenance(manifest, args.artifact_id)
+        if not recovering:
+            _verify_provenance(manifest, args.artifact_id)
         executor = _module(args.bundle / "duora_deploy.py", "duora_candidate_executor")
         pinned = Path("/etc/duora/coolify-deploy.json")
         pin_raw = _protected_bytes(pinned)
@@ -551,6 +891,8 @@ def main() -> int:
         deploy_paths = executor.Paths(pinned_compose(pin), Path("/etc/duora/duora.env"), paths.state)
         preserved = (deploy_paths.compose_file, deploy_paths.host_env, pinned, Path(pin["caddy"]),
                      Path(pin["manifest"]), RECEIVER_PATH, paths.ingress / "duora/current.json")
+        if cohort_mode:
+            preserved = tuple(path for path in preserved if path != RECEIVER_PATH) + (paths.state / "previous.json",)
         context = installation_context(paths, preserved)
         if hashlib.sha256(pin_raw).hexdigest() != context[str(pinned)]:
             raise InstallError("Pinned configuration changed during initial inspection")
@@ -576,13 +918,30 @@ def main() -> int:
             inventory["audit"]["preservationFiles"] = context
             inventory["inventorySha256"] = guard.digest({"profile": inventory["profile"], "audit": inventory["audit"]})
             return inventory
+        if recovering:
+            assert pending is not None and cohort_mode
+            result = recover_installation(paths=paths, pending=pending, require_idle=idle,
+                expected_bundle=(args.source_commit, args.manifest_sha256), inspect_runtime=inspect)
+            print(json.dumps(result, sort_keys=True))
+            return 0
         if args.apply and (not args.reviewed_inventory_sha256 or not args.expected_executor_sha256):
             raise InstallError("Apply requires both explicitly reviewed inventory and executor preimage hashes")
+        if args.apply and cohort_mode and not args.reviewed_cohort_sha256:
+            raise InstallError("Cohort apply requires the explicitly reviewed two-entry preflight digest")
         # Inspection still holds the real locks and idle gate. It never writes enrollment or code.
-        result = install_bundle(args.bundle, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256,
-            reviewed_inventory_sha256=args.reviewed_inventory_sha256 or inspect()["inventorySha256"],
-            expected_executor_sha256=args.expected_executor_sha256 or _sha(paths.entry), paths=paths,
-            inspect_runtime=inspect, require_idle=idle, apply=args.apply, qualification_artifact=args.artifact_id)
+        if cohort_mode:
+            assert args.cohort_receiver is not None
+            result = transition_cohort(args.bundle, args.cohort_receiver,
+                expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256,
+                reviewed_inventory_sha256=args.reviewed_inventory_sha256 or inspect()["inventorySha256"],
+                reviewed_cohort_sha256=args.reviewed_cohort_sha256,
+                expected_executor_sha256=args.expected_executor_sha256 or _sha(paths.entry), paths=paths,
+                inspect_runtime=inspect, require_idle=idle, apply=args.apply, qualification_artifact=args.artifact_id)
+        else:
+            result = install_bundle(args.bundle, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256,
+                reviewed_inventory_sha256=args.reviewed_inventory_sha256 or inspect()["inventorySha256"],
+                expected_executor_sha256=args.expected_executor_sha256 or _sha(paths.entry), paths=paths,
+                inspect_runtime=inspect, require_idle=idle, apply=args.apply, qualification_artifact=args.artifact_id)
         print(json.dumps(result, sort_keys=True))
         return 0
     except (InstallError, OSError, ValueError) as error:

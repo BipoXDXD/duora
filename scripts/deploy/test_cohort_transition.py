@@ -5,15 +5,18 @@ ordinary ops test; its child runs all transaction cases under /root and reports
 every assertion. It never silently skips a missing privilege or missing API.
 """
 import copy
+import ctypes
 import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import signal
+import select
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Callable, cast
 import unittest
 from unittest.mock import patch
@@ -32,6 +35,83 @@ def file_identity(path: Path) -> tuple:
     info = path.lstat()
     return (info.st_mode, os.readlink(path) if path.is_symlink() else None,
             None if path.is_dir() else hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+def supervise_root_group(worker: Callable[[], int], *, timeout: float) -> int:
+    """Own one isolated worker group; keep its leader unreaped until group cleanup."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    previous = ctypes.c_int()
+    if libc.prctl(37, ctypes.byref(previous), 0, 0, 0) != 0 or libc.prctl(36, 1, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "Cannot establish the test-only Linux subreaper")
+    reader, writer = os.pipe()
+    acknowledgment_reader, acknowledgment_writer = os.pipe()
+    child = os.fork()
+    if child == 0:
+        os.close(reader)
+        os.close(acknowledgment_writer)
+        try:
+            os.setsid()
+            os.umask(0o077)
+            os.write(writer, b"1")
+            os.close(writer)
+            if os.read(acknowledgment_reader, 1) != b"1": os._exit(126)
+            os.close(acknowledgment_reader)
+            result = worker()
+        except BaseException:
+            import traceback
+            traceback.print_exc()
+            result = 126
+        finally:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        os._exit(result)
+    os.close(writer)
+    os.close(acknowledgment_reader)
+    try:
+        readable, _, _ = select.select([reader], [], [], 2)
+        if not readable or os.read(reader, 1) != b"1":
+            os.kill(child, signal.SIGKILL)
+            os.waitpid(child, 0)
+            return 126
+        os.write(acknowledgment_writer, b"1")
+        os.close(acknowledgment_writer)
+        acknowledgment_writer = -1
+        deadline = time.monotonic() + timeout
+        timed_out = False
+        while os.waitid(os.P_PID, child, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+            time.sleep(0.02)
+        # WNOWAIT pins the leader PID, preventing group-ID reuse during termination.
+        for termination in (signal.SIGTERM, signal.SIGKILL):
+            try: os.killpg(child, termination)
+            except ProcessLookupError: pass
+            if termination == signal.SIGTERM: time.sleep(0.1)
+        _, status = os.waitpid(child, 0)
+        drain_deadline = time.monotonic() + 2
+        while True:
+            # A nested test supervisor can own another session. Subreaping gives
+            # us only descendants of this worker; never enumerate global PIDs.
+            owned = Path(f"/proc/self/task/{os.getpid()}/children").read_text().split()
+            for value in owned:
+                orphan = int(value)
+                if orphan <= 0 or orphan == os.getpid(): raise RuntimeError("Invalid owned test child")
+                try: os.kill(orphan, signal.SIGKILL)
+                except ProcessLookupError: pass
+            try:
+                adopted, _ = os.waitpid(-1, os.WNOHANG)
+            except ChildProcessError:
+                break
+            if adopted == 0:
+                if time.monotonic() >= drain_deadline: return 125
+                time.sleep(0.02)
+        return 124 if timed_out else os.waitstatus_to_exitcode(status)
+    finally:
+        os.close(reader)
+        if acknowledgment_writer >= 0: os.close(acknowledgment_writer)
+        if libc.prctl(36, previous.value, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "Cannot restore the test-only subreaper state")
 
 
 def root_cases() -> type[unittest.TestCase]:
@@ -130,7 +210,7 @@ def root_cases() -> type[unittest.TestCase]:
 
         def idle(self) -> None:
             receiver = installer._module(self.receiver.resolve(), "cohort_test_installed_receiver")
-            receiver.STATE = self.paths.ingress
+            setattr(receiver, "STATE", self.paths.ingress)
             installer.require_ingress_idle(receiver, self.paths, expected_commit=COMMIT,
                                            manifest_sha256=self.manifest_hash)
 
@@ -205,7 +285,7 @@ def root_cases() -> type[unittest.TestCase]:
             # Both real receiver generations must refuse ingress while recovery is outstanding.
             for target in (self.old_target, self.receiver_source):
                 receiver = installer._module(target, "cohort_test_fenced_receiver")
-                receiver.STATE = self.paths.ingress
+                setattr(receiver, "STATE", self.paths.ingress)
                 with self.assertRaises(ValueError): receiver.require_host_idle()
             return pending
 
@@ -353,6 +433,21 @@ def root_cases() -> type[unittest.TestCase]:
             self.assertEqual(self.snapshot(), before)
             self.assertEqual(self.pending(), pending)
 
+        def test_test_harness_timeout_kills_and_reaps_its_worker_and_fork_descendant(self) -> None:
+            pids = self.root / "timeout-owned-pids.json"
+            def blocked() -> int:
+                descendant = os.fork()
+                if descendant == 0:
+                    time.sleep(30)
+                    os._exit(0)
+                pids.write_text(json.dumps([os.getpid(), descendant]))
+                time.sleep(30)
+                return 0
+            self.assertEqual(supervise_root_group(blocked, timeout=2), 124)
+            self.assertTrue(pids.is_file(), "The timeout probe never created its actual fork descendant")
+            for owned in json.loads(pids.read_text()):
+                with self.assertRaises(ProcessLookupError): os.kill(owned, 0)
+
     return CohortRootCases
 
 
@@ -366,6 +461,8 @@ class CoordinatedTransitionActionsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--root-child"]:
-        outcome = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(root_cases()))
-        raise SystemExit(0 if outcome.wasSuccessful() else 1)
+        def run_cases() -> int:
+            outcome = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(root_cases()))
+            return 0 if outcome.wasSuccessful() else 1
+        raise SystemExit(supervise_root_group(run_cases, timeout=60))
     unittest.main()
