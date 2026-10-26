@@ -1,0 +1,1 @@
+{"schema": 1, "image": "ghcr.io/bipoxdxd/duora-media-sanitizer@sha256:2f3f41425e670775797fd573d2c32011013676fe5803d596185ad01c69413d28", "runtime_socket": "/run/user/1002/docker.sock", "control_socket": "/run/duora-media/socket", "journal_directory": "/var/lib/duora-media/service-journal", "worker_uid": 1001, "control_gid": 1003}
