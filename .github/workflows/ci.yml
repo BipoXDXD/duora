@@ -25,6 +25,8 @@ env:
   # Ferramentas em container, fixadas por digest do índice multi-arquitetura (docs/security/supply-chain.md).
   # Trivy: assinatura cosign do digest conferida contra os workflows de release de aquasecurity/trivy.
   TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+  # Prefer the official DB; Trivy does not fall back for every mirror HTTP 404.
+  TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2,mirror.gcr.io/aquasec/trivy-db:2
   # oasdiff: a imagem não é assinada; o digest foi lido da tag v1.33.0 e fica fixo até a próxima revisão.
   OASDIFF_IMAGE: tufin/oasdiff:v1.33.0@sha256:6263a96dd2ef0726c54e21fea9b8e1607eac4841add0079324b424c1f52b819c
 
@@ -292,7 +294,7 @@ jobs:
           for image in web worker migrator edge postgres; do
             echo "::group::duora-$image"
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v duora-trivy-cache:/root/.cache \
-              -v "$GITHUB_WORKSPACE/.trivyignore:/trivyignore:ro" "$TRIVY_IMAGE" image \
+              -v "$GITHUB_WORKSPACE/.trivyignore:/trivyignore:ro" -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" image \
               --severity HIGH,CRITICAL --ignore-unfixed --ignorefile /trivyignore --exit-code 1 "duora-$image:ci"
             echo "::endgroup::"
           done
@@ -319,7 +321,7 @@ jobs:
             echo "### Vulnerabilidades HIGH/CRITICAL sem correção publicada (${{ matrix.arch }})"
             for image in web worker migrator edge postgres; do
               count=$(docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v duora-trivy-cache:/root/.cache \
-                "$TRIVY_IMAGE" image --quiet --severity HIGH,CRITICAL --format json "duora-$image:ci" \
+                -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" image --quiet --severity HIGH,CRITICAL --format json "duora-$image:ci" \
                 | python3 -c "$COUNT_UNFIXED")
               echo "- duora-$image: $count"
             done
@@ -591,7 +593,7 @@ jobs:
               -v "$GITHUB_WORKSPACE:/repo:ro" \
               -v "$RUNNER_TEMP/sbom:/sbom" \
               -w /repo \
-              "$TRIVY_IMAGE" fs "$part" \
+              -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" fs "$part" \
               --format cyclonedx --include-dev-deps --quiet \
               --output "/sbom/sbom-$part.cdx.json"
           done
@@ -618,7 +620,7 @@ jobs:
           docker run --rm
           -v "$GITHUB_WORKSPACE:/repo:ro"
           -w /repo
-          "$TRIVY_IMAGE" fs .
+          -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" fs .
           --scanners vuln,misconfig
           --severity HIGH,CRITICAL
           --include-dev-deps
