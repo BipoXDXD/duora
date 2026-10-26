@@ -1,3 +1,9 @@
+import {
+  withSessionContext,
+  passwordChangeBootstrap,
+  SYNTHETIC_SESSION_ID,
+  SYNTHETIC_RENEWED_SESSION_ID,
+} from './support/private-context.ts'
 import { AxeBuilder } from '@axe-core/playwright'
 import { type BrowserContext, expect, type Page, test } from '@playwright/test'
 
@@ -9,33 +15,41 @@ async function mockBootstrapApi(page: Page, context: BrowserContext): Promise<un
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
-    const problem = (status: number, code: string) =>
-      route.fulfill({ status, contentType: 'application/problem+json', json: { title: code, code, status } })
     if (path.endsWith('/auth/csrf')) {
       csrf++
       await context.addCookies([{ name: 'XSRF-TOKEN', value: `csrf-${String(csrf)}`, url: 'http://127.0.0.1:4173' }])
       await route.fulfill({ status: 204 })
       return
     }
-    if (request.method() === 'POST') expect(request.headers()['x-xsrf-token']).toBe(`csrf-${String(csrf)}`)
+    if (request.method() === 'POST')
+      expect(request.headers()['x-xsrf-token']).toBe(
+        path.endsWith('/auth/login') ? `csrf-${String(csrf)}` : 'synthetic',
+      )
     if (path.endsWith('/auth/login')) {
       await route.fulfill({ status: 204 })
       return
     }
     if (path.endsWith('/me')) {
       if (phase === 'temporary') {
-        await problem(403, 'PASSWORD_CHANGE_REQUIRED')
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/problem+json',
+          json: passwordChangeBootstrap('0199f1a2-3b4c-7d5e-8f60-718293a4b5c6'),
+        })
         return
       }
       await route.fulfill({
-        json: {
-          id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
-          email: 'admin@example.test',
-          emailConfirmed: true,
-          status: 'Active',
-          roles: ['operator'],
-          mfaEnabled: phase === 'complete',
-        },
+        json: withSessionContext(
+          {
+            id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
+            email: 'admin@example.test',
+            emailConfirmed: true,
+            status: 'Active',
+            roles: ['operator'],
+            mfaEnabled: phase === 'complete',
+          },
+          phase === 'complete' ? SYNTHETIC_RENEWED_SESSION_ID : SYNTHETIC_SESSION_ID,
+        ),
       })
       return
     }
@@ -52,7 +66,9 @@ async function mockBootstrapApi(page: Page, context: BrowserContext): Promise<un
     if (path.endsWith('/mfa/confirmations')) {
       expect(request.postDataJSON()).toEqual({ code: '123456' })
       phase = 'complete'
-      await route.fulfill({ json: { recoveryCodes: ['synthetic-recovery'] } })
+      await route.fulfill({
+        json: { recoveryCodes: ['synthetic-recovery'], resultSessionId: SYNTHETIC_RENEWED_SESSION_ID },
+      })
       return
     }
     if (path.endsWith('/sessions')) {

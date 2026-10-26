@@ -9,6 +9,8 @@ import { withFallbackMinimum } from './route-fallback-timing'
 
 // A página inicial e a de rota inexistente ficam no bundle principal: são a primeira tela e a resposta a
 // qualquer link quebrado. As demais telas vêm em chunks próprios (spec 13.5).
+const TermsPage = routePage(async () => (await import('@/features/legal/LegalDocumentPage')).TermsPage)
+const PrivacyPage = routePage(async () => (await import('@/features/legal/LegalDocumentPage')).PrivacyPage)
 const RegisterPage = routePage(async () => (await import('@/features/auth/RegisterPage')).RegisterPage)
 const CheckEmailPage = routePage(async () => (await import('@/features/auth/CheckEmailPage')).CheckEmailPage)
 const ConfirmEmailPage = routePage(async () => (await import('@/features/auth/ConfirmEmailPage')).ConfirmEmailPage)
@@ -55,6 +57,10 @@ export function AppRoutes(): React.JSX.Element {
       <Route element={<AppLayout />}>
         <Route index element={<LandingPage />} />
         <Route element={<Area />}>
+          <Route path={paths.terms} element={<TermsPage />} />
+          <Route path="/terms/:version/:documentLocale" element={<TermsPage />} />
+          <Route path={paths.privacy} element={<PrivacyPage />} />
+          <Route path="/privacy/:version/:documentLocale" element={<PrivacyPage />} />
           <Route path={paths.register} element={<RegisterPage />} />
           <Route path={paths.checkEmail} element={<CheckEmailPage />} />
           <Route path={paths.confirmEmail} element={<ConfirmEmailPage />} />

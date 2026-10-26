@@ -1,11 +1,18 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterAll, afterEach, beforeAll } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest'
 import { clearAntiforgeryCookie, server } from './msw'
 
 // Requisição sem handler é erro: nenhum teste fala com a rede de verdade.
 beforeAll(() => {
   server.listen({ onUnhandledFrame: 'error' })
+})
+
+beforeEach(async () => {
+  if (typeof document !== 'undefined') {
+    const { resetTestSessionContext } = await import('./private-context')
+    resetTestSessionContext()
+  }
 })
 
 afterEach(() => {

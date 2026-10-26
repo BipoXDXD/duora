@@ -27,6 +27,8 @@ services:
     # TLS: --certs-dir com public.crt e private.key (gerados pelo drill, CA autoassinada).
     entrypoint: [minio, server, /bitnami/minio/data, --address, ":9000", --certs-dir, /certs]
     environment:
+      # O drill só usa a API S3: não iniciar a console em uma porta dinâmica ao reiniciar o dublê.
+      MINIO_BROWSER: "off"
       MINIO_ROOT_USER: ${DRILL_S3_KEY:?defina DRILL_S3_KEY}
       MINIO_ROOT_PASSWORD: ${DRILL_S3_SECRET:?defina DRILL_S3_SECRET}
       # O mc (Go) do container fala com https://localhost:9000 confiando só na CA do dublê.
@@ -45,6 +47,8 @@ services:
     image: *minio-image
     entrypoint: *minio-server
     environment:
+      # Também é um dublê de API, sem consumidor da console web.
+      MINIO_BROWSER: "off"
       MINIO_ROOT_USER: internet-synthetic
       MINIO_ROOT_PASSWORD: ${DRILL_S3_SECRET:?defina DRILL_S3_SECRET}
     networks: [backup-egress]

@@ -75,12 +75,12 @@ public sealed class MediaReviewPublishedRollbackTests
                 var result = await MediaScenario.ReadObjectAsync(status);
                 Assert.Equal(sample.State, (string?)result["status"]);
                 Assert.Equal(sample.Code, (string?)result["rejectionCode"]);
-                using var replay = await MediaScenario.UploadAsync(owner, bytes, idempotencyKey: sample.Key);
+                using var replay = await UploadToPublishedAsync(owner, bytes, sample.Key);
                 Assert.Equal(HttpStatusCode.Accepted, replay.StatusCode);
                 var replayBody = await MediaScenario.ReadObjectAsync(replay);
                 Assert.Equal(sample.Id, Guid.Parse((string)replayBody["photoId"]!));
                 Assert.Equal(sample.State, (string?)replayBody["status"]);
-                using var changed = await MediaScenario.UploadAsync(owner, MediaScenario.JpegLike(fill: 3), idempotencyKey: sample.Key);
+                using var changed = await UploadToPublishedAsync(owner, MediaScenario.JpegLike(fill: 3), sample.Key);
                 await ProblemAssert.IsProblemAsync(changed, HttpStatusCode.Conflict, "IDEMPOTENCY_KEY_REUSED");
                 using var foreign = await outsider.GetAsync($"/api/v1/me/photos/{sample.Id}/status");
                 Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
@@ -88,7 +88,7 @@ public sealed class MediaReviewPublishedRollbackTests
             using var limitedOwner = historical.CreateBrowser();
             using var limitedLogin = await IdentityScenario.LoginAsync(limitedOwner, limited.Email, limited.Password);
             Assert.Equal(HttpStatusCode.NoContent, limitedLogin.StatusCode);
-            using var refusal = await MediaScenario.UploadAsync(limitedOwner, bytes);
+            using var refusal = await UploadToPublishedAsync(limitedOwner, bytes);
             await ProblemAssert.IsProblemAsync(refusal, HttpStatusCode.TooManyRequests, "UPLOAD_PENDING_LIMIT");
             ProblemAssert.RetryAfterSeconds(refusal);
         }
@@ -99,7 +99,7 @@ public sealed class MediaReviewPublishedRollbackTests
             using var owner = historical.CreateBrowser();
             using var login = await IdentityScenario.LoginAsync(owner, stranger.Email, stranger.Password);
             Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
-            using var refused = await MediaScenario.UploadAsync(owner, bytes);
+            using var refused = await UploadToPublishedAsync(owner, bytes);
             await ProblemAssert.IsProblemAsync(refused, HttpStatusCode.ServiceUnavailable, "MEDIA_QUEUE_FULL");
             ProblemAssert.RetryAfterSeconds(refused);
         }
@@ -109,6 +109,16 @@ public sealed class MediaReviewPublishedRollbackTests
         Assert.Equal(0L, (long)(await assets.ExecuteScalarAsync(cancellationToken))!);
         await using var uploads = new NpgsqlCommand("select count(*) from media.uploads", connection);
         Assert.Equal(7L, (long)(await uploads.ExecuteScalarAsync(cancellationToken))!);
+    }
+
+    // The pinned historical binary uses its public antiforgery contract for uploads.
+    private static Task<HttpResponseMessage> UploadToPublishedAsync(Browser browser, byte[] bytes, string? key = null)
+    {
+        var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new("image/jpeg");
+        return browser.PostContentAsync(MediaScenario.PhotosPath, content, new MutationHeaders(
+            CsrfTokenOverride: browser.Cookie("XSRF-TOKEN"),
+            Extra: new Dictionary<string, string> { ["Idempotency-Key"] = key ?? MediaScenario.NewKey() }));
     }
 
     private sealed record Sample(TestAccount Account, Guid Id, string Key, string State, string? Code);

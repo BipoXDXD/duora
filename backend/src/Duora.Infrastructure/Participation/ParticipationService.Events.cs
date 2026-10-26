@@ -64,6 +64,13 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
 
     public async Task<Guid?> PublishAsync(string title, DateTimeOffset startsAt, int capacity, Guid contentId, Guid administrator, CancellationToken ct, string? timeZone = null)
     {
+        // A cutover pause must also stop new rounds from being labelled by an old publisher.
+        // Requests already in flight still require the operator's explicit drain.
+        if (!MatchingEnabled)
+        {
+            return null;
+        }
+
         if ((timeZone is not null && !EventTimeZones.Contains(timeZone)) || string.IsNullOrWhiteSpace(title) || title.Length > 120 || capacity is < 1 or > 100 || startsAt <= Now.AddMinutes(10))
         {
             return null;

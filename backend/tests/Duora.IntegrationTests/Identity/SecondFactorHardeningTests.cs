@@ -161,10 +161,12 @@ public sealed class SecondFactorHardeningTests : IAsyncDisposable
     {
         var (account, mfa) = await AccountWithMfaAsync();
         using var browser = new Browser(_factory);
-        using (await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Next(_time, mfa.SharedKey)))
+        using (var login = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Next(_time, mfa.SharedKey)))
         {
+            Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
         }
 
+        await browser.FetchPrivateContextAsync();
         var code = Totp.Next(_time, mfa.SharedKey);
         using var first = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password, twoFactorCode = code });
         using var again = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password, twoFactorCode = code });
@@ -292,6 +294,7 @@ public sealed class SecondFactorHardeningTests : IAsyncDisposable
             Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
         }
 
+        await browser.FetchPrivateContextAsync();
         using var regenerate = await browser.PostJsonAsync(MfaScenario.RecoveryCodes, body: null);
 
         await ProblemAssert.IsProblemAsync(regenerate, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");

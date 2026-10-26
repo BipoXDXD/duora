@@ -43,6 +43,7 @@ public sealed class AuthLimitsAcrossAccountsAndAddressesTests(PostgresFixture po
         using var login = await MfaScenario.LoginAsync(second, account, twoFactorCode: Totp.Next(time, mfa.SharedKey));
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
         await second.FetchCsrfTokenAsync();
+        await second.FetchPrivateContextAsync();
         for (var attempt = 0; attempt < 8; attempt++)
         {
             using var counted = await (attempt % 2 == 0 ? first : second).PostJsonAsync(

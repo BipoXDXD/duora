@@ -1,3 +1,4 @@
+import { withSessionContext, TEST_PRIVATE_PROOF } from '@/test/private-context'
 import { act, screen, waitFor } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 import type { FaceLivenessDetectorCore } from '@aws-amplify/ui-react-liveness'
@@ -54,14 +55,16 @@ function installCaptureBackend() {
   }
   server.use(
     http.get(`${API}/me`, () =>
-      HttpResponse.json({
-        id: USER_ID,
-        email: 'synthetic@example.com',
-        status: 'PendingEligibility',
-        emailConfirmed: true,
-        mfaEnabled: false,
-        roles: ['participant'],
-      }),
+      HttpResponse.json(
+        withSessionContext({
+          id: USER_ID,
+          email: 'synthetic@example.com',
+          status: 'PendingEligibility',
+          emailConfirmed: true,
+          mfaEnabled: false,
+          roles: ['participant'],
+        }),
+      ),
     ),
     http.get(`${PATH}/current`, () =>
       HttpResponse.json({
@@ -150,8 +153,8 @@ for (const copy of [
           await act(async () => {
             await expect(detector.onAnalysisComplete()).resolves.toBeUndefined()
           })
-          expect(csrf.latestToken()).not.toBeNull()
-          expect(calls.completions).toEqual([{ id: ATTEMPT_ID, body: {}, csrf: csrf.latestToken() }])
+          expect(csrf.calls()).toBe(0)
+          expect(calls.completions).toEqual([{ id: ATTEMPT_ID, body: {}, csrf: TEST_PRIVATE_PROOF }])
           expect(delivered).toEqual([404])
         } else {
           act(() => {

@@ -1,3 +1,4 @@
+import { withSessionContext } from './support/private-context.ts'
 import { expect, test } from '@playwright/test'
 
 for (const locale of ['pt-BR', 'en-US'] as const) {
@@ -8,7 +9,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       let writes = 0
       await page.route('**/api/v1/me', (route) =>
         route.fulfill({
-          json: {
+          json: withSessionContext({
             id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
             email: 'synthetic@example.com',
             status: 'Active',
@@ -17,7 +18,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
             roles: ['participant'],
             preferredLocale: locale,
             preferredTimeZone: stored.timeZone,
-          },
+          }),
         }),
       )
       await page.route('**/api/v1/me/preferences', (route) =>
@@ -89,7 +90,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
     }) => {
       await page.route('**/api/v1/me', (route) =>
         route.fulfill({
-          json: {
+          json: withSessionContext({
             id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
             email: 'synthetic@example.com',
             status: 'Active',
@@ -97,7 +98,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
             mfaEnabled: false,
             roles: ['participant'],
             preferredTimeZone: 'America/Sao_Paulo',
-          },
+          }),
         }),
       )
       await page.route('**/api/v1/events', (route) =>

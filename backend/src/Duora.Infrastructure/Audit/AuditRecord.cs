@@ -27,6 +27,28 @@ internal sealed record AuditAction
 {
     public static readonly AuditAction SafetyBlockCreated = new("safety.block_created");
 
+    public static readonly AuditAction PhotoReviewRequested = new("safety.photo_review_requested");
+
+    public static readonly AuditAction PhotoReviewAssigned = new("safety.photo_review_assigned");
+
+    public static readonly AuditAction PhotoReviewEvidenceViewed = new("safety.photo_review_evidence_viewed");
+    public static readonly AuditAction PhotoReviewAppealEvidenceViewed = new("safety.photo_review_appeal_evidence_viewed");
+
+    public static readonly AuditAction PhotoReviewApproved = new("safety.photo_review_approved");
+
+    public static readonly AuditAction PhotoReviewRejected = new("safety.photo_review_rejected");
+
+    public static readonly AuditAction PhotoReviewExpired = new("safety.photo_review_expired");
+    public static readonly AuditAction PhotoReviewUnavailable = new("safety.photo_review_unavailable");
+
+    public static readonly AuditAction PhotoReviewAppealRequested = new("safety.photo_review_appeal_requested");
+
+    public static readonly AuditAction PhotoReviewAppealAssigned = new("safety.photo_review_appeal_assigned");
+
+    public static readonly AuditAction PhotoReviewPermissionGranted = new("safety.photo_review_permission_granted");
+
+    public static readonly AuditAction PhotoReviewPermissionRevoked = new("safety.photo_review_permission_revoked");
+
     public static readonly AuditAction MfaEnrollmentStarted = new("identity.mfa_enrollment_started");
 
     public static readonly AuditAction MfaEnabled = new("identity.mfa_enabled");
@@ -132,6 +154,16 @@ internal static class AuditTargetTypes
     public const string AgeVerification = "age_verification";
 
     public const string LoginSession = "login_session";
+
+    public const string PhotoReviewCase = "photo_review_case";
+
+    public const string PhotoReviewEvidenceAccess = "photo_review_access";
+
+    public const string PhotoReviewDecision = "photo_review_decision";
+
+    public const string PhotoReviewAppeal = "photo_review_appeal";
+
+    public const string PhotoReviewGrant = "photo_review_grant";
 }
 
 /// <summary>

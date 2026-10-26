@@ -137,6 +137,8 @@ public sealed class CredentialChangeNotificationTests : IAsyncDisposable
         var mfa = await MfaScenario.EnableAsync(browser, _time);
 
         using var disabled = await browser.DeleteAsync(MfaScenario.Mfa);
+        Assert.Equal(HttpStatusCode.NoContent, disabled.StatusCode);
+        await browser.FetchPrivateContextAsync();
         await browser.FetchCsrfTokenAsync();
         using var again = await browser.DeleteAsync(MfaScenario.Mfa);
 

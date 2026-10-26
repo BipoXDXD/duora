@@ -18,12 +18,12 @@ Prazos de guarda, mecanismo de exclusão, preservação e tombstones. Fontes: sp
 | Upload abandonado | 24 horas | Job apaga o objeto em quarentena e marca o upload `Deleted` | `media.uploads` (`abandon_after`), prefixo de quarentena | Proposta |
 | Original de imagem aprovado | Eliminar após derivação e revisão, salvo finalidade justificada | Job apaga `original_key` depois de gerar variantes e concluir revisão; evidência separada quando legítima | `media.media_assets.original_key` | Proposta |
 | Chat temporário de sala | Até 30 dias | Acesso termina ao encerrar o contexto da sala; job apaga mensagens da conversa `Room` 30 dias após o fechamento | `social.conversations` (`kind = 'Room'`), `social.messages` | Proposta |
-| Chat persistente | Enquanto conexão e finalidade estiverem ativas; revisão periódica de inatividade | Conexão `Ended`/`Blocked` fecha a conversa; **prazo após encerramento a definir** (lacuna da spec, ver abaixo) | `social.conversations` (`kind = 'Persistent'`), `social.messages` | Proposta incompleta |
+| Chat persistente | Enquanto conexão e finalidade estiverem ativas; após encerramento,30 dias | Ended/Blocked fecha acesso imediatamente; exclusão após30 dias, salvo preservação específica auditada/com vencimento | `social.conversations` (`kind = 'Persistent'`), `social.messages` | Prazo decidido sob delegação em24/10/2026; módulo/execução ainda pendentes |
 | Dados online após pedido de exclusão | Remoção ou anonimização em até 30 dias, salvo exceções documentadas | Desativação e revogação imediatas; etapas em `privacy.deletion_steps`; conclusão exige tombstone externo | Todas as tabelas com `user_id` | Proposta |
 | Exportação pronta | 24 horas para obtenção | Reautenticação para baixar (API-D04); job apaga o arquivo e marca `Expired` | `privacy.export_requests`, objeto de exportação | Proposta |
 | Idempotência comum | 48 horas | Resultado mínimo; limpeza em lotes; unicidades de negócio continuam | `ops.idempotency_records` | Proposta |
 | Telemetria operacional | 14 dias como ponto inicial | Sem conteúdo privado; separada de registros de segurança ou legais | Destino de monitoramento | Proposta |
-| Evidência de moderação | Por categoria, finalidade, recurso e eventual preservação | Gate de política antes de produção; `retention_until` obrigatório; proibida retenção indefinida por omissão | `safety.report_evidence`, `safety.reports` | Pendente de política |
+| Evidência de moderação | 30/90 dias segundo categoria/encerramento/recurso na política de24/10 | `retention_until` obrigatório; preservação específica com vencimento; sem expurgo autorizado por esta decisão | `safety.report_evidence`, `safety.reports` | [Política decidida](moderation.md); implementação/operação pendentes |
 | Backups do banco | Janela de recuperação de 14 dias; a cópia expirada continua no bucket até 21 dias de lock + 30 do lifecycle | Expiração consistente de fulls, diferenciais e WAL; compatível com exclusão por tombstones | Repositório pgBackRest no Backblaze B2 (`duora/`) | Proposta |
 | Backup das fotos (derivados aprovados) | 14 dias de snapshots; uma foto apagada some da VPS na hora e da cópia externa em até ~65 dias (14 + 21 de lock + 30 do lifecycle) | `restic forget --keep-within 14d --prune` diário; lock e lifecycle do bucket; restore só devolve derivados de assets `Approved` | Repositório restic no Backblaze B2 (`media/`) | Decidido (2026-10-16) |
 | Tombstones de exclusão | Pelo menos enquanto houver backup que possa ressuscitar o registro, mais margem aprovada | Registro pseudonimizado (HMAC), protegido e reconciliado no restore | `privacy.deletion_tombstones` e registro externo | Proposta (margem a definir) |
@@ -116,10 +116,8 @@ Não é possível apagar instantaneamente cada backup imutável (spec 12.4). A e
 
 ## Lacunas
 
-1. **Chat persistente após encerramento da conexão:** a spec pede "definir expiração após encerramento", sem
-   prazo. Proposta para decisão: 30 dias após `Ended` ou `Blocked`, alinhado ao chat de sala, salvo preservação.
-2. **Evidência de moderação:** prazos por categoria dependem da política de moderação (`privacy/moderation.md`,
-   ainda não escrito).
+1. **Chat persistente:** prazo de30 dias decidido sob delegação em24/10/2026; falta implementar e comprovar o módulo/expurgo, sem afirmar tabela existente na main atual.
+2. **Evidência de moderação:** [política de24/10](moderation.md) resolve a decisão de prazos; falta a implementação/execução controlada e sua revisão, sem remover preservação válida.
 3. **Registros de acesso:** aplicabilidade e prazo jurídicos ([data-map.md](data-map.md#lacunas), item 4).
 4. **Margem dos tombstones** e custódia da chave de HMAC (sem a chave, o tombstone não reconhece o registro;
    com ela vazada, o tombstone é reversível por força bruta sobre e-mails).

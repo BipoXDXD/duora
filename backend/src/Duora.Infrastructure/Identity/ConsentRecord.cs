@@ -27,5 +27,8 @@ internal sealed class ConsentRecord
     /// <summary>Language of this accepted document. Null is unknown, including legacy evidence.</summary>
     public string? DocumentLocale { get; private set; }
 
+    /// <summary>Exact content fingerprint. Historical unknown values remain null.</summary>
+    public string? DocumentSha256 { get; private set; }
+
     public DateTimeOffset AcceptedAt { get; private set; }
 }

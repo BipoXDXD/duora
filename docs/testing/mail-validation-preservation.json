@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "classification": "Sanitized derived summary, not the original private artifact or a new test execution",
+  "derived_on": "2026-10-24",
+  "original_repository": "https://github.com/BipoXDXD/duora-mail-validation-20261022",
+  "originals_retained": "Verified protected local archive held by the maintainer; no source archives or original reports imported here",
+  "private_backup_sha256": "c33aeeff18c7850ebb89689e92ea6651b18517c6afcbd089f384cec7b8c69648",
+  "duora_refs_for_future_rehearsal": {
+    "legacy": "a10194a90a4a27df1e95432027c5694eba259b69",
+    "reader": "a4711d6ec2cdd11dda892ed5ab41f66bb2009edc",
+    "current": "d7ed56bfb81a8ba25066820101f8c8f842eb2e32"
+  },
+  "future_rehearsal_is_exact_historical_replay": false,
+  "runs": [
+    {
+      "run_id": 39803643878,
+      "original_url": "https://github.com/BipoXDXD/duora-mail-validation-20261022/actions/runs/39803643878",
+      "laboratory_source_commit": "585ffd0736ae5ab5e64b1a53962c8f183b0191bb",
+      "conclusion": "success",
+      "artifact_id": 12437435763,
+      "original_artifact_zip_sha256": "a53d2ac84856df44ef4e3f6db30150795db7419a16655520190e53b682342f95",
+      "original_artifact_json_sha256": "0c426699f57ef6d981ad50e4d92f81ce559e3a989f21c321de0bc998fdd34055",
+      "production_accessed": false,
+      "smtp_accepted": true,
+      "receipt_proven": true,
+      "matching_receipts": 1,
+      "delivery_status": "Delivered",
+      "attempts": 1,
+      "payload_cleared": true,
+      "same_account": true
+    },
+    {
+      "run_id": 39829188122,
+      "original_url": "https://github.com/BipoXDXD/duora-mail-validation-20261022/actions/runs/39829188122",
+      "laboratory_source_commit": "7bac353587a9560f011dbf5be416cd6776408ae7",
+      "conclusion": "success",
+      "artifact_id": 12448605499,
+      "original_artifact_zip_sha256": "777ddf8ce9488afb53a66560d44ed0ecb9edcbd277d12ae0f4182e192fa7ad16",
+      "original_artifact_json_sha256": "f9b83e78edb1cc6ff91cd5a16a9539ffb0e1414caf22bda8571642f32d07e85c",
+      "production_accessed": false,
+      "cases": [
+        {
+          "name": "old producer to current reader",
+          "status": "Delivered",
+          "attempts": 1,
+          "error_type": null,
+          "payload_cleared": true,
+          "pickup_receipt_present": true
+        },
+        {
+          "name": "139 producer to current reader",
+          "status": "Delivered",
+          "attempts": 1,
+          "error_type": null,
+          "payload_cleared": true,
+          "pickup_receipt_present": true
+        },
+        {
+          "name": "current producer to 139 reader",
+          "status": "Delivered",
+          "attempts": 1,
+          "error_type": null,
+          "payload_cleared": true,
+          "pickup_receipt_present": true
+        },
+        {
+          "name": "block rollback, recover abandoned lease, prove drain",
+          "status": "Delivered",
+          "attempts": 2,
+          "error_type": null,
+          "payload_cleared": true,
+          "pickup_receipt_present": true
+        },
+        {
+          "name": "old consumer after proven drain",
+          "status": "Delivered",
+          "attempts": 1,
+          "error_type": null,
+          "payload_cleared": true,
+          "pickup_receipt_present": true
+        },
+        {
+          "name": "negative control: pre139 reader rejects new kind",
+          "status": "Failed",
+          "attempts": 1,
+          "error_type": "InvalidPayload",
+          "payload_cleared": true,
+          "pickup_receipt_present": false
+        }
+      ]
+    }
+  ],
+  "transport_tests": {
+    "run_id": 39829188122,
+    "job_id": 120000475983,
+    "passed": 28,
+    "failed": 0,
+    "skipped": 0
+  },
+  "limitations": [
+    "SMTP/IMAP receipt in the same Gmail account only; no cross-provider or bounce homologation",
+    "Cross-version proof uses Infrastructure probes and pickup, not complete historical Worker images",
+    "No reader-only intermediate release demonstrated",
+    "Compatible consumer before producer; confirm processing and receipts by ID before reverting the worker",
+    "An empty queue does not prove delivery",
+    "Deleting the temporary repository makes original Actions links unavailable; this summary does not recreate GitHub history"
+  ]
+}

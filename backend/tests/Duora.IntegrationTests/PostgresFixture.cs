@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using DotNet.Testcontainers.Configurations;
 using DotNet.Testcontainers.Networks;
 using Duora.Infrastructure.Persistence;
@@ -49,7 +50,11 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// <summary>Teto de conexões do servidor de teste (ver o construtor); conferido por um teste.</summary>
     public const int MaxConnections = 400;
 
+    // Explicit test-only POSIX DSM capacity within the existing hosted runner's RAM; no production profile change.
+    public const long SharedMemoryBytes = 256L * 1024 * 1024;
+
     private readonly PostgreSqlContainer _container;
+    private readonly ConcurrentDictionary<string, ScratchDatabase> _scratchDatabases = new(StringComparer.Ordinal);
 
     public PostgresFixture() : this(null)
     {
@@ -59,6 +64,11 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         var images = Path.Combine(RepositoryRoot.Find(), "infra", "images", "postgres");
         var builder = new PostgreSqlBuilder(Image)
+            .WithCreateParameterModifier(parameters =>
+            {
+                parameters.HostConfig ??= new();
+                parameters.HostConfig.ShmSize = SharedMemoryBytes;
+            })
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(images, "initdb", "10-duora-roles.sh")),
                 InitdbScriptTarget, fileMode: Executable)
             .WithResourceMapping(File.ReadAllBytes(Path.Combine(RepositoryRoot.Find(), "infra", "images", "dotnet",
@@ -86,6 +96,20 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     internal string ContainerId => _container.Id;
 
+    /// <summary>Disposable test-only admin connection for scratch role membership regressions; never logged.</summary>
+    internal string ScratchSuperuserConnectionString(ScratchDatabase database)
+    {
+        if (!_scratchDatabases.TryGetValue(database.Name, out var registered) || !ReferenceEquals(registered, database))
+        {
+            throw new InvalidOperationException("Only this fixture's registered scratch handle may obtain test administration.");
+        }
+        return new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Database = database.Name,
+            Pooling = false,
+        }.ConnectionString;
+    }
+
     /// <summary>Conexão do migrador, dono das tabelas: para inspecionar o catálogo sem o filtro de privilégios do
     /// <c>information_schema</c> e para ler o histórico de migrations, que o app não enxerga.</summary>
     public string MigratorConnectionString => ConnectAs("duora_migrator", _migratorPassword, DatabaseName);
@@ -103,7 +127,23 @@ public sealed class PostgresFixture : IAsyncLifetime
         await MigrateAsync(DatabaseName, TestContext.Current.CancellationToken);
     }
 
-    public ValueTask DisposeAsync() => _container.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await _container.DisposeAsync();
+        }
+        finally
+        {
+            foreach (var database in _scratchDatabases.Values)
+            {
+                database.Lifetime?.Dispose();
+            }
+            _scratchDatabases.Clear();
+        }
+    }
+
+    internal static void TrackScratchPool(string? connectionString) => ScratchDatabaseLifetime.TrackPool(connectionString);
 
     internal DuoraDbContext CreateDbContext() => CreateDbContext(ConnectionString);
 
@@ -120,9 +160,36 @@ public sealed class PostgresFixture : IAsyncLifetime
     /// </summary>
     public async Task<string> CreateMigratedDatabaseAsync(CancellationToken cancellationToken)
     {
-        var database = await CreateEmptyDatabaseAsync(cancellationToken);
-        await MigrateAsync(database.Name, cancellationToken);
+        var database = await CreateMigratedScratchDatabaseAsync(cancellationToken);
         return database.AppConnectionString;
+    }
+
+    /// <summary>Retain and dispose this handle after all consumers of the test's isolated database finish.</summary>
+    public Task<ScratchDatabase> CreateMigratedScratchDatabaseAsync(CancellationToken cancellationToken) =>
+        CreateInitializedScratchDatabaseAsync((database, token) => MigrateAsync(database.Name, token), cancellationToken);
+
+    internal async Task<ScratchDatabase> CreateInitializedScratchDatabaseAsync(
+        Func<ScratchDatabase, CancellationToken, Task> initialize, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(initialize);
+        var database = await CreateEmptyDatabaseAsync(cancellationToken);
+        try
+        {
+            await initialize(database, cancellationToken);
+            return database;
+        }
+        catch (Exception failure)
+        {
+            try
+            {
+                await database.DisposeAsync();
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException("Scratch initialization and its owned cleanup failed.", failure, cleanupFailure);
+            }
+            throw;
+        }
     }
 
     /// <summary>
@@ -136,14 +203,64 @@ public sealed class PostgresFixture : IAsyncLifetime
         // AppRolePrivilegesTests.ScratchDatabasesGetTheSameDatabaseAclAsTheMainOne pega a divergência.
         await ExecuteAsSuperuserAsync(
             $"create database {name} template {PristineTemplate} owner duora_migrator", cancellationToken);
-        await ExecuteAsSuperuserAsync(
-            $"revoke all on database {name} from public; grant connect on database {name} to duora_app",
-            cancellationToken);
-
-        return new ScratchDatabase(
+        var database = new ScratchDatabase(
             name,
             ConnectAs("duora_app", _appPassword, name),
             ConnectAs("duora_migrator", _migratorPassword, name));
+        try
+        {
+            await RegisterScratchAsync(database, cancellationToken);
+            await ExecuteAsSuperuserAsync(
+                $"revoke all on database {name} from public; grant connect on database {name} to duora_app",
+                cancellationToken);
+            return database;
+        }
+        catch (Exception failure)
+        {
+            try
+            {
+                // CREATE succeeded. Independent cleanup may recover a caller cancellation during OID capture.
+                if (database.Lifetime is null)
+                {
+                    using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    await RegisterScratchAsync(database, cleanup.Token);
+                }
+                await database.DisposeAsync();
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException("Scratch creation and its owned cleanup failed.", failure, cleanupFailure);
+            }
+            throw;
+        }
+    }
+
+    private async Task RegisterScratchAsync(ScratchDatabase database, CancellationToken cancellationToken)
+    {
+        var name = database.Name; // Generated by CREATE above, never taken from a caller or a catalog listing.
+        var oid = await DatabaseOidAsync(name, cancellationToken)
+            ?? throw new InvalidOperationException("The created scratch database identity is missing.");
+        if (!_scratchDatabases.TryAdd(name, database))
+        {
+            throw new InvalidOperationException("The scratch database handle is already registered.");
+        }
+        database.Lifetime = new ScratchDatabaseLifetime(database, async token =>
+        {
+            if (!_scratchDatabases.TryGetValue(name, out var registered) || !ReferenceEquals(registered, database)
+                || await DatabaseOidAsync(name, token) != oid)
+            {
+                throw new InvalidOperationException("The registered scratch database identity changed; cleanup refused.");
+            }
+        }, token => ExecuteAsSuperuserAsync($"drop database {name}", token));
+    }
+
+    private async Task<long?> DatabaseOidAsync(string name, CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(_container.GetConnectionString());
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("select oid::bigint from pg_database where datname=$1", connection);
+        command.Parameters.AddWithValue(name);
+        return await command.ExecuteScalarAsync(cancellationToken) is long oid ? oid : null;
     }
 
     private async Task MigrateAsync(string database, CancellationToken cancellationToken)
@@ -194,8 +311,14 @@ public sealed class PostgresFixture : IAsyncLifetime
 }
 
 /// <summary>Banco avulso de um teste: a aplicação conecta como <c>duora_app</c>; quem migra, como <c>duora_migrator</c>.</summary>
-public sealed record ScratchDatabase(string Name, string AppConnectionString, string MigratorConnectionString)
+public sealed record ScratchDatabase(string Name, string AppConnectionString, string MigratorConnectionString) : IAsyncDisposable
 {
+    internal ScratchDatabaseLifetime? Lifetime { get; set; }
+
+    public ValueTask DisposeAsync() => Lifetime is { } lifetime
+        ? lifetime.ReleaseAsync(this)
+        : ValueTask.FromException(new InvalidOperationException("The scratch database has no registered owner."));
+
     // As connection strings levam senha; ToString (mensagens de assert, logs) mostra só o nome.
     private bool PrintMembers(System.Text.StringBuilder builder)
     {

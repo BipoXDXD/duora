@@ -1,3 +1,4 @@
+import { withSessionContext, TEST_PRIVATE_PROOF } from '@/test/private-context'
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -21,7 +22,7 @@ const CURRENT = {
 }
 const OTHER = { ...CURRENT, id: 'sessao-outra', current: false, description: 'Firefox no Ubuntu' }
 
-function useMeEndpoint(respond: () => Response = () => HttpResponse.json(ME)) {
+function useMeEndpoint(respond: () => Response = () => HttpResponse.json(withSessionContext(ME))) {
   server.use(http.get(`${API}/me`, respond))
 }
 
@@ -38,7 +39,7 @@ function useSessionsEndpoint(respond: () => Response = () => HttpResponse.json({
 
 describe('rota protegida', () => {
   it('conta pendente pede presença sem verificação etária', async () => {
-    useMeEndpoint(() => HttpResponse.json({ ...ME, status: 'PendingEligibility' }))
+    useMeEndpoint(() => HttpResponse.json(withSessionContext({ ...ME, status: 'PendingEligibility' })))
     useSessionsEndpoint()
     await renderApp('/account')
     expect(
@@ -77,7 +78,7 @@ describe('rota protegida', () => {
 
   it('tentar de novo recupera a área depois da falha de rede', async () => {
     let online = false
-    useMeEndpoint(() => (online ? HttpResponse.json(ME) : HttpResponse.error()))
+    useMeEndpoint(() => (online ? HttpResponse.json(withSessionContext(ME)) : HttpResponse.error()))
     useSessionsEndpoint()
     const { user } = await renderApp('/account')
 
@@ -115,7 +116,8 @@ describe('área da conta', () => {
     expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
     expect(document.title).toBe('Sua conta · Duora')
     expect(screen.getByText('Ativa')).toBeInTheDocument()
-    const items = await screen.findAllByRole('listitem')
+    expect(screen.getByRole('region', { name: 'Segurança e contatos de emergência' })).toBeVisible()
+    const items = await within(screen.getByRole('region', { name: 'Sessões ativas' })).findAllByRole('listitem')
     expect(items).toHaveLength(2)
     expect(within(items[0] ?? document.body).getByText('Esta sessão')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Encerrar esta sessão: Safari no macOS' })).toBeInTheDocument()
@@ -127,7 +129,8 @@ describe('área da conta', () => {
     useSessionsEndpoint()
     await renderApp('/account')
 
-    const items = await screen.findAllByRole('listitem')
+    const sessions = await screen.findByRole('region', { name: 'Sessões ativas' })
+    const items = await within(sessions).findAllByRole('listitem')
     const createdAt = within(items[0] ?? document.body).getByText('14/10/2026, 10:00 UTC')
     expect(createdAt.tagName).toBe('TIME')
     expect(createdAt).toHaveAttribute('datetime', CURRENT.createdAt)
@@ -141,7 +144,7 @@ describe('área da conta', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account' })).toBeInTheDocument()
     expect(document.title).toBe('Your account · Duora')
     expect(screen.getByText('Active')).toBeInTheDocument()
-    const items = await screen.findAllByRole('listitem')
+    const items = await within(screen.getByRole('region', { name: 'Active sessions' })).findAllByRole('listitem')
     expect(within(items[0] ?? document.body).getByText('This session')).toBeInTheDocument()
     expect(within(items[0] ?? document.body).getByText('10/14/26, 10:00 AM UTC')).toBeInTheDocument()
     expect(within(items[0] ?? document.body).getByText('10/15/26, 9:30 AM UTC')).toBeInTheDocument()
@@ -150,7 +153,7 @@ describe('área da conta', () => {
   })
 
   it('e-mail pendente avisa que falta confirmar', async () => {
-    useMeEndpoint(() => HttpResponse.json({ ...ME, status: 'PendingEmail', emailConfirmed: false }))
+    useMeEndpoint(() => HttpResponse.json(withSessionContext({ ...ME, status: 'PendingEmail', emailConfirmed: false })))
     useSessionsEndpoint()
     await renderApp('/account')
 
@@ -159,7 +162,7 @@ describe('área da conta', () => {
   })
 
   it('situação desconhecida não quebra a página', async () => {
-    useMeEndpoint(() => HttpResponse.json({ ...ME, status: 'EstadoNovo' }))
+    useMeEndpoint(() => HttpResponse.json(withSessionContext({ ...ME, status: 'EstadoNovo' })))
     useSessionsEndpoint()
     await renderApp('/account')
 
@@ -198,7 +201,7 @@ describe('área da conta', () => {
 
   it('sessão que expira durante o uso leva à entrada com o aviso de sessão expirada', async () => {
     let sessionAlive = true
-    useMeEndpoint(() => (sessionAlive ? HttpResponse.json(ME) : problem(401, 'UNAUTHENTICATED')))
+    useMeEndpoint(() => (sessionAlive ? HttpResponse.json(withSessionContext(ME)) : problem(401, 'UNAUTHENTICATED')))
     useSessionsEndpoint(() => {
       sessionAlive = false
       return problem(401, 'UNAUTHENTICATED')
@@ -211,7 +214,7 @@ describe('área da conta', () => {
     expect(queryClient.getQueryCache().getAll()).toEqual([])
   })
 
-  it('sair limpa o cache, renova o CSRF e leva à entrada', async () => {
+  it('sair limpa o cache e leva à entrada com a prova privada', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     useMeEndpoint()
     useSessionsEndpoint()
@@ -228,9 +231,9 @@ describe('área da conta', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Entrar' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Você saiu da sua conta.')
-    expect(logoutToken).toBe('token-1')
+    expect(logoutToken).toBe(TEST_PRIVATE_PROOF)
     await waitFor(() => {
-      expect(antiforgery.calls()).toBe(2)
+      expect(antiforgery.calls()).toBe(0)
     })
     expect(queryClient.getQueryCache().getAll()).toEqual([])
   })
@@ -266,7 +269,8 @@ describe('área da conta', () => {
     await waitFor(() => {
       expect(sessions.calls()).toBe(2)
     })
-    expect(revoked).toEqual({ id: 'sessao-outra', token: antiforgery.latestToken() })
+    expect(revoked).toEqual({ id: 'sessao-outra', token: TEST_PRIVATE_PROOF })
+    expect(antiforgery.calls()).toBe(0)
     expect(screen.getByText('ana@exemplo.com')).toBeInTheDocument()
   })
 
@@ -289,7 +293,7 @@ describe('área da conta', () => {
     let meCalls = 0
     useMeEndpoint(() => {
       meCalls += 1
-      return HttpResponse.json(ME)
+      return HttpResponse.json(withSessionContext(ME))
     })
     useSessionsEndpoint()
     server.use(http.delete(`${API}/me/sessions/:id`, () => problem(401, 'REAUTHENTICATION_REQUIRED')))
@@ -298,10 +302,8 @@ describe('área da conta', () => {
 
     await user.click(screen.getByRole('button', { name: /^Encerrar sessão: Firefox no Ubuntu/ }))
 
-    // A identidade é reconsultada (o 401 poderia ser fim de sessão) e o servidor confirma que ela segue válida.
-    await waitFor(() => {
-      expect(meCalls).toBe(2)
-    })
+    // A recusa de credencial é de um comando com par sessão/prova validado; não reconsulta só para perder o formulário.
+    expect(meCalls).toBe(1)
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.getByRole('heading', { level: 1, name: 'Sua conta' })).toBeInTheDocument()
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/account$/)
@@ -317,6 +319,6 @@ describe('área da conta', () => {
     await user.click(await screen.findByRole('button', { name: 'Encerrar sessão: Firefox no Ubuntu' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Algo deu errado do nosso lado.')
-    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(within(screen.getByRole('region', { name: 'Sessões ativas' })).getAllByRole('listitem')).toHaveLength(2)
   })
 })

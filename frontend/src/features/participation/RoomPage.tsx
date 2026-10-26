@@ -1,4 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { PrivateAudioPlayer } from './PrivateAudioPlayer'
+import { usePrivateOperation } from '@/features/session/private-operation'
+import { usePrivateMutation } from '@/features/session/private-mutation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router'
 import { useAccount } from '@/features/session/account-context'
 import { classifyRequestFailure } from '@/shared/api'
@@ -7,11 +10,13 @@ import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page, TextLink } from '@/shared/ui/page'
+import { useGameFocus } from './use-game-focus'
 import { ExperienceDeadline } from './ExperienceDeadline'
 import { RoutesGamePanel } from './RoutesGamePanel'
 import { act, actOnRoutes, fetchRoom, roomCommand, type RoutesAction, type Room } from './participation-api'
 
 export function RoomPage(): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { roomId = '' } = useParams()
   const { id } = useAccount()
   const { t } = useI18n()
@@ -19,7 +24,7 @@ export function RoomPage(): React.JSX.Element {
   const key = ['account', id, 'room', roomId]
   const room = useQuery({
     queryKey: key,
-    queryFn: ({ signal }) => fetchRoom(roomId, signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchRoom(operation, roomId, signal)),
     gcTime: 0,
     refetchInterval: 2000,
   })
@@ -47,24 +52,25 @@ function RoomBody({
   readonly refresh: () => Promise<void>
 }): React.JSX.Element {
   const { t, formatDateTime } = useI18n()
-  const command = useMutation({
-    mutationFn: (action: 'accept' | 'reject' | 'exit') => roomCommand(room.roomId, action),
+  const command = usePrivateMutation({
+    mutationFn: (operation, action: 'accept' | 'reject' | 'exit') => roomCommand(operation, room.roomId, action),
     onSuccess: refresh,
   })
-  const action = useMutation({
-    mutationFn: (choice: { type: 'choose-option' | 'skip-card'; cardId: string; optionId?: string }) =>
-      act(room, choice),
+  const action = usePrivateMutation({
+    mutationFn: (operation, choice: { type: 'choose-option' | 'skip-card'; cardId: string; optionId?: string }) =>
+      act(operation, room, choice),
     onSuccess: refresh,
     onError: refresh,
   })
-  const routesAction = useMutation({
-    mutationFn: (choice: RoutesAction) => actOnRoutes(room, choice),
+  const routesAction = usePrivateMutation({
+    mutationFn: (operation, choice: RoutesAction) => actOnRoutes(operation, room, choice),
     onSuccess: refresh,
     onError: refresh,
   })
   const state = room.state.toLowerCase()
   const invited = state === 'invited' || state === 'ready'
   const active = state === 'active'
+  const gamePanel = useGameFocus(active)
   const completed = state === 'completed'
   const expiredGame = state === 'expired' && (room.game !== null || room.routesGame !== null)
   const closed = !invited && !active && !completed && !expiredGame
@@ -86,7 +92,9 @@ function RoomBody({
       {invited ? (
         <section className="flex flex-col gap-4">
           <p>
-            {t('participation.invitationDeadline', { deadline: formatDateTime(new Date(room.invitationExpiresAt)) })}
+            {t('participation.invitationDeadline', {
+              deadline: formatDateTime(new Date(room.invitationExpiresAt)),
+            })}
           </p>
           <Button
             disabled={busy}
@@ -114,11 +122,14 @@ function RoomBody({
       {completed ? <Alert variant="success">{t('participation.completed')}</Alert> : null}
       {closed ? <p role="status">{t('participation.closed')}</p> : null}
       {room.audio.map((audio) => (
-        <section key={audio.cueId} lang={room.displayLocale} className="flex flex-col gap-2">
+        <section
+          key={audio.cueId}
+          lang={room.displayLocale}
+          aria-label={audio.accessibleDescription}
+          className="flex flex-col gap-2"
+        >
           <p>{audio.accessibleDescription}</p>
-          <audio controls muted preload="none" aria-label={audio.accessibleDescription}>
-            <source src={audio.url} type="audio/wav" />
-          </audio>
+          <PrivateAudioPlayer path={audio.url} />
           <p>{audio.transcript}</p>
         </section>
       ))}
@@ -132,19 +143,27 @@ function RoomBody({
         />
       )}
       {room.game === null ? null : (
-        <section lang={room.displayLocale} className="flex flex-col gap-4">
+        <section ref={gamePanel} lang={room.displayLocale} className="flex flex-col gap-4">
           <h2 className="text-xl font-semibold">{room.game.title}</h2>
           <p>{room.game.objective}</p>
+          <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+            {active ? card?.prompt : null}
+          </p>
           {room.game.awaitingPartner && active ? <p role="status">{t('participation.awaitingPartner')}</p> : null}
           {active && card !== null && card !== undefined ? (
-            <fieldset disabled={busy || room.game.awaitingPartner} className="flex flex-col gap-3">
+            <fieldset disabled={busy || room.game.awaitingPartner} className="flex min-w-0 flex-col gap-3">
               <legend className="mb-3 font-semibold">{card.prompt}</legend>
               {card.options.map((option) => (
                 <Button
                   key={option.optionId}
                   data-option-id={option.optionId}
+                  className="whitespace-normal"
                   onClick={() => {
-                    action.mutate({ type: 'choose-option', cardId: card.cardId, optionId: option.optionId })
+                    action.mutate({
+                      type: 'choose-option',
+                      cardId: card.cardId,
+                      optionId: option.optionId,
+                    })
                   }}
                 >
                   {option.label}

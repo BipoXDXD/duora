@@ -51,6 +51,7 @@ internal static class WorkerHost
         builder.Services.AddHostedService<SelfieVerificationProviderService>();
         builder.Services.AddHostedService<MediaProcessingService>();
         builder.Services.AddHostedService<OriginalCleanupService>();
+        builder.Services.AddHostedService<ReviewCandidateCleanupService>();
 
         return builder;
     }

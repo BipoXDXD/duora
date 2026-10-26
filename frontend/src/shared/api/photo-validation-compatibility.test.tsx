@@ -1,3 +1,4 @@
+import { syntheticPrivateOperation, SYNTHETIC_PRIVATE_TEST_PROOF } from '@/test/owned-api-context'
 import { screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import observations from '@/test/fixtures/photo-validation-legacy.json'
@@ -82,8 +83,10 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
           return Promise.resolve(new Response(JSON.stringify(body), { status: 400, headers }))
         })
         const client = clientFor(fetch, locale)
+        const operation = syntheticPrivateOperation(client.sessionContext)
         const error: unknown = await client
           .requestJson({
+            operation,
             method: 'POST',
             path: '/api/v1/me/photos',
             headers: optIn ? { [HEADER]: 'codes-v1' } : {},
@@ -96,7 +99,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
         expect(fetch).toHaveBeenCalledTimes(1)
         const request = fetch.mock.calls[0]?.[0]
         expect(request?.headers.get(HEADER)).toBe(optIn ? 'codes-v1' : null)
-        expect(request?.headers.get('X-XSRF-TOKEN')).toBe('synthetic-csrf-token')
+        expect(request?.headers.get('X-XSRF-TOKEN')).toBe(SYNTHETIC_PRIVATE_TEST_PROOF)
         expect(request?.credentials).toBe('same-origin')
         renderWithI18n(<RequestFailureAlert failure={classifyRequestFailure(error)} />, locale)
         expect(screen.getByRole('alert')).toHaveTextContent(
@@ -129,11 +132,12 @@ it('suspending opt-in and rolling the server back preserve the key without autom
     return Promise.resolve(new Response(JSON.stringify(bodies[index++]), { status: 400, headers }))
   })
   const client = clientFor(fetch)
+  const operation = syntheticPrivateOperation(client.sessionContext)
   for (let action = 0; action < 3; action++) {
     const headers: Record<string, string> = { 'Idempotency-Key': 'unchanged-synthetic-key' }
     if (action < 2) headers[HEADER] = 'codes-v1'
     const error: unknown = await client
-      .requestJson({ method: 'POST', path: '/api/v1/me/photos', headers })
+      .requestJson({ operation, method: 'POST', path: '/api/v1/me/photos', headers })
       .catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(ApiProblemError)
     if (!(error instanceof ApiProblemError)) throw new Error('Expected Problem Details')
@@ -160,8 +164,9 @@ it('an accepted POST without format confirmation is not replayed to discover ser
     ),
   )
   const client = clientFor(fetch)
+  const operation = syntheticPrivateOperation(client.sessionContext)
   await expect(
-    client.requestJson({ method: 'POST', path: '/api/v1/me/photos', headers: { [HEADER]: 'codes-v1' } }),
+    client.requestJson({ operation, method: 'POST', path: '/api/v1/me/photos', headers: { [HEADER]: 'codes-v1' } }),
   ).resolves.toEqual(accepted)
   expect(fetch).toHaveBeenCalledTimes(1)
 })

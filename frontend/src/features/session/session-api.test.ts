@@ -1,3 +1,4 @@
+import { testPrivateOperation, withSessionContext, TEST_PRIVATE_PROOF } from '@/test/private-context'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { ApiProblemError } from '@/shared/api'
@@ -11,19 +12,21 @@ describe('fetchMe', () => {
   it('devolve a conta própria só com os campos do contrato', async () => {
     server.use(
       http.get(`${API}/me`, () =>
-        HttpResponse.json({
-          id: USER_ID,
-          email: 'ana@exemplo.com',
-          status: 'Active',
-          emailConfirmed: true,
-          mfaEnabled: false,
-          roles: ['participant'],
-          passwordHash: 'nunca-deveria-vir',
-        }),
+        HttpResponse.json(
+          withSessionContext({
+            id: USER_ID,
+            email: 'ana@exemplo.com',
+            status: 'Active',
+            emailConfirmed: true,
+            mfaEnabled: false,
+            roles: ['participant'],
+            passwordHash: 'nunca-deveria-vir',
+          }),
+        ),
       ),
     )
 
-    await expect(fetchMe()).resolves.toEqual({
+    await expect(fetchMe()).resolves.toMatchObject({
       id: USER_ID,
       email: 'ana@exemplo.com',
       status: 'Active',
@@ -36,14 +39,16 @@ describe('fetchMe', () => {
   it('trata status desconhecido sem quebrar (spec 8.1)', async () => {
     server.use(
       http.get(`${API}/me`, () =>
-        HttpResponse.json({
-          id: USER_ID,
-          email: 'ana@exemplo.com',
-          status: 'NovoEstado',
-          emailConfirmed: true,
-          mfaEnabled: false,
-          roles: [],
-        }),
+        HttpResponse.json(
+          withSessionContext({
+            id: USER_ID,
+            email: 'ana@exemplo.com',
+            status: 'NovoEstado',
+            emailConfirmed: true,
+            mfaEnabled: false,
+            roles: [],
+          }),
+        ),
       ),
     )
 
@@ -86,7 +91,7 @@ describe('fetchSessions', () => {
     }
     server.use(http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [item] })))
 
-    await expect(fetchSessions()).resolves.toEqual([item])
+    await expect(fetchSessions(testPrivateOperation())).resolves.toEqual([item])
   })
 
   it.each(['2026-10-14T10:00:00+00:00', '2026-10-14T07:00:00-03:00', '2026-10-14T10:00:00'])(
@@ -100,7 +105,7 @@ describe('fetchSessions', () => {
         ),
       )
 
-      await expect(fetchSessions()).rejects.toThrow()
+      await expect(fetchSessions(testPrivateOperation())).rejects.toThrow()
     },
   )
 
@@ -113,7 +118,7 @@ describe('fetchSessions', () => {
       ),
     )
 
-    await expect(fetchSessions()).rejects.toThrow()
+    await expect(fetchSessions(testPrivateOperation())).rejects.toThrow()
   })
 })
 
@@ -158,8 +163,9 @@ describe('mutações de sessão', () => {
       }),
     )
 
-    await revokeSession('a/b')
+    await revokeSession(testPrivateOperation(), 'a/b')
 
-    expect(revoked).toEqual({ id: 'a/b', token: antiforgery.latestToken() })
+    expect(revoked).toEqual({ id: 'a/b', token: TEST_PRIVATE_PROOF })
+    expect(antiforgery.calls()).toBe(0)
   })
 })

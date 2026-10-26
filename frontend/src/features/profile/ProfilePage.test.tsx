@@ -1,3 +1,4 @@
+import { withSessionContext } from '@/test/private-context'
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -41,7 +42,7 @@ function useProfileBackend(initial: StoredProfile = { displayName: null, bio: nu
     version: String(stored.version),
   })
   server.use(
-    http.get(`${API}/me`, () => HttpResponse.json(ME)),
+    http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(ME))),
     http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
     http.get(`${API}/me/profile`, () =>
       HttpResponse.json(toJson(), { headers: { ETag: `"${String(stored.version)}"` } }),

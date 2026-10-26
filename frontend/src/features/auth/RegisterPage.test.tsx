@@ -1,9 +1,9 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { renderApp, type RenderedApp } from '@/test/render'
-import { LEGAL_DOCUMENT_VERSIONS } from './auth-schemas'
+import { syntheticLegalCatalog } from '@/test/legal-documents'
 
 function useRegisterEndpoint(respond: () => Response) {
   const received: { body: unknown; token: string | null }[] = []
@@ -30,12 +30,13 @@ async function fillAndSubmit({ user }: RenderedApp, input: RegisterInput) {
     acceptTerms = true,
     acceptPrivacy = true,
   } = input
+  await screen.findByRole('button', { name: 'Criar conta' })
   if (email !== '') {
-    await user.type(screen.getByLabelText('E-mail'), email)
+    await user.type(await screen.findByLabelText('E-mail'), email)
   }
   if (password !== '') {
     // Colar, como faz um gerenciador de senhas.
-    await user.click(screen.getByLabelText('Senha'))
+    await user.click(await screen.findByLabelText('Senha'))
     await user.paste(password)
   }
   if (acceptTerms) {
@@ -50,25 +51,108 @@ async function fillAndSubmit({ user }: RenderedApp, input: RegisterInput) {
 const accepted = () => new HttpResponse(null, { status: 202 })
 
 describe('tela de cadastro', () => {
-  it('does not claim English documents merely because the interface is English', async () => {
+  it('keeps registration closed while the public legal documents are unavailable', async () => {
+    server.use(
+      http.get(`${API}/legal-documents`, () =>
+        HttpResponse.json({
+          ...syntheticLegalCatalog,
+          registrationAvailable: false,
+          documents: [],
+        }),
+      ),
+    )
+    await renderApp('/register')
+    expect(await screen.findByRole('alert')).toHaveTextContent('O cadastro está indisponível')
+    expect(screen.queryByLabelText('Senha')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Criar conta' })).not.toBeInTheDocument()
+  })
+
+  it('rechecks publication when returning after a draft has been approved', async () => {
+    server.use(
+      http.get(`${API}/legal-documents`, () =>
+        HttpResponse.json({
+          ...syntheticLegalCatalog,
+          registrationAvailable: false,
+        }),
+      ),
+    )
+    const app = await renderApp('/register')
+    expect(await screen.findByRole('alert')).toHaveTextContent('O cadastro está indisponível')
+    server.use(http.get(`${API}/legal-documents`, () => HttpResponse.json(syntheticLegalCatalog)))
+    await app.user.click(screen.getByRole('link', { name: 'Duora' }))
+    await app.user.click(await screen.findByRole('link', { name: 'Criar conta' }))
+    expect(await screen.findByLabelText('Senha')).toBeInTheDocument()
+  })
+
+  it('binds the English documents explicitly offered in the English interface', async () => {
     useAntiforgeryEndpoint()
     const received = useRegisterEndpoint(accepted)
     const { user } = await renderApp('/register', undefined, 'en-US')
-    await user.type(screen.getByLabelText('Email'), 'reader@example.com')
-    await user.type(screen.getByLabelText('Password'), 'long enough password')
+    await user.type(await screen.findByLabelText('Email'), 'reader@example.com')
+    await user.type(await screen.findByLabelText('Password'), 'long enough password')
     for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
     expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument()
-    expect(received[0]?.body).toMatchObject({ acceptedTermsLocale: null, acceptedPrivacyLocale: null })
+    expect(received[0]?.body).toMatchObject({ acceptedTermsLocale: 'en-US', acceptedPrivacyLocale: 'en-US' })
+  })
+
+  it('resets acceptance when a document language changes and sends independent metadata', async () => {
+    useAntiforgeryEndpoint()
+    const received = useRegisterEndpoint(accepted)
+    const app = await renderApp('/register')
+    await screen.findByLabelText('E-mail')
+    await app.user.click(screen.getByRole('checkbox', { name: /Termos de uso/ }))
+    await app.user.selectOptions(screen.getByLabelText('Idioma da Política de privacidade'), 'en-US')
+    expect(screen.getByRole('checkbox', { name: /Termos de uso/ })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Política de privacidade/ })).not.toBeChecked()
+    await fillAndSubmit(app, {})
+    expect(await screen.findByRole('heading', { name: 'Verifique seu e-mail' })).toBeInTheDocument()
+    expect(received[0]?.body).toMatchObject({
+      acceptedTermsLocale: 'pt-BR',
+      acceptedPrivacyLocale: 'en-US',
+      acceptedTermsSha256: '1'.repeat(64),
+      acceptedPrivacySha256: '4'.repeat(64),
+    })
+  })
+
+  it('cancels the previous acceptance if documents change while CSRF is pending', async () => {
+    let release!: () => void
+    let started!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const began = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    server.use(
+      http.get(`${API}/auth/csrf`, async () => {
+        started()
+        await gate
+        document.cookie = 'XSRF-TOKEN=synthetic-token; path=/'
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const received = useRegisterEndpoint(accepted)
+    const app = await renderApp('/register')
+    await fillAndSubmit(app, {})
+    await began
+    await app.user.selectOptions(screen.getByLabelText('Idioma dos Termos de uso'), 'en-US')
+    release()
+    await waitFor(() => expect(screen.queryByText('Criando conta…')).not.toBeInTheDocument())
+    // Waiting for the old request to finish cannot carry its previous acceptance into the new form.
+    await app.user.click(screen.getByRole('button', { name: 'Criar conta' }))
+    expect(screen.getByRole('checkbox', { name: /Termos de uso/ })).not.toBeChecked()
+    expect(received).toHaveLength(0)
+    expect(screen.getByTestId('location')).toHaveTextContent('/register')
   })
 
   it('usa autocomplete de e-mail e de senha nova', async () => {
     await renderApp('/register')
 
     expect(document.title).toBe('Criar conta · Duora')
-    expect(screen.getByLabelText('E-mail')).toHaveAttribute('autocomplete', 'email')
-    expect(screen.getByLabelText('Senha')).toHaveAttribute('autocomplete', 'new-password')
-    expect(screen.getByLabelText('Senha')).toHaveAccessibleDescription(/Entre 12 e 128 caracteres/)
+    expect(await screen.findByLabelText('E-mail')).toHaveAttribute('autocomplete', 'email')
+    expect(await screen.findByLabelText('Senha')).toHaveAttribute('autocomplete', 'new-password')
+    expect(await screen.findByLabelText('Senha')).toHaveAccessibleDescription(/Entre 12 e 128 caracteres/)
   })
 
   it('envia e-mail, senha e as versões aceitas, com CSRF, e leva à tela neutra', async () => {
@@ -84,10 +168,12 @@ describe('tela de cadastro', () => {
         body: {
           email: 'ana@exemplo.com',
           password: 'frase longa de senha',
-          acceptedTermsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
-          acceptedPrivacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
-          acceptedTermsLocale: null,
-          acceptedPrivacyLocale: null,
+          acceptedTermsVersion: syntheticLegalCatalog.termsVersion,
+          acceptedPrivacyVersion: syntheticLegalCatalog.privacyVersion,
+          acceptedTermsLocale: 'pt-BR',
+          acceptedTermsSha256: '1'.repeat(64),
+          acceptedPrivacySha256: '3'.repeat(64),
+          acceptedPrivacyLocale: 'pt-BR',
         },
         token: antiforgery.latestToken(),
       },
@@ -111,7 +197,7 @@ describe('tela de cadastro', () => {
       expect(await screen.findByRole('heading', { name: 'Verifique seu e-mail' })).toBeInTheDocument()
       expect(received).toHaveLength(1)
     } else {
-      const password = screen.getByLabelText('Senha')
+      const password = await screen.findByLabelText('Senha')
       expect(password).toHaveFocus()
       expect(password).toHaveAttribute('aria-invalid', 'true')
       expect(password).toHaveAccessibleDescription(
@@ -133,7 +219,7 @@ describe('tela de cadastro', () => {
     expect(screen.getByRole('checkbox', { name: /Política de privacidade/ })).toHaveAccessibleDescription(
       'Para criar a conta, confirme que leu a Política de privacidade.',
     )
-    expect(screen.getByLabelText('E-mail')).toHaveValue('ana@exemplo.com')
+    expect(await screen.findByLabelText('E-mail')).toHaveValue('ana@exemplo.com')
     expect(received).toEqual([])
   })
 
@@ -142,7 +228,7 @@ describe('tela de cadastro', () => {
 
     await fillAndSubmit(app, { email: 'ana@' })
 
-    const email = screen.getByLabelText('E-mail')
+    const email = await screen.findByLabelText('E-mail')
     expect(email).toHaveFocus()
     expect(email).toHaveAccessibleDescription('Informe um e-mail no formato nome@exemplo.com.')
   })
@@ -155,8 +241,8 @@ describe('tela de cadastro', () => {
     await fillAndSubmit(app, {})
 
     expect(await screen.findByRole('alert')).toHaveTextContent('espere 30 segundos')
-    expect(screen.getByLabelText('E-mail')).toHaveValue('ana@exemplo.com')
-    expect(screen.getByLabelText('Senha')).toHaveValue('frase longa de senha')
+    expect(await screen.findByLabelText('E-mail')).toHaveValue('ana@exemplo.com')
+    expect(await screen.findByLabelText('Senha')).toHaveValue('frase longa de senha')
   })
 
   it('erro de rede tem mensagem própria', async () => {

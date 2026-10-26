@@ -213,11 +213,18 @@ public sealed class MfaLoginTests : IAsyncDisposable
     {
         var (account, mfa, browser) = await SignedInAccountWithMfaAsync();
 
+        var beforeSessionId = await MfaScenario.ReadSessionIdAsync(browser);
+        var stampBefore = await Scenario.ScalarTextAsync("select security_stamp from identity.users where id = $1", account.UserId);
         using var regenerated = await browser.PostJsonAsync(MfaScenario.RecoveryCodes, body: null);
 
         Assert.Equal(HttpStatusCode.OK, regenerated.StatusCode);
         Assert.Equal("no-store", regenerated.Headers.CacheControl?.ToString());
-        var codes = (await MfaScenario.ReadObjectAsync(regenerated))["recoveryCodes"]!.AsArray()
+        var body = await MfaScenario.ReadObjectAsync(regenerated);
+        Assert.Equal(["recoveryCodes", "resultSessionId"], body.Select(p => p.Key).Order(StringComparer.Ordinal));
+        Assert.Equal(beforeSessionId, Guid.Parse((string)body["resultSessionId"]!));
+        Assert.Equal(beforeSessionId, await MfaScenario.ReadSessionIdAsync(browser));
+        Assert.Equal(stampBefore, await Scenario.ScalarTextAsync("select security_stamp from identity.users where id = $1", account.UserId));
+        var codes = body["recoveryCodes"]!.AsArray()
             .Select(code => (string)code!)
             .ToList();
         Assert.Equal(10, codes.Distinct(StringComparer.Ordinal).Count());

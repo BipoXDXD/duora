@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 
 namespace Duora.IntegrationTests.Identity;
@@ -14,6 +15,7 @@ internal sealed class Browser : IDisposable
     public static readonly Uri BaseAddress = new(DuoraWebFactory.PublicOrigin);
 
     private readonly HttpClient _http;
+    private string? _privateProof;
 
     public Browser(DuoraWebFactory factory)
     {
@@ -36,11 +38,47 @@ internal sealed class Browser : IDisposable
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
 
-    public Task<HttpResponseMessage> GetAsync(string path) =>
+    public async Task FetchPrivateContextAsync()
+    {
+        using var response = await GetAsync("/api/v1/me");
+        Assert.True(response.StatusCode is HttpStatusCode.OK or HttpStatusCode.Forbidden);
+        Assert.NotNull(_privateProof);
+    }
+
+    public async Task<HttpResponseMessage> GetAsync(string path, string? privateProofOverride = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(path, UriKind.Relative));
+        if (NeedsPrivateProof(path) && (privateProofOverride ?? _privateProof) is { } proof)
+        {
+            request.Headers.TryAddWithoutValidation("X-XSRF-TOKEN", proof);
+        }
+        var response = await _http.SendAsync(request, TestContext.Current.CancellationToken);
+        if (path == "/api/v1/me")
+        {
+            // Apenas observa o bootstrap que o teste pediu. Nunca reconsulta para consertar uma prova velha.
+            _privateProof = null;
+            if (response.StatusCode is HttpStatusCode.OK or HttpStatusCode.Forbidden)
+            {
+                var body = await response.Content.ReadFromJsonAsync<JsonObject>(TestContext.Current.CancellationToken);
+                if (response.StatusCode == HttpStatusCode.OK
+                    || (body?["code"]?.GetValue<string>() == "PASSWORD_CHANGE_REQUIRED"
+                        && body?["sessionContext"]?["phase"]?.GetValue<string>() == "password-change"))
+                {
+                    _privateProof = body?["sessionContext"]?["requestToken"]?.GetValue<string>();
+                }
+            }
+        }
+        return response;
+    }
+
+    public Task<HttpResponseMessage> GetWithoutContextAsync(string path) =>
         _http.GetAsync(new Uri(path, UriKind.Relative), TestContext.Current.CancellationToken);
 
     public Task<HttpResponseMessage> PostJsonAsync(string path, object? body, MutationHeaders? headers = null) =>
         SendAsync(HttpMethod.Post, path, body is null ? null : JsonContent.Create(body), headers);
+
+    public Task<HttpResponseMessage> PutJsonAsync(string path, object body, MutationHeaders? headers = null) =>
+        SendAsync(HttpMethod.Put, path, JsonContent.Create(body), headers);
 
     /// <summary>Corpo cru, para JSON malformado ou com campo extra.</summary>
     public Task<HttpResponseMessage> PostRawJsonAsync(string path, string json, MutationHeaders? headers = null) =>
@@ -85,7 +123,8 @@ internal sealed class Browser : IDisposable
             request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
         }
 
-        if (headers.SendCsrfToken && Cookie("XSRF-TOKEN") is { } token)
+        var token = NeedsPrivateProof(path) ? _privateProof : Cookie("XSRF-TOKEN");
+        if (headers.SendCsrfToken && token is not null)
         {
             request.Headers.Add("X-XSRF-TOKEN", headers.CsrfTokenOverride ?? token);
         }
@@ -112,6 +151,12 @@ internal sealed class Browser : IDisposable
 
         return await _http.SendAsync(request, TestContext.Current.CancellationToken);
     }
+
+    private bool NeedsPrivateProof(string path) => path.StartsWith("/api/v1/", StringComparison.Ordinal)
+        && path is not ("/api/v1/me" or "/api/v1/legal-documents" or "/api/v1/auth/csrf" or "/api/v1/auth/register"
+            or "/api/v1/auth/confirm-email" or "/api/v1/auth/email-confirmation-requests"
+            or "/api/v1/auth/login" or "/api/v1/auth/password-reset-requests" or "/api/v1/auth/password-resets")
+        && (path != "/api/v1/auth/logout" || Cookie("__Host-duora") is not null);
 }
 
 internal sealed record MutationHeaders(

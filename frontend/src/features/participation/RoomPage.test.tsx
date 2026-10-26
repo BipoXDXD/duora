@@ -1,3 +1,4 @@
+import { withSessionContext } from '@/test/private-context'
 import { screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
@@ -34,7 +35,7 @@ describe('localized room', () => {
     const getUserMedia = vi.fn()
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } })
     server.use(
-      http.get(`${API}/me`, () => HttpResponse.json(me)),
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
       http.get(`${API}/rooms/room-1`, () =>
         HttpResponse.json({
           roomId: 'room-1',
@@ -70,7 +71,7 @@ describe('localized room', () => {
   it('requires an explicit invitation acceptance and allows rejection', async () => {
     let rejected = false
     server.use(
-      http.get(`${API}/me`, () => HttpResponse.json(me)),
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
       http.get(`${API}/rooms/room-2`, () =>
         HttpResponse.json({
           roomId: 'room-2',
@@ -94,4 +95,42 @@ describe('localized room', () => {
     await user.click(screen.getByRole('button', { name: 'Recusar convite' }))
     await screen.findByText('Este encontro foi encerrado.')
   })
+})
+
+it('áudio privado não instala src nativo nem baixa bytes antes do gesto', async () => {
+  let reads = 0
+  server.use(
+    http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(me))),
+    http.get(`${API}/rooms/room-audio`, () =>
+      HttpResponse.json({
+        roomId: 'room-audio',
+        state: 'Active',
+        version: '1',
+        communicationLanguage: 'pt',
+        communicationPolicyVersion: 1,
+        displayLocale: 'pt-BR',
+        invitationExpiresAt: '2026-10-19T18:00:00Z',
+        game: null,
+        audio: [
+          {
+            cueId: 'cue',
+            assetId: 'asset',
+            transcript: 'Transcrição acessível',
+            accessibleDescription: 'Descrição acessível',
+            sha256: 'a'.repeat(64),
+            url: '/api/v1/rooms/room-audio/audio/cue',
+          },
+        ],
+      }),
+    ),
+    http.get(`${API}/rooms/room-audio/audio/cue`, () => {
+      reads += 1
+      return new HttpResponse(null, { status: 403 })
+    }),
+  )
+  await renderApp('/rooms/room-audio')
+  await screen.findByText('Transcrição acessível')
+  expect(document.querySelector('audio, source[src], [src^="blob:"], [src^="data:audio/"]')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Reproduzir áudio' })).toBeInTheDocument()
+  expect(reads).toBe(0)
 })

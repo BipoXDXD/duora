@@ -46,7 +46,9 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0035](0035-revisao-humana-de-fotos.md) | Revisão humana de fotos antes da publicação; HumanReview e candidatos privados | Accepted; implementação e nomes pendentes | Contrato, retenção ou cobertura humana (P173-7) |
 | [0036](0036-isolamento-do-media-sanitizer.md) | Decoder descartável por tentativa e launcher rootless dedicado | Accepted; P174-3/4 candidatos de homologação | Protocolo, enforcement ou orçamento medido |
 | [0037](0037-ipinfo-lite-mmdb-para-sugestao-de-pais.md) | IPinfo Lite MMDB / CC BY-SA 4.0, usando somente país; substitui produto/fonte/schema do ADR-0033 | Accepted; adaptação e G2 pendentes | Produto/schema/licença, finalidade, limites ou incompatibilidade em G2 |
+| [0038](0038-integracao-ipinfo-e-alertas-gmail.md) | Runtime IPinfo opt-in, aviso Gmail com reconciliação de entrega incerta e arquivo privado separado | Accepted para o desenho; operação sujeita a G2/G3/G5 | Transporte, bucket, ambiguidade de entrega ou governança |
 | [0039](0039-transporte-smtp-opcional.md) | SMTP opcional com TLS obrigatório; correlação por Message-ID sem garantia de deduplicação remota | Accepted para integração; ativação em produção não autorizada | Provedor, autenticação, retry, TLS ou garantia de deduplicação |
+| [0040](0040-pares-de-conexoes-encerradas.md) | Excluir Ended/Blocked de novos pares, sem reconexão implícita | Accepted; módulo Connections ainda não integrado | Jornada explícita de reconexão |
 
 ## Regras
 
@@ -101,5 +103,3 @@ Efeito sobre superfícies de ataque, segredos, dados pessoais, backup, deploy e 
 Como a decisão é verificada: teste de arquitetura, gate de CI, teste de aceite (T-NN) ou revisão manual.
 Itens ainda não implementados indicam o marco previsto.
 ```
-
-- [0038 — Integração operacional IPinfo e alertas Gmail](0038-integracao-ipinfo-e-alertas-gmail.md) (Proposed).
