@@ -62,7 +62,8 @@ public sealed partial class AppealCandidateCleanupDispatcher
                       and e.action='safety.photo_review_appeal_rejected' and u.state='Rejected'
                       and u.rejection_code='PHOTO_REVIEW_REJECTED' and receipt.result_asset_id is null))))
               or (a.status='ClosedUnavailable' and u.state='Rejected' and u.rejection_code='PHOTO_REVIEW_REJECTED'
-                and original.case_version=r.version-2 and c.retention_until=least(a.closed_at,a.maximum_retention_until)
+                and original.case_version=r.version-2
+                and c.retention_until=least(greatest(a.closed_at,c.committed_at+interval '1 microsecond'),a.maximum_retention_until)
                 and not exists(select 1 from safety.photo_review_decisions d where d.appeal_id=a.id)
                 and exists(select 1 from ops.audit_events e where e.id=c.cleanup_audit_id
                   and e.actor_kind='System' and e.actor_id is null and e.action='safety.photo_review_appeal_unavailable'

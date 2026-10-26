@@ -613,6 +613,17 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
             """, item.CaseId));
         Assert.Equal(0, noStorage.PutAttempts);
         Assert.Empty(noStorage.Opened);
+        // The assertions above cover the approval expansion itself. Current promotion code uses
+        // the later additive appeal columns, so exercise it only after the complete schema upgrade.
+        await using (var current = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
+        {
+            await current.Database.MigrateAsync(Ct);
+        }
+        Assert.Equal(previous, await DecisionHistoryAsync(item));
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from safety.photo_review_decisions
+            where case_id=$1 and appeal_id is null and original_decision_id is null
+            """, item.CaseId));
         var (nextReviewer, nextItem) = await PreparedAsync();
         Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(nextReviewer, nextItem, Key()));
         Assert.Equal(previous, await DecisionHistoryAsync(item));
@@ -622,7 +633,8 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
     {
         await using var db = Context();
         var decision = await db.Database.SqlQuery<string>($"""
-            select to_jsonb(d)::text as "Value" from safety.photo_review_decisions d where case_id={item.CaseId}
+            select (to_jsonb(d)-'appeal_id'-'original_decision_id')::text as "Value"
+            from safety.photo_review_decisions d where case_id={item.CaseId}
             """).SingleAsync(Ct);
         var receipt = await db.Database.SqlQuery<string>($"""
             select (to_jsonb(c)-'result_decision'-'result_asset_id')::text as "Value"
@@ -839,7 +851,8 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
         long CandidateSize, long PromotionSize, long DecisionSize, byte[] CandidateSha256, byte[] PromotionSha256, byte[] DecisionSha256);
 
     private sealed class ApprovalStore(IObjectStore inner, Func<ObjectKey, Task>? beforePut = null,
-        int failingPut = 0, bool refuseAll = false, Func<ObjectKey, Task>? afterPut = null) : IObjectStore
+        int failingPut = 0, bool refuseAll = false, Func<ObjectKey, Task>? afterPut = null,
+        Func<ObjectKey, Task>? beforeOpen = null) : IObjectStore
     {
         internal int PutAttempts { get; private set; }
         internal int DeleteAttempts { get; private set; }
@@ -872,7 +885,7 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
             }
         }
 
-        public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken)
+        public async Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken)
         {
             Opened.Add(key);
             if (refuseAll)
@@ -880,7 +893,11 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
                 throw new InvalidOperationException("This command must not access storage.");
             }
 
-            return inner.OpenReadAsync(key, cancellationToken);
+            if (beforeOpen is not null)
+            {
+                await beforeOpen(key);
+            }
+            return await inner.OpenReadAsync(key, cancellationToken);
         }
 
         public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken)

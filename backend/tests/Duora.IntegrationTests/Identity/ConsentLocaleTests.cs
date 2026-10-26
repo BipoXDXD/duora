@@ -152,7 +152,8 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
         string previousMigration;
         await using (var setup = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
-            await setup.Database.MigrateAsync(Ct);
+            // Isolate this rollback: later forward-only migrations must not intercept its writer lock.
+            await setup.GetService<IMigrator>().MigrateAsync("20261025120000_ConsentDocumentFingerprint", cancellationToken: Ct);
             var migrations = setup.Database.GetMigrations().ToArray();
             var index = Array.FindIndex(migrations, migration => migration.EndsWith("_ConsentDocumentFingerprint", StringComparison.Ordinal));
             Assert.True(index > 0);

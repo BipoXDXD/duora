@@ -76,12 +76,21 @@ public sealed partial class PhotoReviewApprovalTests
             select count(*) from safety.photo_review_appeals a join media.review_candidates c on c.generation=a.candidate_generation
             join ops.audit_events e on e.id=c.cleanup_audit_id
             where a.id=$1 and a.status='ClosedUnavailable' and a.closed_at=$2
-              and c.retention_until=least(a.closed_at,a.maximum_retention_until)
+              and c.retention_until=least(greatest(a.closed_at,c.committed_at+interval '1 microsecond'),a.maximum_retention_until)
+              and c.retention_until>c.committed_at and c.retention_until<=a.maximum_retention_until
               and e.actor_kind='System' and e.actor_id is null and e.action='safety.photo_review_appeal_unavailable'
               and e.target_id=a.id and e.target_version=a.version
             """, data.Appeal.AppealId, _time.GetUtcNow()));
         Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_decisions where appeal_id=$1", data.Appeal.AppealId));
         await using var source = NpgsqlDataSource.Create(_connectionString);
+        if (!expired)
+        {
+            // A stopped clock can close in the candidate's commit microsecond. Respect its strict
+            // retention constraint and do not delete before the first representable eligible instant.
+            Assert.Equal(0, await AppealCleanup(source).DispatchOnceAsync(Ct));
+            Assert.Equal(files, Files());
+            _time.Advance(TimeSpan.FromTicks(10));
+        }
         Assert.Equal(1, await AppealCleanup(source).DispatchOnceAsync(Ct));
         Assert.Equal(retained, Files());
         Assert.Equal(original, await OriginalAppealFactAsync(data.Data.DecisionId));

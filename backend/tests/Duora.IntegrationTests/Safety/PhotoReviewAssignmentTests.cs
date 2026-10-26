@@ -20,7 +20,7 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("duora-review-assignment-");
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private static readonly string[] SummaryFields = ["awaitingReviewAt", "caseId", "reviewDeadline", "state", "version"];
+    private static readonly string[] SummaryFields = ["awaitingReviewAt", "caseId", "policyVersion", "reviewDeadline", "state", "version"];
     private string _connectionString = "";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

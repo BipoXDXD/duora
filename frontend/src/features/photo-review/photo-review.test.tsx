@@ -1,6 +1,7 @@
 import { apiClient, ApiNetworkError, classifyRequestFailure } from '@/shared/api'
+import { createApiClient, type ApiFetch } from '@/shared/api/api-client'
 import { PrivateOperationProvider } from '@/features/session/PrivateOperationProvider'
-import { installTestMe } from '@/test/private-context'
+import { installTestMe, TEST_PRIVATE_PROOF } from '@/test/private-context'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClientProvider } from '@tanstack/react-query'
@@ -111,6 +112,19 @@ function fixtures() {
       HttpResponse.json(history, { headers: { ETag: history.photoETag } }),
     ),
   )
+}
+
+/** Metadata/pagination is a component test: keep CF's client/ownership and isolate only its I/O. */
+function isolateQueueTransport(fetch: ApiFetch): void {
+  const client = createApiClient({
+    sessionContext: apiClient.sessionContext,
+    fetch,
+    origin: location.origin,
+    readAntiforgeryToken: () => null,
+    readLocale: () => 'en-US',
+    now: () => 0,
+  })
+  vi.spyOn(apiClient, 'fetchFor').mockImplementation((operation) => client.fetchFor(operation))
 }
 
 function nativeBitmap() {
@@ -349,17 +363,30 @@ describe('private photo review and appeal UI', () => {
   })
 
   it('shows assigned metadata without fetching images and paginates with an opaque cursor', async () => {
-    fixtures()
+    const intercepted = globalThis.fetch
+    const nativeFetch = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const request = new Request(input, init)
+      if (new URL(request.url).pathname === '/api/v1/admin/photo-reviews')
+        return Promise.reject(new TypeError('Synthetic rejected queue transport'))
+      return intercepted(request)
+    })
     const evidence = vi.fn(() => problem(403))
     const cursors: (string | null)[] = []
-    server.use(
-      http.get('/api/v1/admin/photo-reviews', ({ request }) => {
-        const url = new URL(request.url)
+    const requests: Request[] = []
+    isolateQueueTransport((request) => {
+      requests.push(request)
+      const url = new URL(request.url)
+      if (url.pathname === '/api/v1/admin/photo-reviews/capabilities')
+        return Promise.resolve(Response.json(capabilities))
+      if (url.pathname === '/api/v1/admin/photo-reviews') {
         cursors.push(url.searchParams.get('cursor'))
-        return HttpResponse.json({ items: [review], nextCursor: cursors.length === 1 ? 'opaque+/=' : null })
-      }),
-      http.get(`/api/v1/admin/photo-reviews/${CASE}/evidence/:variant`, evidence),
-    )
+        return Promise.resolve(
+          Response.json({ items: [review], nextCursor: cursors.length === 1 ? 'opaque+/=' : null }),
+        )
+      }
+      if (url.pathname.startsWith(`/api/v1/admin/photo-reviews/${CASE}/evidence/`)) return Promise.resolve(evidence())
+      throw new Error('Unconfigured synthetic review request')
+    })
     const client = createTestQueryClient()
     mount('/admin/photo-reviews', 'en-US', client)
     const link = await screen.findByRole(
@@ -402,8 +429,58 @@ describe('private photo review and appeal UI', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }))
     await waitFor(() => {
       expect(cursors).toEqual([null, 'opaque+/='])
+      expect(screen.queryByRole('button', { name: 'Next page' })).not.toBeInTheDocument()
+      expect(screen.getByRole('link', { name: `Open case ${CASE}` })).toHaveAttribute(
+        'href',
+        `/admin/photo-reviews/${CASE}`,
+      )
     })
+    expect(nativeFetch).not.toHaveBeenCalled()
+    expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
+      '/api/v1/admin/photo-reviews/capabilities',
+      '/api/v1/admin/photo-reviews',
+      '/api/v1/admin/photo-reviews',
+    ])
+    for (const request of requests) {
+      expect(request.method).toBe('GET')
+      expect(new URL(request.url).origin).toBe(location.origin)
+      expect(request.credentials).toBe('same-origin')
+      expect(request.redirect).toBe('error')
+      expect(request.cache).toBe('no-store')
+      expect(request.headers.get('X-XSRF-TOKEN')).toBe(TEST_PRIVATE_PROOF)
+      expect(request.headers.get('If-Match')).toBeNull()
+    }
+    expect(requests.slice(1).map((request) => new URL(request.url).search)).toEqual([
+      '?limit=20',
+      '?limit=20&cursor=opaque%2B%2F%3D',
+    ])
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+
+  it('keeps a failed isolated queue transport visible and never presents it as assigned metadata', async () => {
+    const nativeFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('No native I/O in this fixture'))
+    const rejected = vi.fn(() => Promise.reject(new TypeError('Synthetic rejected queue transport')))
+    isolateQueueTransport((request) => {
+      const url = new URL(request.url)
+      if (url.pathname === '/api/v1/admin/photo-reviews/capabilities')
+        return Promise.resolve(Response.json(capabilities))
+      if (url.pathname === '/api/v1/admin/photo-reviews') return rejected()
+      throw new Error('Unconfigured synthetic review request')
+    })
+    const client = createTestQueryClient()
+    mount('/admin/photo-reviews', 'en-US', client)
+    expect(await screen.findByText("We couldn't reach Duora. Check your connection and try again.")).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Read current state' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: `Open case ${CASE}` })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next page' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(rejected).toHaveBeenCalledOnce()
+    expect(nativeFetch).not.toHaveBeenCalled()
+    const queue = client
+      .getQueryCache()
+      .find({ queryKey: ['photo-review', ACCOUNT.id, 'review', 'queue'], exact: false })
+    expect(queue?.state.error).toBeInstanceOf(ApiNetworkError)
+    expect(queue?.state.error?.cause).toBeInstanceOf(TypeError)
   })
 
   it('opens evidence only on request and clears its private canvas on exit', async () => {

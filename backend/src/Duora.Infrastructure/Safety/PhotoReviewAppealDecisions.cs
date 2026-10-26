@@ -68,6 +68,13 @@ internal sealed class PhotoReviewAppealDecisions(IDbContextFactory<DuoraDbContex
             }
             else if (!await VerifyRejectionBytesAsync(actor, appealId, ct))
             {
+                // Evidence access can lose a race to a committed decision or revoked authority.
+                // Classify the current authorized state before treating it as missing storage.
+                var current = await PhaseAsync(actor, appealId, expectedVersion, hash, intent, approve, evidence, null, false, ct);
+                if (current.Result is { } changed)
+                {
+                    return changed;
+                }
                 await new PhotoReviewAppealAvailability(contexts, store, time).ReconcileAsync(appealId, ct);
                 return new PhotoReviewAppealDecisionResult.Unavailable();
             }

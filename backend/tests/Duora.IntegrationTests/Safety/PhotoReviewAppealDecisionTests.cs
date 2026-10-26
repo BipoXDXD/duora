@@ -99,6 +99,52 @@ public sealed partial class PhotoReviewApprovalTests
     }
 
     [Fact]
+    public async Task DecisionCommittedDuringEvidenceReadIsAConflictInsteadOfStorageUnavailability()
+    {
+        var data = await AssignedAppealForEvidenceAsync();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var reads = 0;
+        var store = new ApprovalStore(new FileSystemObjectStore(_root.FullName), beforeOpen: async _ =>
+        {
+            if (Interlocked.Increment(ref reads) == 1)
+            {
+                entered.TrySetResult();
+                await release.Task.WaitAsync(budget.Token);
+            }
+        });
+        var losing = new PhotoReviewAppealDecisions(Factory(), store, _time).DecideAsync(
+            data.Reviewer, data.Appeal.AppealId, 2, false, Key(), budget.Token);
+        var completed = false;
+        try
+        {
+            await entered.Task.WaitAsync(Ct);
+            Assert.IsType<PhotoReviewAppealDecisionResult.Decided>(await AppealDecisions().DecideAsync(
+                data.Reviewer, data.Appeal.AppealId, 2, false, Key(), Ct));
+            release.TrySetResult();
+            Assert.IsType<PhotoReviewAppealDecisionResult.NotFound>(await losing);
+            Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decisions where appeal_id=$1", data.Appeal.AppealId));
+            Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_appeal_decision_commands where appeal_id=$1", data.Appeal.AppealId));
+            Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_appeals where id=$1 and status='ClosedUnavailable'", data.Appeal.AppealId));
+            completed = true;
+        }
+        finally
+        {
+            release.TrySetResult();
+            await budget.CancelAsync();
+            try
+            {
+                await losing;
+            }
+            catch (Exception) when (!completed)
+            {
+                // Drain the real producer before teardown while preserving the original test failure.
+            }
+        }
+    }
+
+    [Fact]
     public async Task RevocationDuringAppealPromotionPreventsTheCommitAndRetainsCleanup()
     {
         var data = await AssignedAppealForEvidenceAsync();

@@ -168,7 +168,9 @@ internal sealed class PhotoReviewAppealAvailability(IDbContextFactory<DuoraDbCon
                   and target_id={appealId} and target_version={version}
                 """).SingleAsync(ct);
             var candidate = await db.Database.ExecuteSqlAsync($"""
-                update media.review_candidates set retention_until={retention},cleanup_requested_at={now},cleanup_audit_id={audit},
+                update media.review_candidates set
+                  retention_until=least(greatest({retention},committed_at+interval '1 microsecond'),{row.Maximum}),
+                  cleanup_requested_at={now},cleanup_audit_id={audit},
                   cleanup_available_at=least(cleanup_available_at,{now})
                 where generation={row.Generation} and cleanup_requested_at is null and cleanup_audit_id is null
                   and cleanup_token is null and deleted_at is null and retention_until={row.Maximum}
