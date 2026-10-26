@@ -80,9 +80,14 @@ internal sealed class PhotoReviewApprovals
                 if (await new PhotoReviewPromotions(media, _store, _time).PrepareAsync(request, cancellationToken)
                     is not ReviewPromotionResult.Prepared prepared)
                 {
-                    // A competing commit can invalidate preparation after the copies. Only a currently
-                    // authorized replay of the exact durable receipt can turn that refusal into success.
-                    return await ReplayAfterPreparationAsync(actor, keyHash, intent, cancellationToken);
+                    // Without a prepared generation this phase can only observe an authorized receipt
+                    // or current business state; it cannot commit a new approval.
+                    var observed = await PhaseAsync(actor, caseId, expectedVersion, keyHash, intent, reasonCode,
+                        snapshot, promotion: null, cancellationToken);
+                    var outcome = observed.Result;
+                    return outcome is PhotoReviewApprovalResult.Approved or PhotoReviewApprovalResult.Forbidden
+                        or PhotoReviewApprovalResult.KeyReused or PhotoReviewApprovalResult.StateConflict
+                        ? outcome : new PhotoReviewApprovalResult.Unavailable();
                 }
 
                 generation = prepared.Generation;
@@ -119,19 +124,6 @@ internal sealed class PhotoReviewApprovals
         {
             // Confirmed initial metadata/deadline remains a durable obligation even if this best effort fails.
         }
-    }
-
-    private async Task<PhotoReviewApprovalResult> ReplayAfterPreparationAsync(PhotoReviewActor actor,
-        byte[] keyHash, byte[] intent, CancellationToken cancellationToken)
-    {
-        await using var db = await _contexts.CreateDbContextAsync(cancellationToken);
-        await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
-        if (!await new PhotoReviewAccess(db, _time).AuthorizeAsync(actor, PhotoReviewCapability.Decide, cancellationToken))
-        {
-            return new PhotoReviewApprovalResult.Forbidden();
-        }
-        return await ReplayAsync(db, actor.UserId, keyHash, intent, cancellationToken)
-            ?? new PhotoReviewApprovalResult.Unavailable();
     }
 
     private async Task<Phase> PhaseAsync(PhotoReviewActor actor, Guid caseId, long expectedVersion,
@@ -233,7 +225,12 @@ internal sealed class PhotoReviewApprovals
         }
         if (promotion is not { } generation)
         {
-            await transaction.CommitAsync(cancellationToken);
+            // Only the initial phase may persist guard setup. A post-preparation observation has
+            // an expected snapshot and leaves even guard inserts uncommitted on disposal.
+            if (expected is null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
             return new Phase(evidence, null);
         }
 

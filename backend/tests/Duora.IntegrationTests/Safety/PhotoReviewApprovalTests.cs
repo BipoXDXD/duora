@@ -344,9 +344,11 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ApprovalWhosePreparationLosesToTheSameKeyCommitReplaysOnlyWithCurrentAuthority(bool revokeDecide)
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    public async Task ApprovalWhosePreparationLosesToACommitRechecksCurrentStateAndAuthority(bool sameKey, bool revokeDecide)
     {
         var (reviewer, item) = await PreparedAsync();
         var key = Key();
@@ -371,7 +373,7 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
             Assert.True(copied.Task.IsCompletedSuccessfully);
             Assert.Equal(3, delayedStore.PutAttempts);
             Assert.False(delayed.IsCompleted);
-            var winner = Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, key));
+            var winner = Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, sameKey ? key : Key()));
             if (revokeDecide)
             {
                 await GrantAsync(reviewer.UserId, PhotoReviewCapability.Decide, enabled: false);
@@ -383,9 +385,13 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
             {
                 Assert.IsType<PhotoReviewApprovalResult.Forbidden>(outcome);
             }
-            else
+            else if (sameKey)
             {
                 Assert.Equal(winner, Assert.IsType<PhotoReviewApprovalResult.Approved>(outcome));
+            }
+            else
+            {
+                Assert.IsType<PhotoReviewApprovalResult.StateConflict>(outcome);
             }
             Assert.Equal(committedFiles, Files());
             Assert.Equal(3, delayedStore.PutAttempts);
