@@ -62,6 +62,26 @@ jobs:
       - name: Testes
         run: dotnet test --solution backend/Duora.slnx --no-build
 
+      # Preserve the already built/tested standalone outputs; no decoder rebuild or host action.
+      - name: Package standalone media instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse HEAD)
+          test "$commit" = "$GITHUB_SHA"
+          python3 scripts/media/instrumentation_bundle.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/media-host-instrumentation" \
+            --commit "$commit" --tree "$(git rev-parse 'HEAD^{tree}')" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --architecture "$(uname -m)"
+
+      - name: Preserve standalone media instrumentation
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: media-host-instrumentation-amd64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/media-host-instrumentation/
+          if-no-files-found: error
+          retention-days: 90
+
   frontend:
     name: frontend
     runs-on: ubuntu-24.04
@@ -604,3 +624,4 @@ jobs:
           --include-dev-deps
           --ignorefile .trivyignore
           --exit-code 1
+
