@@ -25,7 +25,7 @@ import runtime_guard as guard
 FILES = ("duora_deploy.py", "reconcile_payload.py", "runtime_guard.py", "install_executor.py")
 FENCE_DIRECTORY = "duora-executor-install"
 RECEIVER_PATH = Path("/opt/coolify-release/receiver.py")
-RECEIVER_SHA256 = "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb"
+RECEIVER_SHA256 = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
 
 
 class InstallError(ValueError):
@@ -163,7 +163,7 @@ def _require_root_path(path: Path, *, directory: bool = False) -> None:
 
 
 def receiver_binding() -> dict:
-    """The only symlink exception: the exact qualified receiver leaf and immutable 2.0.2 target."""
+    """The only symlink exception: the exact qualified receiver leaf and immutable 2.1.1 target."""
     try:
         _require_root_path(RECEIVER_PATH.parent, directory=True)
         info = RECEIVER_PATH.lstat()
@@ -172,7 +172,7 @@ def receiver_binding() -> dict:
         if stat.S_ISLNK(info.st_mode):
             # Linux symlink permission bits are normally 0777 and do not authorize modifying its target.
             raw_link = os.readlink(RECEIVER_PATH)
-            target = RECEIVER_PATH.parent / "versions" / ("2.0.2-" + RECEIVER_SHA256) / "receiver.py"
+            target = RECEIVER_PATH.parent / "versions" / ("2.1.1-" + RECEIVER_SHA256) / "receiver.py"
             if raw_link != str(target): raise InstallError("Receiver link is outside the exact qualified version")
         else:
             target = RECEIVER_PATH
@@ -181,7 +181,7 @@ def receiver_binding() -> dict:
         if resolved != target: raise InstallError("Receiver resolution differs from the qualified target")
         content = _protected_bytes(target)
         checksum = hashlib.sha256(content).hexdigest()
-        if checksum != RECEIVER_SHA256: raise InstallError("Receiver source differs from qualified 2.0.2")
+        if checksum != RECEIVER_SHA256: raise InstallError("Receiver source differs from qualified 2.1.1")
         after = RECEIVER_PATH.lstat()
         identity = lambda value: (value.st_dev, value.st_ino, value.st_uid, value.st_gid, value.st_nlink, value.st_mode)
         if identity(info) != identity(after) or (raw_link is not None and os.readlink(RECEIVER_PATH) != raw_link):
