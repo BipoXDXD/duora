@@ -6,8 +6,10 @@ every assertion. It never silently skips a missing privilege or missing API.
 """
 import copy
 import ctypes
+import contextlib
 import fcntl
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -18,6 +20,7 @@ import sys
 import tempfile
 import time
 from typing import Callable, cast
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -33,7 +36,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 def file_identity(path: Path) -> tuple:
     info = path.lstat()
-    return (info.st_mode, os.readlink(path) if path.is_symlink() else None,
+    return (info.st_mode, info.st_uid, info.st_gid, info.st_nlink,
+            os.readlink(path) if path.is_symlink() else None,
             None if path.is_dir() else hashlib.sha256(path.read_bytes()).hexdigest())
 
 
@@ -246,6 +250,124 @@ def root_cases() -> type[unittest.TestCase]:
                 require_idle=self.idle, expected_bundle=(COMMIT, self.manifest_hash),
                 inspect_runtime=self.inspect)
 
+        def historical_installer(self):
+            raw = (FIXTURES / "install-executor-cohort-55d2-before-review.py.txt").read_bytes()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                             "55d2ae628262c78885787d0d3abab9a37699b62f9f626972cd0e7166b5308101")
+            source = self.root / "historical-installer-55d2.py"
+            source.write_bytes(raw)
+            source.chmod(0o600)
+            return installer._module(source, "cohort_historical_installer_55d2")
+
+        def with_module(self, module, action: Callable) -> dict:
+            # Each side of the regression gets fresh actual files and an isolated module binding.
+            with patch.dict(globals(), {"installer": module}):
+                case = type(self)("test_preflight_does_not_stage_write_enroll_or_change_either_entry")
+                case.setUp()
+                try: return action(case)
+                finally: case.doCleanups()
+
+        def cli_refusal(self, *, foreign: bool) -> dict:
+            root = self.root
+            compose, env, caddy, manifest_file = [root / n for n in ("compose.json", "host.env", "caddy", "release.json")]
+            for item in (compose, env, caddy, manifest_file):
+                item.write_text("synthetic protected input")
+                item.chmod(0o600)
+            pin = root / "coolify-deploy.json"
+            pin.write_text(json.dumps({"compose": str(compose), "compose_sha256": hashlib.sha256(compose.read_bytes()).hexdigest(),
+                                       "caddy": str(caddy), "manifest": str(manifest_file)}))
+            pin.chmod(0o600)
+            releases = self.paths.state / "releases"
+            releases.mkdir(mode=0o700)
+            for name in ("synthetic-current-F3.json", "synthetic-current-F3.env"):
+                (releases / name).write_text("synthetic protected release")
+                (releases / name).chmod(0o600)
+            ingress_current = self.paths.ingress / "duora/current.json"
+            ingress_current.write_text('{"synthetic":"receiver current"}')
+            ingress_current.chmod(0o600)
+            imported, runtime = root / "foreign-imported", root / "runtime-called"
+            if foreign:
+                active = root / "foreign" / COMMIT / "duora_deploy.py"
+                active.parent.mkdir(parents=True, mode=0o700)
+                active.write_text("from pathlib import Path\nPath(" + repr(str(imported)) + ").touch()\n")
+                active.chmod(0o755)
+                self.entry.unlink()
+                self.entry.symlink_to(active)
+            original_module, original_read, original_sha = installer._module, installer._protected_bytes, installer._sha
+            def runtime_provider(*_args, **_kwargs):
+                runtime.touch()
+                raise RuntimeError("Controlled provider must not run for a refused preflight")
+            candidate = SimpleNamespace(
+                Paths=lambda compose_path, env_path, state: SimpleNamespace(compose_file=compose_path, host_env=env_path, state_dir=state),
+                parse_manifest=lambda *_args, **_kwargs: SimpleNamespace(contract_version="v2", raw={}),
+                runtime_inventory=runtime_provider)
+            def module_loader(path: Path, name: str):
+                return candidate if path == self.source / "duora_deploy.py" else original_module(path, name)
+            def read_input(path: Path) -> bytes:
+                mapped = {Path("/etc/duora/coolify-deploy.json"): pin, Path("/etc/duora/duora.env"): env}
+                return original_read(mapped.get(path, path))
+            def script_sha(path: Path) -> str:
+                return self.manifest["files"]["install_executor.py"]["sha256"] if path == Path(installer.__file__) else original_sha(path)
+            def idle(paths, *, expected_commit, manifest_sha256, **_kwargs):
+                receiver = original_module(self.receiver.resolve(), "cohort_cli_verified_receiver")
+                setattr(receiver, "STATE", paths.ingress)
+                installer.require_ingress_idle(receiver, paths, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
+            args = ["install_executor.py", "--bundle", str(self.source), "--source-commit", COMMIT,
+                    "--manifest-sha256", self.manifest_hash, "--artifact-id", "123",
+                    "--cohort-receiver", str(self.receiver_source), "--expected-executor-sha256", self.old_hash]
+            before = self.snapshot()
+            output, errors = io.StringIO(), io.StringIO()
+            previous_mask = os.umask(0o077)
+            try:
+                with contextlib.ExitStack() as stack:
+                    if not foreign:
+                        handle = stack.enter_context((self.paths.ingress / "host.lock").open())
+                        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    stack.enter_context(patch.object(sys, "argv", args))
+                    stack.enter_context(patch.object(installer, "InstallPaths", return_value=self.paths))
+                    stack.enter_context(patch.object(installer, "_module", side_effect=module_loader))
+                    stack.enter_context(patch.object(installer, "_protected_bytes", side_effect=read_input))
+                    stack.enter_context(patch.object(installer, "_sha", side_effect=script_sha))
+                    stack.enter_context(patch.object(installer, "_verify_provenance", return_value=None))
+                    stack.enter_context(patch.object(installer, "_production_idle", side_effect=idle))
+                    stack.enter_context(contextlib.redirect_stdout(output))
+                    stack.enter_context(contextlib.redirect_stderr(errors))
+                    try: status = installer.main()
+                    except Exception as error:
+                        status = 1
+                        errors.write(type(error).__name__ + ": " + str(error))
+                return {"status": status, "foreignImported": imported.exists(), "runtimeCalled": runtime.exists(),
+                        "unchanged": self.snapshot() == before, "stderr": errors.getvalue()}
+            finally:
+                os.umask(previous_mask)
+
+        def metadata_recovery(self, *, saved: bool, hardlink: bool) -> dict:
+            pending = self.killed_at_partial_pair(both_swapped=True)
+            path = self.paths.preimages / pending["attempt"] / "duora-deploy" if saved else self.entry
+            if hardlink:
+                os.link(path, self.root / "foreign-hardlink", follow_symlinks=False)
+                self.assertEqual(path.lstat().st_nlink, 2)
+            else:
+                os.lchown(path, 65534, 65534)
+                self.assertEqual(path.lstat().st_uid, 65534)
+            before = self.snapshot()
+            refused = False
+            marker = self.root / "recovery-callback-reached"
+            def monitored_idle() -> None:
+                marker.touch()
+                self.idle()
+            def monitored_inspect() -> dict:
+                marker.touch()
+                return self.inspect()
+            try:
+                cast(Callable[..., dict], installer.recover_installation)(paths=self.paths, pending=pending,
+                    require_idle=monitored_idle, expected_bundle=(COMMIT, self.manifest_hash),
+                    inspect_runtime=monitored_inspect)
+            except installer.InstallError: refused = True
+            return {"refused": refused, "unchanged": self.snapshot() == before,
+                    "fenced": (self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").exists(),
+                    "callbackReached": marker.exists()}
+
         def assert_old_pair(self) -> None:
             self.assertTrue(self.entry.is_symlink())
             self.assertEqual(os.readlink(self.entry), str(self.old_executor_target))
@@ -432,6 +554,69 @@ def root_cases() -> type[unittest.TestCase]:
             with self.assertRaises(installer.InstallError): self.recover(pending)
             self.assertEqual(self.snapshot(), before)
             self.assertEqual(self.pending(), pending)
+
+        def test_cli_refuses_foreign_homonym_before_import_runtime_or_write(self) -> None:
+            historical, current = self.historical_installer(), installer
+            old = self.with_module(historical, lambda case: case.cli_refusal(foreign=True))
+            self.assertTrue(old["foreignImported"], "Historical P1 control did not execute the actual foreign module")
+            new = self.with_module(current, lambda case: case.cli_refusal(foreign=True))
+            self.assertFalse(new["foreignImported"])
+            self.assertFalse(new["runtimeCalled"])
+            self.assertTrue(new["unchanged"])
+            self.assertEqual(new["status"], 1)
+            self.assertIn("Static installation/preflight refused", new["stderr"])
+            print('[cohort-review-regression] {"P1_foreign_control_reproduced":true,"candidate_refused_before_import":true}')
+
+        def test_cli_busy_lock_refuses_before_runtime_callback_or_write(self) -> None:
+            historical, current = self.historical_installer(), installer
+            old = self.with_module(historical, lambda case: case.cli_refusal(foreign=False))
+            self.assertTrue(old["runtimeCalled"], "Historical P1 control did not perform the actual early runtime callback")
+            new = self.with_module(current, lambda case: case.cli_refusal(foreign=False))
+            self.assertFalse(new["foreignImported"])
+            self.assertFalse(new["runtimeCalled"])
+            self.assertTrue(new["unchanged"])
+            self.assertEqual(new["status"], 1)
+            self.assertIn("Static installation/preflight refused", new["stderr"])
+            print('[cohort-review-regression] {"P1_busy_lock_control_reproduced":true,"candidate_zero_runtime":true}')
+
+        def test_initial_unreviewed_inventory_is_captured_under_locks_and_cannot_authorize_apply(self) -> None:
+            operation = getattr(installer, "transition_cohort", None)
+            self.assertTrue(callable(operation))
+            probe = "import fcntl,sys; blocked=0\nfor p in sys.argv[1:]:\n with open(p) as f:\n  try: fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)\n  except BlockingIOError: blocked+=1\nsys.exit(0 if blocked==3 else 72)"
+            def inspect_locked() -> dict:
+                paths = [self.paths.ingress / "host.lock", self.paths.ingress / "duora/release.lock", self.paths.state / ".deploy.lock"]
+                result = subprocess.run([sys.executable, "-c", probe, *map(str, paths)], check=False, timeout=5)
+                self.assertEqual(result.returncode, 0, "Initial runtime inspection ran outside the three locks")
+                return self.inspect()
+            arguments = {"expected_commit": COMMIT, "manifest_sha256": self.manifest_hash,
+                         "reviewed_inventory_sha256": None, "expected_executor_sha256": self.old_hash,
+                         "paths": self.paths, "inspect_runtime": inspect_locked,
+                         "require_idle": self.idle, "qualification_artifact": 123}
+            before = self.snapshot()
+            api = cast(Callable[..., dict], operation)
+            preflight = api(self.source, self.receiver_source, **arguments)
+            self.assertEqual(preflight["status"], "cohort-preflight")
+            self.assertEqual(self.snapshot(), before)
+            with self.assertRaises(installer.InstallError):
+                api(self.source, self.receiver_source, **arguments,
+                    reviewed_cohort_sha256=preflight["cohortSha256"], apply=True)
+            self.assertEqual(self.snapshot(), before)
+
+        def test_active_and_saved_executor_link_metadata_refuses_without_overwrite(self) -> None:
+            historical, current = self.historical_installer(), installer
+            for saved in (False, True):
+                for hardlink in (False, True):
+                    with self.subTest(saved=saved, hardlink=hardlink):
+                        old = self.with_module(historical, lambda case: case.metadata_recovery(saved=saved, hardlink=hardlink))
+                        self.assertFalse(old["refused"], "Historical P2 control did not reach the unguarded recovery")
+                        self.assertFalse(old["unchanged"])
+                        self.assertTrue(old["callbackReached"])
+                        new = self.with_module(current, lambda case: case.metadata_recovery(saved=saved, hardlink=hardlink))
+                        self.assertTrue(new["refused"])
+                        self.assertTrue(new["unchanged"])
+                        self.assertTrue(new["fenced"])
+                        self.assertFalse(new["callbackReached"])
+            print('[cohort-review-regression] {"P2_four_historical_controls_reproduced":true,"candidate_four_metadata_refusals":true}')
 
         def test_test_harness_timeout_kills_and_reaps_its_worker_and_fork_descendant(self) -> None:
             pids = self.root / "timeout-owned-pids.json"

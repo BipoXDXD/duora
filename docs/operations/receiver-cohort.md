@@ -27,6 +27,9 @@ A CLI existente `install_executor.py` recebe os parâmetros obrigatórios `--bun
 regular, protegido e root-owned. Sem `--apply`, a operação é um preflight de leitura: adquire os três
 locks, verifica filas/ingressos, a coorte antiga, recibo/baseline, origem e inventário; não stageia versões,
 altera ponteiros, escreve baseline ou cria journal/fence/receipt.
+Sem um digest prévio, o primeiro inventário é produzido dentro dessa aquisição, depois da autenticação
+das duas entradas e da verificação de ociosidade. A inspeção usa o módulo candidato do bundle validado;
+o nome do diretório de uma entrada ativa não autoriza importar ou executar seu conteúdo.
 
 Revisar o resultado completo, especialmente `inventorySha256`, `executorSha256`, `receiverBefore`,
 `receiverAfter` e `cohortSha256`. A aplicação usa os mesmos fonte/bundle/artefato/candidato e acrescenta
@@ -58,7 +61,9 @@ provoca parada, mantendo o fence; não há autorização de retorno cego ou bypa
 Antes da primeira escrita, validar ambas as entradas, ambas as preimagens, os próprios temporários,
 recibos/baseline, fonte e contexto de publicação. Mesmo hash de bytes em outro caminho não é identidade
 aceitável. O retorno restaura somente os arquivos/ponteiros do próprio journal sob os mesmos locks e é
-retomável com a mesma tentativa após interrupção. Alteração em F3/current, A0A/previous, intenção alheia,
+retomável com a mesma tentativa após interrupção. Os links ativo e salvo do executor exigem root:root,
+tipo symlink, modo0777, link único e ancestrais protegidos, além do alvo literal e seus bytes qualificados.
+Alteração em current, previous, intenção alheia,
 target ou arquivo preservado bloqueia o retorno. Não apagar o fence como remediação manual.
 
 ## Preservação e provas
@@ -75,3 +80,8 @@ descendentes que possui; o limite de90s do processo externo sozinho não é prov
 Os testes e a qualificação final de fonte/base precisam estar verdes antes de integração. Depois da
 instalação estática efetiva ainda são necessários aceite independente e passagem para a publicação
 automática de produto. Nenhuma dessas provas promete indisponibilidade zero ou operação contínua24x7.
+
+As regressões de revisão usam também o snapshot histórico55d2, somente como fixture de teste fora do
+bundle de quatro arquivos. Os controles executam os casos sintéticos no código anterior e exigem a
+recusa no código corrigido, sem publicar um instalador com falha conhecida. Isso não é um novo job RED
+anterior à correção: a reprodução dirigida e a verificação da correção são pareadas no mesmo CI remoto.

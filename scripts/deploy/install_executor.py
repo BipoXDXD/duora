@@ -250,6 +250,28 @@ def _cohort_after_binding() -> dict:
             "target": {"uid": 0, "gid": 0, "mode": 0o755, "nlink": 1}}
 
 
+def _cohort_executor_link(path: Path, allowed_targets: set[str]) -> None:
+    """Authenticate the link node itself, separately from the bytes it references."""
+    _require_root_path(path.parent, directory=True)
+    before = path.lstat()
+    if (not stat.S_ISLNK(before.st_mode) or before.st_uid != 0 or before.st_gid != 0
+            or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) != 0o777):
+        raise InstallError("Foreign executor link owner, group, mode or hardlink count")
+    raw = os.readlink(path)
+    if raw not in allowed_targets:
+        raise InstallError("Executor link points outside the qualified cohort targets")
+    target = Path(raw)
+    _require_root_path(target)
+    info = target.lstat()
+    if info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o755:
+        raise InstallError("Executor target metadata differs from the qualified cohort")
+    after = path.lstat()
+    if ((before.st_dev, before.st_ino, before.st_uid, before.st_gid, before.st_mode, before.st_nlink)
+            != (after.st_dev, after.st_ino, after.st_uid, after.st_gid, after.st_mode, after.st_nlink)
+            or os.readlink(path) != raw):
+        raise InstallError("Executor link changed during cohort authentication")
+
+
 def _cohort_plan(source: Path, manifest: dict, paths: InstallPaths, expected_executor_sha256: str) -> dict:
     if os.geteuid() != 0 or os.getegid() != 0:
         raise InstallError("Receiver cohort transition requires the administrative root identity")
@@ -263,7 +285,8 @@ def _cohort_plan(source: Path, manifest: dict, paths: InstallPaths, expected_exe
         raise InstallError("Cohort transition cannot change executor code at the same time")
     _require_root_path(paths.entry.parent, directory=True)
     info = paths.entry.lstat()
-    if not stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1:
+    if (not stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+            or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o777):
         raise InstallError("Cohort transition requires the qualified installed versioned executor")
     link = os.readlink(paths.entry)
     target = Path(link)
@@ -382,6 +405,11 @@ def _cohort_record(journal: dict, paths: InstallPaths, preimage: Path) -> dict |
             or stat.S_IMODE(old_executor_info.st_mode) != 0o755
             or _sha(old_executor) != cohort["executorBefore"]["sha256"]):
         raise InstallError("Legacy executor target bytes or metadata changed")
+    commit = journal["installedReceipt"]["sourceCommit"]
+    if not isinstance(commit, str) or not re.fullmatch(r"[a-f0-9]{40}", commit):
+        raise InstallError("Invalid cohort executor source identity")
+    _cohort_executor_link(paths.entry, {str(old_executor), str(paths.versions / commit / "duora_deploy.py")})
+    _cohort_executor_link(preimage / "duora-deploy", {str(old_executor)})
     actual = _cohort_receiver_state()
     if actual not in (old, cohort["receiverAfter"]):
         raise InstallError("Intervening receiver entry or target; refusing overwrite")
@@ -499,6 +527,7 @@ def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[
     validate_bundle(version, expected_commit=commit, manifest_sha256=receipt["manifestSha256"])
     target = version / "duora_deploy.py"
     previous = preimage / "duora-deploy"
+    cohort = _cohort_record(journal, paths, preimage)
     if _sha(previous) != journal["oldExecutorSha256"]:
         raise InstallError("Previous executor preimage changed")
     old_baseline = _optional(preimage / guard.BASELINE_NAME)
@@ -525,7 +554,6 @@ def _recover_locked(paths: InstallPaths, pending: dict, require_idle: Callable[[
     if (not (is_old or is_new) or ((temporary_link.exists() or temporary_link.is_symlink())
             and (not temporary_link.is_symlink() or os.readlink(temporary_link) not in owned_targets))):
         raise InstallError("Intervening executor/link change; refusing recovery overwrite")
-    cohort = _cohort_record(journal, paths, preimage)
     if cohort is not None:
         if (not previous.is_symlink() or os.readlink(previous) != cohort["executorBefore"]["readlink"]
                 or _sha(previous) != cohort["executorBefore"]["sha256"]):
@@ -574,7 +602,7 @@ def recover_installation(*, paths: InstallPaths, pending: dict, require_idle: Ca
 
 
 def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
-                   reviewed_inventory_sha256: str, expected_executor_sha256: str,
+                   reviewed_inventory_sha256: str | None, expected_executor_sha256: str,
                    paths: InstallPaths, inspect_runtime: Callable[[], dict],
                    require_idle: Callable[[], None], apply: bool = False,
                    qualification_artifact: int | None = None,
@@ -598,7 +626,9 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
             inventory = inspect_runtime()
             guard.require_preserved(inventory["profile"], inventory["profile"])
             actual_inventory = guard.digest({"profile": inventory["profile"], "audit": inventory["audit"]})
-            if actual_inventory != inventory["inventorySha256"] or actual_inventory != reviewed_inventory_sha256:
+            readonly_cohort = cohort is not None and not apply and reviewed_inventory_sha256 is None
+            if (actual_inventory != inventory["inventorySha256"]
+                    or (not readonly_cohort and actual_inventory != reviewed_inventory_sha256)):
                 raise InstallError("Inventory differs from the explicitly reviewed reference")
             cohort_result = {}
             if cohort is not None:
@@ -727,7 +757,7 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
 
 
 def transition_cohort(source: Path, receiver_source: Path, *, expected_commit: str, manifest_sha256: str,
-                      reviewed_inventory_sha256: str, expected_executor_sha256: str, paths: InstallPaths,
+                      reviewed_inventory_sha256: str | None, expected_executor_sha256: str, paths: InstallPaths,
                       inspect_runtime: Callable[[], dict], require_idle: Callable[[], None],
                       reviewed_cohort_sha256: str | None = None, apply: bool = False,
                       qualification_artifact: int | None = None) -> dict:
@@ -902,7 +932,10 @@ def main() -> int:
         require_installation_context(context, paths, preserved)
         def inspect() -> dict:
             require_installation_context(context, paths, preserved)
-            module = _module(paths.entry, "duora_activated_executor") if paths.entry.is_symlink() and paths.entry.resolve().parent.name == args.source_commit else executor
+            # Cohort inspection must never import an active entry by a matching directory basename.
+            # Both pre/post snapshots use the candidate whose complete bundle is already authenticated.
+            module = executor if cohort_mode else (_module(paths.entry, "duora_activated_executor")
+                if paths.entry.is_symlink() and paths.entry.resolve().parent.name == args.source_commit else executor)
             inventory = module.runtime_inventory(release, deploy_paths)
             # Schema and legacy identity remain read-only; no external SQL container is materialized here.
             runtime_env = paths.state / "releases" / (current + ".env")
@@ -933,9 +966,9 @@ def main() -> int:
             assert args.cohort_receiver is not None
             result = transition_cohort(args.bundle, args.cohort_receiver,
                 expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256,
-                reviewed_inventory_sha256=args.reviewed_inventory_sha256 or inspect()["inventorySha256"],
+                reviewed_inventory_sha256=args.reviewed_inventory_sha256,
                 reviewed_cohort_sha256=args.reviewed_cohort_sha256,
-                expected_executor_sha256=args.expected_executor_sha256 or _sha(paths.entry), paths=paths,
+                expected_executor_sha256=args.expected_executor_sha256 or manifest["files"]["duora_deploy.py"]["sha256"], paths=paths,
                 inspect_runtime=inspect, require_idle=idle, apply=args.apply, qualification_artifact=args.artifact_id)
         else:
             result = install_bundle(args.bundle, expected_commit=args.source_commit, manifest_sha256=args.manifest_sha256,
