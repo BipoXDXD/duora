@@ -207,8 +207,28 @@ def _root_lab() -> dict:
             refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", tagged]))
             images[role] = next(ref for ref in refs if ref.startswith(registry + role + "@sha256:"))
         manifest = smoke_local.build_manifest(os.environ["GITHUB_SHA"], architecture, images)
-        manifest.update(contractVersion="v1", releaseId="qualified-bootstrap")
-        bootstrap = executor.parse_manifest(json.dumps(manifest), image_prefix="")
+        # A current bundle can exceed v1's fixed ceiling. Use the actual published historical application,
+        # never a modern image relabelled as legacy or a narrowed manifest with an unbounded migrator.
+        legacy = json.loads((repo / "scripts/deploy/fixtures/legacy-v1-continuity.json").read_text())
+        legacy_images = legacy["images"][architecture]
+        if (set(legacy_images) != set(images) or legacy_images["postgres"] != guard.LEGACY_DIGESTS[architecture]
+                or legacy["schema"]["max"] != guard.LEGACY_SCHEMA_CEILING
+                or legacy["migrations"][-1] != guard.LEGACY_SCHEMA_CEILING):
+            raise RuntimeError("Historical v1 fixture exceeds the qualified legacy boundary")
+        for role in ("web", "worker", "edge", "migrator"):
+            reference = legacy_images[role]
+            command(["docker", "pull", "--quiet", reference])
+            item = payload._inspect("image", reference, payload.capture_binary)
+            labels = item["Config"]["Labels"]
+            if (reference not in item.get("RepoDigests", []) or item["Architecture"] != architecture
+                    or item["Os"] != "linux" or labels["org.opencontainers.image.revision"] != legacy["commit"]
+                    or labels["org.opencontainers.image.title"] != "duora-" + role
+                    or labels["org.opencontainers.image.source"] != "https://github.com/BipoXDXD/duora"):
+                raise RuntimeError("Historical v1 application identity differs")
+        legacy_manifest = smoke_local.build_manifest(legacy["commit"], architecture, legacy_images)
+        legacy_manifest.update(schema=legacy["schema"], migrations=legacy["migrations"],
+            gates={"status": "passed", "runUrl": legacy["ciRun"]}, releaseId="qualified-bootstrap")
+        bootstrap = executor.parse_manifest(json.dumps(legacy_manifest), image_prefix="")
         paths = executor.Paths(compose_file, host_env, state)
         executor._stage_release_files(bootstrap, state)
         executor._record_release(bootstrap, state)
@@ -245,7 +265,7 @@ def _root_lab() -> dict:
             return sql
 
         with patch.object(payload, "extract_sql", side_effect=native_build_payload):
-            initial_raw = dict(manifest, releaseId="qualified-initial", previousReleaseId="qualified-bootstrap")
+            initial_raw = dict(legacy_manifest, releaseId="qualified-initial", previousReleaseId="qualified-bootstrap")
             initial = executor.parse_manifest(json.dumps(initial_raw), image_prefix="")
             try:
                 executor.deploy(initial, paths, executor.run_command, verify_backup=False)
@@ -275,7 +295,9 @@ def _root_lab() -> dict:
                 return result
             backend_pid = query("select pg_backend_pid()")
             sentinel_before = query("select count(*)||':'||min(value) from ops.deploy_continuity_sentinel")
-            history_before = query('select string_agg("MigrationId",\',\' order by "MigrationId") from ops.__ef_migrations_history')
+            legacy_history = query('select string_agg("MigrationId",\',\' order by "MigrationId") from ops.__ef_migrations_history')
+            if legacy_history != ",".join(legacy["migrations"]):
+                raise RuntimeError("Historical v1 migrator did not establish its exact real schema")
             events_file = (root / "events.jsonl").open("w")
             window_start = time.time()
             events = subprocess.Popen(["docker", "events", "--since", str(window_start), "--format", "{{json .}}", "--filter", "type=container",
@@ -385,7 +407,7 @@ def _root_lab() -> dict:
             command(["docker", "push", "--quiet", bad_tag])
             refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", bad_tag]))
             bad_migrator = next(ref for ref in refs if ref.startswith(registry + "migrator@sha256:"))
-            first_failed_raw = dict(initial_raw, contractVersion="v2", releaseId="qualified-first-v2-failed",
+            first_failed_raw = dict(manifest, contractVersion="v2", releaseId="qualified-first-v2-failed",
                 previousReleaseId=initial.release_id, images=dict(images, migrator=bad_migrator))
             try: active.deploy(active.parse_manifest(json.dumps(first_failed_raw), image_prefix=""), paths, active.run_command, verify_backup=False)
             except active.DeployError: pass
@@ -395,7 +417,8 @@ def _root_lab() -> dict:
             # Recover the exact qualified current v1 application without reapplying its weaker SQL.
             active.deploy(initial, paths, active.run_command, verify_backup=False)
             if ((state / "v2-contract-floor.json").read_bytes() != floor_bytes
-                    or query("select pg_backend_pid()") != backend_pid):
+                    or query("select pg_backend_pid()") != backend_pid
+                    or query('select string_agg("MigrationId",\',\' order by "MigrationId") from ops.__ef_migrations_history') != legacy_history):
                 raise RuntimeError("Current application recovery lowered the v2 floor or lost the SQL session")
             before_legacy = _instances(current_compose)["worker"]
             next_legacy = active.parse_manifest(json.dumps(dict(initial_raw, releaseId="qualified-new-v1-refused")), image_prefix="")
@@ -412,13 +435,18 @@ def _root_lab() -> dict:
                 command(["docker", "push", "--quiet", tagged])
                 refs = json.loads(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", tagged]))
                 return next(ref for ref in refs if ref.startswith(registry + "web@sha256:"))
-            first_raw = dict(initial_raw, contractVersion="v2", releaseId="qualified-v2-a", previousReleaseId=initial.release_id,
+            first_raw = dict(manifest, contractVersion="v2", releaseId="qualified-v2-a", previousReleaseId=initial.release_id,
                              images=dict(images, web=next_web("a")))
             first = active.parse_manifest(json.dumps(first_raw), image_prefix="")
             # Remove the pushed digest alias. The real executor must cold-pull it before native SQL extraction.
             command(["docker", "image", "rm", images["migrator"]])
             active.deploy(first, paths, active.run_command, verify_backup=False)
             if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("First forward lost SQL session")
+            history_before = query('select string_agg("MigrationId",\',\' order by "MigrationId") from ops.__ef_migrations_history')
+            if (history_before != ",".join(manifest["migrations"])
+                    or not set(legacy["migrations"]).issubset(history_before.split(","))
+                    or query("select count(*)||':'||min(value) from ops.deploy_continuity_sentinel") != sentinel_before):
+                raise RuntimeError("First v2 did not preserve historical migrations and sentinel while upgrading")
 
             second_images = dict(images, web=next_web("b"))
             second_raw = dict(first_raw, releaseId="qualified-v2-b", previousReleaseId=first.release_id, images=second_images)
@@ -473,11 +501,11 @@ def _root_lab() -> dict:
             compose_file.write_text(raw_compose.replace("  pgdata:\n", "  pgdata:\n    name: duora_forbidden_qualification\n"))
             refuses("desired_volume_rebinding_without_touching_existing_data")
             compose_file.write_text(raw_compose)
-            legacy = active.parse_manifest(json.dumps(dict(first_raw, releaseId="qualified-legacy-refusal", contractVersion="v1")), image_prefix="")
-            refuses("real_same_schema_contract_downgrade_refused", legacy)
+            legacy_refusal = active.parse_manifest(json.dumps(dict(first_raw, releaseId="qualified-legacy-refusal", contractVersion="v1")), image_prefix="")
+            refuses("real_same_schema_contract_downgrade_refused", legacy_refusal)
             command(["docker", "exec", pg, "psql", "-U", "postgres", "-d", "duora", "-v", "ON_ERROR_STOP=1", "-c",
                 'insert into ops.__ef_migrations_history values(\'20990101000000_SyntheticGuard\',\'10.0.13\')'])
-            refuses("real_unknown_schema_head_refuses_legacy", legacy)
+            refuses("real_unknown_schema_head_refuses_legacy", legacy_refusal)
             command(["docker", "exec", pg, "psql", "-U", "postgres", "-d", "duora", "-v", "ON_ERROR_STOP=1", "-c",
                 'delete from ops.__ef_migrations_history where "MigrationId"=\'20990101000000_SyntheticGuard\''])
             after_positive = active.runtime_inventory(first, paths)
@@ -545,6 +573,11 @@ def _root_lab() -> dict:
                 "compatible_v2_rollback_passed": True, "baseline": live_inventory["profile"],
                 "two_forward_deploys_under_observation": True, "failed_product_recovered": True,
                 "first_failed_v2_current_v1_app_recovery_preserved_floor": True,
+                "historical_v1_application_qualified": True, "legacy_schema_upgraded_preserving_history": True,
+                "historicalApplication": {"commit": legacy["commit"], "images": legacy_images,
+                    "ciRun": legacy["ciRun"], "publishRun": legacy["publishRun"],
+                    "migrationHistoryBefore": legacy_history, "migrationHistoryAfter": history_before,
+                    "scope": "Actual immutable historical application qualified in this disposable run; no production deployment claim"},
                 "pinnedComposePolicy": {"realRootFilesystem": True, "customJsonPathSelected": True,
                     "unsafeParentFileModeDigestSymlinkRefused": True, "scope": "Synthetic pin policy fixture; actual host pin is qualified under installer locks"},
                 "receiverVersionedLinkPolicy": {"realRootFilesystem": True, "sourceSha256": installer.RECEIVER_SHA256,

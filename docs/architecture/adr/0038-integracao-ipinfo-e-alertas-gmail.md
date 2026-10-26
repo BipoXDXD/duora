@@ -1,7 +1,8 @@
 # ADR-0038 — Integração operacional IPinfo e alertas Gmail
 
-Status: Proposed. O titular autorizou integração/ativação e escolheu Gmail com senha de app em 22/10/2026.
-A revisão do código, checks e evidências operacionais permanecem obrigatórios.
+Status: Accepted (24/10/2026), ratificação do desenho sob delegação expressa do titular. O titular autorizou integração/ativação e escolheu Gmail com senha de app em 22/10/2026.
+A revisão do código, checks e evidências operacionais permanecem obrigatórios. A ratificação não declara
+G2/G3/G5 aceitos nem componentes instalados; limites e decisões estão no registro de produto de24/10.
 
 O ADR-0033 definiu leitor, atualização, retenção e contrato de notificações separados dos hosts. A integração
 agora registra componentes opt-in; sem configuração válida, o detector continua desligado e nenhum worker

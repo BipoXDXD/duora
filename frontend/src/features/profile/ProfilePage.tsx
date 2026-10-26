@@ -1,5 +1,7 @@
+import { usePrivateOperation } from '@/features/session/private-operation'
+import { usePrivateMutation } from '@/features/session/private-mutation'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { RegionSuggestion } from '@/features/preferences/RegionSuggestion'
@@ -40,9 +42,10 @@ const PROBLEM_MESSAGES = {
 const PRIVATE_DATA_GC_TIME_MS = 0
 
 function useOwnProfile(userId: string): UseQueryResult<OwnProfile> {
+  const privateOperation = usePrivateOperation()
   return useQuery({
     queryKey: profileQueryKey(userId),
-    queryFn: ({ signal }) => fetchOwnProfile(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchOwnProfile(operation, signal)),
     gcTime: PRIVATE_DATA_GC_TIME_MS,
   })
 }
@@ -127,6 +130,7 @@ function useRegionOptions(): readonly { readonly value: string; readonly label: 
  * Ela só muda ao salvar ou quando a pessoa pede a versão atual depois de um conflito.
  */
 function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readonly userId: string }) {
+  const privateOperation = usePrivateOperation()
   const queryClient = useQueryClient()
   const { t, locale } = useI18n()
   const regionOptions = useRegionOptions()
@@ -138,9 +142,11 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
     defaultValues: toFormValues(initial),
   })
   const countryCode = useWatch({ control: form.control, name: 'countryCode' })
-  const save = useMutation({
-    mutationFn: ({ values, edited }: { readonly values: ProfileFormValues; readonly edited: EditedFields }) =>
-      updateOwnProfile(base.version, toProfileChanges(values, edited)),
+  const save = usePrivateMutation({
+    mutationFn: (
+      operation,
+      { values, edited }: { readonly values: ProfileFormValues; readonly edited: EditedFields },
+    ) => updateOwnProfile(operation, base.version, toProfileChanges(values, edited)),
     onSuccess: (saved) => {
       queryClient.setQueryData(profileQueryKey(userId), saved)
       setBase(saved)
@@ -153,11 +159,11 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
       }
     },
   })
-  const reload = useMutation({
-    mutationFn: () =>
+  const reload = usePrivateMutation({
+    mutationFn: (operation) =>
       queryClient.query({
         queryKey: profileQueryKey(userId),
-        queryFn: () => fetchOwnProfile(),
+        queryFn: () => fetchOwnProfile(operation),
         staleTime: 0,
         gcTime: PRIVATE_DATA_GC_TIME_MS,
       }),
@@ -169,11 +175,12 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
   })
   // Lido no render: o formState do react-hook-form só calcula o que é lido durante a renderização.
   const { dirtyFields } = form.formState
-  const submit = form.handleSubmit((values) => {
-    if (!save.isPending) {
-      save.mutate({ values, edited: { ...dirtyFields } })
-    }
-  })
+  const submit = (event: React.BaseSyntheticEvent) =>
+    privateOperation.run((operation) =>
+      form.handleSubmit(async (values) => {
+        if (!save.isPending) await save.mutateWithOperation(operation, { values, edited: { ...dirtyFields } })
+      })(event),
+    )
 
   const failure = save.isError ? classifyRequestFailure(save.error) : null
   const errorText = (message: string | undefined) => translateProfileError(t, message)
@@ -220,7 +227,7 @@ function ProfileForm({ initial, userId }: { readonly initial: OwnProfile; readon
         }}
         onSubmit={(event) => {
           regionEdited.current = true
-          void submit(event)
+          void submit(event).catch(() => undefined)
         }}
       >
         <TextField

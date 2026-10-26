@@ -1,5 +1,14 @@
 # Catálogo BR + US
 
+## Revisão e governança de 24/10/2026
+
+Os [78 pares de rótulos PT-BR/EN-US](../testing/reports/2026-10-24-location-labels.md) foram revisados e
+aprovados pelo assistente sob delegação expressa do titular, incluindo a distinção DC/Washington já aplicada.
+Isso resolve a revisão editorial pendente do subconjunto exibido; os arquivos CLDR originais e seus avisos
+provisórios permanecem como fonte histórica imutável. Responsabilidade técnica/editorial do titular,
+manutenção mensal e antes de mudança de país/contrato, sem criar agendamento automático. Aprovação textual
+não comprova acessibilidade física, implantação, corte V3 ou elegibilidade jurisdicional.
+
 Implementação solicitada pelo titular em 22/10/2026 para a #78. A release passa a aceitar Brasil e Estados Unidos, com 27 UFs e 50 estados + DC. País e subdivisão permanecem opcionais. PR, GU, VI, AS, MP e UM não são habilitados.
 
 A migração `20261022120000_UnitedStatesLocations` acrescenta somente país e subdivisões de referência. Não reescreve perfis ou preferências. `regionCode` legado continua exclusivamente BR; perfis US projetam null nesse campo. ETag, guardas e FKs permanecem. A API, os seletores e a preferência regional aceitam US e a combinação BR/US; sugestão não troca escolha manual e não inventa subdivisão.

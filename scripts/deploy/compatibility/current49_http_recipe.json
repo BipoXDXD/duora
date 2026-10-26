@@ -1,0 +1,290 @@
+{
+  "schema": 1,
+  "status": "SOURCE_DERIVED_RECIPE_ONLY; NOT_EXECUTED",
+  "scope": "Input for M2 native48-to49 driver only. No product code, no new CI/test/lab or real accounts.",
+  "source": {
+    "publishedCommit": "c9341ab39a5e3133067eb579021efdd8c19b0033",
+    "tree": "7d6db50750228ae778dae8760a07f918eb0d1dd3",
+    "image": "Use the existing authenticated immutable C934 web image pin; no rebuilt image or test-host substitute",
+    "evidence": [
+      {
+        "path": "backend/src/Duora.Web/Accounts/AuthEndpoints.cs",
+        "lines": "72-107;181-227",
+        "blob": "ec4a90af2be03f78d2050e8179ca9db51397f595",
+        "sha256": "5829bc5c7f2cd4767143eaeb12d0506a5423ac0208179f1345715cc88c32a6b6"
+      },
+      {
+        "path": "backend/src/Duora.Infrastructure/Identity/LegalPublicationResources.cs",
+        "lines": "10-17",
+        "blob": "f39ba4daad1df51aa651a8cc9df89be0f4152fe5",
+        "sha256": "fa817f230c062d87fd1c4d74de35be832a660ae3f5d4481c990a118503549876"
+      },
+      {
+        "path": "backend/src/Duora.Infrastructure/Identity/LegalDocuments/catalog.json",
+        "lines": "entire embedded resource",
+        "blob": "503d99778d4dd271c87000a3b0743d74852cf695",
+        "sha256": "b9525074fd264554e294c795e36c9997f23e0c2fbb26eb92a47481cb1854b722"
+      },
+      {
+        "path": "backend/src/Duora.Infrastructure/Identity/AccountServiceCollectionExtensions.cs",
+        "lines": "25-40;68-85",
+        "blob": "047bb3f51504506f1c375adb3552777c6026dc65",
+        "sha256": "8c75eef5b681d85b8c9b236e73e91e4c63758563fc9bfc4a74c19b12b6ebf232"
+      },
+      {
+        "path": "backend/src/Duora.Infrastructure/packages.lock.json",
+        "lines": "Identity/Core/KeyDerivation10.0.13",
+        "blob": "9c6a86525d65a88225a4773d4a7c8640aca84672",
+        "sha256": "d3aa295086ee2ec83a504205ece1e5a2fc74612ff1358fdb616d1d86c8cf65e6"
+      },
+      {
+        "path": "backend/src/Duora.Web/Security/CsrfProtection.cs",
+        "lines": "97-133",
+        "blob": "37fb922980a23f636149db1a9d14dad98b406940",
+        "sha256": "78ba8772d35f9ec809fd86cd2ead72ea94d481c811a4e6ca406916f1f7a5c6eb"
+      },
+      {
+        "path": "backend/tests/Duora.IntegrationTests/Identity/Browser.cs",
+        "lines": "35-71;119-159",
+        "blob": "6857fa5b7ce78687ecc33923e6ab4af9c95beb30",
+        "sha256": "dc7c9adbb445502438506512cbddd48aba5b99c82864cd41e946d22b502eaef8"
+      },
+      {
+        "path": "backend/tests/Duora.IntegrationTests/Identity/IdentityScenario.cs",
+        "lines": "42-72;126-142",
+        "blob": "0bf0c26f1a9d6978b48e4c51b240322717ce68ca",
+        "sha256": "547d4892bf7ec1c19f9fb452552fc70c59db2b143aafb163c098718a874c0c8f"
+      },
+      {
+        "path": "backend/tests/Duora.IntegrationTests/Identity/SyntheticLegalPublication.cs",
+        "lines": "11-29",
+        "blob": "75fd15dfab08dc1610de55671e9fbf32d51a47b9",
+        "sha256": "c6cded700cf22816abb25c323b8cf660852d1e7c6eff96ec1ec52b641d153b68"
+      },
+      {
+        "path": "backend/tests/Duora.IntegrationTests/DuoraWebFactory.cs",
+        "lines": "43-44;104-110",
+        "blob": "708259dccb9ec8551d37dbc797b133bc98cbf7a1",
+        "sha256": "88638af0389d9b81a9dc292a2503012ee9bc759e19ebc932dd56605ad7323d3d"
+      },
+      {
+        "path": "backend/tests/Duora.IntegrationTests/Identity/RoleSeparationTests.cs",
+        "lines": "115-150",
+        "blob": "e94e1963083114e2ba7ee209dfe1088532608cfb",
+        "sha256": "6a69d920b6b8fa26a141bb6f765a0f1261cd4a16bfd2fdc9aac9b25d8bb0b6c3"
+      },
+      {
+        "path": "backend/src/Duora.Core/Identity/AccountRoles.cs",
+        "lines": "participant role",
+        "blob": "9292538599071da0f31ae9813fd1c4adb38bb474",
+        "sha256": "c6d51109841111f92468f18844a8ab58ee3bead3c7f953acd99575157ed24276"
+      },
+      {
+        "path": "backend/src/Duora.Infrastructure/Identity/LanguagePreferenceGuard.cs",
+        "lines": "13-30",
+        "blob": "681dc190a96797af5b2267f0b7beab08a8151d28",
+        "sha256": "e8eedd493286c5f8b04151cd09248c68908c56ceb00219cffe94657cc181b701"
+      },
+      {
+        "path": "backend/src/Duora.Infrastructure/Identity/LocaleStore.cs",
+        "lines": "15-45",
+        "blob": "359d2da257cb398a36441374007afdaf126b4a29",
+        "sha256": "883169ef6e50233d3669664efc7f2f631c45118848d3ebb34927c4c15456dbf4"
+      },
+      {
+        "path": "backend/src/Duora.Web/Profiles/PreferenceEndpoints.cs",
+        "lines": "23-25;61-70;102-144",
+        "blob": "8616a55c3b26f720d64c51e6d10c007e6b5b28ea",
+        "sha256": "b39097149ea17481350d58a8280143d1ea85fe6c10550f3c9ddc318efc8e206b"
+      },
+      {
+        "path": "backend/tests/Duora.IntegrationTests/Profiles/AccountLocaleProjectionTests.cs",
+        "lines": "10-24",
+        "blob": "cca0e805bd9c2afbca5aeb8544832427e7b35fc3",
+        "sha256": "f7ee070e7e2c77cc351082e8ce5e60b1b1aea1824f8ad74ea9fb14eb5aea2731"
+      }
+    ]
+  },
+  "criticalNativeDifference": {
+    "nativeCatalog": {
+      "termsVersion": "2026-10-25",
+      "privacyVersion": "2026-10-25",
+      "locales": [
+        "pt-BR",
+        "en-US"
+      ],
+      "allFourDocumentsApproved": false,
+      "controllerName": null,
+      "registrationAvailable": false
+    },
+    "load": "Compiled resource Duora.Infrastructure.Identity.LegalDocuments.catalog.json; AddDuoraAccounts registers LegalPublicationResources.Load. No runtime approval flag or file-mount override exists in this contract.",
+    "testHostOnly": "DuoraWebFactory.LegalDocuments injects SyntheticLegalPublication.Default through ConfigureTestServices. Its approved synthetic publication is not a fact about the immutable native C934 image.",
+    "requiredNativeObservation": "With valid request syntax and valid public CSRF, POST register stays503 TEMPORARILY_UNAVAILABLE before accounts.RegisterAsync; no identity user/consent/outbox write for that attempted registration."
+  },
+  "fixturePreparation": {
+    "where": "Exclusively the disposable DB using M2 existing bounded fixture admin/cleanup helpers; never duora production. Native HTTP still runs as unprivileged duora_app.",
+    "account": "One generated UUID, unique ASCII native-<nonce>@example.test, transient locally generated12..128-character password, no control characters; no literal credential in this recipe or logs.",
+    "sql": "-- Fixture preparation ONLY in the disposable native-test database; no production SQL.\n-- Bind $1 UUID fixture user, $2 unique ASCII email under example.test,\n-- $3 encoded IdentityV3 fixture-password hash, $4 random security stamp, $5 random concurrency stamp.\n-- Execute both statements in the driver's existing fixture transaction; require one row each.\ninsert into identity.users\n (id,user_name,normalized_user_name,email,normalized_email,email_confirmed,password_hash,\n  security_stamp,concurrency_stamp,phone_number_confirmed,two_factor_enabled,lockout_enabled,\n  access_failed_count,lockout_end,status,created_at,temporary_password_expires_at,preferred_locale,locale_version)\nvalues ($1,$2,upper($2),$2,upper($2),true,$3,$4,$5,false,false,true,0,null,\n 'PendingEligibility',now(),null,'en-US',0);\ninsert into identity.user_roles(user_id,role_id)\n select $1,id from identity.roles where name='participant';",
+    "role": "participant only; no admin,moderator,bootstrap,capabilities,MFA enrollment or eligibility evidence",
+    "notes": [
+      "RoleSeparationTests.InsertUserAsync demonstrates the field layout but does not create a login password or participant role; do not use that helper unchanged for this login proof.",
+      "This is fixture data, not HTTP registration or human/legal acceptance. Do not fabricate consent_records or approved legal documents.",
+      "Keep the same seeded user, password hash, stamps and row between before/after phases; do not reset rows to hide migration effects."
+    ]
+  },
+  "passwordHasher": {
+    "identityVersion": "Microsoft.Extensions.Identity.Core10.0.13 and KeyDerivation10.0.13, as locked by C934",
+    "configuredImplementation": "Default IPasswordHasher<DuoraUser> registered by AddIdentityCore; no production PasswordHasherOptions/IterationCount override found.",
+    "preferredGeneration": "In the driver existing fixture helper, use the matching Microsoft.AspNetCore.Identity.PasswordHasher with IdentityV3 defaults. Photo did not invoke it.",
+    "equivalentWireEncoding": {
+      "base64": "Standard Base64 of binary payload, not base64url and not hex",
+      "format": "0x01 || uint32be(2) || uint32be(100000) || uint32be(16) || salt16 || subkey32",
+      "derivation": "PBKDF2-HMAC-SHA512(password UTF-8 bytes, random16-byte salt,100000 iterations,32-byte subkey)",
+      "length": "61 decoded bytes; the salt and fixture password must be generated by M2, not copied from a published example"
+    },
+    "primarySources": [
+      "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.13/src/Identity/Extensions.Core/src/PasswordHasher.cs",
+      "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.13/src/Identity/Extensions.Core/src/PasswordHasherOptions.cs",
+      "https://raw.githubusercontent.com/dotnet/aspnetcore/v10.0.13/src/DataProtection/Cryptography.KeyDerivation/src/KeyDerivationPrf.cs"
+    ],
+    "testOptimizationNotToCopy": "LoginConcurrencyTests uses an iteration1 DecoyPasswordHash fixture; do not treat that as the native password-hash policy."
+  },
+  "transportAndCookies": {
+    "origin": "Reuse M2 existing isolated HTTPS/same-origin transport and exact Duora__PublicOrigin; preserve Secure cookies and existing key-ring/certificate fixture arrangements. Do not add a new proxy or disable CSRF/origin checks.",
+    "publicMutationHeaders": {
+      "Content-Type": "application/json",
+      "Origin": "<exact fixture HTTPS public origin>",
+      "Sec-Fetch-Site": "same-origin",
+      "X-XSRF-TOKEN": "<current XSRF-TOKEN cookie value for public auth requests>"
+    },
+    "cookies": [
+      "__Host-duora-af: framework HttpOnly antiforgery cookie",
+      "XSRF-TOKEN: readable public antiforgery request token",
+      "__Host-duora: HttpOnly authenticated session cookie received after login"
+    ],
+    "privateProof": "After login, GET/api/v1/me without a private-proof header. Extract body.sessionContext.requestToken. For private GET/PUT, use that value in X-XSRF-TOKEN with the matching authenticated cookie jar. The public XSRF-TOKEN cookie alone is not the private-operation proof.",
+    "refresh": "Accept all Set-Cookie updates on login. Bootstrap explicitly once per phase/new session; do not silently retry failed private operations with a refreshed proof. Never log cookies, tokens, password or raw bodies."
+  },
+  "nativeRegistrationNegative": {
+    "sequence": [
+      "GET/api/v1/legal-documents: observe registrationAvailable=false and four approved=false documents; use the catalog actual versions/hashes, do not infer approval.",
+      "GET/api/v1/auth/csrf:204 and public antiforgery cookies",
+      "POST/api/v1/auth/register with public headers and body below:503 TEMPORARILY_UNAVAILABLE; fixture verifies no write for a distinct registration email."
+    ],
+    "body": {
+      "email": "<distinct unseeded synthetic registration email>",
+      "password": "<generated fixture password>",
+      "acceptedTermsVersion": "<catalog.termsVersion:2026-10-25>",
+      "acceptedPrivacyVersion": "<catalog.privacyVersion:2026-10-25>",
+      "acceptedTermsLocale": "pt-BR",
+      "acceptedPrivacyLocale": "pt-BR",
+      "acceptedTermsSha256": "<exact catalog terms/pt-BR sha256>",
+      "acceptedPrivacySha256": "<exact catalog privacy/pt-BR sha256>"
+    },
+    "notUsedForNativeProof": "The successful test-host202 confirm-email204 flow depends on synthetic DI approval and must not replace native seed+login. No outbox token needs to be fetched for the seeded native account."
+  },
+  "beforeDDL48": {
+    "steps": [
+      {
+        "method": "GET",
+        "path": "/api/v1/auth/csrf",
+        "expected": 204
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/auth/login",
+        "headers": "publicMutationHeaders + anonymous cookie jar",
+        "body": {
+          "email": "<seeded synthetic email>",
+          "password": "<same generated fixture password>"
+        },
+        "expected": 204,
+        "observe": "Preserve session and refreshed antiforgery cookies. No twoFactorCode or recoveryCode for participant with MFA disabled."
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/me",
+        "headers": "session cookie jar; bootstrap has no private-proof header",
+        "expected": 200,
+        "observe": "id=seeded UUID; emailConfirmed=true; status=PendingEligibility; roles include onlyparticipant; capture sessionContext.requestToken"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/me/locale",
+        "headers": "session cookies + private X-XSRF-TOKEN",
+        "expected": 200,
+        "bodyExpected": {
+          "locale": "en-US",
+          "version": "0"
+        },
+        "etagExpected": "\"0\""
+      },
+      {
+        "method": "PUT",
+        "path": "/api/v1/me/locale",
+        "headers": {
+          "Origin": "<fixture HTTPS origin>",
+          "Sec-Fetch-Site": "same-origin",
+          "Content-Type": "application/json",
+          "X-XSRF-TOKEN": "<bootstrap private requestToken>",
+          "If-Match": "<exact ETag from GET>"
+        },
+        "body": {
+          "locale": "pt-BR"
+        },
+        "expected": 200,
+        "bodyExpected": {
+          "locale": "pt-BR",
+          "version": "1"
+        },
+        "etagExpected": "\"1\""
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/me",
+        "expected": 200,
+        "observe": "preferredLocale=pt-BR"
+      }
+    ],
+    "DBAssertion": "select preferred_locale,locale_version from identity.users where id=$1 ->pt-BR,1; scope to fixture UUID only. Real operation also increments safety.user_guards.security_version in its transaction."
+  },
+  "afterDDL49AndNewSQL": {
+    "boundary": "M2 owns DDL49 + canonical SQLee88 and the matched recovery/rollback contract; Photo performs none of it. Preserve the old immutable C934 binary for this compatibility observation.",
+    "steps": [
+      "Fresh login with the SAME fixture user/password through the SAME native C934 image, then explicit GET/me bootstrap with the new cookie jar. Expect204 then200.",
+      "GET/me/locale with private proof must return persisted pt-BR/version1,ETag\"1\".",
+      "PUT/me/locale {locale:en-US} using exact GET ETag/private proof:200,version2,ETag\"2\".",
+      "GET/me and fixture-scoped DB read confirm preferredLocale=en-US,locale_version=2. Verify earlier user/role/stamps/password hash and48existing history remain intact; do not reseed after DDL."
+    ],
+    "meaning": "Two authenticated DB-backed conditional writes and persistence reads across48-to49, using the unchanged old application. This is narrower than full product/native49 qualification."
+  },
+  "fixtureConfiguration": {
+    "necessary": [
+      "ConnectionStrings__Duora points only to disposable DB under runtime app credentials",
+      "Duora__PublicOrigin is exact isolated HTTPS origin used by the transport",
+      "Reuse existing isolated DataProtection key-ring/certificate setup and no ambient credentials",
+      "Run only the C934 web process required for this HTTP proof; do not launch the worker or email dispatcher"
+    ],
+    "mustRemainOff": [
+      "No Legal approved/controller override or replacement of compiled native catalog",
+      "No Media__Review=HumanReview; remove optional Media__Review and Media__Storage__Provider settings for this identity-only fixture, matching the null defaults of the native base configuration",
+      "No object-store/B2/Resend or other external provider credentials/calls",
+      "No IPinfo/regional cutover, age/selfie/provider approval or participation-eligibility grants",
+      "No photo uploads, photo decisions, restore or physical GC",
+      "No admin bootstrap or privileged participant role",
+      "No disabling CSRF, session-private proof, Secure cookies, rate limits or authorization",
+      "No generic current-v2 activation/pre-registration: the new49 pair remains separately qualified in M2 driver"
+    ]
+  },
+  "executedByPhoto": {
+    "productCalls": 0,
+    "HTTP": 0,
+    "DB": 0,
+    "hasher": 0,
+    "SDK": 0,
+    "tests": 0,
+    "CI": 0,
+    "productCodeChanges": 0,
+    "branchesOrPRs": 0
+  }
+}

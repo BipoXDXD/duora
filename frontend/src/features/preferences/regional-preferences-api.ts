@@ -1,3 +1,4 @@
+import type { OperationHandle } from '@/shared/session-context'
 import { z } from 'zod'
 import { apiClient, sendMutationForJson } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
@@ -16,9 +17,13 @@ const schema = z
   ) satisfies z.ZodType<components['schemas']['OwnRegionalPreferencesResponse']>
 
 export type RegionalPreferences = z.output<typeof schema>
-export async function fetchRegionalPreferences(signal?: AbortSignal): Promise<RegionalPreferences> {
+export async function fetchRegionalPreferences(
+  operation: OperationHandle,
+  signal?: AbortSignal,
+): Promise<RegionalPreferences> {
   return schema.parse(
     await apiClient.requestJson({
+      operation,
       method: 'GET',
       path: '/api/v1/me/regional-preferences',
       ...(signal === undefined ? {} : { signal }),
@@ -26,16 +31,17 @@ export async function fetchRegionalPreferences(signal?: AbortSignal): Promise<Re
   )
 }
 export async function saveRegionalPreferences(
+  operation: OperationHandle,
   base: string,
-  mode: 'countries' | 'unrestricted',
-  countryCodes: ('BR' | 'US')[],
+  changes: { readonly mode: 'countries' | 'unrestricted'; readonly countryCodes: ('BR' | 'US')[] },
 ): Promise<RegionalPreferences> {
   return schema.parse(
     await sendMutationForJson({
+      operation,
       method: 'PUT',
       path: '/api/v1/me/regional-preferences',
       headers: { 'If-Match': `"${base}"` },
-      body: { mode, countryCodes },
+      body: changes,
     }),
   )
 }

@@ -94,7 +94,7 @@ internal static class MfaEndpoints
                 // Acabou de provar o TOTP: a sessão nova nasce com a prova de MFA e a autenticação recente.
                 var now = time.GetUtcNow();
                 await CurrentSession.RenewAsync(context, antiforgery, activated.SecurityStamp, now, now, now);
-                return TypedResults.Ok(new RecoveryCodesResponse(activated.RecoveryCodes));
+                return TypedResults.Ok(new RecoveryCodesResponse(activated.RecoveryCodes, CurrentSession.Require(context).SessionId));
             case MfaActivation.InvalidCode:
                 return ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.MfaCodeInvalid);
             case MfaActivation.NotStarted:
@@ -117,11 +117,11 @@ internal static class MfaEndpoints
         AccountSecurityService security,
         CancellationToken cancellationToken)
     {
-        var (userId, _) = CurrentSession.Require(context);
+        var (userId, sessionId) = CurrentSession.Require(context);
         return await security.RegenerateRecoveryCodesAsync(userId, EmailLanguageNegotiation.FromRequest(context.Request), cancellationToken) switch
         {
             RecoveryCodesRegeneration.Regenerated regenerated =>
-                TypedResults.Ok(new RecoveryCodesResponse(regenerated.RecoveryCodes)),
+                TypedResults.Ok(new RecoveryCodesResponse(regenerated.RecoveryCodes, sessionId)),
             RecoveryCodesRegeneration.MfaNotEnabled => NotEnabled(),
             var other => throw new InvalidOperationException($"Resultado não mapeado: {other}."),
         };

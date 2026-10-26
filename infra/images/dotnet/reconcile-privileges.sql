@@ -27,6 +27,7 @@ DO $$
 BEGIN
   IF to_regclass('ops.audit_events') IS NOT NULL
      AND (has_table_privilege('duora_app', 'ops.audit_events', 'UPDATE')
+          OR has_any_column_privilege('duora_app', 'ops.audit_events', 'UPDATE')
           OR has_table_privilege('duora_app', 'ops.audit_events', 'DELETE')
           OR has_table_privilege('duora_app', 'ops.audit_events', 'TRUNCATE')) THEN
     RAISE EXCEPTION 'duora_app ainda pode alterar ops.audit_events (append-only, D3)';
@@ -80,3 +81,51 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Explicit photo review permissions retain append-only history, independently of moderator role membership.
+DO $$
+BEGIN
+  IF to_regclass('safety.photo_review_grants') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE, TRUNCATE ON safety.photo_review_grants FROM duora_app;
+    IF has_table_privilege('duora_app', 'safety.photo_review_grants', 'UPDATE')
+       OR has_any_column_privilege('duora_app', 'safety.photo_review_grants', 'UPDATE')
+       OR has_table_privilege('duora_app', 'safety.photo_review_grants', 'DELETE')
+       OR has_table_privilege('duora_app', 'safety.photo_review_grants', 'TRUNCATE') THEN
+      RAISE EXCEPTION 'duora_app may not rewrite photo review permission history';
+    END IF;
+  END IF;
+END $$;
+
+-- Assignment, evidence access history and confirmed command receipts are immutable on an existing database.
+DO $$
+DECLARE review_table text;
+BEGIN
+  FOREACH review_table IN ARRAY ARRAY['media.review_promotion_variants',
+    'safety.photo_review_appeal_assignment_commands','safety.photo_review_appeal_assignments',
+    'safety.photo_review_appeal_commands','safety.photo_review_appeal_evidence_accesses',
+    'safety.photo_review_assignments','safety.photo_review_commands',
+    'safety.photo_review_decision_commands','safety.photo_review_decision_variants','safety.photo_review_decisions',
+    'safety.photo_review_evidence_accesses'] LOOP
+    IF to_regclass(review_table) IS NOT NULL THEN
+      EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON %s FROM duora_app', review_table);
+      IF has_table_privilege('duora_app', review_table, 'UPDATE')
+         OR has_any_column_privilege('duora_app', review_table, 'UPDATE')
+         OR has_table_privilege('duora_app', review_table, 'DELETE')
+         OR has_table_privilege('duora_app', review_table, 'TRUNCATE') THEN
+        RAISE EXCEPTION 'duora_app may not rewrite photo review history';
+      END IF;
+    END IF;
+  END LOOP;
+END $$;
+
+-- The mutable appeal root must retain SELECT/INSERT/UPDATE; deletion must never erase its retained history.
+DO $$
+BEGIN
+  IF to_regclass('safety.photo_review_appeals') IS NOT NULL THEN
+    REVOKE DELETE, TRUNCATE ON safety.photo_review_appeals FROM duora_app;
+    IF has_table_privilege('duora_app', 'safety.photo_review_appeals', 'DELETE')
+       OR has_table_privilege('duora_app', 'safety.photo_review_appeals', 'TRUNCATE') THEN
+      RAISE EXCEPTION 'duora_app may not rewrite photo review history through appeal root deletion';
+    END IF;
+  END IF;
+END $$;

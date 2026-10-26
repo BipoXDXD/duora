@@ -37,13 +37,15 @@ public static class AccountServiceCollectionExtensions
             .Validate(o => o.IsValid(), "Identity: PendingAccountLifetime e MaxConfirmationFailures precisam ser positivos.")
             .ValidateOnStart();
         services.AddSingleton<DecoyPasswordHash>();
+        services.AddSingleton(_ => LegalPublicationResources.Load());
         services.AddScoped(provider => new AccountService(
             provider.GetRequiredService<DuoraDbContext>(),
             provider.GetRequiredService<UserManager<DuoraUser>>(),
             provider.GetRequiredService<AccountSecurityService>(),
             provider.GetRequiredService<DecoyPasswordHash>(),
             provider.GetRequiredService<IOptions<AccountLifecycleOptions>>().Value,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<LegalPublication>()));
         services.AddOptions<AccountLockOptions>()
             .BindConfiguration(AccountLockOptions.Section)
             .Validate(o => o.IsValid(), "Identity:AccountLockTimeout e Identity:AccountQueueTimeout precisam ficar entre 100 ms e 1 min.")

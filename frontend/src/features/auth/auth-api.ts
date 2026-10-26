@@ -1,10 +1,12 @@
+import type { OperationHandle } from '@/shared/session-context'
 import { z } from 'zod'
-import { sendMutation, sendMutationForJson } from '@/shared/api'
+import { ApiResponseError, sendMutation, sendMutationForJson } from '@/shared/api'
 import type { components } from '@/shared/api/schema'
 import type { Locale } from '@/shared/i18n/locale'
 import type { EmailLink } from './auth-schemas'
 
 type LoginRequest = components['schemas']['LoginRequest']
+type CreateEmailConfirmationRequest = components['schemas']['CreateEmailConfirmationRequest']
 type ChangePasswordRequest = components['schemas']['ChangePasswordRequest']
 type ConfirmMfaRequest = components['schemas']['ConfirmMfaRequest']
 type MfaEnrollmentResponse = components['schemas']['MfaEnrollmentResponse']
@@ -17,14 +19,26 @@ export interface Registration {
   readonly password: string
   readonly acceptedTermsVersion: string
   readonly acceptedPrivacyVersion: string
-  /** Explicit document metadata; omitted/null means unknown, not the interface language. */
-  readonly acceptedTermsLocale?: Locale | null
-  readonly acceptedPrivacyLocale?: Locale | null
+  /** Exact published document language; it is independent of the account/interface preference. */
+  readonly acceptedTermsLocale: Locale
+  readonly acceptedTermsSha256: string
+  readonly acceptedPrivacySha256: string
+  readonly acceptedPrivacyLocale: Locale
 }
 
 /** 202 neutro: a resposta não revela se o e-mail já tem conta. */
-export function register(registration: Registration): Promise<void> {
-  return sendMutation({ method: 'POST', path: '/api/v1/auth/register', body: registration })
+export function register(operation: OperationHandle, registration: Registration): Promise<void> {
+  return sendMutation({ operation, method: 'POST', path: '/api/v1/auth/register', body: registration })
+}
+
+/** 202 neutro; não substitui senha/aceites nem prolonga o cadastro pendente. */
+export function requestEmailConfirmation(operation: OperationHandle, email: string, password: string): Promise<void> {
+  return sendMutation({
+    operation,
+    method: 'POST',
+    path: '/api/v1/auth/email-confirmation-requests',
+    body: { email, password } satisfies CreateEmailConfirmationRequest,
+  })
 }
 
 /**
@@ -32,8 +46,9 @@ export function register(registration: Registration): Promise<void> {
  * entregue na caixa da vítima não confirma a conta de quem o gerou. Senha errada responde como
  * token inválido (400 INVALID_TOKEN).
  */
-export function confirmEmail(link: EmailLink, password: string): Promise<void> {
+export function confirmEmail(operation: OperationHandle, link: EmailLink, password: string): Promise<void> {
   return sendMutation({
+    operation,
     method: 'POST',
     path: '/api/v1/auth/confirm-email',
     body: { userId: link.userId, token: link.token, password },
@@ -48,8 +63,9 @@ export interface Credentials {
   readonly recoveryCode?: string | undefined
 }
 
-export function login(credentials: Credentials): Promise<void> {
+export function login(operation: OperationHandle, credentials: Credentials): Promise<void> {
   return sendMutation({
+    operation,
     method: 'POST',
     path: '/api/v1/auth/login',
     body: {
@@ -62,20 +78,26 @@ export function login(credentials: Credentials): Promise<void> {
 }
 
 /** 202 neutro: a resposta não revela se o e-mail tem conta. */
-export function requestPasswordReset(email: string): Promise<void> {
-  return sendMutation({ method: 'POST', path: '/api/v1/auth/password-reset-requests', body: { email } })
+export function requestPasswordReset(operation: OperationHandle, email: string): Promise<void> {
+  return sendMutation({ operation, method: 'POST', path: '/api/v1/auth/password-reset-requests', body: { email } })
 }
 
-export function resetPassword(link: EmailLink, newPassword: string): Promise<void> {
+export function resetPassword(operation: OperationHandle, link: EmailLink, newPassword: string): Promise<void> {
   return sendMutation({
+    operation,
     method: 'POST',
     path: '/api/v1/auth/password-resets',
     body: { userId: link.userId, token: link.token, newPassword },
   })
 }
 
-export function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+export function changePassword(
+  operation: OperationHandle,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
   return sendMutation({
+    operation,
     method: 'POST',
     path: '/api/v1/me/password-changes',
     body: { currentPassword, newPassword } satisfies ChangePasswordRequest,
@@ -89,21 +111,32 @@ const mfaEnrollmentSchema = z.object({
 
 const recoveryCodesSchema = z.object({
   recoveryCodes: z.array(z.string().min(1)).min(1),
+  resultSessionId: z.uuid(),
 }) satisfies z.ZodType<RecoveryCodesResponse>
 
 export type MfaEnrollment = z.output<typeof mfaEnrollmentSchema>
 
 /** Inicia o cadastro do TOTP (API-A11). A chave volta uma vez; quem chama a guarda só em memória local. */
-export async function startMfaEnrollment(): Promise<MfaEnrollment> {
-  return mfaEnrollmentSchema.parse(await sendMutationForJson({ method: 'POST', path: '/api/v1/me/mfa/enrollments' }))
+export async function startMfaEnrollment(operation: OperationHandle): Promise<MfaEnrollment> {
+  const result = mfaEnrollmentSchema.safeParse(
+    await sendMutationForJson({ operation, method: 'POST', path: '/api/v1/me/mfa/enrollments' }),
+  )
+  if (!result.success) throw new ApiResponseError(200, 'resultado de segurança inválido')
+  return result.data
 }
 
 /** Confirma o TOTP (API-A12) e devolve os códigos de recuperação, mostrados uma vez. */
-export async function confirmMfa(code: string): Promise<readonly string[]> {
+export async function confirmMfa(
+  operation: OperationHandle,
+  code: string,
+): Promise<z.output<typeof recoveryCodesSchema>> {
   const body = await sendMutationForJson({
+    operation,
     method: 'POST',
     path: '/api/v1/me/mfa/confirmations',
     body: { code } satisfies ConfirmMfaRequest,
   })
-  return recoveryCodesSchema.parse(body).recoveryCodes
+  const result = recoveryCodesSchema.safeParse(body)
+  if (!result.success) throw new ApiResponseError(200, 'resultado de segurança inválido')
+  return result.data
 }

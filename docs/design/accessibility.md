@@ -148,7 +148,7 @@ linha recebe status no protocolo (A11Y-08) e só vale depois de verificada.
 | Janela de decisão | 24 h | Limite acima de 20 horas | Atende diretamente o critério | Prazo exibido em data e hora absolutas; expirar não é apresentado como rejeição |
 | Link de exportação | 24 h | Limite acima de 20 horas | Atende diretamente o critério | Link expirado orienta nova solicitação |
 | Sessão por inatividade | 30 min | Estender | Não é tempo real nem essencial; precisa cumprir 2.2.1 por extensão | Aviso pelo menos 2 min antes, com "Continuar conectada" (ação simples) e foco no diálogo; extensões ilimitadas enquanto houver atividade; o aviso não aparece durante uma sala ativa, pois a atividade da sala renova a sessão |
-| Sessão absoluta | 12 h | **Pendente de decisão** | Limite de segurança (spec 4.3) que não pode ser estendido sem mudar a política; 2.2.1 não prevê exceção específica para segurança | Proposta: aviso antecipado; após reautenticar, voltar à mesma tela com o estado do servidor preservado. A decisão entre aceitar o risco registrado ou ajustar a política é do responsável pelo produto |
+| Sessão absoluta | 12 h; administração 8 h | Risco de não atender literalmente 2.2.1 aceito em 24/10/2026 sob delegação | Preservar o limite de segurança; não alegar exceção normativa específica para segurança | Aviso antecipado e retorno seguro após reautenticação, recuperando estado do servidor; sem senha/MFA/conteúdo privado em URL ou storage. Decisão não equivale a teste executado |
 | Limite temporário de tentativas (login, reenvio) | Variável | Não aplicável com justificativa | É bloqueio de segurança após tentativas, não limite para concluir uma tarefa em andamento | Horário absoluto de nova tentativa; caminho alternativo de recuperação |
 
 ## Matriz de suporte
@@ -163,7 +163,7 @@ Testar uma combinação não autoriza prometer compatibilidade com as outras (sp
 | Chrome e Firefox, só teclado | macOS 27 | **Obrigatória** antes do piloto | A11Y-02, 03, 04 | Diferenças de foco e de `<dialog>` entre motores |
 | Safari + VoiceOver | iOS (versão da matriz de navegadores) | **Obrigatória** antes do piloto | A11Y-01, 03, 04, 05, 06, 07 | Safari/iOS está na matriz da spec 13.5; teclado virtual e gestos do leitor |
 | Chrome + TalkBack | Android (versão da matriz) | **Obrigatória** antes do piloto | A11Y-01, 03, 04, 05, 06, 07 | Chrome/Android está na matriz da spec 13.5 |
-| Firefox ou Chrome + NVDA | Windows | **A decidir** pelo público do piloto | Jornadas P1 do [brief](../product/experience-brief.md#tarefas-prioritárias) | Leitor mais usado no desktop Windows; exige máquina Windows |
+| Firefox ou Chrome + NVDA | Windows | **Obrigatória antes da abertura pública do piloto**, decisão de 24/10/2026 | Jornadas P1 do [brief](../product/experience-brief.md#tarefas-prioritárias) | Registrar execução e versões reais; DOM/axe não substituem NVDA físico |
 | Playwright (Chromium e WebKit) + axe | CI (Ubuntu) | **Obrigatória** em todo PR | Páginas e estados com teste E2E | Já no pipeline; cobre só o que é detectável automaticamente |
 
 ## Automação: cobertura e limites
@@ -186,8 +186,8 @@ Testar uma combinação não autoriza prometer compatibilidade com as outras (sp
 
 ## Pendências
 
-- Decisão sobre a sessão absoluta de 12 h e 2.2.1 (tabela acima).
-- Decisão sobre incluir NVDA/Windows na matriz do piloto.
+- Verificar as mitigações da sessão absoluta decididas no [registro de24/10](../product/decisions-2026-10-24.md); risco aceito não é declaração de conformidade.
+- Executar e registrar NVDA/Windows nas jornadas P1; inclusão na matriz já decidida, sem resultado físico presumido.
 - Testes com pessoas com deficiência: complementam a inspeção técnica quando organizados (spec 13.7).
 - Versões de iOS e Android da matriz de navegadores ainda não publicadas (spec 13.5).
 - Áudio no Safari/iOS (desbloqueio por gesto, modo silencioso do aparelho) e voz ao vivo entram na matriz

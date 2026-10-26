@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json.Nodes;
 using Duora.IntegrationTests.Http;
 using Duora.IntegrationTests.Identity;
 using Microsoft.AspNetCore.Hosting;
@@ -316,6 +317,7 @@ public sealed partial class KestrelPhotoUploadTests : IAsyncLifetime
             Content = JsonContent.Create(new { email = account.Email, password = account.Password }),
         });
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        await session.FetchPrivateContextAsync();
         return session;
     }
 
@@ -334,6 +336,16 @@ public sealed partial class KestrelPhotoUploadTests : IAsyncLifetime
     private sealed class KestrelSession(HttpClient http, Guid userId)
     {
         private readonly Dictionary<string, string> _cookies = new(StringComparer.Ordinal);
+        private string? _privateProof;
+
+        public async Task FetchPrivateContextAsync()
+        {
+            using var response = await SendAsync(new HttpRequestMessage(HttpMethod.Get, "/api/v1/me"));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var body = await response.Content.ReadFromJsonAsync<JsonObject>(Cancellation);
+            _privateProof = body?["sessionContext"]?["requestToken"]?.GetValue<string>();
+            Assert.False(string.IsNullOrWhiteSpace(_privateProof));
+        }
 
         public Guid UserId { get; } = userId;
 
@@ -361,9 +373,13 @@ public sealed partial class KestrelPhotoUploadTests : IAsyncLifetime
                     request.Headers.Add("Cookie", string.Join("; ", _cookies.Select(c => $"{c.Key}={c.Value}")));
                 }
 
-                if (_cookies.TryGetValue("XSRF-TOKEN", out var token))
+                var publicRequest = request.RequestUri?.OriginalString is "/api/v1/auth/csrf" or "/api/v1/auth/login";
+                var token = publicRequest
+                    ? (_cookies.TryGetValue("XSRF-TOKEN", out var cookie) ? Uri.UnescapeDataString(cookie) : null)
+                    : _privateProof;
+                if (token is not null)
                 {
-                    request.Headers.Add("X-XSRF-TOKEN", Uri.UnescapeDataString(token));
+                    request.Headers.Add("X-XSRF-TOKEN", token);
                 }
 
                 request.Headers.Add("Origin", DuoraWebFactory.PublicOrigin);

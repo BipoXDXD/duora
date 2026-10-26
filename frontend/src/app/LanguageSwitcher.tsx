@@ -1,11 +1,12 @@
+import { contextAbort } from '@/shared/session-context'
 import { QueryClientContext } from '@tanstack/react-query'
 import { fetchLocale, saveLocale } from '@/features/preferences/preferences-api'
 import { meQueryKey } from '@/features/session/query-keys'
 import type { Me } from '@/features/session/session-api'
-import { classifyRequestFailure } from '@/shared/api'
+import { apiClient, classifyRequestFailure } from '@/shared/api'
 import { RequestFailureAlert } from '@/shared/ui/alert'
 import type { Locale } from '@/shared/i18n/locale'
-import { useContext, useId, useState } from 'react'
+import { useContext, useId, useState, useSyncExternalStore } from 'react'
 import { cn } from 'cn'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { LOCALE_AUTONYMS, SUPPORTED_LOCALES } from '@/shared/i18n/locale'
@@ -19,30 +20,41 @@ export function LanguageSwitcher(): React.JSX.Element {
   const { locale, t, changeLocale } = useI18n()
   const labelId = useId()
   const queries = useContext(QueryClientContext)
+  const account = useSyncExternalStore(
+    (notify) => queries?.getQueryCache().subscribe(notify) ?? (() => undefined),
+    () => queries?.getQueryData<Me>(meQueryKey),
+  )
   const [pending, setPending] = useState(false)
   const [failure, setFailure] = useState<unknown>(null)
   async function select(next: Locale): Promise<void> {
-    const account = queries?.getQueryData<Me>(meQueryKey)
-    if (account === undefined) {
+    if (apiClient.sessionContext.getSnapshot().owner !== account?.owner) {
       changeLocale(next)
       return
     }
     if (pending) return
+    const operation = apiClient.sessionContext.begin(account.owner)
     setPending(true)
     setFailure(null)
     try {
-      const current = await fetchLocale()
-      if (queries?.getQueryData<Me>(meQueryKey)?.id !== account.id) return
-      const saved = await saveLocale(current.version, next)
-      if (queries.getQueryData<Me>(meQueryKey)?.id !== account.id) return
+      const current = await fetchLocale(operation)
+      apiClient.sessionContext.assertCurrent(operation)
+      if (queries === undefined) return
+      const cached = queries.getQueryData<Me>(meQueryKey)
+      if (cached?.owner !== account.owner || cached.id !== account.id) {
+        apiClient.sessionContext.protect('context')
+        throw contextAbort()
+      }
+      const saved = await saveLocale(operation, current.version, next)
+      apiClient.sessionContext.assertCurrent(operation)
       queries.setQueryData<Me>(meQueryKey, (value) =>
-        value === undefined ? value : { ...value, preferredLocale: saved.locale },
+        value?.owner === account.owner && value.id === account.id ? { ...value, preferredLocale: saved.locale } : value,
       )
       void queries.invalidateQueries({ queryKey: ['account', account.id, 'locale'] })
       changeLocale(saved.locale)
     } catch (error) {
-      setFailure(error)
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setFailure(error)
     } finally {
+      apiClient.sessionContext.finish(operation)
       setPending(false)
     }
   }

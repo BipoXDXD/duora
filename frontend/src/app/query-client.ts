@@ -1,6 +1,8 @@
 import { hashKey, MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 import { meQueryKey } from '@/features/session/query-keys'
 import { ApiNetworkError, ApiProblemError, ApiResponseError } from '@/shared/api/api-errors'
+import { pageSessionContext } from '@/shared/page-session-context'
+import type { SessionContextStore } from '@/shared/session-context'
 import { isSessionRestriction, isUnauthorized } from '@/shared/api/request-failure'
 
 const MAX_QUERY_RETRIES = 2
@@ -24,57 +26,42 @@ function isTransient(error: unknown): boolean {
   return false
 }
 
-export function createQueryClient(): QueryClient {
+export function createQueryClient(context: SessionContextStore = pageSessionContext): QueryClient {
   const meQueryHash = hashKey(meQueryKey)
-  let lastUserId: string | undefined
   const recheckIdentity = (): void => {
+    if (context.getSnapshot().protected || context.getSnapshot().pendingOwner !== null) return
     void queryClient.invalidateQueries({ queryKey: meQueryKey, exact: true })
   }
   const queryClient: QueryClient = new QueryClient({
-    // Um 401 numa leitura ou escrita privada pode ser fim de sessão, mas também pode ser
-    // REAUTHENTICATION_REQUIRED ou senha atual errada, com a sessão ainda válida. Por isso não se decide pelo
-    // erro: a identidade é reconsultada, e só um 401 do próprio /me leva à entrada com o aviso de sessão
-    // expirada (spec 13.2 e 13.5; T-14). Se /me responde 200, a pessoa continua onde está.
+    // Só /me401 decide a saída. Recusas conhecidas de credencial em comandos já autorizados
+    // conservam a sessão/formulário; o par cookie/prova foi validado antes do handler.
+    // Outros401 e restrições verificam a identidade, sem refetch se já houver proteção.
     queryCache: new QueryCache({
       onError: (error, query) => {
         if ((isUnauthorized(error) || isSessionRestriction(error)) && query.queryHash !== meQueryHash) {
           recheckIdentity()
         }
       },
-      // Outra aba pode ter trocado o cookie de identidade: se /me responde outra pessoa, nada da anterior fica
-      // em memória (T-21), nem leituras nem escritas com as variables dela. Só a identidade sobrevive, porque
-      // já é a nova.
-      onSuccess: (data, query) => {
-        if (query.queryHash !== meQueryHash) {
-          return
-        }
-        const userId = readUserId(data)
-        if (lastUserId !== undefined && userId !== lastUserId) {
-          queryClient.removeQueries({ predicate: (cached) => cached.queryHash !== meQueryHash })
-          queryClient.getMutationCache().clear()
-        }
-        lastUserId = userId
-      },
     }),
     mutationCache: new MutationCache({
       onError: (error) => {
-        if (isUnauthorized(error) || isSessionRestriction(error)) {
+        const credentialRejection =
+          error instanceof ApiProblemError &&
+          error.status === 401 &&
+          (error.problem.code === 'INVALID_CREDENTIALS' || error.problem.code === 'REAUTHENTICATION_REQUIRED')
+        if (!credentialRejection && (isUnauthorized(error) || isSessionRestriction(error))) {
           recheckIdentity()
         }
       },
     }),
     defaultOptions: {
-      queries: { retry: shouldRetryQuery },
+      queries: {
+        retry: (failureCount, error) => !context.getSnapshot().protected && shouldRetryQuery(failureCount, error),
+      },
       // Escritas nunca repetem sozinhas: o efeito pode ter acontecido no servidor (spec 8.7).
       mutations: { retry: false },
     },
   })
+  queryClient.setQueryDefaults(meQueryKey, { structuralSharing: false })
   return queryClient
-}
-
-function readUserId(me: unknown): string | undefined {
-  if (typeof me === 'object' && me !== null && 'id' in me && typeof me.id === 'string') {
-    return me.id
-  }
-  return undefined
 }

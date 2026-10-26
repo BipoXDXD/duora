@@ -36,13 +36,28 @@ internal sealed class CsrfProtectionMiddleware(RequestDelegate next, IAntiforger
 {
     public async Task InvokeAsync(HttpContext context)
     {
-        if (IsSafeMethod(context.Request.Method) || context.GetEndpoint()?.Metadata.GetMetadata<CsrfExemptEndpoint>() is not null)
+        var isSafe = IsSafeMethod(context.Request.Method);
+        if (context.GetEndpoint()?.Metadata.GetMetadata<CsrfExemptEndpoint>() is not null
+            || (isSafe && !PrivateOperationContext.RequiresPrivateProof(context)))
         {
             await next(context);
             return;
         }
 
-        if (!HasTrustedProvenance(context.Request) || !await antiforgery.IsRequestValidAsync(context))
+        if (!isSafe && !HasTrustedProvenance(context.Request))
+        {
+            await ApiProblems
+                .Problem(StatusCodes.Status403Forbidden, ApiProblems.CsrfValidationFailed)
+                .ExecuteAsync(context);
+            return;
+        }
+
+        try
+        {
+            // IsRequestValidAsync dispensa GET/HEAD: a leitura privada precisa da validação explícita.
+            await antiforgery.ValidateRequestAsync(context);
+        }
+        catch (AntiforgeryValidationException)
         {
             await ApiProblems
                 .Problem(StatusCodes.Status403Forbidden, ApiProblems.CsrfValidationFailed)

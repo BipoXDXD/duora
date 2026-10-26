@@ -32,7 +32,7 @@ internal static class MfaScenario
         var codes = (await ReadObjectAsync(confirmed))["recoveryCodes"]!.AsArray()
             .Select(code => (string?)code ?? "")
             .ToList();
-        await browser.FetchCsrfTokenAsync();
+        await browser.FetchPrivateContextAsync();
         return new EnabledMfa(sharedKey, codes);
     }
 
@@ -50,6 +50,14 @@ internal static class MfaScenario
         return await browser.PostJsonAsync(
             "/api/v1/auth/login",
             new { email = account.Email, password = account.Password, twoFactorCode, recoveryCode });
+    }
+
+    public static async Task<Guid> ReadSessionIdAsync(Browser browser)
+    {
+        using var response = await browser.GetAsync("/api/v1/me");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadObjectAsync(response);
+        return Guid.Parse((string)body["sessionContext"]!["sessionId"]!);
     }
 
     public static async Task<JsonObject> ReadObjectAsync(HttpResponseMessage response) =>

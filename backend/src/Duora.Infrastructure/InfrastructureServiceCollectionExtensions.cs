@@ -89,8 +89,8 @@ public static class InfrastructureServiceCollectionExtensions
 }
 
 /// <summary>
-/// Contato de suporte dos avisos de segurança. A spec ainda não define o canal: o valor das configurações base é um
-/// placeholder (lacuna registrada no auth.md), a trocar antes de abrir a participantes reais.
+/// Contato de suporte aprovado na issue #82 e citado nos avisos de segurança. As configurações base definem o
+/// endereço público; a configuração efetiva do ambiente deve ser conferida, pois os provedores podem sobrescrevê-lo.
 /// </summary>
 internal sealed class SupportContactOptions
 {

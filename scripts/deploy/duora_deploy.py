@@ -749,12 +749,71 @@ def _check(result: subprocess.CompletedProcess[str], what: str) -> subprocess.Co
 RECOVERY_CATALOG_35_SHA256 = "7f84f101a6555b18beee07566f26b22dda8901f71bbbffd3e98289ad3bdc7c6a"
 RECOVERY_CATALOG_48_SHA256 = "4e4b537c7c42dfedc521502008f19c98095ebdd409cc43223304d379f1334f26"
 RECOVERY_SQL_48_SHA256 = "5d666adcaefeaa7883d4e2596c6ef66ee03b67d04bca79d590e690f801573747"
+RECOVERY_CATALOG_49_SHA256 = "56054aa8ca5b2ec32f9c687ddc57ab21c4251aa9fbc31c5fc86f9a2ee45de5d8"
+RECOVERY_SQL_49_SHA256 = "ee88da57b072243a02a1c71f8ee2c2c5a00190dc53f81bde34ca15fc70dc6685"
+RECOVERY_CURRENT_48_COMMIT = "c9341ab39a5e3133067eb579021efdd8c19b0033"
+RECOVERY_CURRENT_48_POSTGRES = "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c"
+RECOVERY_CURRENT_48_IMAGES = {
+    "web": "ghcr.io/bipoxdxd/duora-web@sha256:2dfea2ca945197c09bdd4f6d924b2a9c44e82c317061df1d59dcd967dee2138d",
+    "worker": "ghcr.io/bipoxdxd/duora-worker@sha256:73a8b6ada4f2ce322ab68fdce465c40fbab0e6ddc7c96a48eac8e07dcb1be995",
+    "migrator": "ghcr.io/bipoxdxd/duora-migrator@sha256:fc9f02c2522d79d0a0fc65bd923a78e0e283f07583bca2b0964ccf50abd363d7",
+    "edge": "ghcr.io/bipoxdxd/duora-edge@sha256:31076998ebfbb42c6ead5b38343e7796f5dde39998279af7f24920d2b9017616",
+    "postgres": RECOVERY_CURRENT_48_POSTGRES,
+}
 RECOVERY_BINDINGS = {"current", "previous", "manifest", "environment", "floor", "runtime", "compose", "hostEnvironment"}
 RECOVERY_CONTROL = {"baselineSha256", "incomingPinSha256", "globalIntentSha256", "projectIntentSha256"}
 
 
 def _recovery_digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def _recovery_qualified_current48(current: Release) -> bool:
+    return (current.contract_version == "v2" and current.commit == RECOVERY_CURRENT_48_COMMIT
+            and current.architecture == "amd64" and current.images == RECOVERY_CURRENT_48_IMAGES
+            and len(current.raw["migrations"]) == 48
+            and _recovery_digest(current.raw["migrations"]) == RECOVERY_CATALOG_48_SHA256)
+
+
+def _recovery_qualified_pair49(current: Release, incoming: Release, sql_sha256: str) -> bool:
+    before, after = current.raw["migrations"], incoming.raw["migrations"]
+    return (_recovery_qualified_current48(current) and len(after) == 49 and after[:48] == before
+            and _recovery_digest(after) == RECOVERY_CATALOG_49_SHA256
+            and sql_sha256 == RECOVERY_SQL_49_SHA256)
+
+
+def _recovery_pair_hashes(current: Release, incoming: Release) -> tuple[str, str, str]:
+    """Only the two independently scoped catalog transitions; never a generic schema ceiling."""
+    before, after = current.raw["migrations"], incoming.raw["migrations"]
+    if (current.contract_version != "v2" or incoming.contract_version != "v2"
+            or current.release_id == incoming.release_id or incoming.previous_release_id != current.release_id
+            or current.architecture != incoming.architecture or current.images["postgres"] != incoming.images["postgres"]):
+        raise DeployError("Unqualified current-v2 recovery identities")
+    if (len(before) == 35 and len(after) == 48 and after[:35] == before
+            and _recovery_digest(before) == RECOVERY_CATALOG_35_SHA256
+            and _recovery_digest(after) == RECOVERY_CATALOG_48_SHA256):
+        return RECOVERY_CATALOG_35_SHA256, RECOVERY_CATALOG_48_SHA256, RECOVERY_SQL_48_SHA256
+    if _recovery_qualified_pair49(current, incoming, RECOVERY_SQL_49_SHA256):
+        return RECOVERY_CATALOG_48_SHA256, RECOVERY_CATALOG_49_SHA256, RECOVERY_SQL_49_SHA256
+    raise DeployError("Unqualified current-v2 recovery catalog pair")
+
+
+def _recovery_attempt_hashes(attempt: dict) -> tuple[str, str, str]:
+    current = parse_manifest(json.dumps(attempt["current"]), image_prefix="ghcr.io/bipoxdxd/duora-")
+    incoming = parse_manifest(json.dumps(attempt["incoming"]), image_prefix="ghcr.io/bipoxdxd/duora-")
+    hashes = _recovery_pair_hashes(current, incoming)
+    if attempt["sqlSha256"] != hashes[2]:
+        raise DeployError("Recovery attempt payload differs from its closed catalog pair")
+    return hashes
+
+
+def _recovery_retained_catalog(current: Release) -> str:
+    if (current.contract_version == "v2" and len(current.raw["migrations"]) == 35
+            and _recovery_digest(current.raw["migrations"]) == RECOVERY_CATALOG_35_SHA256):
+        return RECOVERY_CATALOG_48_SHA256
+    if _recovery_qualified_current48(current):
+        return RECOVERY_CATALOG_49_SHA256
+    raise DeployError("No qualified retained catalog for this current application")
 
 
 def _recovery_hashes(value: object, names: set[str]) -> None:
@@ -772,15 +831,8 @@ def make_recovery_attempt(current: Release, incoming: Release, *, sql_sha256: st
     _recovery_hashes(control, RECOVERY_CONTROL)
     nonce = secrets.token_hex(16) if nonce is None else nonce
     _require_match(nonce, re.compile(r"[a-f0-9]{32}"), "recovery nonce")
-    before, after = current.raw["migrations"], incoming.raw["migrations"]
-    if (current.contract_version != "v2" or incoming.contract_version != "v2"
-            or current.release_id == incoming.release_id or incoming.previous_release_id != current.release_id
-            or current.architecture != incoming.architecture
-            or current.images["postgres"] != incoming.images["postgres"]
-            or len(before) != 35 or len(after) != 48 or after[:35] != before
-            or _recovery_digest(before) != RECOVERY_CATALOG_35_SHA256
-            or _recovery_digest(after) != RECOVERY_CATALOG_48_SHA256
-            or sql_sha256 != RECOVERY_SQL_48_SHA256):
+    hashes = _recovery_pair_hashes(current, incoming)
+    if sql_sha256 != hashes[2]:
         raise DeployError("Unqualified current-v2 recovery pair or incoming SQL")
     # Copy public manifests/bindings: a caller cannot mutate the armed intention through an alias.
     value = {"schema": 1, "nonce": nonce, "current": current.raw, "incoming": incoming.raw,
@@ -795,11 +847,11 @@ def make_recovery_attempt(current: Release, incoming: Release, *, sql_sha256: st
         _recovery_hashes({name: pointer[name] for name in ("attemptSha256", "applicationOutcomeSha256", "controlOutcomeSha256")},
             {"attemptSha256", "applicationOutcomeSha256", "controlOutcomeSha256"})
         raw_pointer = (json.dumps(pointer, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
-        if (expanded_origin["catalogSha256"] != RECOVERY_CATALOG_48_SHA256 or type(pointer["schema"]) is not int
+        if (expanded_origin["catalogSha256"] != hashes[1] or type(pointer["schema"]) is not int
                 or pointer["schema"] != 1 or pointer["releaseId"] != current.release_id
                 or pointer["attemptSha256"] != expanded_origin["attemptSha256"]
                 or hashlib.sha256(raw_pointer).hexdigest() != expanded_origin["compatibilitySha256"]):
-            raise DeployError("Expanded origin does not bind the immutable exact previously recovered schema48 pointer")
+            raise DeployError("Expanded origin does not bind the immutable exact previously recovered catalog pointer")
         value["expandedOrigin"] = expanded_origin
     return json.loads(json.dumps(value, allow_nan=False))
 
@@ -1155,14 +1207,19 @@ def _recovery_execute_sql(compose: list[str], run: Runner, sql: str) -> None:
         input_text=sql), "reparação para frente das permissões")
 
 
-def _recovery_acl_witness(compose: list[str], run: Runner) -> None:
+def _recovery_acl_witness(compose: list[str], run: Runner, *, catalog: list[str] | None = None) -> None:
     """Read effective relation AND column privileges independently of any earlier phase seal."""
+    catalog_hash = None if catalog is None else _recovery_digest(catalog)
+    if catalog_hash not in {None, RECOVERY_CATALOG_48_SHA256, RECOVERY_CATALOG_49_SHA256}:
+        raise DeployError("Unqualified effective ACL catalog")
     append_only = ["ops.audit_events", "ops.country_database_approvals", "ops.country_database_retired",
         "ops.country_database_versions", "safety.photo_review_grants", "media.review_promotion_variants",
         "safety.photo_review_appeal_assignment_commands", "safety.photo_review_appeal_assignments",
         "safety.photo_review_appeal_commands", "safety.photo_review_appeal_evidence_accesses",
         "safety.photo_review_assignments", "safety.photo_review_commands", "safety.photo_review_decision_commands",
         "safety.photo_review_decision_variants", "safety.photo_review_decisions", "safety.photo_review_evidence_accesses"]
+    if catalog_hash == RECOVERY_CATALOG_49_SHA256:
+        append_only.append("safety.photo_review_appeal_decision_commands")
     rows = [(name, privilege) for name in append_only for privilege in ("UPDATE", "DELETE", "TRUNCATE")]
     rows += [("ops.__ef_migrations_history", privilege) for privilege in
              ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")]
@@ -1182,6 +1239,16 @@ def _recovery_acl_witness(compose: list[str], run: Runner) -> None:
         raise DeployError("Effective schema48 privileges are unsafe, incomplete or unknown")
 
 
+def _recovery_catalog_acl_witness(compose: list[str], run: Runner, catalog: list[str]) -> None:
+    digest = _recovery_digest(catalog)
+    if digest == RECOVERY_CATALOG_49_SHA256:
+        _recovery_acl_witness(compose, run, catalog=catalog)
+    elif digest in {RECOVERY_CATALOG_35_SHA256, RECOVERY_CATALOG_48_SHA256}:
+        _recovery_acl_witness(compose, run)
+    else:
+        raise DeployError("Unknown recovery catalog cannot select an ACL witness")
+
+
 def _recovery_pin_bytes(pin: dict) -> bytes:
     # Same insertion-order-preserving representation as the existing receiver's atomic_json, never sorted keys.
     return (json.dumps(pin, indent=2, allow_nan=False) + "\n").encode()
@@ -1194,7 +1261,9 @@ def make_recovery_control_baseline(current: Release, pin_raw: bytes, *, bindings
         _recovery_hashes(bindings, RECOVERY_BINDINGS)
         _recovery_hashes({"current": receiver_current_sha256, "config": receiver_config_sha256}, {"current", "config"})
         pin = _guard.decode_json(pin_raw)
-        if (current.contract_version != "v2" or _recovery_digest(current.raw["migrations"]) != RECOVERY_CATALOG_35_SHA256
+        if (current.contract_version != "v2"
+                or not (_recovery_digest(current.raw["migrations"]) == RECOVERY_CATALOG_35_SHA256
+                        or _recovery_qualified_current48(current))
                 or pin_raw != _recovery_pin_bytes(pin)
                 or pin["manifest"] != "/opt/duora/releases/" + current.release_id + ".json"
                 or pin["observer_environment"]["DUORA_OBSERVER_IMAGE"] != current.images["edge"]):
@@ -1504,7 +1573,29 @@ def _recovery_recorded_current(paths: Paths) -> Release:
 
 def arm_current_v2_deploy(incoming: Release, paths: Paths, sql: str | None, *,
                           observe: Callable[[], dict] | None = None, run: Runner | None = None) -> RecoveryStore | None:
-    """Arm only the qualified35→48 expansion, after authenticated SQL/pulls/WAL and before the first producer."""
+    """Arm only a closed admitted pair, after authenticated SQL/pulls/WAL and before the first producer."""
+    if incoming.contract_version == "v2" and _recovery_digest(incoming.raw["migrations"]) == RECOVERY_CATALOG_49_SHA256:
+        if observe is None:
+            current = _recovery_recorded_current(paths)
+            if not _recovery_qualified_current48(current):
+                return None  # Same-schema/future releases do not implicitly enroll another current baseline.
+            context = observe_current_v2_recovery(incoming, paths)
+        else:
+            context = observe()
+        current = context["current"]
+        expanded_origin = None
+        if context["catalog"] != current.raw["migrations"]:
+            if context["catalog"] != incoming.raw["migrations"]:
+                raise DeployError("Intermediate or unknown retained catalog is not an admitted origin")
+            expanded_origin = _recovery_expanded_origin(current, context, paths, run=run)
+        if not isinstance(sql, str):
+            raise DeployError("Exact authenticated incoming49 SQL is required")
+        attempt = make_recovery_attempt(current, incoming, sql_sha256=hashlib.sha256(sql.encode()).hexdigest(),
+            bindings=context["bindings"], control=context["control"], expanded_origin=expanded_origin)
+        _recovery_require_cached_images(current)
+        store = RecoveryStore(paths.state_dir / "current-v2-recovery")
+        store.arm(attempt)
+        return store
     if incoming.contract_version != "v2" or _recovery_digest(incoming.raw["migrations"]) != RECOVERY_CATALOG_48_SHA256:
         return None
     if observe is None:
@@ -1760,13 +1851,16 @@ def recovery_administrative_entry(release: Release, paths: Paths, run: Runner, *
     receiver.require_idle(pin["application_uuid"])
     runtime_recheck(current, paths)
     compose = _compose_command(paths, paths.state_dir / RELEASES_DIR / (current.release_id + ".env"))
-    if (_recovery_digest(current.raw["migrations"]) != RECOVERY_CATALOG_48_SHA256
+    pending = RecoveryStore(paths.state_dir / "current-v2-recovery")
+    forward_attempt = pending.load()
+    if (forward_attempt.get("incoming") != current.raw
+            or _recovery_digest(current.raw["migrations"]) != _recovery_attempt_hashes(forward_attempt)[1]
             or _read_migration_head(compose, run) != current.latest_migration):
         raise DeployError("Recorded forward catalog is incomplete or unknown")
-    _recovery_acl_witness(compose, run)
+    _recovery_catalog_acl_witness(compose, run, current.raw["migrations"])
     _wait_ready(compose, run, DEFAULT_READINESS_TIMEOUT_SECONDS, time.sleep)
     _require_services_running(compose, run)
-    return finish_current_v2_forward(RecoveryStore(paths.state_dir / "current-v2-recovery"), current, paths, readonly=readonly)
+    return finish_current_v2_forward(pending, current, paths, readonly=readonly)
 
 
 def _recovery_known_application_outcome(store: RecoveryStore, attempt: dict) -> bytes | None:
@@ -1780,14 +1874,15 @@ def _recovery_known_application_outcome(store: RecoveryStore, attempt: dict) -> 
         _require_exact_keys(result, {"schema", "status", "attemptSha256", "releaseId", "commit", "stage",
             "catalogSha256", "sqlSha256", "preservationSha256", "controlSha256", "imageIds", "runtimeApps"}, "application recovery outcome")
         stage = result["stage"]
+        hashes = _recovery_attempt_hashes(attempt)
         if (type(result["schema"]) is not int or result["schema"] != 1
                 or result["status"] != "application-ready-control-pending" or stage not in {"initial", "expanded"}
                 or result["attemptSha256"] != pointer["sha256"]
                 or result["releaseId"] != attempt["current"]["releaseId"] or result["commit"] != attempt["current"]["commit"]
                 or result["preservationSha256"] != _guard.digest(attempt["bindings"])
                 or result["controlSha256"] != _guard.digest(attempt["control"])
-                or result["catalogSha256"] != (RECOVERY_CATALOG_35_SHA256 if stage == "initial" else RECOVERY_CATALOG_48_SHA256)
-                or result["sqlSha256"] != (None if stage == "initial" else RECOVERY_SQL_48_SHA256)):
+                or result["catalogSha256"] != (hashes[0] if stage == "initial" else hashes[1])
+                or result["sqlSha256"] != (None if stage == "initial" else hashes[2])):
             raise DeployError("Application recovery outcome is unknown or belongs to another attempt")
         _require_exact_keys(result["imageIds"], set(IMAGE_NAMES), "recorded recovery images")
         for identifier in result["imageIds"].values():
@@ -1837,7 +1932,7 @@ def _recovery_perform_application(store: RecoveryStore, attempt: dict, context: 
 
     if existing_raw is not None:
         reobserve()
-        if stage == "expanded": _recovery_acl_witness(compose, run)
+        if stage == "expanded": _recovery_catalog_acl_witness(compose, run, context["catalog"])
         _wait_ready(compose, run, DEFAULT_READINESS_TIMEOUT_SECONDS, time.sleep)
         _require_services_running(compose, run)
         runtime_recheck(current, paths)
@@ -1891,7 +1986,7 @@ def _recovery_perform_application(store: RecoveryStore, attempt: dict, context: 
         sql_sha256=attempt["sqlSha256"], authenticate_sql=lambda: _payload.extract_sql(incoming.images["migrator"],
             revision=incoming.commit, architecture=incoming.architecture), require_bindings=reobserve,
         require_quiescent=lambda: _recovery_require_quiescent(compose, run, context["postgresId"]),
-        witness_acl=lambda: _recovery_acl_witness(compose, run), finish_application=finish)
+        witness_acl=lambda: _recovery_catalog_acl_witness(compose, run, context["catalog"]), finish_application=finish)
 
 
 def _recovery_environment_projection(rows: object, *, expected_images: set[str]) -> dict:
@@ -2376,14 +2471,15 @@ def _recovery_origin_proof(current: Release, context: dict, paths: Paths, *, adm
     application_raw = _recovery_known_application_outcome(a, previous)
     if application_raw is None: raise DeployError("No known prior recovered application")
     application = _guard.decode_json(application_raw)
-    if application["stage"] != "expanded" or application["sqlSha256"] != RECOVERY_SQL_48_SHA256:
-        raise DeployError("An initial-only recovery is not proof of retained schema48 compatibility")
+    hashes = _recovery_attempt_hashes(previous)
+    if application["stage"] != "expanded" or application["sqlSha256"] != hashes[2]:
+        raise DeployError("An initial-only recovery is not proof of retained catalog compatibility")
     a.require_terminal_operations(outcomes={"application-outcome.json": hashlib.sha256(application_raw).hexdigest()})
     _recovery_control_evidence(b, previous, context)
     with b._directory() as directory:
         if b._read(directory, "compatibility-pointer.json") != raw:
             raise DeployError("The prior compatibility pointer does not match its exact immutable archive")
-    return {"catalogSha256": RECOVERY_CATALOG_48_SHA256, "compatibilitySha256": hashlib.sha256(raw).hexdigest(),
+    return {"catalogSha256": hashes[1], "compatibilitySha256": hashlib.sha256(raw).hexdigest(),
         "attemptSha256": pointer["attemptSha256"], "pointer": pointer}
 
 
@@ -2393,8 +2489,8 @@ def _recovery_expanded_origin(current: Release, context: dict, paths: Paths, *, 
     This does not claim the next payload already ran. The next attempt still journals and authenticates its own
     migration/reconciliation producers; any later failure uses its own independent repair-forward protocol.
     """
-    if _recovery_digest(context["catalog"]) != RECOVERY_CATALOG_48_SHA256:
-        raise DeployError("Only the exact retained48 catalog can be admitted")
+    if _recovery_digest(context["catalog"]) != _recovery_retained_catalog(current):
+        raise DeployError("Only the exact qualified retained catalog can be admitted")
     origin = _recovery_origin_proof(current, context, paths)
     _, a, _ = _recovery_parse_compatibility(_recovery_root_read(paths.state_dir / "current-v2-compatibility.json"), paths)
     application_raw = _recovery_known_application_outcome(a, a.load())
@@ -2406,7 +2502,7 @@ def _recovery_expanded_origin(current: Release, context: dict, paths: Paths, *, 
     compose = _compose_command(paths, paths.state_dir / RELEASES_DIR / (current.release_id + ".env"))
     effective_run = run_command if run is None else run
     _recovery_require_quiescent(compose, effective_run, context["postgresId"])
-    _recovery_acl_witness(compose, effective_run)
+    _recovery_catalog_acl_witness(compose, effective_run, context["catalog"])
     return origin
 
 
@@ -2695,7 +2791,7 @@ def _recovery_confirm_application(store: RecoveryStore, attempt: dict, context: 
     compose = _compose_command(paths, paths.state_dir / RELEASES_DIR / (current.release_id + ".env"))
     _recovery_require_quiescent(compose, run, context["postgresId"])
     _require_no_privileged_account_without_mfa(current, context["catalog"][-1], compose, run)
-    if context["catalogStage"] == "expanded": _recovery_acl_witness(compose, run)
+    if context["catalogStage"] == "expanded": _recovery_catalog_acl_witness(compose, run, context["catalog"])
     _wait_ready(compose, run, DEFAULT_READINESS_TIMEOUT_SECONDS, time.sleep)
     _require_services_running(compose, run)
     if _recovery_require_running_applications(current, paths, images) != outcome["runtimeApps"]:

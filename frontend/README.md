@@ -105,14 +105,14 @@ Quando o contrato OpenAPI existir, os tipos serão gerados com openapi-typescrip
 Rotas canônicas em inglês para os dois idiomas. [Inventário e compatibilidade](../docs/architecture/spa-routes.md).
 A confirmação atual pede o código de oito dígitos e a senha; links legados com token continuam aceitos.
 
-| Rota                                                    | Tela                                                                         |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `/register`                                             | Cadastro, com aceite dos Termos e da Privacidade (`LEGAL_DOCUMENT_VERSIONS`) |
-| `/check-email`                                          | Aviso neutro depois do cadastro                                              |
-| `/confirm-email#userId=…&token=…`                       | Confirmação por clique, com a senha do cadastro (link do e-mail)             |
-| `/login`                                                | Entrada; mostra aviso de sessão expirada, saída ou entrada necessária        |
-| `/forgot-password` e `/reset-password#userId=…&token=…` | Recuperação de senha                                                         |
-| `/account`                                              | Área autenticada: conta, sessões, revogação e saída                          |
+| Rota                                                    | Tela                                                                                                        |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `/register`                                             | Cadastro, com aceite dos Termos e da Privacidade (catálogo público versionado, idioma e SHA-256 explícitos) |
+| `/check-email`                                          | Aviso neutro depois do cadastro                                                                             |
+| `/confirm-email#userId=…&token=…`                       | Confirmação por clique, com a senha do cadastro (link do e-mail)                                            |
+| `/login`                                                | Entrada; mostra aviso de sessão expirada, saída ou entrada necessária                                       |
+| `/forgot-password` e `/reset-password#userId=…&token=…` | Recuperação de senha                                                                                        |
+| `/account`                                              | Área autenticada: conta, sessões, revogação e saída                                                         |
 
 - `401 MFA_REQUIRED` no login mostra só uma mensagem neutra de que o segundo fator é exigido e ainda não
   está disponível. O passo de segundo fator entra com o MFA administrativo, na onda 2 do M1.

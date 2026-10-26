@@ -9,7 +9,7 @@ Inventário da máquina de desenvolvimento em 2026-10-15, lido com os comandos d
 | Item | Versão encontrada | Fixada em |
 |---|---|---|
 | Sistema | macOS 27.0.1 (build 26A434), `arm64` nativo (sem Rosetta) | — |
-| .NET SDK | 10.0.400 | `global.json` (`rollForward: latestPatch`) |
+| .NET SDK | 10.0.402 | `global.json` (`rollForward: latestPatch`) |
 | Runtime .NET / ASP.NET Core | 10.0.12 | vem com o SDK |
 | dotnet-ef | 10.0.13 | `.config/dotnet-tools.json` |
 | Docker Engine (Docker Desktop) | 29.8.2, runtime `linux/arm64`, contexto `desktop-linux` | — |

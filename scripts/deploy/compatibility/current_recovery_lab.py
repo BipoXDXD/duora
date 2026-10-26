@@ -156,6 +156,9 @@ def audit_to(path):
 
 def bind_origin(executor, origin):
     """Single explicit lab provenance seam. All real transport/metadata checks below remain native."""
+    expected_sql = origin.get("sql_sha256", SQL)
+    need(expected_sql in {SQL, "ee88da57b072243a02a1c71f8ee2c2c5a00190dc53f81bde34ca15fc70dc6685"},
+         "only the two closed fixture SQL identities")
     original = executor._payload.extract_sql
     def extract(reference, *, revision, architecture, **kwargs):
         if reference != origin["declared_reference"]:
@@ -170,7 +173,7 @@ def bind_origin(executor, origin):
              and labels.get("org.opencontainers.image.title") == "duora-migrator"
              and config.get("Volumes") in (None, {}), "local cohort build provenance mismatch")
         sql = executor._payload._copy_stopped_sql(metadata["Id"], metadata["Id"])
-        need(sha(sql.encode()) == SQL, "cohort stopped SQL mismatch")
+        need(sha(sql.encode()) == expected_sql, "cohort stopped SQL mismatch")
         return sql
     executor._payload.extract_sql = extract
 
@@ -561,6 +564,11 @@ class NativeLab:
         self.compose_path = Path("/opt/duora/compose.coolify.json")
         self.host_env = Path("/etc/duora/duora.env")
         self.pins = json.loads((args.workflow_source / "scripts/deploy/compatibility/current_schema_pins.json").read_bytes())
+        self.native_sql_sha256 = SQL
+        self.native_scope = SCOPE
+        self.old_oci_directory = args.workflow_source / "scripts/deploy/compatibility/old-oci"
+        self.fixture_modules: dict[str, Path] = {}
+        self.fixture_entry_script = "current_recovery_lab.py"
         self.report: dict[str, Any] = {"schema": 1, "scope": SCOPE, "success": False,
                        "payload_origin": "local_cohort_build", "control_plane": "CoolifyHTTP_fixture",
                        **{key: False for key in TRUE}, **{key: False for key in FALSE}}
@@ -607,7 +615,7 @@ class NativeLab:
         need(sha((self.args.old_source / self.pins["canonical_sql_path"]).read_bytes()) == self.pins["historical_sql_sha256"], "old SQL source differs")
         self.receiver_bytes = (self.args.old_source / "scripts/release/coolify/receiver.py").read_bytes()
         need(sha(self.receiver_bytes) == RECEIVER, "qualified receiver1ccd unavailable")
-        self.report["source"] = {"executor_sha256": self.bundle["duora_deploy.py"], "historical_frozen135_executor_sha256": EXECUTOR, "receiver_sha256": RECEIVER, "canonical_sql_sha256": SQL,
+        self.report["source"] = {"executor_sha256": self.bundle["duora_deploy.py"], "historical_frozen135_executor_sha256": EXECUTOR, "receiver_sha256": RECEIVER, "canonical_sql_sha256": self.native_sql_sha256,
                                  "cohort_commit": self.pins["cohort_commit"], "cohort_tree": self.pins["cohort_tree"],
                                  "old_commit": self.pins["old_commit"], "bundle_sha256": self.bundle,
                                  "harness_sha256": sha(Path(__file__).read_bytes()),
@@ -643,7 +651,7 @@ class NativeLab:
         self.report["old_images"] = {}
         for role, pin in self.pins["old_images"].items():
             image = self.inspect("image", pin["reference"])
-            raw_manifest = (self.args.workflow_source / "scripts/deploy/compatibility/old-oci" / (role + ".json")).read_bytes()
+            raw_manifest = (self.old_oci_directory / (role + ".json")).read_bytes()
             self.report["old_images"][role] = bind_old_image(raw_manifest, image, pin, role=role, revision=self.pins["old_commit"])
 
     def prepare_actions_opt_fixture(self):
@@ -780,11 +788,13 @@ class NativeLab:
         # Incoming reference is a declared fixture envelope identity, never a fabricated daemon RepoDigest.
         self.declared = "ghcr.io/bipoxdxd/duora-migrator@sha256:" + sha(canonical({"fixture": self.nonce, "localConfig": self.migrator}))
         self.origin = {"declared_reference": self.declared, "docker_image_id": self.migrator, "revision": self.pins["cohort_commit"]}
+        if self.native_sql_sha256 != SQL:
+            self.origin["sql_sha256"] = self.native_sql_sha256
         bind_origin(self.executor, self.origin)
-        put(Path("/opt/duora/native-entry.json"), canonical({"bundle": str(bundle), "bundle_sha256": self.bundle, "origin": self.origin, "trace": str(self.trace),
+        entry_config = {"bundle": str(bundle), "bundle_sha256": self.bundle, "origin": self.origin, "trace": str(self.trace),
             "actions_context": {key: os.environ[key] for key in ("GITHUB_ACTIONS", "RUNNER_ENVIRONMENT", "GITHUB_REPOSITORY",
                 "GITHUB_EVENT_NAME", "GITHUB_EVENT_PATH", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA", "GITHUB_WORKFLOW_SHA",
-                "GITHUB_WORKFLOW_REF", "RUNNER_TEMP")}}))
+                "GITHUB_WORKFLOW_REF", "RUNNER_TEMP")}}
         # Local launcher changes no product byte. require_actions runs again before loading the root bundle.
         script = Path("/opt/duora/current_recovery_lab.py")
         put(script, Path(__file__).read_bytes(), 0o700)
@@ -792,7 +802,17 @@ class NativeLab:
         helper_target = script.with_name("old_image_identity.py")
         put(helper_target, Path(__file__).with_name("old_image_identity.py").read_bytes())
         need(sha(helper_target.read_bytes()) == self.report["source"]["image_identity_helper_sha256"], "fixture sibling helper copy differs")
-        launcher = "#!/bin/sh\nexec /usr/bin/python3 -I -B /opt/duora/current_recovery_lab.py --fixture-entry \"$@\"\n"
+        if self.fixture_modules:
+            need(self.fixture_entry_script in self.fixture_modules
+                 and all(re.fullmatch(r"[a-z0-9_]+\.py", name) for name in self.fixture_modules), "closed fixture module names")
+            module_hashes = {}
+            for name, source in self.fixture_modules.items():
+                content = source.read_bytes()
+                put(script.with_name(name), content, 0o700 if name == self.fixture_entry_script else 0o600)
+                module_hashes[name] = sha(content)
+            entry_config["fixture_modules_sha256"] = module_hashes
+        put(Path("/opt/duora/native-entry.json"), canonical(entry_config))
+        launcher = "#!/bin/sh\nexec /usr/bin/python3 -I -B /opt/duora/" + self.fixture_entry_script + " --fixture-entry \"$@\"\n"
         put(ENTRIES[0], launcher, 0o755)
         self.created_entries.append(ENTRIES[0])
         receiver_path = Path("/opt/coolify-release/versions") / ("2.0.2-" + RECEIVER) / "receiver.py"
@@ -895,6 +915,7 @@ class NativeLab:
         edge["volumes"].append({"type": "bind", "source": str(self.root / "Caddyfile"), "target": "/etc/caddy/Caddyfile", "read_only": True})
         # Pickup writes only to own tmpfs and startup has no pending messages; no Resend or external mail is used.
         rendered["networks"]["egress"]["internal"] = True
+        self.configure_fixture_compose(rendered)
         put(self.compose_path, canonical(rendered))
         self.compose = ["/usr/bin/docker", "compose", "--file", str(self.compose_path), "--env-file", str(self.host_env)]
         self.compose_ready = True
@@ -1119,6 +1140,7 @@ class NativeLab:
         self.report["fault"] = "after_acknowledged_migrator_exit0_before_next_producer"
         self.report["history"]["after_ddl"] = self.history()
         need(self.report["history"]["after_ddl"] == self.pins["new_migrations"], "actual expansion did not reach ordered48")
+        self.after_acknowledged_migration(incoming_sql)
         self.report["schema_after_ddl_sha256"] = self.schema_digest()
         readonly = self.cli("--recover-current-v2", "--preflight-only")
         need(readonly["status"] == "preflight" and readonly["catalogStage"] == "expanded", "actual expanded recovery preflight")
@@ -1138,6 +1160,7 @@ class NativeLab:
         self.report["api"] = self.api.receipt()
         for key in ("root_locks_exercised", "executor_handoff_exercised", "real_receiver_HTTP_client", "observer_deploy_and_start_exercised"):
             self.report[key] = True
+        self.after_native_control()
         self.report["history"]["after_recovery"] = self.history()
         self.report["schema_after_recovery_sha256"] = self.schema_digest()
         self.report["session_after"] = self.session_identity()
@@ -1305,10 +1328,23 @@ class NativeLab:
         self.prepare_runtime()
         self.report["stage"] = "explicit_fixture_control_enrollment"
         self.enroll_fixture_control()
+        self.before_native_recovery()
         self.report["stage"] = "acknowledged_expand_recover_complete_repeat"
         self.run_native_recovery()
         self.verify_sources()
         self.report["stage"] = "native_evidence_captured"
+
+    def configure_fixture_compose(self, rendered):
+        """Default closed fixture is unchanged; a separately reviewed next-pair driver may specialize its own data."""
+
+    def before_native_recovery(self):
+        """No additional operation in the already qualified default fixture."""
+
+    def after_acknowledged_migration(self, incoming_sql):
+        """No injected state in the already qualified default fixture."""
+
+    def after_native_control(self):
+        """No additional operation in the already qualified default fixture."""
 
 
 def cleanup_transferred_keeper(handoff_path):

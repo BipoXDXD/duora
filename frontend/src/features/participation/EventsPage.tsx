@@ -1,4 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { usePrivateOperation } from '@/features/session/private-operation'
+import { usePrivateMutation } from '@/features/session/private-mutation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAccount } from '@/features/session/account-context'
 import { classifyRequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
@@ -9,11 +11,12 @@ import { Page, TextLink } from '@/shared/ui/page'
 import { checkIn, fetchEvents, fetchParticipation, register, type Event } from './participation-api'
 
 export function EventsPage(): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { id } = useAccount()
   const { t } = useI18n()
   const events = useQuery({
     queryKey: ['account', id, 'events'],
-    queryFn: ({ signal }) => fetchEvents(signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchEvents(operation, signal)),
     gcTime: 0,
   })
   return (
@@ -33,18 +36,19 @@ export function EventsPage(): React.JSX.Element {
   )
 }
 function EventEntry({ event, userId }: { readonly event: Event; readonly userId: string }): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { t, formatEventDateTime } = useI18n()
   const client = useQueryClient()
   const key = ['account', userId, 'participation', event.eventId]
   const participation = useQuery({
     queryKey: key,
-    queryFn: ({ signal }) => fetchParticipation(event.eventId, signal),
+    queryFn: ({ signal }) => privateOperation.run((operation) => fetchParticipation(operation, event.eventId, signal)),
     gcTime: 0,
     refetchInterval: 3000,
   })
-  const command = useMutation({
-    mutationFn: (action: 'register' | 'checkIn') =>
-      action === 'register' ? register(event.eventId) : checkIn(event.eventId),
+  const command = usePrivateMutation({
+    mutationFn: (operation, action: 'register' | 'checkIn') =>
+      action === 'register' ? register(operation, event.eventId) : checkIn(operation, event.eventId),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: key })
     },

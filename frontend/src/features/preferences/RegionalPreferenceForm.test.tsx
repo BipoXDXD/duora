@@ -1,3 +1,4 @@
+import { withSessionContext } from '@/test/private-context'
 import { act, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -9,15 +10,17 @@ function useBackend(locale: 'pt-BR' | 'en-US' = 'pt-BR') {
   const writes: unknown[] = []
   server.use(
     http.get(`${API}/me`, () =>
-      HttpResponse.json({
-        id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
-        email: 'a@example.com',
-        status: 'Active',
-        emailConfirmed: true,
-        mfaEnabled: false,
-        roles: ['participant'],
-        preferredLocale: locale,
-      }),
+      HttpResponse.json(
+        withSessionContext({
+          id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
+          email: 'a@example.com',
+          status: 'Active',
+          emailConfirmed: true,
+          mfaEnabled: false,
+          roles: ['participant'],
+          preferredLocale: locale,
+        }),
+      ),
     ),
     http.get(`${API}/me/preferences`, () =>
       HttpResponse.json({
@@ -107,7 +110,7 @@ describe.each([
       expect(api.writes).toHaveLength(2)
     })
     expect(api.writes[1]).toEqual({ mode: 'unrestricted', countryCodes: [] })
-    expect(api.csrf.calls()).toBeGreaterThan(0)
+    expect(api.csrf.calls()).toBe(0)
   })
   it('preserves the draft after 412 and only retries after explicit reload and save', async () => {
     const api = useBackend(locale)

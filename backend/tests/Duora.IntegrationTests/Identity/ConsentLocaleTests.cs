@@ -15,7 +15,8 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
     [InlineData("en-US", "pt-BR")]
     public async Task RegistrationKeepsEachDocumentLocaleIndependentOfAccountPreference(string terms, string privacy)
     {
-        await using var factory = new DuoraWebFactory(postgres.ConnectionString);
+        var publication = SyntheticLegalPublication.Create("terms-v2", "privacy-v3");
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = publication };
         var scenario = new IdentityScenario(postgres, factory);
         using var browser = new Browser(factory);
         var email = IdentityScenario.NewEmail();
@@ -28,6 +29,8 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
             acceptedPrivacyVersion = "privacy-v3",
             acceptedTermsLocale = terms,
             acceptedPrivacyLocale = privacy,
+            acceptedTermsSha256 = SyntheticLegalPublication.Hash(publication, "terms", terms),
+            acceptedPrivacySha256 = SyntheticLegalPublication.Hash(publication, "privacy", privacy),
         });
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var proof = await scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
@@ -47,7 +50,7 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
             Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
         }
         // A new registration cannot rewrite the evidence of a confirmed account either.
-        using var repeated = await IdentityScenario.RegisterAsync(browser, email);
+        using var repeated = await browser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(email, publication: publication));
         Assert.Equal(HttpStatusCode.Accepted, repeated.StatusCode);
         Assert.Equal(before, await ReadEvidenceAsync(postgres.ConnectionString, proof.UserId));
         Assert.Equal(1, await scenario.ScalarAsync(
@@ -90,17 +93,23 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task OldRegistrationContractLeavesUnknownLocalesNull()
+    public async Task MissingDocumentLocalesCannotAuthorizeANewRegistration()
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString);
         var scenario = new IdentityScenario(postgres, factory);
         using var browser = new Browser(factory);
         var email = IdentityScenario.NewEmail();
-        using var registered = await IdentityScenario.RegisterAsync(browser, email);
-        Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
-        var proof = await scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
-        Assert.Equal(2, await scenario.ScalarAsync(
-            "select count(*) from identity.consent_records where user_id = $1 and document_locale is null", proof.UserId));
+        await browser.FetchCsrfTokenAsync();
+        using var registered = await browser.PostJsonAsync("/api/v1/auth/register", new
+        {
+            email,
+            password = IdentityScenario.ValidPassword,
+            acceptedTermsVersion = IdentityScenario.TermsVersion,
+            acceptedPrivacyVersion = IdentityScenario.TermsVersion,
+        });
+        await ProblemAssert.IsProblemAsync(registered, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        Assert.Equal(0, await scenario.CountUsersAsync(email));
+        Assert.Equal(0, await scenario.CountOutboxEventsAsync(email));
     }
 
     [Fact]
@@ -130,10 +139,63 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
         {
             await after.Database.MigrateAsync(Ct);
         }
-        command.CommandText = "select count(*) from identity.consent_records where id = $1 and user_id = $2 and document = 'Terms' and version = 'legacy' and accepted_at = '2026-01-01Z' and document_locale is null";
+        command.CommandText = "select count(*) from identity.consent_records where id = $1 and user_id = $2 and document = 'Terms' and version = 'legacy' and accepted_at = '2026-01-01Z' and document_locale is null and document_sha256 is null";
         Assert.Equal(1L, await command.ExecuteScalarAsync(Ct));
         command.CommandText = "select version from identity.consent_records where id = $1 and user_id = $2";
         Assert.Equal("legacy", await command.ExecuteScalarAsync(Ct));
+    }
+
+    [Fact]
+    public async Task FingerprintRollbackWaitsForWritersBeforeCheckingForEvidence()
+    {
+        var database = await postgres.CreateEmptyDatabaseAsync(Ct);
+        string previousMigration;
+        await using (var setup = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
+        {
+            await setup.Database.MigrateAsync(Ct);
+            var migrations = setup.Database.GetMigrations().ToArray();
+            var index = Array.FindIndex(migrations, migration => migration.EndsWith("_ConsentDocumentFingerprint", StringComparison.Ordinal));
+            Assert.True(index > 0);
+            previousMigration = migrations[index - 1];
+        }
+        await using var writer = new NpgsqlConnection(database.AppConnectionString);
+        await writer.OpenAsync(Ct);
+        var userId = await RoleSeparationTests.InsertUserAsync(writer);
+        await using var transaction = await writer.BeginTransactionAsync(Ct);
+        await using (var insert = new NpgsqlCommand("""
+            insert into identity.consent_records (id, user_id, document, version, accepted_at, document_locale, document_sha256)
+            values ($1, $2, 'Terms', 'synthetic', now(), 'pt-BR', $3)
+            """, writer, transaction))
+        {
+            insert.Parameters.AddWithValue(Guid.NewGuid());
+            insert.Parameters.AddWithValue(userId);
+            insert.Parameters.AddWithValue(new string('a', 64));
+            await insert.ExecuteNonQueryAsync(Ct);
+        }
+        await using var rollbackContext = PostgresFixture.CreateDbContext(database.MigratorConnectionString);
+        var rollback = rollbackContext.GetService<IMigrator>().MigrateAsync(previousMigration, cancellationToken: Ct);
+        await using var observer = new NpgsqlConnection(database.MigratorConnectionString);
+        await observer.OpenAsync(Ct);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            await using var waiting = new NpgsqlCommand("select count(*) from pg_stat_activity where $1 = any(pg_blocking_pids(pid))", observer);
+            waiting.Parameters.AddWithValue(writer.ProcessID);
+            if ((long)(await waiting.ExecuteScalarAsync(Ct))! > 0)
+            {
+                break;
+            }
+            Assert.False(rollback.IsCompleted, "Rollback must wait for the writer before deciding whether evidence exists.");
+            Assert.True(DateTimeOffset.UtcNow < deadline, "Rollback did not wait for the pending consent writer.");
+            await Task.Delay(TimeSpan.FromMilliseconds(20), Ct);
+        }
+        await transaction.CommitAsync(Ct);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => rollback);
+        Assert.Contains("Cannot remove recorded legal document fingerprints", error.MessageText, StringComparison.Ordinal);
+        await using var evidence = new NpgsqlCommand("select count(*) from identity.consent_records where user_id = $1 and document_sha256 = $2", observer);
+        evidence.Parameters.AddWithValue(userId);
+        evidence.Parameters.AddWithValue(new string('a', 64));
+        Assert.Equal(1L, await evidence.ExecuteScalarAsync(Ct));
     }
 
     [Theory]
@@ -238,15 +300,7 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
             """, connection);
         await command.ExecuteNonQueryAsync(Ct);
         await browser.FetchCsrfTokenAsync();
-        using var failed = await browser.PostJsonAsync("/api/v1/auth/register", new
-        {
-            email,
-            password = "replacement password long enough",
-            acceptedTermsVersion = "v2",
-            acceptedPrivacyVersion = "v3",
-            acceptedTermsLocale = "pt-BR",
-            acceptedPrivacyLocale = "en-US",
-        });
+        using var failed = await browser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(email, "replacement password long enough", privacyLocale: "en-US"));
         Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
         Assert.Equal(replacePending ? 1 : 0, await scenario.CountUsersAsync(email));
         Assert.Equal(replacePending ? 1 : 0, await scenario.CountOutboxEventsAsync(email));
@@ -278,18 +332,9 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
         using var second = new Browser(factory);
         await first.FetchCsrfTokenAsync();
         await second.FetchCsrfTokenAsync();
-        static object Body(string email, string version, string locale) => new
-        {
-            email,
-            password = IdentityScenario.ValidPassword,
-            acceptedTermsVersion = version,
-            acceptedPrivacyVersion = version,
-            acceptedTermsLocale = locale,
-            acceptedPrivacyLocale = locale,
-        };
         var responses = await Task.WhenAll(
-            first.PostJsonAsync("/api/v1/auth/register", Body(email, "v1", "pt-BR")),
-            second.PostJsonAsync("/api/v1/auth/register", Body(email, "v2", "en-US")));
+            first.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(email, termsLocale: "pt-BR", privacyLocale: "pt-BR")),
+            second.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(email, termsLocale: "en-US", privacyLocale: "en-US")));
         foreach (var response in responses)
         {
             using (response)
@@ -300,8 +345,8 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
         var proof = await scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
         Assert.Equal(1, await scenario.CountUsersAsync(email));
         Assert.Equal(2, await scenario.ScalarAsync("select count(*) from identity.consent_records where user_id = $1", proof.UserId));
-        var firstWon = await scenario.ScalarAsync("select count(*) from identity.consent_records where user_id = $1 and version = 'v1' and document_locale = 'pt-BR'", proof.UserId);
-        var secondWon = await scenario.ScalarAsync("select count(*) from identity.consent_records where user_id = $1 and version = 'v2' and document_locale = 'en-US'", proof.UserId);
+        var firstWon = await scenario.ScalarAsync("select count(*) from identity.consent_records where user_id = $1 and version = '2026-10-01' and document_locale = 'pt-BR' and document_sha256 is not null", proof.UserId);
+        var secondWon = await scenario.ScalarAsync("select count(*) from identity.consent_records where user_id = $1 and version = '2026-10-01' and document_locale = 'en-US' and document_sha256 is not null", proof.UserId);
         Assert.True((firstWon == 2 && secondWon == 0) || (firstWon == 0 && secondWon == 2));
     }
 

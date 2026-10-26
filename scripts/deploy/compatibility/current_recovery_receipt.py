@@ -54,7 +54,7 @@ def classify_command(argv, *, qualified_query=False):
 
 def failure_locations(error: BaseException) -> list[dict]:
     """Closed source locations only: never exception messages, locals, paths or command output."""
-    sources = {"current_recovery_lab.py", "duora_deploy.py", "runtime_guard.py", "reconcile_payload.py", "install_executor.py"}
+    sources = {"current_recovery_lab.py", "current_recovery49_lab.py", "current_recovery49_receipt.py", "duora_deploy.py", "runtime_guard.py", "reconcile_payload.py", "install_executor.py"}
     kinds = {"DeployError", "GuardError", "PayloadError", "ValueError", "KeyError", "TypeError", "OSError", "RuntimeError",
              "TimeoutExpired", "CalledProcessError"}
     result, seen = [], set()
@@ -134,8 +134,12 @@ def validate_actions_opt_fixture(value):
     sha(value["identity_sha256"])
 
 
-def validate_receipt(r, pins):
-    need(r.get("schema") == 1 and type(r["schema"]) is int and r.get("scope") == SCOPE, "receipt scope")
+def validate_receipt(r, pins, *, expected_scope=SCOPE, expected_sql_sha256=SQL, expected_build_count=0):
+    need(type(expected_build_count) is int and (expected_scope, expected_sql_sha256, expected_build_count) in {
+        (SCOPE, SQL, 0),
+        ("native_current_c934_schema49_recovery_http_fixture", "ee88da57b072243a02a1c71f8ee2c2c5a00190dc53f81bde34ca15fc70dc6685", 1),
+    }, "closed native profile")
+    need(r.get("schema") == 1 and type(r["schema"]) is int and r.get("scope") == expected_scope, "receipt scope")
     need(r.get("success") is True and r.get("payload_origin") == "local_cohort_build"
          and r.get("control_plane") == "CoolifyHTTP_fixture", "bounded success required")
     for name in TRUE:
@@ -151,7 +155,7 @@ def validate_receipt(r, pins):
     for key in ("workflow_sha", "merge_sha", "workflow_head"):
         need(type(run[key]) is str and re.fullmatch(r"[a-f0-9]{40}", run[key]), "source run identity")
     need(source["receiver_sha256"] == RECEIVER
-         and source["canonical_sql_sha256"] == SQL and source["cohort_commit"] == pins["cohort_commit"]
+         and source["canonical_sql_sha256"] == expected_sql_sha256 and source["cohort_commit"] == pins["cohort_commit"]
          and source["cohort_tree"] == pins["cohort_tree"] and source["old_commit"] == pins["old_commit"], "frozen source")
     sha(source["executor_sha256"])
     need(set(source["bundle_sha256"]) == set(BUNDLE)
@@ -165,7 +169,7 @@ def validate_receipt(r, pins):
     for role, pin in pins["old_images"].items():
         validate_old_image_receipt(observed[role], pin)
     need(re.fullmatch(r"sha256:[a-f0-9]{64}", r["new_migrator"]["docker_image_id"])
-         and r["new_migrator"]["source_head"] == pins["cohort_commit"] and r["new_migrator"]["build_count_this_driver"] == 0,
+         and r["new_migrator"]["source_head"] == pins["cohort_commit"] and r["new_migrator"]["build_count_this_driver"] == expected_build_count,
          "single inherited cohort build")
     history = r["history"]
     need(history["before"] == pins["old_migrations"] and history["after_ddl"] == pins["new_migrations"]

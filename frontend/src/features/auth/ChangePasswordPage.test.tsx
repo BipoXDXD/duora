@@ -1,3 +1,10 @@
+import {
+  withSessionContext,
+  passwordChangeProblem,
+  TEST_PRIVATE_PROOF,
+  TEST_SESSION_ID,
+  TEST_RENEWED_SESSION_ID,
+} from '@/test/private-context'
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
@@ -15,7 +22,7 @@ const ME = {
 const TEMPORARY = 'ABCD-EFGH-IJKL-MNOP-QRST-UVWX'
 const PASSWORD = ' minha senha própria longa '
 function restricted() {
-  server.use(http.get(`${API}/me`, () => problem(403, 'PASSWORD_CHANGE_REQUIRED')))
+  server.use(http.get(`${API}/me`, () => passwordChangeProblem()))
 }
 /**
  * Cola o valor, como um gerenciador de senhas: um evento de input por campo. Digitar tecla a tecla as senhas longas
@@ -65,8 +72,13 @@ describe('troca obrigatória da senha inicial', () => {
       http.post(`${API}/auth/login`, () => new HttpResponse(null, { status: 204 })),
       http.get(`${API}/me`, () =>
         phase === 'password'
-          ? problem(403, 'PASSWORD_CHANGE_REQUIRED')
-          : HttpResponse.json({ ...ME, mfaEnabled: phase === 'done' }),
+          ? passwordChangeProblem()
+          : HttpResponse.json(
+              withSessionContext(
+                { ...ME, mfaEnabled: phase === 'done' },
+                phase === 'done' ? TEST_RENEWED_SESSION_ID : TEST_SESSION_ID,
+              ),
+            ),
       ),
       http.post(`${API}/me/password-changes`, async ({ request }) => {
         sent = await request.json()
@@ -75,14 +87,14 @@ describe('troca obrigatória da senha inicial', () => {
         return new HttpResponse(null, { status: 204 })
       }),
       http.post(`${API}/me/mfa/enrollments`, ({ request }) => {
-        expect(request.headers.get('X-XSRF-TOKEN')).toBe(csrf.latestToken())
+        expect(request.headers.get('X-XSRF-TOKEN')).toBe(TEST_PRIVATE_PROOF)
         return HttpResponse.json({ sharedKey: 'SYNTHETICKEY', authenticatorUri: 'otpauth://totp/test' })
       }),
       http.post(`${API}/me/mfa/confirmations`, async ({ request }) => {
         expect(await request.json()).toEqual({ code: '123456' })
-        expect(request.headers.get('X-XSRF-TOKEN')).toBe(csrf.latestToken())
+        expect(request.headers.get('X-XSRF-TOKEN')).toBe(TEST_PRIVATE_PROOF)
         phase = 'done'
-        return HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] })
+        return HttpResponse.json({ resultSessionId: TEST_RENEWED_SESSION_ID, recoveryCodes: ['synthetic-recovery'] })
       }),
       http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
     )
@@ -113,8 +125,8 @@ describe('troca obrigatória da senha inicial', () => {
       ),
     ).toBeInTheDocument()
     expect(sent).toEqual({ currentPassword: TEMPORARY, newPassword: PASSWORD })
-    expect(sentCsrf).toBe('token-3')
-    expect(csrf.calls()).toBe(4)
+    expect(sentCsrf).toBe(TEST_PRIVATE_PROOF)
+    expect(csrf.calls()).toBe(1)
     await user.click(screen.getByRole('button', { name: 'Configurar autenticador' }))
     expect(await screen.findByText('SYNTHETICKEY')).toBeInTheDocument()
     await user.type(screen.getByLabelText('Código do autenticador'), '123456')
@@ -132,7 +144,6 @@ describe('troca obrigatória da senha inicial', () => {
   it.each([
     [401, 'INVALID_CREDENTIALS', 'Senha atual inválida'],
     [401, 'REAUTHENTICATION_REQUIRED', 'Entre novamente para confirmar'],
-    [403, 'CSRF_VALIDATION_FAILED', 'Não foi possível validar'],
     [429, 'RATE_LIMITED', 'tentativas'],
   ])('trata %s %s sem retry', async (status, code, message) => {
     restricted()
@@ -173,7 +184,7 @@ describe('troca obrigatória da senha inicial', () => {
   })
   it('participante normal não fica preso na troca', async () => {
     server.use(
-      http.get(`${API}/me`, () => HttpResponse.json({ ...ME, roles: ['participant'] })),
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext({ ...ME, roles: ['participant'] }))),
       http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
     )
     await renderApp('/change-initial-password')
@@ -201,8 +212,8 @@ it('falha de rede mantém a troca disponível sem reenviar a senha', async () =>
 
 describe('entrar novamente encerra a sessão restrita', () => {
   it.each([
-    ['troca de senha', '/change-initial-password', () => problem(403, 'PASSWORD_CHANGE_REQUIRED')],
-    ['cadastro de MFA', '/account/enable-mfa', () => problem(403, 'MFA_ENROLLMENT_REQUIRED')],
+    ['troca de senha', '/change-initial-password', () => passwordChangeProblem()],
+    ['cadastro de MFA', '/account/enable-mfa', () => HttpResponse.json(withSessionContext(ME))],
   ])('%s: chama o logout antes de ir à entrada', async (_fase, path, me) => {
     useAntiforgeryEndpoint()
     const logouts: (string | null)[] = []
@@ -223,7 +234,7 @@ describe('entrar novamente encerra a sessão restrita', () => {
       expect(screen.getByTestId('location')).toHaveTextContent(/^\/login$/)
     })
     expect(logouts).toHaveLength(1)
-    expect(logouts[0]).toMatch(/^token-\d+$/)
+    expect(logouts[0]).toBe(TEST_PRIVATE_PROOF)
     expect(await screen.findByRole('status', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toHaveTextContent(
       'Você saiu da sua conta.',
     )
@@ -242,4 +253,23 @@ describe('entrar novamente encerra a sessão restrita', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('conexão')
     expect(screen.getByTestId('location')).toHaveTextContent('/change-initial-password')
   })
+})
+
+it('CSRF da troca protege antes de novo envio e não busca token público', async () => {
+  restricted()
+  const csrf = useAntiforgeryEndpoint()
+  let calls = 0
+  server.use(
+    http.post(`${API}/me/password-changes`, () => {
+      calls += 1
+      return problem(403, 'CSRF_VALIDATION_FAILED')
+    }),
+  )
+  const { user } = await renderApp('/account')
+  await fill(user)
+  await screen.findByRole('button', { name: 'Tentar de novo' })
+  expect(screen.queryByLabelText('Senha temporária')).not.toBeInTheDocument()
+  expect(screen.getByText(/Não foi possível validar o contexto/)).toBeInTheDocument()
+  expect(calls).toBe(1)
+  expect(csrf.calls()).toBe(0)
 })

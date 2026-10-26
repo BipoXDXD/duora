@@ -41,7 +41,8 @@ async function watchForAnaTraces(page: Page): Promise<() => Promise<unknown>> {
     Reflect.set(window, '__dadosDeAna', seen)
     const record = (): void => {
       const text = document.body.textContent
-      seen.push(...traces.filter((trace) => text.includes(trace)))
+      const current: unknown = Reflect.get(window, '__dadosDeAna')
+      if (Array.isArray(current)) current.push(...traces.filter((trace) => text.includes(trace)))
     }
     record()
     new MutationObserver(record).observe(document.body, { subtree: true, childList: true, characterData: true })
@@ -80,7 +81,7 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
     expect(storageKeys.filter((key) => !ALLOWED_STORAGE_KEYS.includes(key))).toEqual([])
   })
 
-  test('A sai em outra aba: esta aba deixa de mostrar A na hora, sem esperar foco', async ({ page }) => {
+  test('A sai em outra aba: dados somem na hora e a identidade exige confirmação explícita', async ({ page }) => {
     await signInAsAna(page)
     const otherTab = await page.context().newPage()
     await otherTab.goto('/account')
@@ -88,11 +89,13 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
 
     await otherTab.getByRole('button', { name: 'Sair' }).click()
 
+    await expectNoAnaOnScreen(page)
+    await page.getByRole('button', { name: 'Tentar de novo' }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
     await expectNoAnaOnScreen(page)
   })
 
-  test('B entra em outra aba: esta aba passa a mostrar B e nada de A', async ({ page }) => {
+  test('B entra em outra aba: a confirmação explícita instala B sem dados de A', async ({ page }) => {
     await signInAsAna(page)
     const otherTab = await page.context().newPage()
     await otherTab.goto('/login')
@@ -103,6 +106,8 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
     await signIn(otherTab, BRUNO)
     await expect(otherTab.getByText(BRUNO)).toBeVisible()
 
+    await expectNoAnaOnScreen(page)
+    await page.getByRole('button', { name: 'Tentar de novo' }).click()
     await expect(page.getByText(BRUNO)).toBeVisible()
     await expectNoAnaOnScreen(page)
     expect(await anaTraces()).toEqual([])
@@ -118,7 +123,7 @@ test.describe('T-21: troca de identidade no mesmo navegador', () => {
     await page.goBack()
 
     await expect(page.getByRole('heading', { level: 1, name: 'Entrar' })).toBeVisible()
-    await expect(page.getByRole('status')).toContainText('Entre para continuar.')
+    await expect(page.getByRole('status')).toContainText('Sua sessão expirou. Entre de novo para continuar.')
     expect(await anaTraces()).toEqual([])
   })
 

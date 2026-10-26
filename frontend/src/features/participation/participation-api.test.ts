@@ -1,3 +1,4 @@
+import { testPrivateOperation } from '@/test/private-context'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { API, server } from '@/test/msw'
@@ -25,12 +26,12 @@ describe('instantes de eventos na fronteira da API', () => {
     'recusa %s sem inventar fuso para uma data civil ou hora local',
     async (value) => {
       events(value)
-      await expect(fetchEvents()).rejects.toThrow()
+      await expect(fetchEvents(testPrivateOperation())).rejects.toThrow()
     },
   )
   it('preserva um instante com offset explícito e o fuso IANA separado', async () => {
     events('2026-10-16T20:00:00-03:00')
-    expect(await fetchEvents()).toEqual([
+    expect(await fetchEvents(testPrivateOperation())).toEqual([
       {
         eventId: 'event',
         title: 'Synthetic',
