@@ -215,7 +215,7 @@ internal sealed class PhotoReviewAppeals
         return new Phase(null, confirmed);
     }
 
-    private async Task<bool> AuthorizeOwnerAsync(DuoraDbContext db, PhotoReviewActor owner, CancellationToken cancellationToken)
+    internal async Task<bool> AuthorizeOwnerAsync(DuoraDbContext db, PhotoReviewActor owner, CancellationToken cancellationToken)
     {
         if (owner.UserId == Guid.Empty || owner.SessionId == Guid.Empty)
         {

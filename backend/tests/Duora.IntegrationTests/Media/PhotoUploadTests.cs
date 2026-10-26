@@ -437,7 +437,7 @@ public sealed class PhotoUploadTests : IAsyncDisposable
     [Fact]
     public void TheOriginalHasNoReadRoute()
     {
-        // TM-44: nenhuma rota serve bytes de upload; a única leitura de mídia por enquanto é o estado (API-M02).
+        // TM-44: the exact inventory admits metadata and guarded review derivatives, never original upload bytes.
         var mediaReads = _factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
             .Where(endpoint => endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains("GET") ?? true)
@@ -446,7 +446,22 @@ public sealed class PhotoUploadTests : IAsyncDisposable
                 || path.Contains("media", StringComparison.OrdinalIgnoreCase)
                 || path.Contains("upload", StringComparison.OrdinalIgnoreCase));
 
-        Assert.Equal(["/api/v1/me/photos/{photoId:guid}/status"], mediaReads);
+        string[] expected =
+        [
+            "/api/v1/me/photos",
+            "/api/v1/me/photos/{photoId:guid}/status",
+            "/api/v1/me/photos/{photoId:guid}/review-history",
+            "/api/v1/admin/photo-reviews/capabilities",
+            "/api/v1/admin/photo-reviews",
+            "/api/v1/admin/photo-reviews/{caseId:guid}",
+            "/api/v1/admin/photo-reviews/{caseId:guid}/evidence/{variant}",
+            "/api/v1/admin/photo-appeals",
+            "/api/v1/admin/photo-appeals/{appealId:guid}",
+            "/api/v1/admin/photo-appeals/{appealId:guid}/evidence/{variant}",
+        ];
+        Assert.Equal(expected.Order(StringComparer.Ordinal), mediaReads.Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(mediaReads, path => path.Contains("original", StringComparison.OrdinalIgnoreCase)
+            || path.Contains("quarantine", StringComparison.OrdinalIgnoreCase));
     }
 
     private Task<TestAccount> NewAccountAsync() => _media.Identity.CreateConfirmedAccountAsync();

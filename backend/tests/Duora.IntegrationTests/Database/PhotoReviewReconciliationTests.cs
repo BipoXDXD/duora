@@ -13,6 +13,7 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
         ["safety.photo_review_appeal_assignments"] = "id",
         ["safety.photo_review_appeal_commands"] = "actor_id",
         ["safety.photo_review_appeal_evidence_accesses"] = "id",
+        ["safety.photo_review_appeal_decision_commands"] = "actor_id",
         ["safety.photo_review_grants"] = "id",
         ["safety.photo_review_assignments"] = "id",
         ["safety.photo_review_commands"] = "actor_id",
@@ -26,7 +27,8 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
     private static readonly string[] InheritedGrantTargets =
         ["safety.photo_review_grants", "safety.photo_review_evidence_accesses",
             "safety.photo_review_appeal_assignment_commands", "safety.photo_review_appeal_assignments",
-            "safety.photo_review_appeal_commands", "safety.photo_review_appeal_evidence_accesses", "safety.photo_review_appeals"];
+            "safety.photo_review_appeal_commands", "safety.photo_review_appeal_evidence_accesses",
+            "safety.photo_review_appeal_decision_commands", "safety.photo_review_appeals"];
     private static readonly Dictionary<string, string> ColumnGrantTargets = new()
     {
         ["ops.audit_events"] = "action",
@@ -200,6 +202,9 @@ public sealed class PhotoReviewReconciliationTests(PostgresFixture postgres)
     [InlineData("safety.photo_review_appeal_evidence_accesses", "UPDATE")]
     [InlineData("safety.photo_review_appeal_evidence_accesses", "DELETE")]
     [InlineData("safety.photo_review_appeal_evidence_accesses", "TRUNCATE")]
+    [InlineData("safety.photo_review_appeal_decision_commands", "UPDATE")]
+    [InlineData("safety.photo_review_appeal_decision_commands", "DELETE")]
+    [InlineData("safety.photo_review_appeal_decision_commands", "TRUNCATE")]
     [InlineData("safety.photo_review_appeals", "DELETE")]
     [InlineData("safety.photo_review_appeals", "TRUNCATE")]
     public async Task PublicPrivilegesRefuseEitherBlockAndRollBackAllReconciliationRevokes(string table, string privilege)

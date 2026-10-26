@@ -67,6 +67,13 @@ public static class MediaProcessingServiceCollectionExtensions
             provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value.Provider != MediaStorageProvider.Unset,
             provider.GetRequiredService<ILogger<UnavailableCandidateCleanupDispatcher>>()));
 
+        services.AddSingleton(provider => new AppealCandidateCleanupDispatcher(
+            provider.GetRequiredService<NpgsqlDataSource>(),
+            provider.GetRequiredService<IObjectStore>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value.Provider != MediaStorageProvider.Unset,
+            provider.GetRequiredService<ILogger<AppealCandidateCleanupDispatcher>>()));
+
         return services;
     }
 

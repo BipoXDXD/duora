@@ -20,7 +20,7 @@ internal abstract record PhotoReviewAssignmentResult
 }
 
 internal readonly record struct PhotoReviewCursor(DateTimeOffset AwaitingReviewAt, Guid CaseId);
-internal sealed record PhotoReviewSummary(Guid CaseId, string State, long Version, DateTimeOffset AwaitingReviewAt, DateTimeOffset ReviewDeadline);
+internal sealed record PhotoReviewSummary(Guid CaseId, string State, long Version, DateTimeOffset AwaitingReviewAt, DateTimeOffset ReviewDeadline, string PolicyVersion);
 internal sealed record PhotoReviewPage(IReadOnlyList<PhotoReviewSummary> Cases, PhotoReviewCursor? NextCursor);
 internal sealed record PhotoReviewDetails(PhotoReviewSummary Case, string PolicyVersion);
 
@@ -155,7 +155,7 @@ internal sealed class PhotoReviewAssignments(DuoraDbContext db, TimeProvider tim
         var hasCursor = cursor.HasValue;
         var rows = await db.Database.SqlQuery<PhotoReviewSummary>($"""
             select r.id as "CaseId",u.state as "State",r.version as "Version",
-              r.awaiting_review_at as "AwaitingReviewAt",r.review_deadline as "ReviewDeadline"
+              r.awaiting_review_at as "AwaitingReviewAt",r.review_deadline as "ReviewDeadline",r.policy_version as "PolicyVersion"
             from safety.photo_review_cases r join media.uploads u on u.id=r.upload_id
             join identity.users owner on owner.id=u.owner_id
             join media.review_candidates c on c.generation=r.candidate_generation and c.upload_id=u.id and c.case_id=r.id
@@ -219,7 +219,7 @@ internal sealed class PhotoReviewAssignments(DuoraDbContext db, TimeProvider tim
                 return new PhotoReviewDetailsResult.NotFound();
             }
             return new PhotoReviewDetailsResult.Found(new PhotoReviewDetails(new PhotoReviewSummary(
-                caseId, "AwaitingReview", row.Version, row.AwaitingReviewAt, row.ReviewDeadline), row.PolicyVersion));
+                caseId, "AwaitingReview", row.Version, row.AwaitingReviewAt, row.ReviewDeadline, row.PolicyVersion), row.PolicyVersion));
         }
         return new PhotoReviewDetailsResult.NotFound();
     }

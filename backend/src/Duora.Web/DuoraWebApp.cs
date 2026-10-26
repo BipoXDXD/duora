@@ -124,8 +124,9 @@ internal static class DuoraWebApp
         api.MapBlockEndpoints();
         api.MapMfaEndpoints();
         api.MapReauthenticationEndpoints();
-        api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
+        api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>()).MapPhotoReviewAdminEndpoints();
         api.MapPhotoEndpoints();
+        api.MapPhotoReviewOwnerEndpoints();
         api.MapAgeVerificationEndpoints();
         api.MapSelfieVerificationEndpoints();
         api.MapParticipationTestSentinel(app.Environment);

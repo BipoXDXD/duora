@@ -84,6 +84,11 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             },
             // O corpo de verdade é a imagem crua; sem token, a recusa vem antes de olhar o corpo.
             ["POST /api/v1/me/photos"] = null,
+            ["POST /api/v1/me/photos/{photoId:guid}/appeals"] = null,
+            ["POST /api/v1/admin/photo-reviews/{caseId:guid}/assignments"] = new { reviewerId = administrator.UserId },
+            ["POST /api/v1/admin/photo-reviews/{caseId:guid}/decisions"] = new { decision = "reject", reasonCode = "does_not_meet_policy" },
+            ["POST /api/v1/admin/photo-appeals/{appealId:guid}/assignments"] = new { reviewerId = administrator.UserId },
+            ["POST /api/v1/admin/photo-appeals/{appealId:guid}/decisions"] = new { decision = "reject", reasonCode = "does_not_meet_policy" },
             ["POST /api/v1/me/age-verifications"] = new { },
             ["POST /api/v1/me/selfie-verifications"] = new { },
             ["POST /api/v1/me/selfie-verifications/{id:guid}/capture"] = new { },
@@ -123,6 +128,9 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 .Replace("{sessionId:guid}", sessionId.ToString(), StringComparison.Ordinal)
                 .Replace("{targetUserId:guid}", pendingLink.UserId.ToString(), StringComparison.Ordinal)
                 .Replace("{eventId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+                .Replace("{photoId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+                .Replace("{caseId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+                .Replace("{appealId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
                 .Replace("{roomId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
             var headers = new MutationHeaders(SendCsrfToken: false);
             var caller = pattern.StartsWith("/api/v1/admin/", StringComparison.Ordinal) ? adminBrowser : browser;

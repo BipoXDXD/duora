@@ -17,7 +17,7 @@ internal abstract record ReviewPromotionResult
 }
 
 /// <summary>Private generation-owned copies, without approving or publishing a photo. Not registered.</summary>
-internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore store, TimeProvider time)
+internal sealed partial class PhotoReviewPromotions(DuoraDbContext db, IObjectStore store, TimeProvider time)
 {
     private sealed record CandidateState(Guid UploadId, Guid OwnerId, long UploadVersion, long CaseVersion,
         Guid CandidateGeneration, string PolicyVersion, string DetectedType, int Width, int Height,
@@ -30,7 +30,14 @@ internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore stor
 
     private sealed record Snapshot(CandidateState State, Variant[] Variants);
 
-    internal async Task<ReviewPromotionResult> PrepareAsync(ReviewPromotionRequest request, CancellationToken cancellationToken)
+    internal Task<ReviewPromotionResult> PrepareAsync(ReviewPromotionRequest request, CancellationToken cancellationToken) =>
+        PrepareCoreAsync(request, null, cancellationToken);
+
+    internal Task<ReviewPromotionResult> PrepareAppealAsync(ReviewAppealPromotionRequest request, CancellationToken cancellationToken) =>
+        PrepareCoreAsync(request.Candidate, request, cancellationToken);
+
+    private async Task<ReviewPromotionResult> PrepareCoreAsync(ReviewPromotionRequest request,
+        ReviewAppealPromotionRequest? appeal, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(request);
@@ -57,7 +64,7 @@ internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore stor
         var confirmed = false;
         try
         {
-            var snapshot = await PrepareMetadataAsync(request, generation, createdAt, deadline, budget.Token);
+            var snapshot = await PrepareMetadataAsync(request, appeal, generation, createdAt, deadline, budget.Token);
             if (snapshot is null)
             {
                 return new ReviewPromotionResult.Unavailable();
@@ -106,7 +113,7 @@ internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore stor
 
             await SettleWriterAsync(generation, budget.Token);
             EnsureLive(deadline, budget.Token);
-            if (!await ConfirmPreparedAsync(request, generation, snapshot, deadline, budget.Token))
+            if (!await ConfirmPreparedAsync(request, appeal, generation, snapshot, deadline, budget.Token))
             {
                 return new ReviewPromotionResult.Unavailable();
             }
@@ -147,12 +154,12 @@ internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore stor
         }
     }
 
-    private async Task<Snapshot?> PrepareMetadataAsync(ReviewPromotionRequest request, Guid generation,
+    private async Task<Snapshot?> PrepareMetadataAsync(ReviewPromotionRequest request, ReviewAppealPromotionRequest? appeal, Guid generation,
         DateTimeOffset createdAt, DateTimeOffset deadline, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await db.Database.ExecuteSqlRawAsync("set local lock_timeout='2s'", cancellationToken);
-        var snapshot = await LoadAsync(request, generation, cancellationToken);
+        var snapshot = await LoadAsync(request, appeal, generation, cancellationToken);
         if (snapshot is null)
         {
             return null;
@@ -163,10 +170,11 @@ internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore stor
         await db.Database.ExecuteSqlAsync($"""
             insert into media.review_promotions
               (generation,upload_id,case_id,case_version,upload_version,candidate_generation,policy_version,
-               detected_type,width,height,created_at,prepare_deadline,writer_settled_at,cleanup_available_at)
+               detected_type,width,height,created_at,prepare_deadline,writer_settled_at,cleanup_available_at,appeal_id,appeal_version)
             values({generation},{state.UploadId},{request.CaseId},{state.CaseVersion},{state.UploadVersion},
               {state.CandidateGeneration},{state.PolicyVersion},{state.DetectedType},{state.Width},{state.Height},
-              {createdAt},{deadline},{createdAt},{createdAt})
+              {createdAt},{deadline},{createdAt},{createdAt},{(appeal == null ? (Guid?)null : appeal.AppealId)},
+              {(appeal == null ? (long?)null : appeal.AppealVersion)})
             """, cancellationToken);
         foreach (var variant in snapshot.Variants)
         {
@@ -202,12 +210,12 @@ internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore stor
         where generation={generation} and committed_at is null and deleted_at is null
         """, cancellationToken);
 
-    private async Task<bool> ConfirmPreparedAsync(ReviewPromotionRequest request, Guid generation,
+    private async Task<bool> ConfirmPreparedAsync(ReviewPromotionRequest request, ReviewAppealPromotionRequest? appeal, Guid generation,
         Snapshot expected, DateTimeOffset deadline, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await db.Database.ExecuteSqlRawAsync("set local lock_timeout='2s'", cancellationToken);
-        var current = await LoadAsync(request, generation, cancellationToken);
+        var current = await LoadAsync(request, appeal, generation, cancellationToken);
         if (current is null || current.State != expected.State || current.Variants.Length != expected.Variants.Length)
         {
             return false;
@@ -240,6 +248,8 @@ internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore stor
               and case_version={state.CaseVersion} and upload_version={state.UploadVersion}
               and candidate_generation={state.CandidateGeneration} and policy_version={state.PolicyVersion}
               and detected_type={state.DetectedType} and width={state.Width} and height={state.Height}
+              and appeal_id is not distinct from {(appeal == null ? (Guid?)null : appeal.AppealId)}
+              and appeal_version is not distinct from {(appeal == null ? (long?)null : appeal.AppealVersion)}
               and prepare_deadline={deadline} and prepare_deadline>{now} and writer_settled_at is not null
               and committed_at is null and asset_id is null and cleanup_requested_at is null
               and cleanup_token is null and deleted_at is null
@@ -282,8 +292,12 @@ internal sealed class PhotoReviewPromotions(DuoraDbContext db, IObjectStore stor
     }
 
     // Caller owns a short, private transaction. Storage never runs while these locks are held.
-    private async Task<Snapshot?> LoadAsync(ReviewPromotionRequest request, Guid generation, CancellationToken cancellationToken)
+    private async Task<Snapshot?> LoadAsync(ReviewPromotionRequest request, ReviewAppealPromotionRequest? appeal, Guid generation, CancellationToken cancellationToken)
     {
+        if (appeal is not null)
+        {
+            return await LoadAppealAsync(appeal, generation, cancellationToken);
+        }
         var uploads = await db.Database.SqlQuery<Guid>($"select upload_id as \"Value\" from safety.photo_review_cases where id={request.CaseId}")
             .ToListAsync(cancellationToken);
         if (uploads.Count != 1)

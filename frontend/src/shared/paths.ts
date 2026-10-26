@@ -17,9 +17,15 @@ export const paths = {
   changePassword: '/change-initial-password',
   mfaEnrollment: '/account/enable-mfa',
   account: '/account',
+  photos: '/account/photos',
   profile: '/account/profile',
   preferences: '/account/preferences',
   events: '/events',
+  photoReviewHistory: '/photos/:photoId/review',
+  photoReviews: '/admin/photo-reviews',
+  photoReviewDetail: '/admin/photo-reviews/:caseId',
+  photoAppeals: '/admin/photo-appeals',
+  photoAppealDetail: '/admin/photo-appeals/:appealId',
 } as const
 
 /** Links já emitidos: aliases exatos, sem uma segunda árvore de páginas por idioma. */
