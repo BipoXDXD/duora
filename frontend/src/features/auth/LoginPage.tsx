@@ -1,5 +1,5 @@
+import { usePublicMutation, runPublicOperation } from '@/features/session/public-operation'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useLocation } from 'react-router'
@@ -62,9 +62,9 @@ export function LoginPage(): React.JSX.Element {
   useEffect(() => {
     if (secondFactor !== null) form.setFocus(SECOND_FACTOR_FIELDS[secondFactor])
   }, [secondFactor, form])
-  const signIn = useMutation({
+  const signIn = usePublicMutation({
     // Credenciais saem do formulário validado, nunca das variables do MutationCache (como na troca de senha).
-    mutationFn: () => login(loginSchema.parse(form.getValues())),
+    mutationFn: (operation) => login(operation, loginSchema.parse(form.getValues())),
     gcTime: 0,
     onError: (error) => {
       if (error instanceof ApiProblemError && error.problem.code === 'MFA_REQUIRED') {
@@ -73,11 +73,12 @@ export function LoginPage(): React.JSX.Element {
     },
     onSuccess: () => transitions.signedIn(from ?? paths.account),
   })
-  const submit = form.handleSubmit(() => {
-    if (!signIn.isPending) {
-      signIn.mutate()
-    }
-  })
+  const submit = (event: React.BaseSyntheticEvent) =>
+    runPublicOperation((operation) =>
+      form.handleSubmit(async () => {
+        if (!signIn.isPending) await signIn.mutateWithOperation(operation, undefined)
+      })(event),
+    )
   const { errors } = form.formState
 
   return (
@@ -92,7 +93,7 @@ export function LoginPage(): React.JSX.Element {
         aria-busy={signIn.isPending}
         className="flex flex-col gap-6"
         onSubmit={(event) => {
-          void submit(event)
+          void submit(event).catch(() => undefined)
         }}
       >
         <TextField

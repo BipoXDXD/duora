@@ -1,0 +1,70 @@
+[
+  {
+    "role": "legacy",
+    "component": "worker",
+    "reference": "ghcr.io/bipoxdxd/duora-worker@sha256:c53400fc724ea6c24e3fa5d28f9bdad4af2ebf3bf2a556740ae50f3b855f98d2",
+    "tag": "bbdf0da978e4c700872a278e3af0d55592db2f2d-39610449853-1-amd64",
+    "tag_manifest_digest": "sha256:c53400fc724ea6c24e3fa5d28f9bdad4af2ebf3bf2a556740ae50f3b855f98d2",
+    "native_manifest_digest": "sha256:c53400fc724ea6c24e3fa5d28f9bdad4af2ebf3bf2a556740ae50f3b855f98d2",
+    "config_digest": "sha256:0c20bbc5586c37f67956c752e7be5ebda4c28749a85d86025ba23cfbfad633e3",
+    "source": "bbdf0da978e4c700872a278e3af0d55592db2f2d",
+    "architecture": "amd64",
+    "os": "linux",
+    "user": "1654:1654",
+    "entrypoint": [
+      "dotnet",
+      "Duora.Worker.dll"
+    ]
+  },
+  {
+    "role": "compatible",
+    "component": "worker",
+    "reference": "ghcr.io/bipoxdxd/duora-worker@sha256:2847314e407cf744c54483918cf450667df8239158c93107dff0c2d8a3bf7433",
+    "tag": "f3c52b229ac1af1a7d56f17f9e8124a8afe5da23-39651024776-1-amd64",
+    "tag_manifest_digest": "sha256:2847314e407cf744c54483918cf450667df8239158c93107dff0c2d8a3bf7433",
+    "native_manifest_digest": "sha256:2847314e407cf744c54483918cf450667df8239158c93107dff0c2d8a3bf7433",
+    "config_digest": "sha256:9b0f0faa86e2b3d15f337a91049437c42b274e3a6619f9525b73ad166602bcc2",
+    "source": "f3c52b229ac1af1a7d56f17f9e8124a8afe5da23",
+    "architecture": "amd64",
+    "os": "linux",
+    "user": "1654:1654",
+    "entrypoint": [
+      "dotnet",
+      "Duora.Worker.dll"
+    ]
+  },
+  {
+    "role": "legacy",
+    "component": "web",
+    "reference": "ghcr.io/bipoxdxd/duora-web@sha256:07a38e2692b8a4127bd050dfb8147eb240297129801ac2bde984b56cb91efb2c",
+    "tag": "bbdf0da978e4c700872a278e3af0d55592db2f2d-39610449853-1-amd64",
+    "tag_manifest_digest": "sha256:07a38e2692b8a4127bd050dfb8147eb240297129801ac2bde984b56cb91efb2c",
+    "native_manifest_digest": "sha256:07a38e2692b8a4127bd050dfb8147eb240297129801ac2bde984b56cb91efb2c",
+    "config_digest": "sha256:a429f0cf9050bb32bb55c24ccc778823118b39ec92d6e3ff141acfe6062766fd",
+    "source": "bbdf0da978e4c700872a278e3af0d55592db2f2d",
+    "architecture": "amd64",
+    "os": "linux",
+    "user": "1654:1654",
+    "entrypoint": [
+      "dotnet",
+      "Duora.Web.dll"
+    ]
+  },
+  {
+    "role": "compatible",
+    "component": "web",
+    "reference": "ghcr.io/bipoxdxd/duora-web@sha256:2c6f06bd6ce249c4428dee4e12bcb578105620085f617b56c38e0972648de77f",
+    "tag": "f3c52b229ac1af1a7d56f17f9e8124a8afe5da23-39651024776-1-amd64",
+    "tag_manifest_digest": "sha256:2c6f06bd6ce249c4428dee4e12bcb578105620085f617b56c38e0972648de77f",
+    "native_manifest_digest": "sha256:2c6f06bd6ce249c4428dee4e12bcb578105620085f617b56c38e0972648de77f",
+    "config_digest": "sha256:f1c9ade28f5d91ae62cc0eb48d98d0e39fd26800eb397ebb367fc3ea4858849e",
+    "source": "f3c52b229ac1af1a7d56f17f9e8124a8afe5da23",
+    "architecture": "amd64",
+    "os": "linux",
+    "user": "1654:1654",
+    "entrypoint": [
+      "dotnet",
+      "Duora.Web.dll"
+    ]
+  }
+]

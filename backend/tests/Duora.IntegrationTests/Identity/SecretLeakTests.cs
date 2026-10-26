@@ -62,18 +62,22 @@ public sealed class SecretLeakTests : IAsyncDisposable
         var provisioning = new List<string>();
         using (var enrollment = await browser.PostJsonAsync(MfaScenario.Enrollments, body: null))
         {
+            Assert.Equal(System.Net.HttpStatusCode.OK, enrollment.StatusCode);
             provisioning.Add(await enrollment.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         }
 
         var sharedKey = (string)System.Text.Json.Nodes.JsonNode.Parse(provisioning[0])!["sharedKey"]!;
         using (var confirmed = await browser.PostJsonAsync(MfaScenario.Confirmations, new { code = Totp.Next(_time, sharedKey) }))
         {
+            Assert.Equal(System.Net.HttpStatusCode.OK, confirmed.StatusCode);
             provisioning.Add(await confirmed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         }
 
+        await browser.FetchPrivateContextAsync();
         await browser.FetchCsrfTokenAsync();
         using (var regenerated = await browser.PostJsonAsync(MfaScenario.RecoveryCodes, body: null))
         {
+            Assert.Equal(System.Net.HttpStatusCode.OK, regenerated.StatusCode);
             provisioning.Add(await regenerated.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         }
 

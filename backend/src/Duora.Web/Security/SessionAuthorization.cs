@@ -1,5 +1,6 @@
 using Duora.Web.Http;
 using Duora.Web.Identity;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 
@@ -147,7 +148,7 @@ internal sealed class SessionRequirementsHandler : IAuthorizationHandler
 /// outros resultados seguem o tratamento padrão. A senha temporária vem primeiro: a conta nessa fase também deve o
 /// MFA, e o que ela precisa fazer agora é trocar a senha.
 /// </summary>
-internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
+internal sealed class SessionAuthorizationResultHandler(IAntiforgery antiforgery) : IAuthorizationMiddlewareResultHandler
 {
     private static readonly TimeSpan EligibilityRetryAfter = TimeSpan.FromSeconds(5);
 
@@ -180,10 +181,13 @@ internal sealed class SessionAuthorizationResultHandler : IAuthorizationMiddlewa
 
         if (awaitsPasswordChange)
         {
-            await ApiProblems.Problem(
-                    StatusCodes.Status403Forbidden,
-                    ApiProblems.PasswordChangeRequired)
-                .ExecuteAsync(context);
+            var problem = ApiProblems.Problem(StatusCodes.Status403Forbidden, ApiProblems.PasswordChangeRequired);
+            if (HttpMethods.IsGet(context.Request.Method)
+                && context.GetEndpoint()?.Metadata.GetMetadata<SessionContextBootstrapEndpoint>() is not null)
+            {
+                problem.ProblemDetails.Extensions["sessionContext"] = PrivateOperationContext.Issue(context, antiforgery);
+            }
+            await problem.ExecuteAsync(context);
             return;
         }
 

@@ -160,9 +160,10 @@ public sealed class AdminRouteTests : IAsyncDisposable
 
         using var browser = new Browser(_factory);
         using var login = await MfaScenario.LoginAsync(browser, account, twoFactorCode: Totp.Next(_time, mfa.SharedKey));
+        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        await browser.FetchPrivateContextAsync();
         using var probe = await browser.GetAsync(Probe);
 
-        Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, probe.StatusCode);
     }
 

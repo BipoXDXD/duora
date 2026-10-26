@@ -169,6 +169,9 @@ public sealed class RegionDetectionTests(PostgresFixture postgres)
         var before = await SnapshotAsync(account.UserId);
         if (cancel)
         {
+            using var bootstrap = await browser.GetAsync("/api/v1/me");
+            Assert.Equal(HttpStatusCode.OK, bootstrap.StatusCode);
+            var proof = (string)JsonNode.Parse(await bootstrap.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!["sessionContext"]!["requestToken"]!;
             Microsoft.AspNetCore.Http.HttpContext? completed = null;
             var error = await Record.ExceptionAsync(async () => completed = await factory.Server.SendAsync(context =>
             {
@@ -178,7 +181,7 @@ public sealed class RegionDetectionTests(PostgresFixture postgres)
                 context.Request.Scheme = "https";
                 context.Request.Host = new Microsoft.AspNetCore.Http.HostString("localhost");
                 context.Request.Headers.Cookie = browser.Cookies.GetCookieHeader(Browser.BaseAddress);
-                context.Request.Headers["X-XSRF-TOKEN"] = browser.Cookie("XSRF-TOKEN");
+                context.Request.Headers["X-XSRF-TOKEN"] = proof;
                 context.Request.Headers.Origin = DuoraWebFactory.PublicOrigin;
                 context.Request.Headers["Sec-Fetch-Site"] = "same-origin";
                 context.Request.Headers[RemoteAddressFromTestHeader.Header] = "8.8.8.8";

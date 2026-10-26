@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/media-isolation.yml'
+      - '.github/workflows/media-release.yml'
       - 'scripts/media/**'
       - 'scripts/deploy/test_media_launcher.py'
       - 'infra/images/media-sanitizer/**'
@@ -11,16 +12,25 @@ on:
       - 'backend/src/Duora.MediaProtocol/**'
       - 'backend/src/Duora.Worker/Media/**'
       - 'backend/tests/Duora.MediaIsolationProbe/**'
+      - 'backend/tests/Duora.MediaCorpusTests/**'
+      - 'backend/tests/Duora.IntegrationTests/Media/**'
+      - 'backend/tests/Duora.IntegrationTests/RepositoryRoot.cs'
+      - 'backend/tests/Duora.MediaBaselineHost/**'
   push:
     branches: [main]
     paths:
       - '.github/workflows/media-isolation.yml'
+      - '.github/workflows/media-release.yml'
       - 'scripts/media/**'
       - 'infra/images/media-sanitizer/**'
       - 'backend/src/Duora.MediaSanitizer/**'
       - 'backend/src/Duora.MediaProtocol/**'
       - 'backend/src/Duora.Worker/Media/**'
       - 'backend/tests/Duora.MediaIsolationProbe/**'
+      - 'backend/tests/Duora.MediaCorpusTests/**'
+      - 'backend/tests/Duora.IntegrationTests/Media/**'
+      - 'backend/tests/Duora.IntegrationTests/RepositoryRoot.cs'
+      - 'backend/tests/Duora.MediaBaselineHost/**'
 permissions:
   contents: read
 concurrency:
@@ -43,6 +53,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - name: Build standalone corpus with locked dependencies
+        run: |
+          dotnet restore backend/tests/Duora.MediaCorpusTests/Duora.MediaCorpusTests.csproj --locked-mode
+          dotnet build backend/tests/Duora.MediaCorpusTests/Duora.MediaCorpusTests.csproj --no-restore
+      - name: Signed APT source isolation regressions
+        run: python3 scripts/media/test_rootless_apt.py -v
       - name: Native architecture and dedicated rootless prerequisites
         shell: bash
         run: |
@@ -120,6 +139,37 @@ jobs:
             --memory 536870912 --memory-swap 536870912 --cpus 1 --pids-limit 64 \
             --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16777216 --entrypoint /bin/sh "$image" -c \
             'test "$(cat /sys/fs/cgroup/memory.max)" = 536870912 && test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0 && test "$(cat /sys/fs/cgroup/pids.max)" = 64 && test "$(cat /sys/fs/cgroup/cpu.max)" = "100000 100000" && grep -q "Seccomp:.*2" /proc/self/status && grep -q "NoNewPrivs:.*1" /proc/self/status'
+      - name: Complete standalone corpus without Docker API or network
+        shell: bash
+        run: |
+          set -euo pipefail
+          image='mcr.microsoft.com/dotnet/sdk:10.0.402-noble@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa'
+          host="unix:///run/user/$LAUNCHER_UID/docker.sock"
+          name="duora-corpus-no-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          kit=$(mktemp -d /tmp/duora-corpus-kit.XXXXXX)
+          trap 'sudo -Hu duora-sanitizer-ci docker --host "$host" rm --force "$name" >/dev/null 2>&1 || true; rm -rf -- "$kit"' EXIT
+          cp global.json "$kit/global.json"
+          for project in Duora.MediaCorpusTests Duora.MediaBaselineHost; do
+            destination="$kit/backend/tests/$project/bin/Debug"
+            mkdir -p "$destination"
+            cp -a "backend/tests/$project/bin/Debug/net10.0" "$destination/net10.0"
+          done
+          # The dedicated rootless UID cannot traverse private checkout ancestors.
+          # Stage only the test outputs and repository marker, with no symlinks.
+          test -z "$(find "$kit" -type l -print -quit)"
+          find "$kit" -type d -exec chmod 0755 {} +
+          find "$kit" -type f -exec chmod 0644 {} +
+          # The client receives only read-only instrumentation and bounded scratch space.
+          # No runtime socket, host network, credentials or product storage is mounted.
+          timeout --signal=TERM --kill-after=15s 900s sudo -Hu duora-sanitizer-ci docker --host "$host" run --name "$name" --rm --pull never \
+            --network none --read-only --user 1654:1654 --cap-drop ALL \
+            --security-opt no-new-privileges --memory 1073741824 --memory-swap 1073741824 \
+            --cpus 0.5 --pids-limit 256 --tmpfs /tmp:rw,noexec,nosuid,nodev,size=536870912,mode=1777 \
+            --mount "type=bind,src=$kit,dst=/workspace,readonly" \
+            --workdir /workspace --env DOTNET_NOLOGO=true --env DOTNET_CLI_TELEMETRY_OPTOUT=true \
+            --entrypoint /usr/share/dotnet/dotnet "$image" \
+            /workspace/backend/tests/Duora.MediaCorpusTests/bin/Debug/net10.0/Duora.MediaCorpusTests.dll \
+            -showLiveOutput -reporter verbose
       # The preparatory PR establishes real runner prerequisites; S2 adds this harness in its own PR.
       - name: Real launcher and sanitizer fault matrix
         if: ${{ hashFiles('scripts/media/test_sanitizer_isolation.py') != '' }}
@@ -133,7 +183,7 @@ jobs:
         with:
           name: media-isolation-${{ matrix.arch }}
           path: ${{ runner.temp }}/media-isolation.json
-          retention-days: 1
+          retention-days: 90
           if-no-files-found: error
       - name: Dispose dedicated runtime
         if: ${{ always() }}

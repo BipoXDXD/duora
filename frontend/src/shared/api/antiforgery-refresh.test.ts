@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
-import type { ApiClient, JsonRequest } from './api-client'
+import { createApiClient, type ApiClient, type JsonRequest } from './api-client'
 import { ApiNetworkError } from './api-errors'
+import { createSessionContextStore } from '../session-context'
 import {
   refreshAntiforgeryToken,
   requestJsonWithFreshAntiforgeryToken,
@@ -13,6 +14,9 @@ function fakeClient(sendCommand: (request: JsonRequest) => Promise<void> = () =>
   const client: ApiClient = {
     requestJson: vi.fn(),
     fetch: vi.fn(),
+    fetchFor: vi.fn(),
+    readMeBootstrap: vi.fn(),
+    sessionContext: createSessionContextStore(),
     sendCommand: (request) => {
       calls.push(request)
       return sendCommand(request)
@@ -38,7 +42,12 @@ describe('sendWithFreshAntiforgeryToken', () => {
 
     await sendWithFreshAntiforgeryToken(client, mutation)
 
-    expect(calls).toEqual([{ method: 'GET', path: '/api/v1/auth/csrf' }, mutation])
+    const operation = calls[0]?.operation
+    expect(operation).toBeDefined()
+    expect(calls).toEqual([
+      { method: 'GET', path: '/api/v1/auth/csrf', operation },
+      { ...mutation, operation },
+    ])
   })
 
   it('não envia a mutação quando a renovação falha', async () => {
@@ -59,11 +68,56 @@ describe('requestJsonWithFreshAntiforgeryToken', () => {
       calls.push(request)
       return Promise.resolve({ version: '2' })
     })
-    const mutation: JsonRequest = { method: 'PATCH', path: '/api/v1/me/profile', body: {} }
+    const mutation: JsonRequest = { method: 'POST', path: '/api/v1/auth/register', body: {} }
 
     const body = await requestJsonWithFreshAntiforgeryToken({ ...client, requestJson }, mutation)
 
     expect(body).toEqual({ version: '2' })
-    expect(calls).toEqual([{ method: 'GET', path: '/api/v1/auth/csrf' }, mutation])
+    const operation = calls[0]?.operation
+    expect(operation).toBeDefined()
+    expect(calls).toEqual([
+      { method: 'GET', path: '/api/v1/auth/csrf', operation },
+      { ...mutation, operation },
+    ])
   })
+})
+
+describe('a renovação pública não transporta intenção privada', () => {
+  it.each(['command', 'json'] as const)(
+    'rejeita %s privado antes de buscar CSRF sob outra identidade',
+    async (kind) => {
+      let token = 'public-proof-A'
+      const writes: string[] = []
+      const client = createApiClient({
+        origin: 'https://duora.test',
+        readAntiforgeryToken: () => token,
+        readLocale: () => 'pt-BR',
+        now: () => 0,
+        fetch: async (request) => {
+          if (new URL(request.url).pathname === '/api/v1/auth/csrf') {
+            token = 'public-proof-B'
+            return new Response(null, { status: 204 })
+          }
+          writes.push(`${request.headers.get('X-XSRF-TOKEN') ?? '<missing>'}:${await request.text()}`)
+          return new Response(JSON.stringify({ version: '2' }), {
+            headers: { 'Content-Type': 'application/json' },
+          })
+        },
+      })
+      const intent: JsonRequest = {
+        method: 'PUT',
+        path: '/api/v1/me/time-zone',
+        body: { timeZone: 'America/Sao_Paulo' },
+      }
+
+      await (
+        kind === 'command'
+          ? sendWithFreshAntiforgeryToken(client, intent)
+          : requestJsonWithFreshAntiforgeryToken(client, intent)
+      ).catch(() => undefined)
+
+      expect(writes).toEqual([])
+      expect(token).toBe('public-proof-A')
+    },
+  )
 })

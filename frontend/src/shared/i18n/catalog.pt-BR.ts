@@ -5,6 +5,34 @@
  * Mensagens de erro são neutras: não revelam se um e-mail tem conta (spec 8.2, API-A02 e A06).
  */
 export const ptBR = {
+  'legal.terms': 'Termos de uso',
+  'legal.privacy': 'Política de privacidade',
+  'legal.navigation': 'Documentos públicos',
+  'legal.loading': 'Carregando documentos…',
+  'legal.unavailable': 'O cadastro está indisponível enquanto a publicação dos documentos não estiver concluída.',
+  'legal.notFound': 'Esta versão e idioma do documento não estão disponíveis.',
+  'legal.draft': 'Rascunho público: este documento ainda não está aprovado para cadastro.',
+  'legal.controller': 'Controlador',
+  'legal.unknownController': 'Identidade do controlador ainda não confirmada.',
+  'legal.contact': 'Contato para privacidade',
+  'legal.version': 'Versão',
+  'legal.language': 'Idioma do documento',
+  'legal.fingerprint': 'SHA-256 do conteúdo',
+  'legal.termsLanguage': 'Idioma dos Termos de uso',
+  'legal.privacyLanguage': 'Idioma da Política de privacidade',
+  'legal.acknowledgement': 'Os aceites abaixo se referem às versões e aos idiomas dos documentos vinculados.',
+
+  'audio.play': 'Reproduzir áudio',
+  'audio.pause': 'Pausar áudio',
+  'audio.restart': 'Reiniciar áudio',
+  'audio.sound': 'Ativar som',
+  'audio.mute': 'Silenciar áudio',
+  'audio.elapsed': '{position} / {duration} s',
+  'audio.position': 'Posição do áudio',
+  'audio.loading': 'Preparando áudio…',
+  'audio.busy': 'Outro áudio está sendo preparado. Tente de novo em instantes.',
+  'audio.unavailable': 'Não foi possível reproduzir o áudio. Você pode ler a transcrição.',
+
   'regionSuggestion.action': 'Sugerir país pela conexão',
   'regionSuggestion.hint':
     'Sugestão aproximada e opcional; VPNs podem indicar outro país. Confira e salve este formulário para confirmar. Idiomas não são alterados.',
@@ -137,6 +165,8 @@ export const ptBR = {
   'changePassword.reauthenticate': 'Entre novamente para confirmar sua identidade e continuar.',
   'changePassword.csrf': 'Não foi possível validar esta tentativa. Tente novamente para renovar a proteção da sessão.',
   'changePassword.signInAgain': 'Entrar novamente',
+  'mfa.receiptUncertain':
+    'A ação pode ter sido concluída. Por segurança, a informação não foi exibida. Confirme sua sessão antes de tentar outra ação.',
   'mfa.title': 'Ative a autenticação em duas etapas',
   'mfa.instructions':
     'Adicione uma conta TOTP no aplicativo autenticador usando a chave abaixo e confirme com o código de 6 dígitos.',
@@ -221,12 +251,16 @@ export const ptBR = {
   'checkEmail.body':
     'Se for possível criar a conta com esse endereço, você vai receber um e-mail com um código de confirmação e o acesso à página para digitá-lo.',
   'checkEmail.hint':
-    'Não chegou? Confira a caixa de spam e as abas de promoções. O código vale por 15 minutos após o cadastro. Se expirar, faça o cadastro novamente.',
+    'Não chegou? Confira a caixa de spam e as abas de promoções. Cada código vale por 15 minutos após a emissão. Peça outro com o e-mail e a senha do cadastro. Se o cadastro expirou ou você não lembra essa senha, cadastre novamente.',
+  'checkEmail.resend': 'Pedir outro código',
+  'checkEmail.resending': 'Pedindo outro código…',
+  'checkEmail.resendAccepted':
+    'Se o cadastro ainda puder ser confirmado e a senha conferir, outro código será enviado. A senha e os aceites não são alterados.',
   'checkEmail.signInLink': 'Ir para a entrada',
 
   'checkEmail.requestAgain': 'Cadastrar novamente para receber outro código',
   'confirmEmail.code': 'Código de confirmação',
-  'confirmEmail.codeHint': 'Digite os 8 dígitos do e-mail. O código vale por 15 minutos após o cadastro.',
+  'confirmEmail.codeHint': 'Digite os 8 dígitos do e-mail. O código vale por 15 minutos após a emissão.',
   'validation.emailCodeInvalid': 'Informe o código de 8 dígitos.',
   'confirmEmail.title': 'Confirmar e-mail',
   'confirmEmail.intro': 'Para concluir a confirmação do seu endereço, informe sua senha e use o botão abaixo.',
@@ -280,6 +314,8 @@ export const ptBR = {
   'resetPassword.requestNewLink': 'Pedir um link novo',
   'resetPassword.signInLink': 'Entrar',
 
+  'account.contextUnverified':
+    'Não foi possível validar o contexto desta tentativa. Confirme sua sessão para continuar.',
   'account.title': 'Sua conta',
   'account.loading': 'Carregando sua conta…',
   'account.loadError': 'Não foi possível carregar sua conta.',
@@ -426,4 +462,18 @@ export const ptBR = {
   'sessions.revoking': 'Encerrando…',
   // Nome acessível do botão: a ação seguida da sessão a que ela se aplica.
   'sessions.actionFor': '{action}: {session}',
+
+  'emergency.navigation': 'Segurança',
+  'emergency.title': 'Segurança e contatos de emergência',
+  'emergency.countryGuidance':
+    'Estes números valem apenas nos países indicados. Se você estiver em outro país, procure o serviço de emergência local. A Duora não presta atendimento de emergência.',
+  'emergency.brazil': 'Brasil',
+  'emergency.unitedStates': 'Estados Unidos',
+  'emergency.brazilPolice': 'Brasil: {number} — Polícia Militar, emergência',
+  'emergency.brazilMedical': 'Brasil: {number} — SAMU, emergência médica',
+  'emergency.brazilWomen': 'Brasil: {number} — orientação e denúncia de violência contra a mulher; não é emergência',
+  'emergency.unitedStatesEmergency': 'Estados Unidos: {number} — emergência policial, de bombeiros ou médica',
+  'emergency.brazilWomenSource': 'Fonte oficial: Ligue 180 e emergência policial 190',
+  'emergency.brazilMedicalSource': 'Fonte oficial: SAMU 192',
+  'emergency.unitedStatesSource': 'Fonte oficial: National 911 Program',
 } as const

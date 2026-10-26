@@ -26,14 +26,20 @@ def validate_environment(environment, policies):
 
 
 def validate_ci(run, jobs, sha):
-    if (run.get("head_sha") != sha or run.get("head_branch") != "main" or run.get("event") != "push"
+    if (not isinstance(run, dict) or type(run.get("id")) is not int or run["id"] <= 0
+            or type(run.get("run_attempt")) is not int or run["run_attempt"] <= 0
+            or run.get("path") != ".github/workflows/ci.yml"
+            or run.get("head_sha") != sha or run.get("head_branch") != "main" or run.get("event") != "push"
             or run.get("status") != "completed" or run.get("conclusion") != "success"
             or run.get("head_repository", {}).get("full_name") != REPOSITORY):
         raise GuardError("Exact main CI has not succeeded.")
-    for name in CHECKS:
-        matching = [j for j in jobs.get("jobs", []) if j.get("name") == name]
-        if not matching or any(j.get("status") != "completed" or j.get("conclusion") != "success" for j in matching):
-            raise GuardError("A required CI check is absent or unsuccessful.")
+    if (not isinstance(jobs, dict) or not isinstance(jobs.get("jobs"), list)
+            or type(jobs.get("total_count")) is not int
+            or jobs["total_count"] != len(jobs["jobs"]) or len(jobs["jobs"]) != len(CHECKS)
+            or any(not isinstance(job, dict) for job in jobs["jobs"])
+            or {job.get("name") for job in jobs["jobs"]} != CHECKS
+            or any(job.get("status") != "completed" or job.get("conclusion") != "success" for job in jobs["jobs"])):
+        raise GuardError("Exactly the nine complete, unique CI checks must succeed.")
 
 
 def api(path):
@@ -50,6 +56,8 @@ def main():
                 or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
                 or len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha)):
             raise GuardError("Real G2 requires a manual main run in the source repository.")
+        if api("commits/main").get("sha") != sha:
+            raise GuardError("G2 source is no longer current main.")
         environment = api("environments/g2-ipinfo-lite")
         policies = api("environments/g2-ipinfo-lite/deployment-branch-policies?per_page=100")
         validate_environment(environment, policies)
@@ -57,7 +65,17 @@ def main():
         if not runs:
             raise GuardError("Exact main CI is missing.")
         latest = max(runs, key=lambda run: run["id"])
-        validate_ci(latest, api(f"actions/runs/{latest['id']}/jobs?per_page=100"), sha)
+        run_id, attempt = latest.get("id"), latest.get("run_attempt")
+        if type(run_id) is not int or run_id <= 0 or type(attempt) is not int or attempt <= 0:
+            raise GuardError("CI run identity is invalid.")
+        jobs = api(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
+        validate_ci(latest, jobs, sha)
+        current = api(f"actions/runs/{run_id}")
+        if current.get("id") != run_id or current.get("run_attempt") != attempt:
+            raise GuardError("CI attempt changed during verification.")
+        validate_ci(current, jobs, sha)
+        if api("commits/main").get("sha") != sha:
+            raise GuardError("Main changed during verification.")
         print("G2 environment and exact main CI verified. Per-run approval and profile still required.")
         return 0
     except (GuardError, ValueError, KeyError, OSError):

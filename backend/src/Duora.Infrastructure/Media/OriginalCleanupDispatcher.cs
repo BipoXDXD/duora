@@ -90,23 +90,51 @@ public sealed partial class OriginalCleanupDispatcher
     internal async Task<bool> CompleteAsync(OriginalCleanupClaim claim, CancellationToken cancellationToken)
     {
         await using var connection = await _source.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        if (!await LockObligationAsync(connection, transaction, claim, cancellationToken))
+        {
+            return false;
+        }
+
         await using var command = Command(connection, """
             delete from media.original_cleanup where upload_id = $1 and object_key = $2
               and fencing_token = $3 and lease_until > $4
             """, claim.UploadId, claim.Key.Value, claim.Token, _time.GetUtcNow());
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        command.Transaction = transaction;
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        await transaction.CommitAsync(cancellationToken);
+        return changed;
     }
 
     internal async Task<bool> RetryAsync(OriginalCleanupClaim claim, CancellationToken cancellationToken)
     {
         await using var connection = await _source.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        if (!await LockObligationAsync(connection, transaction, claim, cancellationToken))
+        {
+            return false;
+        }
+
         var now = _time.GetUtcNow();
         var delay = TimeSpan.FromSeconds(Math.Min(900, 15 * (1 << Math.Min(claim.Attempts - 1, 6))));
         await using var command = Command(connection, """
             update media.original_cleanup set available_at = $4, lease_until = null, fencing_token = null
             where upload_id = $1 and object_key = $2 and fencing_token = $3 and lease_until > $5
             """, claim.UploadId, claim.Key.Value, claim.Token, now + delay, now);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        command.Transaction = transaction;
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        await transaction.CommitAsync(cancellationToken);
+        return changed;
+    }
+
+    private static async Task<bool> LockObligationAsync(NpgsqlConnection connection, NpgsqlTransaction transaction,
+        OriginalCleanupClaim claim, CancellationToken cancellationToken)
+    {
+        await using var command = Command(connection,
+            "select upload_id from media.original_cleanup where upload_id=$1 and object_key=$2 for update",
+            claim.UploadId, claim.Key.Value);
+        command.Transaction = transaction;
+        return await command.ExecuteScalarAsync(cancellationToken) is Guid;
     }
 
     private static NpgsqlCommand Command(NpgsqlConnection connection, string sql, params object[] values)

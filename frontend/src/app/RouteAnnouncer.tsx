@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useLocation } from 'react-router'
 import { useI18n } from '@/shared/i18n/i18n-context'
 
@@ -18,14 +18,31 @@ export function RouteAnnouncer({ mainId }: RouteAnnouncerProps): React.JSX.Eleme
   const previousPathname = useRef(pathname)
   const regionRef = useRef<HTMLParagraphElement>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previousPathname.current === pathname) {
       return
     }
     previousPathname.current = pathname
-    focusPageStart(mainId)
-    if (regionRef.current !== null) {
-      regionRef.current.textContent = t('navigation.pageLoaded', { title: document.title })
+    const main = document.getElementById(mainId)
+    const announce = (): boolean => {
+      if (main?.querySelector('[data-route-pending]')) return false
+      focusPageStart(mainId)
+      if (regionRef.current !== null)
+        regionRef.current.textContent = t('navigation.pageLoaded', { title: document.title })
+      return true
+    }
+    const observer = new MutationObserver(() => {
+      if (announce()) observer.disconnect()
+    })
+    if (!announce() && main !== null)
+      observer.observe(main, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-route-pending'],
+      })
+    return () => {
+      observer.disconnect()
     }
     // Só a troca de rota anuncia: trocar o idioma não é navegação, então `t` fica fora das dependências.
     // eslint-disable-next-line react-hooks/exhaustive-deps

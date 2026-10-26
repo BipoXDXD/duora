@@ -1,6 +1,13 @@
+import {
+  withSessionContext,
+  passwordChangeProblem,
+  TEST_PRIVATE_PROOF,
+  TEST_SESSION_ID,
+  TEST_RENEWED_SESSION_ID,
+} from '@/test/private-context'
 import { screen, waitFor } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { renderApp, ROUTE_CHUNK_TIMEOUT_MS, type RenderedApp } from '@/test/render'
 
@@ -19,9 +26,15 @@ const RECHECK_LATENCY_MS = 50
  * Fase do MFA como o servidor a expõe: /me está na allowlist do cadastro (AllowDuringMfaEnrollment) e responde 200
  * com mfaEnabled false e o papel privilegiado; as rotas fora do cadastro respondem 403 MFA_ENROLLMENT_REQUIRED.
  */
+let mfaState = { enabled: false, sid: TEST_SESSION_ID }
+beforeEach(() => {
+  mfaState = { enabled: false, sid: TEST_SESSION_ID }
+})
 function mfaPhase() {
   server.use(
-    http.get(`${API}/me`, () => HttpResponse.json(ADMIN_WITHOUT_MFA)),
+    http.get(`${API}/me`, () =>
+      HttpResponse.json(withSessionContext({ ...ADMIN_WITHOUT_MFA, mfaEnabled: mfaState.enabled }, mfaState.sid)),
+    ),
     http.get(`${API}/me/profile`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')),
     http.get(`${API}/me/sessions`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')),
   )
@@ -32,7 +45,8 @@ function useEnrollmentEndpoint(
 ) {
   let calls = 0
   server.use(
-    http.post(`${API}/me/mfa/enrollments`, () => {
+    http.post(`${API}/me/mfa/enrollments`, ({ request }) => {
+      expect(request.headers.get('X-XSRF-TOKEN')).toBe(TEST_PRIVATE_PROOF)
       calls++
       return respond()
     }),
@@ -43,9 +57,15 @@ function useEnrollmentEndpoint(
 function useConfirmationEndpoint(respond: () => Response) {
   let calls = 0
   server.use(
-    http.post(`${API}/me/mfa/confirmations`, () => {
+    http.post(`${API}/me/mfa/confirmations`, ({ request }) => {
+      expect(request.headers.get('X-XSRF-TOKEN')).toBe(TEST_PRIVATE_PROOF)
       calls++
-      return respond()
+      const response = respond()
+      if (response.ok) {
+        mfaState.enabled = true
+        mfaState.sid = TEST_RENEWED_SESSION_ID
+      }
+      return response
     }),
   )
   return { calls: () => calls }
@@ -80,24 +100,21 @@ describe('fase do cadastro de MFA', () => {
     },
   )
 
-  it('403 MFA_ENROLLMENT_REQUIRED em /me, que o servidor não emite hoje, também leva ao cadastro', async () => {
+  it('403 sem contexto canônico não libera a árvore de MFA', async () => {
     server.use(http.get(`${API}/me`, () => problem(403, 'MFA_ENROLLMENT_REQUIRED')))
     await renderApp('/account/profile')
-    expect(
-      await screen.findByRole(
-        'heading',
-        { name: 'Ative a autenticação em duas etapas' },
-        { timeout: ROUTE_CHUNK_TIMEOUT_MS },
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/account\/enable-mfa$/)
+    await screen.findByRole('button', { name: 'Tentar de novo' })
+    expect(screen.queryByRole('button', { name: 'Configurar autenticador' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/account\/profile$/)
   })
 
   it.each(['12345', '1234567', 'abcdef', '12 456'])('recusa o código %s sem chamar a API', async (code) => {
     mfaPhase()
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
-    const confirmation = useConfirmationEndpoint(() => HttpResponse.json({ recoveryCodes: ['x'] }))
+    const confirmation = useConfirmationEndpoint(() =>
+      HttpResponse.json({ resultSessionId: TEST_RENEWED_SESSION_ID, recoveryCodes: ['x'] }),
+    )
     const { user } = await renderApp('/account/enable-mfa')
     await startEnrollment(user)
 
@@ -119,7 +136,9 @@ describe('fase do cadastro de MFA', () => {
     server.use(
       http.post(`${API}/me/mfa/confirmations`, async ({ request }) => {
         bodies.push(await request.json())
-        return HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] })
+        mfaState.enabled = true
+        mfaState.sid = TEST_RENEWED_SESSION_ID
+        return HttpResponse.json({ resultSessionId: TEST_RENEWED_SESSION_ID, recoveryCodes: ['synthetic-recovery'] })
       }),
     )
     const { user } = await renderApp('/account/enable-mfa')
@@ -134,7 +153,6 @@ describe('fase do cadastro de MFA', () => {
   it.each([
     [400, 'MFA_CODE_INVALID', 'Informe um código válido de 6 dígitos'],
     [401, 'REAUTHENTICATION_REQUIRED', 'Entre novamente para confirmar sua identidade'],
-    [403, 'CSRF_VALIDATION_FAILED', 'Não foi possível validar esta tentativa'],
     [409, 'MFA_ALREADY_ENABLED', 'O MFA já está ativo'],
     [409, 'MFA_ENROLLMENT_NOT_STARTED', 'A configuração expirou'],
   ])('confirmação com %s %s mostra a orientação, sem retry', async (status, code, message) => {
@@ -222,15 +240,20 @@ describe('foco ao trocar de estado', () => {
     mfaPhase()
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
-    useConfirmationEndpoint(() => HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] }))
+    useConfirmationEndpoint(() =>
+      HttpResponse.json({ resultSessionId: TEST_RENEWED_SESSION_ID, recoveryCodes: ['synthetic-recovery'] }),
+    )
     const { user } = await renderApp('/account/enable-mfa')
     await startEnrollment(user)
 
     await submitCode(user, '123456')
 
-    const announcement = await screen.findByRole('status', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })
-    expect(announcement).toHaveTextContent('Autenticação em duas etapas ativada.')
-    expect(announcement).toHaveFocus()
+    const announcement = await screen.findByText(
+      'Autenticação em duas etapas ativada.',
+      {},
+      { timeout: ROUTE_CHUNK_TIMEOUT_MS },
+    )
+    expect(announcement.closest('[role="status"]')).toHaveFocus()
     expect(screen.getByText('synthetic-recovery')).toBeInTheDocument()
   })
 })
@@ -271,7 +294,9 @@ describe('segredo do TOTP e códigos de recuperação', () => {
     mfaPhase()
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
-    useConfirmationEndpoint(() => HttpResponse.json({ recoveryCodes: ['synthetic-recovery'] }))
+    useConfirmationEndpoint(() =>
+      HttpResponse.json({ resultSessionId: TEST_RENEWED_SESSION_ID, recoveryCodes: ['synthetic-recovery'] }),
+    )
     const { user, queryClient } = await renderApp('/account/enable-mfa')
 
     await startEnrollment(user)
@@ -288,7 +313,11 @@ describe('segredo do TOTP e códigos de recuperação', () => {
 
 describe('textos da tela', () => {
   it('participante lê instruções neutras, sem "sua conta exige"', async () => {
-    server.use(http.get(`${API}/me`, () => HttpResponse.json({ ...ADMIN_WITHOUT_MFA, roles: ['participant'] })))
+    server.use(
+      http.get(`${API}/me`, () =>
+        HttpResponse.json(withSessionContext({ ...ADMIN_WITHOUT_MFA, roles: ['participant'] })),
+      ),
+    )
     await renderApp('/account/enable-mfa')
 
     await screen.findByRole(
@@ -344,7 +373,7 @@ describe('erro 401 nas fases restritas', () => {
   }
 
   it('o erro e a chave continuam depois da reconsulta de /me', async () => {
-    const me = countedMe(() => HttpResponse.json(ADMIN_WITHOUT_MFA))
+    const me = countedMe(() => HttpResponse.json(withSessionContext(ADMIN_WITHOUT_MFA)))
     useAntiforgeryEndpoint()
     useEnrollmentEndpoint()
     useConfirmationEndpoint(() => problem(401, 'REAUTHENTICATION_REQUIRED'))
@@ -361,8 +390,8 @@ describe('erro 401 nas fases restritas', () => {
     expect(screen.getByText(SHARED_KEY)).toBeInTheDocument()
   })
 
-  it('a troca de senha mantém o erro depois da reconsulta de /me', async () => {
-    const me = countedMe(() => problem(403, 'PASSWORD_CHANGE_REQUIRED'))
+  it('a troca de senha mantém a recusa autenticada sem reconsultar /me', async () => {
+    const me = countedMe(() => passwordChangeProblem())
     useAntiforgeryEndpoint()
     server.use(http.post(`${API}/me/password-changes`, () => problem(401, 'INVALID_CREDENTIALS')))
     const { user, queryClient } = await renderApp('/change-initial-password')
@@ -371,10 +400,111 @@ describe('erro 401 nas fases restritas', () => {
     await user.type(screen.getByLabelText('Confirme a nova senha'), ' minha senha própria longa ')
     await user.click(screen.getByRole('button', { name: 'Salvar senha nova' }))
     await waitFor(() => {
-      expect(me.calls()).toBe(2)
+      expect(me.calls()).toBe(1)
       expect(queryClient.isFetching()).toBe(0)
     })
 
     expect(screen.getByRole('alert')).toHaveTextContent('Senha atual inválida')
   })
 })
+
+it('CSRF privado rejeitado protege a árvore, descarta a chave e exige gesto sem repetir a confirmação', async () => {
+  mfaPhase()
+  useEnrollmentEndpoint()
+  const confirmation = useConfirmationEndpoint(() => problem(403, 'CSRF_VALIDATION_FAILED'))
+  const { user } = await renderApp('/account/enable-mfa')
+  await startEnrollment(user)
+  await submitCode(user, '123456')
+  await screen.findByRole('button', { name: 'Tentar de novo' })
+  expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
+  expect(confirmation.calls()).toBe(1)
+  expect(screen.getByText(/A ação pode ter sido concluída/)).toBeInTheDocument()
+})
+
+it('não exibe os códigos na árvore antiga enquanto confirma o novo SID e não põe segredos nos caches', async () => {
+  mfaPhase()
+  useEnrollmentEndpoint()
+  useConfirmationEndpoint(() =>
+    HttpResponse.json({ recoveryCodes: ['delayed-code-secret'], resultSessionId: TEST_RENEWED_SESSION_ID }),
+  )
+  let release!: () => void
+  let entered!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  server.use(
+    http.get(`${API}/me`, async () => {
+      if (mfaState.enabled) {
+        entered()
+        await gate
+      }
+      return HttpResponse.json(withSessionContext({ ...ADMIN_WITHOUT_MFA, mfaEnabled: mfaState.enabled }, mfaState.sid))
+    }),
+  )
+  const { user, queryClient } = await renderApp('/account/enable-mfa')
+  const captured: string[] = []
+  const readCache = () => {
+    captured.push(
+      JSON.stringify({
+        queries: queryClient
+          .getQueryCache()
+          .getAll()
+          .map((query) => query.state.data),
+        mutations: queryClient
+          .getMutationCache()
+          .getAll()
+          .map((mutation) => mutation.state),
+      }),
+    )
+  }
+  const unsubQuery = queryClient.getQueryCache().subscribe(readCache)
+  const unsubMutation = queryClient.getMutationCache().subscribe(readCache)
+  await startEnrollment(user)
+  await submitCode(user, '123456')
+  await started
+  expect(screen.queryByText('delayed-code-secret')).not.toBeInTheDocument()
+  expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
+  release()
+  expect(await screen.findByText('delayed-code-secret')).toBeInTheDocument()
+  unsubQuery()
+  unsubMutation()
+  for (const secret of ['delayed-code-secret', SHARED_KEY, TEST_PRIVATE_PROOF, TEST_RENEWED_SESSION_ID])
+    expect(captured.join('\n')).not.toContain(secret)
+})
+
+it.each(['wrong-user', 'wrong-session', 'missing-result-session', 'bootstrap-failed'] as const)(
+  'descarta recibo%s com aviso, sem repetir confirmação',
+  async (failure) => {
+    mfaPhase()
+    useEnrollmentEndpoint()
+    const confirmation = useConfirmationEndpoint(() =>
+      HttpResponse.json({
+        recoveryCodes: ['never-publish-secret'],
+        ...(failure === 'missing-result-session' ? {} : { resultSessionId: TEST_RENEWED_SESSION_ID }),
+      }),
+    )
+    server.use(
+      http.get(`${API}/me`, () => {
+        if (mfaState.enabled && failure === 'bootstrap-failed') return problem(503, 'UNAVAILABLE')
+        const account = {
+          ...ADMIN_WITHOUT_MFA,
+          mfaEnabled: mfaState.enabled,
+          ...(mfaState.enabled && failure === 'wrong-user' ? { id: '00000000-0000-4000-8000-000000000002' } : {}),
+        }
+        return HttpResponse.json(
+          withSessionContext(account, mfaState.enabled && failure === 'wrong-session' ? TEST_SESSION_ID : mfaState.sid),
+        )
+      }),
+    )
+    const { user } = await renderApp('/account/enable-mfa')
+    await startEnrollment(user)
+    await submitCode(user, '123456')
+    await screen.findByText(/A ação pode ter sido concluída/)
+    expect(screen.queryByText('never-publish-secret')).not.toBeInTheDocument()
+    expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
+    expect(confirmation.calls()).toBe(1)
+  },
+)

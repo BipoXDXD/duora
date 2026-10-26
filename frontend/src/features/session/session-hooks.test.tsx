@@ -1,7 +1,9 @@
+import { installTestMe, withSessionContext } from '@/test/private-context'
+import { PrivateOperationProvider } from './PrivateOperationProvider'
 import { act, renderHook, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { createTestQueryClient, TestProviders } from '@/test/render'
@@ -10,7 +12,8 @@ import type { AccountSession, Me } from './session-api'
 import { meQueryKey, sessionsQueryKey } from './query-keys'
 import { useLogout, useMe, useRevokeSession, useSessions } from './session-hooks'
 
-const ME: Me = {
+let ME: Me
+const ACCOUNT: Omit<Me, 'owner'> = {
   id: '0199f1a2-3b4c-7d5e-8f60-718293a4b5c6',
   email: 'ana@exemplo.com',
   status: 'Active',
@@ -18,6 +21,10 @@ const ME: Me = {
   mfaEnabled: false,
   roles: ['participant'],
 }
+
+beforeEach(() => {
+  ME = installTestMe(ACCOUNT)
+})
 
 function session(overrides: Partial<AccountSession>): AccountSession {
   return {
@@ -43,7 +50,10 @@ function renderSessionHook<T>(hook: () => T, queryClient = seededQueryClient()) 
     wrapper: ({ children }) => (
       <TestProviders queryClient={queryClient} initialPath="/account">
         <Routes>
-          <Route path="/account" element={children} />
+          <Route
+            path="/account"
+            element={<PrivateOperationProvider owner={ME.owner}>{children}</PrivateOperationProvider>}
+          />
           <Route path="/login" element={<LoginPage />} />
         </Routes>
       </TestProviders>
@@ -53,7 +63,7 @@ function renderSessionHook<T>(hook: () => T, queryClient = seededQueryClient()) 
 }
 
 describe('useLogout', () => {
-  it('limpa todo o cache, renova o CSRF e leva à entrada', async () => {
+  it('limpa todo o cache e leva à entrada sem renovar CSRF público', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     server.use(http.post(`${API}/auth/logout`, () => new HttpResponse(null, { status: 204 })))
     const { result, queryClient } = renderSessionHook(useLogout)
@@ -62,9 +72,9 @@ describe('useLogout', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('Você saiu da sua conta.')
     expect(queryClient.getQueryCache().getAll()).toEqual([])
-    // Um token antes do POST e outro depois, já para a sessão anônima.
+    // A intenção privada nunca pede um token público, inclusive após a saída.
     await waitFor(() => {
-      expect(antiforgery.calls()).toBe(2)
+      expect(antiforgery.calls()).toBe(0)
     })
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/login$/)
   })
@@ -110,7 +120,7 @@ describe('useRevokeSession', () => {
     expect(queryClient.getQueryState(sessionsQueryKey(ME.id))?.isInvalidated).toBe(true)
   })
 
-  it('revogar a sessão corrente equivale a sair: limpa o cache e renova o CSRF', async () => {
+  it('revogar a sessão corrente equivale a sair: limpa o cache sem pedir CSRF público', async () => {
     const antiforgery = useAntiforgeryEndpoint()
     server.use(http.delete(`${API}/me/sessions/:id`, () => new HttpResponse(null, { status: 204 })))
     const { result, queryClient } = renderSessionHook(() => useRevokeSession(ME.id))
@@ -120,7 +130,7 @@ describe('useRevokeSession', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Você saiu da sua conta.')
     expect(queryClient.getQueryCache().getAll()).toEqual([])
     await waitFor(() => {
-      expect(antiforgery.calls()).toBe(2)
+      expect(antiforgery.calls()).toBe(0)
     })
   })
 
@@ -141,17 +151,17 @@ describe('useRevokeSession', () => {
 describe('dados privados fora da área autenticada (T-14, T-21)', () => {
   it.each([
     ['identidade', (): unknown => useMe(), meQueryKey],
-    ['lista de sessões', (): unknown => useSessions(ME.id), sessionsQueryKey(ME.id)],
+    ['lista de sessões', (): unknown => useSessions(ME.id), sessionsQueryKey(ACCOUNT.id)],
   ])('a %s sai da memória quando a área desmonta; voltar a ela pergunta ao servidor', async (_caso, hook, queryKey) => {
     server.use(
-      http.get(`${API}/me`, () => HttpResponse.json(ME)),
+      http.get(`${API}/me`, () => HttpResponse.json(withSessionContext(ME))),
       http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [session({ current: true })] })),
     )
     const queryClient = createTestQueryClient()
     const view = renderHook(hook, {
       wrapper: ({ children }) => (
         <TestProviders queryClient={queryClient} initialPath="/account">
-          {children}
+          <PrivateOperationProvider owner={ME.owner}>{children}</PrivateOperationProvider>
         </TestProviders>
       ),
     })

@@ -22,13 +22,7 @@ public sealed class ResendEmailFlowTests(PostgresFixture postgres)
         using var browser = new Browser(factory);
         await browser.FetchCsrfTokenAsync();
         var email = IdentityScenario.NewEmail();
-        using var registered = await browser.PostJsonAsync("/api/v1/auth/register", new
-        {
-            email,
-            password = IdentityScenario.ValidPassword,
-            acceptedTermsVersion = IdentityScenario.TermsVersion,
-            acceptedPrivacyVersion = IdentityScenario.TermsVersion,
-        }, new MutationHeaders(Extra: new Dictionary<string, string> { ["Accept-Language"] = language }));
+        using var registered = await browser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(email), new MutationHeaders(Extra: new Dictionary<string, string> { ["Accept-Language"] = language }));
         Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
         using var unconfirmed = await IdentityScenario.LoginAsync(browser, email, IdentityScenario.ValidPassword);
         Assert.Equal(HttpStatusCode.Unauthorized, unconfirmed.StatusCode);

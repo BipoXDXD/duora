@@ -52,6 +52,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
         var bodies = new Dictionary<string, object?>
         {
             ["POST /api/v1/auth/register"] = IdentityScenario.RegistrationBody(newEmail),
+            ["POST /api/v1/auth/email-confirmation-requests"] = new { email = pendingEmail, password = IdentityScenario.ValidPassword },
             ["POST /api/v1/auth/confirm-email"] = new
             {
                 userId = pendingLink.UserId,

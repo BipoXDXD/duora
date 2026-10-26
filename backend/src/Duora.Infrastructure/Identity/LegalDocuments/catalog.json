@@ -1,0 +1,206 @@
+{
+  "termsVersion": "2026-10-25",
+  "privacyVersion": "2026-10-25",
+  "documents": [
+    {
+      "document": "terms",
+      "version": "2026-10-25",
+      "locale": "pt-BR",
+      "title": "Termos de uso",
+      "controllerName": null,
+      "privacyContact": "support@meetduora.com",
+      "approved": false,
+      "sections": [
+        {
+          "title": "O serviço",
+          "paragraphs": [
+            "O Duora oferece encontros e atividades guiadas. A disponibilidade de cada recurso é indicada na interface. O serviço não garante afinidade, conexão ou continuidade de uma relação entre participantes."
+          ]
+        },
+        {
+          "title": "Conta e segurança",
+          "paragraphs": [
+            "Use um endereço de e-mail ao qual você tenha acesso e cumpra as etapas de confirmação e segurança apresentadas. Não compartilhe senha, códigos de autenticação ou recuperação. Não use a conta de outra pessoa."
+          ]
+        },
+        {
+          "title": "Convivência",
+          "paragraphs": [
+            "Não ameace, assedie, se passe por outra pessoa nem envie conteúdo sem autorização para utilizá-lo. Evite incluir informações sensíveis ou de terceiros em campos livres. As decisões de moderação e os recursos dependem de seus fluxos próprios; automação não constitui julgamento humano."
+          ]
+        },
+        {
+          "title": "Participação e saída",
+          "paragraphs": [
+            "As atividades respeitam as escolhas explícitas e os estados apresentados na sala. Silêncio não equivale a confirmação. A interface não oferece tradução automática de uma conversa. Voz, quando disponível, é opcional. Sair ou bloquear não exige concordância da outra pessoa."
+          ]
+        },
+        {
+          "title": "Versão e aceite",
+          "paragraphs": [
+            "Este documento é identificado por tipo, versão, idioma e resumo criptográfico. O cadastro só é admitido quando os documentos aplicáveis estão publicados e o aceite corresponde às versões e aos idiomas oferecidos. Evidências antigas sem idioma conhecido não recebem um idioma presumido."
+          ]
+        },
+        {
+          "title": "Contato e situação desta edição",
+          "paragraphs": [
+            "O canal para suporte e solicitações de privacidade é support@meetduora.com. A identificação pública completa do controlador ainda não foi confirmada para esta edição. Ela permanece em preparação, não autoriza cadastro e não representa parecer jurídico."
+          ]
+        }
+      ]
+    },
+    {
+      "document": "terms",
+      "version": "2026-10-25",
+      "locale": "en-US",
+      "title": "Terms of use",
+      "controllerName": null,
+      "privacyContact": "support@meetduora.com",
+      "approved": false,
+      "sections": [
+        {
+          "title": "The service",
+          "paragraphs": [
+            "Duora provides meetings and guided activities. The interface identifies which features are available. The service does not guarantee compatibility, a connection, or an ongoing relationship between participants."
+          ]
+        },
+        {
+          "title": "Account and security",
+          "paragraphs": [
+            "Use an email address you can access and complete the confirmation and security steps presented to you. Do not share passwords, authentication codes, or recovery codes. Do not use another person’s account."
+          ]
+        },
+        {
+          "title": "Conduct",
+          "paragraphs": [
+            "Do not threaten, harass, impersonate another person, or submit content you are not authorized to use. Avoid entering sensitive information or information about other people in free-text fields. Moderation decisions and appeals depend on their own processes; automation is not a human judgment."
+          ]
+        },
+        {
+          "title": "Participation and leaving",
+          "paragraphs": [
+            "Activities respect explicit choices and the states shown in the room. Silence is not confirmation. The interface does not provide automatic translation of a conversation. Voice, when available, is optional. Leaving or blocking does not require the other person’s agreement."
+          ]
+        },
+        {
+          "title": "Version and acceptance",
+          "paragraphs": [
+            "This document is identified by its type, version, language, and cryptographic digest. Registration is admitted only when the applicable documents are published and acceptance matches the versions and languages offered. Historical evidence with an unknown language is not assigned an inferred language."
+          ]
+        },
+        {
+          "title": "Contact and status of this edition",
+          "paragraphs": [
+            "The support and privacy-request contact is support@meetduora.com. The controller’s complete public identity has not yet been confirmed for this edition. It remains a draft, does not authorize registration, and is not a legal opinion."
+          ]
+        }
+      ]
+    },
+    {
+      "document": "privacy",
+      "version": "2026-10-25",
+      "locale": "pt-BR",
+      "title": "Aviso de privacidade",
+      "controllerName": null,
+      "privacyContact": "support@meetduora.com",
+      "approved": false,
+      "sections": [
+        {
+          "title": "Responsável e qualificação",
+          "paragraphs": [
+            "O canal para solicitações de privacidade é support@meetduora.com. O nome civil completo ou a razão social do controlador precisa constar da edição publicada. Essa identidade não é inferida do nome Duora, de um apelido, do idioma ou da localização de quem acessa. Enquanto ela faltar, esta edição não habilita cadastro."
+          ]
+        },
+        {
+          "title": "Cadastro, autenticação e aceites",
+          "paragraphs": [
+            "O cadastro processa e-mail e senha para criar e proteger a conta. A senha é transformada em hash pelo mecanismo de autenticação; não é uma informação pública de perfil. A confirmação utiliza o endereço informado. Os registros de aceite vinculam o tipo do documento, sua versão, o idioma efetivamente informado e o instante do aceite. Um registro histórico com idioma desconhecido permanece desconhecido."
+          ]
+        },
+        {
+          "title": "Perfil e preferências",
+          "paragraphs": [
+            "Os recursos de perfil permitem dados e escolhas como nome de apresentação, biografia, país e subdivisão opcionais, idiomas de comunicação, idioma da interface e fuso. Essas escolhas são independentes; idioma não comprova país, residência ou proficiência. Localização aproximada, quando habilitada, é apenas sugestão corrigível e não autoriza geolocalização precisa nem histórico individual de detecção."
+          ]
+        },
+        {
+          "title": "Participação e visibilidade",
+          "paragraphs": [
+            "Inscrições, salas e atividades usam os dados necessários ao respectivo contexto. Outra pessoa recebe somente a projeção autorizada para aquele recurso; não deve receber listas privadas de preferências ou escolhas ainda não reveladas. Fotografias e verificações de presença possuem etapas próprias. Uma verificação de presença ou qualidade não é verificação de idade nem autorização para coletar documento de identidade."
+          ]
+        },
+        {
+          "title": "Operação e fornecedores",
+          "paragraphs": [
+            "O código e os registros de arquitetura descrevem hospedagem, e-mail, armazenamento, cópias de segurança e recursos opcionais. A edição final precisa identificar a configuração efetiva e os destinatários aplicáveis, inclusive tratamento fora do país de quem participa. Uma integração preparada ou um teste não comprova que um fornecedor esteja ativo em produção. Esta edição não inventa uma lista contratual de fornecedores."
+          ]
+        },
+        {
+          "title": "Conservação e direitos",
+          "paragraphs": [
+            "Dados são conservados conforme a finalidade, as funções implementadas e as políticas efetivamente aplicáveis. Propostas de prazo ou rotinas ainda não ativadas não são apresentadas como exclusão já executada. Preservações específicas e cópias de segurança exigem regras próprias. Solicitações de acesso, correção ou exclusão precisam de um canal público identificado e de verificação proporcional da identidade de quem solicita."
+          ]
+        },
+        {
+          "title": "Limites desta edição",
+          "paragraphs": [
+            "Ainda faltam a identidade pública do controlador e a qualificação dos fatos operacionais da edição final. O cadastro permanece indisponível; nenhum aceite a um texto sem essas condições será tratado como autorização de coleta real. Este aviso não declara conformidade jurídica nem substitui decisões e evidências próprias de operação."
+          ]
+        }
+      ]
+    },
+    {
+      "document": "privacy",
+      "version": "2026-10-25",
+      "locale": "en-US",
+      "title": "Privacy notice",
+      "controllerName": null,
+      "privacyContact": "support@meetduora.com",
+      "approved": false,
+      "sections": [
+        {
+          "title": "Responsible party and qualification",
+          "paragraphs": [
+            "The privacy-request contact is support@meetduora.com. The controller’s complete civil or company name must appear in the published edition. This identity is not inferred from the Duora name, a nickname, the interface language, or a visitor’s location. Registration remains unavailable while this identity is missing."
+          ]
+        },
+        {
+          "title": "Registration, authentication, and acceptance",
+          "paragraphs": [
+            "Registration processes an email address and password to create and protect an account. The authentication mechanism transforms the password into a hash; it is not public profile information. Confirmation uses the address supplied. Acceptance records bind the document type, version, language actually supplied, and acceptance time. A historical record with an unknown language remains unknown."
+          ]
+        },
+        {
+          "title": "Profile and preferences",
+          "paragraphs": [
+            "Profile features support information and choices such as a display name, biography, optional country and subdivision, communication languages, interface language, and time zone. These choices are independent; language does not establish country, residence, or proficiency. Approximate location, when enabled, is only a correctable suggestion and does not authorize precise geolocation or an individual detection history."
+          ]
+        },
+        {
+          "title": "Participation and visibility",
+          "paragraphs": [
+            "Registrations, rooms, and activities use the information needed for their context. Another person receives only the projection authorized for that feature, not private preference lists or choices that have not been revealed. Photos and presence checks have their own steps. A presence or quality check is not an age check or permission to collect an identity document."
+          ]
+        },
+        {
+          "title": "Operations and providers",
+          "paragraphs": [
+            "The code and architecture records describe hosting, email, storage, backups, and optional features. The final edition must identify the actual configuration and applicable recipients, including processing outside a participant’s country. A prepared integration or a test does not prove that a provider is active in production. This draft does not invent a contractual provider list."
+          ]
+        },
+        {
+          "title": "Retention and requests",
+          "paragraphs": [
+            "Information is retained according to its purpose, implemented features, and applicable policies. Proposed periods or routines that have not been activated are not described as completed deletion. Specific preservation and backups require their own rules. Access, correction, or deletion requests need an identified public contact and proportionate verification of the requester’s identity."
+          ]
+        },
+        {
+          "title": "Limits of this edition",
+          "paragraphs": [
+            "The controller’s public identity and qualification of the final operational facts are still missing. Registration remains unavailable; acceptance of a text lacking these conditions is not treated as authorization for real collection. This notice does not assert legal compliance or replace the separate operational decisions and evidence."
+          ]
+        }
+      ]
+    }
+  ]
+}

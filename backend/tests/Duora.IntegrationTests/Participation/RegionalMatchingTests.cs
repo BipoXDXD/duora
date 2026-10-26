@@ -148,6 +148,52 @@ public sealed class RegionalMatchingTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task MatchingPauseRefusesPublicationWithoutCreatingRoundsOrJobsAndResumeUsesV3()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var database = await postgres.CreateMigratedDatabaseAsync(ct);
+        var now = DateTimeOffset.UtcNow;
+        var seed = await BrowserScenarioSeed.InitializeAsync(database, now, ct, declarePreferences: true);
+        await using var source = NpgsqlDataSource.Create(database);
+        await using var connection = await source.OpenConnectionAsync(ct);
+        var admin = await RoleSeparationTests.InsertUserAsync(connection);
+        await RoleSeparationTests.GrantAsync(connection, admin, "product_admin");
+        await using var contentQuery = Command(connection, "select experience_version_id from events.events where id=$1", seed.Events[0]);
+        var content = (Guid)(await contentQuery.ExecuteScalarAsync(ct))!;
+        var start = now.AddHours(1);
+        var clock = new FakeTimeProvider(now);
+        var paused = new ParticipationService(source, clock, Options.Create(new ParticipationOptions
+        {
+            MatchingEnabled = false,
+            RegionalMatchingStartsAt = start,
+        }));
+        await using var counts = Command(connection,
+            "select (select count(*) from events.events), (select count(*) from events.rounds), (select count(*) from ops.jobs)");
+        List<long> before = [];
+        await using (var reader = await counts.ExecuteReaderAsync(ct))
+        {
+            Assert.True(await reader.ReadAsync(ct));
+            before.AddRange([reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2)]);
+        }
+        Assert.Null(await paused.PublishAsync("Synthetic paused publication", start, 2, content, admin, ct));
+        await using (var reader = await counts.ExecuteReaderAsync(ct))
+        {
+            Assert.True(await reader.ReadAsync(ct));
+            Assert.Equal(before, [reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2)]);
+        }
+
+        // A fresh compatible publisher receives the explicit cutover after the coordinated drain.
+        var resumed = new ParticipationService(source, clock, Options.Create(new ParticipationOptions { RegionalMatchingStartsAt = start }));
+        var published = Assert.NotNull(await resumed.PublishAsync("Synthetic resumed publication", start, 2, content, admin, ct));
+        await using var rounds = Command(connection, "select algorithm_version from events.rounds where event_id=$1 order by number", published);
+        await using var versions = await rounds.ExecuteReaderAsync(ct);
+        List<int> actual = [];
+        while (await versions.ReadAsync(ct))
+        { actual.Add(versions.GetInt32(0)); }
+        Assert.Equal([3, 3, 3], actual);
+    }
+
+    [Fact]
     public async Task CutoverOnlyLabelsNewRoundsAndNeverReinterpretsAnExistingRound()
     {
         var ct = TestContext.Current.CancellationToken;

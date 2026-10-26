@@ -184,7 +184,7 @@ public sealed class CsrfProtectionTests(PostgresFixture postgres) : IAsyncDispos
     }
 
     [Fact]
-    public async Task TokenIssuedBeforeLoginIsReplacedByOneBoundToTheNewIdentity()
+    public async Task LoginRotatesThePublicTokenAndAuthenticatedLogoutNeedsItsPrivateBootstrap()
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = new Browser(_factory);
@@ -196,10 +196,15 @@ public sealed class CsrfProtectionTests(PostgresFixture postgres) : IAsyncDispos
             "/api/v1/auth/logout",
             body: null,
             new MutationHeaders(CsrfTokenOverride: anonymousToken));
-        using var withNewToken = await browser.PostJsonAsync("/api/v1/auth/logout", body: null);
+        var publicToken = browser.Cookie("XSRF-TOKEN");
+        Assert.NotEqual(anonymousToken, publicToken);
+        using var withPublicToken = await browser.PostJsonAsync(
+            "/api/v1/auth/logout", body: null, new MutationHeaders(CsrfTokenOverride: publicToken));
+        await browser.FetchPrivateContextAsync();
+        using var withPrivateToken = await browser.PostJsonAsync("/api/v1/auth/logout", body: null);
 
-        Assert.NotEqual(anonymousToken, browser.Cookie("XSRF-TOKEN"));
         await ProblemAssert.IsProblemAsync(withOldToken, HttpStatusCode.Forbidden, Forbidden);
-        Assert.Equal(HttpStatusCode.NoContent, withNewToken.StatusCode);
+        await ProblemAssert.IsProblemAsync(withPublicToken, HttpStatusCode.Forbidden, Forbidden);
+        Assert.Equal(HttpStatusCode.NoContent, withPrivateToken.StatusCode);
     }
 }

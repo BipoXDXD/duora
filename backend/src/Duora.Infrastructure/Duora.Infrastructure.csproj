@@ -4,6 +4,7 @@
        (ADR-0019, "Revisão: separação do runtime web"; verificado em Duora.ArchitectureTests). -->
   <ItemGroup>
     <ProjectReference Include="..\Duora.Core\Duora.Core.csproj" />
+    <EmbeddedResource Include="Identity/LegalDocuments/*.json" />
   </ItemGroup>
 
   <ItemGroup>

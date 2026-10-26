@@ -1,3 +1,5 @@
+> Atualização proposta em 25/10/2026: [PR #255](https://github.com/BipoXDXD/duora/pull/255) implementa as fontes Markdown canônicas escolhidas abaixo, o leitor público e o aceite exato com SHA-256. Os documentos continuam rascunhos e o cadastro fica fechado enquanto a publicação não for aprovada. Nenhum idioma/hash histórico é inferido. Os trechos sobre rótulos com locale NULL descrevem a entrega anterior da #103. Ver [fluxo atual proposto](../identity/public-legal-documents.md).
+
 # Idioma da evidência de consentimento — issue #103
 
 Escopo: API-A02, spec 10.2 (consent_records), 12.1 (minimização), ADR-0019 (cadastro pendente/transação)

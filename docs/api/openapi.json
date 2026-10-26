@@ -65,6 +65,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -87,6 +97,68 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/email-confirmation-requests": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEmailConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
           },
           "400": {
             "description": "Bad Request",
@@ -329,6 +401,25 @@
         }
       }
     },
+    "/api/v1/legal-documents": {
+      "get": {
+        "tags": [
+          "Legal"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegalDocumentCatalogResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/sessions": {
       "get": {
         "tags": [
@@ -462,7 +553,7 @@
             "content": {
               "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/PrivateSessionRestrictionResponse"
                 }
               }
             }
@@ -3338,6 +3429,29 @@
         "additionalProperties": false,
         "description": "Prova de posse do autenticador que ativa o MFA (API-A12)."
       },
+      "CreateEmailConfirmationRequest": {
+        "required": [
+          "email",
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "password": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Pedido explícito e neutro de outro código; preserva senha, aceites e prazo do cadastro pendente."
+      },
       "CreatePasswordResetRequest": {
         "required": [
           "email"
@@ -3565,6 +3679,105 @@
         },
         "additionalProperties": false
       },
+      "LegalDocumentCatalogResponse": {
+        "required": [
+          "registrationAvailable",
+          "termsVersion",
+          "privacyVersion",
+          "documents"
+        ],
+        "type": "object",
+        "properties": {
+          "registrationAvailable": {
+            "type": "boolean"
+          },
+          "termsVersion": {
+            "type": "string"
+          },
+          "privacyVersion": {
+            "type": "string"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegalDocumentResponse"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LegalDocumentResponse": {
+        "required": [
+          "document",
+          "version",
+          "locale",
+          "title",
+          "controllerName",
+          "privacyContact",
+          "published",
+          "sha256",
+          "sections"
+        ],
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "controllerName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "privacyContact": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LegalDocumentSectionResponse"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LegalDocumentSectionResponse": {
+        "required": [
+          "title",
+          "paragraphs"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "paragraphs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "LoginRequest": {
         "required": [
           "email",
@@ -3607,7 +3820,8 @@
           "status",
           "emailConfirmed",
           "mfaEnabled",
-          "roles"
+          "roles",
+          "sessionContext"
         ],
         "type": "object",
         "properties": {
@@ -3632,6 +3846,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "sessionContext": {
+            "$ref": "#/components/schemas/PrivateSessionContextResponse"
           },
           "preferredLocale": {
             "type": [
@@ -4024,6 +4241,71 @@
         "additionalProperties": false,
         "description": "Upload aceito. `Status`: Pending | Quarantined | Processing | Approved | Rejected | Deleted | AwaitingReview (spec 4.2); um\nenvio novo responde Quarantined, e a repetição com a mesma chave responde o estado atual do primeiro."
       },
+      "PrivateSessionContextResponse": {
+        "required": [
+          "userId",
+          "sessionId",
+          "phase",
+          "requestToken"
+        ],
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "requestToken": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Contexto do titular, sem credencial portadora; a prova antiforgery fica só na memória da SPA."
+      },
+      "PrivateSessionRestrictionResponse": {
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "sessionContext",
+          "traceId"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "code": {
+            "type": "string"
+          },
+          "sessionContext": {
+            "$ref": "#/components/schemas/PrivateSessionContextResponse"
+          },
+          "traceId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "403 somente do bootstrap /me na fase da senha temporária; não amplia as permissões da sessão."
+      },
       "ProblemDetails": {
         "type": "object",
         "properties": {
@@ -4202,7 +4484,8 @@
       },
       "RecoveryCodesResponse": {
         "required": [
-          "recoveryCodes"
+          "recoveryCodes",
+          "resultSessionId"
         ],
         "type": "object",
         "properties": {
@@ -4211,6 +4494,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "resultSessionId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "additionalProperties": false,
@@ -4300,6 +4587,18 @@
             ]
           },
           "acceptedPrivacyLocale": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acceptedTermsSha256": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acceptedPrivacySha256": {
             "type": [
               "null",
               "string"
@@ -5163,6 +5462,9 @@
   "tags": [
     {
       "name": "Auth"
+    },
+    {
+      "name": "Legal"
     },
     {
       "name": "Me"

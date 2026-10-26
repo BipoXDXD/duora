@@ -49,6 +49,18 @@ const otherOrigin = `https://127.0.0.1:${port}`;
       try { const a = await fetch('/assets/probe.wav'); const b = await c.decodeAudioData(await a.arrayBuffer()); return b.length > 0; }
       finally { await c.close(); }
     `), true);
+    check('private audio refuses a request without the owned proof', await evaluate(`
+      return (await fetch('/api/v1/rooms/probe/audio/cue')).status;
+    `), 403);
+    check('private PCM decodes through owned fetch under the unchanged CSP', await evaluate(`
+      const c = new AudioContext({sampleRate:48000});
+      try {
+        const a = await fetch('/api/v1/rooms/probe/audio/cue', {headers:{'X-XSRF-TOKEN':'synthetic-private-audio-proof'}});
+        if (a.status !== 200 || a.headers.get('Cache-Control') !== 'no-store') return false;
+        const b = await c.decodeAudioData(await a.arrayBuffer());
+        return b.duration === 1 && b.numberOfChannels === 1 && c.sampleRate <= 48000;
+      } finally { await c.close(); }
+    `), true);
     for (const [name, expression, directive] of [
       ['cross-origin media', `new Audio('${otherOrigin}/assets/probe.wav').load()`, 'media-src'],
       ['data media', `new Audio('data:audio/wav;base64,UklGRg==').load()`, 'media-src'],

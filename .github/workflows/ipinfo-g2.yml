@@ -78,6 +78,9 @@ jobs:
     environment: g2-ipinfo-lite
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -87,6 +90,10 @@ jobs:
           global-json-file: global.json
       - run: dotnet restore tools/IpinfoG2/IpinfoG2.csproj --locked-mode
       - run: dotnet build tools/IpinfoG2/IpinfoG2.csproj --no-restore
+      - name: Recheck exact main and CI after protected approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/geolocation/g2_environment.py
       - name: One authorized download and sanitized measurement
         id: rehearsal
         env:
@@ -104,4 +111,4 @@ jobs:
           name: g2-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ipinfo-g2-report.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 90

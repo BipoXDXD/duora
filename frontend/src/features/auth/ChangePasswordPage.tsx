@@ -1,5 +1,6 @@
+import { usePrivateOperation } from '@/features/session/private-operation'
+import { usePrivateMutation } from '@/features/session/private-mutation'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useSessionTransitions } from '@/features/session/session-hooks'
@@ -26,6 +27,7 @@ const schema = z
   })
 
 export function ChangePasswordPage(): React.JSX.Element {
+  const privateOperation = usePrivateOperation()
   const { t } = useI18n()
   const fieldError = useValidationMessage()
   const transitions = useSessionTransitions()
@@ -33,11 +35,11 @@ export function ChangePasswordPage(): React.JSX.Element {
     resolver: zodResolver(schema),
     defaultValues: { currentPassword: '', newPassword: '', confirmation: '' },
   })
-  const change = useMutation({
+  const change = usePrivateMutation({
     // Senhas ficam somente no formulário, nunca em variables do MutationCache.
-    mutationFn: async () => {
+    mutationFn: async (operation) => {
       const { currentPassword, newPassword } = form.getValues()
-      await changePassword(currentPassword, newPassword)
+      await changePassword(operation, currentPassword, newPassword)
     },
     gcTime: 0,
     onSuccess: async () => {
@@ -49,9 +51,12 @@ export function ChangePasswordPage(): React.JSX.Element {
   const reused =
     change.error instanceof ApiProblemError &&
     change.error.problem.errors?.newPassword?.includes('SAME_AS_TEMPORARY_PASSWORD')
-  const submit = form.handleSubmit(() => {
-    if (!change.isPending) change.mutate()
-  })
+  const submit = (event: React.BaseSyntheticEvent) =>
+    privateOperation.run((operation) =>
+      form.handleSubmit(async () => {
+        if (!change.isPending) await change.mutateWithOperation(operation, undefined)
+      })(event),
+    )
   return (
     <Page title={t('changePassword.title')}>
       <p>{t('changePassword.instructions')}</p>
@@ -73,7 +78,7 @@ export function ChangePasswordPage(): React.JSX.Element {
         aria-busy={change.isPending}
         className="flex flex-col gap-6"
         onSubmit={(event) => {
-          void submit(event)
+          void submit(event).catch(() => undefined)
         }}
       >
         <PasswordField
