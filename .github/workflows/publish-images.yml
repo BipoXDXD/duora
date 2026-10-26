@@ -38,6 +38,8 @@ concurrency:
 
 env:
   TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+  # Prefer the official DB; Trivy does not fall back for every mirror HTTP 404.
+  TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2,mirror.gcr.io/aquasec/trivy-db:2
 
 jobs:
   verify:
@@ -169,7 +171,7 @@ jobs:
           for image in web worker migrator edge postgres; do
             echo "::group::duora-$image"
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v duora-trivy-cache:/root/.cache \
-              -v "$GITHUB_WORKSPACE/.trivyignore:/trivyignore:ro" "$TRIVY_IMAGE" image \
+              -v "$GITHUB_WORKSPACE/.trivyignore:/trivyignore:ro" -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" image \
               --severity HIGH,CRITICAL --ignore-unfixed --ignorefile /trivyignore --exit-code 1 "duora-$image:ci"
             echo "::endgroup::"
           done
@@ -196,7 +198,7 @@ jobs:
             echo "### Vulnerabilidades HIGH/CRITICAL sem correção publicada (${{ matrix.arch }})"
             for image in web worker migrator edge postgres; do
               count=$(docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v duora-trivy-cache:/root/.cache \
-                "$TRIVY_IMAGE" image --quiet --severity HIGH,CRITICAL --format json "duora-$image:ci" \
+                -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" image --quiet --severity HIGH,CRITICAL --format json "duora-$image:ci" \
                 | python3 -c "$COUNT_UNFIXED")
               echo "- duora-$image: $count"
             done
@@ -207,7 +209,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release"
           for image in web worker migrator edge postgres; do
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro \
-              -v duora-trivy-cache:/root/.cache "$TRIVY_IMAGE" image \
+              -v duora-trivy-cache:/root/.cache -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" image \
               --format cyclonedx --quiet "duora-$image:ci" > "$RUNNER_TEMP/release/sbom-$image.cdx.json"
           done
 
