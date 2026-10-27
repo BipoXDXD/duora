@@ -245,10 +245,20 @@ public sealed class ApprovedMediaRestoreSelectionTests
         Refused(fixture);
     }
 
+    [Fact]
+    public void AnAuthenticatedLedgerKeyIdentifierMustRespectTheSelectorMetadataBudget()
+    {
+        var fixture = Create();
+        fixture = fixture with { Barrier = Sign(fixture.Barrier with { KeyId = new string('a', 129) }) };
+
+        Refused(fixture);
+    }
+
     [Theory]
     [InlineData("assets")]
     [InlineData("bytes")]
     [InlineData("unbounded-assets")]
+    [InlineData("unbounded-ledger")]
     [InlineData("overflow")]
     public void LimitsAndOverflowRefuseTheWholeSelection(string limit)
     {
@@ -258,6 +268,7 @@ public sealed class ApprovedMediaRestoreSelectionTests
             "assets" => fixture with { Expected = fixture.Expected with { MaximumAssets = 1 } },
             "bytes" => fixture with { Expected = fixture.Expected with { MaximumBytes = 17 } },
             "unbounded-assets" => fixture with { Expected = fixture.Expected with { MaximumAssets = int.MaxValue } },
+            "unbounded-ledger" => fixture with { LedgerExpected = fixture.LedgerExpected with { MaximumEntries = int.MaxValue } },
             _ => fixture with { Manifest = Sign(fixture.Manifest with { TotalBytes = long.MaxValue }) },
         };
 
@@ -290,6 +301,29 @@ public sealed class ApprovedMediaRestoreSelectionTests
         var ledger = new Authenticator(onLedger: cancellation.Cancel);
 
         Assert.ThrowsAny<OperationCanceledException>(() => Select(fixture, new Authenticator(), ledger, cancellation.Token));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CancellationDuringFailedManifestAuthenticationMustPropagate(bool throws)
+    {
+        var fixture = Create();
+        using var cancellation = new CancellationTokenSource();
+        if (!throws)
+        {
+            fixture = fixture with { Manifest = fixture.Manifest with { Signature = new byte[32] } };
+        }
+        var authenticator = new Authenticator(onManifest: () =>
+        {
+            cancellation.Cancel();
+            if (throws)
+            {
+                throw new IOException("synthetic authentication interrupted");
+            }
+        });
+
+        Assert.ThrowsAny<OperationCanceledException>(() => Select(fixture, authenticator, new Authenticator(), cancellation.Token));
     }
 
     [Fact]

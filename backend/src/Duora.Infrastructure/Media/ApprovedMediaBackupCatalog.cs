@@ -53,7 +53,7 @@ internal sealed class ApprovedMediaBackupCatalog(IDbContextFactory<DuoraDbContex
         var snapshot = await db.Database.SqlQuery<string>($"select pg_current_snapshot()::text as \"Value\"").SingleAsync(ct);
         var capturedAt = time.GetUtcNow();
         var roots = await db.Database.SqlQuery<AssetRoot>($"""
-            select a.id as "AssetId",a.version as "Version",a.width as "Width",a.height as "Height",
+            select a.id as "AssetId",u.id as "PhotoId",a.version as "Version",a.width as "Width",a.height as "Height",
               u.quarantine_key as "QuarantineKey",p.generation as "Generation",
               coalesce(case when p.generation is null then
                 not exists(select 1 from safety.photo_review_cases r where r.upload_id=u.id)
@@ -105,7 +105,8 @@ internal sealed class ApprovedMediaBackupCatalog(IDbContextFactory<DuoraDbContex
               and u.state='Approved' and u.owner_id=a.owner_id
             order by a.id limit {maxAssets + 1}
             """).ToListAsync(ct);
-        if (roots.Count > maxAssets || roots.Any(a => !a.BindingValid || a.AssetId == Guid.Empty || a.Version < 1
+        if (roots.Count > maxAssets || roots.Select(a => a.PhotoId).Distinct().Count() != roots.Count
+            || roots.Any(a => !a.BindingValid || a.AssetId == Guid.Empty || a.PhotoId == Guid.Empty || a.Version < 1
                 || a.Width < 1 || a.Height < 1 || (long)a.Width * a.Height > 20_000_000))
         {
             throw Inconsistent();
@@ -204,7 +205,11 @@ internal sealed class ApprovedMediaBackupCatalog(IDbContextFactory<DuoraDbContex
             {
                 throw Inconsistent();
             }
-            catalog.Add(new ApprovedMediaCatalogAsset(root.AssetId, root.Version, manifest.AsReadOnly()));
+            catalog.Add(new ApprovedMediaCatalogAsset(root.AssetId, root.Version, manifest.AsReadOnly())
+            {
+                PhotoId = root.PhotoId,
+                PromotionGeneration = root.Generation,
+            });
         }
         await transaction.CommitAsync(ct);
         return new ApprovedMediaCatalog(capturedAt, snapshot, catalog.AsReadOnly(), total);
@@ -212,7 +217,7 @@ internal sealed class ApprovedMediaBackupCatalog(IDbContextFactory<DuoraDbContex
 
     private static InvalidDataException Inconsistent() => new("The complete approved catalog could not be established.");
 
-    private sealed record AssetRoot(Guid AssetId, long Version, int Width, int Height, string QuarantineKey,
+    private sealed record AssetRoot(Guid AssetId, Guid PhotoId, long Version, int Width, int Height, string QuarantineKey,
         Guid? Generation, bool BindingValid);
 
     private sealed record StoredVariant(Guid AssetId, string Kind, string ObjectKey, int Width, int Height, long SizeBytes,
