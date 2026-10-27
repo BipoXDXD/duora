@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Duora.Core.Media;
 
 namespace Duora.Infrastructure.Media;
@@ -65,7 +66,7 @@ internal static class ApprovedMediaRestoreSelection
         }
     }
 
-    private static ApprovedMediaRestoreSelectionResult SelectCore(ApprovedMediaCatalog catalog,
+    private static ApprovedMediaRestoreSelectionResult.Selected SelectCore(ApprovedMediaCatalog catalog,
         ApprovedMediaRestoreManifest manifest, ApprovedMediaRestoreExpectation expected,
         DeletionLedgerExpectation ledgerExpected, DeletionLedgerBarrier barrier,
         IEnumerable<DeletionLedgerEntry> entries, IApprovedMediaRestoreManifestAuthenticator? manifestAuthenticator,
@@ -157,7 +158,7 @@ internal static class ApprovedMediaRestoreSelection
             verified.RestoreEpoch, selected.AsReadOnly(), total);
     }
 
-    private static IReadOnlyList<ApprovedMediaCatalogAsset> FreezeAssets(IReadOnlyList<ApprovedMediaCatalogAsset> assets,
+    private static ReadOnlyCollection<ApprovedMediaCatalogAsset> FreezeAssets(IReadOnlyList<ApprovedMediaCatalogAsset> assets,
         ApprovedMediaRestoreExpectation expected, bool manifest, CancellationToken cancellationToken, out long totalBytes)
     {
         if (assets is null)
