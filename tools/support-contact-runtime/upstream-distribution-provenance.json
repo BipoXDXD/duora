@@ -1,0 +1,527 @@
+{
+  "schema_version": 1,
+  "full_asset": {
+    "id": 663545916,
+    "name": "cpython-3.13.17+20261021-x86_64-unknown-linux-gnu-pgo+lto-full.tar.zst",
+    "bytes": 112991216,
+    "sha256": "344eec7e761e7b3dccce0ce2d91a3e70d40f8ff5d3ce7d907d979c23e8451fc7",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261021/cpython-3.13.17%2B20261021-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst"
+  },
+  "install_only_asset": {
+    "publisher_repository": "astral-sh/python-build-standalone",
+    "release_tag": "20261021",
+    "release_url": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261021",
+    "asset_id": 663545914,
+    "asset_api_url": "https://api.github.com/repos/astral-sh/python-build-standalone/releases/assets/663545914",
+    "format": "install_only gzip tar",
+    "bytes": 35356674,
+    "sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+    "member_count": 4528,
+    "expanded_bytes_reported": 99189121,
+    "PYTHON_json_present": false,
+    "native_root_license_texts_present": false,
+    "source_release_commit": "0c5e581b54a4736cdbbe68bdd6d7e571a1dca11e"
+  },
+  "upstream_metadata": {
+    "repository_path": "tools/support-contact-runtime/upstream-PYTHON.json",
+    "archive_member": "python/PYTHON.json",
+    "bytes": 127803,
+    "sha256": "6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b"
+  },
+  "full_metadata_and_notices_extraction_receipt_sha256": "e02b8f0a8118699c0b0c3c725bb70dd45e305c00696d256c099441ab21ae09ab",
+  "full_distribution_notices": {
+    "python/licenses/LICENSE.bdb.txt": {
+      "sha256": "3bdff06e69991c94664f2ef5c5f8096f60b7dbec071756ea6cc26b445e06ec5b",
+      "bytes": 7293,
+      "output": "LICENSE.bdb.txt"
+    },
+    "python/licenses/LICENSE.bzip2.txt": {
+      "sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441",
+      "bytes": 1743,
+      "output": "LICENSE.bzip2.txt"
+    },
+    "python/licenses/LICENSE.cpython.txt": {
+      "sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd",
+      "bytes": 36164,
+      "output": "LICENSE.cpython.txt"
+    },
+    "python/licenses/LICENSE.expat.txt": {
+      "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534",
+      "bytes": 1144,
+      "output": "LICENSE.expat.txt"
+    },
+    "python/licenses/LICENSE.libX11.txt": {
+      "sha256": "2daec087a88e7c9b8082557cdeebad5bbb8155a4137472f0b22e269cd99d0c1e",
+      "bytes": 47018,
+      "output": "LICENSE.libX11.txt"
+    },
+    "python/licenses/LICENSE.libXau.txt": {
+      "sha256": "56abe29bb1d9806a9e04fa9f80fed2c0f18027594df3f098148d814aef6bddfa",
+      "bytes": 1148,
+      "output": "LICENSE.libXau.txt"
+    },
+    "python/licenses/LICENSE.libedit.txt": {
+      "sha256": "29cea33c32bbc9785142386377915612a2fa786482c46843383384aded2e09b1",
+      "bytes": 1614,
+      "output": "LICENSE.libedit.txt"
+    },
+    "python/licenses/LICENSE.libffi.txt": {
+      "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0",
+      "bytes": 1132,
+      "output": "LICENSE.libffi.txt"
+    },
+    "python/licenses/LICENSE.liblzma.txt": {
+      "sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02",
+      "bytes": 660,
+      "output": "LICENSE.liblzma.txt"
+    },
+    "python/licenses/LICENSE.libuuid.txt": {
+      "sha256": "122ee1f7e258f2c3c0e538a75c037684f420454bf3850ddc74ce750bbf5fe86b",
+      "bytes": 1432,
+      "output": "LICENSE.libuuid.txt"
+    },
+    "python/licenses/LICENSE.libxcb.txt": {
+      "sha256": "c5ffbfeaa501071ceeb97b7de2c0d703fdaa35de01c0fb6cbac1c28453a3e9fd",
+      "bytes": 1337,
+      "output": "LICENSE.libxcb.txt"
+    },
+    "python/licenses/LICENSE.mpdecimal.txt": {
+      "sha256": "669512af7219f58be03a398766d7c9da11a3b3df9d3f05cb74c5ceca25c8da3b",
+      "bytes": 1284,
+      "output": "LICENSE.mpdecimal.txt"
+    },
+    "python/licenses/LICENSE.ncurses.txt": {
+      "sha256": "87a4c4442337b8968ef956031c406b74f9cb7149b7ba87311bdaba534816201c",
+      "bytes": 1447,
+      "output": "LICENSE.ncurses.txt"
+    },
+    "python/licenses/LICENSE.openssl-3.txt": {
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "bytes": 10175,
+      "output": "LICENSE.openssl-3.txt"
+    },
+    "python/licenses/LICENSE.sqlite.txt": {
+      "sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719",
+      "bytes": 1481,
+      "output": "LICENSE.sqlite.txt"
+    },
+    "python/licenses/LICENSE.tcl.txt": {
+      "sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16",
+      "bytes": 2255,
+      "output": "LICENSE.tcl.txt"
+    },
+    "python/licenses/LICENSE.zlib-ng.txt": {
+      "sha256": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee",
+      "bytes": 867,
+      "output": "LICENSE.zlib-ng.txt"
+    },
+    "python/licenses/LICENSE.zlib.txt": {
+      "sha256": "818922b2620f12801a12bf78e399644a30990e66824abd8ca8ec24d451d6f92c",
+      "bytes": 995,
+      "output": "LICENSE.zlib.txt"
+    }
+  },
+  "inittab_source": {
+    "archive_member": "python/build/Modules/config.c",
+    "bytes": 8346,
+    "sha256": "ffe060463ae66b1a5d2a9d3f72fa67083ee44cbe7705cf7ab4cc83950e2d6018",
+    "modules": [
+      "array",
+      "_asyncio",
+      "_bisect",
+      "_contextvars",
+      "_csv",
+      "_heapq",
+      "_json",
+      "_lsprof",
+      "_opcode",
+      "_pickle",
+      "_queue",
+      "_random",
+      "_struct",
+      "_interpreters",
+      "_interpchannels",
+      "_interpqueues",
+      "_zoneinfo",
+      "math",
+      "cmath",
+      "_statistics",
+      "_datetime",
+      "_decimal",
+      "binascii",
+      "_bz2",
+      "_lzma",
+      "zlib",
+      "readline",
+      "_md5",
+      "_sha1",
+      "_sha2",
+      "_sha3",
+      "_blake2",
+      "pyexpat",
+      "_elementtree",
+      "_codecs_cn",
+      "_codecs_hk",
+      "_codecs_iso2022",
+      "_codecs_jp",
+      "_codecs_kr",
+      "_codecs_tw",
+      "_multibytecodec",
+      "unicodedata",
+      "fcntl",
+      "grp",
+      "mmap",
+      "_posixsubprocess",
+      "resource",
+      "select",
+      "_socket",
+      "syslog",
+      "termios",
+      "_posixshmem",
+      "_multiprocessing",
+      "_ctypes",
+      "_curses",
+      "_curses_panel",
+      "_sqlite3",
+      "_ssl",
+      "_hashlib",
+      "_uuid",
+      "xxsubtype",
+      "_xxtestfuzz",
+      "_testinternalcapi",
+      "atexit",
+      "faulthandler",
+      "posix",
+      "_signal",
+      "_tracemalloc",
+      "_suggestions",
+      "_codecs",
+      "_collections",
+      "errno",
+      "_io",
+      "itertools",
+      "_sre",
+      "_sysconfig",
+      "_thread",
+      "time",
+      "_typing",
+      "_weakref",
+      "_abc",
+      "_functools",
+      "_locale",
+      "_operator",
+      "_stat",
+      "_symtable",
+      "pwd",
+      "marshal",
+      "_imp",
+      "_ast",
+      "_tokenize",
+      "builtins",
+      "sys",
+      "gc",
+      "_warnings",
+      "_string"
+    ],
+    "not_executed": true
+  },
+  "full_to_stripped_static_analysis_receipt": {
+    "sha256": "1c93ab4f6ad330ab04fc6b899e21875e1d8006cbdc86a5def4a936dd51941c2d",
+    "all_PT_LOAD_equal": false,
+    "conclusion": "Partial static evidence only. The libpython PT_LOAD receipt matches, interpreter header/layout has differences; executable code segment hashes match. No assertion of raw file identity or fully established binary equivalence."
+  },
+  "archive_payload_or_runtime_executed": false,
+  "full_to_stripped_static_analysis_v2": {
+    "receipt_sha256": "1adb68dc7df6308a60471335f4e76c72a2fcc4bffcd5084d86af21e2ae8aa915",
+    "receipt": {
+      "full_asset_sha256": "344eec7e761e7b3dccce0ce2d91a3e70d40f8ff5d3ce7d907d979c23e8451fc7",
+      "stripped_asset_sha256": "f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c",
+      "PYTHON_json_sha256": "6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b",
+      "bindings": [
+        {
+          "stripped_path": "python/bin/python3.13",
+          "stripped": {
+            "bytes": 31624264,
+            "sha256": "06176065174ea24f24d109e55a374022ef5c4390234516c683d4726431be027d",
+            "GNU_build_ids": [],
+            "PT_LOAD_segments": [
+              {
+                "offset": 0,
+                "filesz": 4096,
+                "memsz": 4096,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 2093056,
+                "load_bytes_sha256_normalized_section_table_header": "10dfd4736f2fbc296b2db7e438fd0a4411b2172a91bbe637db3a45cca740e11a"
+              },
+              {
+                "offset": 4096,
+                "filesz": 5659416,
+                "memsz": 5659416,
+                "flags": 4,
+                "alignment": 4096,
+                "virtual_address": 2097152,
+                "load_bytes_sha256_normalized_section_table_header": "997d1131e0d5aea39525816086961c02adf514dc036b12cf67d6bc98537ef129"
+              },
+              {
+                "offset": 5664768,
+                "filesz": 11637200,
+                "memsz": 11637200,
+                "flags": 5,
+                "alignment": 4096,
+                "virtual_address": 7761920,
+                "load_bytes_sha256_normalized_section_table_header": "770f11cc98e61b27be6fa8d5ef8ae6e51ec244ceb171b1244a0ea3b66957bd5d"
+              },
+              {
+                "offset": 17301968,
+                "filesz": 521376,
+                "memsz": 523824,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 19403216,
+                "load_bytes_sha256_normalized_section_table_header": "02b00dbbedccadeb7cc2954d16dc7d26a8e1dc3c9f49a37f63756dca337d0f12"
+              },
+              {
+                "offset": 17823344,
+                "filesz": 688152,
+                "memsz": 1225712,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 19928688,
+                "load_bytes_sha256_normalized_section_table_header": "b3ac43c9811c5532e30d3da5bedf62d4642c5ae3b862eb87c090143575ed3cd2"
+              },
+              {
+                "offset": 18513920,
+                "filesz": 10369192,
+                "memsz": 10369192,
+                "flags": 5,
+                "alignment": 4096,
+                "virtual_address": 23068672,
+                "load_bytes_sha256_normalized_section_table_header": "6c8c1a4bde50c2e0a1149621020b85dee25da74bd1464aa6da1121133080ddd4"
+              }
+            ],
+            "normalization": "Only declared physical file-layout fields e_shoff/sectiontable metadata/programheader p_offset zeroed; all payload bytes, target virtual addresses, sizes, permissions and alignments retained"
+          },
+          "full_path": "python/install/bin/python3.13",
+          "full": {
+            "bytes": 81032720,
+            "sha256": "ab35a73cf0ea1fc05a178debcee1518ed3ebbed2e8cad8cbf12e483cdb55be44",
+            "GNU_build_ids": [],
+            "PT_LOAD_segments": [
+              {
+                "offset": 0,
+                "filesz": 4096,
+                "memsz": 4096,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 2093056,
+                "load_bytes_sha256_normalized_section_table_header": "10dfd4736f2fbc296b2db7e438fd0a4411b2172a91bbe637db3a45cca740e11a"
+              },
+              {
+                "offset": 4096,
+                "filesz": 5659416,
+                "memsz": 5659416,
+                "flags": 4,
+                "alignment": 4096,
+                "virtual_address": 2097152,
+                "load_bytes_sha256_normalized_section_table_header": "997d1131e0d5aea39525816086961c02adf514dc036b12cf67d6bc98537ef129"
+              },
+              {
+                "offset": 5664768,
+                "filesz": 11637200,
+                "memsz": 11637200,
+                "flags": 5,
+                "alignment": 4096,
+                "virtual_address": 7761920,
+                "load_bytes_sha256_normalized_section_table_header": "770f11cc98e61b27be6fa8d5ef8ae6e51ec244ceb171b1244a0ea3b66957bd5d"
+              },
+              {
+                "offset": 17301968,
+                "filesz": 521376,
+                "memsz": 523824,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 19403216,
+                "load_bytes_sha256_normalized_section_table_header": "02b00dbbedccadeb7cc2954d16dc7d26a8e1dc3c9f49a37f63756dca337d0f12"
+              },
+              {
+                "offset": 17823344,
+                "filesz": 688152,
+                "memsz": 1225712,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 19928688,
+                "load_bytes_sha256_normalized_section_table_header": "b3ac43c9811c5532e30d3da5bedf62d4642c5ae3b862eb87c090143575ed3cd2"
+              },
+              {
+                "offset": 20975616,
+                "filesz": 10369192,
+                "memsz": 10369192,
+                "flags": 5,
+                "alignment": 4096,
+                "virtual_address": 23068672,
+                "load_bytes_sha256_normalized_section_table_header": "6c8c1a4bde50c2e0a1149621020b85dee25da74bd1464aa6da1121133080ddd4"
+              }
+            ],
+            "normalization": "Only declared physical file-layout fields e_shoff/sectiontable metadata/programheader p_offset zeroed; all payload bytes, target virtual addresses, sizes, permissions and alignments retained"
+          },
+          "same_loaded_payload_and_virtual_graph": true,
+          "build_ids_equal": true
+        },
+        {
+          "stripped_path": "python/lib/libpython3.13.so.1.0",
+          "stripped": {
+            "bytes": 32382304,
+            "sha256": "4947d07a1740d5a8f8d99fab08285a06a063fa821582cecce6ec2f51759692ee",
+            "GNU_build_ids": [
+              "f25081008d673f28ea14aedaab871dc3dcd6239d"
+            ],
+            "PT_LOAD_segments": [
+              {
+                "offset": 0,
+                "filesz": 6558848,
+                "memsz": 6558848,
+                "flags": 4,
+                "alignment": 4096,
+                "virtual_address": 0,
+                "load_bytes_sha256_normalized_section_table_header": "db38ee9b12854b4124120d95204253d00d134e999904c19cbe1c993ac72d895f"
+              },
+              {
+                "offset": 6561792,
+                "filesz": 12039264,
+                "memsz": 12039264,
+                "flags": 5,
+                "alignment": 4096,
+                "virtual_address": 6565888,
+                "load_bytes_sha256_normalized_section_table_header": "d282bfb0a5703e6a30616cb835bfcbc02f6732c853e88114f5f1f981a8af87ae"
+              },
+              {
+                "offset": 18601056,
+                "filesz": 1017928,
+                "memsz": 1018784,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 18609248,
+                "load_bytes_sha256_normalized_section_table_header": "bf3c6ecc9780218cd3e4ceefeabdafbc06d1e53b6c939dec2324a15923ba83d3"
+              },
+              {
+                "offset": 19618992,
+                "filesz": 688136,
+                "memsz": 1225648,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 19631280,
+                "load_bytes_sha256_normalized_section_table_header": "8223e1b39f31dd36de0ad2e8dafe31044ad852f9488bccd05ca7c527ac9b9531"
+              }
+            ],
+            "normalization": "Only declared physical file-layout fields e_shoff/sectiontable metadata/programheader p_offset zeroed; all payload bytes, target virtual addresses, sizes, permissions and alignments retained"
+          },
+          "full_path": "python/install/lib/libpython3.13.so.1.0",
+          "full": {
+            "bytes": 146617640,
+            "sha256": "a00e44195bd22bfe81195e332a51a884b23b32cd48fb587e1734c608bf5035eb",
+            "GNU_build_ids": [
+              "f25081008d673f28ea14aedaab871dc3dcd6239d"
+            ],
+            "PT_LOAD_segments": [
+              {
+                "offset": 0,
+                "filesz": 6558848,
+                "memsz": 6558848,
+                "flags": 4,
+                "alignment": 4096,
+                "virtual_address": 0,
+                "load_bytes_sha256_normalized_section_table_header": "db38ee9b12854b4124120d95204253d00d134e999904c19cbe1c993ac72d895f"
+              },
+              {
+                "offset": 6561792,
+                "filesz": 12039264,
+                "memsz": 12039264,
+                "flags": 5,
+                "alignment": 4096,
+                "virtual_address": 6565888,
+                "load_bytes_sha256_normalized_section_table_header": "d282bfb0a5703e6a30616cb835bfcbc02f6732c853e88114f5f1f981a8af87ae"
+              },
+              {
+                "offset": 18601056,
+                "filesz": 1017928,
+                "memsz": 1018784,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 18609248,
+                "load_bytes_sha256_normalized_section_table_header": "bf3c6ecc9780218cd3e4ceefeabdafbc06d1e53b6c939dec2324a15923ba83d3"
+              },
+              {
+                "offset": 19618992,
+                "filesz": 688136,
+                "memsz": 1225648,
+                "flags": 6,
+                "alignment": 4096,
+                "virtual_address": 19631280,
+                "load_bytes_sha256_normalized_section_table_header": "8223e1b39f31dd36de0ad2e8dafe31044ad852f9488bccd05ca7c527ac9b9531"
+              }
+            ],
+            "normalization": "Only declared physical file-layout fields e_shoff/sectiontable metadata/programheader p_offset zeroed; all payload bytes, target virtual addresses, sizes, permissions and alignments retained"
+          },
+          "same_loaded_payload_and_virtual_graph": true,
+          "build_ids_equal": true
+        }
+      ],
+      "all_loaded_payload_and_virtual_graph_equal": true,
+      "all_build_ids_equal": true,
+      "scope": "Provenance of same compiled loadable code/data after stripping/physical file-layout repack; not raw-file identity, runtime test or license admission",
+      "inspector_sha256": "3bd0c4196dd8c1eef6b0affb635648df593c110972401b78457ae973635f10a6",
+      "binary_execution": false
+    },
+    "independent_review_status": "FAVORABLE_FOR_FIXED_ARTIFACT_STATIC_PROJECTION",
+    "claim_boundary": "Observed static receipt result only; review must validate normalization. Raw file SHA256 equality is neither observed nor claimed.",
+    "independent_review": {
+      "path_basename": "full-distribution-provenance-review.md",
+      "sha256": "19dc08ed669ff2b38222abb7ab025348c936cb14f6aab1c621eb104cd1dbee96",
+      "result": "FAVORABLE_WITH_NO_P1_P2_IN_STATIC_PROVENANCE_DELTA",
+      "scope": "V2 projection and supplied module/notice mapping; no license/profile/runtime/production/merge admission. Review names earlier inventory/doc hashes; this new obligation-summary documentation delta is not falsely claimed as already independently reviewed.",
+      "bytes": 6858,
+      "content_utf8": "# Revisão independente da proveniência full → stripped\n\nRevisor: Codex, agente `/root/review_full_image_lab`. Data: 2026-10-26.\n\n**Parecer favorável, sem P1/P2 demonstrado neste delta de evidência.** Aceito o vínculo estático na projeção descrita abaixo e o mapeamento de módulos/avisos declarado pelo fornecedor. Isso não admite licença, perfil operacional, runtime, produção ou merge. Nenhum gate é dispensado.\n\n## Escopo e método\n\nInspeção de `inspect_full_distribution_v2.py`, recibos V1/V2, metadados oficiais, `config.c`, avisos extraídos e respectivas cópias/inventário/documentação na fonte. Fiz leituras/hash SHA-256 locais, comparação dos campos dos recibos e comparação dos conjuntos de módulos. Calculei o hash integral do archive full por blocos; descomprimi apenas um prefixo limitado em RAM, usando a biblioteca zstd já existente, para conferir diretamente `python/PYTHON.json`. Não executei binários distribuídos, inspector/packager, testes, Docker, .NET, CI ou acesso remoto; não extraí o archive completo nem alterei fonte.\n\nA procedência do download via release/asset oficial é a evidência fornecida pelo coordenador, não uma nova consulta independente ao GitHub. A geração dos hashes dos segmentos ELF e a extração de config.c/avisos são recibos do coordenador, cujo algoritmo e consistência conferi; não repeti sua varredura dos binários. A fonte não foi promovida por este parecer.\n\n## Identidades conferidas\n\n| Material | SHA-256 |\n|---|---|\n| Full archive, asset 663545916, 112991216 bytes | `344eec7e761e7b3dccce0ce2d91a3e70d40f8ff5d3ce7d907d979c23e8451fc7` |\n| `official-full-PYTHON.json`, 127803 bytes; idêntico ao membro direto e a `upstream-PYTHON.json` | `6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b` |\n| `full-config.c`, 8346 bytes | `ffe060463ae66b1a5d2a9d3f72fa67083ee44cbe7705cf7ab4cc83950e2d6018` |\n| Inspector V2 | `3bd0c4196dd8c1eef6b0affb635648df593c110972401b78457ae973635f10a6` |\n| `full-distribution-binding-v2.json` | `8833bab0f7ea947bb4ddf9f322806028fbdeefe91bf8c4f6e058ab57e2438b19` |\n| `full-to-stripped-binary-binding-v2.json` | `1adb68dc7df6308a60471335f4e76c72a2fcc4bffcd5084d86af21e2ae8aa915` |\n| V1 de comparação, preservado | `1c93ab4f6ad330ab04fc6b899e21875e1d8006cbdc86a5def4a936dd51941c2d` |\n| `upstream-distribution-provenance.json` | `22fd52fc2e5a3e3669b13cd0353440e048581d39b9984d3e58bbc04fd8792de7` |\n| `python-license-inventory.json` | `ce4e50f4a1ea3f1767a376e583c057e0646d4dd7dae503ae1eda7b6cd3b846a0` |\n| `docs/testing/support-contact-runtime-licenses.md` | `a6ad95c77c8f8b6de20f5a114372589d5b2685c9810ff354079449e9cdc143de` |\n\nO recibo V2 embutido na proveniência é exatamente igual ao recibo externo. Ele fixa a entrada stripped já qualificada em `f829adc9d888e76c8801b4799ed444188d35239fcae3a9808a99ec5cb0d8d92c`; não repeti a prova antiga dessa entrada. O campo do recibo de extração anterior aponta corretamente para `full-distribution-binding.json`, SHA `e02b8f0a8118699c0b0c3c725bb70dd45e305c00696d256c099441ab21ae09ab`.\n\n## Projeção ELF aceita e seus limites\n\nO inspector lê ELF64 little-endian e calcula hash de cada faixa PT_LOAD pelos offsets do próprio arquivo. Na projeção, zera exclusivamente e_shoff (40..47), os campos de tabela de seções (58..63) e p_offset de cada program header declarado. Os registros preservam endereço virtual, tamanho em arquivo/memória, flags e alinhamento. A comparação dos recibos removendo somente o campo offset resulta em igualdade exata dos seis segmentos do executável e quatro de libpython. O último segmento do executável muda fisicamente de 20975616 para 18513920; o endereço virtual 23068672 e seu payload normalizado permanecem iguais. Isso explica a diferença entre V1 e V2 sem ocultar alteração de código/rodata pelo mecanismo de normalização revisado.\n\nOs hashes brutos diferem: executável full `ab35a73c…` versus stripped `06176065…`; libpython full `a00e4419…` versus stripped `4947d07a…`. O V2 sustenta proveniência dos payloads compilados na projeção PT_LOAD, não identidade integral, execução equivalente, equivalência de todos os metadados externos aos segmentos ou correção de um parser ELF para entradas arbitrárias. O inspector não é um gate geral contra archives adversariais; a revisão é restrita aos artefatos fixados por hash. O hash literal do archive no script não se autoverifica; a verificação independente do arquivo acima fecha esse vínculo neste recibo.\n\n**Ressalva factual:** `GNU_build_ids=[]` para python3.13 em ambos os lados. `build_ids_equal=true` aí é igualdade de listas vazias, sem testemunho positivo de build ID. Somente libpython contém o build ID positivo coincidente `f25081008d673f28ea14aedaab871dc3dcd6239d`. A conclusão dos dois binários depende dos segmentos normalizados, não de dois build IDs presentes.\n\n## Módulos, seleção e avisos\n\nOs 96 nomes reais do inittab de config.c coincidem exatamente com os 96 módulos sem shared_lib em PYTHON.json, sem faltantes ou adicionais. Há 14 registros builtin com link estático, 13 caminhos de bibliotecas estáticas distintos e 13 caminhos de avisos ao incluir CPython. Links de sistema continuam separados; o mapa não demonstra versões via API.\n\n_dbm e _tkinter têm shared_lib, não pertencem ao inittab e ficam fora da allowlist nativa da seleção em profile.py SHA `574dde13a54896f6098ad51acbe70ab07b215ee2fabff7f47af6288aab7eed93`. A mesma seleção exclui site-packages/ensurepip/tkinter e auxiliares fora dos caminhos permitidos. Assim, o vínculo Sleepycat→_dbm, TCL/libX11→_tkinter e MPL→certifi não fundamenta presença desses componentes na closure selecionada. X11 por ncurses continua presente; também permanecem os builtins e suas bibliotecas estáticas, independentemente de módulos Python removidos. Esta revisão não reconstruiu a closure.\n\nConferi os 18 arquivos extraídos contra tamanho/hash do recibo e contra as cópias na fonte: todos iguais; o diretório da fonte tem 19 arquivos incluindo MPL suplementar. LICENSE.zlib-ng.txt tem 867 bytes e SHA `6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee`. Metadados exigem ambos os avisos zlib/zlib-ng, sem permitir deduzir a versão efetiva pela denominação libz.a.\n\nA documentação distingue receita de versão observada, arquivo completo de seleção, notices na fonte de notices numa imagem e licença observada de admissão interna. O material permite uma revisão interna específica de bzip2, X11/ncurses, Zlib, SQLite e composição histórica CPython; não constitui essa decisão. A revisão jurídica dos termos, a conformidade da distribuição, a inclusão efetiva dos avisos na imagem e a qualificação do perfil continuam fora deste parecer. Não reabri provas antigas nem inferi fechamento de #82/#68/#93.\n",
+      "content_sha256_verified": true
+    }
+  },
+  "build_id_evidence_interpretation": {
+    "python3.13": {
+      "full_GNU_build_ids": [],
+      "stripped_GNU_build_ids": [],
+      "equality_is_positive_build_id_evidence": false,
+      "basis_for_correspondence": "Reviewed normalized PT_LOAD payload/virtual-graph projection, not empty build ID arrays."
+    },
+    "libpython3.13.so.1.0": {
+      "positive_matching_GNU_build_id": "f25081008d673f28ea14aedaab871dc3dcd6239d",
+      "equality_is_positive_build_id_evidence": true
+    },
+    "raw_file_hash_identity_claimed": false
+  },
+  "copyright_and_derivative_documentation": {
+    "retained_integral_text": "tools/support-contact-runtime/notices/LICENSE.cpython.txt",
+    "retained_integral_text_sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd",
+    "retained_sections": [
+      "PSF License Version 2",
+      "BeOpen license",
+      "CNRI Python 1.6.1 license",
+      "CWI Python 0.9.0 through 1.2 license",
+      "0BSD documentation and incorporated software acknowledgments in supplied full text"
+    ],
+    "PSF_section_3_and_CNRI_section_3": {
+      "obligation": "Include a brief summary of changes in derivative work.",
+      "summary_in_supporting_documentation": "docs/testing/support-contact-runtime-licenses.md",
+      "summary_text": "The upstream producer supplied CPython 3.13.17 built with pgo+lto and its official install_only_stripped distribution. The project did not rebuild CPython, change native source, patch compiled code, or remove compiled-in modules. It curated the verified distribution by retaining the two core binaries, permitted pure-standard-library files and selected required runtime files, and excluding optional packages, tests, site-packages/pip/certifi, Tcl/Tk auxiliary payloads and the shared _dbm/_tkinter files under the declared selection policy. It supplemented the official legal notices and public provenance metadata. Upstream stripping/repacking changes file layout and removes non-runtime/debug material; the accepted static projection supports compiled loadable-payload provenance, not equality of raw file hashes or a runtime execution claim.",
+      "source_documentation_action_completed": true,
+      "candidate_image_document_inclusion_proven": false
+    },
+    "CWI_copyright_and_permission_in_supporting_documentation": {
+      "obligation": "Retain copyright in copies and copyright plus permission in supporting documentation; no CWI advertising/publicity without prior written permission.",
+      "verbatim_section_in_documentation": "docs/testing/support-contact-runtime-licenses.md",
+      "source_documentation_action_completed": true,
+      "advertising_or_endorsement_permission_requested_or_used": false,
+      "candidate_image_document_inclusion_proven": false
+    },
+    "all_conditions_of_all_distributions_automatically_satisfied": false
+  }
+}
