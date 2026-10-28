@@ -543,7 +543,7 @@ Todos os caminhos desta tabela são relativos a `/api/v1`. “Público” não s
 | API-A10 | `DELETE /me/sessions/{sessionId}` | Revogação → `204` | Apenas sessão própria; encerrar sockets associados |
 | API-A11 | `POST /me/mfa/enrollments` | Início de configuração MFA | Reautenticação; segredo de configuração não vai a logs |
 | API-A12 | `POST /me/mfa/confirmations` | Prova de configuração → confirmação | Ativação só após comprovar posse; recuperação documentada |
-| API-A13 | `POST /auth/reauthenticate` | Credencial/prova MFA → confirmação de autenticação recente | Janela curta no servidor; nenhum privilégio concedido apenas pelo frontend |
+| API-A13 | `POST /auth/reauthenticate` | Credencial/prova MFA → confirmação de autenticação recente | Janela de 1 h no servidor, intervalo fechado, enquanto a sessão estiver viva (ADR-0041); nenhum privilégio concedido apenas pelo frontend |
 | API-A14 | `POST /me/mfa/recovery-codes` | Novo conjunto mostrado uma vez | Reautenticação; revogar conjunto anterior; não registrar códigos em logs |
 | API-A15 | `DELETE /me/mfa` | Desativação permitida → `204` | Reautenticação e política; não remover o único método exigido de administrador |
 | API-A16 | `POST /me/password-changes` | Prova atual e nova senha → confirmação | Atualizar stamp, revogar sessões e emitir sessão nova conforme política |

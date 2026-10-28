@@ -35,8 +35,13 @@ MIB = 1024 * 1024
 PS_COMMAND = ("docker", "ps", "--no-trunc", "--format",
               '{{.ID}}\t{{.Names}}\t{{.Label "com.docker.compose.project"}}')
 # Uma linha: arquivamento de WAL (cluster), jobs vencidos e atraso, outbox pendente. NULL vira \N.
+# archive_pending: há segmento completo ainda não arquivado. Banco ocioso não troca de segmento
+# (archive_timeout só age com WAL novo), então a idade do último arquivamento sozinha não é atraso.
+# Nomes de WAL da mesma timeline têm largura fixa: a ordem textual é a numérica.
 STATS_SQL = (
     "select a.archived_count, a.failed_count, extract(epoch from now()-a.last_archived_time), "
+    "(pg_walfile_name(pg_current_wal_lsn() - (select setting::numeric from pg_settings "
+    "where name='wal_segment_size')) > coalesce(a.last_archived_wal,''))::int, "
     "extract(epoch from now()-a.last_failed_time), "
     "(select count(*) from ops.jobs where status='Pending' and available_at<=now()), "
     "(select coalesce(extract(epoch from now()-min(available_at)),0) from ops.jobs "
@@ -44,9 +49,10 @@ STATS_SQL = (
     "(select coalesce(max(extract(epoch from completed_at-due_at)),0) from ops.jobs "
     "where completed_at>now()-interval '1 minute'), "
     "(select count(*) from ops.outbox_deliveries where status='Pending') from pg_stat_archiver a")
-STATS_FIELDS = ("archived_count", "failed_count", "last_archived_age_s", "last_failed_age_s", "jobs_due",
+STATS_FIELDS = ("archived_count", "failed_count", "last_archived_age_s", "archive_pending", "last_failed_age_s",
+                "jobs_due",
                 "jobs_oldest_due_age_s", "jobs_max_lateness_s", "outbox_pending")
-INTEGER_STATS = frozenset(("archived_count", "failed_count", "jobs_due", "outbox_pending"))
+INTEGER_STATS = frozenset(("archived_count", "failed_count", "archive_pending", "jobs_due", "outbox_pending"))
 
 
 class CommandRefused(RuntimeError):

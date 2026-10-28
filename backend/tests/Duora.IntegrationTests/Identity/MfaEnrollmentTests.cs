@@ -32,7 +32,7 @@ public sealed class MfaEnrollmentTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        _time.Advance(TimeSpan.FromMinutes(5));
+        await StepUpClock.ExpireRecentAuthenticationAsync(browser, _time);
 
         using var response = await browser.PostJsonAsync(MfaScenario.Enrollments, body: null);
 

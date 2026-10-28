@@ -19,7 +19,7 @@ LIMITS = harness.Limits()
 
 def raw_sample(t: float, *, idle: int = 800, user: int = 100, steal: int = 25, mem: float = 3000.0, swap: int = 0,
                host_oom: int = 0, other_psi: float = 0.0, usage: int = 0, periods: int = 0, throttled: int = 0,
-               archive_age: float | None = 3.0, failed: int = 0, fs: float = 50.0, jobs_due: int = 0) -> dict:
+               archive_age: float | None = 3.0, archive_pending: int | None = 1, failed: int = 0, fs: float = 50.0, jobs_due: int = 0) -> dict:
     return {
         "schema": "duora.c2-sample/v1", "t": t,
         "host": {"cpu": {"user": user, "nice": 0, "system": 50, "idle": idle, "iowait": 20, "irq": 0, "softirq": 5,
@@ -42,7 +42,7 @@ def raw_sample(t: float, *, idle: int = 800, user: int = 100, steal: int = 25, m
                               "io_psi_some_avg10": 0.0, "io_rbytes": 0, "io_wbytes": 0},
         },
         "database": {"archived_count": 10, "failed_count": failed, "last_archived_age_s": archive_age,
-                     "last_failed_age_s": None, "jobs_due": jobs_due, "jobs_oldest_due_age_s": 0.0,
+                     "archive_pending": archive_pending, "last_failed_age_s": None, "jobs_due": jobs_due, "jobs_oldest_due_age_s": 0.0,
                      "jobs_max_lateness_s": 0.2, "outbox_pending": 0},
         "errors": {},
     }
@@ -198,6 +198,14 @@ class GuardTests(unittest.TestCase):
     def test_archive_lag_trips_at_240_seconds_before_rpo(self) -> None:
         self.assertEqual(self.codes(self.state(derived_series(2, archive_age=239.0))), [])
         self.assertEqual(self.codes(self.state(derived_series(2, archive_age=240.0))), ["ARCHIVE_LAG"])
+
+    def test_idle_database_without_completed_segment_is_not_archive_lag(self) -> None:
+        series = derived_series(2, archive_age=600.0, archive_pending=0)
+        self.assertEqual(self.codes(self.state(series)), [])
+
+    def test_unknown_pending_state_keeps_the_age_guard(self) -> None:
+        series = derived_series(2, archive_age=240.0, archive_pending=None)
+        self.assertEqual(self.codes(self.state(series)), ["ARCHIVE_LAG"])
 
     def test_new_archive_failure_trips(self) -> None:
         raws = [raw_sample(1000.0, failed=0), raw_sample(1005.0, failed=1)]
