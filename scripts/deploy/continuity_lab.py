@@ -92,6 +92,15 @@ def _root_lab() -> dict:
         file.write_text(text)
         file.chmod(0o400)
         os.chown(file, 999, 999)
+    # Chave sintética da selfie (#93), lida por web e worker (UID 1654); o laboratório não chama a AWS.
+    for name, text in [("selfie-web-aws-access-key-id", "SYNTHETICQUALIFICATIONWEBKEYID\n"),
+            ("selfie-web-aws-secret-access-key", "synthetic-qualification-web-secret\n"),
+            ("selfie-worker-aws-access-key-id", "SYNTHETICQUALIFICATIONWORKERKEYID\n"),
+            ("selfie-worker-aws-secret-access-key", "synthetic-qualification-worker-secret\n")]:
+        file = secrets / name
+        file.write_text(text)
+        file.chmod(0o400)
+        os.chown(file, 1654, 1654)
     media = root / "media"
     for area in ("quarantine", "derivatives"):
         directory = media / area

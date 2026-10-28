@@ -55,11 +55,8 @@ internal static class Program
                 ["SelfieVerification:Enabled"] = "true",
                 ["SelfieVerification:PrivacyApproved"] = "true",
                 ["SelfieVerification:PolicyVersion"] = "synthetic-policy",
-                ["SelfieVerification:MinimumLiveness"] = "90",
-                ["SelfieVerification:MinimumBrightness"] = "40",
-                ["SelfieVerification:MinimumSharpness"] = "40",
-                ["SelfieVerification:MaximumPoseDegrees"] = "20",
-                ["SelfieVerification:CaptureRoleArn"] = "arn:aws:iam::000000000000:role/synthetic",
+                ["SelfieVerification:AwsAccessKeyId"] = "SYNTHETICACCESSKEYID",
+                ["SelfieVerification:AwsSecretAccessKey"] = "synthetic-secret-value",
             });
             builder.Services.AddSingleton<TimeProvider>(clock);
             builder.Services.AddInfrastructure(builder.Configuration, ConnectionShare.Worker);

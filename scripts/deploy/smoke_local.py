@@ -106,7 +106,12 @@ def main() -> int:
         for name, content in (("pgbackrest_repo.conf", "[global]\nrepo1-s3-endpoint=s3.invalid\n"
                                                         "repo1-s3-bucket=smoke\nrepo1-s3-region=us-east-1\n"
                                                         "repo1-s3-key=smoke\nrepo1-s3-key-secret=smoke\n"),
-                              ("pgbackrest_cipher.conf", "[global]\nrepo1-cipher-pass=smoke-synthetic\n")):
+                              ("pgbackrest_cipher.conf", "[global]\nrepo1-cipher-pass=smoke-synthetic\n"),
+                              # Chave sintética da selfie (#93): o boot só exige os dois arquivos; o smoke não chama a AWS.
+                              ("selfie-web-aws-access-key-id", "SMOKESYNTHETICWEBKEYID\n"),
+                              ("selfie-web-aws-secret-access-key", "smoke-synthetic-web-secret\n"),
+                              ("selfie-worker-aws-access-key-id", "SMOKESYNTHETICWORKERKEYID\n"),
+                              ("selfie-worker-aws-secret-access-key", "smoke-synthetic-worker-secret\n")):
             (secrets_dir / name).write_text(content, encoding="utf-8")
         media_dir = workdir / "media"
         for area in ("quarantine", "derivatives"):
@@ -130,6 +135,8 @@ def main() -> int:
             f"DUORA_DOMAIN={DOMAIN}",
             f"DUORA_MEDIA_DIR={media_dir}",
             "DUORA_MEDIA_REVIEW=",
+            # Como em produção: web e worker sobem com a selfie ligada e as chaves sintéticas por arquivo.
+            "DUORA_SELFIE_ENABLED=true",
             "DUORA_TLS=internal",
             "DUORA_HTTP_PORT=80",
             "DUORA_HTTPS_PORT=443",

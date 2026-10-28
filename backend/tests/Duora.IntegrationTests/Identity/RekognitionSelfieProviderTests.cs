@@ -22,7 +22,6 @@ public sealed class RekognitionSelfieProviderTests
             MinimumLiveness = 90,
             MinimumBrightness = 40,
             MinimumSharpness = 40,
-            MaximumPoseDegrees = 20,
         };
         var provider = new RekognitionSelfieProvider(client, options, TimeProvider.System);
         var session = await provider.StartAsync(Guid.NewGuid(), TestContext.Current.CancellationToken);
@@ -34,6 +33,22 @@ public sealed class RekognitionSelfieProviderTests
         {
             Assert.Equal(["DEFAULT"], client.FaceRequest!.Attributes);
         }
+    }
+
+    [Theory]
+    [InlineData(44.99f, SelfieState.Passed)]
+    [InlineData(45f, SelfieState.RecaptureRequired)]
+    public async Task ReadAppliesTheCalibratedPoseLimitToTheReferenceFrame(float yaw, SelfieState expected)
+    {
+        using var client = new Client(99, 80, yaw);
+        var provider = new RekognitionSelfieProvider(client, new SelfieProviderOptions(), TimeProvider.System);
+        var ct = TestContext.Current.CancellationToken;
+        var session = await provider.StartAsync(Guid.NewGuid(), ct);
+
+        var result = await provider.ReadAsync(session.Reference, ct);
+
+        Assert.Equal(expected, result.State);
+        Assert.Equal("aws-docs-2026-10-28", result.PolicyVersion);
     }
 
     [Fact]
@@ -52,7 +67,7 @@ public sealed class RekognitionSelfieProviderTests
         Assert.Equal(other.ToString("N"), client.StartRequest!.ClientRequestToken);
     }
 
-    private sealed class Client(float liveness, float brightness)
+    private sealed class Client(float liveness, float brightness, float yaw = 0)
         : AmazonRekognitionClient(new BasicAWSCredentials("synthetic", "synthetic"), RegionEndpoint.USEast1)
     {
         public CreateFaceLivenessSessionRequest? StartRequest { get; private set; }
@@ -80,7 +95,7 @@ public sealed class RekognitionSelfieProviderTests
                 FaceDetails = [new FaceDetail
             {
                 Confidence = 99, Quality = new ImageQuality { Brightness = brightness, Sharpness = 80 },
-                Pose = new Pose { Pitch = 0, Roll = 0, Yaw = 0 },
+                Pose = new Pose { Pitch = 0, Roll = 0, Yaw = yaw },
             }]
             });
         }

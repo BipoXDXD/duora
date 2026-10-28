@@ -18,17 +18,7 @@ public sealed class SelfieDispatchTests(PostgresFixture postgres)
         var provider = new Provider();
         await using var factory = new DuoraWebFactory(connection)
         {
-            Settings = new Dictionary<string, string?>
-            {
-                ["SelfieVerification:Enabled"] = "true",
-                ["SelfieVerification:PrivacyApproved"] = "true",
-                ["SelfieVerification:PolicyVersion"] = "test",
-                ["SelfieVerification:MinimumLiveness"] = "90",
-                ["SelfieVerification:MinimumBrightness"] = "40",
-                ["SelfieVerification:MinimumSharpness"] = "40",
-                ["SelfieVerification:MaximumPoseDegrees"] = "20",
-                ["SelfieVerification:CaptureRoleArn"] = "arn:aws:iam::000000000000:role/synthetic",
-            },
+            Settings = SelfieTestSettings.Enabled(),
             TestServices = services =>
             {
                 services.RemoveAll<ISelfieProvider>();

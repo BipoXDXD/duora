@@ -1,6 +1,6 @@
 import { usePrivateOperation } from '@/features/session/private-operation'
 import { usePrivateMutation } from '@/features/session/private-mutation'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount } from '@/features/session/account-context'
 import { classifyRequestFailure } from '@/shared/api'
@@ -16,6 +16,7 @@ import {
   startSelfie,
   type SelfieCapture as Capture,
 } from './selfie-verification-api'
+import { isSelfieDocument, loadSelfieDocument } from './selfie-document'
 
 const Camera = lazy(() => import('./SelfieCapture'))
 const COPY = {
@@ -31,6 +32,7 @@ const COPY = {
     retry: 'Não foi possível concluir. Ajuste a iluminação e o enquadramento antes de tentar novamente.',
     help: 'Sem câmera compatível ou com dificuldade de acessibilidade? Você pode cancelar e tentar outro dispositivo. Nenhum documento será solicitado.',
     back: 'Voltar à conta',
+    loading: 'Preparando a página de captura…',
   },
   'en-US': {
     title: 'Confirm presence',
@@ -45,11 +47,25 @@ const COPY = {
     retry: 'The check could not be completed. Adjust lighting and framing before trying again.',
     help: 'No compatible camera or an accessibility difficulty? You can cancel and try another device. We will not request documents.',
     back: 'Back to account',
+    loading: 'Preparing the capture page…',
   },
 } as const
 
 export function SelfieVerificationPage(): React.JSX.Element {
   const account = useAccount()
+  const { locale } = useI18n()
+  // A câmera só é liberada pela borda no documento carregado nesta rota; vindo de navegação interna, recarrega.
+  const [ownDocument] = useState(isSelfieDocument)
+  useEffect(() => {
+    if (!ownDocument) loadSelfieDocument()
+  }, [ownDocument])
+  if (!ownDocument) {
+    return (
+      <Page title={COPY[locale].title}>
+        <p role="status">{COPY[locale].loading}</p>
+      </Page>
+    )
+  }
   return <SelfieJourney key={account.id} userId={account.id} />
 }
 

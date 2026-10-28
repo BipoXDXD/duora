@@ -31,8 +31,10 @@ import wave
 from pathlib import Path
 
 from caddy_test_support import (ALLOWED_FEATURES, CADDYFILE, DENIED_FEATURES, EXPECTED_CSP,
-                                EXPECTED_PERMISSIONS_POLICY, IMAGE, READY_TIMEOUT_SECONDS, REPO, docker_available,
-                                is_exact_policy, parse_csp, parse_permissions_policy, remove_container)
+                                EXPECTED_PERMISSIONS_POLICY, EXPECTED_SELFIE_CSP, EXPECTED_SELFIE_PERMISSIONS_POLICY,
+                                IMAGE, LIVENESS_CDN, LIVENESS_STREAMING, READY_TIMEOUT_SECONDS, REPO, SELFIE_PATH,
+                                docker_available, is_exact_policy, parse_csp, parse_permissions_policy,
+                                remove_container)
 
 # Fontes que abririam a política: curinga em qualquer posição, qualquer palavra-chave unsafe ('unsafe-*' e
 # 'wasm-unsafe-eval'), esquema genérico, qualquer http: e os esquemas locais blob:, data:, mediastream: e filesystem:.
@@ -159,6 +161,19 @@ class PolicyParserTests(unittest.TestCase):
 
 class ExpectedPolicyTests(unittest.TestCase):
     """Sem Docker: a política esperada é uma allowlist, não uma denylist de poucas features."""
+
+    def test_selfie_policy_only_adds_what_the_liveness_component_needs(self) -> None:
+        added = {(name, source) for name, sources in EXPECTED_SELFIE_CSP.items() for source in sources
+                 if source not in EXPECTED_CSP.get(name, [])}
+        self.assertEqual({("script-src", "'wasm-unsafe-eval'"), ("connect-src", LIVENESS_CDN),
+                          ("connect-src", LIVENESS_STREAMING)}, added)
+        self.assertEqual(set(EXPECTED_CSP), set(EXPECTED_SELFIE_CSP))
+        self.assertEqual(["'none'"], EXPECTED_SELFIE_CSP["worker-src"])
+
+    def test_selfie_permissions_policy_only_adds_the_camera_for_the_own_origin(self) -> None:
+        changed = {feature: allowlist for feature, allowlist in EXPECTED_SELFIE_PERMISSIONS_POLICY.items()
+                   if EXPECTED_PERMISSIONS_POLICY.get(feature) != allowlist}
+        self.assertEqual({"camera": "(self)"}, changed)
 
     def test_only_voice_and_audio_features_are_allowed_and_only_for_the_own_origin(self) -> None:
         allowed = {feature: allowlist for feature, allowlist in EXPECTED_PERMISSIONS_POLICY.items()
@@ -318,6 +333,27 @@ class CaddySecurityHeadersTests(unittest.TestCase):
                 status, headers = self._response(path, "*/*")
                 self.assertEqual(404, status)
                 self.assertEqual(["no-store"], headers.get("cache-control"))
+
+    def test_selfie_document_gets_the_liveness_policies_and_nothing_else_does(self) -> None:
+        status, headers = self._response(SELFIE_PATH)
+        self.assertEqual(200, status)
+        self.assertTrue(is_exact_policy(headers.get("content-security-policy", []), parse_csp, EXPECTED_SELFIE_CSP),
+                        f"CSP {headers.get('content-security-policy')}")
+        self.assertTrue(is_exact_policy(headers.get("permissions-policy", []), parse_permissions_policy,
+                                        EXPECTED_SELFIE_PERMISSIONS_POLICY),
+                        f"Permissions-Policy {headers.get('permissions-policy')}")
+        self.assertEqual(["nosniff"], headers.get("x-content-type-options"))
+        # Vizinhos e variações do caminho ficam com a política comum: a exceção é só o documento exato.
+        for path in ("/account", "/account/selfie/", "/account/selfie/extra", "/api/v1/me/selfie",
+                     "/assets/probe.js", "/account/selfie?x=1"):
+            with self.subTest(path=path):
+                accept = "*/*" if path.startswith(("/api/", "/assets/")) else "text/html"
+                _, other = self._response(path, accept)
+                if path == "/account/selfie?x=1":
+                    self.assertTrue(is_exact_policy(other.get("content-security-policy", []), parse_csp,
+                                                    EXPECTED_SELFIE_CSP))
+                    continue
+                self.assert_edge_policies(path, other)
 
     def test_upstream_cannot_replace_or_add_edge_policies(self) -> None:
         # O backend não deve emitir CSP nem Permissions-Policy; se emitir, a borda continua mandando uma só, a dela.
