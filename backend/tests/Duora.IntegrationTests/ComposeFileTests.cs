@@ -128,12 +128,14 @@ public sealed class ComposeFileTests
             Assert.Contains("      SelfieVerification__Enabled: ${DUORA_SELFIE_ENABLED:-false}\n", service, StringComparison.Ordinal);
             Assert.Contains("      SelfieVerification__PrivacyApproved: \"true\"\n", service, StringComparison.Ordinal);
             Assert.Contains("      SelfieVerification__Region: us-east-1\n", service, StringComparison.Ordinal);
-            Assert.Contains("      SelfieVerification__CaptureRoleArn: arn:aws:iam::394877252106:role/duora-selfie-capture\n",
-                service, StringComparison.Ordinal);
             Assert.DoesNotContain("SelfieVerification__Minimum", service, StringComparison.Ordinal);
             Assert.DoesNotContain("SelfieVerification__Maximum", service, StringComparison.Ordinal);
         }
 
+        // Só o web assume o papel de captura; o worker não recebe o ARN.
+        Assert.Contains("      SelfieVerification__CaptureRoleArn: arn:aws:iam::394877252106:role/duora-selfie-capture\n",
+            Between(compose, "\n  web:\n", "\n  worker:\n"), StringComparison.Ordinal);
+        Assert.DoesNotContain("CaptureRoleArn", Between(compose, "\n  worker:\n", "\n  edge:\n"), StringComparison.Ordinal);
         Assert.DoesNotContain("selfie_aws_", compose, StringComparison.Ordinal);
         var ansible = Path.Combine(RepositoryRoot.Find(), "infra", "ansible");
         Assert.Contains("\nDUORA_SELFIE_ENABLED={{ duora_selfie_enabled }}\n",

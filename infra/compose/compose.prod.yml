@@ -278,7 +278,6 @@ services:
       SelfieVerification__Enabled: ${DUORA_SELFIE_ENABLED:-false}
       SelfieVerification__PrivacyApproved: "true"
       SelfieVerification__Region: us-east-1
-      SelfieVerification__CaptureRoleArn: arn:aws:iam::394877252106:role/duora-selfie-capture
     secrets:
       - source: duora_app_connection
         target: ConnectionStrings__Duora

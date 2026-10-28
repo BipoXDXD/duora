@@ -5,8 +5,9 @@ using Microsoft.Extensions.Time.Testing;
 namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
-/// Decisão do dono em 28/10/2026 (issue #93): o resultado mínimo da selfie é guardado por 30 dias e depois apagado,
-/// inclusive o Passed. A limpeza roda com a integração desligada, como a remoção de 24h já existente.
+/// Decisões do dono em 28/10/2026 (issue #93): "a selfie fica guardada mesmo após 30 dias e a pessoa não perde
+/// participação". O Passed (estado, política e datas, sem imagem) fica enquanto a conta existir; tentativa não aprovada
+/// sai 30 dias depois; a exclusão da conta leva tudo. A limpeza roda com a integração desligada.
 /// </summary>
 public sealed class SelfieRetentionTests(PostgresFixture postgres)
 {
@@ -15,11 +16,10 @@ public sealed class SelfieRetentionTests(PostgresFixture postgres)
     private static readonly TimeSpan OneMillisecond = TimeSpan.FromMilliseconds(1);
 
     [Theory]
-    [InlineData("Passed")]
     [InlineData("RecaptureRequired")]
     [InlineData("Inconclusive")]
     [InlineData("Expired")]
-    public async Task ResultIsDeletedWhenItReachesThirtyDaysAfterCompletion(string state)
+    public async Task UnapprovedAttemptIsDeletedWhenItReachesThirtyDaysAfterCompletion(string state)
     {
         var (scenario, factory) = await StartAsync();
         await using var _ = factory;
@@ -27,26 +27,11 @@ public sealed class SelfieRetentionTests(PostgresFixture postgres)
         var dispatcher = scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>();
         var account = await scenario.CreateConfirmedAccountAsync();
         var onPoint = await InsertCompletedAsync(scenario, account.UserId, state, Now - Retention);
-
-        await dispatcher.DispatchBatchAsync(TestContext.Current.CancellationToken);
-
-        Assert.Equal(0, await CountAsync(scenario, onPoint));
-    }
-
-    [Theory]
-    [InlineData("Passed")]
-    [InlineData("Inconclusive")]
-    public async Task ResultYoungerThanThirtyDaysIsKept(string state)
-    {
-        var (scenario, factory) = await StartAsync();
-        await using var _ = factory;
-        using var scope = factory.Services.CreateScope();
-        var dispatcher = scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>();
-        var account = await scenario.CreateConfirmedAccountAsync();
         var offPoint = await InsertCompletedAsync(scenario, account.UserId, state, Now - Retention + OneMillisecond);
 
         await dispatcher.DispatchBatchAsync(TestContext.Current.CancellationToken);
 
+        Assert.Equal(0, await CountAsync(scenario, onPoint));
         Assert.Equal(1, await CountAsync(scenario, offPoint));
     }
 
@@ -68,28 +53,43 @@ public sealed class SelfieRetentionTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task DeletingAnExpiredPassedResultEndsEligibilityOnlyForItsOwner()
+    public async Task PassedOlderThanThirtyDaysStaysAndKeepsParticipation()
     {
         var (scenario, factory) = await StartAsync();
         await using var _ = factory;
         using var scope = factory.Services.CreateScope();
         var dispatcher = scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>();
-        var expired = await scenario.CreateConfirmedAccountAsync();
-        var current = await scenario.CreateConfirmedAccountAsync();
-        await scenario.ScalarAsync("update identity.users set status = 'Active' where id = any($1) returning 1",
-            new[] { expired.UserId, current.UserId });
-        await InsertCompletedAsync(scenario, expired.UserId, "Passed", Now - Retention);
-        var kept = await InsertCompletedAsync(scenario, current.UserId, "Passed", Now - TimeSpan.FromDays(1));
+        var account = await scenario.CreateConfirmedAccountAsync();
+        await scenario.ScalarAsync("update identity.users set status = 'Active' where id = $1 returning 1", account.UserId);
+        var passed = await InsertCompletedAsync(scenario, account.UserId, "Passed", Now - TimeSpan.FromDays(400));
+        var failedLater = await InsertCompletedAsync(scenario, account.UserId, "Inconclusive", Now - TimeSpan.FromDays(31));
         var verifications = scope.ServiceProvider.GetRequiredService<SelfieVerificationService>();
         var ct = TestContext.Current.CancellationToken;
-        Assert.True(await verifications.GetEligibilityAsync(expired.UserId, ct));
 
         await dispatcher.DispatchBatchAsync(ct);
 
-        Assert.False(await verifications.GetEligibilityAsync(expired.UserId, ct));
-        Assert.Equal("NotStarted", (await verifications.GetCurrentAsync(expired.UserId, ct)).State);
-        Assert.True(await verifications.GetEligibilityAsync(current.UserId, ct));
-        Assert.Equal(1, await CountAsync(scenario, kept));
+        Assert.Equal(1, await CountAsync(scenario, passed));
+        Assert.Equal(0, await CountAsync(scenario, failedLater));
+        Assert.Equal("synthetic-policy", await scenario.ScalarTextAsync(
+            "select policy_version from identity.selfie_verifications where id = $1", passed));
+        Assert.True(await verifications.GetEligibilityAsync(account.UserId, ct));
+        Assert.Equal("Passed", (await verifications.GetCurrentAsync(account.UserId, ct)).State);
+    }
+
+    [Fact]
+    public async Task DeletingTheAccountDeletesItsPassedResult()
+    {
+        var (scenario, factory) = await StartAsync();
+        await using var _ = factory;
+        var deleted = await scenario.CreateConfirmedAccountAsync();
+        var kept = await scenario.CreateConfirmedAccountAsync();
+        var deletedPassed = await InsertCompletedAsync(scenario, deleted.UserId, "Passed", Now - TimeSpan.FromDays(1));
+        var keptPassed = await InsertCompletedAsync(scenario, kept.UserId, "Passed", Now - TimeSpan.FromDays(1));
+
+        await scenario.ScalarAsync("delete from identity.users where id = $1 returning 1", deleted.UserId);
+
+        Assert.Equal(0, await CountAsync(scenario, deletedPassed));
+        Assert.Equal(1, await CountAsync(scenario, keptPassed));
     }
 
     private async Task<(IdentityScenario, DuoraWebFactory)> StartAsync()

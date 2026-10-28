@@ -79,7 +79,7 @@ public sealed class SelfiePolicyTests
         => Assert.Equal(expected, Calibrated.AcceptsFace(Face(roll: roll)));
 
     [Fact]
-    public void EnabledCalibratedPolicyIsValidWithPrivacyRoleAndCredentials()
+    public void EnabledCalibratedPolicyIsValidWithPrivacyApproved()
         => Assert.True(Enabled().IsValid());
 
     [Theory]
@@ -114,7 +114,6 @@ public sealed class SelfiePolicyTests
         {
             Enabled = true,
             PrivacyApproved = true,
-            CaptureRoleArn = "arn:aws:iam::000000000000:role/synthetic",
         };
         change?.Invoke(options);
         return options;

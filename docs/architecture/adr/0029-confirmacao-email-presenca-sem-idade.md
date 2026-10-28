@@ -29,10 +29,12 @@ Rollback operacional é desabilitar captura e manter o leitor novo/410; nunca re
 Status: aceito. Decisões do dono em 28/10/2026, registradas na issue #93; substituem, nos pontos abaixo, os gates de
 ativação desta ADR.
 
-1. **Retenção:** só o resultado mínimo (estado, política, datas), sem imagem, por **30 dias** desde a conclusão (ou a
-   expiração, se a tentativa nunca concluiu), inclusive `Passed`. Substitui "resultado mínimo acompanha a conta".
-   Consequência aceita: apagado o `Passed`, a elegibilidade termina e a pessoa refaz a selfie. Referência de sessão e
-   feedback continuam saindo em 24 h. A limpeza roda no worker mesmo com a integração desligada.
+1. **Retenção:** nenhuma imagem é guardada. O resultado aprovado (`Passed`, com datas e versão da política) fica
+   enquanto a conta existir e mantém a participação; nas palavras do dono, "a selfie fica guardada mesmo após 30 dias
+   e a pessoa não perde participação". Tentativas não aprovadas (recaptura, inconclusiva, expirada) saem 30 dias após
+   a conclusão, ou após a expiração se nunca concluíram. Referência de sessão e feedback continuam saindo em 24 h. A
+   exclusão física da conta leva as tentativas junto (FK `ON DELETE CASCADE`, migração `SelfieResultFollowsAccount`).
+   A limpeza roda no worker mesmo com a integração desligada.
 2. **Fornecedor e região:** AWS Rekognition Face Liveness em us-east-1, com o DPA padrão da AWS. `PrivacyApproved=true`
    registra essa decisão; não é parecer jurídico.
 3. **Limiares** (política `aws-docs-2026-10-28`, padrões versionados de `SelfieProviderOptions`, com testes de fronteira):

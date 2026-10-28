@@ -45,15 +45,13 @@ public sealed class SelfieProviderOptions
     /// <summary>|roll| precisa ficar estritamente abaixo deste valor, em graus. A AWS não restringe roll: limite do projeto.</summary>
     public double MaximumRollDegrees { get; set; } = 45;
 
-    public string CaptureRoleArn { get; set; } = "";
     public bool PrivacyApproved { get; set; }
 
     public bool IsValid() => !Enabled || (PrivacyApproved && !string.IsNullOrWhiteSpace(PolicyVersion)
         && PolicyVersion.Length <= 64 && Region == "us-east-1"
         && MinimumLiveness is > 0 and <= 100 && MinimumBrightness is > 0 and <= 100
         && MinimumSharpness is > 0 and <= 100 && IsPoseLimit(MaximumYawDegrees)
-        && IsPoseLimit(MaximumPitchDegrees) && IsPoseLimit(MaximumRollDegrees)
-        && CaptureRoleArn.StartsWith("arn:aws:iam::", StringComparison.Ordinal));
+        && IsPoseLimit(MaximumPitchDegrees) && IsPoseLimit(MaximumRollDegrees));
 
     public bool AcceptsLiveness(float confidence) => float.IsFinite(confidence) && confidence >= MinimumLiveness;
 

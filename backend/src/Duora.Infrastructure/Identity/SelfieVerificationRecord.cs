@@ -39,7 +39,7 @@ internal sealed class SelfieVerificationRecordConfiguration : IEntityTypeConfigu
         builder.Property(v => v.ExpiresAt).HasColumnName("expires_at");
         builder.Property(v => v.CompletedAt).HasColumnName("completed_at");
         builder.Property(v => v.Version).HasColumnName("version").IsConcurrencyToken();
-        builder.HasOne<DuoraUser>().WithMany().HasForeignKey(v => v.UserId).OnDelete(DeleteBehavior.Restrict).HasConstraintName("fk_selfie_verifications_users");
+        builder.HasOne<DuoraUser>().WithMany().HasForeignKey(v => v.UserId).OnDelete(DeleteBehavior.Cascade).HasConstraintName("fk_selfie_verifications_users");
         builder.HasIndex(v => v.UserId).HasDatabaseName("ux_selfie_open_user").IsUnique().HasFilter("state IN ('Pending','Capturing','Processing')");
         builder.HasIndex(v => new { v.UserId, v.RequestedAt }).HasDatabaseName("ix_selfie_user_requested_at");
         builder.HasIndex(v => v.ProviderReference).HasDatabaseName("ux_selfie_provider_reference").IsUnique();

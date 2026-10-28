@@ -13,8 +13,11 @@ public sealed class SelfieVerificationDispatcher
     private static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
 
-    /// <summary>Decisão do dono em 28/10/2026 (issue #93): resultado mínimo, inclusive Passed, por 30 dias.</summary>
-    private static readonly TimeSpan ResultRetention = TimeSpan.FromDays(30);
+    /// <summary>
+    /// Decisões do dono em 28/10/2026 (issue #93): tentativa não aprovada sai 30 dias depois; o Passed fica enquanto a
+    /// conta existir e mantém a participação.
+    /// </summary>
+    private static readonly TimeSpan UnapprovedRetention = TimeSpan.FromDays(30);
     private readonly DuoraDbContext _db;
     private readonly OutboxDeliveryQueue _queue;
     private readonly ISelfieProvider _provider;
@@ -62,7 +65,8 @@ public sealed class SelfieVerificationDispatcher
 
     /// <summary>
     /// Roda mesmo com a integração desligada. Não há imagens no banco: a referência da sessão e o feedback saem 24h
-    /// após a expiração; a linha inteira sai 30 dias após a conclusão (ou a expiração, se nunca concluiu).
+    /// após a expiração; a tentativa não aprovada sai 30 dias após a conclusão (ou a expiração, se nunca concluiu). O
+    /// Passed fica: sai só com a conta (FK em cascata).
     /// </summary>
     private async Task PurgeExpiredDataAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -72,8 +76,10 @@ public sealed class SelfieVerificationDispatcher
             .ExecuteUpdateAsync(s => s.SetProperty(v => v.ProviderReference, (string?)null)
                 .SetProperty(v => v.FeedbackCode, (string?)null), cancellationToken);
 
-        var resultCutoff = now - ResultRetention;
-        await _db.Set<SelfieVerificationRecord>().Where(v => (v.CompletedAt ?? v.ExpiresAt) <= resultCutoff)
+        var unapprovedCutoff = now - UnapprovedRetention;
+        await _db.Set<SelfieVerificationRecord>().Where(v => v.State != SelfieState.Passed
+                && ((v.CompletedAt != null && v.CompletedAt <= unapprovedCutoff)
+                    || (v.CompletedAt == null && v.ExpiresAt <= unapprovedCutoff)))
             .ExecuteDeleteAsync(cancellationToken);
     }
 

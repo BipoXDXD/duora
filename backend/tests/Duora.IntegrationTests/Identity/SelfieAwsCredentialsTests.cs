@@ -49,6 +49,7 @@ public sealed class SelfieAwsCredentialsTests(PostgresFixture postgres)
     [InlineData("SelfieVerification:AwsSecretAccessKey")]
     public async Task EnabledWebDoesNotStartWithoutEitherSecretFile(string missing)
     {
+        var canary = $"CANARY-{Guid.NewGuid()}";
         await using var app = DuoraWebApp.Build(
         [
             "--environment=Testing",
@@ -58,14 +59,14 @@ public sealed class SelfieAwsCredentialsTests(PostgresFixture postgres)
             $"--DataProtection:KeysDirectory={Path.Combine(Path.GetTempPath(), "duora-keys-unused")}",
             "--DataProtection:RequireMountedVolume=false",
             "--DataProtection:RequireCertificate=false",
-            .. EnabledArguments(missing),
+            .. EnabledArguments(missing, canary),
         ]);
 
         var exception = await Assert.ThrowsAsync<OptionsValidationException>(
             () => app.StartAsync(TestContext.Current.CancellationToken));
 
         Assert.Contains("SelfieVerification:AwsAccessKeyId", exception.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("synthetic-secret-value", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(canary, exception.ToString(), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -73,13 +74,14 @@ public sealed class SelfieAwsCredentialsTests(PostgresFixture postgres)
     [InlineData("SelfieVerification:AwsSecretAccessKey")]
     public async Task EnabledWorkerDoesNotStartWithoutEitherSecretFile(string missing)
     {
+        var canary = $"CANARY-{Guid.NewGuid()}";
         var builder = WorkerHost.CreateBuilder(
         [
             "--environment", "Testing",
             "--ConnectionStrings:Duora=Host=127.0.0.1;Port=1;Database=duora;Username=duora;Password=x",
             "--Duora:PublicOrigin=https://duora.test",
             $"--Email:PickupDirectory={Path.Combine(Path.GetTempPath(), "duora-mail-unused")}",
-            .. EnabledArguments(missing),
+            .. EnabledArguments(missing, canary),
         ]);
         using var host = builder.Build();
 
@@ -87,7 +89,48 @@ public sealed class SelfieAwsCredentialsTests(PostgresFixture postgres)
             () => host.StartAsync(TestContext.Current.CancellationToken));
 
         Assert.Contains("SelfieVerification:AwsAccessKeyId", exception.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("synthetic-secret-value", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(canary, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EnabledWebDoesNotStartWithoutTheCaptureRole()
+    {
+        await using var app = DuoraWebApp.Build(
+        [
+            "--environment=Testing",
+            "--urls=http://127.0.0.1:0",
+            "--ConnectionStrings:Duora=Host=127.0.0.1;Port=1;Database=duora;Username=duora;Password=x",
+            $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
+            $"--DataProtection:KeysDirectory={Path.Combine(Path.GetTempPath(), "duora-keys-unused")}",
+            "--DataProtection:RequireMountedVolume=false",
+            "--DataProtection:RequireCertificate=false",
+            .. EnabledArguments("SelfieVerification:CaptureRoleArn", $"CANARY-{Guid.NewGuid()}"),
+        ]);
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("CaptureRoleArn", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>O worker não assume o papel de captura: liga sem o ARN e nem registra o serviço de credencial.</summary>
+    [Fact]
+    public void EnabledWorkerNeedsNoCaptureRole()
+    {
+        var builder = WorkerHost.CreateBuilder(
+        [
+            "--environment", "Testing",
+            "--ConnectionStrings:Duora=Host=127.0.0.1;Port=1;Database=duora;Username=duora;Password=x",
+            "--Duora:PublicOrigin=https://duora.test",
+            $"--Email:PickupDirectory={Path.Combine(Path.GetTempPath(), "duora-mail-unused")}",
+            .. EnabledArguments("SelfieVerification:CaptureRoleArn", "synthetic"),
+        ]);
+        using var host = builder.Build();
+
+        Assert.True(host.Services.GetRequiredService<IOptions<SelfieProviderOptions>>().Value.Enabled);
+        Assert.Equal("", host.Services.GetRequiredService<IOptions<SelfieCaptureOptions>>().Value.CaptureRoleArn);
+        using var scope = host.Services.CreateScope();
+        Assert.Null(scope.ServiceProvider.GetService<SelfieCaptureCredentialService>());
     }
 
     /// <summary>
@@ -109,7 +152,7 @@ public sealed class SelfieAwsCredentialsTests(PostgresFixture postgres)
                 "--Duora:PublicOrigin=https://duora.test",
                 $"--Email:PickupDirectory={Path.Combine(Path.GetTempPath(), "duora-mail-unused")}",
                 $"--SecretsDirectory={directory.FullName}",
-                .. EnabledArguments("SelfieVerification:AwsAccessKeyId").Where(a => !a.Contains("AwsSecretAccessKey", StringComparison.Ordinal)),
+                .. EnabledArguments("SelfieVerification:AwsAccessKeyId", "unused").Where(a => !a.Contains("AwsSecretAccessKey", StringComparison.Ordinal)),
             ]);
             using var host = builder.Build();
 
@@ -138,7 +181,12 @@ public sealed class SelfieAwsCredentialsTests(PostgresFixture postgres)
         Assert.False(factory.Services.GetRequiredService<IOptions<SelfieAwsCredentialOptions>>().Value.IsComplete);
     }
 
-    private static string[] EnabledArguments(string missing) => [.. SelfieTestSettings.Enabled()
-        .Where(setting => setting.Key != missing)
-        .Select(setting => $"--{setting.Key}={setting.Value}")];
+    /// <summary>Selfie ligada sem <paramref name="missing"/>; a chave presente carrega o canário.</summary>
+    private static string[] EnabledArguments(string missing, string canary)
+    {
+        var settings = SelfieTestSettings.Enabled();
+        settings["SelfieVerification:AwsAccessKeyId"] = canary;
+        settings["SelfieVerification:AwsSecretAccessKey"] = canary;
+        return [.. settings.Where(setting => setting.Key != missing).Select(setting => $"--{setting.Key}={setting.Value}")];
+    }
 }
