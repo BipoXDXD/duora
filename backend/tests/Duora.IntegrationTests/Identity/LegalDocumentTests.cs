@@ -1,15 +1,17 @@
 using System.Net;
 using System.Net.Http.Json;
 using Duora.Contracts.Identity;
+using Duora.Infrastructure.Identity;
 
 namespace Duora.IntegrationTests.Identity;
 
 public sealed class LegalDocumentTests(PostgresFixture postgres)
 {
+    private const string PublishedController = "Luca Grimmer";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task ActualDraftIsPublicButCannotWriteRegistrationEvidence()
+    public async Task ActualPublicationIsPublishedUnderTheNamedController()
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
         using var browser = new Browser(factory);
@@ -19,19 +21,50 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
         Assert.Equal("nosniff", Assert.Single(response.Headers.GetValues("X-Content-Type-Options")));
         var catalog = await response.Content.ReadFromJsonAsync<LegalDocumentCatalogResponse>(Ct);
         Assert.NotNull(catalog);
-        Assert.False(catalog.RegistrationAvailable);
+        Assert.True(catalog.RegistrationAvailable);
         Assert.Equal(4, catalog.Documents.Count);
         Assert.All(catalog.Documents, document =>
         {
-            Assert.False(document.Published);
-            Assert.Null(document.ControllerName);
+            Assert.True(document.Published);
+            Assert.Equal(PublishedController, document.ControllerName);
             Assert.Equal("support@meetduora.com", document.PrivacyContact);
             Assert.NotEmpty(document.Sections);
             Assert.Matches("^[a-f0-9]{64}$", document.Sha256);
         });
+    }
+
+    [Fact]
+    public async Task AcceptingTheActualPublicationRegistersWithItsExactFingerprints()
+    {
+        var publication = LegalPublicationResources.Load();
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = null };
+        using var browser = new Browser(factory);
         var email = IdentityScenario.NewEmail();
         await browser.FetchCsrfTokenAsync();
-        using var registered = await browser.PostJsonAsync("/api/v1/auth/register", IdentityScenario.RegistrationBody(email));
+        using var registered = await browser.PostJsonAsync("/api/v1/auth/register",
+            IdentityScenario.RegistrationBody(email, publication: publication, termsLocale: "pt-BR", privacyLocale: "en-US"));
+        Assert.Equal(HttpStatusCode.Accepted, registered.StatusCode);
+        var scenario = new IdentityScenario(postgres, factory);
+        var userId = (await scenario.ReadLatestLinkAsync(email, "EmailConfirmation")).UserId;
+        foreach (var (kind, version, locale) in new[] { ("terms", publication.TermsVersion, "pt-BR"), ("privacy", publication.PrivacyVersion, "en-US") })
+        {
+            Assert.Equal(1, await scenario.ScalarAsync("""
+                select count(*) from identity.consent_records
+                where user_id = $1 and lower(document) = $2 and version = $3 and document_locale = $4 and document_sha256 = $5
+                """, userId, kind, version, locale, SyntheticLegalPublication.Hash(publication, kind, locale)));
+        }
+    }
+
+    [Fact]
+    public async Task UnapprovedPublicationCannotWriteRegistrationEvidence()
+    {
+        var unapproved = SyntheticLegalPublication.Create(approved: false);
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString) { LegalDocuments = unapproved };
+        using var browser = new Browser(factory);
+        var email = IdentityScenario.NewEmail();
+        await browser.FetchCsrfTokenAsync();
+        using var registered = await browser.PostJsonAsync("/api/v1/auth/register",
+            IdentityScenario.RegistrationBody(email, publication: unapproved));
         await ProblemAssert.IsProblemAsync(registered, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
         var scenario = new IdentityScenario(postgres, factory);
         Assert.Equal(0, await scenario.CountUsersAsync(email));

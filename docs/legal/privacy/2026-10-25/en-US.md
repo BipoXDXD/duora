@@ -3,17 +3,17 @@
   "document": "privacy",
   "version": "2026-10-25",
   "locale": "en-US",
-  "controllerName": null,
+  "controllerName": "Luca Grimmer",
   "privacyContact": "support@meetduora.com",
-  "approved": false
+  "approved": true
 }
 ---
 
 # Privacy notice
 
-## Responsible party and qualification
+## Controller and contact
 
-The privacy-request contact is support@meetduora.com. The controller’s complete civil or company name must appear in the published edition. This identity is not inferred from the Duora name, a nickname, the interface language, or a visitor’s location. Registration remains unavailable while this identity is missing.
+The controller of the personal data processed in Duora is Luca Grimmer, an individual. The contact for privacy requests and for exercising your rights is support@meetduora.com.
 
 ## Registration, authentication, and acceptance
 
@@ -29,12 +29,12 @@ Registrations, rooms, and activities use the information needed for their contex
 
 ## Operations and providers
 
-The code and architecture records describe hosting, email, storage, backups, and optional features. The final edition must identify the actual configuration and applicable recipients, including processing outside a participant’s country. A prepared integration or a test does not prove that a provider is active in production. This draft does not invent a contractual provider list.
+The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. For people participating from Brazil, this processing takes place outside the country. Features with their own provider that are not yet active, such as the selfie presence check and email delivery through an external provider, will only be activated after they are identified in a new version of this notice.
 
 ## Retention and requests
 
-Information is retained according to its purpose, implemented features, and applicable policies. Proposed periods or routines that have not been activated are not described as completed deletion. Specific preservation and backups require their own rules. Access, correction, or deletion requests need an identified public contact and proportionate verification of the requester’s identity.
+Information is retained for as long as each feature needs it for its purpose. Backups follow their own cycle and expire within 65 days. To request access to, correction of, or deletion of your information, write to support@meetduora.com; before acting, we will ask for identity verification proportionate to the request.
 
-## Limits of this edition
+## Changes to this notice
 
-The controller’s public identity and qualification of the final operational facts are still missing. Registration remains unavailable; acceptance of a text lacking these conditions is not treated as authorization for real collection. This notice does not assert legal compliance or replace the separate operational decisions and evidence.
+Changes to this notice create a new version, identified by date and language. Previous versions remain available at their own version address.

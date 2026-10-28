@@ -19,13 +19,19 @@ class LegalDocumentSourcesTests(unittest.TestCase):
         document = parse_document(text)
         self.assertEqual(document["locale"], "en-US")
         self.assertIn("support@meetduora.com", str(document["sections"]))
-        self.assertFalse(document["approved"])
-        self.assertIsNone(document["controllerName"])
+        self.assertTrue(document["approved"])
+        self.assertEqual(document["controllerName"], "Luca Grimmer")
+
+    def test_every_active_document_is_approved_under_the_named_controller(self):
+        for document in load_catalog()["documents"]:
+            with self.subTest(document=(document["document"], document["locale"])):
+                self.assertEqual(document["controllerName"], "Luca Grimmer")
+                self.assertTrue(document["approved"])
 
     def test_missing_identity_or_meaningful_document_body_is_rejected(self):
         original = (SOURCE / "terms/2026-10-25/pt-BR.md").read_text(encoding="utf-8")
         for changed in (original.replace('"locale": "pt-BR",', ''), original.split("# ")[0],
-                        original.replace('"approved": false', '"approved": "yes"')):
+                        original.replace('"approved": true', '"approved": "yes"')):
             with self.subTest(changed=changed[:32]):
                 with self.assertRaises(ValueError):
                     parse_document(changed)

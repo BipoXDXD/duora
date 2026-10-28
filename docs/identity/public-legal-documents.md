@@ -4,9 +4,9 @@ The canonical bilingual sources follow the chosen convention `docs/legal/terms/<
 
 ## Publication state
 
-The four texts in version `2026-10-25` are **drafts**, with a null controller identity and `approved: false`. `support@meetduora.com` is the designated support and privacy-request contact. The controller's full civil or company name must be supplied by the responsible owner. Actual providers, recipients, transfers, retention practices and rights handling must be qualified before approving a final text; historical architecture plans are not proof of the current operation. No placeholder legal entity or legal compliance opinion is supplied.
+The four texts in version `2026-10-25` are **approved and published** (`approved: true`, so the API returns `published: true` and `registrationAvailable: true`). The owner approved them on 2026-10-28 and named the controller: `controllerName` is `Luca Grimmer` (an individual) in all four sources, and `support@meetduora.com` remains the support and privacy-request contact ([decision record](../product/decisions-2026-10-28.md)). No legal compliance opinion is supplied.
 
-Each active document must have both `pt-BR` and `en-US` variants, meaningful text, the same identified controller and public contact, and explicit source approval. Missing, duplicate, invalid or unapproved variants keep registration closed. This intentionally changes registration availability: **the default source currently returns 503 for registration**. Existing login and account recovery are unaffected by this publication gate. Deployment and enabling real registration require separate operational authorization and the completed publication facts; green CI alone does not authorize activation.
+Each active document must have both `pt-BR` and `en-US` variants, meaningful text, the same identified controller and public contact, and explicit source approval. Missing, duplicate, invalid or unapproved variants keep registration closed (503). With the current approved source, the publication gate no longer blocks `POST /api/v1/auth/register`. Existing login and account recovery are unaffected by this gate. The legal gate is not the only condition for real participants: deployment, delivery of the confirmation email (the production compose still uses the pickup directory, and an external email provider must first be named in a new privacy version) and the other operational gates keep their own authorization; green CI alone does not authorize activation.
 
 ## Exact acceptance
 
@@ -20,6 +20,6 @@ Once approved, retain every published version and language unchanged. Text, iden
 
 ## Validation and scope
 
-Integration tests use an explicit **synthetic document source** with the same real publication policy, not a Testing-mode exemption. A test can select the actual embedded drafts with `LegalDocuments = null`. Existing negative request bodies are not silently repaired. Browser mocks also require exact synthetic receipts.
+Integration tests use an explicit **synthetic document source** with the same real publication policy, not a Testing-mode exemption. A test can select the actual embedded publication with `LegalDocuments = null`. Existing negative request bodies are not silently repaired. Browser mocks also require exact synthetic receipts.
 
 Only targeted Node tests, type checks, lint and formatting may run locally with the agreed resource limits. .NET compilation, PostgreSQL migration/transaction tests, generated OpenAPI comparison and real browser checks are hosted CI gates. This work does not publish licensed media, activate regional flags, prove SMTP delivery, close #108 or establish a cause for #174.

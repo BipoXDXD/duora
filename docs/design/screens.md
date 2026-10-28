@@ -482,8 +482,6 @@ bloqueio pede confirmação própria com a primária destrutiva "Bloquear pessoa
 ├──────────────────────────────────────┤
 │ Segurança e privacidade              │
 │                                      │
-│ Em perigo agora? Ligue 190.          │
-│                                      │
 │ Bloqueios                          › │
 │ 2 pessoas bloqueadas                 │
 │ ──────────────────────────────────── │
@@ -515,7 +513,7 @@ bloqueio pede confirmação própria com a primária destrutiva "Bloquear pessoa
 | Exclusão | Reautenticação, consequências em lista, confirmação com primária destrutiva "Excluir conta" e "Cancelar" neutro |
 | `loading` / `empty` / `error` / `offline` | `empty` por seção ("Nenhum bloqueio"); demais conforme as convenções |
 
-O texto de emergência e o número local são conteúdo a validar pelo responsável pelo produto antes do piloto.
+A tela não publica números de emergência por país, por decisão do dono em 28/10/2026 ([registro](../product/decisions-2026-10-28.md)).
 
 ## Administração
 

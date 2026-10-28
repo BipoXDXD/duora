@@ -3,9 +3,9 @@
   "document": "terms",
   "version": "2026-10-25",
   "locale": "en-US",
-  "controllerName": null,
+  "controllerName": "Luca Grimmer",
   "privacyContact": "support@meetduora.com",
-  "approved": false
+  "approved": true
 }
 ---
 
@@ -31,6 +31,6 @@ Activities respect explicit choices and the states shown in the room. Silence is
 
 This document is identified by its type, version, language, and cryptographic digest. Registration is admitted only when the applicable documents are published and acceptance matches the versions and languages offered. Historical evidence with an unknown language is not assigned an inferred language.
 
-## Contact and status of this edition
+## Responsible party and contact
 
-The support and privacy-request contact is support@meetduora.com. The controller’s complete public identity has not yet been confirmed for this edition. It remains a draft, does not authorize registration, and is not a legal opinion.
+Duora is operated by Luca Grimmer, an individual, who is responsible for the service and is the controller of the personal data processed in it. The support and privacy-request contact is support@meetduora.com.

@@ -53,9 +53,9 @@ conferir a ação na release antes de contar com ela. Orientar a pessoa a usar a
 em "Sessões ativas". Não pedir senha, código, documento nem data de nascimento por e-mail.
 
 **S1, risco a participante.** Na primeira resposta, orientar a pessoa a procurar o serviço de emergência local,
-com os números de [emergency-contacts.md](../safety/emergency-contacts.md) (Brasil 190 e 192; EUA 911; 180 não é
-serviço de emergência). O Duora não presta socorro e não decide pela pessoa. Tratar a denúncia como caso grave
-da [moderação](../privacy/moderation.md): entra urgente e pode receber contenção temporária automatizada.
+sem citar números por país ([decisão de 28/10](../product/decisions-2026-10-28.md)). O Duora não presta socorro e
+não decide pela pessoa. Tratar a denúncia como caso grave da [moderação](../privacy/moderation.md): entra urgente
+e pode receber contenção temporária automatizada.
 Suspeita de menor ou exploração segue a spec 12.3: restringir acesso e escalar a responsável qualificado e aos
 procedimentos aplicáveis.
 
@@ -160,12 +160,12 @@ pessoal ou detalhe de outra pessoa.
 ### Primeira resposta de S1 com risco a participante
 
 > **PT-BR.** Recebemos sua mensagem e ela está sendo tratada com prioridade. Se você ou outra pessoa estiver em
-> perigo agora, procure o serviço de emergência local (no Brasil, 190 ou 192; nos EUA, 911). Já aplicamos as
-> medidas de proteção disponíveis e voltaremos a escrever quando houver atualização.
+> perigo agora, procure o serviço de emergência local. Já aplicamos as medidas de proteção disponíveis e voltaremos
+> a escrever quando houver atualização.
 >
 > **EN-US.** We received your message and are handling it as a priority. If you or someone else is in danger
-> right now, contact your local emergency services (in the United States, 911; in Brazil, 190 or 192). We have
-> applied the available protective measures and will write again when there is an update.
+> right now, contact your local emergency services. We have applied the available protective measures and will
+> write again when there is an update.
 
 ### Canal de suporte fora do ar (aviso no site)
 
