@@ -9,6 +9,7 @@
     ".",
     "../media",
     "../release",
-    "../../infra/ansible/roles/docker/files"
+    "../../infra/ansible/roles/docker/files",
+    "../../infra/ansible/roles/media_sanitizer/files"
   ]
 }

@@ -1,0 +1,41 @@
+---
+# Runtime rootless dedicado ao media-sanitizer (ADR-0036, issue #174). Instala INATIVO: o daemon fica parado, o
+# launcher não é habilitado nem iniciado e nenhum container da aplicação recebe o socket de controle.
+# Manual: docs/operations/media-sanitizer-host.md.
+
+# present = instala/confere; absent = desfaz (para o daemon, remove conta, faixas, drop-ins, código e perfil).
+media_sanitizer_state: present
+
+# Conta do launcher. É também a dona do daemon rootless: o perfil exige /run/user/<uid>/docker.sock do próprio UID.
+# Conta de sistema (UID < 1000): o useradd não aloca faixa subordinada sozinho, a faixa abaixo é a única.
+media_sanitizer_user: duora-media-launcher
+media_sanitizer_home: /var/lib/duora-media-runtime
+# Grupo do socket de controle. O Worker só entra nele na ativação (fora deste role).
+media_sanitizer_client_group: duora-media-client
+
+# Faixa subordinada (subuid/subgid). A primeira livre depois das contas atuais da VPS (100000 e 165536, 65536 cada).
+# O role recusa sobreposição com outra conta em vez de escolher outra faixa sozinho.
+media_sanitizer_subid_start: 231072
+media_sanitizer_subid_count: 65536
+
+# Teto de cgroup de TODA a conta (daemon, containerd, rootlesskit e containers), aplicado em user-<uid>.slice. Cabe o
+# cliente do corpus (1 GiB, 0,5 CPU, 256 PIDs, como no CI) ou um sandbox P174-4 (512 MiB, 1 CPU, 64 PIDs) mais o
+# daemon. Candidato de homologação (#86), não orçamento aprovado; o menor teto ancestral prevalece.
+media_sanitizer_slice_memory_max: 2G
+media_sanitizer_slice_cpu_quota: 150%
+media_sanitizer_slice_tasks_max: 1024
+
+# true só durante o ensaio (o operador também pode iniciar/parar à mão). false = o role para o daemon.
+media_sanitizer_runtime_started: false
+
+# Perfil do launcher: só é escrito com a imagem fixada por digest (ghcr.io/bipoxdxd/duora-media-sanitizer@sha256:...
+# ou sha256:<config>). Vazio = sem perfil, e o launcher não tem como subir.
+media_sanitizer_image: ""
+# UID do Worker no host (container 1654:1654 no daemon do sistema, sem userns-remap).
+media_sanitizer_worker_uid: 1654
+
+# Caminhos fixos do template infra/media/systemd/duora-media-launcher.service e de scripts/media/launcher.py.
+media_sanitizer_code_dir: /opt/duora/media
+media_sanitizer_profile_path: /etc/duora-media-launcher.json
+media_sanitizer_authority_dir: /var/lib/duora-media-launcher
+media_sanitizer_control_socket: /run/duora-media/control.sock

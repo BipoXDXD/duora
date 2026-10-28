@@ -351,3 +351,40 @@ class RuntimeSafetyTests(unittest.TestCase):
             self.assertNotIn("DOCKER_HOST",runtime.environment)
             self.assertNotIn("AWS_ACCESS_KEY_ID",runtime.environment)
             self.assertEqual("/nonexistent",runtime.environment['HOME'])
+
+
+class HostLayoutTests(unittest.TestCase):
+    """The launcher authority must not collide with directories the product host already owns."""
+    ROOT = Path(__file__).resolve().parents[2]
+
+    def host_variables(self):
+        import yaml
+        return yaml.safe_load((self.ROOT / "infra/ansible/group_vars/all.yml").read_text())
+
+    def unit(self):
+        return (self.ROOT / "infra/media/systemd/duora-media-launcher.service").read_text().splitlines()
+
+    def test_authority_directory_is_outside_product_photo_and_config_directories(self):
+        from launcher import AUTHORITY_DIRECTORY
+        variables = self.host_variables()
+        for key in ["duora_media_dir", "duora_config_dir", "duora_state_dir", "duora_install_dir"]:
+            product = Path(variables[key])
+            with self.subTest(directory=key):
+                # systemd recursively chowns an existing StateDirectory: sharing the photo root would hand
+                # quarantine/derivatives (UID 1654) to the launcher account.
+                self.assertFalse(AUTHORITY_DIRECTORY == product or AUTHORITY_DIRECTORY.is_relative_to(product))
+                self.assertFalse(product.is_relative_to(AUTHORITY_DIRECTORY))
+
+    def test_unit_state_directory_is_the_launcher_authority_directory(self):
+        from launcher import AUTHORITY_DIRECTORY
+        state = [line.split("=", 1)[1] for line in self.unit() if line.startswith("StateDirectory=")]
+        self.assertEqual([AUTHORITY_DIRECTORY.name], state)
+        self.assertEqual(Path("/var/lib"), AUTHORITY_DIRECTORY.parent)
+
+    def test_unit_profile_is_readable_without_traversing_the_root_only_config_directory(self):
+        exec_start = [line for line in self.unit() if line.startswith("ExecStart=")]
+        self.assertEqual(1, len(exec_start))
+        profile = Path(exec_start[0].split()[-1])
+        # app_dirs keeps duora_config_dir root:root 0750; the launcher account cannot traverse it.
+        self.assertFalse(profile.is_relative_to(Path(self.host_variables()["duora_config_dir"])))
+        self.assertEqual(Path("/etc/duora-media-launcher.json"), profile)
