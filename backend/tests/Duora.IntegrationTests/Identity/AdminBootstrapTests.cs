@@ -203,12 +203,12 @@ public sealed class AdminBootstrapTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task AfterFiveMinutesTheTemporarySessionNeedsANewLoginToChangeThePassword()
+    public async Task AfterTheRecentAuthenticationWindowTheTemporarySessionNeedsANewLoginToChangeThePassword()
     {
         var email = IdentityScenario.NewEmail();
         var grant = await GrantAsync(email);
         using var browser = await SignedInAsync(email, grant.Password);
-        _time.Advance(TimeSpan.FromMinutes(6));
+        await StepUpClock.ExpireRecentAuthenticationAsync(browser, _time);
 
         using var stale = await browser.PostJsonAsync(
             ChangePassword,

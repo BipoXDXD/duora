@@ -20,6 +20,9 @@ namespace Duora.IntegrationTests.Safety;
 public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) : IAsyncLifetime
 {
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 22, 12, 0, 0, TimeSpan.Zero));
+
+    /// <summary>Menor passo que o PostgreSQL guarda (1 µs).</summary>
+    private static readonly TimeSpan PostgresTick = TimeSpan.FromTicks(10);
     private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("duora-review-approval-");
     private string _connectionString = "";
     private ScratchDatabase? _database;
@@ -222,7 +225,8 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
                     await ExecuteAsync("update identity.users set security_stamp='changed-synthetic-stamp' where id=$1", reviewer.UserId);
                     break;
                 default:
-                    await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", reviewer.SessionId, _time.GetUtcNow().AddMinutes(-5));
+                    await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", reviewer.SessionId,
+                        _time.GetUtcNow() - RecentAuthentication.Window - PostgresTick);
                     break;
             }
         });
@@ -771,7 +775,9 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
         var (reviewer, item) = await PreparedAsync(Guid.Parse("ffffffff-ffff-4fff-bfff-ffffffffffff"),
             Guid.Parse("00000000-0000-4000-8000-000000000001"));
         var candidateBefore = await CandidateMetadataAsync(item);
-        _time.Advance(TimeSpan.FromMinutes(4).Add(TimeSpan.FromSeconds(59)));
+        // TOTP a 1 s do fim da janela; os 2 s da espera abaixo o vencem sem envelhecer a sessão sintética.
+        await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", reviewer.SessionId,
+            _time.GetUtcNow() - RecentAuthentication.Window + TimeSpan.FromSeconds(1));
         await using var locker = new NpgsqlConnection(_connectionString);
         await locker.OpenAsync(Ct);
         NpgsqlTransaction? held = null;
