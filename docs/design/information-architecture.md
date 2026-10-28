@@ -42,6 +42,10 @@ Os caminhos propostos acima são históricos. As rotas implementadas usam um ún
 independente do idioma da interface, com aliases dos links antigos. O inventário e as regras de
 compatibilidade estão em [spa-routes.md](../architecture/spa-routes.md). Nenhuma credencial deve ir no path ou na query.
 
+Fotos em revisão: o titular vê suas fotos e o histórico de revisão de cada uma (só leitura); foto recusada se
+resolve com "Enviar outra", sem recurso. A administração tem a revisão de fotos para um único revisor e não tem
+área de recurso de fotos (decisão de 28/10/2026). O recurso de moderação, em Segurança, não muda.
+
 **Alternativa considerada:** uma área "Conta" separada de "Perfil" (cinco itens). Descartada porque cinco
 rótulos a 320 px exigiriam texto menor que 12 px ou rótulos truncados; "Conta" vira seção dentro de Perfil, e
 as ações sensíveis de conta (exclusão, exportação, sessões) ficam em Segurança, onde a pessoa as procura.

@@ -34,6 +34,11 @@ conta no login, sem "elevar" uma sessão de participante. **Decisão I2 (revisã
 não acessa rota de participante (perfil, bloqueio, salas): a política padrão das rotas responde `403` a ela, e só
 as rotas da própria conta (sessões, MFA, senha) e as `/admin` a aceitam.
 
+**Revisão de fotos (decisão de 28/10/2026).** Um único revisor, o dono do projeto: papel `moderator` com as
+capacidades explícitas `assign`, `evidence` e `decide`, sessão administrativa com MFA e step-up (MFA na última
+hora, ADR-0041) na decisão. `product_admin` e `operator` não recebem essas capacidades, e não há recurso de fotos. A matriz
+de autorização por rota e papel está em [media-review.md](../api/media-review.md#matriz-de-autorização-28102026).
+
 ### Bootstrap administrativo (D4)
 
 Conta privilegiada só nasce pelo comando operacional `duora-web admin grant --email … --role … --operator …

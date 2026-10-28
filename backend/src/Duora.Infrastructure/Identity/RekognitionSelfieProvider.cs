@@ -35,7 +35,7 @@ internal sealed class RekognitionSelfieProvider(
         }
 
         if (response.Status != LivenessSessionStatus.SUCCEEDED || response.Confidence is not { } confidence
-            || !float.IsFinite(confidence) || confidence < options.MinimumLiveness)
+            || !options.AcceptsLiveness(confidence))
         {
             return Result(SelfieState.Inconclusive, "PRESENCE_INCONCLUSIVE");
         }
@@ -55,11 +55,7 @@ internal sealed class RekognitionSelfieProvider(
             return Result(SelfieState.RecaptureRequired, "CAPTURE_QUALITY");
         }
 
-        var good = float.IsFinite(brightness) && float.IsFinite(sharpness)
-            && float.IsFinite(pitch) && float.IsFinite(yaw) && float.IsFinite(roll)
-            && brightness >= options.MinimumBrightness && sharpness >= options.MinimumSharpness
-            && Math.Abs(pitch) <= options.MaximumPoseDegrees && Math.Abs(yaw) <= options.MaximumPoseDegrees
-            && Math.Abs(roll) <= options.MaximumPoseDegrees;
+        var good = options.AcceptsFace(new SelfieFaceQuality(brightness, sharpness, pitch, yaw, roll));
         return good ? Result(SelfieState.Passed, null) : Result(SelfieState.RecaptureRequired, "CAPTURE_QUALITY");
     }
 

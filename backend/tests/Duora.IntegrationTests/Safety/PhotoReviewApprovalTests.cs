@@ -618,6 +618,32 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
         }
     }
 
+    /// <summary>Rewrites the current rejection into the one the release before 2026-10-28 committed.</summary>
+    private sealed partial class PreviousReleaseRejection : DbCommandInterceptor
+    {
+        private static readonly TimeSpan AppealWindow = TimeSpan.FromHours(168);
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command,
+            CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            var parameters = command.Parameters.Cast<DbParameter>().ToArray();
+            if (command.CommandText.Contains("insert into safety.photo_review_decisions", StringComparison.Ordinal))
+            {
+                parameters[8].Value = (DateTimeOffset)parameters[7].Value! + AppealWindow;
+            }
+            else if (command.CommandText.Contains("update media.review_candidates", StringComparison.Ordinal))
+            {
+                command.CommandText = CleanupMarker().Replace(command.CommandText, "");
+                parameters[0].Value = (DateTimeOffset)parameters[1].Value! + AppealWindow;
+            }
+
+            return ValueTask.FromResult(result);
+        }
+
+        [System.Text.RegularExpressions.GeneratedRegex(@",cleanup_requested_at=@p1,\s*cleanup_available_at=least\(cleanup_available_at,@p2\)")]
+        private static partial System.Text.RegularExpressions.Regex CleanupMarker();
+    }
+
     private sealed class CollectConfirmedPreparation(PhotoReviewApprovalTests fixture, ApprovalStore store,
         IObjectStore inner, bool enabled) : DbTransactionInterceptor
     {
@@ -673,9 +699,10 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
         _connectionString = database.AppConnectionString;
         var (reviewer, item) = await PreparedAsync();
         var key = Key();
-        var first = Assert.IsType<PhotoReviewRejectionResult.Rejected>(await new PhotoReviewRejections(Factory(),
-            new FileSystemObjectStore(_root.FullName), _time).RejectAsync(reviewer, item.CaseId, 2,
-                PhotoReviewRejectionReason.DoesNotMeetPolicy, key, Ct));
+        // The schema of that release only accepts the rejection it wrote: candidate kept 168 h, no cleanup marker.
+        var first = Assert.IsType<PhotoReviewRejectionResult.Rejected>(await new PhotoReviewRejections(
+            Factory(new PreviousReleaseRejection()), new FileSystemObjectStore(_root.FullName), _time).RejectAsync(reviewer,
+                item.CaseId, 2, PhotoReviewRejectionReason.DoesNotMeetPolicy, key, Ct));
         var previous = await DecisionHistoryAsync(item);
         await using (var after = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
@@ -693,8 +720,8 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
             """, item.CaseId));
         Assert.Equal(0, noStorage.PutAttempts);
         Assert.Empty(noStorage.Opened);
-        // The assertions above cover the approval expansion itself. Current promotion code uses
-        // the later additive appeal columns, so exercise it only after the complete schema upgrade.
+        // The assertions above cover the approval expansion itself. Current promotion code expects the
+        // complete schema, so exercise it only after the full upgrade.
         await using (var current = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
             await current.Database.MigrateAsync(Ct);
@@ -733,7 +760,7 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
             ("approve", "does_not_meet_policy", 24),
             ("reject", "meets_policy", 168),
             ("approve", "meets_policy", 168),
-            ("reject", "does_not_meet_policy", 24),
+            ("reject", "does_not_meet_policy", 48),
             ("unknown", "meets_policy", 24),
         })
         {

@@ -353,17 +353,32 @@ class MediaUploadGateTests(unittest.TestCase):
 
     def test_host_env_switches_the_upload_on_with_a_policy_accepted_in_production(self) -> None:
         # "Editorial" é sintético: simula a política que ainda não existe entrando na allowlist.
-        with patch.object(deploy, "PRODUCTION_MEDIA_REVIEW_POLICIES", frozenset({"Editorial"})):
+        with patch.object(deploy, "PRODUCTION_MEDIA_REVIEW_POLICIES", frozenset({"Editorial"})), \
+                patch.object(deploy, "PRODUCTION_DELETION_LEDGER_READY", True):
             self.assertTrue(deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=Editorial\n")
                             .media_uploads_enabled)
         for text in ("DUORA_IMAGE_PREFIX=x\n", "DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=\n"):
             with self.subTest(text=text):
                 self.assertFalse(deploy.parse_host_config(text).media_uploads_enabled)
 
+    def test_human_review_is_the_production_policy_but_the_inventory_keeps_the_upload_off(self) -> None:
+        # Decisão do dono de 2026-10-28: HumanReview é aceita em Production. Ligar o upload é da #69 (inventário).
+        self.assertEqual(frozenset({"HumanReview"}), deploy.PRODUCTION_MEDIA_REVIEW_POLICIES)
+        self.assertFalse(deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=\n").media_uploads_enabled)
+        with patch.object(deploy, "PRODUCTION_DELETION_LEDGER_READY", True):
+            self.assertTrue(deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=HumanReview\n")
+                            .media_uploads_enabled)
+
+    def test_an_accepted_policy_is_refused_while_the_deletion_ledger_does_not_exist(self) -> None:
+        # Sem o ledger externo de exclusões em B2 (#69), um restore desfaria exclusões de fotos reais: falha fechada.
+        self.assertFalse(deploy.PRODUCTION_DELETION_LEDGER_READY)
+        with self.assertRaisesRegex(deploy.DeployError, "ledger .*#69"):
+            deploy.parse_host_config("DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW=HumanReview\n")
+
     def test_review_outside_the_production_allowlist_is_refused(self) -> None:
         # TechnicalOnly existe no backend, mas o boot de Production a recusa: aceitá-la aqui derrubaria o web
-        # depois da migração. Hoje a allowlist é vazia, então qualquer valor não vazio é recusado.
-        for value in ("TechnicalOnly", "technicalonly", "Editorial"):
+        # depois da migração. Nomes fora da allowlist, inclusive com outra caixa, são recusados.
+        for value in ("TechnicalOnly", "technicalonly", "Editorial", "humanreview"):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(deploy.DeployError, f"DUORA_MEDIA_REVIEW={value} .*Production"):
                     deploy.parse_host_config(f"DUORA_IMAGE_PREFIX=x\nDUORA_MEDIA_REVIEW={value}\n")

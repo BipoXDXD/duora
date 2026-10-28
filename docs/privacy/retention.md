@@ -44,6 +44,7 @@ Classes que a tabela 12.4 não cobre e que o modelo de dados cria. **Proposta �
 | Recibos de webhook (`ops.webhook_receipts`) | **Aprovado em 21/10/2026 (#46):** mais de 30 dias desde `processed_at`, somente `Processed`/`Rejected`; data ausente ou `Received` permanece | Janela de replay do fornecedor mais margem |
 | Recibos de e-mail (`ops.email_receipts`) | 30 dias | Diagnóstico de entrega e supressão |
 | Auditoria (`ops.audit_events`) | 1 ano para ações privilegiadas e de segurança **(hipótese)**; `actor_id` pseudonimizado na exclusão da conta | Revisão de moderação, recurso e incidentes (INV-10) |
+| Selfie de presença (`identity.selfie_verifications`) | **Aprovado em 28/10/2026 (#93):** nenhuma imagem, vídeo, score ou template guardado. O resultado `Passed` (estado, política e datas) fica enquanto a conta existir ("a selfie fica guardada mesmo após 30 dias e a pessoa não perde participação"); tentativas não aprovadas saem 30 dias após a conclusão, ou após a expiração se nunca concluíram; referência da sessão AWS e feedback saem 24 h após a expiração; a exclusão física da conta apaga tudo (FK em cascata) | Prova de presença sem recoleta periódica; limpeza no worker (`SelfieVerificationDispatcher`), testada em `SelfieRetentionTests` |
 | Verificações etárias substituídas ou expiradas | Manter só a mais recente decisiva por conta; anteriores apagadas após 90 dias **(hipótese)** | Rastreabilidade do resultado sem acumular histórico |
 | Decisões privadas (`social.decisions`) | Apagar 30 dias após o fim da janela quando não houve conexão | A decisão negativa não tem uso depois da janela e é dado íntimo |
 | Pares e reservas (`events.pairings`) | Enquanto o evento puder ser revisado; proposta de 90 dias após o evento | Não repetir par no evento e investigar incidentes |
@@ -134,9 +135,16 @@ Veja [o procedimento operacional](../operations/retention.md), incluindo ativaç
 
 ## Revisão humana de fotos — contrato M0, implementação pendente
 
-Os prazos aceitos do ADR-0035 estão detalhados no [contrato de revisão](../api/media-review.md#relógio-recurso-retenção-e-perda-de-bytes),
-incluindo intervalo UTC, recurso versus limpeza e teto de30dias sem aprovação automática. O registro mínimo
+Os prazos aceitos do ADR-0035 estão detalhados no [contrato de revisão](../api/media-review.md#relógio-retenção-e-perda-de-bytes),
+incluindo intervalo UTC e limpeza sem aprovação automática. O registro mínimo
 de decisão/auditoria é de1ano, sem imagem/texto sensível; candidato privado fica fora do backup de mídia,
 mas metadados seguem no backup do banco. Preservação excepcional continua exigindo escopo e vencimento
-explícitos; recurso não cria hold ilimitado. Jobs, tombstones e reconciliação editorial ainda não estão
+explícitos. Jobs, tombstones e reconciliação editorial ainda não estão
 implementados. Esta referência não muda retenção executável nem autoriza expurgo, coleta ou ativação.
+
+**Decisão de 28/10/2026 (sem recurso de fotos).** O candidato privado **rejeitado** deixou de ficar 7 dias à
+espera de recurso: a rejeição grava a obrigação de limpeza com a mesma janela de 24 h da aprovação, e o Worker
+a executa logo após a decisão (`DecidedCandidateCleanupDispatcher`). As rejeições antigas de 168 h recebem a
+mesma obrigação na migração `20261028120000_PhotoReviewWithoutAppeals`. O registro mínimo de decisão e
+auditoria continua de 1 ano. Ledger externo e retenção dos registros de exclusão (tombstones e recibos)
+continuam abertos ([ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)).

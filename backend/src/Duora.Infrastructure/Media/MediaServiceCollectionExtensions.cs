@@ -52,7 +52,7 @@ public static class MediaServiceCollectionExtensions
             .Bind(configuration.GetSection(MediaOptions.Section))
             .Validate(
                 o => o.Review is not { } review || MediaReview.IsPermitted(review, environmentName),
-                $"Media:Review não é aceito em {environmentName}: as políticas disponíveis estão limitadas a Development/Testing (ADR-0025/0035).")
+                $"Media:Review não é aceito em {environmentName}: TechnicalOnly só vale em Development/Testing e HumanReview também em Production (ADR-0025/0035).")
             .Validate(
                 o => o.MaxPendingUploadsPerAccount >= 1
                     && o.MaxQueuedUploads >= 1

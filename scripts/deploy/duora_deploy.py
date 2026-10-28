@@ -101,12 +101,15 @@ class Release:
 MEDIA_VERIFY_TIMER = "duora-backup-media-verify.timer"
 MEDIA_VERIFY_OK_FILE = ".media-verify-ok"
 MAX_MEDIA_VERIFY_AGE_HOURS = 30
-# Políticas de Media:Review que o boot do web aceita em Production (MediaReview.IsPermitted, ADR-0025 item 8). Vazia:
-# TechnicalOnly é a única política implementada e é recusada em Production, então qualquer valor derrubaria o web
-# depois da migração. O Worker já registra o pipeline de mídia; uma política nova entra aqui quando aceita pelo
-# Web e pelo Worker em Production, preservando os demais gates de ativação do ADR-0025 e do runbook
-# docs/operations/backup-restore.md (integração do upload com o Compose).
-PRODUCTION_MEDIA_REVIEW_POLICIES: frozenset[str] = frozenset()
+# Políticas de Media:Review que o boot do Web e do Worker aceita em Production (MediaReview.IsPermitted, ADR-0025
+# item 8). HumanReview entrou pela decisão do dono de 2026-10-28 (ADR-0035); TechnicalOnly continua recusada. Estar na
+# allowlist não liga o upload: isso exige duora_media_review no inventário e os demais gates de ativação do ADR-0025
+# e do runbook docs/operations/backup-restore.md (integração do upload com o Compose), tratados na #69.
+PRODUCTION_MEDIA_REVIEW_POLICIES: frozenset[str] = frozenset({"HumanReview"})
+# Trava independente da allowlist: com o upload ligado em Production, uma exclusão de foto real só sobrevive a um
+# restore se o ledger externo de exclusões em B2 existir (docs/api/media-review.md). Ele é da #69 e ainda não existe;
+# até lá qualquer DUORA_MEDIA_REVIEW não vazio é recusado. Só a #69 vira esta constante, junto com o gate real.
+PRODUCTION_DELETION_LEDGER_READY = False
 
 
 # O Compose sempre configura o storage FileSystem e o web o confere no boot, com o upload ligado ou não (adendo de
@@ -398,10 +401,13 @@ def parse_host_config(text: str) -> HostConfig:
 
     review = values.get("DUORA_MEDIA_REVIEW", "")
     if review and review not in PRODUCTION_MEDIA_REVIEW_POLICIES:
-        accepted = ", ".join(sorted(PRODUCTION_MEDIA_REVIEW_POLICIES)) or "nenhuma ainda"
+        accepted = ", ".join(sorted(PRODUCTION_MEDIA_REVIEW_POLICIES)) or "nenhuma"
         raise DeployError(f"DUORA_MEDIA_REVIEW={review} não é política aceita em Production (aceitas: {accepted}); "
                           "o web recusaria o boot depois da migração. Deixe duora_media_review vazio no inventário "
                           "e reaplique o app_dirs (ADR-0025 item 8)")
+    if review and not PRODUCTION_DELETION_LEDGER_READY:
+        raise DeployError(f"DUORA_MEDIA_REVIEW={review} exige o ledger externo de exclusões em B2, que ainda não "
+                          "existe (#69); deixe duora_media_review vazio no inventário")
 
     prefix = values.get("DUORA_IMAGE_PREFIX", "")
     if not prefix:

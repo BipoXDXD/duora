@@ -82,7 +82,10 @@ public sealed partial class PhotoDeletionCleanupDispatcher
               join media.photo_tombstones t on t.photo_id = c.photo_id
               join media.uploads u on u.id = c.photo_id and u.state = 'Deleted' and u.owner_id = t.owner_id
               where c.available_at <= $1 and (c.lease_until is null or c.lease_until <= $1)
-                and (c.object_key = u.quarantine_key or exists (
+                and (c.object_key = u.quarantine_key
+                  or (c.object_key ~ '^derivatives/[0-9a-f]{32}-(thumb|card|full)$'
+                    and substr(c.object_key, 13, 32) = substr(u.quarantine_key, 12, 32))
+                  or exists (
                   select 1 from media.media_assets a join media.media_variants v on v.media_asset_id = a.id
                   where a.upload_id = u.id and a.state = 'Deleted' and v.object_key = c.object_key))
               order by c.available_at, c.object_key limit 1 for update of c skip locked)

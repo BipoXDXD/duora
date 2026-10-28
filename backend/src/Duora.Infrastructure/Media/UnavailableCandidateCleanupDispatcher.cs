@@ -31,8 +31,7 @@ public sealed partial class UnavailableCandidateCleanupDispatcher
             and c.cleanup_requested_at>=r.awaiting_review_at and c.cleanup_requested_at<c.retention_until
             and e.actor_kind='System' and e.actor_id is null and e.action='safety.photo_review_unavailable'
             and e.target_type='photo_review_case' and e.target_id=r.id and e.target_version=r.version
-            and not exists(select 1 from safety.photo_review_decisions d where d.case_id=r.id)
-            and not exists(select 1 from safety.photo_review_appeals a where a.case_id=r.id))
+            and not exists(select 1 from safety.photo_review_decisions d where d.case_id=r.id))
         """;
 
     internal UnavailableCandidateCleanupDispatcher(NpgsqlDataSource source, IObjectStore store, TimeProvider time,

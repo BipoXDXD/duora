@@ -1857,7 +1857,7 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_selfie_verifications_users");
                 });

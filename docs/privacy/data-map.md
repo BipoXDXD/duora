@@ -56,6 +56,7 @@ outro nome (por exemplo, consentimento *opt-in* para dado sensível), a confirma
 | `profiles.profiles` | Nome de exibição, faixa etária, região aproximada (país opcional + subdivisão de primeiro nível opcional na expansão ADR-0030, inicialmente BR e as UFs existentes; campo UF legado mantido; nunca cidade, CEP, código postal nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
 | `profiles.preferences` | Critérios privados de compatibilidade | Pessoa usuária | P3 | F-03 | **Provável** se incluírem gênero buscado ou orientação (vida sexual) | A definir com apoio jurídico |
 | `profiles.profile_photos`, `media.*` | Fotos (originais em quarentena e derivados), hash, dimensões | Pessoa usuária e terceiros fotografados | P3 | F-03, F-05 | Imagem é dado pessoal; biometria só se houver tratamento biométrico (não previsto) | A definir com apoio jurídico |
+| `media.review_candidates`, `safety.photo_review_*` | Candidato privado de revisão (derivados sanitizados, fora do backup de mídia), caso, decisão e motivo fechado. Candidato aprovado ou rejeitado é limpo em 24 h após a decisão (sem recurso desde 28/10/2026); decisão e auditoria ficam 1 ano | Pessoa usuária e terceiros fotografados; revisor | P3 | F-03, F-05 | Imagem é dado pessoal | A definir com apoio jurídico |
 | `events.registrations` | Inscrição, check-in, presença | Pessoa usuária | P2 | F-03 | Participar de evento de encontros pode revelar vida afetiva | A definir com apoio jurídico |
 | `events.pairings`, `events.pairing_participants` | Quem foi pareado com quem | Duas pessoas | P3 | F-03, F-05 | Possível (vida afetiva) | A definir com apoio jurídico |
 | `experiences.game_sessions`, `game_participants`, `game_actions` | Estado de jogo, pistas, escolhas | Duas pessoas | P3 | F-04 | Não por desenho (spec 6.3 evita perguntas íntimas) | A definir com apoio jurídico |
@@ -129,6 +130,7 @@ ou caso legítimo, por projeção mínima; "caso" = só casos atribuídos, com l
 | E-mail, credenciais, sessões | L/E próprio (credenciais nunca legíveis) | — | — | — | — (banco não é ferramenta de atendimento) | — |
 | Verificação etária | L estado mínimo | — | L caso (suspeita de menor) | — | — | — |
 | Perfil exibido e fotos aprovadas | L/E próprio | L contexto | L caso | — | — | — |
+| Fotos em revisão (candidato, histórico de decisão) | L estado e histórico próprios; E exclusão e novo envio (sem recurso) | — | L/E caso atribuído, só o dono do projeto com as capacidades `assign`, `evidence` e `decide` (revisor único, sem segundo revisor) | — | — | — |
 | Preferências | L/E próprio | — (nunca) | — | — | — | — |
 | Inscrições, pares | L próprio | — | L caso | L agregados por evento | — | — |
 | Pistas e estado de jogo | L própria projeção | L própria projeção | L caso (recorte) | — | — | — |
@@ -205,9 +207,9 @@ jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 
 ## Selfie de presença — implementação da issue #93
 
-`identity.selfie_verifications`: ID interno, titular, estado, política e datas; referência de sessão e feedback transitórios removidos após 24h. Sem imagens, templates, idade, documentos ou scores no banco/outbox/log. A exclusão física futura de contas deve remover estas linhas; não há implementação de exclusão física no produto atual.
+`identity.selfie_verifications`: ID interno, titular, estado, política e datas; referência de sessão e feedback transitórios removidos 24 h após a expiração; tentativas não aprovadas removidas 30 dias após a conclusão; o `Passed` fica enquanto a conta existir e sai com ela (decisões do dono em 28/10/2026, [retention.md](retention.md)). Sem imagens, templates, idade, documentos ou scores no banco/outbox/log. A exclusão física de uma conta remove estas linhas pela FK em cascata; o produto ainda não tem fluxo de exclusão física.
 
-AWS recebe vídeo de captura diretamente do SDK; o worker obtém frame de referência em memória para brilho/nitidez/pose (DEFAULT). AuditImagesLimit=0, sem S3/OutputConfig. Prazo contratual no fornecedor, opt-out de uso secundário, DPA, região e transferências precisam ser homologados antes de Enabled=true. Expiração de sessão não prova exclusão contratual. Credenciais temporárias STS ficam apenas em memória do navegador e não vão para URL/storage/telemetria.
+AWS Rekognition Face Liveness em **us-east-1** (Norte da Virgínia, EUA), aceito pelo dono em 28/10/2026 com o DPA padrão da AWS (AWS Service Terms/DPA): o SDK do navegador envia o vídeo de captura diretamente à AWS; o worker obtém o frame de referência em memória para brilho/nitidez/pose (DetectFaces DEFAULT). AuditImagesLimit=0, sem S3/OutputConfig. Retenção e uso secundário no fornecedor seguem os termos da AWS; o opt-out de uso secundário (AI services opt-out policy da AWS Organizations) é passo operacional do dono, não algo que o código prove. Expiração de sessão não prova exclusão contratual. Credenciais temporárias STS ficam apenas em memória do navegador e não vão para URL/storage/telemetria. As chaves dos usuários IAM `duora-selfie-web` (só `sts:AssumeRole` no papel de captura) e `duora-selfie-worker` (sessão, resultado e DetectFaces) só existem nos arquivos de segredo da VPS, cada par montado só no seu serviço.
 
 
 ## Região declarada, preferência e sugestão — ADR-0033 / etapa 10

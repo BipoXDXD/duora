@@ -28,20 +28,38 @@ public abstract record PhotoDeletionResult
 
     public sealed record KeyReused : PhotoDeletionResult;
 
-    /// <summary>A foto ainda está em processamento, revisão, recurso ou com candidato privado retido.</summary>
+    /// <summary>Os bytes do original ainda estão chegando (<c>Pending</c>): a recepção é dona deles até terminar.</summary>
     public sealed record StateConflict : PhotoDeletionResult;
 }
 
 /// <summary>
 /// API-M03: exclusão lógica pelo titular numa transação curta READ COMMITTED, sem I/O de storage. Ordem de locks
-/// (modules.md): guarda Safety do dono, Identity e sessão (via <see cref="PhotoReviewAppeals.AuthorizeOwnerAsync"/>),
+/// (modules.md): guarda Safety do dono, Identity e sessão (via <see cref="PhotoOwnerAccess.AuthorizeAsync"/>),
 /// depois a foto e o asset. Na mesma transação: foto e asset em <c>Deleted</c>, tombstone, obrigações de limpeza das
-/// chaves exatas, recibo idempotente e auditoria. A remoção dos bytes é do <see cref="PhotoDeletionCleanupDispatcher"/>.
+/// chaves exatas, recibo idempotente e auditoria. A remoção dos bytes é do <see cref="PhotoDeletionCleanupDispatcher"/>
+/// e, para o candidato privado da revisão humana, do <see cref="DecidedCandidateCleanupDispatcher"/>. Tentativas ainda
+/// não confirmadas (candidato em preparo, promoção da aprovação) ficam com os coletores de preparo, que não dependem do
+/// estado da foto; o Worker e o moderador que chegarem depois encontram a foto <c>Deleted</c> e não publicam nada.
 /// O tombstone é só do banco: o ledger externo que sobrevive a um restore ainda não existe (docs/api/media-review.md).
 /// </summary>
 public sealed partial class PhotoDeletions
 {
-    private static readonly string[] DeletableStates = [nameof(UploadState.Approved), nameof(UploadState.Rejected)];
+    private static readonly string[] DeletableStates =
+    [
+        nameof(UploadState.Quarantined), nameof(UploadState.Processing), nameof(UploadState.AwaitingReview),
+        nameof(UploadState.Approved), nameof(UploadState.Rejected),
+    ];
+
+    /// <summary>Estados em que um Worker ainda pode gravar os derivados determinísticos da política TechnicalOnly.</summary>
+    private static readonly string[] TechnicalWriterStates = [nameof(UploadState.Quarantined), nameof(UploadState.Processing)];
+
+    /// <summary>
+    /// Folga para um Worker que já passou da checagem de versão terminar de gravar os derivados antes da limpeza
+    /// (lease de processamento de 2 min mais margem). Não existe coletor de órfãos: um PutAsync que termine depois
+    /// desta folga deixa o derivado sem obrigação. O risco é só do TechnicalOnly (Development/Testing), cujo Worker
+    /// confere a versão antes de gravar; a HumanReview grava candidatos com geração própria e coletor de preparo.
+    /// </summary>
+    internal static readonly TimeSpan InFlightWriterGrace = TimeSpan.FromMinutes(15);
 
     private readonly IDbContextFactory<DuoraDbContext> _contexts;
     private readonly IObjectStore _store;
@@ -92,7 +110,7 @@ public sealed partial class PhotoDeletions
     {
         await using var db = await _contexts.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
-        if (!await new PhotoReviewAppeals(_contexts, _store, _time).AuthorizeOwnerAsync(db, owner, cancellationToken))
+        if (!await PhotoOwnerAccess.AuthorizeAsync(db, _time, owner, cancellationToken))
         {
             return new PhotoDeletionResult.Forbidden();
         }
@@ -126,7 +144,7 @@ public sealed partial class PhotoDeletions
             return new PhotoDeletionResult.Deleted(photo.Version);
         }
 
-        if (!DeletableStates.Contains(photo.State) || await HasRetainedReviewWorkAsync(db, photoId, cancellationToken))
+        if (!DeletableStates.Contains(photo.State))
         {
             return new PhotoDeletionResult.StateConflict();
         }
@@ -152,17 +170,6 @@ public sealed partial class PhotoDeletions
         LogDeleted(_logger, photoId);
         return new PhotoDeletionResult.Deleted(deletedVersion);
     }
-
-    /// <summary>
-    /// Candidato privado ou promoção ainda vivos pertencem aos coletores da revisão humana, que dependem do estado da
-    /// foto; excluir agora deixaria esses bytes sem dono. A exclusão espera eles terminarem.
-    /// </summary>
-    private static Task<bool> HasRetainedReviewWorkAsync(DuoraDbContext db, Guid photoId, CancellationToken cancellationToken) =>
-        db.Database.SqlQuery<bool>($"""
-            select (exists(select 1 from media.review_candidates where upload_id = {photoId} and deleted_at is null)
-              or exists(select 1 from media.review_promotions
-                where upload_id = {photoId} and committed_at is null and deleted_at is null)) as "Value"
-            """).SingleAsync(cancellationToken);
 
     private static async Task MarkDeletedAsync(DuoraDbContext db, PhotoRow photo, AssetRow? asset, long deletedVersion,
         DateTimeOffset now, CancellationToken cancellationToken)
@@ -208,6 +215,28 @@ public sealed partial class PhotoDeletions
             insert into media.photo_deletion_cleanup (object_key, photo_id, created_at, available_at)
             select {ObjectKey.Parse(photo.QuarantineKey).Value}, {photo.Id}, {now}, {now}
             where not exists (select 1 from media.original_cleanup where upload_id = {photo.Id})
+            """, cancellationToken);
+
+        if (variantKeys.Count == 0 && TechnicalWriterStates.Contains(photo.State))
+        {
+            var quarantine = ObjectKey.Parse(photo.QuarantineKey);
+            foreach (var variant in PhotoVariants.All)
+            {
+                await db.Database.ExecuteSqlAsync($"""
+                    insert into media.photo_deletion_cleanup (object_key, photo_id, created_at, available_at)
+                    values ({ObjectKey.ForDerivative(quarantine, variant).Value}, {photo.Id}, {now}, {now + InFlightWriterGrace})
+                    """, cancellationToken);
+            }
+        }
+
+        // O candidato confirmado da revisão humana: o tombstone explica a obrigação; um marcador anterior (expiração,
+        // indisponibilidade, decisão) é mantido e assumido, porque aqueles coletores leem o estado que acabou de mudar.
+        await db.Database.ExecuteSqlAsync($"""
+            update media.review_candidates
+            set cleanup_available_at = case when cleanup_requested_at is null then least(cleanup_available_at, {now})
+                  else cleanup_available_at end,
+                cleanup_requested_at = coalesce(cleanup_requested_at, {now})
+            where upload_id = {photo.Id} and committed_at is not null and deleted_at is null
             """, cancellationToken);
     }
 

@@ -872,13 +872,13 @@ Implementada na migration `Media` ([ADR-0025](../architecture/adr/0025-pipeline-
 
 Migração aditiva `MediaReviewReaders` (ADR-0035). Tabela SQL sob responsabilidade de Safety, ainda sem
 repositório, escritor ou seed: M2 gravará a raiz na mesma transação de AwaitingReview; M3 acrescentará
-atribuição, decisões e recurso. Não reutiliza reports de participantes.
+atribuição e decisões (o recurso foi removido em 28/10/2026). Não reutiliza reports de participantes.
 
 - **Colunas:** `id uuid`; `upload_id uuid`; `candidate_generation uuid`; `policy_version varchar(64)`;
   `awaiting_review_at`, `review_deadline timestamptz`; `version bigint`.
 - **Constraints:** PK `id`, UNIQUE `upload_id`, FK para `media.uploads` RESTRICT, versão positiva, identificador
   de versão da política fechado em letras/dígitos/ponto/hífen/sublinhado e prazo exato de 72 horas desde início
-  finito. A unicidade é da raiz; histórico de recurso será uma estrutura própria de M3, não outra raiz.
+  finito. A unicidade é da raiz: uma revisão por upload; foto recusada gera outro upload e outra raiz.
 - **Índice:** `(review_deadline, id)` para futura varredura limitada. Nenhum job de expiração é ativado por M1.
 - **Classe:** P3; só referências/versionamento/prazos, sem imagem, chaves de storage ou motivo sensível.
 - **Permissões:** DML comum de `duora_app`, coberto pela allowlist de privilégios; nenhuma nova permissão de
@@ -889,7 +889,22 @@ separados de PhotoRejection técnico. A consulta de cota conta AwaitingReview me
 Leitores e replay preservam o valor explícito. Não existem escritores HumanReview nesta entrega.
 Ver [compatibilidade e reversão](../testing/reports/media-review-readers.md).
 
-### safety.photo_review_appeals / safety.photo_review_appeal_commands — pedido de recurso
+### Revisão de fotos sem recurso (28/10/2026): tabelas de recurso legadas
+
+Pela [decisão de 28/10/2026](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026), a revisão
+de fotos não tem recurso: nenhuma rota, serviço ou dispatcher grava nas tabelas `safety.photo_review_appeal*`
+abaixo, e as colunas `appeal_id` e `original_decision_id` de `safety.photo_review_decisions` e `appeal_id` e
+`appeal_version` de `media.review_promotions` ficam nulas nos registros novos. Elas são **legado sem escritor**, mantidas só para o rollback à release anterior. A migração
+`20261028120000_PhotoReviewWithoutAppeals` é o expand: falha se `safety.photo_review_appeals` tiver alguma linha;
+amplia `ck_photo_review_decisions_candidate_retention` para aceitar rejeição com `candidate_retention_until_snapshot
+= decided_at + 24 h`, mantendo os 168 h da release anterior; e grava em `media.review_candidates` a obrigação de
+limpeza (`cleanup_requested_at = decided_at`) das rejeições antigas de 168 h. O Down é recusado de propósito para
+preservar decisões e obrigações. O contract (remover as tabelas e colunas de recurso e a alternativa de 168 h)
+fica para migração posterior, quando nenhuma release em uso as conhecer. A coleta do candidato decidido, aprovado
+ou rejeitado, é do `DecidedCandidateCleanupDispatcher` (antigo `ApprovedCandidateCleanupDispatcher`); o
+`AppealCandidateCleanupDispatcher` foi removido.
+
+### safety.photo_review_appeals / safety.photo_review_appeal_commands — pedido de recurso (legado, sem escritor)
 
 Preparação interna M4b1, sem rota, DI, grant pessoal ou ativação. O root referencia caso, decisão humana inicial,
 titular, geração e política; começa Open/version1. UNIQUE por caso e por decisão original impede cadeias de
@@ -904,7 +919,7 @@ ambas as tabelas e os testes negativos exigem42501 para operações proibidas. A
 manter as mesmas restrições antes de instalação. ClasseP3, apenas IDs/prazos/versões/hashes, sem imagem,
 path, URL ou texto sensível. Decisão do recurso, encerramento/coleta e restore continuam entregas próprias.
 
-### safety.photo_review_appeal_evidence_accesses — leitura privada do recurso
+### safety.photo_review_appeal_evidence_accesses — leitura privada do recurso (legado, sem escritor)
 
 O histórico append-only `safety.photo_review_appeal_evidence_accesses` registra leituras privadas de recurso:
 `id`, raiz/versão, atribuição, ator, decisão humana original, geração, política, variante, hash e instante finito.
@@ -916,7 +931,7 @@ reconciliação inteira em caso de privilégio residual, inclusive UPDATE por co
 Qualificação da composição e aceite operacional
 continuam gates antes de instalar. Acesso não estende retenção nem modifica a decisão.
 
-### safety.photo_review_appeal_assignments / safety.photo_review_appeal_assignment_commands — atribuição de recurso
+### safety.photo_review_appeal_assignments / safety.photo_review_appeal_assignment_commands — atribuição de recurso (legado, sem escritor)
 
 M4b2a permite avançar apenas a versão do root de recurso aberto, com CHECK version>=1. Histórico de atribuições
 guarda id, recurso/versão>=2, destinatário, autor e instante finito, com UNIQUE(recurso,versão) e FKs RESTRICT.
@@ -957,7 +972,8 @@ pessoal; decisão, leitura privada do recurso e composição canônica dos REVOK
   por chave exata (derivados do asset e o original sem obrigação própria em `original_cleanup`), mais a auditoria
   `media.photo_deleted`. Nenhum I/O de storage nessa transação.
 - **Coletor:** o Worker reivindica uma chave por lease (`fencing_token`, `lease_until`), só de foto com tombstone
-  e ainda `Deleted`, e só se a chave for o original ou derivado do asset excluído; apaga fora de transação e remove
+  e ainda `Deleted`, e só se a chave for o original, derivado do asset excluído ou derivado determinístico do
+  original (foto excluída em `Quarantined`/`Processing`, disponível após 15 min); apaga fora de transação e remove
   a obrigação, ou mantém com backoff de 15 s a 15 min.
 - **Constraints:** FKs `RESTRICT` para `media.uploads` e `identity.users`; chave de operação `^[0-9a-f]{64}$`;
   hashes de 32 bytes; chaves de objeto só nos formatos gerados pelo servidor; lease e token juntos.
@@ -1404,13 +1420,15 @@ pausa de escritas/pareamento incompatíveis e avaliação ADR-0030, nunca Down d
 
 O [contrato de revisão humana](../api/media-review.md) fixa AwaitingReview e os resultados editoriais
 como alvo futuro, separado do schema executável atual. Media mantém upload/candidato/asset; Safety terá
-caso/atribuição/decisão/recurso. Leitores, constraints, índices e as consultas reais de cota3/100 devem
+caso/atribuição/decisão (sem recurso desde 28/10/2026). Leitores, constraints, índices e as consultas reais de cota3/100 devem
 preceder escritores; metadados de geração/versão impedem publicação ou limpeza por tentativa obsoleta.
-M0 não cria migração, tabela, grant, enum ou valor persistido. Recurso/retention_until e cleanup precisam
+M0 não cria migração, tabela, grant, enum ou valor persistido. retention_until e cleanup precisam
 de serialização no PostgreSQL real; restore não reconstrói candidato ausente por metadados.
 
 
-### safety.photo_review_appeal_decision_commands — decisões independentes de recurso
+### safety.photo_review_appeal_decision_commands — decisões independentes de recurso (legado, sem escritor)
+
+Tudo o que segue descreve a release anterior a 28/10/2026; ver [revisão de fotos sem recurso](#revisão-de-fotos-sem-recurso-28102026-tabelas-de-recurso-legadas).
 
 A migração forward `20261025120000_PhotoReviewAppealDecisions` preserva fatos e recibos iniciais. Cada novo fato humano de recurso grava `appeal_id` e `original_decision_id` juntos, tem no máximo uma decisão por raiz e mantém o autor distinto do autor original. A raiz encerra como ClosedApproved ou ClosedRejected antes do limite original de30dias. Seu instante real de encerramento, versões da raiz/caso/foto e resultado/asset ficam em recibo append-only próprio. Decisão inicial conserva as igualdades de retenção24h/168h; recurso usa `min(decidedAt+24h,originalRejectedAt+30dias)`, estritamente posterior à decisão. Não há reescrita/backfill de fatos anteriores.
 

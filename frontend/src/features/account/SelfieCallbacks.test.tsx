@@ -8,6 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { API, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { renderApp } from '@/test/render'
 
+// Documento carregado em /account/selfie, como a borda exige para liberar a câmera.
+vi.mock('./selfie-document', () => ({
+  isSelfieDocument: () => true,
+  loadSelfieDocument: vi.fn(),
+  reloadCurrentDocument: vi.fn(),
+}))
+
 type DetectorProps = ComponentProps<typeof FaceLivenessDetectorCore>
 const sdk = vi.hoisted(() => ({ current: null as DetectorProps | null }))
 

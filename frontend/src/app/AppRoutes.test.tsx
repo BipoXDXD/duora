@@ -59,6 +59,15 @@ describe('rota inexistente', () => {
     )
     expect(document.title).toBe('Página não encontrada · Duora')
   })
+
+  it.each(['/admin/photo-appeals', '/admin/photo-appeals/cccccccc-cccc-4ccc-8ccc-cccccccccccc'])(
+    'não há mais fila de recurso de fotos em %s',
+    (path) => {
+      renderAt(path)
+
+      expect(screen.getByRole('heading', { level: 1, name: 'Página não encontrada' })).toBeInTheDocument()
+    },
+  )
 })
 
 describe('página inicial: entrada', () => {

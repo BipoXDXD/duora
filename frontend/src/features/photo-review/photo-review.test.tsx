@@ -11,14 +11,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountContext } from '@/features/session/account-context'
 import { createTestQueryClient, renderWithI18n } from '@/test/render'
 import { server } from '@/test/msw'
-import { AdminPhotoReviewsPage } from './AdminPhotoReviewsPage'
+import { PhotoReviewsPage } from './AdminPhotoReviewsPage'
 import { PhotoReviewHistoryPage } from './PhotoReviewHistoryPage'
 import { PhotoReviewHistoryLink } from './PhotoReviewHistoryLink'
 import * as reviewApi from './photo-review-api'
 
 const CASE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PHOTO = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-const APPEAL = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const ACCOUNT = {
   id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
   email: 'reviewer@example.test',
@@ -27,7 +26,7 @@ const ACCOUNT = {
   mfaEnabled: true,
   roles: ['moderator'],
 } as const
-const capabilities = { assign: true, evidence: true, decide: true, appeal: true, recentMfaRequiredForDecision: true }
+const capabilities = { assign: true, evidence: true, decide: true, recentMfaRequiredForDecision: true }
 const review = {
   caseId: CASE,
   state: 'AwaitingReview',
@@ -35,16 +34,6 @@ const review = {
   awaitingReviewAt: '2026-10-25T10:00:00Z',
   reviewDeadline: '2026-10-28T10:00:00Z',
   policyVersion: 'policy-1',
-}
-const appeal = {
-  appealId: APPEAL,
-  photoId: PHOTO,
-  state: 'Open',
-  eTag: '"opaque-appeal-v1"',
-  requestedAt: '2026-10-25T11:00:00Z',
-  responseTargetAt: '2026-11-01T11:00:00Z',
-  maximumRetentionUntil: '2026-11-20T11:00:00Z',
-  closedAt: null,
 }
 const history = {
   photoId: PHOTO,
@@ -55,11 +44,8 @@ const history = {
       decision: 'reject',
       reasonCode: 'does_not_meet_policy',
       decidedAt: '2026-10-25T10:00:00Z',
-      isAppeal: false,
     },
   ],
-  appeal: null,
-  canRequestAppeal: true,
 }
 
 afterEach(() => {
@@ -81,8 +67,7 @@ function mount(path = '/admin/photo-reviews', locale: 'en-US' | 'pt-BR' = 'en-US
         <PrivateOperationProvider owner={me.owner}>
           <MemoryRouter initialEntries={[path]}>
             <Routes>
-              <Route path="/admin/photo-reviews/:caseId?" element={<AdminPhotoReviewsPage kind="review" />} />
-              <Route path="/admin/photo-appeals/:appealId?" element={<AdminPhotoReviewsPage kind="appeal" />} />
+              <Route path="/admin/photo-reviews/:caseId?" element={<PhotoReviewsPage />} />
               <Route path="/photos/:photoId/review" element={<PhotoReviewHistoryPage />} />
             </Routes>
           </MemoryRouter>
@@ -103,10 +88,6 @@ function fixtures() {
     http.get('/api/v1/admin/photo-reviews', () => HttpResponse.json({ items: [review], nextCursor: null })),
     http.get(`/api/v1/admin/photo-reviews/${CASE}`, () =>
       HttpResponse.json(review, { headers: { ETag: review.eTag } }),
-    ),
-    http.get('/api/v1/admin/photo-appeals', () => HttpResponse.json({ items: [appeal], nextCursor: null })),
-    http.get(`/api/v1/admin/photo-appeals/${APPEAL}`, () =>
-      HttpResponse.json(appeal, { headers: { ETag: appeal.eTag } }),
     ),
     http.get(`/api/v1/me/photos/${PHOTO}/review-history`, () =>
       HttpResponse.json(history, { headers: { ETag: history.photoETag } }),
@@ -139,7 +120,7 @@ function nativeBitmap() {
   return bitmap
 }
 
-describe('private photo review and appeal UI', () => {
+describe('private photo review UI', () => {
   it('links the owner photo to its history without starting a review command', () => {
     renderWithI18n(
       <MemoryRouter>
@@ -157,7 +138,7 @@ describe('private photo review and appeal UI', () => {
     const queue = vi.fn(() => HttpResponse.json({ items: [review], nextCursor: null }))
     server.use(
       http.get('/api/v1/admin/photo-reviews/capabilities', () =>
-        HttpResponse.json({ assign: true, evidence: true, appeal: true, recentMfaRequiredForDecision: true }),
+        HttpResponse.json({ assign: true, evidence: true, recentMfaRequiredForDecision: true }),
       ),
       http.get('/api/v1/admin/photo-reviews', queue),
     )
@@ -247,29 +228,6 @@ describe('private photo review and appeal UI', () => {
     expect(received[0]?.etag).toBe(review.eTag)
     expect(received[0]?.key).toMatch(/^[A-Za-z0-9_-]{1,64}$/)
     expect(screen.queryByRole('button', { name: 'Confirm decision' })).not.toBeInTheDocument()
-  })
-
-  it('uses the appeal ETag and closed rejection reason on the appeal decision route', async () => {
-    fixtures()
-    const commands: { etag: string | null; body: unknown }[] = []
-    server.use(
-      http.post(`/api/v1/admin/photo-appeals/${APPEAL}/decisions`, async ({ request }) => {
-        commands.push({ etag: request.headers.get('If-Match'), body: await request.json() })
-        return HttpResponse.json({
-          caseId: CASE,
-          appealId: APPEAL,
-          decision: 'reject',
-          eTag: '"appeal-v2"',
-          photoETag: '"photo-v2"',
-          assetId: null,
-        })
-      }),
-    )
-    mount(`/admin/photo-appeals/${APPEAL}`)
-    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Decision' }), 'reject')
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm decision' }))
-    expect(await screen.findByText('Decision confirmed by the server.')).toBeVisible()
-    expect(commands).toEqual([{ etag: appeal.eTag, body: { decision: 'reject', reasonCode: 'does_not_meet_policy' } }])
   })
 
   it('requires an explicit new decision after successful recent-TOTP verification', async () => {
@@ -476,9 +434,7 @@ describe('private photo review and appeal UI', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(rejected).toHaveBeenCalledOnce()
     expect(nativeFetch).not.toHaveBeenCalled()
-    const queue = client
-      .getQueryCache()
-      .find({ queryKey: ['photo-review', ACCOUNT.id, 'review', 'queue'], exact: false })
+    const queue = client.getQueryCache().find({ queryKey: ['photo-review', ACCOUNT.id, 'queue'], exact: false })
     expect(queue?.state.error).toBeInstanceOf(ApiNetworkError)
     expect(queue?.state.error?.cause).toBeInstanceOf(TypeError)
   })
@@ -521,7 +477,6 @@ describe('private photo review and appeal UI', () => {
           ? problem(503)
           : HttpResponse.json({
               caseId: CASE,
-              appealId: null,
               decision: 'approve',
               eTag: '"case-v2"',
               photoETag: '"photo-v2"',
@@ -566,71 +521,38 @@ describe('private photo review and appeal UI', () => {
     })
   })
 
-  it('does not equate an unavailable appeal with approval or offer another decision', async () => {
+  it('tells the owner of a rejected photo to send a new photo instead of offering an appeal', async () => {
     fixtures()
-    server.use(
-      http.get(`/api/v1/admin/photo-appeals/${APPEAL}`, () =>
-        HttpResponse.json(
-          { ...appeal, state: 'ClosedUnavailable', closedAt: '2026-10-25T12:00:00Z' },
-          { headers: { ETag: appeal.eTag } },
-        ),
-      ),
-    )
-    mount(`/admin/photo-appeals/${APPEAL}`)
-    expect(await screen.findByText('Appeal closed as unavailable, without a decision on the merits.')).toBeVisible()
-    expect(screen.queryByRole('button', { name: 'Confirm decision' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'View private image' })).not.toBeInTheDocument()
-  })
-
-  it('uses owner eligibility rather than administrative capabilities to request an appeal', async () => {
-    fixtures()
-    const admin = vi.fn(() => problem(403))
-    let requested = false
-    const sent: { etag: string | null; body: unknown }[] = []
-    server.use(
-      http.get('/api/v1/admin/photo-reviews/capabilities', admin),
-      http.get(`/api/v1/me/photos/${PHOTO}/review-history`, () =>
-        HttpResponse.json(
-          { ...history, appeal: requested ? appeal : null, canRequestAppeal: !requested },
-          { headers: { ETag: history.photoETag } },
-        ),
-      ),
-      http.post(`/api/v1/me/photos/${PHOTO}/appeals`, async ({ request }) => {
-        sent.push({ etag: request.headers.get('If-Match'), body: await request.json() })
-        requested = true
-        return HttpResponse.json(
-          {
-            appealId: APPEAL,
-            photoId: PHOTO,
-            photoETag: '"photo-v2"',
-            requestedAt: appeal.requestedAt,
-            responseTargetAt: appeal.responseTargetAt,
-            maximumRetentionUntil: appeal.maximumRetentionUntil,
-          },
-          { status: 201 },
-        )
-      }),
-    )
     mount(`/photos/${PHOTO}/review`)
-    await userEvent.click(await screen.findByRole('button', { name: 'Request an appeal' }))
-    expect(await screen.findByText('Appeal requested. The photo has not been approved.')).toBeVisible()
-    expect(sent).toEqual([{ etag: history.photoETag, body: {} }])
-    expect(admin).not.toHaveBeenCalled()
-    expect(await screen.findByText('Open')).toBeVisible()
+    expect(await screen.findByText('Does not meet the policy')).toBeVisible()
+    expect(screen.getByText('You can send a new photo. It will go through a new review.')).toBeVisible()
+    expect(screen.queryByRole('button', { name: /appeal/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/appeal/i)).not.toBeInTheDocument()
   })
 
-  it('shows no appeal action for an ineligible owner and reveals no staff identity', async () => {
+  it('shows the new-photo guidance in pt-BR and reveals no staff identity', async () => {
     fixtures()
-    server.use(
-      http.get(`/api/v1/me/photos/${PHOTO}/review-history`, () =>
-        HttpResponse.json({ ...history, canRequestAppeal: false }, { headers: { ETag: history.photoETag } }),
-      ),
-    )
     mount(`/photos/${PHOTO}/review`, 'pt-BR')
     expect(await screen.findByRole('heading', { name: 'Histórico de revisão da foto' })).toBeVisible()
     expect(await screen.findByText('Não atende à política')).toBeVisible()
-    expect(screen.queryByRole('button', { name: 'Pedir recurso' })).not.toBeInTheDocument()
+    expect(screen.getByText('Você pode enviar uma foto nova. Ela passará por uma nova revisão.')).toBeVisible()
+    expect(screen.queryByRole('button', { name: /recurso/i })).not.toBeInTheDocument()
     expect(screen.queryByText('reviewer@example.test')).not.toBeInTheDocument()
+  })
+
+  it('does not show the new-photo guidance for an approved photo', async () => {
+    fixtures()
+    server.use(
+      http.get(`/api/v1/me/photos/${PHOTO}/review-history`, () =>
+        HttpResponse.json(
+          { ...history, items: [{ ...history.items[0], decision: 'approve', reasonCode: 'meets_policy' }] },
+          { headers: { ETag: history.photoETag } },
+        ),
+      ),
+    )
+    mount(`/photos/${PHOTO}/review`)
+    expect(await screen.findByText('Meets the policy')).toBeVisible()
+    expect(screen.queryByText('You can send a new photo. It will go through a new review.')).not.toBeInTheDocument()
   })
 
   it('treats another owner and a missing photo identically without disclosing history', async () => {
@@ -638,7 +560,7 @@ describe('private photo review and appeal UI', () => {
     server.use(http.get(`/api/v1/me/photos/${PHOTO}/review-history`, () => problem(404, 'NOT_FOUND')))
     mount(`/photos/${PHOTO}/review`)
     expect(await screen.findByText('This photo or case is unavailable.')).toBeVisible()
-    expect(screen.queryByRole('button', { name: 'Request an appeal' })).not.toBeInTheDocument()
+    expect(screen.queryByText('You can send a new photo. It will go through a new review.')).not.toBeInTheDocument()
     expect(screen.queryByText('Does not meet the policy')).not.toBeInTheDocument()
   })
 })

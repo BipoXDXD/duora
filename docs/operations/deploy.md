@@ -4,6 +4,14 @@ Procedimento de release do Duora na VPS Ubuntu Server 24.04 com Docker Engine + 
 infraestrutura e decisões: [infra/README.md](../../infra/README.md). Backup e restore:
 [backup-restore.md](backup-restore.md).
 
+**Produção hoje (28/10/2026):** a release chega pelo workflow `Coolify release` (`.github/workflows/coolify.yml`,
+[scripts/release/coolify/README.md](../../scripts/release/coolify/README.md)). O observador do Coolify chama o
+`duora-deploy` com `--compose-file /opt/duora/compose.coolify.json`, fixado por hash em `/etc/duora/coolify-deploy.json`,
+e `--env-file /etc/duora/duora.env`. Não existe `/opt/duora/compose.prod.yml` na VPS, e releases só trocam imagens:
+mudar configuração de container (ambiente, segredos) é passo administrativo sobre o `compose.coolify.json`. O
+`compose.prod.yml` do repositório continua sendo a referência revisada e o que o smoke e os laboratórios sobem; o
+caminho Ansible descrito abaixo vale para uma VPS nova.
+
 **Não é zero-downtime.** Com uma instância web, o deploy tem uma breve interrupção planejada (spec 17.3): o worker
 para antes da migração e web/edge são recriados. Escala horizontal exige o ADR de SignalR, sessões e fan-out.
 
@@ -56,6 +64,87 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   tempos-alvo, escalonamento e contingência do canal: [support-incidents.md](support-incidents.md). DMARC com
   `rua` e plano de subida: [dmarc.md](dmarc.md); confira se a fase publicada no DNS é a registrada na #82.
 
+
+- [ ] **Selfie de presença (#93):** em produção a selfie se liga no Compose do Coolify, não no `compose.prod.yml`
+  nem no `duora.env`; siga [Selfie de presença no Coolify](#selfie-de-presença-no-coolify-93) antes da primeira
+  release que deva capturar.
+
+## Selfie de presença no Coolify (#93)
+
+Pré-requisitos já feitos pelo dono em 28/10/2026: usuários IAM `duora-selfie-web` (só `sts:AssumeRole` no papel
+`duora-selfie-capture`, us-east-1) e `duora-selfie-worker` (`CreateFaceLivenessSession`,
+`GetFaceLivenessSessionResults`, `DetectFaces`, us-east-1); trust do papel só no web; os quatro arquivos
+`/etc/duora/secrets/selfie-{web,worker}-aws-{access-key-id,secret-access-key}` com dono 1654 e modo 0400. Nunca leia
+o conteúdo deles.
+
+`scripts/deploy/selfie_compose.py` transforma o JSON do Coolify: acrescenta no web e no worker o ambiente da selfie
+(`Enabled`/`PrivacyApproved` literais `true`, região; o ARN do papel só no web) e monta cada par só no seu serviço,
+declarando os arquivos no mesmo diretório dos segredos já montados. É idempotente, recusa formato inesperado e
+`disable` desfaz exatamente o que `enable` acrescenta (`test_selfie_compose.py`, inclusive contra o
+`compose.prod.yml` renderizado). Como root, na VPS, com `SHA` = commit da main que contém o merge do #278:
+
+```bash
+set -euo pipefail
+SHA=<commit-40-hex>; W=$(mktemp -d /root/selfie-XXXX)
+# 0. Nada em andamento e o pin bate com o arquivo atual.
+test ! -e /var/lib/coolify-release/duora/pending.json
+test "$(sha256sum /opt/duora/compose.coolify.json | cut -d' ' -f1)" = \
+     "$(python3 -I -c 'import json;print(json.load(open("/etc/duora/coolify-deploy.json"))["compose_sha256"])')"
+stat -c '%n %u %a %s' /etc/duora/secrets/selfie-*-aws-*      # 1654 400 e tamanho > 0
+# 1. Ferramenta do commit exato; compare o hash com o do arquivo no GitHub antes de rodar.
+curl -fsSL "https://raw.githubusercontent.com/BipoXDXD/duora/$SHA/scripts/deploy/selfie_compose.py" -o "$W/selfie_compose.py"
+sha256sum "$W/selfie_compose.py"
+# 2. Gerar e revisar: a diferença tem de ser só o ambiente SelfieVerification__*, os dois segredos de cada serviço e
+#    as quatro declarações selfie_* no topo.
+python3 -I "$W/selfie_compose.py" enable /opt/duora/compose.coolify.json > "$W/compose.coolify.json"
+diff <(python3 -I -m json.tool --sort-keys /opt/duora/compose.coolify.json) \
+     <(python3 -I -m json.tool --sort-keys "$W/compose.coolify.json") || true
+CURRENT=$(python3 -I -c 'import json;print(json.load(open("/var/lib/duora/current.json"))["releaseId"])')
+docker compose -f "$W/compose.coolify.json" --env-file /etc/duora/duora.env \
+     --env-file "/var/lib/duora/releases/$CURRENT.env" config --quiet
+NEW=$(sha256sum "$W/compose.coolify.json" | cut -d' ' -f1)
+# 3. Trocar sob a trava do deploy, com cópia do estado anterior; mesmo dono e modo dos originais.
+flock -n /var/lib/duora/.deploy.lock sh -euc '
+  cp -p /opt/duora/compose.coolify.json /opt/duora/compose.coolify.json.pre-selfie
+  cp -p /etc/duora/coolify-deploy.json /etc/duora/coolify-deploy.json.pre-selfie
+  install -o root -g root -m "$(stat -c %a /opt/duora/compose.coolify.json)" "$1/compose.coolify.json" /opt/duora/compose.coolify.json
+  python3 -I -c "import json,sys;p=\"/etc/duora/coolify-deploy.json\";d=json.load(open(p));d[\"compose_sha256\"]=sys.argv[1];open(sys.argv[2],\"w\").write(json.dumps(d,indent=2)+\"\\n\")" "$2" "$1/pin.json"
+  install -o root -g root -m "$(stat -c %a /etc/duora/coolify-deploy.json)" "$1/pin.json" /etc/duora/coolify-deploy.json
+' sh "$W" "$NEW"
+```
+
+Repetir o procedimento com o arquivo já ligado gera os mesmos bytes e o mesmo hash.
+
+**Caddyfile.** O edge de produção monta `/opt/duora/Caddyfile.duora-web.coolify` (fixado por `caddy_sha256` no pin),
+não o Caddyfile da imagem: o CSP de `/account/selfie` só chega aplicando ao arquivo do host o mesmo diff do
+`infra/caddy/Caddyfile` (o arquivo do host difere só no TLS atrás do Traefik e nos `trusted_proxies`), validando com
+`caddy validate` e atualizando `caddy_sha256`. O Caddyfile não entra no baseline do executor.
+
+**Ressela.** O baseline do executor (`/var/lib/duora/executor-runtime-baseline.json`) fixa o hash do Compose
+(`context.composeSha256`). Sem selar de novo, o `duora-deploy` recusa a release com "Database/backup runtime changed".
+O instalador sela de novo no modo comum, com o bundle já ativo (os valores vêm de
+`/var/lib/duora/executor-install-receipt.json`): primeiro só a inspeção, revisando que no `profile` só mudou
+`composeSha256`; depois `--apply`. Não edite o baseline nem o recibo à mão.
+
+```bash
+B=/opt/duora-executor/releases/<sourceCommit do recibo>
+python3 -I "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
+  --manifest-sha256 <manifestSha256> --artifact-id <qualificationArtifactId>          # inspeção: anote inventorySha256
+python3 -I "$B/install_executor.py" --bundle "$B" --source-commit <sourceCommit> \
+  --manifest-sha256 <manifestSha256> --artifact-id <qualificationArtifactId> --apply \
+  --reviewed-inventory-sha256 <inventorySha256 revisado> --expected-executor-sha256 <executorSha256>
+```
+
+**Ordem.** O web anterior ao #278 recusa o boot com a selfie ligada. Então:
+
+1. Caddyfile e `caddy_sha256` (pode ser antes do merge).
+2. Merge do #278: a release automática sobe o código novo com a selfie desligada.
+3. Compose, `compose_sha256` e ressela.
+4. Release nova do mesmo SHA por `workflow_dispatch` do `Coolify release`, que recria web e worker.
+
+**Rollback**, sob a mesma trava: devolva os arquivos `.pre-selfie`, ou rode `selfie_compose.py disable`, atualize o
+pin e sele de novo como acima. Depois, uma release nova. Voltar para uma release anterior à #93 exige antes a selfie
+desligada.
 
 ## Manifesto da release (spec 17.2)
 
@@ -495,6 +584,7 @@ checagem na edge.
 
 A CSP e a `Permissions-Policy` vivem só no `infra/caddy/Caddyfile` e valem para toda resposta da borda: documento,
 assets, API, hub, webhooks e os erros gerados pelo próprio Caddy (`handle_errors`, com `Cache-Control: no-store`).
+A única exceção é o documento exato `/account/selfie` ([abaixo](#documento-da-selfie-issue-93)).
 As duas são **allowlist contra a matriz de capacidades** abaixo: cada fonte e cada feature liberada tem uma
 capacidade que a usa, e o resto fica negado. A política esperada mora em `scripts/deploy/caddy_test_support.py`;
 mudar o Caddyfile sem mudar o teste no mesmo PR falha o job `ops`, e a mudança exige revisão humana.
@@ -511,11 +601,35 @@ mudar o Caddyfile sem mudar o teste no mesmo PR falha o job `ops`, e a mudança 
 | Voz ao vivo | `getUserMedia`; `<audio>.srcObject = MediaStream`; `RTCPeerConnection` com relay TURN; credencial por `POST /api/v1/rooms/{roomId}/voice/credentials` | nenhuma fonte nova: `srcObject` não passa pelo Fetch e ICE não passa por `connect-src` | `microphone=(self)`, `speaker-selection=(self)` |
 | 3D em tempo real (`<model-viewer>` 4.4.0) | bundle próprio; um `<style>` no shadow root; GLB por `fetch()`; textura embutida por `fetch(blob:)`; WebGL; política `lit-html` do Lit | hash do `<style>`, `connect-src blob:`, `trusted-types lit-html` | nenhuma (sem `ar`: `xr-spatial-tracking` e sensores negados) |
 
-Fora da matriz, e por isso negado: vídeo e câmera, compartilhamento de tela, tela cheia, AR, sensores, clipboard,
+Fora da matriz, e por isso negado (exceto câmera, WebAssembly e os dois hosts da AWS no
+[documento da selfie](#documento-da-selfie-issue-93)): vídeo e câmera, compartilhamento de tela, tela cheia, AR, sensores, clipboard,
 passkeys (spec 11.1 as deixa para depois; o PR delas libera `publickey-credentials-*`), pagamento, hardware
 (USB, serial, HID, Bluetooth, MIDI, gamepad), geolocalização, worker e service worker, WebAssembly, iframe e
 plugin. Pré-visualizar a foto antes do envio por `URL.createObjectURL` não existe hoje; se entrar, pede
 `img-src blob:` no PR das fotos.
+
+### Documento da selfie (issue #93)
+
+O `FaceLivenessDetector` 3.7.0 oficial da AWS ([ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md))
+precisa de câmera, de compilar o WASM do TensorFlow.js e de dois hosts da AWS. Em vez de relaxar a política global, o
+Caddy dá a política da selfie só à resposta do caminho exato `/account/selfie` (matchers complementares
+`@selfieDocument`/`@regularResponse`, nunca dois cabeçalhos). A SPA carrega essa rota por navegação completa
+(`SelfieVerificationPage` recarrega o documento quando chega por navegação interna) e recarrega o destino ao sair
+(`SelfieDocumentBoundary`), para o resto do site nunca rodar com ela.
+
+| Diferença em relação à política comum | Por quê |
+|---|---|
+| `script-src 'self' 'wasm-unsafe-eval'` | Compilar o WASM do backend `tfjs-backend-wasm` 4.11.0 do detector de rosto. Não libera `eval` de JavaScript (CSP3 `wasm-unsafe-eval`) |
+| `connect-src` + `https://cdn.liveness.rekognition.amazonaws.com` | WASM e modelo BlazeFace padrão do componente (`binaryPath`, `faceModelUrl`; [Amplify UI](https://ui.docs.amplify.aws/react/connected-components/liveness)) |
+| `connect-src` + `wss://streaming-rekognition.us-east-1.amazonaws.com` | WebSocket do `StartFaceLivenessSession`, só na região aprovada |
+| `camera=(self)` | Captura de vídeo pela própria origem; nenhuma outra feature muda |
+
+Continuam iguais: `worker-src 'none'` (sem `crossOriginIsolated` o TF.js usa o WASM sem threads, sem worker),
+Trusted Types, `img-src`/`media-src` (o vídeo entra por `srcObject`) e todo o resto. Testes:
+`test_caddy_security_headers.py` (política exata no caminho e comum nos vizinhos), a sonda Chromium
+`test_caddy_browser.cjs` (WASM, câmera e hosts permitidos na selfie; recusados fora dela) e
+`frontend/e2e/selfie-csp.spec.ts` (o componente real abre câmera e streaming sem violação de CSP; com a política
+comum, recusa `wasm-eval`).
 
 ### CSP, diretiva por diretiva
 

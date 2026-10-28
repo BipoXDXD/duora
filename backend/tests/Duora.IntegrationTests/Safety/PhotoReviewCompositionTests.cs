@@ -29,9 +29,6 @@ public sealed class PhotoReviewCompositionTests(PostgresFixture postgres)
         _ = services.GetRequiredService<PhotoReviewEvidence>();
         _ = services.GetRequiredService<PhotoReviewRejections>();
         _ = services.GetRequiredService<PhotoReviewApprovals>();
-        _ = services.GetRequiredService<PhotoReviewAppeals>();
-        _ = services.GetRequiredService<PhotoReviewAppealAssignments>();
-        _ = services.GetRequiredService<PhotoReviewAppealEvidence>();
         _ = services.GetRequiredService<PhotoReviewExpirations>();
         _ = services.GetRequiredService<PhotoReviewCandidateAvailability>();
         _ = services.GetRequiredService<ApprovedMediaBackupCatalog>();
@@ -47,9 +44,9 @@ public sealed class PhotoReviewCompositionTests(PostgresFixture postgres)
         await using var provider = Services(database.AppConnectionString).BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
         await using var firstScope = provider.CreateAsyncScope();
         await using var secondScope = provider.CreateAsyncScope();
-        var first = firstScope.ServiceProvider.GetRequiredService<PhotoReviewAppealEvidence>();
-        Assert.Same(first, firstScope.ServiceProvider.GetRequiredService<PhotoReviewAppealEvidence>());
-        Assert.NotSame(first, secondScope.ServiceProvider.GetRequiredService<PhotoReviewAppealEvidence>());
+        var first = firstScope.ServiceProvider.GetRequiredService<PhotoReviewEvidence>();
+        Assert.Same(first, firstScope.ServiceProvider.GetRequiredService<PhotoReviewEvidence>());
+        Assert.NotSame(first, secondScope.ServiceProvider.GetRequiredService<PhotoReviewEvidence>());
 
         var factory = firstScope.ServiceProvider.GetRequiredService<IDbContextFactory<DuoraDbContext>>();
         await using var second = await factory.CreateDbContextAsync(Ct);

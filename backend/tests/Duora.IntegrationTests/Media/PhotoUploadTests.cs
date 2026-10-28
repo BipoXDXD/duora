@@ -456,9 +456,6 @@ public sealed class PhotoUploadTests : IAsyncDisposable
             "/api/v1/admin/photo-reviews",
             "/api/v1/admin/photo-reviews/{caseId:guid}",
             "/api/v1/admin/photo-reviews/{caseId:guid}/evidence/{variant}",
-            "/api/v1/admin/photo-appeals",
-            "/api/v1/admin/photo-appeals/{appealId:guid}",
-            "/api/v1/admin/photo-appeals/{appealId:guid}/evidence/{variant}",
         ];
         Assert.Equal(expected.Order(StringComparer.Ordinal), mediaReads.Order(StringComparer.Ordinal));
         Assert.DoesNotContain(mediaReads, path => path.Contains("original", StringComparison.OrdinalIgnoreCase)

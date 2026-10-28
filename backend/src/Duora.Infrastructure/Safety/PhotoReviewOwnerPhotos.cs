@@ -22,8 +22,7 @@ public sealed partial class PhotoReviewService
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         await db.Database.ExecuteSqlRawAsync("set local statement_timeout='5s'", ct);
         var actor = new PhotoReviewActor(user, session);
-        var access = new PhotoReviewAppeals(_contexts, _store, _time);
-        if (!await access.AuthorizeOwnerAsync(db, actor, ct))
+        if (!await PhotoOwnerAccess.AuthorizeAsync(db, _time, actor, ct))
         {
             return new(null, ReviewRefusal.Forbidden);
         }
@@ -39,7 +38,7 @@ public sealed partial class PhotoReviewService
               and (not {hasCursor} or (u.created_at,u.id)>({createdAt},{photoId}))
             order by u.created_at,u.id limit {limit + 1}
             """).ToListAsync(ct);
-        if (!await access.AuthorizeOwnerAsync(db, actor, ct))
+        if (!await PhotoOwnerAccess.AuthorizeAsync(db, _time, actor, ct))
         {
             return new(null, ReviewRefusal.Forbidden);
         }

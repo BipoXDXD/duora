@@ -8,18 +8,20 @@ public sealed class HumanReviewIngressPolicyTests
     [InlineData("Development")]
     [InlineData("Testing")]
     [InlineData("testing")]
-    public void HumanReviewIngressCanBeQualifiedWithSyntheticData(string environment)
+    [InlineData("Production")]
+    [InlineData("production")]
+    public void HumanReviewIsAdmittedInSyntheticEnvironmentsAndInProduction(string environment)
     {
         Assert.True(MediaReview.IsPermitted(HumanReview(), environment));
     }
 
+    // Owner decision of 2026-10-28 admits Production only; a new environment still needs its own decision.
     [Theory]
-    [InlineData("Production")]
-    [InlineData("production")]
     [InlineData("Staging")]
     [InlineData("Produção")]
+    [InlineData("Production ")]
     [InlineData("")]
-    public void HumanReviewIngressDoesNotAdmitProductionOrUnknownEnvironments(string environment)
+    public void HumanReviewIsNotAdmittedInUnknownEnvironments(string environment)
     {
         Assert.False(MediaReview.IsPermitted(HumanReview(), environment));
     }

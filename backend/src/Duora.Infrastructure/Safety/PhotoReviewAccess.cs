@@ -12,7 +12,6 @@ internal enum PhotoReviewCapability
     Assign,
     Evidence,
     Decide,
-    Appeal,
     Preserve,
 }
 
@@ -153,14 +152,13 @@ internal sealed class PhotoReviewAccess(DuoraDbContext db, TimeProvider time)
             """).SingleAsync(cancellationToken);
 
     private static bool RequiresRecentTotp(PhotoReviewCapability capability) =>
-        capability is PhotoReviewCapability.Decide or PhotoReviewCapability.Appeal or PhotoReviewCapability.Preserve;
+        capability is PhotoReviewCapability.Decide or PhotoReviewCapability.Preserve;
 
     private static string CapabilityName(PhotoReviewCapability capability) => capability switch
     {
         PhotoReviewCapability.Assign => "assign",
         PhotoReviewCapability.Evidence => "evidence",
         PhotoReviewCapability.Decide => "decide",
-        PhotoReviewCapability.Appeal => "appeal",
         PhotoReviewCapability.Preserve => "preserve",
         _ => throw new ArgumentOutOfRangeException(nameof(capability), capability, "Unknown review permission."),
     };
