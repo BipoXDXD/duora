@@ -70,3 +70,6 @@ sixlabors.lic
 
 # Artefatos OCI de publicação; não são imagens locais nem código-fonte.
 .docker-artifacts/
+
+# Execução local do harness C2 (issue #86): evidências e contas sintéticas, nunca versionadas.
+/c2run/

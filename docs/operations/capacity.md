@@ -134,6 +134,12 @@ avg10 > 45 e CPU ocupada > 75% ao mesmo tempo, abaixo do gatilho do OpenClaw. En
 removidos deixam o render `UNKNOWN`, com o motivo `missing-file:<caminho>`. O coletor não roda carga, fio, C2
 nem restore, e não aceita C1 sozinho.
 
+## Harness C2
+
+[capacity-c2.md](capacity-c2.md) descreve o harness executável do C2 (projeto sombra `duora-c2` com dados
+sintéticos, carga a partir do Mac, sampler somente leitura, FULL e DIFF em fases distintas, guardas de aborto
+inclusive para os outros apps da VPS, restore do ensaio) e o roteiro da janela. Ele não aceita C2 sozinho.
+
 ## Reconciliação gateway e backup de mídia
 
 A main após #96 contém dois Composes e serviços no host. O orçamento anterior de 7.296 MiB
