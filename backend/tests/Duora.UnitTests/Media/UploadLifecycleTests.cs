@@ -14,6 +14,7 @@ public sealed class UploadLifecycleTests
         { UploadState.Processing, UploadState.Approved },
         { UploadState.Processing, UploadState.Rejected },
         { UploadState.Processing, UploadState.Deleted },
+        { UploadState.Processing, UploadState.AwaitingReview },
         { UploadState.Approved, UploadState.Deleted },
         { UploadState.Rejected, UploadState.Deleted },
         { UploadState.AwaitingReview, UploadState.Deleted },
@@ -46,6 +47,7 @@ public sealed class UploadLifecycleTests
     [InlineData(UploadState.Pending, true)]
     [InlineData(UploadState.Quarantined, true)]
     [InlineData(UploadState.Processing, true)]
+    [InlineData(UploadState.AwaitingReview, true)]
     [InlineData(UploadState.Approved, false)]
     [InlineData(UploadState.Rejected, false)]
     [InlineData(UploadState.Deleted, false)]
@@ -63,13 +65,17 @@ public sealed class UploadLifecycleTests
     }
 
     [Fact]
-    public void ReaderPreparationDoesNotEnableAnyReviewWriterOrImplicitApproval()
+    public void HumanReviewIngressDoesNotPermitImplicitHumanApprovalOrRejection()
     {
         var awaiting = UploadState.AwaitingReview;
         Assert.True(UploadLifecycle.CountsAsPending(awaiting));
-        Assert.All(Enum.GetValues<UploadState>(), from => Assert.False(UploadLifecycle.CanMove(from, awaiting)));
+        Assert.True(UploadLifecycle.CanMove(UploadState.Processing, awaiting));
+        Assert.All(Enum.GetValues<UploadState>().Where(from => from != UploadState.Processing),
+            from => Assert.False(UploadLifecycle.CanMove(from, awaiting)));
         Assert.False(UploadLifecycle.CanMove(awaiting, UploadState.Approved));
         Assert.False(UploadLifecycle.CanMove(awaiting, UploadState.Rejected));
-        Assert.False(Enum.TryParse<MediaReviewPolicy>("HumanReview", out _));
+        Assert.True(Enum.TryParse<MediaReviewPolicy>("HumanReview", out var policy));
+        Assert.Equal(awaiting, MediaReview.VerdictAfterSanitizing(policy));
+        Assert.False(MediaReview.IsPermitted(policy, "Production"));
     }
 }
