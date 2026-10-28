@@ -67,7 +67,7 @@ public sealed partial class OwnerMediaReads
     {
         await using var db = await _contexts.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
-        if (!await new PhotoReviewAppeals(_contexts, _store, _time).AuthorizeOwnerAsync(db, owner, cancellationToken))
+        if (!await PhotoOwnerAccess.AuthorizeAsync(db, _time, owner, cancellationToken))
         {
             return null;
         }

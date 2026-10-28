@@ -132,7 +132,6 @@ public sealed class AdminRouteTests : IAsyncDisposable
             var expected = route.Path is AdminPrefix + "/events" or AdminPrefix + "/experience-versions" or AdminPrefix + "/route-experience-versions"
                 ? HttpStatusCode.BadRequest
                 : route.Path.StartsWith(AdminPrefix + "/photo-reviews", StringComparison.Ordinal)
-                    || route.Path.StartsWith(AdminPrefix + "/photo-appeals", StringComparison.Ordinal)
                     ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.NoContent;
             Assert.True(response.StatusCode == expected, $"{route.Name} respondeu {(int)response.StatusCode}.");
         }

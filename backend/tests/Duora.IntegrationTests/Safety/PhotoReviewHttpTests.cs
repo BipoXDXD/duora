@@ -15,96 +15,90 @@ namespace Duora.IntegrationTests.Safety;
 public sealed partial class PhotoReviewApprovalTests
 {
     [Fact]
-    public async Task RealCookiesMfaCsrfAndIndependentAppealReachTheSameGuardedCoordinators()
+    public async Task SingleModeratorRejectsThenANewUploadOpensANewReviewThatTheSameModeratorApproves()
     {
         await using var web = ReviewWeb();
         var identity = new IdentityScenario(_connectionString, web);
         var owner = await identity.CreateConfirmedAccountAsync();
         using var ownerBrowser = await identity.SignedInBrowserAsync(owner);
-        var initial = await identity.CreatePrivilegedAccountAsync(AccountRoles.Moderator);
-        var independent = await identity.CreatePrivilegedAccountAsync(AccountRoles.Moderator);
-        await ExecuteAsync("update identity.users set status='Active' where id in ($1,$2)", initial.UserId, independent.UserId);
-        using var originalBrowser = await identity.SignedInBrowserAsync(initial);
-        using var reviewerBrowser = await identity.SignedInBrowserAsync(independent);
-        await MfaScenario.EnableAsync(originalBrowser, _time);
-        await MfaScenario.EnableAsync(reviewerBrowser, _time);
-        foreach (var capability in new[] { PhotoReviewCapability.Assign, PhotoReviewCapability.Evidence,
-                     PhotoReviewCapability.Decide, PhotoReviewCapability.Appeal })
+        var moderator = await identity.CreatePrivilegedAccountAsync(AccountRoles.Moderator);
+        await ExecuteAsync("update identity.users set status='Active' where id=$1", moderator.UserId);
+        using var moderatorBrowser = await identity.SignedInBrowserAsync(moderator);
+        await MfaScenario.EnableAsync(moderatorBrowser, _time);
+        foreach (var capability in new[] { PhotoReviewCapability.Assign, PhotoReviewCapability.Evidence, PhotoReviewCapability.Decide })
         {
-            await GrantAsync(initial.UserId, capability, true);
+            await GrantAsync(moderator.UserId, capability, true);
         }
-        await GrantAsync(independent.UserId, PhotoReviewCapability.Evidence, true);
-        await GrantAsync(independent.UserId, PhotoReviewCapability.Appeal, true);
-        var item = await HttpCaseAsync(owner.UserId);
-        var casePath = $"/api/v1/admin/photo-reviews/{item.CaseId}";
-        using var assignment = await originalBrowser.PostJsonAsync(casePath + "/assignments",
-            new { reviewerId = initial.UserId }, ReviewCommand("case", item.CaseId, 1));
-        Assert.Equal(HttpStatusCode.OK, assignment.StatusCode);
-        var assigned = JsonNode.Parse(await assignment.Content.ReadAsStringAsync(Ct))!;
-        using var rejection = await originalBrowser.PostJsonAsync(casePath + "/decisions",
-            new { decision = "reject", reasonCode = "does_not_meet_policy" }, ReviewCommand(assigned["eTag"]!.GetValue<string>()));
-        Assert.Equal(HttpStatusCode.OK, rejection.StatusCode);
-        using var history = await ownerBrowser.GetAsync($"/api/v1/me/photos/{item.UploadId}/review-history");
+
+        var rejected = await HttpCaseAsync(owner.UserId);
+        var rejection = await DecideOverHttpAsync(moderatorBrowser, moderator.UserId, rejected.CaseId, "reject", "does_not_meet_policy");
+        Assert.Null(rejection["assetId"]);
+        using var history = await ownerBrowser.GetAsync($"/api/v1/me/photos/{rejected.UploadId}/review-history");
         Assert.Equal(HttpStatusCode.OK, history.StatusCode);
-        var historyBody = JsonNode.Parse(await history.Content.ReadAsStringAsync(Ct))!;
-        Assert.True(historyBody["canRequestAppeal"]!.GetValue<bool>());
-        var requestHeaders = ReviewCommand(historyBody["photoETag"]!.GetValue<string>());
-        using var appealRequest = await ownerBrowser.PostJsonAsync($"/api/v1/me/photos/{item.UploadId}/appeals", null, requestHeaders);
-        Assert.Equal(HttpStatusCode.Created, appealRequest.StatusCode);
-        using var replay = await ownerBrowser.PostJsonAsync($"/api/v1/me/photos/{item.UploadId}/appeals", null, requestHeaders);
-        Assert.Equal(await appealRequest.Content.ReadAsStringAsync(Ct), await replay.Content.ReadAsStringAsync(Ct));
-        var appeal = JsonNode.Parse(await appealRequest.Content.ReadAsStringAsync(Ct))!["appealId"]!.GetValue<Guid>();
-        var appealPath = $"/api/v1/admin/photo-appeals/{appeal}";
-        using var routing = await originalBrowser.PostJsonAsync(appealPath + "/assignments",
-            new { reviewerId = independent.UserId }, ReviewCommand("appeal", appeal, 1));
-        Assert.Equal(HttpStatusCode.OK, routing.StatusCode);
-        using var forbiddenOriginal = await originalBrowser.GetAsync(appealPath + "/evidence/full");
-        Assert.Equal(HttpStatusCode.NotFound, forbiddenOriginal.StatusCode);
-        using var image = await reviewerBrowser.GetAsync(appealPath + "/evidence/full");
-        Assert.Equal(HttpStatusCode.OK, image.StatusCode);
-        Assert.Equal("image/webp", image.Content.Headers.ContentType?.MediaType);
-        Assert.Equal("no-store", image.Headers.CacheControl?.ToString());
-        Assert.False(image.Headers.Contains("Accept-Ranges"));
-        var routingBody = JsonNode.Parse(await routing.Content.ReadAsStringAsync(Ct))!;
-        using var approved = await reviewerBrowser.PostJsonAsync(appealPath + "/decisions",
-            new { decision = "approve", reasonCode = "meets_policy" }, ReviewCommand(routingBody["eTag"]!.GetValue<string>()));
-        Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
-        var approvedBody = JsonNode.Parse(await approved.Content.ReadAsStringAsync(Ct))!;
-        Assert.Equal("approve", approvedBody["decision"]!.GetValue<string>());
-        Assert.NotNull(approvedBody["assetId"]);
-        using var finalHistory = await ownerBrowser.GetAsync($"/api/v1/me/photos/{item.UploadId}/review-history");
-        var finalBody = JsonNode.Parse(await finalHistory.Content.ReadAsStringAsync(Ct))!;
-        Assert.Equal("ClosedApproved", finalBody["appeal"]!["state"]!.GetValue<string>());
-        Assert.False(finalBody["canRequestAppeal"]!.GetValue<bool>());
-        Assert.Equal(2, finalBody["items"]!.AsArray().Count);
-        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1 and appeal_id is null and decision='reject'", item.CaseId));
+        var historyBody = JsonNode.Parse(await history.Content.ReadAsStringAsync(Ct))!.AsObject();
+        Assert.Equal(["items", "photoETag", "photoId"], historyBody.Select(p => p.Key).Order(StringComparer.Ordinal));
+        var decision = Assert.Single(historyBody["items"]!.AsArray())!.AsObject();
+        Assert.Equal(["decidedAt", "decision", "decisionId", "reasonCode"], decision.Select(p => p.Key).Order(StringComparer.Ordinal));
+        Assert.Equal("reject", decision["decision"]!.GetValue<string>());
+
+        var replacement = await HttpCaseAsync(owner.UserId);
+        Assert.NotEqual(rejected.CaseId, replacement.CaseId);
+        var approval = await DecideOverHttpAsync(moderatorBrowser, moderator.UserId, replacement.CaseId, "approve", "meets_policy");
+        Assert.NotNull(approval["assetId"]);
+        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1 and decision='reject'", rejected.CaseId));
+        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1 and decision='approve'", replacement.CaseId));
     }
 
     [Fact]
-    public async Task OwnerHistoryMasksOtherOwnersAndCommandsRejectExtraBodyCsrfAndForeignEtags()
+    public async Task AppealRoutesNoLongerExistForOwnersOrModerators()
+    {
+        await using var web = ReviewWeb();
+        var identity = new IdentityScenario(_connectionString, web);
+        var owner = await identity.CreateConfirmedAccountAsync();
+        using var browser = await identity.SignedInBrowserAsync(owner);
+        var item = await HttpCaseAsync(owner.UserId);
+        using var request = await browser.PostJsonAsync($"/api/v1/me/photos/{item.UploadId}/appeals", null,
+            ReviewCommand("photo", item.UploadId, item.UploadVersion));
+        Assert.Equal(HttpStatusCode.NotFound, request.StatusCode);
+        var routes = web.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
+            .OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>().Select(e => e.RoutePattern.RawText ?? "");
+        Assert.DoesNotContain(routes, route => route.Contains("appeal", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_appeals where case_id=$1", item.CaseId));
+    }
+
+    [Fact]
+    public async Task OwnerHistoryMasksOtherOwnersWithTheSameNotFound()
     {
         await using var web = ReviewWeb();
         var identity = new IdentityScenario(_connectionString, web);
         var owner = await identity.CreateConfirmedAccountAsync();
         var other = await identity.CreateConfirmedAccountAsync();
-        using var browser = await identity.SignedInBrowserAsync(owner);
         using var outsider = await identity.SignedInBrowserAsync(other);
         var item = await HttpCaseAsync(owner.UserId);
-        var path = $"/api/v1/me/photos/{item.UploadId}";
-        using var foreign = await outsider.GetAsync(path + "/review-history");
+        using var foreign = await outsider.GetAsync($"/api/v1/me/photos/{item.UploadId}/review-history");
         using var absent = await outsider.GetAsync($"/api/v1/me/photos/{Guid.NewGuid()}/review-history");
         Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
         Assert.Equal(foreign.StatusCode, absent.StatusCode);
-        using var extraBody = await browser.PostJsonAsync(path + "/appeals", new { arbitrary = "refused" }, ReviewCommand("photo", item.UploadId, 3));
-        Assert.Equal(HttpStatusCode.BadRequest, extraBody.StatusCode);
-        using var missing = await browser.PostJsonAsync(path + "/appeals", null);
-        Assert.Equal((HttpStatusCode)428, missing.StatusCode);
-        using var foreignTag = await browser.PostJsonAsync(path + "/appeals", null, ReviewCommand("case", item.CaseId, 3));
-        Assert.Equal(HttpStatusCode.PreconditionFailed, foreignTag.StatusCode);
-        using var csrf = await browser.PostJsonAsync(path + "/appeals", null,
-            ReviewCommand("photo", item.UploadId, 3) with { SendCsrfToken = false });
-        Assert.Equal(HttpStatusCode.Forbidden, csrf.StatusCode);
-        Assert.Equal(0, await ScalarAsync("select count(*) from safety.photo_review_appeals where case_id=$1", item.CaseId));
+        Assert.Equal(await ProblemAssert.BodyWithoutTraceIdAsync(absent), await ProblemAssert.BodyWithoutTraceIdAsync(foreign));
+        Assert.DoesNotContain(item.UploadId.ToString(), await foreign.Content.ReadAsStringAsync(Ct), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<JsonNode> DecideOverHttpAsync(Browser browser, Guid moderator, Guid caseId, string decision, string reason)
+    {
+        var path = $"/api/v1/admin/photo-reviews/{caseId}";
+        using var assignment = await browser.PostJsonAsync(path + "/assignments", new { reviewerId = moderator }, ReviewCommand("case", caseId, 1));
+        Assert.Equal(HttpStatusCode.OK, assignment.StatusCode);
+        var assigned = JsonNode.Parse(await assignment.Content.ReadAsStringAsync(Ct))!;
+        using var image = await browser.GetAsync(path + "/evidence/full");
+        Assert.Equal(HttpStatusCode.OK, image.StatusCode);
+        Assert.Equal("no-store", image.Headers.CacheControl?.ToString());
+        using var decided = await browser.PostJsonAsync(path + "/decisions", new { decision, reasonCode = reason },
+            ReviewCommand(assigned["eTag"]!.GetValue<string>()));
+        Assert.Equal(HttpStatusCode.OK, decided.StatusCode);
+        var body = JsonNode.Parse(await decided.Content.ReadAsStringAsync(Ct))!;
+        Assert.Equal(decision, body["decision"]!.GetValue<string>());
+        Assert.Null(body.AsObject()["appealId"]);
+        return body;
     }
 
     [Fact]

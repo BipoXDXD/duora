@@ -22,7 +22,6 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
     [InlineData("Assign")]
     [InlineData("Evidence")]
     [InlineData("Decide")]
-    [InlineData("Appeal")]
     [InlineData("Preserve")]
     public async Task EachCapabilityRequiresItsOwnAuditedGrantAndRevocation(string capabilityName)
     {
@@ -116,8 +115,6 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
     [Theory]
     [InlineData("Decide", "past-window")]
     [InlineData("Decide", "future")]
-    [InlineData("Appeal", "past-window")]
-    [InlineData("Appeal", "future")]
     [InlineData("Preserve", "past-window")]
     [InlineData("Preserve", "future")]
     public async Task CriticalAuthorizationRequiresRecentTotpAndNotOnlyRecoveryCode(string capabilityName, string staleProof)
@@ -137,7 +134,6 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
 
     [Theory]
     [InlineData("Decide")]
-    [InlineData("Appeal")]
     [InlineData("Preserve")]
     public async Task CriticalAuthorizationAcceptsTotpProvedExactlyAWindowAgo(string capabilityName)
     {

@@ -53,12 +53,12 @@ public static class MediaProcessingServiceCollectionExtensions
             provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value.Provider != MediaStorageProvider.Unset,
             provider.GetRequiredService<ILogger<ReviewCandidateCleanupDispatcher>>()));
 
-        services.AddSingleton(provider => new ApprovedCandidateCleanupDispatcher(
+        services.AddSingleton(provider => new DecidedCandidateCleanupDispatcher(
             provider.GetRequiredService<NpgsqlDataSource>(),
             provider.GetRequiredService<IObjectStore>(),
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value.Provider != MediaStorageProvider.Unset,
-            provider.GetRequiredService<ILogger<ApprovedCandidateCleanupDispatcher>>()));
+            provider.GetRequiredService<ILogger<DecidedCandidateCleanupDispatcher>>()));
 
         services.AddSingleton(provider => new ExpiredCandidateCleanupDispatcher(
             provider.GetRequiredService<NpgsqlDataSource>(),
@@ -74,12 +74,6 @@ public static class MediaProcessingServiceCollectionExtensions
             provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value.Provider != MediaStorageProvider.Unset,
             provider.GetRequiredService<ILogger<UnavailableCandidateCleanupDispatcher>>()));
 
-        services.AddSingleton(provider => new AppealCandidateCleanupDispatcher(
-            provider.GetRequiredService<NpgsqlDataSource>(),
-            provider.GetRequiredService<IObjectStore>(),
-            provider.GetRequiredService<TimeProvider>(),
-            provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value.Provider != MediaStorageProvider.Unset,
-            provider.GetRequiredService<ILogger<AppealCandidateCleanupDispatcher>>()));
 
         return services;
     }

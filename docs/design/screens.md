@@ -153,7 +153,8 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 - **Ações:** primária "Salvar alterações"; secundária "Adicionar foto"; seção Conta com e-mail, senha e MFA.
 - **Estados:** rascunho (alterações não salvas indicadas em texto; nada íntimo salvo localmente); upload
   (progresso em texto e porcentagem); quarentena/processamento ("Em análise; ainda não aparece para ninguém");
-  rejeição (motivo comunicável e "Enviar outra"); conflito de edição ("Este perfil mudou em outro dispositivo"
+  rejeição (motivo comunicável e "Enviar outra"; não há recurso de fotos, e o histórico de revisão da foto é só
+  leitura, sem botão de pedir revisão da decisão); conflito de edição ("Este perfil mudou em outro dispositivo"
   com "Ver versão atual" e "Reaplicar minhas alterações", spec 13.5); salvo (confirmação em `role="status"`).
 
 ## Eventos
@@ -526,6 +527,9 @@ O texto de emergência e o número local são conteúdo a validar pelo responsá
   e reaplicar); evidência restrita (acesso registrado, conteúdo mostrado só no recorte autorizado);
   confirmação (resumo do efeito antes de aplicar); trilha de auditoria (quem, quando, o quê, visível no caso).
   `loading`, `empty`, `error` e `offline` conforme as convenções.
+- **Revisão de fotos:** lista dos casos atribuídos e caso com evidência e decisão (aprovar ou reprovar), para um
+  único revisor, o dono do projeto. Não há telas de recurso de fotos (`/admin/photo-appeals` foi removida em
+  28/10/2026); decisão pede step-up. O "Recorrer" de Segurança e privacidade é recurso de moderação e não muda.
 - **Wireframes:** fora deste documento; a administração entra no fluxo de design quando o marco correspondente
   começar.
 

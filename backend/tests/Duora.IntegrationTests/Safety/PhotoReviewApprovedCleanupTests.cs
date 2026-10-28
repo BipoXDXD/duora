@@ -38,19 +38,10 @@ public sealed partial class PhotoReviewApprovalTests
             new ApprovalStore(new FileSystemObjectStore(_root.FullName), refuseAll: true))));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ApprovedCleanupCannotEnrollPendingOrRejectedCandidatesEvenWithACleanupMarker(bool rejected)
+    [Fact]
+    public async Task DecidedCleanupCannotEnrollAPendingCandidateEvenWithACleanupMarker()
     {
-        var (reviewer, item) = await PreparedAsync();
-        if (rejected)
-        {
-            Assert.IsType<PhotoReviewRejectionResult.Rejected>(await new PhotoReviewRejections(Factory(),
-                new FileSystemObjectStore(_root.FullName), _time).RejectAsync(reviewer, item.CaseId, 2,
-                PhotoReviewRejectionReason.DoesNotMeetPolicy, Key(), Ct));
-        }
-
+        var (_, item) = await PreparedAsync();
         var generation = await CleanupGenerationAsync(item);
         await ExecuteAsync("update media.review_candidates set cleanup_requested_at=$2 where generation=$1", generation, _time.GetUtcNow());
         var before = Files();
@@ -61,6 +52,51 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Equal(before, Files());
         Assert.Equal(history, await CleanupHistoryAsync());
         Assert.Equal(0, await ScalarAsync("select count(*) from media.review_candidates where generation=$1 and deleted_at is not null", generation));
+    }
+
+    [Fact]
+    public async Task DecidedCleanupRemovesARejectedCandidateAndPreservesTheDecisionHistory()
+    {
+        // No appeal exists (owner decision of 2026-10-28): nothing needs the rejected candidate after the decision.
+        var (reviewer, item) = await PreparedAsync();
+        Assert.IsType<PhotoReviewRejectionResult.Rejected>(await new PhotoReviewRejections(Factory(),
+            new FileSystemObjectStore(_root.FullName), _time).RejectAsync(reviewer, item.CaseId, 2,
+            PhotoReviewRejectionReason.DoesNotMeetPolicy, Key(), Ct));
+        var generation = await CleanupGenerationAsync(item);
+        var before = Files();
+        var retained = before.Where(file => !file.StartsWith($"review-candidates/{generation:N}-", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(3, before.Length - retained.Length);
+        var history = await CleanupHistoryAsync();
+        await using var source = NpgsqlDataSource.Create(_connectionString);
+
+        Assert.Equal(1, await ApprovedCleanup(source).DispatchOnceAsync(Ct));
+
+        Assert.Equal(retained, Files());
+        Assert.Equal(history, await CleanupHistoryAsync());
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from media.review_candidates c join media.uploads u on u.id=c.upload_id
+            where c.generation=$1 and c.deleted_at is not null and u.state='Rejected'
+              and u.rejection_code='PHOTO_REVIEW_REJECTED'
+            """, generation));
+        Assert.Equal(1, await ScalarAsync("select count(*) from safety.photo_review_decisions where case_id=$1 and decision='reject'", item.CaseId));
+        Assert.Equal(0, await ApprovedCleanup(source).DispatchOnceAsync(Ct));
+    }
+
+    [Fact]
+    public async Task DecidedCleanupRefusesARejectedCandidateWhoseMarkerTheDecisionDoesNotExplain()
+    {
+        var (reviewer, item) = await PreparedAsync();
+        Assert.IsType<PhotoReviewRejectionResult.Rejected>(await new PhotoReviewRejections(Factory(),
+            new FileSystemObjectStore(_root.FullName), _time).RejectAsync(reviewer, item.CaseId, 2,
+            PhotoReviewRejectionReason.DoesNotMeetPolicy, Key(), Ct));
+        var generation = await CleanupGenerationAsync(item);
+        await ExecuteAsync("update media.review_candidates set cleanup_requested_at=cleanup_requested_at-interval '1 second' where generation=$1",
+            generation);
+        var before = Files();
+        await using var source = NpgsqlDataSource.Create(_connectionString);
+
+        Assert.Equal(0, await ApprovedCleanup(source).DispatchOnceAsync(Ct));
+        Assert.Equal(before, Files());
     }
 
     [Fact]
@@ -126,13 +162,13 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, Key()));
         await using var source = NpgsqlDataSource.Create(_connectionString);
         var gc = ApprovedCleanup(source);
-        var first = Assert.IsType<ApprovedCandidateCleanupClaim>(await gc.ClaimAsync(Ct));
+        var first = Assert.IsType<DecidedCandidateCleanupClaim>(await gc.ClaimAsync(Ct));
         Assert.Null(await ApprovedCleanup(source).ClaimAsync(Ct));
         _time.Advance(TimeSpan.FromSeconds(61));
         // Expiration must deny ACK even before another collector changes the token.
         Assert.False(await gc.CompleteSweepAsync(first, Ct));
         Assert.Equal(0, await ScalarAsync("select count(*) from media.review_candidates where generation=$1 and deleted_at is not null", first.Generation));
-        var recovered = Assert.IsType<ApprovedCandidateCleanupClaim>(await ApprovedCleanup(source).ClaimAsync(Ct));
+        var recovered = Assert.IsType<DecidedCandidateCleanupClaim>(await ApprovedCleanup(source).ClaimAsync(Ct));
         Assert.Equal(first.Generation, recovered.Generation);
         Assert.NotEqual(first.Token, recovered.Token);
         Assert.False(await gc.CompleteSweepAsync(first, Ct));
@@ -269,9 +305,9 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Equal(1, await sweep);
     }
 
-    private ApprovedCandidateCleanupDispatcher ApprovedCleanup(NpgsqlDataSource source, IObjectStore? store = null, bool enabled = true) =>
+    private DecidedCandidateCleanupDispatcher ApprovedCleanup(NpgsqlDataSource source, IObjectStore? store = null, bool enabled = true) =>
         new(source, store ?? new FileSystemObjectStore(_root.FullName), _time, enabled,
-            NullLogger<ApprovedCandidateCleanupDispatcher>.Instance);
+            NullLogger<DecidedCandidateCleanupDispatcher>.Instance);
 
     private async Task<Guid> CleanupGenerationAsync(CaseData item)
     {

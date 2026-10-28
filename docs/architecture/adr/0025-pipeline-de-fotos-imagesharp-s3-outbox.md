@@ -280,3 +280,14 @@ Os parágrafos anteriores preservam o histórico e não afirmam implementação 
 TechnicalOnly continua restrita a Development/Testing no runtime atual. O upload permanece desligado;
 nenhuma allowlist, contrato, recurso ou deploy muda com este aceite. Implementação, homologação #86,
 gates operacionais #69 e autorização própria de ativação continuam necessários.
+
+## Adendo de 28/10/2026: HumanReview em Production e revisão sem recurso
+
+Pelas [decisões de 28/10/2026 do ADR-0035](0035-revisao-humana-de-fotos.md#decisões-de-28102026), o item 8 deixa
+de dizer que `TechnicalOnly` é a única política e que nenhuma é aceita em Production: `HumanReview` é admitida em
+Development, Testing e Production, sem aprovação automática; `TechnicalOnly` continua só em Development e Testing;
+Staging e nomes desconhecidos continuam recusados. A allowlist `PRODUCTION_MEDIA_REVIEW_POLICIES` do
+`duora-deploy` passou a ser `{"HumanReview"}`, mas `duora_media_review` continua `""` no inventário: o upload segue
+desligado em produção até a #69 e seus gates. A revisão de fotos não tem recurso nem segundo revisor (o dono do
+projeto é o único revisor); foto recusada se resolve com novo envio, dentro das cotas 3/100 do item 8. Os demais
+itens e adendos deste ADR continuam vigentes.

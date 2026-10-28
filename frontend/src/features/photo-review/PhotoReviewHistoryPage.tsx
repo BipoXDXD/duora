@@ -9,14 +9,19 @@ import { useI18n } from '@/shared/i18n/i18n-context'
 import { Alert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page } from '@/shared/ui/page'
-import { fetchReviewHistory, requestPhotoAppeal } from './photo-review-api'
-import { needsReviewRevalidation, reviewHttpStatus, useReviewCommand } from './review-command'
-import { ReviewFailure, ReviewStateLabel } from './ReviewFeedback'
+import { fetchReviewHistory, type PhotoReviewHistory } from './photo-review-api'
+import { reviewHttpStatus } from './review-command'
+import { ReviewFailure } from './ReviewFeedback'
 
 export function PhotoReviewHistoryPage(): React.JSX.Element {
   const account = useAccount()
   const { photoId } = useParams<{ photoId: string }>()
   return <OwnerHistory key={`${account.id}:${photoId ?? ''}`} userId={account.id} photoId={photoId} />
+}
+
+/** There is no appeal: a rejected photo is final, and the owner may send a new photo for a new review. */
+function isRejected(history: PhotoReviewHistory): boolean {
+  return history.items.some((item) => item.decision === 'reject')
 }
 
 function OwnerHistory({
@@ -30,7 +35,6 @@ function OwnerHistory({
   const client = useQueryClient()
   const privateOperation = usePrivateOperation()
   const [epoch, setEpoch] = useState(0)
-  const [stopped, setStopped] = useState(false)
   const history = useQuery({
     queryKey: ['photo-review-history', userId, photoId, epoch],
     queryFn: ({ signal }) => privateOperation.run((operation) => fetchReviewHistory(operation, photoId ?? '', signal)),
@@ -41,43 +45,17 @@ function OwnerHistory({
   useEffect(() => {
     if (reviewHttpStatus(history.error) === 401) void client.invalidateQueries({ queryKey: meQueryKey })
   }, [history.error, client])
-  const command = useReviewCommand({
-    send: requestPhotoAppeal,
-    onConfirmed: () => {
-      void history.refetch()
-    },
-    onFailure: (error) => {
-      if (reviewHttpStatus(error) === 401) void client.invalidateQueries({ queryKey: meQueryKey })
-      if (needsReviewRevalidation(error)) {
-        setStopped(true)
-        void history.refetch()
-      }
-    },
-  })
-  const data = !history.isError && !stopped ? history.data : undefined
-  const error = command.error ?? (history.isError ? history.error : null)
+  const data = history.isError ? undefined : history.data
   return (
     <Page width="wide" title={t('photoReview.historyTitle')} intro={t('photoReview.ownerIntro')}>
-      {error === null ? null : <ReviewFailure error={error} focusOnMount={command.error !== null} />}
+      {history.isError ? <ReviewFailure error={history.error} /> : null}
       {photoId === undefined ? <Alert variant="error">{t('photoReview.notFound')}</Alert> : null}
-      {reviewHttpStatus(error) === 401 ? <SignInAgainButton /> : null}
-      {command.uncertain ? (
-        <Button aria-disabled={command.busy} onClick={command.retry}>
-          {command.busy ? t('photoReview.sending') : t('photoReview.retrySame')}
-        </Button>
-      ) : null}
-      {command.confirmed ? (
-        <Alert variant="success" focusOnMount>
-          {t('photoReview.appealRequested')}
-        </Alert>
-      ) : null}
+      {reviewHttpStatus(history.error) === 401 ? <SignInAgainButton /> : null}
       {history.isPending && photoId !== undefined ? <p role="status">{t('photoReview.loading')}</p> : null}
-      {history.isError || command.error !== null || stopped ? (
+      {history.isError ? (
         <Button
           variant="secondary"
           onClick={() => {
-            command.reset()
-            setStopped(false)
             setEpoch((value) => value + 1)
           }}
         >
@@ -92,9 +70,7 @@ function OwnerHistory({
             <ol className="flex flex-col gap-4">
               {data.items.map((item) => (
                 <li key={item.decisionId} className="rounded-md border border-border p-4">
-                  <p className="font-semibold">
-                    {t(item.isAppeal ? 'photoReview.appealDecision' : 'photoReview.initialDecision')}
-                  </p>
+                  <p className="font-semibold">{t('photoReview.decision')}</p>
                   <p>
                     {t(
                       item.reasonCode === 'meets_policy'
@@ -109,37 +85,7 @@ function OwnerHistory({
               ))}
             </ol>
           )}
-          {data.appeal === null ? null : (
-            <section aria-label={t('photoReview.appealStatus')} className="flex flex-col gap-4">
-              <ReviewStateLabel state={data.appeal.state} />
-              <dl className="grid gap-4">
-                <div>
-                  <dt>{t('photoReview.startedAt')}</dt>
-                  <dd>{formatDateTime(new Date(data.appeal.requestedAt))}</dd>
-                </div>
-                <div>
-                  <dt>{t('photoReview.responseTarget')}</dt>
-                  <dd>{formatDateTime(new Date(data.appeal.responseTargetAt))}</dd>
-                </div>
-                <div>
-                  <dt>{t('photoReview.retentionUntil')}</dt>
-                  <dd>{formatDateTime(new Date(data.appeal.maximumRetentionUntil))}</dd>
-                </div>
-              </dl>
-              <p>{t('photoReview.deadlineHint')}</p>
-            </section>
-          )}
-          {!data.canRequestAppeal || command.confirmed || command.uncertain ? null : (
-            <Button
-              aria-disabled={command.busy}
-              onClick={() => {
-                if (!command.busy)
-                  command.submit({ photoId: data.photoId, eTag: data.photoETag, key: crypto.randomUUID() })
-              }}
-            >
-              {command.busy ? t('photoReview.sending') : t('photoReview.requestAppeal')}
-            </Button>
-          )}
+          {isRejected(data) ? <p>{t('photoReview.sendNewPhoto')}</p> : null}
         </>
       )}
     </Page>

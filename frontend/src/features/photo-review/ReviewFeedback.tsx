@@ -10,10 +10,6 @@ const STATES: Readonly<Record<ReviewState, PlainMessageKey>> = {
   AwaitingReview: 'photoReview.awaiting',
   Approved: 'photoReview.approved',
   Rejected: 'photoReview.rejected',
-  Open: 'photoReview.open',
-  ClosedApproved: 'photoReview.closedApproved',
-  ClosedRejected: 'photoReview.closedRejected',
-  ClosedUnavailable: 'photoReview.closedUnavailable',
 }
 
 export function ReviewStateLabel({ state }: { readonly state: ReviewState }): React.JSX.Element {

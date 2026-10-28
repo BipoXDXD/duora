@@ -116,10 +116,22 @@ gates técnicos e aceite operacional. Testes sintéticos não aprovam ativação
 ## Contrato editorial M0 e baseline S0 — #173/#174
 
 A [matriz do contrato](../api/media-review.md#matriz-de-aceite-futuro) relaciona estados/replay, autorização,
-transações e exclusão/restore a INV-03/05/06/08/10/11 e T-01/03/05/06/08/10/13/16/26. São provas exigidas
+transações e exclusão/restore a INV-03/05/06/08/11 e T-01/03/05/06/08/13/16/26 (INV-10 e T-10 saíram da
+matriz de fotos em 28/10/2026: são do recurso de moderação). São provas exigidas
 das próximas entregas, não aceite de runtime novo. O ensaio SanitizerResourceEnvelopeTests caracteriza
 a implementação atual em processos novos, com corpus sintético, resultados repetidos, bytes/hashes, tempo
 e RSS. Não impõe limites candidatos nem comprova sandbox, segurança da futura autoridade ou capacidade86.
+
+**Decisões de 28/10/2026 (revisão de fotos sem recurso, revisor único).** T-10 continua sendo o recurso de
+**moderação** (API-S06, API-ADM15) e não cobre fotos. Para fotos, o aceite passa a ser: rotas de recurso
+inexistentes (`AppealRoutesNoLongerExistForOwnersOrModerators`), reprovação seguida de novo envio que abre
+revisão nova decidida pelo mesmo moderador
+(`SingleModeratorRejectsThenANewUploadOpensANewReviewThatTheSameModeratorApproves`), 404 uniforme no
+histórico (`OwnerHistoryMasksOtherOwnersWithTheSameNotFound`), HumanReview admitida em Production e recusada
+em Staging (`HumanReviewIngressPolicyTests`), allowlist de deploy `{"HumanReview"}` com inventário vazio
+(`test_duora_deploy.py`) e a migração expand que limpa rejeições antigas e recusa recurso existente
+(`PhotoReviewWithoutAppealsMigrationTests`). A matriz de autorização das rotas que restaram está em
+[media-review.md](../api/media-review.md#matriz-de-autorização-28102026); os resultados pertencem ao CI do PR.
 
 ## Transporte Resend — conta e recuperação
 

@@ -126,7 +126,6 @@ internal sealed class PhotoReviewCandidateAvailability(IDbContextFactory<DuoraDb
               and c.cleanup_requested_at is null and c.cleanup_audit_id is null and c.deleted_at is null
               and c.cleanup_token is null and c.cleanup_lease_until is null
               and not exists(select 1 from safety.photo_review_decisions d where d.case_id=r.id)
-              and not exists(select 1 from safety.photo_review_appeals a where a.case_id=r.id)
             """).SingleOrDefaultAsync(cancellationToken);
         if (state is null)
         {

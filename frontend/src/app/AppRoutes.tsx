@@ -41,9 +41,6 @@ const PhotoReviewHistoryPage = routePage(
 const PhotoReviewsPage = routePage(
   async () => (await import('@/features/photo-review/AdminPhotoReviewsPage')).PhotoReviewsPage,
 )
-const PhotoAppealsPage = routePage(
-  async () => (await import('@/features/photo-review/AdminPhotoReviewsPage')).PhotoAppealsPage,
-)
 // O guarda espera os chunks das rotas protegidas: assim, quando GET /me responde, a página entra sem um segundo
 // fallback. Uma rota protegida nova entra aqui também, senão ela mostra o fallback de novo depois do
 // "Carregando sua conta…".
@@ -100,8 +97,6 @@ export function AppRoutes(): React.JSX.Element {
               <Route path={paths.photoReviewHistory} element={<PhotoReviewHistoryPage />} />
               <Route path={paths.photoReviews} element={<PhotoReviewsPage />} />
               <Route path={paths.photoReviewDetail} element={<PhotoReviewsPage />} />
-              <Route path={paths.photoAppeals} element={<PhotoAppealsPage />} />
-              <Route path={paths.photoAppealDetail} element={<PhotoAppealsPage />} />
             </Route>
           </Route>
           <Route path="*" element={<NotFoundPage />} />

@@ -30,7 +30,7 @@ test('private review pixels render under the unchanged Caddy CSP and clear on cl
       })
     } else if (path === '/api/v1/admin/photo-reviews/capabilities') {
       await route.fulfill({
-        json: { assign: true, evidence: true, decide: true, appeal: true, recentMfaRequiredForDecision: true },
+        json: { assign: true, evidence: true, decide: true, recentMfaRequiredForDecision: true },
         headers,
       })
     } else if (path === `/api/v1/admin/photo-reviews/${CASE}`) {

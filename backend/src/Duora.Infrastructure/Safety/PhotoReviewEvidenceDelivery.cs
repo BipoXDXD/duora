@@ -14,16 +14,9 @@ public sealed class ReviewEvidenceDelivery : IAsyncDisposable
 public sealed partial class PhotoReviewService
 {
     public async Task<ReviewReply<ReviewEvidenceDelivery>> EvidenceAsync(Guid user, Guid session, Guid id,
-        PhotoVariant variant, bool appeal, CancellationToken ct)
+        PhotoVariant variant, CancellationToken ct)
     {
-        var actor = new PhotoReviewActor(user, session);
-        var result = appeal
-            ? await new PhotoReviewAppealEvidence(_contexts, _store, _time).OpenAsync(actor, id, variant, ct)
-            : await new PhotoReviewEvidence(_contexts, _store, _time).OpenAsync(actor, id, variant, ct);
-        if (appeal && result is PhotoReviewEvidenceResult.Unavailable)
-        {
-            await new PhotoReviewAppealAvailability(_contexts, _store, _time).ReconcileAsync(id, ct);
-        }
+        var result = await new PhotoReviewEvidence(_contexts, _store, _time).OpenAsync(new(user, session), id, variant, ct);
         return result switch
         {
             PhotoReviewEvidenceResult.Opened opened => new(new(opened.Lease), null),

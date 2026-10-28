@@ -10,8 +10,8 @@ public enum MediaReviewPolicy
     TechnicalOnly,
 
     /// <summary>
-    /// Candidato sanitizado privado que aguarda decisão humana. Qualificado apenas com dados sintéticos nesta
-    /// etapa; a admissão em Production/Staging depende dos aceites operacionais do ADR-0035.
+    /// Candidato sanitizado privado que aguarda decisão humana, sem aprovação automática. Admitida em Production pela
+    /// decisão do dono de 2026-10-28 (ADR-0035); ligar o upload continua sendo do inventário do host.
     /// </summary>
     HumanReview,
 }
@@ -19,15 +19,17 @@ public enum MediaReviewPolicy
 public static class MediaReview
 {
     /// <summary>
-    /// Allowlist: só os ambientes de dados sintéticos. Um ambiente novo (Staging, um nome digitado errado) fica de fora
-    /// até alguém decidir, em vez de herdar a aprovação sem revisão.
+    /// Allowlists por política. Um ambiente novo (Staging, um nome digitado errado) fica de fora até alguém decidir, em
+    /// vez de herdar uma política. Só a revisão humana chega a Production: aprovação só técnica nunca serve a foto real.
     /// </summary>
     private static readonly string[] SyntheticDataEnvironments = ["Development", "Testing"];
 
+    private static readonly string[] HumanReviewEnvironments = [.. SyntheticDataEnvironments, "Production"];
+
     public static bool IsPermitted(MediaReviewPolicy policy, string environmentName) => policy switch
     {
-        MediaReviewPolicy.TechnicalOnly or MediaReviewPolicy.HumanReview =>
-            SyntheticDataEnvironments.Contains(environmentName, StringComparer.OrdinalIgnoreCase),
+        MediaReviewPolicy.TechnicalOnly => SyntheticDataEnvironments.Contains(environmentName, StringComparer.OrdinalIgnoreCase),
+        MediaReviewPolicy.HumanReview => HumanReviewEnvironments.Contains(environmentName, StringComparer.OrdinalIgnoreCase),
         _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, "Política de revisão desconhecida."),
     };
 

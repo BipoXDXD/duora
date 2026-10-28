@@ -24,8 +24,6 @@ export const paths = {
   photoReviewHistory: '/photos/:photoId/review',
   photoReviews: '/admin/photo-reviews',
   photoReviewDetail: '/admin/photo-reviews/:caseId',
-  photoAppeals: '/admin/photo-appeals',
-  photoAppealDetail: '/admin/photo-appeals/:appealId',
 } as const
 
 /** Links já emitidos: aliases exatos, sem uma segunda árvore de páginas por idioma. */

@@ -117,16 +117,21 @@ e [runbook](../operations/regional-matching.md#homologação-e-release--etapa-10
 
 ## Fronteira editorial consolidada — M0 / #173
 
-[Contrato](../api/media-review.md): Media possui upload/arquivos/publicação; Safety terá caso, atribuição,
-decisão e recurso próprios, sem inventar denúncia de participante. Serviço de aplicação coordena commit
+[Contrato](../api/media-review.md): Media possui upload/arquivos/publicação; Safety terá caso, atribuição
+e decisão próprios, sem inventar denúncia de participante. Serviço de aplicação coordena commit
 curto de estado/decisão/auditoria/outbox na unidade transacional existente. Nenhum I/O de storage, decoder
 ou espera humana sob locks; a ordem global acima permanece. Atribuição não concede leitura implícita,
-auditoria deve anteceder os bytes e recurso requer pessoa independente. Apenas contrato documental nesta
+auditoria deve anteceder os bytes. Apenas contrato documental nesta
 etapa; persistência e capacidades administrativas permanecem para M1–M7.
+
+**Decisão de 28/10/2026:** a revisão de fotos não tem recurso nem pessoa independente; o revisor único é o dono
+do projeto. Foto recusada se resolve com novo upload, que abre outro caso. Media continua dona de upload,
+candidato e asset; Safety, de caso, atribuição e decisão. A limpeza do candidato decidido (aprovado ou rejeitado)
+é do `DecidedCandidateCleanupDispatcher`, no Worker ([ADR-0035](adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)).
 
 ### Persistência preparada para revisão humana — M1
 
 Safety possui a raiz SQL `safety.photo_review_cases` (upload/geração/política/prazos/versão), ainda sem serviço
 que a grave. Media lê AwaitingReview e resultados editoriais no upload e os inclui nas cotas existentes.
-M2 fará a transação conjunta de espera/caso; M3 acrescentará decisão/recurso. Não há gravação direta de outro
+M2 fará a transação conjunta de espera/caso; M3 acrescentará decisão (sem recurso desde 28/10/2026). Não há gravação direta de outro
 módulo por interface HTTP nem duplicação de reports. Ver [matriz M1](../testing/reports/media-review-readers.md).

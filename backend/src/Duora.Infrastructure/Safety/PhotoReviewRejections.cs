@@ -27,6 +27,8 @@ internal abstract record PhotoReviewRejectionResult
 /// <summary>Initial human rejection only; never publishes, sanctions an account or deletes retained evidence.</summary>
 internal sealed class PhotoReviewRejections
 {
+    private static readonly TimeSpan CandidateCleanupWindow = TimeSpan.FromHours(24);
+
     private readonly IDbContextFactory<DuoraDbContext> _contexts;
     private readonly IObjectStore _store;
     private readonly TimeProvider _time;
@@ -127,8 +129,8 @@ internal sealed class PhotoReviewRejections
             where r.id={caseId} and u.id={discovered.UploadId} and u.owner_id={discovered.OwnerId}
               and r.candidate_generation={discovered.Generation}
               and owner.email_confirmed and owner.status in ('PendingEligibility','Active')
-              and c.committed_at is not null and c.writer_settled_at is not null
-              and c.cleanup_requested_at is null and c.deleted_at is null
+              and (u.state<>'AwaitingReview' or (c.committed_at is not null and c.writer_settled_at is not null
+                and c.cleanup_requested_at is null and c.deleted_at is null))
               and (select a.reviewer_id from safety.photo_review_assignments a where a.case_id=r.id
                 order by a.case_version desc limit 1)={actor.UserId}
             """).SingleOrDefaultAsync(cancellationToken);
@@ -177,7 +179,9 @@ internal sealed class PhotoReviewRejections
         var caseVersion = checked(row.CaseVersion + 1);
         var photoVersion = checked(row.UploadVersion + 1);
         var id = Guid.CreateVersion7(now);
-        var candidateRetention = now.AddDays(7);
+        // No appeal exists (owner decision of 2026-10-28): the rejected candidate enters the same bounded cleanup window
+        // as an approved one. The owner may upload a new photo, which starts a new review.
+        var candidateRetention = now.Add(CandidateCleanupWindow);
         var historyRetention = now.AddYears(1);
         await db.Database.ExecuteSqlAsync($"""
             insert into safety.photo_review_decisions(id,case_id,case_version,actor_id,decision,reason_code,
@@ -200,7 +204,9 @@ internal sealed class PhotoReviewRejections
             update safety.photo_review_cases set version={caseVersion} where id={caseId} and version={row.CaseVersion}
             """, cancellationToken);
         var changedCandidate = await db.Database.ExecuteSqlAsync($"""
-            update media.review_candidates set retention_until={candidateRetention}
+            update media.review_candidates
+            set retention_until={candidateRetention},cleanup_requested_at={now},
+              cleanup_available_at=least(cleanup_available_at,{now})
             where generation={row.Generation} and case_id={caseId} and cleanup_requested_at is null and deleted_at is null
             """, cancellationToken);
         if (changedUpload != 1 || changedCase != 1 || changedCandidate != 1)
