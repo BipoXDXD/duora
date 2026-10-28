@@ -1,0 +1,10 @@
+# {{ ansible_managed }} (role media_sanitizer, ADR-0036/#174)
+# Teto de toda a conta {{ media_sanitizer_user }}: daemon rootless, containerd, rootlesskit e containers.
+[Slice]
+MemoryAccounting=yes
+MemoryMax={{ media_sanitizer_slice_memory_max }}
+MemorySwapMax=0
+CPUAccounting=yes
+CPUQuota={{ media_sanitizer_slice_cpu_quota }}
+TasksAccounting=yes
+TasksMax={{ media_sanitizer_slice_tasks_max }}
