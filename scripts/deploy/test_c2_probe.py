@@ -50,7 +50,7 @@ class FakeHost:
         self.files.update(cgroup_files(f"{ROOT}/duora-media.slice"))
         self.commands: list[list[str]] = []
         self.ps_output = f"{C2_ID}\tduora-c2-postgres-1\tduora-c2\n{OTHER_ID}\tstillon-web-1\tstillon\n"
-        self.sql_output = "12|0|3.5|\\N|2|7.25|0.5|4\n"
+        self.sql_output = "12|0|3.5|1|\\N|2|7.25|0.5|4\n"
         self.now = 1_000.0
 
     def read(self, path: str) -> str | None:
@@ -133,7 +133,7 @@ class SampleTests(unittest.TestCase):
     def test_database_stats_are_parsed_with_null_ages(self) -> None:
         stats = self.sampler.sample()["database"]
         self.assertEqual(stats, {"archived_count": 12, "failed_count": 0, "last_archived_age_s": 3.5,
-                                 "last_failed_age_s": None, "jobs_due": 2, "jobs_oldest_due_age_s": 7.25,
+                                 "archive_pending": 1, "last_failed_age_s": None, "jobs_due": 2, "jobs_oldest_due_age_s": 7.25,
                                  "jobs_max_lateness_s": 0.5, "outbox_pending": 4})
 
     def test_missing_files_become_null_not_zero(self) -> None:

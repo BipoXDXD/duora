@@ -171,12 +171,12 @@ public sealed class AdminRouteTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ACriticalActionNeedsASecondFactorProvedInTheLastFiveMinutes()
+    public async Task ACriticalActionNeedsASecondFactorProvedWithinTheRecentAuthenticationWindow()
     {
         var account = await Scenario.CreatePrivilegedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
         var mfa = await MfaScenario.EnableAsync(browser, _time);
-        _time.Advance(TimeSpan.FromMinutes(5));
+        await StepUpClock.ExpireRecentAuthenticationAsync(browser, _time);
 
         using var stale = await browser.PostJsonAsync(CriticalProbe, body: null);
         using var routine = await browser.GetAsync(Probe);
@@ -190,9 +190,38 @@ public sealed class AdminRouteTests : IAsyncDisposable
         await ProblemAssert.IsProblemAsync(stale, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");
         Assert.Equal(HttpStatusCode.NoContent, routine.StatusCode);
         await ProblemAssert.IsProblemAsync(passwordOnly, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
-        Assert.Equal(HttpStatusCode.Unauthorized, stillStale.StatusCode);
+        await ProblemAssert.IsProblemAsync(stillStale, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");
         Assert.Equal(HttpStatusCode.NoContent, stepUp.StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, fresh.StatusCode);
+    }
+
+    [Fact]
+    public async Task ASecondFactorProvedExactlyAWindowAgoStillAllowsACriticalActionWhileTheSessionIsInUse()
+    {
+        var account = await Scenario.CreatePrivilegedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        await MfaScenario.EnableAsync(browser, _time);
+        await StepUpClock.ReachTheEndOfTheWindowAsync(browser, _time);
+
+        using var critical = await browser.PostJsonAsync(CriticalProbe, body: null);
+
+        Assert.Equal(HttpStatusCode.NoContent, critical.StatusCode);
+    }
+
+    [Fact]
+    public async Task AnIdleAdministrativeSessionEndsBeforeItsRecentSecondFactor()
+    {
+        // A janela de step-up (1 h) passa da inatividade administrativa (15 min): sem uso, a sessão morre antes
+        // da prova, e o que se pede é um login novo, não um step-up.
+        var account = await Scenario.CreatePrivilegedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        await MfaScenario.EnableAsync(browser, _time);
+        _time.Advance(SessionLifetime.Administrative.Idle);
+
+        using var critical = await browser.PostJsonAsync(CriticalProbe, body: null);
+
+        Assert.True(SessionLifetime.Administrative.Idle < RecentAuthentication.Window);
+        await ProblemAssert.IsProblemAsync(critical, HttpStatusCode.Unauthorized, "UNAUTHENTICATED");
     }
 
     [Fact]

@@ -13,6 +13,9 @@ namespace Duora.IntegrationTests.Safety;
 public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
 {
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
+
+    /// <summary>Menor passo que o PostgreSQL guarda (1 µs).</summary>
+    private static readonly TimeSpan PostgresTick = TimeSpan.FromTicks(10);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Theory]
@@ -110,22 +113,38 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
     }
 
     [Theory]
-    [InlineData("Decide", -6)]
-    [InlineData("Decide", -5)]
-    [InlineData("Decide", 1)]
-    [InlineData("Preserve", -6)]
-    [InlineData("Preserve", -5)]
-    [InlineData("Preserve", 1)]
-    public async Task CriticalAuthorizationRequiresRecentTotpAndNotOnlyRecoveryCode(string capabilityName, int minutes)
+    [InlineData("Decide", "past-window")]
+    [InlineData("Decide", "future")]
+    [InlineData("Preserve", "past-window")]
+    [InlineData("Preserve", "future")]
+    public async Task CriticalAuthorizationRequiresRecentTotpAndNotOnlyRecoveryCode(string capabilityName, string staleProof)
     {
         var capability = Enum.Parse<PhotoReviewCapability>(capabilityName);
         var actor = await ReadyActorAsync();
         Assert.True(await ChangeAsync(actor.UserId, capability, enabled: true));
-        await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", actor.SessionId, _time.GetUtcNow().AddMinutes(minutes));
+        var now = _time.GetUtcNow();
+        var stale = staleProof == "future" ? now.AddMinutes(1) : now - RecentAuthentication.Window - PostgresTick;
+        await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", actor.SessionId, stale);
         Assert.False(await AuthorizedAsync(actor, capability));
         await ExecuteAsync("update identity.login_sessions set totp_verified_at=null where id=$1", actor.SessionId);
         Assert.False(await AuthorizedAsync(actor, capability));
         await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", actor.SessionId, _time.GetUtcNow().AddMinutes(-1));
+        Assert.True(await AuthorizedAsync(actor, capability));
+    }
+
+    [Theory]
+    [InlineData("Decide")]
+    [InlineData("Preserve")]
+    public async Task CriticalAuthorizationAcceptsTotpProvedExactlyAWindowAgo(string capabilityName)
+    {
+        var capability = Enum.Parse<PhotoReviewCapability>(capabilityName);
+        var actor = await ReadyActorAsync();
+        Assert.True(await ChangeAsync(actor.UserId, capability, enabled: true));
+        // Alinha o relógio ao microssegundo: o banco truncaria a prova e a tiraria da fronteira exata.
+        _time.Advance(TimeSpan.FromTicks((PostgresTick.Ticks - (_time.GetUtcNow().Ticks % PostgresTick.Ticks)) % PostgresTick.Ticks));
+        await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", actor.SessionId,
+            _time.GetUtcNow() - RecentAuthentication.Window);
+
         Assert.True(await AuthorizedAsync(actor, capability));
     }
 

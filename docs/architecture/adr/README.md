@@ -49,6 +49,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0038](0038-integracao-ipinfo-e-alertas-gmail.md) | Runtime IPinfo opt-in, aviso Gmail com reconciliação de entrega incerta e arquivo privado separado | Accepted para o desenho; operação sujeita a G2/G3/G5 | Transporte, bucket, ambiguidade de entrega ou governança |
 | [0039](0039-transporte-smtp-opcional.md) | SMTP opcional com TLS obrigatório; correlação por Message-ID sem garantia de deduplicação remota | Accepted para integração; ativação em produção não autorizada | Provedor, autenticação, retry, TLS ou garantia de deduplicação |
 | [0040](0040-pares-de-conexoes-encerradas.md) | Excluir Ended/Blocked de novos pares, sem reconexão implícita | Accepted; módulo Connections ainda não integrado | Jornada explícita de reconexão |
+| [0041](0041-janela-de-autenticacao-recente-de-1-hora.md) | Janela de autenticação recente (step-up) de 1 h, intervalo fechado | Accepted | Abuso de sessão aberta ou step-up por passkey |
 
 ## Regras
 

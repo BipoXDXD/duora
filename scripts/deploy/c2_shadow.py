@@ -368,7 +368,7 @@ def restic_backup_command(layout: Layout) -> str:
 
 def _sql(run: Runner, compose: list[str], statement: str) -> str:
     return run([*compose, "exec", "--no-TTY", "postgres", "psql", "--username", "postgres", "--dbname", "duora",
-                "--tuples-only", "--no-align", "--command", statement]).strip()
+                "--quiet", "--tuples-only", "--no-align", "--command", statement]).strip()
 
 
 def restore_rehearsal(layout: Layout, run: Runner = default_runner, clock: Callable[[], float] = time.time,

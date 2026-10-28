@@ -264,7 +264,7 @@ concedidas. "404 uniforme" quer dizer que alheio e inexistente dão o mesmo stat
 | GET `/admin/photo-reviews/{caseId}` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 se atribuído; 404 se inexistente ou não atribuído | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
 | POST `/admin/photo-reviews/{caseId}/assignments` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200; 404 caso inexistente; 412/428 versão; 409 estado ou chave | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
 | GET `/admin/photo-reviews/{caseId}/evidence/{variant}` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 `image/webp`, `no-store`, auditada antes dos bytes; 404 caso não atribuído ou variante desconhecida; 503 storage | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
-| POST `/admin/photo-reviews/{caseId}/decisions` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 com MFA recente (TOTP nos últimos 5 min); sem ela, 401 `REAUTHENTICATION_REQUIRED` | 401 `REAUTHENTICATION_REQUIRED` sem MFA recente; com ela, 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
+| POST `/admin/photo-reviews/{caseId}/decisions` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 com MFA recente (TOTP na última hora, ADR-0041); sem ela, 401 `REAUTHENTICATION_REQUIRED` | 401 `REAUTHENTICATION_REQUIRED` sem MFA recente; com ela, 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
 
 Evidência: `PhotoReviewHttpTests` (fluxo do moderador único, 404 uniforme no histórico, rotas de recurso
 inexistentes), `PhotoReviewOwnerPhotoListTests` (lista só do titular, 401), `PhotoDeletionTests` e
