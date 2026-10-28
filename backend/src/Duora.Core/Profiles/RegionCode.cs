@@ -4,17 +4,17 @@ using System.Diagnostics.CodeAnalysis;
 namespace Duora.Core.Profiles;
 
 /// <summary>
-/// Região aproximada do perfil (spec 1.1; <c>profiles.profiles.region_code</c>): uma das 27 unidades federativas em
-/// ISO 3166-2:BR (<c>BR-SP</c>). Nada mais fino que a UF entra no perfil (docs/privacy/data-map.md). Só a forma
-/// canônica é aceita, comparada byte a byte: minúscula, espaço na borda ou outro separador são recusados, não
-/// normalizados, para o enum do contrato, o CHECK do banco e o parse concordarem sem tabela de equivalências.
+/// Região aproximada do perfil no campo legado <c>regionCode</c> da API (spec 1.1): uma das 27 unidades federativas
+/// em ISO 3166-2:BR (<c>BR-SP</c>), derivada de país + subdivisão (a coluna própria saiu no contract da issue #78).
+/// Nada mais fino que a UF entra no perfil (docs/privacy/data-map.md). Só a forma canônica é aceita, comparada byte a
+/// byte: minúscula, espaço na borda ou outro separador são recusados, não normalizados, para o enum do contrato, o
+/// catálogo do banco e o parse concordarem sem tabela de equivalências.
 /// </summary>
 public sealed record RegionCode
 {
     /// <summary>
     /// As 27 UFs. O conjunto muda raramente e exige processo legislativo (e revisão do ISO 3166-2:BR); o último ajuste
-    /// foi em 1988, com a criação do Tocantins e de Roraima e Amapá como estados. Por isso é CHECK e não tabela de
-    /// referência (docs/data/model.md).
+    /// foi em 1988, com a criação do Tocantins e de Roraima e Amapá como estados.
     /// </summary>
     public static IReadOnlyList<string> All { get; } =
     [

@@ -23,9 +23,6 @@ internal sealed class ProfileRecord
 
     public string? Bio { get; private set; }
 
-    /// <summary>UF em ISO 3166-2:BR (<see cref="Core.Profiles.RegionCode"/>); <c>null</c> quando não informada.</summary>
-    public string? RegionCode { get; private set; }
-
     /// <summary>País opcional; a subdivisão também é opcional e limitada pelo catálogo.</summary>
     public string? CountryCode { get; private set; }
 
@@ -50,15 +47,12 @@ internal sealed class ProfileRecordConfiguration : IEntityTypeConfiguration<Prof
             table.HasCheckConstraint("ck_profiles_bio", $"char_length(bio) BETWEEN 1 AND {ProfileBio.MaxLength}");
             table.HasCheckConstraint("ck_profiles_version", "version >= 1");
             table.HasCheckConstraint("ck_profiles_location_country", "subdivision_code IS NULL OR country_code IS NOT NULL");
-            // Contrato legado preservado durante expand; as colunas novas usam tabelas de referência.
-            table.HasCheckConstraint("ck_profiles_region_code", $"region_code IN ({RegionCodeList()})");
         });
         builder.HasKey(p => p.UserId).HasName("pk_profiles");
 
         builder.Property(p => p.UserId).HasColumnName("user_id").ValueGeneratedNever();
         builder.Property(p => p.DisplayName).HasColumnName("display_name");
         builder.Property(p => p.Bio).HasColumnName("bio");
-        builder.Property(p => p.RegionCode).HasColumnName("region_code");
         builder.Property(p => p.CountryCode).HasColumnName("country_code");
         builder.Property(p => p.SubdivisionCode).HasColumnName("subdivision_code");
         builder.HasIndex(p => new { p.CountryCode, p.SubdivisionCode }).HasDatabaseName("ix_profiles_location");
@@ -77,8 +71,4 @@ internal sealed class ProfileRecordConfiguration : IEntityTypeConfiguration<Prof
             // D6 (docs/data/model.md): a exclusão de conta do Privacy apaga módulo por módulo, sem cascata silenciosa.
             .OnDelete(DeleteBehavior.Restrict);
     }
-
-    /// <summary>Os códigos vêm da mesma lista do domínio; são constantes, sem aspas internas a escapar.</summary>
-    private static string RegionCodeList() =>
-        string.Join(", ", Core.Profiles.RegionCode.All.Select(code => $"'{code}'"));
 }
