@@ -261,6 +261,10 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
     public async Task ChangesDuringStorageAreNotBlockedBySqlAndPreventTheCommit(string change)
     {
         var (reviewer, item) = await PreparedAsync();
+        if (change == "totp")
+        {
+            await ProofEndingInOneSecondAsync(reviewer);
+        }
         var store = new BlockingStore(new FileSystemObjectStore(_root.FullName));
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(Ct);
         budget.CancelAfter(TimeSpan.FromSeconds(10));
@@ -275,7 +279,7 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
             }
             else if (change == "totp")
             {
-                _time.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromTicks(10));
+                _time.Advance(TimeSpan.FromSeconds(2));
             }
             else if (change == "owner")
             {
@@ -386,13 +390,14 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
             command.Parameters.AddWithValue(ownerGuard ? item.OwnerId : item.CaseId);
             await command.ExecuteNonQueryAsync(budget.Token);
         }
+        await ProofEndingInOneSecondAsync(reviewer);
         var released = false;
         var rejecting = new PhotoReviewRejections(new ContextFactory(options.Options), new FileSystemObjectStore(_root.FullName), _time)
             .RejectAsync(reviewer, item.CaseId, 2, PhotoReviewRejectionReason.DoesNotMeetPolicy, Key(), budget.Token);
         try
         {
             await WaitForApplicationLockAsync(application, rejecting, budget.Token);
-            _time.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromTicks(10));
+            _time.Advance(TimeSpan.FromSeconds(2));
             await held.CommitAsync(budget.Token);
             released = true;
             Assert.IsType<PhotoReviewRejectionResult.Forbidden>(await rejecting.WaitAsync(budget.Token));
@@ -570,6 +575,14 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
         Assert.True(IdempotencyKey.TryParse(Guid.NewGuid().ToString("N"), out var key));
         return key;
     }
+
+    /// <summary>
+    /// TOTP a 1 s do fim da janela de step-up: avançar 2 s o vence sem envelhecer a sessão sintética, cuja
+    /// inatividade (10 min) é menor que a janela.
+    /// </summary>
+    private Task ProofEndingInOneSecondAsync(PhotoReviewActor reviewer) =>
+        ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", reviewer.SessionId,
+            _time.GetUtcNow() - RecentAuthentication.Window + TimeSpan.FromSeconds(1));
 
     private async Task ExecuteAsync(string sql, params object[] values)
     {
