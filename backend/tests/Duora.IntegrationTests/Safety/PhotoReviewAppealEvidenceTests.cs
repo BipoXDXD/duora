@@ -136,7 +136,8 @@ public sealed partial class PhotoReviewApprovalTests
         }
         else
         {
-            _time.Advance(TimeSpan.FromMinutes(6));
+            await ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1", data.Reviewer.SessionId,
+                _time.GetUtcNow() - RecentAuthentication.Window - TimeSpan.FromTicks(10));
         }
 
         var opened = Assert.IsType<PhotoReviewEvidenceResult.Opened>(await AppealReader().OpenAsync(

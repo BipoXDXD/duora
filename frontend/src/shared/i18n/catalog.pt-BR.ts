@@ -157,7 +157,7 @@ export const ptBR = {
   'validation.passwordMismatch': 'As senhas não coincidem.',
   'changePassword.title': 'Troque sua senha inicial',
   'changePassword.instructions':
-    'Defina uma senha própria para continuar. A senha temporária vale 24 horas; conclua a troca em até 5 minutos após entrar. Se ela venceu, peça uma nova a quem administra o Duora.',
+    'Defina uma senha própria para continuar. A senha temporária vale 24 horas; conclua a troca em até 1 hora após entrar; 15 minutos sem uso encerram a sessão. Se ela venceu, peça uma nova a quem administra o Duora.',
   'changePassword.currentPassword': 'Senha temporária',
   'changePassword.confirmation': 'Confirme a nova senha',
   'changePassword.reused': 'Escolha uma senha diferente da senha temporária.',
