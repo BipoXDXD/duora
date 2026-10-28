@@ -5,6 +5,7 @@ import base64
 import hashlib
 import io
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -318,6 +319,14 @@ class PreflightAndDownTests(unittest.TestCase):
         for limit in ("MemoryMax=1024M", "MemoryHigh=768M", "MemorySwapMax=0", "CPUQuota=50%"):
             self.assertIn(limit, command)
         self.assertIn("duora-c2", command)
+
+
+class ShadowSecretsTests(unittest.TestCase):
+    def test_every_selfie_secret_file_of_the_production_compose_is_synthesized(self) -> None:
+        compose = (Path(__file__).resolve().parents[2] / "infra/compose/compose.prod.yml").read_text(encoding="utf-8")
+        mounted = set(re.findall(r"\}/(selfie-[a-z0-9-]+)", compose))
+        self.assertTrue(mounted)
+        self.assertEqual(mounted, set(shadow.SYNTHETIC_SELFIE_SECRETS))
 
 
 if __name__ == "__main__":

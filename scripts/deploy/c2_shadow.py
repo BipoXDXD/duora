@@ -54,6 +54,10 @@ BUCKET_LOCK = ("COMPLIANCE", "1d")
 IMAGE_KEYS = ("DUORA_POSTGRES_IMAGE", "DUORA_WEB_IMAGE", "DUORA_WORKER_IMAGE", "DUORA_EDGE_IMAGE",
               "DUORA_MIGRATOR_IMAGE")
 APP_UID = 1654
+# O Compose de produção monta estes arquivos mesmo com a selfie desligada (#93); o sombra roda sem selfie e sem
+# credencial real da AWS, então recebe valores sintéticos inertes.
+SYNTHETIC_SELFIE_SECRETS = ("selfie-web-aws-access-key-id", "selfie-web-aws-secret-access-key",
+                            "selfie-worker-aws-access-key-id", "selfie-worker-aws-secret-access-key")
 POSTGRES_UID = 999
 ACCOUNT_DOMAIN = "c2.invalid"
 CADDY_ROOT_CA = "/data/caddy/pki/authorities/local/root.crt"
@@ -184,6 +188,11 @@ def prepare(layout: Layout, release_env: Path, run: Runner = default_runner) -> 
         path = layout.secrets / name
         path.write_text(content, encoding="utf-8")
         os.chown(path, POSTGRES_UID, POSTGRES_UID)
+        path.chmod(0o400)
+    for name in SYNTHETIC_SELFIE_SECRETS:
+        path = layout.secrets / name
+        path.write_text("c2-synthetic-" + secrets.token_hex(8), encoding="utf-8")
+        os.chown(path, APP_UID, APP_UID)
         path.chmod(0o400)
     (layout.conf / "pg_hba.conf").write_text(shadow_conf(HBA_SOURCE.read_text(encoding="utf-8")), encoding="utf-8")
     (layout.conf / "pgbackrest-repo.conf").write_text(shadow_conf(REPO_CONF_SOURCE.read_text(encoding="utf-8")),
