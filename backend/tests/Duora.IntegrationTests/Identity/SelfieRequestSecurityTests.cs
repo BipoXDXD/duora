@@ -7,17 +7,7 @@ namespace Duora.IntegrationTests.Identity;
 
 public sealed class SelfieRequestSecurityTests(PostgresFixture postgres)
 {
-    private static Dictionary<string, string?> Settings => new()
-    {
-        ["SelfieVerification:Enabled"] = "true",
-        ["SelfieVerification:PrivacyApproved"] = "true",
-        ["SelfieVerification:PolicyVersion"] = "test",
-        ["SelfieVerification:MinimumLiveness"] = "90",
-        ["SelfieVerification:MinimumBrightness"] = "40",
-        ["SelfieVerification:MinimumSharpness"] = "40",
-        ["SelfieVerification:MaximumPoseDegrees"] = "20",
-        ["SelfieVerification:CaptureRoleArn"] = "arn:aws:iam::000000000000:role/synthetic",
-    };
+    private static Dictionary<string, string?> Settings => SelfieTestSettings.Enabled();
 
     [Theory]
     [InlineData("age", 25)]

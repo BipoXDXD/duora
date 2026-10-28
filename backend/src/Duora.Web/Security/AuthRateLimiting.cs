@@ -72,9 +72,16 @@ internal sealed class AuthRateLimitOptions
     /// </summary>
     public WindowLimit AccountSecurityPerIp { get; set; } = new() { PermitLimit = 300, Window = TimeSpan.FromHours(1) };
 
+    /// <summary>
+    /// Credencial de captura da selfie (cada chamada faz um sts:AssumeRole), por conta: trocar de IP ou de sessão não
+    /// renova a cota. Cabe com folga nas cinco tentativas por hora do serviço, com reabertura da câmera.
+    /// </summary>
+    public WindowLimit SelfieCapturePerAccount { get; set; } = new() { PermitLimit = 10, Window = TimeSpan.FromHours(1) };
+
     public bool IsValid() =>
         new[]
         {
+            SelfieCapturePerAccount,
             LoginPerIp, LoginPerAccount, RegisterPerIp, RegisterPerAccount,
             PasswordResetRequestPerIp, PasswordResetRequestPerAccount, TokenRedemptionPerIp,
             EmailConfirmationFailuresPerAccount, PasswordResetFailuresPerAccount,
@@ -103,6 +110,9 @@ internal enum AccountIdOperation
 
     /// <summary>Conclusão do reset que falhou (A07), pelo id do corpo.</summary>
     PasswordResetFailure,
+
+    /// <summary>Credencial de captura da selfie (um sts:AssumeRole por chamada).</summary>
+    SelfieCapture,
 }
 
 /// <summary>
@@ -168,6 +178,7 @@ internal sealed class AccountSecurityAttemptLimiter : IDisposable
             [AccountIdOperation.SessionRevocationFailure] = Create(limits.SessionRevocationFailuresPerAccount),
             [AccountIdOperation.EmailConfirmationFailure] = Create(limits.EmailConfirmationFailuresPerAccount),
             [AccountIdOperation.PasswordResetFailure] = Create(limits.PasswordResetFailuresPerAccount),
+            [AccountIdOperation.SelfieCapture] = Create(limits.SelfieCapturePerAccount),
         };
     }
 
@@ -204,13 +215,18 @@ internal static class AccountSecurityRateLimiting
     /// </summary>
     public static TBuilder RequireAccountRateLimit<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder =>
+        builder.RequireAccountRateLimit(AccountIdOperation.AccountSecurity);
+
+    /// <summary>429 com <c>Retry-After</c> quando a conta passou do limite da operação, de qualquer sessão ou IP.</summary>
+    public static TBuilder RequireAccountRateLimit<TBuilder>(this TBuilder builder, AccountIdOperation operation)
+        where TBuilder : IEndpointConventionBuilder =>
         builder.AddEndpointFilter((context, next) =>
         {
             var http = context.HttpContext;
             var userId = Duora.Web.Identity.DuoraClaims.ReadUserId(http.User)
                 ?? throw new InvalidOperationException("Limite por conta numa rota sem sessão.");
             var limiter = http.RequestServices.GetRequiredService<AccountSecurityAttemptLimiter>();
-            return limiter.TryConsume(AccountIdOperation.AccountSecurity, userId) is { } retryAfter
+            return limiter.TryConsume(operation, userId) is { } retryAfter
                 ? ValueTask.FromResult<object?>(ApiProblems.TooManyRequests(http, retryAfter))
                 : next(context);
         });

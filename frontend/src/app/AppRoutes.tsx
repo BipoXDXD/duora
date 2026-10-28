@@ -1,4 +1,5 @@
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router'
+import { SelfieDocumentBoundary } from '@/features/account/SelfieDocumentBoundary'
 import { LandingPage } from '@/features/landing/LandingPage'
 import { legacyPaths, paths } from '@/shared/paths'
 import { AreaErrorBoundary } from '@/shared/ui/error-boundary'
@@ -65,45 +66,48 @@ const RequireSession = routePage(async () => {
 
 export function AppRoutes(): React.JSX.Element {
   return (
-    <Routes>
-      {Object.entries(legacyPaths).map(([legacy, canonical]) => (
-        <Route key={legacy} path={legacy} element={<LegacyRedirect to={canonical} />} />
-      ))}
-      <Route element={<AppLayout />}>
-        <Route index element={<LandingPage />} />
-        <Route element={<Area />}>
-          <Route path={paths.terms} element={<TermsPage />} />
-          <Route path="/terms/:version/:documentLocale" element={<TermsPage />} />
-          <Route path={paths.privacy} element={<PrivacyPage />} />
-          <Route path="/privacy/:version/:documentLocale" element={<PrivacyPage />} />
-          <Route path={paths.register} element={<RegisterPage />} />
-          <Route path={paths.checkEmail} element={<CheckEmailPage />} />
-          <Route path={paths.confirmEmail} element={<ConfirmEmailPage />} />
-          <Route path={paths.login} element={<LoginPage />} />
-          <Route path={paths.forgotPassword} element={<ForgotPasswordPage />} />
-          <Route path={paths.resetPassword} element={<ResetPasswordPage />} />
-        </Route>
-        <Route element={<Area />}>
-          <Route element={<RequireSession />}>
-            <Route path={paths.changePassword} element={<ChangePasswordPage />} />
-            <Route path={paths.mfaEnrollment} element={<MfaEnrollmentPage />} />
-            <Route path={paths.selfie} element={<SelfieVerificationPage />} />
-            <Route path={paths.account} element={<AccountPage />} />
-            <Route path={paths.photos} element={<PhotoReviewOwnerIndex />} />
-            <Route path={paths.profile} element={<ProfilePage />} />
-            <Route path={paths.preferences} element={<PreferencesPage />} />
-            <Route path={paths.events} element={<EventsPage />} />
-            <Route path="/rooms/:roomId" element={<RoomPage />} />
-            <Route path={paths.photoReviewHistory} element={<PhotoReviewHistoryPage />} />
-            <Route path={paths.photoReviews} element={<PhotoReviewsPage />} />
-            <Route path={paths.photoReviewDetail} element={<PhotoReviewsPage />} />
-            <Route path={paths.photoAppeals} element={<PhotoAppealsPage />} />
-            <Route path={paths.photoAppealDetail} element={<PhotoAppealsPage />} />
+    <>
+      <SelfieDocumentBoundary />
+      <Routes>
+        {Object.entries(legacyPaths).map(([legacy, canonical]) => (
+          <Route key={legacy} path={legacy} element={<LegacyRedirect to={canonical} />} />
+        ))}
+        <Route element={<AppLayout />}>
+          <Route index element={<LandingPage />} />
+          <Route element={<Area />}>
+            <Route path={paths.terms} element={<TermsPage />} />
+            <Route path="/terms/:version/:documentLocale" element={<TermsPage />} />
+            <Route path={paths.privacy} element={<PrivacyPage />} />
+            <Route path="/privacy/:version/:documentLocale" element={<PrivacyPage />} />
+            <Route path={paths.register} element={<RegisterPage />} />
+            <Route path={paths.checkEmail} element={<CheckEmailPage />} />
+            <Route path={paths.confirmEmail} element={<ConfirmEmailPage />} />
+            <Route path={paths.login} element={<LoginPage />} />
+            <Route path={paths.forgotPassword} element={<ForgotPasswordPage />} />
+            <Route path={paths.resetPassword} element={<ResetPasswordPage />} />
           </Route>
+          <Route element={<Area />}>
+            <Route element={<RequireSession />}>
+              <Route path={paths.changePassword} element={<ChangePasswordPage />} />
+              <Route path={paths.mfaEnrollment} element={<MfaEnrollmentPage />} />
+              <Route path={paths.selfie} element={<SelfieVerificationPage />} />
+              <Route path={paths.account} element={<AccountPage />} />
+              <Route path={paths.photos} element={<PhotoReviewOwnerIndex />} />
+              <Route path={paths.profile} element={<ProfilePage />} />
+              <Route path={paths.preferences} element={<PreferencesPage />} />
+              <Route path={paths.events} element={<EventsPage />} />
+              <Route path="/rooms/:roomId" element={<RoomPage />} />
+              <Route path={paths.photoReviewHistory} element={<PhotoReviewHistoryPage />} />
+              <Route path={paths.photoReviews} element={<PhotoReviewsPage />} />
+              <Route path={paths.photoReviewDetail} element={<PhotoReviewsPage />} />
+              <Route path={paths.photoAppeals} element={<PhotoAppealsPage />} />
+              <Route path={paths.photoAppealDetail} element={<PhotoAppealsPage />} />
+            </Route>
+          </Route>
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
+      </Routes>
+    </>
   )
 }
 

@@ -17,17 +17,7 @@ internal static class SelfieConcurrencyHarness
         SelfieCommitFault? fault = null) => new(connection)
         {
             Time = time,
-            Settings = new Dictionary<string, string?>
-            {
-                ["SelfieVerification:Enabled"] = "true",
-                ["SelfieVerification:PrivacyApproved"] = "true",
-                ["SelfieVerification:PolicyVersion"] = "synthetic-policy",
-                ["SelfieVerification:MinimumLiveness"] = "90",
-                ["SelfieVerification:MinimumBrightness"] = "40",
-                ["SelfieVerification:MinimumSharpness"] = "40",
-                ["SelfieVerification:MaximumPoseDegrees"] = "20",
-                ["SelfieVerification:CaptureRoleArn"] = "arn:aws:iam::000000000000:role/synthetic",
-            },
+            Settings = SelfieTestSettings.Enabled("synthetic-policy"),
             TestServices = services =>
             {
                 services.RemoveAll<ISelfieProvider>();

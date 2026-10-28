@@ -1,6 +1,6 @@
 # ADR-0029 — Confirmação de e-mail e presença sem verificação etária
 
-Status: decisão de produto aceita na issue #93 em 2026-10-19; implementação sujeita à revisão humana antes de merge/deploy. Substitui os requisitos etários do ADR-0024 e suas referências operacionais, inclusive adendos do mesmo dia.
+Status: decisão de produto aceita na issue #93 em 2026-10-19, com adendo de ativação em 2026-10-28 (abaixo); implementação sujeita à revisão humana antes de merge/deploy. Substitui os requisitos etários do ADR-0024 e suas referências operacionais, inclusive adendos do mesmo dia.
 
 ## Decisão
 
@@ -23,6 +23,43 @@ Ativação requer revisão de DPA, região/transferência, opt-out de uso secund
 Expand: nova identity.selfie_verifications, sem apagar evidências antigas. Coordenar web/worker: parar o consumidor etário antes de migrar; a migração encerra entregas etárias pendentes e invalida leases. Rotas antigas e callbacks retornam 410 sem processar resultados. Avisar titulares para refazer a etapa de presença; VerifiedAdult não é convertido em Passed. Restrições antigas precisam de revisão humana, sem liberação em massa.
 
 Rollback operacional é desabilitar captura e manter o leitor novo/410; nunca restaurar autorização etária. Não executar Down em dados reais. Código/tabelas/testes etários remanescentes são compatibilidade histórica, não dependência registrada nos hosts. A autorização usa ParticipationEligibility.
+
+## Adendo — 28/10/2026: ativação em produção
+
+Status: aceito. Decisões do dono em 28/10/2026, registradas na issue #93; substituem, nos pontos abaixo, os gates de
+ativação desta ADR.
+
+1. **Retenção:** nenhuma imagem é guardada. O resultado aprovado (`Passed`, com datas e versão da política) fica
+   enquanto a conta existir e mantém a participação; nas palavras do dono, "a selfie fica guardada mesmo após 30 dias
+   e a pessoa não perde participação". Tentativas não aprovadas (recaptura, inconclusiva, expirada) saem 30 dias após
+   a conclusão, ou após a expiração se nunca concluíram. Referência de sessão e feedback continuam saindo em 24 h. A
+   exclusão física da conta leva as tentativas junto (FK `ON DELETE CASCADE`, migração `SelfieResultFollowsAccount`).
+   A limpeza roda no worker mesmo com a integração desligada.
+2. **Fornecedor e região:** AWS Rekognition Face Liveness em us-east-1, com o DPA padrão da AWS. `PrivacyApproved=true`
+   registra essa decisão; não é parecer jurídico.
+3. **Limiares** (política `aws-docs-2026-10-28`, padrões versionados de `SelfieProviderOptions`, com testes de fronteira):
+   liveness ≥ 80 (faixa alta, "80 or 90", do AWS AI Service Card do Face Liveness, indicada contra deepfake e vídeo
+   gravado); |pitch| < 30° e |yaw| < 45° ("Recommendations for facial comparison input images"; o limite mais estreito
+   de pitch vale nos dois sentidos); |roll| < 45°, brilho ≥ 30 e nitidez ≥ 20 são pisos do projeto, porque a AWS não
+   publica número para eles. Mudar um limiar exige nova `PolicyVersion`.
+4. **Testes em aparelho real dispensados** pelo dono. Os gates de câmera real, VoiceOver e dispositivos físicos desta
+   ADR deixam de bloquear a ativação; a validação é a automatizada (câmera sintética do Chromium, sem AWS).
+
+Implementação: `PrivacyApproved=true` no `compose.prod.yml` (web e worker) e `Enabled` vindo de `DUORA_SELFIE_ENABLED` no
+`duora.env` (Ansible `duora_selfie_enabled: "true"`; `false` é o rollback para releases anteriores). Cada serviço tem o próprio
+usuário IAM, com só as chamadas que faz: `duora-selfie-web` faz `sts:AssumeRole` em
+`arn:aws:iam::394877252106:role/duora-selfie-capture` (que só permite `StartFaceLivenessSession`) para a credencial
+temporária do navegador; `duora-selfie-worker` faz `CreateFaceLivenessSession`, `GetFaceLivenessSessionResults` e
+`DetectFaces`, em us-east-1. As chaves chegam ao SDK só pelos arquivos de segredo `SelfieVerification__AwsAccessKeyId` e
+`SelfieVerification__AwsSecretAccessKey` em `/run/secrets` de cada serviço (origem: `/etc/duora/secrets/selfie-web-aws-*`
+e `selfie-worker-aws-*`, cada par montado só no seu serviço), lidos pelo `SecretsDirectory` e passados explicitamente aos
+clientes STS e Rekognition; a cadeia padrão do SDK (ambiente, perfis, IMDS) não é consultada, e o boot falha se a
+selfie estiver ligada sem os dois. A CSP não é relaxada globalmente: só o documento `/account/selfie` recebe `'wasm-unsafe-eval'`,
+`cdn.liveness.rekognition.amazonaws.com`, `wss://streaming-rekognition.us-east-1.amazonaws.com` e `camera=(self)`
+([deploy.md](../../operations/deploy.md#documento-da-selfie-issue-93)).
+
+Continuam fora desta decisão: alternativa assistida, recuperação dedicada de host/PostgreSQL e opt-out de uso secundário
+na AWS Organizations (passo operacional do dono).
 
 ## Evidências
 

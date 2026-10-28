@@ -41,6 +41,19 @@ EXPECTED_CSP = {
     "trusted-types": ["lit-html"],
 }
 
+# Única página com a política da selfie (issue #93): o documento /account/selfie, carregado por navegação completa
+# (a SPA recarrega ao entrar e ao sair). Acrescenta só o que o FaceLivenessDetector 3.7.0 oficial da AWS usa:
+# 'wasm-unsafe-eval' para compilar o WASM do TensorFlow.js, o CDN da AWS que serve esse WASM e o modelo BlazeFace
+# (defaults do componente) e o WebSocket do StartFaceLivenessSession em us-east-1. Nada de worker, blob: novo ou
+# curinga. Fonte: https://ui.docs.amplify.aws/react/connected-components/liveness (binaryPath, faceModelUrl).
+SELFIE_PATH = "/account/selfie"
+LIVENESS_CDN = "https://cdn.liveness.rekognition.amazonaws.com"
+LIVENESS_STREAMING = "wss://streaming-rekognition.us-east-1.amazonaws.com"
+EXPECTED_SELFIE_CSP = EXPECTED_CSP | {
+    "script-src": ["'self'", "'wasm-unsafe-eval'"],
+    "connect-src": [*EXPECTED_CSP["connect-src"], LIVENESS_CDN, LIVENESS_STREAMING],
+}
+
 # Allowlist: só o que a voz ao vivo e o áudio usam, e só para a própria origem.
 ALLOWED_FEATURES = ("autoplay", "microphone", "speaker-selection")
 
@@ -66,6 +79,9 @@ DENIED_FEATURES = (
 
 EXPECTED_PERMISSIONS_POLICY = {feature: "(self)" for feature in ALLOWED_FEATURES} | {
     feature: "()" for feature in DENIED_FEATURES}
+
+# A selfie é a única página que liga a câmera, só para a própria origem.
+EXPECTED_SELFIE_PERMISSIONS_POLICY = EXPECTED_PERMISSIONS_POLICY | {"camera": "(self)"}
 
 
 def docker_available() -> bool:

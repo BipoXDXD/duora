@@ -21,7 +21,7 @@ public sealed class AgeVerificationProviderSettingsTests(PostgresFixture postgre
     [InlineData("SelfieVerification:PrivacyApproved", "false")]
     public void EnabledSelfieRequiresExplicitPrivacyAndCalibratedThresholds(string key, string value)
     {
-        var options = new SelfieProviderOptions { Enabled = true, PrivacyApproved = true, PolicyVersion = "test", MinimumLiveness = 90, MinimumBrightness = 40, MinimumSharpness = 40, MaximumPoseDegrees = 20, CaptureRoleArn = "arn:aws:iam::000000000000:role/test" };
+        var options = new SelfieProviderOptions { Enabled = true, PrivacyApproved = true, PolicyVersion = "test", MinimumLiveness = 90, MinimumBrightness = 40, MinimumSharpness = 40 };
         if (key.EndsWith("MinimumLiveness", StringComparison.Ordinal))
         { options.MinimumLiveness = double.Parse(value, System.Globalization.CultureInfo.InvariantCulture); }
         if (key.EndsWith("MinimumSharpness", StringComparison.Ordinal))

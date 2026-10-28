@@ -11,6 +11,13 @@ namespace Duora.Infrastructure.Identity;
 public sealed class SelfieVerificationDispatcher
 {
     private static readonly TimeSpan Lease = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan TransientDataRetention = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Decisões do dono em 28/10/2026 (issue #93): tentativa não aprovada sai 30 dias depois; o Passed fica enquanto a
+    /// conta existir e mantém a participação.
+    /// </summary>
+    private static readonly TimeSpan UnapprovedRetention = TimeSpan.FromDays(30);
     private readonly DuoraDbContext _db;
     private readonly OutboxDeliveryQueue _queue;
     private readonly ISelfieProvider _provider;
@@ -30,11 +37,7 @@ public sealed class SelfieVerificationDispatcher
     public async Task<int> DispatchBatchAsync(CancellationToken cancellationToken)
     {
         var now = _time.GetUtcNow();
-        // No images exist here; remove transient session references and feedback after 24 hours.
-        await _db.Set<SelfieVerificationRecord>().Where(v => v.ExpiresAt < now.AddHours(-24)
-                && (v.ProviderReference != null || v.FeedbackCode != null))
-            .ExecuteUpdateAsync(s => s.SetProperty(v => v.ProviderReference, (string?)null)
-                .SetProperty(v => v.FeedbackCode, (string?)null), cancellationToken);
+        await PurgeExpiredDataAsync(now, cancellationToken);
 
         if (!_options.Enabled)
         {
@@ -58,6 +61,26 @@ public sealed class SelfieVerificationDispatcher
         }
 
         return claims.Claimed.Count;
+    }
+
+    /// <summary>
+    /// Roda mesmo com a integração desligada. Não há imagens no banco: a referência da sessão e o feedback saem 24h
+    /// após a expiração; a tentativa não aprovada sai 30 dias após a conclusão (ou a expiração, se nunca concluiu). O
+    /// Passed fica: sai só com a conta (FK em cascata).
+    /// </summary>
+    private async Task PurgeExpiredDataAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var transientCutoff = now - TransientDataRetention;
+        await _db.Set<SelfieVerificationRecord>().Where(v => v.ExpiresAt < transientCutoff
+                && (v.ProviderReference != null || v.FeedbackCode != null))
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.ProviderReference, (string?)null)
+                .SetProperty(v => v.FeedbackCode, (string?)null), cancellationToken);
+
+        var unapprovedCutoff = now - UnapprovedRetention;
+        await _db.Set<SelfieVerificationRecord>().Where(v => v.State != SelfieState.Passed
+                && ((v.CompletedAt != null && v.CompletedAt <= unapprovedCutoff)
+                    || (v.CompletedAt == null && v.ExpiresAt <= unapprovedCutoff)))
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     private async Task ProcessAsync(ClaimedDelivery delivery, CancellationToken cancellationToken)
