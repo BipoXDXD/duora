@@ -109,7 +109,8 @@ public sealed class RegionalRolloutRehearsalTests(PostgresFixture postgres)
     {
         await using var command = new NpgsqlCommand("""
             select md5(string_agg(row_to_json(t)::text,',' order by id)) from (
-              select u.*,row_to_json(p) profile,row_to_json(l) preferences,c.language_code
+              -- region_code é a cópia legada que o contract (#78) retira; a localização canônica continua na comparação.
+              select u.*,to_jsonb(p)-'region_code' profile,row_to_json(l) preferences,c.language_code
               from identity.users u join profiles.profiles p on p.user_id=u.id
               join profiles.preferences l on l.user_id=u.id
               join profiles.communication_languages c on c.user_id=u.id

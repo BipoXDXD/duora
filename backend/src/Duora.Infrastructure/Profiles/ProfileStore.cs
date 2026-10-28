@@ -72,20 +72,11 @@ public sealed class ProfileStore
     {
         var location = edit.Location ?? (edit.Region is null ? null
             : new ProfileLocation(edit.Region.NewRegion is null ? null : "BR", edit.Region.NewRegion?.Value));
-        // A cópia antiga só mantém a ponte no schema expandido. Nunca é fonte da localização lida.
-        // Sem cache: a mesma instância continua válida depois de um contract coordenado do schema.
-        var hasLegacyRegion = await HasLegacyRegionColumnAsync(connection, cancellationToken);
-        var legacyColumn = hasLegacyRegion ? ", region_code" : "";
-        var legacyValue = hasLegacyRegion ? ", @region_code" : "";
-        var legacyAssignment = hasLegacyRegion
-            ? "region_code = case when @set_location then @region_code else region_code end,"
-            : "";
-        var legacyRegion = location?.CountryCode == "BR" ? location.SubdivisionCode : null;
         await using var command = expectedVersion == OwnProfile.Unsaved.Version
             ? CreateCommand(connection,
                 $"""
-                insert into profiles.profiles (user_id, display_name, bio, country_code, subdivision_code, version, updated_at{legacyColumn})
-                values (@user_id, @display_name, @bio, @country_code, @subdivision_code, 1, @now{legacyValue})
+                insert into profiles.profiles (user_id, display_name, bio, country_code, subdivision_code, version, updated_at)
+                values (@user_id, @display_name, @bio, @country_code, @subdivision_code, 1, @now)
                 on conflict (user_id) do nothing
                 returning {Columns}
                 """)
@@ -96,7 +87,6 @@ public sealed class ProfileStore
                     bio = case when @set_bio then @bio else bio end,
                     country_code = case when @set_location then @country_code else country_code end,
                     subdivision_code = case when @set_location then @subdivision_code else subdivision_code end,
-                    {legacyAssignment}
                     version = version + 1,
                     updated_at = @now
                 where user_id = @user_id and version = @expected_version
@@ -110,10 +100,6 @@ public sealed class ProfileStore
         command.Parameters.AddWithValue("set_location", location is not null);
         command.Parameters.Add(TextParameter("display_name", edit.DisplayName?.Value));
         command.Parameters.Add(TextParameter("bio", edit.Bio?.NewBio?.Value));
-        if (hasLegacyRegion)
-        {
-            command.Parameters.Add(TextParameter("region_code", legacyRegion));
-        }
         command.Parameters.Add(TextParameter("country_code", location?.CountryCode));
         command.Parameters.Add(TextParameter("subdivision_code", location?.SubdivisionCode));
         return await ReadSingleAsync(command, cancellationToken);
@@ -121,20 +107,6 @@ public sealed class ProfileStore
 
     private NpgsqlCommand CreateCommand(NpgsqlConnection? connection, string sql) =>
         connection is null ? _dataSource.CreateCommand(sql) : new NpgsqlCommand(sql, connection);
-
-    private async Task<bool> HasLegacyRegionColumnAsync(NpgsqlConnection? connection, CancellationToken cancellationToken)
-    {
-        await using var command = CreateCommand(connection, """
-            select exists (
-                select 1 from pg_catalog.pg_attribute
-                where attrelid = 'profiles.profiles'::regclass and attname = 'region_code'
-                  and attnum > 0 and not attisdropped
-            )
-            """);
-        // Falha de metadados não é tratada como ausência da coluna nem autoriza repetir a gravação.
-        return (bool)(await command.ExecuteScalarAsync(cancellationToken)
-            ?? throw new InvalidOperationException("Metadados de localização indisponíveis."));
-    }
 
     private static NpgsqlParameter TextParameter(string name, string? value) =>
         new(name, NpgsqlDbType.Text) { Value = value is null ? DBNull.Value : value };
