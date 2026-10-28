@@ -1,3 +1,4 @@
+using Duora.Core.Media;
 using Duora.Infrastructure.Media;
 using Duora.Web;
 using Duora.Web.Identity;
@@ -129,6 +130,22 @@ public sealed class StartupConfigurationTests
             () => app.Services.GetRequiredService<IOptions<MediaOptions>>().Value);
 
         Assert.Contains("Media:Review", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WebAcceptsHumanPhotoReviewInProduction()
+    {
+        // Decisão do dono de 2026-10-28: a revisão humana editorial é a política de Production. Ligar o upload continua
+        // sendo do inventário do host (#69); aqui só a validação da opção é conferida.
+        await using var app = BuildWeb([
+            "--environment=Production",
+            "--Media:Review=HumanReview",
+            .. CompleteS3Storage,
+        ]);
+
+        var options = app.Services.GetRequiredService<IOptions<MediaOptions>>().Value;
+
+        Assert.Equal(MediaReviewPolicy.HumanReview, options.Review);
     }
 
     [Fact]

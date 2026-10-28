@@ -34,7 +34,7 @@ public sealed partial class PhotoReviewApprovalTests
             Assert.IsType<PhotoReviewApprovalResult.Approved>(await ApproveAsync(reviewer, item, Key()));
             generation = await CleanupGenerationAsync(item);
             var gc = ApprovedCleanup(source);
-            var claim = Assert.IsType<ApprovedCandidateCleanupClaim>(await gc.ClaimAsync(Ct));
+            var claim = Assert.IsType<DecidedCandidateCleanupClaim>(await gc.ClaimAsync(Ct));
             finalize = ct => retry ? gc.RetryAsync(claim, ct) : gc.CompleteSweepAsync(claim, ct);
             dispatch = gc.DispatchOnceAsync;
         }

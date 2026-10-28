@@ -76,6 +76,5 @@ public sealed class UploadLifecycleTests
         Assert.False(UploadLifecycle.CanMove(awaiting, UploadState.Rejected));
         Assert.True(Enum.TryParse<MediaReviewPolicy>("HumanReview", out var policy));
         Assert.Equal(awaiting, MediaReview.VerdictAfterSanitizing(policy));
-        Assert.False(MediaReview.IsPermitted(policy, "Production"));
     }
 }

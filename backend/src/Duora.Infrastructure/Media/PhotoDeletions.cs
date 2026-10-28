@@ -34,7 +34,7 @@ public abstract record PhotoDeletionResult
 
 /// <summary>
 /// API-M03: exclusão lógica pelo titular numa transação curta READ COMMITTED, sem I/O de storage. Ordem de locks
-/// (modules.md): guarda Safety do dono, Identity e sessão (via <see cref="PhotoReviewAppeals.AuthorizeOwnerAsync"/>),
+/// (modules.md): guarda Safety do dono, Identity e sessão (via <see cref="PhotoOwnerAccess.AuthorizeAsync"/>),
 /// depois a foto e o asset. Na mesma transação: foto e asset em <c>Deleted</c>, tombstone, obrigações de limpeza das
 /// chaves exatas, recibo idempotente e auditoria. A remoção dos bytes é do <see cref="PhotoDeletionCleanupDispatcher"/>.
 /// O tombstone é só do banco: o ledger externo que sobrevive a um restore ainda não existe (docs/api/media-review.md).
@@ -92,7 +92,7 @@ public sealed partial class PhotoDeletions
     {
         await using var db = await _contexts.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
-        if (!await new PhotoReviewAppeals(_contexts, _store, _time).AuthorizeOwnerAsync(db, owner, cancellationToken))
+        if (!await PhotoOwnerAccess.AuthorizeAsync(db, _time, owner, cancellationToken))
         {
             return new PhotoDeletionResult.Forbidden();
         }

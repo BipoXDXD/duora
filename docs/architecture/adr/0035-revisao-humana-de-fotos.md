@@ -1,6 +1,6 @@
 # ADR-0035: Revisão humana de fotos antes da publicação
 
-- **Status:** Accepted (2026-10-22); implementação e ativação pendentes
+- **Status:** Accepted (2026-10-22); emendado pelas [decisões de 28/10/2026](#decisões-de-28102026) (HumanReview admitida em Production, sem recurso de fotos, revisor único); ativação do upload pendente (#69)
 - **Origem:** [issue #173](https://github.com/BipoXDXD/duora/issues/173), [#69](https://github.com/BipoXDXD/duora/issues/69), [ADR-0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md), spec 12.3 e API-M01–M04.
 - **Revisar quando:** Estados/contrato, regras editoriais, retenção, equipe ou fronteira Media/Safety mudarem.
 
@@ -45,12 +45,12 @@ a política efetiva, limites ou configuração. Aceite arquitetural não comprov
 
 ## Decisão aceita — implementação futura
 
-1. Preservar `TechnicalOnly` exclusivamente para Development/Testing. Nova política de destino: `HumanReview` (ainda não é enum disponível), nos quatro ambientes conhecidos; Staging somente com dados sintéticos. Nenhum ambiente desconhecido herda permissão.
+1. Preservar `TechnicalOnly` exclusivamente para Development/Testing. Nova política de destino: `HumanReview` (ainda não é enum disponível), nos quatro ambientes conhecidos; Staging somente com dados sintéticos. Nenhum ambiente desconhecido herda permissão. *(Ambientes substituídos pelo adendo de 28/10/2026: HumanReview em Development, Testing e Production; Staging ainda não decidido e recusado pelo código.)*
 2. Após sanitização bem-sucedida, persistir candidato/variantes em área privada de revisão, sem criar asset aprovado. Em uma transação curta, registrar a geração/hash do candidato, mover `Processing → AwaitingReview` e criar o caso editorial durável. Encerrar a entrega técnica após esse commit; apagar o original após a derivação/commit com limpeza durável para falhas, sem alongar a retenção do original para esperar um moderador.
 3. Manter caso/decisão sob responsabilidade de Safety, e estado de upload/asset/arquivo sob Media; aplicar a decisão por serviço de aplicação com a mesma unidade transacional já permitida pelo monólito. Não inventar uma denúncia de usuário só para encaixar um upload na tabela de reports; não depender de implementar todo o produto de moderação.
 4. Lista paginada e evidência somente de casos atribuídos/autorizados. Exigir `moderator` com permissão específica, sessão administrativa e MFA; `product_admin`/`operator` não ganham acesso a fotos por serem privilegiados. Decisão exige step-up e versão esperada; leitura de evidência é auditada **antes** de transmitir bytes, falhando fechada se a auditoria falhar. Não criar thumbnails na lista por padrão; interface e mensagens de uso em PT-BR/EN-US.
 5. Aprovação prepara a cópia dos derivados para a área final fora de transação longa. O commit condicional pela versão faz upload/asset Approved, decisão, auditoria e eventual efeito de outbox necessários de forma atômica. Arquivo copiado sem esse commit nunca se torna público. Chaves/gerações e limpeza devem impedir que uma tentativa antiga sobrescreva ou apague a vencedora.
-6. Reprovação, expiração e exclusão nunca aprovam nem sancionam a conta implicitamente. Repetição idempotente devolve a decisão já registrada; decisão divergente ou versão antiga é conflito. Exclusão/restrição/revogação de permissão concorrentes são revalidadas sob as guardas/versões pertinentes. Recurso cria nova revisão autorizada, preservando o histórico; não implementa `Rejected → Approved` cego.
+6. Reprovação, expiração e exclusão nunca aprovam nem sancionam a conta implicitamente. Repetição idempotente devolve a decisão já registrada; decisão divergente ou versão antiga é conflito. Exclusão/restrição/revogação de permissão concorrentes são revalidadas sob as guardas/versões pertinentes. ~~Recurso cria nova revisão autorizada, preservando o histórico; não implementa `Rejected → Approved` cego.~~ *(Substituído pelo adendo de 28/10/2026: não há recurso; a foto recusada continua `Rejected` e a pessoa envia uma foto nova, que abre revisão nova. Nada faz `Rejected → Approved`.)*
 7. Incluir a espera editorial nas cotas atuais por conta/global e respectivas consultas/índices; não abrir fila infinita nem aumentar 3/100 para compensar falta de revisores. Aplicar os prazos de P173-5 e detalhar alertas próprios, separados do lease e das 24 h técnicas.
 8. Criar área `review-candidates` separada de derivados finais e fora do backup de mídia corrente. Isso **requer** proposta de StorageArea/chaves, permissões, marcadores/montagens e política de backup/restore; não é uma área já disponível. Moderador acessa derivado sanitizado por rota administrativa autorizada, nunca original ou caminho interno. Restore com candidato ausente encerra a tentativa com `PHOTO_REVIEW_UNAVAILABLE` e orienta novo envio, jamais promove a Approved. A ausência dos bytes candidatos no backup de mídia não elimina os metadados/casos presentes nas cópias do banco; a execução da retenção de P173-5 e a reconciliação desses registros precisam ser detalhadas e verificadas.
 
@@ -58,17 +58,17 @@ a política efetiva, limites ou configuração. Aceite arquitetural não comprov
 
 | ID | Escolha aceita | Dependência ou risco remanescente |
 |---|---|---|
-| P173-1 | `HumanReview` em Development, Testing, Staging e Production; Staging sintético. Foto apresentada como do titular, sem terceiros identificáveis, nudez/conteúdo sexual explícito, violência gráfica, ódio ou dados de contato expostos. Dúvida exige segunda análise, nunca aprovação automática. Não realizar reconhecimento facial nem inferir idade ou atributos pessoais. | Regras e orientação do revisor em PT-BR/EN-US. Revisão visual não comprova identidade, consentimento ou idade; risco de inconsistência humana. |
+| P173-1 | `HumanReview` em Development, Testing e Production (adendo de 28/10/2026); Staging ainda não decidido, pois o código o recusa. Foto apresentada como do titular, sem terceiros identificáveis, nudez/conteúdo sexual explícito, violência gráfica, ódio ou dados de contato expostos. Dúvida nunca leva a aprovação automática; a segunda análise por outra pessoa foi substituída pelo adendo de 28/10/2026, que não prevê segundo revisor. Não realizar reconhecimento facial nem inferir idade ou atributos pessoais. | Regras e orientação do revisor em PT-BR/EN-US. Revisão visual não comprova identidade, consentimento ou idade; risco de inconsistência humana. |
 | P173-2 | `AwaitingReview` persistido e público, inclusive replay; não projetar como `Processing`. Preparar leitores, constraints, índices, cotas e consumidores antes dos escritores. | Evolução semântica exige revisão própria de contrato e testes. Rollback só com leitores compatíveis. |
 | P173-3 | `Rejected` com `PHOTO_REVIEW_REJECTED` para decisão humana, `PHOTO_REVIEW_EXPIRED` para espera vencida e `PHOTO_REVIEW_UNAVAILABLE` para candidato perdido. Motivos internos no caso; explicação pública acionável e localizada. | Códigos do resultado de revisão, não de `errors` ou da negociação ADR-0034. Requer contrato/CHECK próprios; não reutilizar `PROCESSING_LIMIT`. Categorias públicas/textos seguros ainda a detalhar. |
-| P173-4 | Safety possui caso, atribuição e decisão; Media possui upload, arquivos e publicação. Moderador apenas em casos atribuídos, MFA, step-up e versão esperada na decisão. Auditar leitura antes dos bytes; recurso decidido por outra pessoa. | Operações administrativas e auditoria transacional futuras; falha da auditoria nega leitura. Operador/product_admin não recebe acesso implícito. |
-| P173-5 | Alvo de primeira análise 24 h; espera expira em 72 h. Recurso até 7 dias da rejeição; alvo de decisão em 7 dias. Candidato rejeitado retido por 7 dias; com recurso até encerramento + 24 h, limitado a 30 dias desde rejeição, salvo preservação excepcional explicitamente aprovada. Candidato expirado: limpeza em até 24 h. Original eliminado após derivação/commit, sem aguardar humano. Registro mínimo de decisão/auditoria: 1 ano, sem imagem/texto sensível. | Reconciliar política de privacidade, `retention_until`, exclusão e backups; não é conclusão jurídica. Detalhar recurso vencido sem aprovação automática, exceções de preservação e reconciliação. Alvos de atendimento não são evidência de capacidade. |
-| P173-6 | Área privada `review-candidates`, separada de quarantine/derivatives e fora do backup de mídia; somente derivados sanitizados. Promoção com geração/versão e commit condicional, seguida de limpeza. Perda após restore: `PHOTO_REVIEW_UNAVAILABLE` e novo envio. | Montagens/permissões, leitura administrativa, GC e tombstones. Metadados dos casos seguem no backup do banco; perda de disco pode exigir reenvio. |
-| P173-7 | Modelo aceito: responsável pelo serviço, revisor principal e substituto capaz de julgar recurso independentemente. Sem cobertura, suspender novas admissões pelo procedimento aprovado e tratar pendências. | **Todos os nomes permanecem pendentes**, inclusive responsável pelo serviço. Não atribuir pessoa automaticamente pelo aceite. Nomeação/cobertura bloqueiam ativação; uma pessoa não revisa a própria decisão. |
+| P173-4 | Safety possui caso, atribuição e decisão; Media possui upload, arquivos e publicação. Moderador apenas em casos atribuídos, MFA, step-up e versão esperada na decisão. Auditar leitura antes dos bytes. ~~Recurso decidido por outra pessoa.~~ *(Substituído pelo adendo de 28/10/2026: sem recurso de fotos e um único revisor.)* | Operações administrativas e auditoria transacional futuras; falha da auditoria nega leitura. Operador/product_admin não recebe acesso implícito. |
+| P173-5 | Alvo de primeira análise 24 h; espera expira em 72 h. ~~Recurso até 7 dias da rejeição; alvo de decisão em 7 dias. Candidato rejeitado retido por 7 dias; com recurso até encerramento + 24 h, limitado a 30 dias desde rejeição, salvo preservação excepcional explicitamente aprovada.~~ *(Substituído pelo adendo de 28/10/2026: sem recurso; o candidato rejeitado recebe a mesma obrigação de limpeza de 24 h da aprovação.)* Candidato expirado: limpeza em até 24 h. Original eliminado após derivação/commit, sem aguardar humano. Registro mínimo de decisão/auditoria: 1 ano, sem imagem/texto sensível. | Reconciliar política de privacidade, `retention_until`, exclusão e backups; não é conclusão jurídica. Detalhar exceções de preservação e reconciliação (o recurso vencido deixou de existir com o adendo de 28/10/2026). Alvos de atendimento não são evidência de capacidade. |
+| P173-6 | Área privada `review-candidates`, separada de quarantine/derivatives e fora do backup de mídia; somente derivados sanitizados. Promoção com geração/versão e commit condicional, seguida de limpeza. Perda após restore: `PHOTO_REVIEW_UNAVAILABLE` e novo envio. *(Atualizado pelo adendo de 28/10/2026: a rejeição também grava a obrigação de limpeza do candidato, executada pelo `DecidedCandidateCleanupDispatcher`.)* | Montagens/permissões, leitura administrativa, GC e tombstones. Metadados dos casos seguem no backup do banco; perda de disco pode exigir reenvio. |
+| P173-7 | ~~Modelo aceito: responsável pelo serviço, revisor principal e substituto capaz de julgar recurso independentemente.~~ *(Substituído pelo adendo de 28/10/2026: o dono do projeto é o responsável pelo serviço e o único revisor; não existe substituto.)* Sem cobertura, suspender novas admissões pelo procedimento aprovado e tratar pendências. | ~~Todos os nomes permanecem pendentes~~: nomeação resolvida pelo adendo de 28/10/2026. Sem recurso, a regra "uma pessoa não revisa a própria decisão" deixa de ter objeto. Indisponibilidade do dono continua exigindo a suspensão de novas admissões. |
 
 A retenção aceita precisa ser reconciliada com [retention.md](../../privacy/retention.md) na entrega posterior.
 Ela não muda neste PR jobs de limpeza ou backups imutáveis; não promete apagar cópias externas imediatamente.
-Leitura/exclusão/limpeza de mídia e o tratamento de recursos vencidos exigem especificação antes de dados reais.
+Leitura/exclusão/limpeza de mídia exigem especificação antes de dados reais (o tratamento de recursos vencidos deixou de existir com o adendo de 28/10/2026).
 
 ## Entregas posteriores e dependências
 
@@ -93,7 +93,8 @@ Cobrir T-01/03/05/06/08/10/13/16/26 relevantes e INV-03/05/06/08/10/11: HTTP pos
 
 Os controles e procedimentos descritos acima são requisitos para trabalho futuro, não comprovação de sua
 implementação. Manter `duora_media_review: ""`, `duora_media_backup_enabled: false` e a allowlist de Production
-vazia. Não liberar TechnicalOnly em Production/Staging, nem alterar limites, políticas executáveis, API,
+vazia. *(Atualizado pelo adendo de 28/10/2026: a allowlist `PRODUCTION_MEDIA_REVIEW_POLICIES` passou a ser
+`{"HumanReview"}`; `duora_media_review` continua `""` e ligar o upload continua sendo da #69.)* Não liberar TechnicalOnly em Production/Staging, nem alterar limites, políticas executáveis, API,
 segredos, infraestrutura ou ativação neste PR. Dados reais, deploy e homologação requerem autorização própria.
 A #69 continua bloqueada pelas duas entregas, pela #86 e pelos gates B2/backup/restore/montagens/verify.
 
@@ -102,3 +103,62 @@ sintéticos, revisão humana e nove checks obrigatórios no SHA final. O CI dest
 documental contra as suítes existentes; não comprova uma política humana ou sandbox ainda inexistentes.
 Não executar builds, testes, Docker ou VM no Mac do responsável. Resultados do CI pertencem ao PR; nenhum
 resultado futuro é presumido neste ADR. Issues #173, #174 e #69 permanecem abertas.
+
+## Decisões de 28/10/2026
+
+O dono do projeto decidiu em conversa, em 28/10/2026, os cinco pontos abaixo. Eles substituem as partes
+indicadas acima (item 1 quanto aos ambientes, última frase do item 6, P173-1, P173-4, P173-5, P173-6, P173-7 e
+a allowlist de "Segurança e operação"); o restante deste ADR continua vigente.
+
+1. **HumanReview em Production, sem aprovação automática.** `MediaReview.IsPermitted`
+   ([MediaReview.cs](../../../backend/src/Duora.Core/Media/MediaReview.cs)) admite `HumanReview` em
+   Development, Testing e Production. Staging e nomes desconhecidos continuam recusados: Staging não foi
+   decidido. `TechnicalOnly` continua só em Development e Testing. A allowlist
+   `PRODUCTION_MEDIA_REVIEW_POLICIES` de [duora_deploy.py](../../../scripts/deploy/duora_deploy.py) passou a ser
+   `{"HumanReview"}`. O upload em produção **não** foi ligado: `duora_media_review` continua `""` no inventário,
+   e ligar fica para a [#69](https://github.com/BipoXDXD/duora/issues/69), com os gates de B2, backup, restore,
+   montagens e verify e a #86.
+2. **Sem recurso de fotos.** Não há nem haverá segundo revisor, então o fluxo de recurso da revisão de fotos foi
+   removido: `POST /api/v1/me/photos/{photoId}/appeals`, todo o grupo `/api/v1/admin/photo-appeals` (lista,
+   detalhe, `assignments`, `evidence`, `decisions`), a capacidade `appeal`, os campos `appeal`,
+   `canRequestAppeal` e `isAppeal` do histórico, o `appealId` da decisão, as telas `/admin/photo-appeals` e o
+   botão de recurso no histórico. Foto recusada continua `Rejected`; a pessoa pode enviar uma foto nova, que entra
+   numa revisão nova, limitada só pelos rate limits e cotas existentes (3 pendentes por conta, 100 globais). A
+   rejeição já grava a obrigação de limpeza do candidato privado, com a mesma janela de 24 h da aprovação,
+   executada pelo Worker logo após a decisão (`DecidedCandidateCleanupDispatcher`, antigo
+   `ApprovedCandidateCleanupDispatcher`). Antes, o candidato rejeitado ficava 7 dias à espera de recurso. O
+   registro mínimo de decisão e auditoria continua de 1 ano, sem imagem nem texto sensível.
+3. **Migração expand/contract.** `20261028120000_PhotoReviewWithoutAppeals` só expande: a constraint de retenção
+   da decisão aceita a rejeição com 24 h e mantém os 168 h da release anterior; as rejeições antigas de 168 h
+   recebem a obrigação de limpeza; e a migração falha se existir qualquer linha em `safety.photo_review_appeals`
+   (nenhum ambiente persistente tem recurso, porque HumanReview nunca foi admitida fora de Development e
+   Testing). Tabelas, colunas `appeal_*` e privilégios de recurso ficam no schema para o rollback à release
+   anterior funcionar. O contract (remover tabelas, colunas e os 168 h) fica para uma migração posterior, depois
+   que nenhuma release em uso as conhecer. Em rollback, a release anterior pode mostrar `canRequestAppeal` numa
+   rejeição nova, mas o pedido é recusado porque o candidato já tem limpeza pedida; nenhum dado é perdido.
+4. **Um único revisor.** O dono do projeto é o responsável pelo serviço e o único revisor e moderador de fotos:
+   papel `moderator` com as permissões explícitas da revisão (`assign`, `evidence`, `decide`), MFA e step-up
+   (MFA recente) na decisão. `product_admin` e `operator` não leem fotos. Sem cobertura (dono indisponível),
+   continua valendo suspender novas admissões pelo procedimento aprovado; não existe substituto.
+5. **Continuam abertos** (não resolvidos por este adendo):
+   - exclusão de foto durante processamento ou revisão (hoje 409 `PHOTO_DELETE_STATE_CONFLICT`), a tratar em PR
+     separado da #173;
+   - ledger externo e retenção dos registros de exclusão (tombstones e recibos);
+   - API-P04: a spec não define o contrato da foto no perfil ou na sala, e `GET /profiles/{userId}` ainda não
+     existe;
+   - aceite da política de privacidade pelo titular;
+   - ativação do upload (#69).
+
+A matriz de autorização das rotas que restaram está no
+[contrato de revisão](../../api/media-review.md#matriz-de-autorização-28102026). O recurso de **moderação** de
+denúncias e sanções (API-S06, API-ADM15, INV-10, `Appealed` em Denúncia) é outra feature e não muda.
+
+Compliance: `HumanReviewIsAdmittedInSyntheticEnvironmentsAndInProduction` e
+`HumanReviewIsNotAdmittedInUnknownEnvironments` (`HumanReviewIngressPolicyTests`);
+`test_human_review_is_the_production_policy_but_the_inventory_keeps_the_upload_off` e
+`test_review_outside_the_production_allowlist_is_refused` (`test_duora_deploy.py`);
+`SingleModeratorRejectsThenANewUploadOpensANewReviewThatTheSameModeratorApproves`,
+`AppealRoutesNoLongerExistForOwnersOrModerators` e `OwnerHistoryMasksOtherOwnersWithTheSameNotFound`
+(`PhotoReviewHttpTests`); `ARejectionWrittenByThePreviousReleaseGainsTheDecidedCleanupObligation`,
+`TheBackfillLeavesPendingAndApprovedCandidatesUntouched` e `TheMigrationRefusesADatabaseThatStillHasAnAppeal`
+(`PhotoReviewWithoutAppealsMigrationTests`). O resultado desses testes pertence ao CI do PR.

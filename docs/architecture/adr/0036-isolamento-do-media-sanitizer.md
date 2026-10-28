@@ -1,6 +1,6 @@
 # ADR-0036: Isolamento do decoder em media-sanitizer
 
-- **Status:** Accepted (2026-10-22); implementação e ativação pendentes
+- **Status:** Accepted (2026-10-22); implementação e ativação pendentes; adendo de 28/10/2026 sobre a allowlist de Production
 - **Origem:** [issue #174](https://github.com/BipoXDXD/duora/issues/174), [#69](https://github.com/BipoXDXD/duora/issues/69), [ADR-0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md), spec 12.3 e API-M01–M04.
 - **Revisar quando:** Runtime, autoridade do launcher, protocolo, recursos, ameaças ou custos medidos mudarem.
 
@@ -107,7 +107,7 @@ do runtime/launcher, os buffers nos dois lados e a concorrência com backup entr
 
 Os controles e procedimentos descritos acima são requisitos para trabalho futuro, não comprovação de sua
 implementação. Manter `duora_media_review: ""`, `duora_media_backup_enabled: false` e a allowlist de Production
-vazia. Não liberar TechnicalOnly em Production/Staging, nem alterar limites, políticas executáveis, API,
+vazia. *(A allowlist mudou pelo adendo de 28/10/2026 abaixo.)* Não liberar TechnicalOnly em Production/Staging, nem alterar limites, políticas executáveis, API,
 segredos, infraestrutura ou ativação neste PR. Dados reais, deploy e homologação requerem autorização própria.
 A #69 continua bloqueada pelas duas entregas, pela #86 e pelos gates B2/backup/restore/montagens/verify.
 
@@ -118,3 +118,12 @@ sintéticos, revisão humana e nove checks obrigatórios no SHA final. O CI dest
 documental contra as suítes existentes; não comprova uma política humana ou sandbox ainda inexistentes.
 Não executar builds, testes, Docker ou VM no Mac do responsável. Resultados do CI pertencem ao PR; nenhum
 resultado futuro é presumido neste ADR. Issues #173, #174 e #69 permanecem abertas.
+
+## Adendo de 28/10/2026: allowlist de Production e revisão sem recurso
+
+As [decisões de 28/10/2026 do ADR-0035](0035-revisao-humana-de-fotos.md#decisões-de-28102026) mudaram a
+allowlist citada em "Segurança e operação": `PRODUCTION_MEDIA_REVIEW_POLICIES` passou a ser `{"HumanReview"}`.
+`duora_media_review` continua `""` e `duora_media_backup_enabled` continua `false`; ligar o upload continua
+bloqueado pela #69, pela #86 e pelos gates de B2, backup, restore, montagens e verify, e o isolamento deste ADR
+continua requisito para dados reais. A revisão de fotos ficou sem recurso e com um único revisor, o dono do
+projeto. Nada disso muda o sandbox: ele continua sem conhecer política editorial, decisão, recurso ou promoção.

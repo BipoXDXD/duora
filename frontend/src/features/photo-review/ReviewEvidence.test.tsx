@@ -9,10 +9,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountContext } from '@/features/session/account-context'
 import { createTestQueryClient, renderWithI18n } from '@/test/render'
 import { server } from '@/test/msw'
-import { AdminPhotoReviewsPage } from './AdminPhotoReviewsPage'
+import { PhotoReviewsPage } from './AdminPhotoReviewsPage'
 
 const CASE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-const capabilities = { assign: true, evidence: true, decide: true, appeal: true, recentMfaRequiredForDecision: true }
+const capabilities = { assign: true, evidence: true, decide: true, recentMfaRequiredForDecision: true }
 const review = {
   caseId: CASE,
   state: 'AwaitingReview',
@@ -43,7 +43,7 @@ function mount() {
         <PrivateOperationProvider owner={me.owner}>
           <MemoryRouter initialEntries={[`/admin/photo-reviews/${CASE}`]}>
             <Routes>
-              <Route path="/admin/photo-reviews/:caseId" element={<AdminPhotoReviewsPage kind="review" />} />
+              <Route path="/admin/photo-reviews/:caseId" element={<PhotoReviewsPage />} />
             </Routes>
           </MemoryRouter>
         </PrivateOperationProvider>

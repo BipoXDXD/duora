@@ -134,9 +134,16 @@ Veja [o procedimento operacional](../operations/retention.md), incluindo ativaç
 
 ## Revisão humana de fotos — contrato M0, implementação pendente
 
-Os prazos aceitos do ADR-0035 estão detalhados no [contrato de revisão](../api/media-review.md#relógio-recurso-retenção-e-perda-de-bytes),
-incluindo intervalo UTC, recurso versus limpeza e teto de30dias sem aprovação automática. O registro mínimo
+Os prazos aceitos do ADR-0035 estão detalhados no [contrato de revisão](../api/media-review.md#relógio-retenção-e-perda-de-bytes),
+incluindo intervalo UTC e limpeza sem aprovação automática. O registro mínimo
 de decisão/auditoria é de1ano, sem imagem/texto sensível; candidato privado fica fora do backup de mídia,
 mas metadados seguem no backup do banco. Preservação excepcional continua exigindo escopo e vencimento
-explícitos; recurso não cria hold ilimitado. Jobs, tombstones e reconciliação editorial ainda não estão
+explícitos. Jobs, tombstones e reconciliação editorial ainda não estão
 implementados. Esta referência não muda retenção executável nem autoriza expurgo, coleta ou ativação.
+
+**Decisão de 28/10/2026 (sem recurso de fotos).** O candidato privado **rejeitado** deixou de ficar 7 dias à
+espera de recurso: a rejeição grava a obrigação de limpeza com a mesma janela de 24 h da aprovação, e o Worker
+a executa logo após a decisão (`DecidedCandidateCleanupDispatcher`). As rejeições antigas de 168 h recebem a
+mesma obrigação na migração `20261028120000_PhotoReviewWithoutAppeals`. O registro mínimo de decisão e
+auditoria continua de 1 ano. Ledger externo e retenção dos registros de exclusão (tombstones e recibos)
+continuam abertos ([ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)).

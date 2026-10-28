@@ -19,7 +19,6 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
     [InlineData("Assign")]
     [InlineData("Evidence")]
     [InlineData("Decide")]
-    [InlineData("Appeal")]
     [InlineData("Preserve")]
     public async Task EachCapabilityRequiresItsOwnAuditedGrantAndRevocation(string capabilityName)
     {
@@ -114,9 +113,6 @@ public sealed class PhotoReviewAccessTests(PostgresFixture postgres)
     [InlineData("Decide", -6)]
     [InlineData("Decide", -5)]
     [InlineData("Decide", 1)]
-    [InlineData("Appeal", -6)]
-    [InlineData("Appeal", -5)]
-    [InlineData("Appeal", 1)]
     [InlineData("Preserve", -6)]
     [InlineData("Preserve", -5)]
     [InlineData("Preserve", 1)]

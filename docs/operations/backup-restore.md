@@ -605,12 +605,16 @@ Não defina `Media:Review` em appsettings padrão/Production, secrets, argumento
 variável. O executor remove `DUORA_*` e `COMPOSE_*` herdados do shell antes de chamar Compose, para que prevaleça o
 arquivo conferido pelo gate. O formato do interruptor é vazio ou nome sem aspas, expansão, comentário ou duplicata.
 Além do formato, o `duora-deploy` só aceita um nome da allowlist `PRODUCTION_MEDIA_REVIEW_POLICIES`, as políticas que
-o boot do web aceita em Production. Hoje ela é **vazia**: `TechnicalOnly` é a única política implementada e o boot a
-recusa em Production, então qualquer valor não vazio é recusado na leitura do `duora.env`, antes do pull e da
-migração, em vez de derrubar o web depois dela. `Editorial` nos testes do executor é apenas um valor sintético
-posto na allowlist pelo próprio teste: **não é uma política implementada**.
+o boot do web aceita em Production. Desde a decisão do dono de 28/10/2026
+([ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)) ela é **`{"HumanReview"}`**:
+revisão humana de fotos, sem aprovação automática, sem recurso e com um único revisor (o dono). `TechnicalOnly`
+continua recusada em Production, e qualquer valor fora da allowlist (inclusive grafia diferente, como
+`humanreview`) é recusado na leitura do `duora.env`, antes do pull e da migração, em vez de derrubar o web depois
+dela. `Editorial` nos testes do executor é apenas um valor sintético posto na allowlist pelo próprio teste:
+**não é uma política implementada**. Estar na allowlist **não liga o upload**: `duora_media_review` continua `""`
+no inventário, e preenchê-lo com `HumanReview` é o passo de ativação da #69, depois do checklist abaixo.
 
-**Quando houver uma política nova aceita em Production**, o mesmo PR precisa: acrescentá-la a
+**Quando houver outra política aceita em Production**, o mesmo PR precisa: acrescentá-la a
 `PRODUCTION_MEDIA_REVIEW_POLICIES` (o teste confere que só entram nomes de `MediaReviewPolicy` e nunca
 `TechnicalOnly`) e manter a política aceita pelo boot do Web e do Worker. O pipeline de mídia no Worker já foi
 integrado pelo [PR #40](https://github.com/BipoXDXD/duora/pull/40):
@@ -629,10 +633,13 @@ Instalar o Compose novo exige reaplicar `app_dirs`, inclusive o template do arqu
 
 **Checklist antes de qualquer ativação em produção:**
 
-1. Manter `duora_media_review: ""` até haver política de revisão permitida em Production e os demais gates do
-   ADR-0025 e deste checklist estarem atendidos, inclusive o isolamento do decoder. O pipeline já está registrado
-   no Worker, mas só `TechnicalOnly` existe (recusado em Production); o `duora-deploy` recusa qualquer valor fora
-   da allowlist (hoje vazia). Não trocar o ambiente para Development nem a allowlist para contornar isso.
+1. Manter `duora_media_review: ""` até os demais gates do ADR-0025 e deste checklist estarem atendidos, inclusive
+   o isolamento do decoder e a #86, e a ativação da #69 ser autorizada. A política permitida em Production já
+   existe (`HumanReview`, decisão de 28/10/2026); o `duora-deploy` recusa qualquer valor fora da allowlist
+   `{"HumanReview"}`. Não trocar o ambiente para Development nem a allowlist para contornar isso. Ao ligar, a
+   revisão depende de um único revisor, o dono do projeto (papel `moderator` com as capacidades `assign`,
+   `evidence` e `decide`, MFA e step-up na decisão); sem ele disponível, suspender novas admissões pelo
+   procedimento aprovado, porque não há substituto nem recurso de fotos.
 2. Executar e anexar evidência sanitizada do [passo 6 do setup B2](backblaze-setup.md#6-validar),
    em homologação e com dados sintéticos: provas negativas de chave/prefixo/File Lock, dois fulls, `expire`,
    `media-backup`/prune e comparação das versões antes/depois. Zero versões correntes apagadas, novos hide markers e

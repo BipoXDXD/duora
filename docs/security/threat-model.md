@@ -200,6 +200,8 @@ service, **E** elevation of privilege. Cada linha cita a ameaça (TM-xx) detalha
 | I | Foto de perfil bloqueado, excluído ou reprovado servida por URL antiga ou cache | TM-25 |
 | D | Decompression bomb, imagem gigante, uploads pendentes em massa | TM-43 |
 | E | Original não verificado servido antes de `Approved` | TM-44 |
+| I/E | Conta privilegiada sem capacidade explícita (`product_admin`, `operator`) ou participante lê evidência ou decide foto em revisão | TM-80 |
+| R | Decisão de foto por revisor único, sem recurso nem segunda pessoa (decisão de 28/10/2026) | TM-81 |
 
 ### 5.8 Hub SignalR (`/hubs/updates`)
 
@@ -359,6 +361,8 @@ Convenções:
 | TM-77 | Menor de idade na voz | A denúncia pela tela de voz inclui a categoria "suspeita de menor", que restringe o acesso da conta e revoga a voz na hora (spec 12.2), além da revisão apropriada; a maioridade por jurisdição é a lacuna J-05 do PR #83 | a criar: `MinorSuspicionReportFromVoiceRestrictsAccountAndRevokesVoice` |
 | TM-78 | Adulteração do SDP pela VPS | O servidor repassa o SDP sem tocar em `a=fingerprint`. Limite aceito: uma VPS comprometida pode trocar a fingerprint e se pôr no meio; a garantia de "sem áudio em claro" vale contra VPS honesta. Mitigação de base: hardening e deploy só pelo CI (spec 15, 17) | a criar: `ServerForwardsSdpFingerprintUnchanged` |
 | TM-79 | Custo por abuso do relay | Teto de minutos de voz por conta e dia UTC no banco (API-R08 e API-R09 → `429` com `Retry-After`); orçamento de 1000 GB/mês de TURN (franquia gratuita da Cloudflare) com alerta a 80% (800 GB) e kill switch a 100%, pelo runbook enquanto a API de consumo for a confirmar; alerta de gasto e de GB transferidos na conta da Cloudflare; kill switch, gatilho operacional fora da lista de 7 eventos, que desliga a voz no produto inteiro (o botão some, API-R08 e API-R09 recusam e `RevokeAllVoice` revoga as sessões abertas); rate limits de TM-74 | a criar: `VoiceKillSwitchHidesVoiceRefusesCredentialsAndRevokesOpenSessions`; a criar: `JoinVoiceAboveTheDailyMinutesCapIsRefused` |
+| TM-80 | Leitura ou decisão de foto em revisão sem permissão | Rotas `/admin/photo-reviews` só com sessão administrativa/MFA, papel `moderator` e capacidades explícitas `assign`/`evidence`/`decide`; nenhum papel ganha grant implícito; caso não atribuído → `404`; decisão com MFA recente; evidência auditada antes dos bytes ([matriz](../api/media-review.md#matriz-de-autorização-28102026)) | `OtherRolesCannotReceiveReviewPermissionImplicitly`, `EachCapabilityRequiresItsOwnAuditedGrantAndRevocation`, `AParticipantSessionIsForbiddenOnEveryAdminRoute`, `OwnerHistoryMasksOtherOwnersWithTheSameNotFound` |
+| TM-81 | Erro ou viés do revisor único sem segunda análise | Aceito por decisão do dono em 28/10/2026: sem recurso de fotos e sem segundo revisor. Mitigações: rejeição não sanciona a conta, motivo fechado, trilha de decisão e auditoria por 1 ano, e a pessoa pode reenviar outra foto (cotas 3/100). Sem o dono disponível, suspender novas admissões. O recurso de sanção (TM-28, TM-34) não muda | `SingleModeratorRejectsThenANewUploadOpensANewReviewThatTheSameModeratorApproves`, `AppealRoutesNoLongerExistForOwnersOrModerators` |
 
 ## 7. Riscos aceitos e pendências
 
@@ -376,3 +380,4 @@ Convenções:
 | Voz ao vivo: relay como proxy UDP durante a validade da credencial | Aceito (TM-74), com alerta de gasto e kill switch (TM-79) | Responsável técnico |
 | Voz ao vivo: gravação local pela outra pessoa | Aceito: impossível impedir; a tela de voz avisa | Produto |
 | Voz ao vivo: denúncia sem áudio | Aceito por decisão do responsável (TM-73); rever só por ADR | Responsável pelo produto |
+| Revisão de fotos com revisor único e sem recurso | Aceito por decisão do dono em 28/10/2026 (TM-81, [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)); upload em Production continua desligado até a #69 | Dono do projeto |

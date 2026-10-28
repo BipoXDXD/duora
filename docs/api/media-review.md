@@ -5,15 +5,21 @@ Esta entrega não altera endpoints, DTOs, OpenAPI, schema, políticas executáve
 Os nomes de rotas/campos abaixo definem o alvo das entregas M1–M7; não são funcionalidades disponíveis.
 A revisão humana da evolução de contrato/autorização permanece gate antes de código executável.
 
+**Decisões de 28/10/2026** ([ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)):
+HumanReview é admitida em Production (o upload continua desligado até a #69); a revisão de fotos **não tem
+recurso** e tem um único revisor, o dono do projeto; foto recusada se resolve com novo envio, que abre revisão
+nova. Os trechos de recurso abaixo foram removidos ou marcados; a [matriz de autorização](#matriz-de-autorização-28102026)
+descreve as rotas que restaram.
+
 ## Inventário verificado
 
 | Operação | Código atual | Entrega posterior |
 |---|---|---|
 | API-M01 POST `/api/v1/me/photos` | PhotoEndpoints/PhotoUploads: corpo cru, idempotência, 202 e photoId/status; runtime padrão recusa uploads | Acrescentar HumanReview e replay de AwaitingReview após leitores compatíveis |
 | API-M02 GET `/api/v1/me/photos/{photoId}/status` | Titular recebe photoId/status/rejectionCode; seis estados existentes | Acrescentar estado editorial e assetId opcional para derivado aprovado |
-| API-M03 DELETE `/api/v1/me/photos/{photoId}` | Recorte executável (ver "Entrega API-M03/M04"): Approved/Rejected, tombstone no banco e coletor físico | Exclusão durante processamento/revisão/recurso e ledger externo de tombstones |
+| API-M03 DELETE `/api/v1/me/photos/{photoId}` | Recorte executável (ver "Entrega API-M03/M04"): Approved/Rejected, tombstone no banco e coletor físico | Exclusão durante processamento/revisão (aberta, PR separado da #173) e ledger externo de tombstones |
 | API-M04 GET `/api/v1/media/{assetId}` | Recorte executável: só o titular, derivado de asset Approved, `no-store` | Contextos de perfil/sala quando a seleção de foto existir (API-P04) |
-| Fila, evidência, decisão e recurso | Safety não persiste casos editoriais; não há painel | Persistência/contratos/rotas administrativas abaixo |
+| Fila, evidência e decisão | Safety não persiste casos editoriais; não há painel | Persistência/contratos/rotas administrativas abaixo (recurso removido em 28/10/2026) |
 | T-26 / exclusão e restore editorial | Não atendido por upload, outbox ou retenção operacional genérica | Testes de exclusão, preservação limitada, órfãos, backups/tombstones e candidato ausente |
 
 Perfil/seleção de foto: publicar asset não seleciona implicitamente foto do perfil. Toda referência de perfil
@@ -31,14 +37,14 @@ inclusive no replay de API-M01; não o projetar como Processing. Nenhum dado ant
 |---|---|---|---|
 | Sanitização técnica válida com HumanReview | AwaitingReview | null | Candidato privado + caso; encerrar entrega técnica, apagar original duravelmente |
 | Decisão humana de aprovar + promoção/commit válidos | Approved | null | Asset/variantes finais + decisão/auditoria/outbox atômicos |
-| Decisão humana de reprovar | Rejected | PHOTO_REVIEW_REJECTED | Motivo interno no caso; recurso autorizado, sem sanção da conta |
+| Decisão humana de reprovar | Rejected | PHOTO_REVIEW_REJECTED | Motivo interno no caso; sem recurso nem sanção da conta; limpeza do candidato em até 24 h; novo envio abre revisão nova |
 | Sem decisão até 72 h da entrada em revisão | Rejected | PHOTO_REVIEW_EXPIRED | Limpeza do candidato em até 24 h; não aprovar automaticamente |
 | Candidato irrecuperavelmente ausente, inclusive após restore | Rejected | PHOTO_REVIEW_UNAVAILABLE | Novo envio, nunca reconstrução/aprovação a partir de metadados |
 | Exclusão do titular | Deleted | null | Revogar acesso, persistir tombstone/limpeza; preservação só do recorte autorizado |
 | Rejeição técnica | Rejected | Código técnico atual | Preservar semântica; não disfarçar decisão humana com PROCESSING_LIMIT |
 
-Recurso não faz Rejected → Approved cego: abre nova revisão ligada à decisão humana. Se aprovada, exige
-os mesmos checks de candidato/geração/conta/tombstone e commit condicional da aprovação inicial.
+Não há recurso de fotos (28/10/2026): nada faz Rejected → Approved. A pessoa envia uma foto nova, que é outro
+upload com outro caso, sujeito às cotas 3/100 e aos rate limits existentes.
 Pending/AwaitingReview/erros não criam asset público nem confirmação de identidade/idade.
 
 ### API-M01/M02: evolução do status
@@ -48,8 +54,8 @@ Idempotency-Key igual com bytes diferentes continua 409. A negociação ADR-0034
 já definidos de validação de upload; **PHOTO_REVIEW_* são resultados do processamento, fora de errors**.
 
 API-M02 futura responde também com **ETag forte e opaco da versão do upload/foto**, inclusive para Rejected
-e Deleted enquanto o registro existir. Esse é o valor de If-Match para criar recurso ou excluir a foto;
-não usar versão do perfil, do caso ou de recurso ainda inexistente. API-M01/replay pode devolver o mesmo
+e Deleted enquanto o registro existir. Esse é o valor de If-Match para excluir a foto;
+não usar versão do perfil nem do caso. API-M01/replay pode devolver o mesmo
 ETag da foto, mas API-M02 é a fonte obrigatória para reler a versão após conflito.
 
 API-M02 futura mantém os campos atuais e acrescenta `assetId` nullable: só tem valor se status Approved e
@@ -72,11 +78,11 @@ Não gerar OpenAPI/tipos deste alvo enquanto não houver entrega executável rev
 
 | Código | PT-BR | EN-US |
 |---|---|---|
-| PHOTO_REVIEW_REJECTED | A foto não foi aprovada. Consulte as regras para enviar outra foto ou solicitar revisão da decisão dentro do prazo. | This photo was not approved. Check the rules to upload another photo or request a review of the decision within the deadline. |
+| PHOTO_REVIEW_REJECTED | A foto não foi aprovada. Consulte as regras e envie outra foto. | This photo was not approved. Check the rules and upload another photo. |
 | PHOTO_REVIEW_EXPIRED | A análise não terminou no prazo. Envie outra foto para tentar novamente. | The review did not finish before the deadline. Upload another photo to try again. |
 | PHOTO_REVIEW_UNAVAILABLE | Esta foto não está mais disponível para análise. Envie outra foto. | This photo is no longer available for review. Upload another photo. |
 
-A interface apresenta a janela efetiva de recurso quando a decisão for recorrível e houver candidato retido;
+Sem recurso de fotos, a interface orienta novo envio e não oferece pedido de revisão da decisão;
 não promete restaurar foto ausente nem inventa um motivo editorial específico. Motivos internos não podem
 ser inferidos de status, mensagens, URL ou headers.
 
@@ -95,19 +101,21 @@ Esses tetos de paginação são detalhes de contrato, não aumento da cota de fo
 | GET `/admin/photo-reviews/{caseId}` | 200: caso autorizado, política/versionamento e histórico mínimo | Caso atribuído; dados pessoais mínimos, sem path/URL de storage; ETag forte |
 | GET `/admin/photo-reviews/{caseId}/evidence/{variant}` | variant em thumb/card/full → 200 image/webp | Caso atribuído e candidato disponível; auditar leitura **antes** de qualquer byte; sem original, nome de arquivo do usuário ou redirecionamento |
 | POST `/admin/photo-reviews/{caseId}/decisions` | decision approve/reject, reasonCode fechado, If-Match, Idempotency-Key → 200 e versão/resultado | Caso atribuído + MFA/step-up; revalidar conta/guardas/geração e papel no commit. Texto livre/motivo sensível não entra no log |
-| POST `/me/photos/{photoId}/appeals` | Pedido de revisão da própria decisão, If-Match, Idempotency-Key → 202 e protocolo mínimo | Titular, decisão humana recorrível e prazo aberto; não é recurso de sanção API-S06; não aceita foto arbitrária como evidência |
-| GET `/me/photos/{photoId}/appeals/{appealId}` | 200: protocolo/status/datas necessários, sem revisor | Titular; isolamento entre contas e id inexistente uniformes |
 | DELETE `/me/photos/{photoId}` | If-Match, Idempotency-Key → 204 | Titular. Deleted próprio repetido mantém 204 enquanto registro existir; alheio/inexistente dá mesmo404 |
 | GET `/media/{assetId}?variant=...` | Variante em thumb/card/full → 200 image/webp, default full | Asset Approved não basta: titular ou contexto de perfil/sala explicitamente permitido, elegibilidade e Safety revalidados antes dos bytes; alheio/inexistente/não aprovado dá mesmo404 |
 
-GET de evidência e GET público de asset são operações diferentes. moderator/product_admin/operator não
-recebem leitura de fotos por serem privilegiados. Atribuição, leitura, decisão, recurso e preservação são
-capacidades explícitas; recurso exige revisor diferente de quem tomou a decisão anterior. A ausência de
-nomes/cobertura continua gate de ativação; não preencher responsáveis a partir do titular de suporte/região.
+As rotas de recurso de fotos (`/me/photos/{photoId}/appeals` e o grupo `/admin/photo-appeals`) foram removidas
+em 28/10/2026: nenhuma rota registrada contém `appeal`, e o POST do titular dá 404. O recurso de sanção API-S06
+é outra feature e não muda.
 
-ETag do caso vem do GET administrativo do caso e é consumido pelas mutações administrativas. GET do
-protocolo de recurso devolve ETag próprio para esse recurso; não substitui o ETag da foto. POST de recurso
-e DELETE consomem o ETag da foto obtido em API-M02. Não reutilizar tags entre recursos ou de perfil.
+GET de evidência e GET público de asset são operações diferentes. moderator/product_admin/operator não
+recebem leitura de fotos por serem privilegiados. Atribuição, leitura e decisão são capacidades explícitas
+(`assign`, `evidence`, `decide`), concedidas só ao papel `moderator`. Desde 28/10/2026 há um único revisor, o
+dono do projeto, sem substituto nem revisor independente; com ele indisponível, suspendem-se novas admissões
+pelo procedimento aprovado.
+
+ETag do caso vem do GET administrativo do caso e é consumido pelas mutações administrativas. DELETE consome
+o ETag da foto obtido em API-M02. Não reutilizar tags entre tipos de recurso HTTP (foto, caso) ou de perfil.
 If-Match deve conter uma única tag forte: não aceitar wildcard, tag fraca ou lista para contornar a versão.
 Sem If-Match:428; formato inválido:400; versão vencida:412, sem efeito. Repetição da mesma chave/corpo retorna
 resultado já confirmado, mesmo que sua versão anterior já tenha avançado; chave com intenção diferente:409.
@@ -118,7 +126,7 @@ devolve ETag da foto após o efeito; Deleted próprio com chave nova só retorna
 válido. Tag vencida dá412 e ausência dá428 também nessa situação; após expurgo da linha vale404 uniforme.
 
 Sessão ausente:401; papel/capacidade ausente antes de localizar caso:403; caso/foto fora do escopo:404 uniforme;
-estado incompatível/recurso duplicado divergente:409; corpo inválido:400; limitação:429 + Retry-After;
+estado incompatível:409; corpo inválido:400; limitação:429 + Retry-After;
 auditoria/storage/infra transitória:503 + Retry-After. Sem criar enum permissivo por typo.
 O catálogo de Problem Details será atualizado pela entrega executável: os textos acima não viram detail
 arbitrário nem novo código publicado por M0. Falha de cópia/auditoria/commit não confirma decisão aplicada.
@@ -136,7 +144,7 @@ arbitrário nem novo código publicado por M0. Falha de cópia/auditoria/commit 
 5. Ordem global de locks continua a de modules.md; sem storage, rede, decoder ou humano sob locks de negócio.
    Permissão/atribuição/versão não são guardadas apenas em cache para uma decisão posterior.
 
-## Relógio, recurso, retenção e perda de bytes
+## Relógio, retenção e perda de bytes
 
 Todos os instantes são UTC persistidos; um limite vence quando `now >= deadline` (intervalo fechado no início,
 aberto no fim). Não usar relógio do navegador. Limites são avaliados na transação do efeito e rechecados após
@@ -146,24 +154,17 @@ espera por guarda. Timers atrasados não ampliam autorização nem tornam candid
 |---|---|
 | Primeira análise alvo24h | awaitingReviewAt +24h; métrica/alerta, sem aprovação automática |
 | Espera máxima72h | awaitingReviewAt +72h; sem decisão confirmada, PHOTO_REVIEW_EXPIRED; limpeza até +24h |
-| Solicitar recurso até7dias | rejectedAt +7dias, da decisão humana; prazo/candidato checados atomicamente com retenção |
-| Alvo da decisão do recurso7dias | appealRequestedAt +7dias; atraso exige escalonamento, sem manter bytes além do teto nem deferir automaticamente |
-| Candidato reprovado sem recurso | rejectedAt +7dias; fila de limpeza não impede recurso recebido validamente antes do limite |
-| Com recurso aberto | até closedAt +24h, limitado a rejectedAt +30dias, salvo preservação excepcional explícita |
+| Candidato aprovado ou reprovado | decidedAt +24h; a decisão grava a obrigação de limpeza e o Worker a executa logo após (`DecidedCandidateCleanupDispatcher`). Até 28/10/2026 o reprovado ficava 7dias à espera de recurso |
 | Registro mínimo da decisão/auditoria | 1ano conforme ADR-0035; sem imagem ou texto sensível |
 
-Um recurso recebido validamente precisa estender retention_until e criar o caso na mesma transação que
-impede a limpeza. Decisão/recurso empatados com a limpeza são serializados; não ressuscitar bytes apagados.
-Vencimento do alvo de7dias é incidente operacional, não julgamento. Se chegar ao teto de30dias sem solução,
-revogar e limpar candidato, encerrar a capacidade de revisão por falta de evidência e registrar o não julgamento;
-a reprovação original não se transforma em nova decisão de mérito. Status público continua Rejected, sem
-sanção extra e com orientação para novo envio. Se candidato desaparecer antes, usar PHOTO_REVIEW_UNAVAILABLE;
-não chamar indisponibilidade de decisão humana. Expiração/perda sem decisão não inventa um julgamento recorrível.
+Decisão empatada com a limpeza é serializada; não ressuscitar bytes apagados. Status público de rejeição
+continua Rejected, sem sanção extra e com orientação para novo envio. Se candidato desaparecer antes da
+decisão, usar PHOTO_REVIEW_UNAVAILABLE; não chamar indisponibilidade de decisão humana.
 
 Preservação excepcional exige referência/escopo/motivo/ator/vencimento explícitos e auditoria, segundo
-retention.md. O recurso por si só não cria hold ilimitado; este contrato não autoriza ninguém a criá-lo.
+retention.md; este contrato não autoriza ninguém a criá-la.
 Exclusão do titular revoga acesso e fecha o processamento; só o recorte de evidência com hold válido é
-preservado em área separada autorizada. Foto retida como evidência não reaparece no perfil ou no recurso.
+preservado em área separada autorizada. Foto retida como evidência não reaparece no perfil.
 
 review-candidates contém apenas derivados sanitizados, fora do backup de mídia. Casos/metadados continuam no
 backup do banco. Restore aplica tombstones e reconcilia retenção/autorizações antes de admitir leitura ou jobs;
@@ -174,9 +175,9 @@ imutáveis nem reter original para reconstruir revisão. Jobs/campos reais serã
 
 - M1: leitores, DTOs/types/OpenAPI, CHECK/índices/cotas e consumidores antes de escritores. AwaitingReview conta
   nas cotas3/100 inclusive na consulta PhotoUploads.AwaitingVerdict; não basta mudar PendingStates.
-- M2/M3: arquivo privado/caso e transações, geração, idempotência, leitura auditada e decisão/recurso.
+- M2/M3: arquivo privado/caso e transações, geração, idempotência, leitura auditada e decisão (recurso removido em 28/10/2026).
 - M4/M5: HTTP/UI bilíngue, autorização e API-M03/M04/perfil. Nenhum assetId ou nova rota é emitido agora.
-- M6: retenção, órfãos, tombstones, recurso sem evidência e restore. Prazos aprovados não dispensam testes.
+- M6: retenção, órfãos, tombstones e restore. Prazos aprovados não dispensam testes.
 - M7: domínio/Web/Worker/allowlist e montagens coerentes depois do fluxo aceito, mantendo inventário padrão vazio.
 - Rollback só com leitores compatíveis e versão segura. Desligar upload não torna binário antigo capaz de ler
   AwaitingReview; não apagar escolhas/decisões ou reclassificá-las como Approved para caber no binário anterior.
@@ -186,13 +187,13 @@ imutáveis nem reter original para reconstruir revisão. Jobs/campos reais serã
 | Contrato | Invariantes/aceite | Evidência exigida nas próximas entregas |
 |---|---|---|
 | Estados/replay/códigos e readers-before-writers | INV-05/06; T-05/13 | HTTP real, replay após transições, cliente desconhecido, schema/constraints e rollback de leitores |
-| Atribuição/leitura/decisão/recurso | INV-03/05/08/10; T-01/03/10 | Negativos por conta/role/atribuição/MFA, auditoria indisponível sem byte, decisões/revogação concorrentes |
+| Atribuição/leitura/decisão | INV-03/05/08; T-01/03 | Negativos por conta/role/atribuição/MFA, auditoria indisponível sem byte, decisões/revogação concorrentes |
 | Caso/candidato/promoção | INV-06/11; T-05/06/08/16 | PostgreSQL real, falhas entre arquivo/commit, lease vencido, repetição/geração e reinício sem asset parcial |
-| Exclusão/retenção/restore | INV-05/06/11; T-08/26 | Limites exatos de relógio, recurso/cleanup simultâneos, tombstone/hold mínimo, restore sem candidato |
+| Exclusão/retenção/restore | INV-05/06/11; T-08/26 | Limites exatos de relógio, decisão/cleanup simultâneos, tombstone/hold mínimo, restore sem candidato |
 | Perfil/asset aprovado | INV-03/05/10; T-01/03/13 | Contexto de leitura revalidado, bloqueio/restrição, no-store, ausência de original/path/URL |
 
 Esta tabela exige testes futuros; não os declara implementados. #173/#174/#86/#69 continuam abertas.
-Sem equipe e homologação adequadas, não ativar HumanReview/upload. Detector/filtro regional continuam fora do escopo.
+HumanReview é admitida em Production desde 28/10/2026, mas ligar o upload continua dependendo da #69 e de homologação. Detector/filtro regional continuam fora do escopo.
 
 ## Preparação executável M1
 
@@ -206,7 +207,7 @@ A SPA tem transporte genérico testado, ainda sem tela consumidora de status.
 ## Entrega API-M03/M04 — recorte executável (#173)
 
 Atrás do mesmo gate do upload: sem `Media:Review`, as duas rotas respondem 503 `MEDIA_UPLOADS_DISABLED`;
-Production continua sem política admitida, então nada muda lá. Com o upload ligado, a Web exige `Media:Deletion`
+Production admite HumanReview desde 28/10/2026, mas o inventário mantém `duora_media_review` vazio, então nada muda lá até a #69. Com o upload ligado, a Web exige `Media:Deletion`
 (escopo e material da chave de operação V1) no boot.
 
 **API-M03.** API-M02 passa a devolver o ETag forte `"photo-<id>-<versão>"`, o mesmo da linha do tempo de revisão.
@@ -220,7 +221,7 @@ atual e chave nova dá 204 sem novo efeito. O coletor do Worker apaga um objeto 
 backoff, e só chaves do original ou de derivados do asset excluído dessa foto.
 
 Recorte deliberado: só `Approved` e `Rejected` sem candidato privado ou promoção ainda vivos. `Pending`,
-`Quarantined`, `Processing`, `AwaitingReview` e rejeição com candidato retido (recurso possível) respondem 409
+`Quarantined`, `Processing`, `AwaitingReview` e rejeição cujo candidato privado ainda não foi limpo (até 24 h após a decisão) respondem 409
 `PHOTO_DELETE_STATE_CONFLICT`, porque os coletores da revisão dependem do estado da foto e excluir agora deixaria
 bytes sem dono. O tombstone só existe no banco: o 204 não espera o ledger externo, e um restore anterior à exclusão
 ainda a desfaz. Retenção das linhas de tombstone/recibo e o fechamento do caso editorial na exclusão continuam
@@ -231,3 +232,45 @@ relida no banco a cada pedido, antes de abrir o objeto e de novo antes do primei
 estar `Approved`, sem tombstone. Resposta `image/webp`, `Cache-Control: no-store`, `nosniff`, sem range nem ETag.
 Variante `thumb`, `card` ou `full` (padrão); qualquer outro valor é 400. Alheio, inexistente, não aprovado,
 excluído ou arquivo ausente dão o mesmo 404.
+
+
+## Decisões de 28/10/2026
+
+Registradas no [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026). Para este
+contrato: HumanReview admitida em Development, Testing e Production (Staging recusado); upload ainda desligado
+em Production (`duora_media_review` vazio, #69); sem recurso de fotos; um único revisor, o dono do projeto, como
+`moderator` com as capacidades `assign`, `evidence` e `decide`; a rejeição grava a limpeza do candidato em 24 h.
+Continuam abertos: exclusão durante processamento ou revisão (409 hoje), ledger externo e retenção dos registros
+de exclusão, API-P04 (foto no perfil ou na sala; `GET /profiles/{userId}` não existe), aceite da política de
+privacidade pelo titular e ativação do upload (#69).
+
+### Matriz de autorização (28/10/2026)
+
+Rotas sob `/api/v1`, conferidas em `PhotoReviewEndpoints.cs`, `PhotoEndpoints.cs` e `MediaAssetEndpoints.cs`.
+A matriz supõe o upload ligado (`Media:Review=HumanReview`). Com ele desligado, que é o estado de Production
+hoje, toda rota abaixo responde 503 `MEDIA_UPLOADS_DISABLED` a quem passa da autenticação e da política do
+grupo (anônimo continua 401; conta privilegiada em rota de participante e participante em `/admin` continuam
+403). "Moderador" é o dono do projeto: papel `moderator`, sessão administrativa com MFA e as três capacidades
+concedidas. "404 uniforme" quer dizer que alheio e inexistente dão o mesmo status e o mesmo corpo.
+
+| Rota | Titular participante | Outro participante | Moderador (dono, com grants) | `product_admin` / `operator` | Anônimo |
+|---|---|---|---|---|---|
+| GET `/me/photos` (lista própria) | 200, só as próprias fotos | 200, só as fotos dele; nunca as do titular | 403 `FORBIDDEN` (política padrão: conta privilegiada não usa rota de participante) | 403 `FORBIDDEN` (idem) | 401 |
+| GET `/me/photos/{photoId}/review-history` | 200 | 404 uniforme | 403 `FORBIDDEN` (política padrão) | 403 `FORBIDDEN` (política padrão) | 401 (política padrão) |
+| DELETE `/me/photos/{photoId}` | 204 em `Approved` ou `Rejected` já limpo; 409 `PHOTO_DELETE_STATE_CONFLICT` em processamento, revisão ou candidato ainda não limpo | 404 uniforme, nada muda | 403 `FORBIDDEN` (política padrão) | 403 `FORBIDDEN` (política padrão) | 401 ou 403 (o teste aceita os dois; a foto fica intacta) |
+| GET `/media/{assetId}` | 200 `image/webp`, `no-store`, só asset `Approved` | 404 uniforme (também para não aprovado, excluído ou sem arquivo) | 403 `FORBIDDEN` (política padrão) | 403 `FORBIDDEN` (política padrão) | 401 |
+| GET `/admin/photo-reviews/capabilities` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 | 403 `PHOTO_REVIEW_FORBIDDEN` (sem capacidade) | 401 `UNAUTHENTICATED` |
+| GET `/admin/photo-reviews` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200, só casos atribuídos a ele | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
+| GET `/admin/photo-reviews/{caseId}` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 se atribuído; 404 se inexistente ou não atribuído | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
+| POST `/admin/photo-reviews/{caseId}/assignments` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200; 404 caso inexistente; 412/428 versão; 409 estado ou chave | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
+| GET `/admin/photo-reviews/{caseId}/evidence/{variant}` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 `image/webp`, `no-store`, auditada antes dos bytes; 404 caso não atribuído ou variante desconhecida; 503 storage | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
+| POST `/admin/photo-reviews/{caseId}/decisions` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 com MFA recente (TOTP nos últimos 5 min); sem ela, 401 `REAUTHENTICATION_REQUIRED` | 401 `REAUTHENTICATION_REQUIRED` sem MFA recente; com ela, 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |
+
+Evidência: `PhotoReviewHttpTests` (fluxo do moderador único, 404 uniforme no histórico, rotas de recurso
+inexistentes), `PhotoReviewOwnerPhotoListTests` (lista só do titular, 401), `PhotoDeletionTests` e
+`MediaAssetReadTests` (404 uniforme, 401), `AdminRouteTests` (401 anônimo, 403 participante, 503 com upload
+desligado, 401 `REAUTHENTICATION_REQUIRED` sem MFA recente numa ação crítica), `SecondFactorHardeningTests`
+(403 da conta privilegiada em API-M01/M02) e `PhotoReviewAccessTests` (capacidades explícitas; `operator`, `product_admin` e `participant` não
+recebem grant). As células de `product_admin`/`operator` com upload ligado e as 403 da conta privilegiada em
+histórico, lista, DELETE e `/media` vêm do código (política padrão e recusa do serviço), sem teste HTTP próprio
+para cada célula.

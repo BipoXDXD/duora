@@ -22,7 +22,7 @@ const A = {
   roles: ['moderator'],
 }
 const B = { ...A, id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', email: 'b@example.test' }
-const CAPS = { assign: true, evidence: true, decide: true, appeal: true, recentMfaRequiredForDecision: true }
+const CAPS = { assign: true, evidence: true, decide: true, recentMfaRequiredForDecision: true }
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -100,7 +100,6 @@ describe('M7 real private-operation consumer contract', () => {
             await sendReviewIntent(
               operation,
               {
-                kind: 'review',
                 id: CASE,
                 eTag: '"case-A"',
                 key: 'same-intent-A',
@@ -207,7 +206,7 @@ describe('M7 real private-operation consumer contract', () => {
     )
     renderWithI18n(
       <PrivateOperationProvider owner={me.owner}>
-        <ReviewEvidence kind="review" itemId={CASE} onFailure={() => undefined} />
+        <ReviewEvidence itemId={CASE} onFailure={() => undefined} />
       </PrivateOperationProvider>,
       'en-US',
     )

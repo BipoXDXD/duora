@@ -19,16 +19,11 @@ public sealed record ReviewReply<T>(T? Value, ReviewRefusal? Refusal) where T : 
 public sealed record ReviewCase(Guid CaseId, string State, long Version, DateTimeOffset AwaitingReviewAt,
     DateTimeOffset ReviewDeadline, string PolicyVersion);
 public sealed record ReviewCasePage(IReadOnlyList<ReviewCase> Items, string? NextCursor);
-public sealed record ReviewCapabilities(bool Assign, bool Evidence, bool Decide, bool Appeal, bool RecentMfaRequiredForDecision);
-public sealed record ReviewMutation(Guid CaseId, Guid PhotoId, Guid? AppealId, long Version, long PhotoVersion,
-    string? Decision = null, Guid? AssetId = null, DateTimeOffset? RequestedAt = null,
-    DateTimeOffset? ResponseTargetAt = null, DateTimeOffset? MaximumRetentionUntil = null);
-public sealed record ReviewAppeal(Guid AppealId, Guid PhotoId, string State, long Version, DateTimeOffset RequestedAt,
-    DateTimeOffset ResponseTargetAt, DateTimeOffset MaximumRetentionUntil, DateTimeOffset? ClosedAt);
-public sealed record ReviewAppealPage(IReadOnlyList<ReviewAppeal> Items, string? NextCursor);
-public sealed record ReviewHistoryItem(Guid DecisionId, string Decision, string ReasonCode, DateTimeOffset DecidedAt, bool IsAppeal);
-public sealed record ReviewHistory(Guid PhotoId, long PhotoVersion, IReadOnlyList<ReviewHistoryItem> Items,
-    ReviewAppeal? Appeal, bool CanRequestAppeal);
+public sealed record ReviewCapabilities(bool Assign, bool Evidence, bool Decide, bool RecentMfaRequiredForDecision);
+public sealed record ReviewMutation(Guid CaseId, Guid PhotoId, long Version, long PhotoVersion,
+    string? Decision = null, Guid? AssetId = null);
+public sealed record ReviewHistoryItem(Guid DecisionId, string Decision, string ReasonCode, DateTimeOffset DecidedAt);
+public sealed record ReviewHistory(Guid PhotoId, long PhotoVersion, IReadOnlyList<ReviewHistoryItem> Items);
 
 /// <summary>Typed application boundary. Every command delegates to a live, guarded internal coordinator.</summary>
 public sealed partial class PhotoReviewService
@@ -45,58 +40,32 @@ public sealed partial class PhotoReviewService
     }
 
     public async Task<ReviewReply<ReviewMutation>> AssignAsync(Guid user, Guid session, Guid id, Guid reviewer,
-        long version, IdempotencyKey key, bool appeal, CancellationToken ct)
+        long version, IdempotencyKey key, CancellationToken ct)
     {
         var actor = new PhotoReviewActor(user, session);
-        if (appeal)
-        {
-            var result = await new PhotoReviewAppealAssignments(_contexts, _time).AssignAsync(actor, id, reviewer, version, key, ct);
-            return result is PhotoReviewAppealAssignmentResult.Assigned accepted
-                ? new(new(Guid.Empty, Guid.Empty, accepted.AppealId, accepted.Version, 0), null)
-                : new(null, Refusal(result));
-        }
         await using var db = await _contexts.CreateDbContextAsync(ct);
         var initial = await new PhotoReviewAssignments(db, _time).AssignAsync(actor, id, reviewer, version, key, ct);
         return initial is PhotoReviewAssignmentResult.Assigned assigned
-            ? new(new(assigned.CaseId, Guid.Empty, null, assigned.Version, 0), null)
+            ? new(new(assigned.CaseId, Guid.Empty, assigned.Version, 0), null)
             : new(null, Refusal(initial));
     }
 
-    public async Task<ReviewReply<ReviewMutation>> RequestAppealAsync(Guid user, Guid session, Guid photo,
-        long version, IdempotencyKey key, CancellationToken ct)
-    {
-        var result = await new PhotoReviewAppeals(_contexts, _store, _time).RequestAsync(new(user, session), photo, version, key, ct);
-        return result is PhotoReviewAppealRequestResult.Accepted accepted
-            ? new(new(Guid.Empty, accepted.PhotoId, accepted.AppealId, 1, accepted.PhotoVersion,
-                RequestedAt: accepted.RequestedAt, ResponseTargetAt: accepted.ResponseTargetAt,
-                MaximumRetentionUntil: accepted.MaximumRetentionUntil), null)
-            : new(null, Refusal(result));
-    }
-
     public async Task<ReviewReply<ReviewMutation>> DecideAsync(Guid user, Guid session, Guid id,
-        long version, IdempotencyKey key, bool appeal, bool approve, CancellationToken ct)
+        long version, IdempotencyKey key, bool approve, CancellationToken ct)
     {
         var actor = new PhotoReviewActor(user, session);
-        if (appeal)
-        {
-            var result = await new PhotoReviewAppealDecisions(_contexts, _store, _time).DecideAsync(actor, id, version, approve, key, ct);
-            return result is PhotoReviewAppealDecisionResult.Decided decided
-                ? new(new(decided.CaseId, await PhotoIdAsync(decided.CaseId, ct), decided.AppealId, decided.AppealVersion, decided.PhotoVersion,
-                    decided.Decision, decided.AssetId), null)
-                : new(null, Refusal(result));
-        }
         if (approve)
         {
             var result = await new PhotoReviewApprovals(_contexts, _store, _time).ApproveAsync(actor, id, version,
                 PhotoReviewApprovalReason.MeetsPolicy, key, ct);
             return result is PhotoReviewApprovalResult.Approved accepted
-                ? new(new(accepted.CaseId, await PhotoIdAsync(accepted.CaseId, ct), null, accepted.Version, accepted.PhotoVersion, "approve", accepted.AssetId), null)
+                ? new(new(accepted.CaseId, await PhotoIdAsync(accepted.CaseId, ct), accepted.Version, accepted.PhotoVersion, "approve", accepted.AssetId), null)
                 : new(null, Refusal(result));
         }
         var rejection = await new PhotoReviewRejections(_contexts, _store, _time).RejectAsync(actor, id, version,
             PhotoReviewRejectionReason.DoesNotMeetPolicy, key, ct);
         return rejection is PhotoReviewRejectionResult.Rejected rejected
-            ? new(new(rejected.CaseId, await PhotoIdAsync(rejected.CaseId, ct), null, rejected.Version, rejected.PhotoVersion, "reject"), null)
+            ? new(new(rejected.CaseId, await PhotoIdAsync(rejected.CaseId, ct), rejected.Version, rejected.PhotoVersion, "reject"), null)
             : new(null, Refusal(rejection));
     }
 
@@ -110,14 +79,12 @@ public sealed partial class PhotoReviewService
         var assign = await access.AuthorizeAsync(actor, PhotoReviewCapability.Assign, ct);
         var evidence = await access.AuthorizeAsync(actor, PhotoReviewCapability.Evidence, ct);
         var recentDecide = await access.AuthorizeAsync(actor, PhotoReviewCapability.Decide, ct);
-        var recentAppeal = await access.AuthorizeAsync(actor, PhotoReviewCapability.Appeal, ct);
-        if (!assign && !evidence && !recentDecide && !recentAppeal)
+        if (!assign && !evidence && !recentDecide)
         {
             return new(null, ReviewRefusal.Forbidden);
         }
         var decide = evidence && await HasGrantAsync(db, user, "decide", ct);
-        var appeal = evidence && await HasGrantAsync(db, user, "appeal", ct);
-        return new(new(assign, evidence, decide, appeal, (decide && !recentDecide) || (appeal && !recentAppeal)), null);
+        return new(new(assign, evidence, decide, decide && !recentDecide), null);
     }
 
     public async Task<ReviewReply<ReviewCasePage>> CasesAsync(Guid user, Guid session, string? cursor, int limit, CancellationToken ct)
@@ -175,24 +142,18 @@ public sealed partial class PhotoReviewService
     // Closed mapping: never use exception text, database errors or CLR type names as public problem details.
     private static ReviewRefusal Refusal(object result) => result switch
     {
-        PhotoReviewAssignmentResult.Forbidden or PhotoReviewAppealAssignmentResult.Forbidden
-            or PhotoReviewAppealRequestResult.Forbidden or PhotoReviewApprovalResult.Forbidden
-            or PhotoReviewRejectionResult.Forbidden or PhotoReviewAppealDecisionResult.Forbidden => ReviewRefusal.Forbidden,
-        PhotoReviewAssignmentResult.NotFound or PhotoReviewAppealAssignmentResult.NotFound
-            or PhotoReviewAppealRequestResult.NotFound or PhotoReviewApprovalResult.NotFound
-            or PhotoReviewRejectionResult.NotFound or PhotoReviewAppealDecisionResult.NotFound => ReviewRefusal.NotFound,
-        PhotoReviewAssignmentResult.PreconditionFailed or PhotoReviewAppealAssignmentResult.PreconditionFailed
-            or PhotoReviewAppealRequestResult.PreconditionFailed or PhotoReviewApprovalResult.PreconditionFailed
-            or PhotoReviewRejectionResult.PreconditionFailed or PhotoReviewAppealDecisionResult.PreconditionFailed => ReviewRefusal.PreconditionFailed,
-        PhotoReviewAssignmentResult.KeyReused or PhotoReviewAppealAssignmentResult.KeyReused
-            or PhotoReviewAppealRequestResult.KeyReused or PhotoReviewApprovalResult.KeyReused
-            or PhotoReviewRejectionResult.KeyReused or PhotoReviewAppealDecisionResult.KeyReused => ReviewRefusal.KeyReused,
-        PhotoReviewAssignmentResult.ReviewerUnavailable or PhotoReviewAppealAssignmentResult.ReviewerUnavailable => ReviewRefusal.ReviewerUnavailable,
-        PhotoReviewAppealRequestResult.Unavailable or PhotoReviewApprovalResult.Unavailable
-            or PhotoReviewRejectionResult.Unavailable or PhotoReviewAppealDecisionResult.Unavailable => ReviewRefusal.Unavailable,
-        PhotoReviewAssignmentResult.StateConflict or PhotoReviewAppealAssignmentResult.StateConflict
-            or PhotoReviewAppealRequestResult.StateConflict or PhotoReviewApprovalResult.StateConflict
-            or PhotoReviewRejectionResult.StateConflict or PhotoReviewAppealDecisionResult.StateConflict => ReviewRefusal.StateConflict,
+        PhotoReviewAssignmentResult.Forbidden or PhotoReviewApprovalResult.Forbidden
+            or PhotoReviewRejectionResult.Forbidden => ReviewRefusal.Forbidden,
+        PhotoReviewAssignmentResult.NotFound or PhotoReviewApprovalResult.NotFound
+            or PhotoReviewRejectionResult.NotFound => ReviewRefusal.NotFound,
+        PhotoReviewAssignmentResult.PreconditionFailed or PhotoReviewApprovalResult.PreconditionFailed
+            or PhotoReviewRejectionResult.PreconditionFailed => ReviewRefusal.PreconditionFailed,
+        PhotoReviewAssignmentResult.KeyReused or PhotoReviewApprovalResult.KeyReused
+            or PhotoReviewRejectionResult.KeyReused => ReviewRefusal.KeyReused,
+        PhotoReviewAssignmentResult.ReviewerUnavailable => ReviewRefusal.ReviewerUnavailable,
+        PhotoReviewApprovalResult.Unavailable or PhotoReviewRejectionResult.Unavailable => ReviewRefusal.Unavailable,
+        PhotoReviewAssignmentResult.StateConflict or PhotoReviewApprovalResult.StateConflict
+            or PhotoReviewRejectionResult.StateConflict => ReviewRefusal.StateConflict,
         _ => throw new InvalidOperationException("Unknown private review result."),
     };
 }

@@ -14,21 +14,10 @@ const reviewSchema = z.object({
   reviewDeadline: instant,
   policyVersion: opaque,
 })
-const appealSchema = z.object({
-  appealId: id,
-  photoId: id,
-  state: z.enum(['Open', 'ClosedApproved', 'ClosedRejected', 'ClosedUnavailable']),
-  eTag: opaque,
-  requestedAt: instant,
-  responseTargetAt: instant,
-  maximumRetentionUntil: instant,
-  closedAt: instant.nullable(),
-})
 const capabilitiesSchema = z.object({
   assign: z.boolean(),
   evidence: z.boolean(),
   decide: z.boolean(),
-  appeal: z.boolean(),
   recentMfaRequiredForDecision: z.boolean(),
 })
 const historySchema = z.object({
@@ -40,27 +29,15 @@ const historySchema = z.object({
       decision: z.string(),
       reasonCode: z.string(),
       decidedAt: instant,
-      isAppeal: z.boolean(),
     }),
   ),
-  appeal: appealSchema.nullable(),
-  canRequestAppeal: z.boolean(),
 })
 const decisionReceiptSchema = z.object({
   caseId: id,
-  appealId: id.nullable(),
   decision: z.string(),
   eTag: opaque,
   photoETag: opaque,
   assetId: id.nullable(),
-})
-const appealReceiptSchema = z.object({
-  appealId: id,
-  photoId: id,
-  photoETag: opaque,
-  requestedAt: instant,
-  responseTargetAt: instant,
-  maximumRetentionUntil: instant,
 })
 const ownerPhotoPageSchema = z.object({
   items: z.array(
@@ -71,12 +48,10 @@ const ownerPhotoPageSchema = z.object({
 
 export type OwnerPhotoPage = z.output<typeof ownerPhotoPageSchema>
 
-export type ReviewKind = 'review' | 'appeal'
 export type ReviewCapabilities = z.output<typeof capabilitiesSchema>
 export type PhotoReviewHistory = z.output<typeof historySchema>
-export type PhotoAppeal = z.output<typeof appealSchema>
 export type ReviewDecision = 'approve' | 'reject'
-export type ReviewState = z.output<typeof reviewSchema>['state'] | PhotoAppeal['state']
+export type ReviewState = z.output<typeof reviewSchema>['state']
 
 export interface ReviewItem {
   readonly id: string
@@ -84,8 +59,7 @@ export interface ReviewItem {
   readonly eTag: string
   readonly startedAt: string
   readonly deadline: string
-  readonly retentionUntil?: string
-  readonly policyVersion?: string
+  readonly policyVersion: string
 }
 
 export interface ReviewPage {
@@ -94,7 +68,6 @@ export interface ReviewPage {
 }
 
 export interface ReviewIntent {
-  readonly kind: ReviewKind
   readonly id: string
   readonly eTag: string
   readonly key: string
@@ -103,9 +76,8 @@ export interface ReviewIntent {
     | { readonly type: 'assignment'; readonly reviewerId: string }
 }
 
-export const reviewPath = (kind: ReviewKind): string => `/admin/photo-${kind === 'review' ? 'reviews' : 'appeals'}`
-const apiPath = (kind: ReviewKind): string => `/api/v1${reviewPath(kind)}`
-const itemPath = (kind: ReviewKind, itemId: string): string => `${apiPath(kind)}/${encodeURIComponent(itemId)}`
+const apiPath = '/api/v1/admin/photo-reviews'
+const itemPath = (itemId: string): string => `${apiPath}/${encodeURIComponent(itemId)}`
 
 async function get(operation: OperationHandle, path: string, signal?: AbortSignal): Promise<Response> {
   return apiClient.fetchFor(operation)(
@@ -140,22 +112,11 @@ function toReview(value: z.output<typeof reviewSchema>): ReviewItem {
   }
 }
 
-function toAppeal(value: PhotoAppeal): ReviewItem {
-  return {
-    id: value.appealId,
-    state: value.state,
-    eTag: value.eTag,
-    startedAt: value.requestedAt,
-    deadline: value.responseTargetAt,
-    retentionUntil: value.maximumRetentionUntil,
-  }
-}
-
 export async function fetchReviewCapabilities(
   operation: OperationHandle,
   signal?: AbortSignal,
 ): Promise<ReviewCapabilities> {
-  return capabilitiesSchema.parse(await json(await get(operation, '/api/v1/admin/photo-reviews/capabilities', signal)))
+  return capabilitiesSchema.parse(await json(await get(operation, `${apiPath}/capabilities`, signal)))
 }
 
 /** Owner-only list; the list/items carry no ETag. History obtains the real photo ETag separately. */
@@ -171,30 +132,23 @@ export async function fetchOwnerPhotoPage(
 
 export async function fetchReviewPage(
   operation: OperationHandle,
-  request: { readonly kind: ReviewKind; readonly cursor: string | null },
+  cursor: string | null,
   signal?: AbortSignal,
 ): Promise<ReviewPage> {
-  const { kind, cursor } = request
   const query = new URLSearchParams({ limit: '20' })
   if (cursor !== null) query.set('cursor', cursor)
-  const body = await json(await get(operation, `${apiPath(kind)}?${query}`, signal))
-  if (kind === 'review') {
-    const page = z.object({ items: z.array(reviewSchema), nextCursor: z.string().nullable() }).parse(body)
-    return { items: page.items.map(toReview), nextCursor: page.nextCursor }
-  }
-  const page = z.object({ items: z.array(appealSchema), nextCursor: z.string().nullable() }).parse(body)
-  return { items: page.items.map(toAppeal), nextCursor: page.nextCursor }
+  const body = await json(await get(operation, `${apiPath}?${query}`, signal))
+  const page = z.object({ items: z.array(reviewSchema), nextCursor: z.string().nullable() }).parse(body)
+  return { items: page.items.map(toReview), nextCursor: page.nextCursor }
 }
 
 export async function fetchReviewItem(
   operation: OperationHandle,
-  request: { readonly kind: ReviewKind; readonly id: string },
+  itemId: string,
   signal?: AbortSignal,
 ): Promise<ReviewItem> {
-  const { kind, id: itemId } = request
-  const response = await get(operation, itemPath(kind, itemId), signal)
-  const body = await json(response)
-  const item = kind === 'review' ? toReview(reviewSchema.parse(body)) : toAppeal(appealSchema.parse(body))
+  const response = await get(operation, itemPath(itemId), signal)
+  const item = toReview(reviewSchema.parse(await json(response)))
   confirmETag(response, item.eTag)
   if (item.id !== itemId) throw new ApiResponseError(response.status, 'inconsistent review resource')
   return item
@@ -208,27 +162,8 @@ export async function fetchReviewHistory(
   const response = await get(operation, `/api/v1/me/photos/${encodeURIComponent(photoId)}/review-history`, signal)
   const history = historySchema.parse(await json(response))
   confirmETag(response, history.photoETag)
-  if (history.photoId !== photoId || (history.appeal !== null && history.appeal.photoId !== photoId))
-    throw new ApiResponseError(response.status, 'inconsistent photo history')
+  if (history.photoId !== photoId) throw new ApiResponseError(response.status, 'inconsistent photo history')
   return history
-}
-
-export async function requestPhotoAppeal(
-  operation: OperationHandle,
-  intent: { readonly photoId: string; readonly eTag: string; readonly key: string },
-  signal?: AbortSignal,
-): Promise<z.output<typeof appealReceiptSchema>> {
-  const body = await sendMutationForJson({
-    operation,
-    method: 'POST',
-    path: `/api/v1/me/photos/${encodeURIComponent(intent.photoId)}/appeals`,
-    body: {},
-    headers: { 'If-Match': intent.eTag, 'Idempotency-Key': intent.key },
-    ...(signal === undefined ? {} : { signal }),
-  })
-  const receipt = appealReceiptSchema.parse(body)
-  if (receipt.photoId !== intent.photoId) throw new ApiResponseError(201, 'inconsistent appeal receipt')
-  return receipt
 }
 
 export async function sendReviewIntent(
@@ -240,7 +175,7 @@ export async function sendReviewIntent(
   const body = await sendMutationForJson({
     operation,
     method: 'POST',
-    path: `${itemPath(intent.kind, intent.id)}/${decision ? 'decisions' : 'assignments'}`,
+    path: `${itemPath(intent.id)}/${decision ? 'decisions' : 'assignments'}`,
     body:
       intent.command.type === 'decision'
         ? {
@@ -253,26 +188,18 @@ export async function sendReviewIntent(
   })
   if (decision) {
     const receipt = decisionReceiptSchema.parse(body)
-    if (
-      (intent.kind === 'review'
-        ? receipt.caseId !== intent.id || receipt.appealId !== null
-        : receipt.appealId !== intent.id) ||
-      receipt.decision !== intent.command.decision
-    )
+    if (receipt.caseId !== intent.id || receipt.decision !== intent.command.decision)
       throw new ApiResponseError(200, 'inconsistent decision receipt')
-  } else if (intent.kind === 'review') {
-    if (z.object({ caseId: id, eTag: opaque }).parse(body).caseId !== intent.id)
-      throw new ApiResponseError(200, 'inconsistent assignment receipt')
-  } else if (z.object({ appealId: id, eTag: opaque }).parse(body).appealId !== intent.id)
+  } else if (z.object({ caseId: id, eTag: opaque }).parse(body).caseId !== intent.id)
     throw new ApiResponseError(200, 'inconsistent assignment receipt')
 }
 
 export async function fetchReviewEvidence(
   operation: OperationHandle,
-  request: { readonly kind: ReviewKind; readonly id: string; readonly variant: 'card' | 'full' | 'thumb' },
+  request: { readonly id: string; readonly variant: 'card' | 'full' | 'thumb' },
   signal: AbortSignal,
 ): Promise<Blob> {
-  const response = await get(operation, `${itemPath(request.kind, request.id)}/evidence/${request.variant}`, signal)
+  const response = await get(operation, `${itemPath(request.id)}/evidence/${request.variant}`, signal)
   if (response.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase() !== 'image/webp')
     throw new ApiResponseError(response.status, 'invalid private image')
   return response.blob()

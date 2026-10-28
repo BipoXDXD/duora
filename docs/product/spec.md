@@ -643,6 +643,8 @@ Os caminhos administrativos abaixo também usam `/api/v1`. Todos exigem sessão 
 | API-ADM19 | `GET /admin/jobs` | Jobs por categoria/estado com causas sanitizadas; sem edição livre de payload |
 | API-ADM20 | `POST /admin/jobs/{jobId}/retry` | Reprocessar apenas operação permitida, revalidando prazo, autorização e idempotência |
 
+**Revisão de fotos (decisão de 28/10/2026, [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)).** As rotas `/admin/photo-reviews` (capacidades, lista de casos atribuídos, caso, atribuição, evidência e decisão) têm **um único revisor**: o dono do projeto, com papel `moderator`, as capacidades explícitas `assign`, `evidence` e `decide`, MFA e step-up na decisão; `product_admin` e `operator` não leem fotos. **Não há recurso de fotos**: foto recusada continua recusada, e a pessoa pode enviar outra foto, que abre uma revisão nova dentro das cotas e rate limits existentes. Sem o dono disponível, novas admissões de fotos são suspensas pelo procedimento aprovado; não há substituto. Matriz de autorização: [media-review.md](../api/media-review.md#matriz-de-autorização-28102026). O recurso de moderação (API-S06, API-ADM15, INV-10) é outra feature e não muda.
+
 Concessão de privilégios administrativos fica em procedimento restrito e auditado; não expor um endpoint genérico para qualquer administrador promover a si mesmo. Pausa operacional é estado persistente consultado pelo coordenador antes de confirmar novas formações; não é apenas um botão desativado no painel.
 
 ### 8.6. Exemplos normativos de payload
@@ -957,12 +959,14 @@ Fornecedor integrado: AWS Rekognition Face Liveness, avaliação de brilho/nitid
 | Receber denúncia | Validar, registrar protocolo, preservar recorte autorizado e priorizar | Não necessário para receber e proteger a pessoa |
 | Bloqueio solicitado pela pessoa | Aplicar imediatamente e cancelar interações pendentes | Não necessário |
 | Limites anti-spam | Rate limit, cooldown e desafio proporcional | Revisão quando houver contestação ou restrição duradoura |
-| Upload suspeito | Manter em quarentena e impedir publicação | Decisão editorial/sanção conforme risco |
+| Upload suspeito | Manter em quarentena e impedir publicação | Decisão editorial/sanção conforme risco; na revisão de fotos, decisão do revisor único (o dono), sem recurso: a pessoa reenvia outra foto (28/10/2026) |
 | Classificação assistida | Produzir rótulo, explicação técnica limitada e prioridade | Não tratar score como prova conclusiva |
 | Suspeita de menor/exploração | Restringir acesso e escalar de acordo com protocolo | Responsável qualificado e procedimentos aplicáveis |
 | Sanção permanente | Preparar caso e proposta | Aprovação, justificativa e possibilidade de recurso |
 | Recurso | Organizar histórico e apontar regras relevantes | Nova revisão, não repetir automaticamente o primeiro classificador |
 | Publicação de conteúdo do jogo | Validar schema e checagens automáticas | Aprovação editorial antes de usar com participantes |
+
+A linha "Recurso" acima vale para medidas de moderação (denúncias e sanções). A revisão de fotos não tem recurso nem segundo revisor (decisão de 28/10/2026).
 
 Automação de triagem não significa que toda conversa precisa ser enviada para um modelo. O padrão minimiza análise: conteúdo reportado, uploads em revisão e sinais de abuso estritamente necessários. Um fornecedor externo de moderação exige política de dados, retenção e acesso própria antes de receber material real.
 
@@ -1284,7 +1288,7 @@ A concessão ao executor de deploy é um comando restrito que recebe uma release
 | Registro | Criar upload com proprietário, chave aleatória e estado | Operação idempotente; não usar nome enviado como caminho |
 | Inspeção | Verificar assinatura, decodificar com limites de dimensões, pixels e frames | Rejeitar formato inválido, imagem bomba ou conteúdo não suportado |
 | Normalização | Reencodar formato permitido, remover EXIF/localização e gerar variantes | Limitar CPU/memória; apagar temporários após sucesso/falha |
-| Revisão | Aplicar política técnica/editorial e eventual triagem aprovada | Conteúdo permanece privado até aprovação |
+| Revisão | Aplicar política técnica/editorial e eventual triagem aprovada; em Production só `HumanReview` (decisão humana do revisor único, 28/10/2026) | Conteúdo permanece privado até aprovação; rejeição não tem recurso e limpa o candidato em 24 h, e a pessoa reenvia outra foto |
 | Publicação | Tornar derivado aprovado referenciável pelo perfil | Publicação não torna o bucket público |
 | Leitura | Autorizar a relação e servir via API com `no-store` | Revalidar bloqueio, exclusão e estado do asset |
 | Limpeza | Remover originais desnecessários, uploads órfãos e variantes excluídas | Job com grace period, referência verificada e métricas |

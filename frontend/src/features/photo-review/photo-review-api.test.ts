@@ -45,16 +45,13 @@ describe('M7 localized HTTP boundary', () => {
         HttpResponse.json({ ...review, caseId: OTHER }, { headers: { ETag } }),
       ),
     )
-    await expect(fetchReviewItem(operation(), { kind: 'review', id: CASE })).rejects.toThrow()
+    await expect(fetchReviewItem(operation(), CASE)).rejects.toThrow()
   })
 
   it('refuses a different owner photo rather than exposing its factual history', async () => {
     server.use(
       http.get(`/api/v1/me/photos/${PHOTO}/review-history`, () =>
-        HttpResponse.json(
-          { photoId: OTHER, photoETag: ETag, items: [], appeal: null, canRequestAppeal: true },
-          { headers: { ETag } },
-        ),
+        HttpResponse.json({ photoId: OTHER, photoETag: ETag, items: [] }, { headers: { ETag } }),
       ),
     )
     await expect(fetchReviewHistory(operation(), PHOTO)).rejects.toThrow()
@@ -66,7 +63,7 @@ describe('M7 localized HTTP boundary', () => {
         HttpResponse.json(review, { headers: { ETag: '"other-version"' } }),
       ),
     )
-    await expect(fetchReviewItem(operation(), { kind: 'review', id: CASE })).rejects.toThrow()
+    await expect(fetchReviewItem(operation(), CASE)).rejects.toThrow()
   })
 
   it('does not acknowledge a different case decision as the requested decision', async () => {
@@ -75,7 +72,6 @@ describe('M7 localized HTTP boundary', () => {
       http.post(`/api/v1/admin/photo-reviews/${CASE}/decisions`, () =>
         HttpResponse.json({
           caseId: OTHER,
-          appealId: null,
           decision: 'approve',
           eTag: '"case-v2"',
           photoETag: '"photo-v2"',
@@ -85,7 +81,6 @@ describe('M7 localized HTTP boundary', () => {
     )
     await expect(
       sendReviewIntent(operation(), {
-        kind: 'review',
         id: CASE,
         eTag: ETag,
         key: 'synthetic-request',

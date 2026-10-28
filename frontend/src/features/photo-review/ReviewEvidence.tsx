@@ -4,15 +4,13 @@ import { useI18n } from '@/shared/i18n/i18n-context'
 import { Alert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { SelectField } from '@/shared/ui/form-fields'
-import { fetchReviewEvidence, type ReviewKind } from './photo-review-api'
+import { fetchReviewEvidence } from './photo-review-api'
 import { ReviewFailure } from './ReviewFeedback'
 
 export function ReviewEvidence({
-  kind,
   itemId,
   onFailure,
 }: {
-  readonly kind: ReviewKind
   readonly itemId: string
   readonly onFailure: (error: unknown) => void
 }): React.JSX.Element {
@@ -74,7 +72,7 @@ export function ReviewEvidence({
     setError(null)
     try {
       await privateOperation.run(async (operation) => {
-        const image = await fetchReviewEvidence(operation, { kind, id: itemId, variant }, controller.signal)
+        const image = await fetchReviewEvidence(operation, { id: itemId, variant }, controller.signal)
         if (!active()) return
         const bitmap = await createImageBitmap(image)
         try {

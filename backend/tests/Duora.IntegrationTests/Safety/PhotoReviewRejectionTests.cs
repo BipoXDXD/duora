@@ -63,7 +63,7 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
         Assert.Equal("human-review-v1", proof.PolicyVersion);
         Assert.Equal(proof.CurrentGeneration, proof.Generation);
         Assert.Equal(_time.GetUtcNow(), proof.DecidedAt);
-        Assert.Equal(proof.DecidedAt.AddDays(7), proof.CandidateRetention);
+        Assert.Equal(proof.DecidedAt.AddHours(24), proof.CandidateRetention);
         Assert.Equal(proof.CandidateRetention, proof.LiveCandidateRetention);
         Assert.True(proof.HistoryRetention >= proof.DecidedAt.AddYears(1));
         Assert.Equal("Rejected", proof.UploadState);
@@ -87,7 +87,12 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
             store.Opened.OrderBy(key => key.Value));
         Assert.Equal(before, Files());
         Assert.Equal(0, await ScalarAsync("select count(*) from media.media_assets where upload_id=$1", item.UploadId));
-        Assert.Equal(0, await ScalarAsync("select count(*) from media.review_candidates where case_id=$1 and cleanup_requested_at is not null", item.CaseId));
+        // Without an appeal, the rejection itself commits the cleanup obligation; the Worker deletes the candidate.
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from media.review_candidates c join safety.photo_review_decisions d on d.candidate_generation=c.generation
+            where c.case_id=$1 and c.cleanup_requested_at=d.decided_at and c.retention_until=d.candidate_retention_until_snapshot
+              and c.deleted_at is null
+            """, item.CaseId));
     }
 
     [Fact]
@@ -616,7 +621,7 @@ public sealed class PhotoReviewRejectionTests(PostgresFixture postgres) : IAsync
         public Task PutAsync(ObjectKey key, Stream content, long length, string contentType, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("A rejection may not write media.");
         public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("A rejection retains its candidate for an appeal.");
+            throw new InvalidOperationException("A rejection only requests the durable candidate cleanup; the Worker deletes.");
         public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken)
         {
             Opened.Add(key);
