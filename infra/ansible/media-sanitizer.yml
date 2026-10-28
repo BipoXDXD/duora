@@ -1,0 +1,10 @@
+---
+# Runtime rootless dedicado ao media-sanitizer (ADR-0036, issue #174), INATIVO. Separado do site.yml: aplica só o
+# role media_sanitizer, sem base/ssh/firewall/docker/app_dirs/backup. Manual: docs/operations/media-sanitizer-host.md.
+#   ansible-playbook -i ~/duora-ops/inventory.yml media-sanitizer.yml --diff
+#   ansible-playbook -i ~/duora-ops/inventory.yml media-sanitizer.yml -e media_sanitizer_state=absent
+- name: Instalar ou desfazer o runtime do media-sanitizer
+  hosts: duora_vps
+  become: true
+  roles:
+    - role: media_sanitizer

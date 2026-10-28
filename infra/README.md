@@ -13,6 +13,7 @@ deploy, manifesto e runbooks: [docs/operations/deploy.md](../docs/operations/dep
 | `caddy/Caddyfile` | Borda: TLS, SPA, `/api`, `/hubs`, cabeçalhos de segurança e logs |
 | `../docs/operations/backblaze-setup.md` | Bucket de backup e application keys no Backblaze B2, criados pelo responsável com o CLI `b2` (sem OpenTofu por enquanto, como o resto da infraestrutura) |
 | `ansible/` | Configuração do host (roles `base`, `ssh`, `firewall`, `docker`, `app_dirs`, `backup`) |
+| `ansible/media-sanitizer.yml` | Runtime rootless do media-sanitizer, instalado inativo (role `media_sanitizer`; [runbook](../docs/operations/media-sanitizer-host.md)) |
 | `../scripts/deploy/` | `duora-deploy`, `duora-secrets`, `duora-backup` e o smoke local (Python 3.12, só biblioteca padrão) |
 | `../scripts/backup/` | Drill de restore PITR com MinIO de teste ([backup-restore.md](../docs/operations/backup-restore.md)) |
 

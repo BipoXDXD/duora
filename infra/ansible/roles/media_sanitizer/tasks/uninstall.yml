@@ -1,0 +1,95 @@
+---
+# Desfaz só o que o role criou. Não remove pacotes (uidmap, slirp4netns, dbus-user-session, rootless extras), não
+# toca no daemon do sistema, nas fotos (/var/lib/duora-media) nem em outra conta. Os dados do daemon rootless
+# (imagens sintéticas e cache) somem junto com o home da conta.
+
+- name: Ler a conta do sanitizador
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ media_sanitizer_user }}"
+    fail_key: false
+
+- name: Fixar o UID da conta (vazio quando já removida)
+  ansible.builtin.set_fact:
+    media_sanitizer_uid: "{{ (ansible_facts['getent_passwd'][media_sanitizer_user] | default([none, ''], true))[1] }}"
+
+- name: Ler a unidade do launcher
+  ansible.builtin.stat:
+    path: /etc/systemd/system/duora-media-launcher.service
+  register: media_sanitizer_launcher_unit
+
+- name: Parar o launcher se alguém o iniciou à mão
+  ansible.builtin.systemd_service:
+    name: duora-media-launcher.service
+    state: stopped
+  when: media_sanitizer_launcher_unit.stat.exists
+
+- name: Ler a sessão persistente da conta
+  ansible.builtin.stat:
+    path: "/var/lib/systemd/linger/{{ media_sanitizer_user }}"
+  register: media_sanitizer_linger
+
+- name: Parar o daemon rootless
+  ansible.builtin.systemd_service:
+    name: docker.service
+    scope: user
+    state: stopped
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ media_sanitizer_uid }}"
+  when:
+    - media_sanitizer_uid | length > 0
+    - media_sanitizer_linger.stat.exists
+
+- name: Desligar a sessão persistente da conta
+  ansible.builtin.command:
+    cmd: "loginctl disable-linger {{ media_sanitizer_user }}"
+    removes: "/var/lib/systemd/linger/{{ media_sanitizer_user }}"
+
+- name: Encerrar o gerenciador de usuário da conta
+  ansible.builtin.systemd_service:
+    name: "user@{{ media_sanitizer_uid }}.service"
+    state: stopped
+  when: media_sanitizer_uid | length > 0
+
+- name: Remover perfil, unidade, código, verificador e diretório de autoridade do launcher
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ media_sanitizer_profile_path }}"
+    - /etc/systemd/system/duora-media-launcher.service
+    - "{{ media_sanitizer_code_dir }}"
+    - /usr/local/sbin/duora-media-subid-range
+    - "{{ media_sanitizer_authority_dir }}"
+  notify: Recarregar systemd
+
+- name: Remover os drop-ins de slice e delegação da conta
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: absent
+  loop:
+    - "user-{{ media_sanitizer_uid }}.slice.d/50-duora-media.conf"
+    - "user@{{ media_sanitizer_uid }}.service.d/50-duora-media.conf"
+  when: media_sanitizer_uid | length > 0
+  notify: Recarregar systemd
+
+# userdel também apaga as linhas da conta em /etc/subuid e /etc/subgid.
+- name: Remover a conta e o home (dados do daemon rootless)
+  ansible.builtin.user:
+    name: "{{ media_sanitizer_user }}"
+    state: absent
+    remove: true
+
+- name: Remover o grupo do socket de controle
+  ansible.builtin.group:
+    name: "{{ media_sanitizer_client_group }}"
+    state: absent
+
+- name: Conferir que nenhuma faixa subordinada ficou para trás
+  ansible.builtin.command:
+    cmd: "grep -c '^{{ media_sanitizer_user }}:' /etc/subuid /etc/subgid"
+  register: media_sanitizer_subid_left
+  changed_when: false
+  failed_when: media_sanitizer_subid_left.stdout_lines | map('regex_replace', '^.*:', '') | map('int') | sum > 0
