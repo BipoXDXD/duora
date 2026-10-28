@@ -1,0 +1,5 @@
+# {{ ansible_managed }} (role media_sanitizer, ADR-0036/#174)
+# Só esta instância: o Docker rootless (driver systemd) precisa dos controladores para impor --memory, --cpus e
+# --pids-limit. Não altera user@.service das demais contas.
+[Service]
+Delegate=cpu memory pids

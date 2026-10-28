@@ -1,0 +1,59 @@
+{
+  "schema": "duora.c2-config/v1",
+  "project": "duora-c2",
+  "target": {
+    "connect_host": "127.0.0.1",
+    "connect_port": 18443,
+    "server_name": "c2.duora.test",
+    "ca_file": "c2-root.crt"
+  },
+  "accounts_file": "accounts.json",
+  "ssh": [
+    "ssh",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ServerAliveInterval=15",
+    "-o",
+    "ServerAliveCountMax=4",
+    "c2vps"
+  ],
+  "probe_script": "../c2_probe.py",
+  "extra_cgroups": [
+    "duora-media.slice",
+    "duora-c2-media.slice"
+  ],
+  "backup_commands": {
+    "full": [
+      "sudo python3 /opt/duora-c2/src/scripts/deploy/duora_backup.py full --compose-project duora-c2 --state-dir /var/lib/duora-c2/state --skip-egress-check"
+    ],
+    "diff": [
+      "sudo python3 /opt/duora-c2/src/scripts/deploy/duora_backup.py diff --compose-project duora-c2 --state-dir /var/lib/duora-c2/state --skip-egress-check",
+      "sudo systemd-run --quiet --wait --collect --unit=duora-c2-restic --slice=duora-c2-media.slice --property=MemoryMax=1024M --property=MemoryHigh=768M --property=MemorySwapMax=0 --property=CPUQuota=50% restic --repo /var/lib/duora-c2/restic --password-file /var/lib/duora-c2/state/restic-password backup --one-file-system /var/lib/duora-c2/media-fixture"
+    ]
+  },
+  "external_health": [
+    {
+      "name": "duora-producao",
+      "url": "https://REPLACE-meetduora.com/health/live"
+    },
+    {
+      "name": "stillon",
+      "url": "https://REPLACE-stillon/health"
+    },
+    {
+      "name": "goblinshift",
+      "url": "https://REPLACE-goblinshift/"
+    },
+    {
+      "name": "kairyaquest",
+      "url": "https://REPLACE-kairyaquest/"
+    }
+  ],
+  "abort_commands": [
+    "sudo docker compose --project-name duora-c2 --file /opt/duora-c2/src/infra/compose/compose.prod.yml --file /opt/duora-c2/src/scripts/backup/compose.drill.yml --file /opt/duora-c2/src/scripts/deploy/c2/compose.c2.yml --env-file /var/lib/duora-c2/c2.env stop",
+    "sudo systemctl stop duora-c2-restic.service"
+  ],
+  "seed": 86,
+  "limits": {}
+}
