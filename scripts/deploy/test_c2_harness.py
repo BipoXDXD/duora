@@ -6,6 +6,7 @@ import json
 import queue
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,68 @@ class ProtocolTests(unittest.TestCase):
     def test_deadline_shorter_than_duration_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             harness.Phase("x", "steady", 1, 10, 9)
+
+
+class WindowProfileTests(unittest.TestCase):
+    """Perfil `janela` (decisão de 28/10/2026): a janela inteira na VPS cabe em 3 h, com #174 junto."""
+
+    def setUp(self) -> None:
+        self.protocol = harness.PROFILES["janela"]
+        self.phases = self.protocol.phases()
+        self.by_name = {phase.name: phase for phase in self.phases}
+
+    def test_full_profile_is_the_original_protocol(self) -> None:
+        self.assertEqual(harness.PROFILES["completo"], harness.C2Protocol())
+        self.assertEqual(harness.PROFILES["completo"].repetitions, 3)
+        self.assertIsNone(harness.PROFILES["completo"].window_seconds)
+
+    def test_phases_run_one_ramp_one_peak_and_three_contention_cycles(self) -> None:
+        names = [phase.name for phase in self.phases]
+        cycle = ["entry-c{n}", "reconnect-c{n}-1", "reconnect-c{n}-2", "reconnect-c{n}-3", "full-c{n}", "settle-c{n}",
+                 "diff-c{n}"]
+        expected = ["baseline", "warmup", "ramp-10", "ramp-25", "ramp-50", "ramp-100", "peak"]
+        for n in (1, 2, 3):
+            expected += [name.format(n=n) for name in cycle]
+        self.assertEqual(names, expected + ["recovery-final"])
+
+    def test_durations_and_nominal_fit_the_window(self) -> None:
+        self.assertEqual([self.by_name[f"ramp-{n}"].seconds for n in (10, 25, 50, 100)], [120] * 4)
+        self.assertEqual((self.by_name["warmup"].seconds, self.by_name["peak"].seconds), (120, 600))
+        self.assertEqual(self.by_name["recovery-final"].seconds, 300)
+        self.assertEqual(harness.nominal_seconds(self.phases), 4095)
+        self.assertEqual(self.protocol.window_seconds, 4800)
+
+    def test_full_and_diff_stay_in_distinct_phases_under_peak_load(self) -> None:
+        for n in (1, 2, 3):
+            full, settle, diff = (self.by_name[f"{kind}-c{n}"] for kind in ("full", "settle", "diff"))
+            self.assertEqual((full.backup, diff.backup, settle.backup), ("full", "diff", None))
+            self.assertEqual((full.clients, settle.clients, diff.clients), (100, 100, 100))
+            self.assertEqual((full.seconds, full.deadline_seconds, diff.seconds, settle.seconds), (240, 600, 240, 120))
+
+    def test_peak_load_is_sustained_longer_than_the_protocol_thirty_minutes(self) -> None:
+        self.assertEqual(harness.longest_sustained_seconds(self.phases, 100), 3195)
+        self.assertEqual(harness.longest_sustained_seconds(harness.C2Protocol().phases(), 100), 2400)
+
+    def test_one_run_holds_the_three_repetitions(self) -> None:
+        self.assertEqual(self.protocol.repetitions, 1)
+        self.assertEqual(sum(1 for phase in self.phases if phase.backup == "full"), 3)
+        self.assertEqual(sum(1 for phase in self.phases if phase.kind == "entry"), 3)
+
+    def test_every_reduction_is_declared(self) -> None:
+        text = " ".join(self.protocol.deviations)
+        for topic in ("3 ciclos", "aquecimento", "rampa", "30 min", "recuperação", "FULL", "restic", "WINDOW"):
+            self.assertIn(topic, text)
+        self.assertEqual(harness.PROFILES["completo"].deviations, ())
+
+    def test_plan_prints_the_profile(self) -> None:
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(harness.main(["plan", "--profile", "janela"]), harness.EXIT_OK)
+        text = out.getvalue()
+        self.assertIn("perfil janela", text)
+        self.assertIn("nominal 68 min", text)
+        self.assertIn("limite da janela 80 min", text)
+        self.assertIn("100 clientes contínuos 53 min", text)
 
 
 class DeriveTests(unittest.TestCase):
@@ -315,6 +378,16 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(trip["code"], "OOM")
         self.assertEqual(driver.calls[-1], ("stop",))
 
+    def test_run_past_the_window_aborts_even_if_each_phase_is_on_time(self) -> None:
+        orchestrator, driver, _, events, clock = self.build(takes=15.0)
+        orchestrator._protocol = replace(SHORT, window_seconds=50)
+        started = clock.now()
+        self.assertEqual(orchestrator.run(), harness.EXIT_ABORTED)
+        self.assertEqual([t.code for t in orchestrator.trips], ["WINDOW"])
+        self.assertLessEqual(clock.now() - started, 51.0)
+        self.assertEqual(events.entries[-1]["event"], "abort")
+        self.assertEqual(driver.calls[-1], ("stop",))
+
     def test_health_baseline_is_frozen_after_baseline_phase(self) -> None:
         orchestrator, _, _, events, _ = self.build()
         for index in range(3):
@@ -409,6 +482,19 @@ class ConfigTests(unittest.TestCase):
                     harness.check_runnable(config, repetition, harness.C2Protocol())
 
 
+class WindowRunnableTests(unittest.TestCase):
+    def test_window_profile_accepts_only_repetition_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / "c2_probe.py").write_text("# sampler")
+            accounts = [{"email": f"p{i}@c2.invalid", "password": "x"} for i in range(100)]
+            (base / "accounts.json").write_text(json.dumps({"accounts": accounts}))
+            config = harness.load_config(ConfigTests().write(base))
+            self.assertEqual(len(harness.check_runnable(config, 1, harness.PROFILES["janela"])), 100)
+            with self.assertRaises(harness.ConfigError):
+                harness.check_runnable(config, 2, harness.PROFILES["janela"])
+
+
 class ReportTests(unittest.TestCase):
     def evidence(self, directory: Path, *, exit_code: int, read_ms: float, statuses: list[int],
                  jobs_after: int = 0) -> Path:
@@ -449,6 +535,25 @@ class ReportTests(unittest.TestCase):
             markdown = harness.render_markdown(report)
             self.assertIn("PASS_CANDIDATE", markdown)
             self.assertIn("mensagens, SignalR", markdown)
+
+    def test_report_carries_profile_and_declared_reductions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = self.evidence(Path(directory), exit_code=0, read_ms=120.0, statuses=[200] * 100)
+            manifest = json.loads((evidence / "manifest.json").read_text())
+            manifest.update({"profile": "janela", "deviations": ["3 ciclos no lugar de 3 repetições"]})
+            (evidence / "manifest.json").write_text(json.dumps(manifest))
+            report = harness.build_report(evidence)
+            self.assertEqual((report["profile"], report["deviations"]),
+                             ("janela", ["3 ciclos no lugar de 3 repetições"]))
+            markdown = harness.render_markdown(report)
+            self.assertIn("perfil `janela`", markdown)
+            self.assertIn("- 3 ciclos no lugar de 3 repetições", markdown)
+
+    def test_report_of_old_manifest_defaults_to_full_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            report = harness.build_report(self.evidence(Path(directory), exit_code=0, read_ms=120.0,
+                                                        statuses=[200] * 100))
+            self.assertEqual((report["profile"], report["deviations"]), ("completo", []))
 
     def test_slow_reads_and_failures_fail_the_gates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -138,7 +138,10 @@ nem restore, e não aceita C1 sozinho.
 
 [capacity-c2.md](capacity-c2.md) descreve o harness executável do C2 (projeto sombra `duora-c2` com dados
 sintéticos, carga a partir do Mac, sampler somente leitura, FULL e DIFF em fases distintas, guardas de aborto
-inclusive para os outros apps da VPS, restore do ensaio) e o roteiro da janela. Ele não aceita C2 sozinho.
+inclusive para os outros apps da VPS, restore do ensaio) e o roteiro da janela. Ele não aceita C2 sozinho. O perfil
+`janela` (decisão de 28/10/2026, janela total ≤ 3 h) reduz durações e troca as 3 repetições por 3 ciclos de
+contenção numa execução; as reduções e a justificativa de cada uma estão no mesmo documento, e o protocolo
+acima continua o perfil `completo`.
 
 ## Reconciliação gateway e backup de mídia
 

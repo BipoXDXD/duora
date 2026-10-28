@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import shutil
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest import mock
 
 import c2_probe
 import c2_shadow as shadow
@@ -226,6 +229,37 @@ class RestoreRehearsalTests(unittest.TestCase):
         self.assertTrue(joined[-1].endswith("full --compose-project duora-c2 --state-dir "
                                             f"{layout.state} --skip-egress-check"))
         self.assertFalse(any(" duora_pgdata" in c or "--project-name duora " in c for c in joined))
+
+
+class RestoreWithoutFinalFullTests(unittest.TestCase):
+    def test_window_skips_the_new_full_when_the_shadow_is_torn_down_next(self) -> None:
+        now = [1000.0]
+
+        def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        runner = FakeRunner({"returning extract": [str(1000.0 + i) for i in range(200)],
+                             "pg_is_in_recovery": ["f"], "max(at)": ["1060.0"]})
+        with tempfile.TemporaryDirectory() as directory:
+            layout = shadow.Layout(Path(directory))
+            layout.state.mkdir()
+            result = shadow.restore_rehearsal(layout, runner, lambda: now[0], sleep, final_full=False)
+        joined = [" ".join(c) for c in runner.commands]
+        self.assertFalse(any("duora_backup.py full" in c for c in joined))
+        self.assertIn("up --detach --wait web worker edge", joined[-1])
+        self.assertEqual(result["rpo_seconds"], 29.0)
+
+    def test_cli_flag_reaches_the_rehearsal(self) -> None:
+        calls: list[bool] = []
+        original = shadow.restore_rehearsal
+        shadow.restore_rehearsal = lambda layout, **kwargs: calls.append(kwargs["final_full"]) or {}  # type: ignore[assignment]
+        try:
+            with mock.patch("os.geteuid", return_value=0), redirect_stdout(io.StringIO()):
+                self.assertEqual(shadow.main(["restore-rehearsal", "--no-final-full"]), 0)
+                self.assertEqual(shadow.main(["restore-rehearsal"]), 0)
+        finally:
+            shadow.restore_rehearsal = original
+        self.assertEqual(calls, [False, True])
 
 
 class PreflightAndDownTests(unittest.TestCase):

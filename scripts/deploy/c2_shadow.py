@@ -9,7 +9,7 @@ túnel SSH. Imagens: só as chaves DUORA_*_IMAGE do env da release corrente são
     python3 c2_shadow.py prepare --release-env /var/lib/duora/releases/<id>.env
     python3 c2_shadow.py up
     python3 c2_shadow.py media-fixture --mib 2048
-    python3 c2_shadow.py restore-rehearsal
+    python3 c2_shadow.py restore-rehearsal [--no-final-full]
     python3 c2_shadow.py down
 """
 from __future__ import annotations
@@ -372,9 +372,11 @@ def _sql(run: Runner, compose: list[str], statement: str) -> str:
 
 
 def restore_rehearsal(layout: Layout, run: Runner = default_runner, clock: Callable[[], float] = time.time,
-                      sleep: Callable[[float], None] = time.sleep) -> dict[str, float]:
+                      sleep: Callable[[float], None] = time.sleep, *, final_full: bool = True) -> dict[str, float]:
     """Escreve marcadores por 90 s, mata o postgres (perda do host), apaga o volume, restaura até o fim do WAL do
-    repositório e mede: RPO = último marcador confirmado - último restaurado; RTO = perda até web/worker de pé."""
+    repositório e mede: RPO = último marcador confirmado - último restaurado; RTO = perda até web/worker de pé.
+    `final_full` refaz a cadeia de backup depois do restore; na janela de 3 h o sombra é derrubado em seguida e o
+    FULL novo só gastaria tempo, sem entrar no RPO/RTO."""
     compose = compose_command(layout)
     last_ack = 0.0
     started = clock()
@@ -401,7 +403,8 @@ def restore_rehearsal(layout: Layout, run: Runner = default_runner, clock: Calla
     result = {"last_ack_at": last_ack, "restored_max_at": restored, "outage_at": outage_at, "ready_at": ready_at,
               "rpo_seconds": round(last_ack - restored, 1), "rto_seconds": round(ready_at - outage_at, 1)}
     (layout.state / "restore-rehearsal.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    backup(layout, "full", run)
+    if final_full:
+        backup(layout, "full", run)
     return result
 
 
@@ -425,7 +428,9 @@ def main(argv: list[str] | None = None) -> int:
     fixture = commands.add_parser("media-fixture")
     fixture.add_argument("--mib", type=int, default=2048)
     commands.add_parser("restic-command")
-    commands.add_parser("restore-rehearsal")
+    rehearsal = commands.add_parser("restore-rehearsal")
+    rehearsal.add_argument("--no-final-full", dest="final_full", action="store_false",
+                           help="não refaz o FULL depois do restore (sombra derrubado em seguida)")
     commands.add_parser("down")
     args = parser.parse_args(argv)
     layout = Layout(args.root)
@@ -442,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "restic-command":
             print(restic_backup_command(layout))
         elif args.command == "restore-rehearsal":
-            print(json.dumps(restore_rehearsal(layout), indent=2))
+            print(json.dumps(restore_rehearsal(layout, final_full=args.final_full), indent=2))
         else:
             down(layout)
     except (ShadowError, OSError, ValueError) as error:

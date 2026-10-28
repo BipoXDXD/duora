@@ -71,8 +71,12 @@ class Phase:
 @dataclass(frozen=True)
 class C2Protocol:
     """docs/operations/capacity.md: 5 min de aquecimento, degraus de 5 min, pico de 30 min, entrada/reconexão,
-    recuperação de 15 min e contenção com FULL e DIFF em fases distintas, cada uma com no mínimo 30 min."""
+    recuperação de 15 min e contenção com FULL e DIFF em fases distintas, cada uma com no mínimo 30 min.
 
+    `cycles` > 1 repete o bloco entrada → reconexões → FULL → intervalo → DIFF sem voltar à carga baixa;
+    `window_seconds` corta a execução inteira (guarda WINDOW). Os desvios do protocolo ficam em `deviations`."""
+
+    name: str = "completo"
     baseline_seconds: int = 120
     warmup_clients: int = 10
     warmup_seconds: int = 300
@@ -92,6 +96,12 @@ class C2Protocol:
     backup_deadline_seconds: int = 5400
     settle_seconds: int = 600
     slack_seconds: int = 120
+    cycles: int = 1
+    recovery_between: bool = True
+    settle_clients: int | None = None
+    repetitions: int = REPETITIONS
+    window_seconds: int | None = None
+    deviations: tuple[str, ...] = ()
 
     def phases(self) -> list[Phase]:
         def fixed(name: str, kind: str, clients: int, seconds: int) -> Phase:
@@ -101,17 +111,52 @@ class C2Protocol:
                   fixed("warmup", "steady", self.warmup_clients, self.warmup_seconds)]
         phases += [fixed(f"ramp-{clients}", "steady", clients, self.step_seconds) for clients in self.ramp]
         phases.append(fixed("peak", "steady", self.peak_clients, self.peak_seconds))
-        phases.append(fixed("entry", "entry", self.peak_clients, self.entry_seconds))
-        phases += [fixed(f"reconnect-{index}", "reconnect", self.peak_clients, self.reconnect_seconds)
-                   for index in range(1, self.reconnect_rounds + 1)]
-        phases.append(fixed("recovery", "steady", self.recovery_clients, self.recovery_seconds))
-        phases.append(Phase("full", "backup", self.peak_clients, self.backup_min_seconds,
-                            self.backup_deadline_seconds, backup="full"))
-        phases.append(fixed("settle", "steady", self.recovery_clients, self.settle_seconds))
-        phases.append(Phase("diff", "backup", self.peak_clients, self.backup_min_seconds,
-                            self.backup_deadline_seconds, backup="diff"))
+        for cycle in range(1, self.cycles + 1):
+            phases += self._contention_cycle("" if self.cycles == 1 else f"-c{cycle}", fixed)
         phases.append(fixed("recovery-final", "steady", self.recovery_clients, self.recovery_seconds))
         return phases
+
+    def _contention_cycle(self, suffix: str, fixed: Callable[[str, str, int, int], Phase]) -> list[Phase]:
+        settle_clients = self.recovery_clients if self.settle_clients is None else self.settle_clients
+        phases = [fixed(f"entry{suffix}", "entry", self.peak_clients, self.entry_seconds)]
+        phases += [fixed(f"reconnect{suffix}-{index}", "reconnect", self.peak_clients, self.reconnect_seconds)
+                   for index in range(1, self.reconnect_rounds + 1)]
+        if self.recovery_between:
+            phases.append(fixed(f"recovery{suffix}", "steady", self.recovery_clients, self.recovery_seconds))
+        phases.append(Phase(f"full{suffix}", "backup", self.peak_clients, self.backup_min_seconds,
+                            self.backup_deadline_seconds, backup="full"))
+        phases.append(fixed(f"settle{suffix}", "steady", settle_clients, self.settle_seconds))
+        phases.append(Phase(f"diff{suffix}", "backup", self.peak_clients, self.backup_min_seconds,
+                            self.backup_deadline_seconds, backup="diff"))
+        return phases
+
+
+WINDOW_DEVIATIONS = (
+    "3 ciclos de contenção (entrada, 3 reconexões, FULL, intervalo, DIFF+restic) numa execução, no lugar de 3 "
+    "repetições completas: cada ciclo repete o cenário inteiro de entrada/reconexão e de contenção; a rampa e a "
+    "recuperação final ficam com uma medição.",
+    "aquecimento de 2 min (protocolo: 5 min): os degraus 10 e 25 da rampa continuam o aquecimento e nenhum gate de "
+    "pico é lido antes de 10 min de tráfego.",
+    "rampa com degraus de 2 min (protocolo: 5 min): cerca de 3.600 requisições e 24 amostras no degrau de 100.",
+    "pico de 10 min seguido dos 3 ciclos com 100 clientes: 53 min contínuos a 100, acima dos 30 min do protocolo.",
+    "FULL e DIFF com mínimo de 4 min e até o backup terminar (protocolo: 30 min), prazo de 10 min por fase; o banco "
+    "sintético termina em segundos e o resto da fase mede a cauda de WAL/arquivamento a 100 clientes.",
+    "intervalo de 2 min a 100 clientes entre FULL e DIFF (protocolo: 10 min a 10 clientes): as fases seguem distintas "
+    "e a carga não cai entre elas.",
+    "restic do ciclo 1 ingere o fixture inteiro; nos ciclos 2 e 3 é incremental, como o restic diário da produção.",
+    "recuperação final de 5 min (protocolo: 15 min): o gate exige filas de volta à linha de base já no último "
+    "minuto dos 5, mais cedo que o protocolo; não drenar a tempo é FAIL, nunca aprovação por omissão.",
+    "guarda WINDOW: a execução inteira para em 80 min, para a janela de 3 h nunca estourar.",
+)
+
+PROFILES: dict[str, C2Protocol] = {
+    "completo": C2Protocol(),
+    "janela": C2Protocol(name="janela", warmup_seconds=120, step_seconds=120, peak_seconds=600, entry_seconds=90,
+                         reconnect_seconds=45, recovery_seconds=300, backup_min_seconds=240,
+                         backup_deadline_seconds=600, settle_seconds=120, cycles=3, recovery_between=False,
+                         settle_clients=100, repetitions=1, window_seconds=4800, deviations=WINDOW_DEVIATIONS),
+}
+DEFAULT_PROFILE = "janela"
 
 
 def nominal_seconds(phases: Sequence[Phase]) -> int:
@@ -120,6 +165,15 @@ def nominal_seconds(phases: Sequence[Phase]) -> int:
 
 def deadline_seconds(phases: Sequence[Phase]) -> int:
     return sum(phase.deadline_seconds for phase in phases)
+
+
+def longest_sustained_seconds(phases: Sequence[Phase], clients: int) -> int:
+    """Maior trecho contínuo (duração mínima das fases) com pelo menos `clients` clientes."""
+    longest = current = 0
+    for phase in phases:
+        current = current + phase.seconds if phase.clients >= clients else 0
+        longest = max(longest, current)
+    return longest
 
 
 # ---------------------------------------------------------------- limites e guardas
@@ -520,6 +574,7 @@ class Orchestrator:
         self._sample_out = sample_out
         self._state = GuardState()
         self._previous_raw: dict[str, Any] | None = None
+        self._run_started = 0.0
         self.trips: list[Trip] = []
 
     @property
@@ -527,7 +582,8 @@ class Orchestrator:
         return self._state
 
     def run(self) -> int:
-        self._state.last_sample_at = self._clock.now()
+        self._run_started = self._clock.now()
+        self._state.last_sample_at = self._run_started
         try:
             for phase in self._phases:
                 if not self._run_phase(phase):
@@ -574,13 +630,21 @@ class Orchestrator:
                 self._events.write("phase_end", phase=phase.name, elapsed=round(elapsed, 1),
                                    last_write_ack=self._driver.last_write_ack())
                 return True
-            if elapsed >= phase.deadline_seconds:
-                trip = Trip("DEADLINE", f"fase {phase.name} passou do prazo de {phase.deadline_seconds} s")
-                self.trips = [trip]
-                self._events.write("guard_trip", phase=phase.name, code=trip.code, detail=trip.detail)
+            overdue = self._overdue(phase, elapsed, now)
+            if overdue is not None:
+                self.trips = [overdue]
+                self._events.write("guard_trip", phase=phase.name, code=overdue.code, detail=overdue.detail)
                 self._events.write("abort", phase=phase.name, elapsed=round(elapsed, 1))
                 return False
             self._clock.sleep(1.0)
+
+    def _overdue(self, phase: Phase, elapsed: float, now: float) -> Trip | None:
+        if elapsed >= phase.deadline_seconds:
+            return Trip("DEADLINE", f"fase {phase.name} passou do prazo de {phase.deadline_seconds} s")
+        window = self._protocol.window_seconds
+        if window is not None and now - self._run_started >= window:
+            return Trip("WINDOW", f"execução passou do limite da janela de {window} s")
+        return None
 
     def _drain(self) -> None:
         while True:
@@ -717,9 +781,9 @@ def git_commit() -> str:
 
 
 def check_runnable(config: Config, repetition: int, protocol: C2Protocol) -> list[c2_load.Account]:
-    """Recusa antes de qualquer efeito: repetição fora de 1..3, contas insuficientes ou fora do domínio sintético."""
-    if not 1 <= repetition <= REPETITIONS:
-        raise ConfigError(f"repetição {repetition} fora de 1..{REPETITIONS}")
+    """Recusa antes de qualquer efeito: repetição fora do perfil, contas insuficientes ou fora do domínio sintético."""
+    if not 1 <= repetition <= protocol.repetitions:
+        raise ConfigError(f"repetição {repetition} fora de 1..{protocol.repetitions} no perfil {protocol.name}")
     accounts = c2_load.load_accounts(config.accounts_file)
     if len(accounts) < protocol.peak_clients:
         raise ConfigError(f"{len(accounts)} contas sintéticas; o pico exige {protocol.peak_clients}")
@@ -728,8 +792,7 @@ def check_runnable(config: Config, repetition: int, protocol: C2Protocol) -> lis
     return accounts
 
 
-def run_repetition(config: Config, repetition: int, evidence_root: Path) -> int:
-    protocol = C2Protocol()
+def run_repetition(config: Config, repetition: int, evidence_root: Path, protocol: C2Protocol) -> int:
     phases = protocol.phases()
     accounts = check_runnable(config, repetition, protocol)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -738,6 +801,7 @@ def run_repetition(config: Config, repetition: int, evidence_root: Path) -> int:
     clock = Clock()
     manifest: dict[str, Any] = {
         "schema": MANIFEST_SCHEMA, "repetition": repetition, "commit": git_commit(), "started_at": stamp,
+        "profile": protocol.name, "deviations": list(protocol.deviations), "window_seconds": protocol.window_seconds,
         "project": config.project, "server_name": config.target.server_name, "seed": config.seed,
         "accounts": len(accounts), "phases": [asdict(phase) for phase in phases], "limits": asdict(config.limits),
         "backup_commands": config.backup_commands, "health_targets": [asdict(t) for t in config.health],
@@ -934,9 +998,10 @@ def build_report(evidence: Path) -> dict[str, Any]:
         verdict = "PASS_CANDIDATE"
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA, "repetition": manifest["repetition"], "commit": manifest["commit"],
+        "profile": manifest.get("profile", "completo"), "deviations": manifest.get("deviations", []),
         "verdict": verdict, "trips": trips, "backups": backups, "phases": phases,
         "pending_flows": manifest.get("pending_flows", []),
-        "note": "PASS_CANDIDATE não é aceite: exige as 3 repetições, restore e revisão humana (capacity.md).",
+        "note": "PASS_CANDIDATE não é aceite: exige as repetições do perfil, restore e revisão humana (capacity.md).",
     }
     report["content_sha256"] = hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
     return report
@@ -944,8 +1009,13 @@ def build_report(evidence: Path) -> dict[str, Any]:
 
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [f"# C2 repetição {report['repetition']} — {report['verdict']}", "",
-             f"Commit `{report['commit']}`; sha256 do relatório `{report['content_sha256']}`.", "",
-             report["note"], "",
+             f"Commit `{report['commit']}`; perfil `{report['profile']}`; "
+             f"sha256 do relatório `{report['content_sha256']}`.", "",
+             report["note"], ""]
+    if report["deviations"]:
+        lines += ["Reduções declaradas em relação ao protocolo:", ""]
+        lines += [f"- {deviation}" for deviation in report["deviations"]] + [""]
+    lines += [
              "| Fase | s | req/s | leitura p95 | comando p95 | reconcil. p95 | falhas | CPU máx | steal máx | "
              "PSI CPU | MemAvail mín | outros PSI | lag WAL máx | gates |",
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
@@ -999,11 +1069,28 @@ def restore_objectives(*, last_ack_at: float, restored_max_at: float, outage_at:
             "rto_ok": rto <= rto_max_seconds}
 
 
+def print_plan(protocol: C2Protocol) -> None:
+    phases = protocol.phases()
+    print(f"perfil {protocol.name}")
+    for phase in phases:
+        print(f"{phase.name:16} {phase.kind:9} clientes={phase.clients:3} mín={phase.seconds:5}s "
+              f"prazo={phase.deadline_seconds:5}s{'  backup=' + phase.backup if phase.backup else ''}")
+    window = "sem limite" if protocol.window_seconds is None else f"{protocol.window_seconds / 60:.0f} min"
+    print(f"nominal {nominal_seconds(phases) / 60:.0f} min; prazo máximo {deadline_seconds(phases) / 60:.0f} min; "
+          f"limite da janela {window}; {protocol.peak_clients} clientes contínuos "
+          f"{longest_sustained_seconds(phases, protocol.peak_clients) / 60:.0f} min; "
+          f"{protocol.repetitions} repetição(ões)")
+    for deviation in protocol.deviations:
+        print(f"- {deviation}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="harness C2 da issue #86")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("plan", help="mostra as fases, a duração nominal e o prazo máximo")
-    run = commands.add_parser("run", help="executa uma repetição (1..3)")
+    plan = commands.add_parser("plan", help="mostra as fases, a duração nominal e o prazo máximo")
+    plan.add_argument("--profile", choices=sorted(PROFILES), default=DEFAULT_PROFILE)
+    run = commands.add_parser("run", help="executa uma repetição do perfil")
+    run.add_argument("--profile", choices=sorted(PROFILES), default=DEFAULT_PROFILE)
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--repetition", type=int, required=True)
     run.add_argument("--evidence", type=Path, required=True)
@@ -1014,12 +1101,7 @@ def main(argv: list[str] | None = None) -> int:
         restore.add_argument(f"--{name}", type=float, required=True, help="epoch UTC em segundos")
     args = parser.parse_args(argv)
     if args.command == "plan":
-        phases = C2Protocol().phases()
-        for phase in phases:
-            print(f"{phase.name:16} {phase.kind:9} clientes={phase.clients:3} mín={phase.seconds:5}s "
-                  f"prazo={phase.deadline_seconds:5}s{'  backup=' + phase.backup if phase.backup else ''}")
-        print(f"nominal {nominal_seconds(phases) / 60:.0f} min; prazo máximo {deadline_seconds(phases) / 60:.0f} min "
-              f"por repetição; {REPETITIONS} repetições")
+        print_plan(PROFILES[args.profile])
         return EXIT_OK
     if args.command == "report":
         built = build_report(args.evidence)
@@ -1037,11 +1119,12 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_OK if result["rpo_ok"] and result["rto_ok"] else EXIT_ABORTED
     try:
         config = load_config(args.config)
-        check_runnable(config, args.repetition, C2Protocol())
+        protocol = PROFILES[args.profile]
+        check_runnable(config, args.repetition, protocol)
     except (ConfigError, KeyError, ValueError, TypeError, OSError) as error:
         print(f"c2-harness: configuração inválida: {error}", file=sys.stderr)
         return EXIT_CONFIG
-    return run_repetition(config, args.repetition, args.evidence)
+    return run_repetition(config, args.repetition, args.evidence, protocol)
 
 
 if __name__ == "__main__":
