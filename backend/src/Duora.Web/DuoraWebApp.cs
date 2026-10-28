@@ -69,6 +69,7 @@ internal static class DuoraWebApp
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
         builder.Services.AddPhotoLibrary(builder.Configuration);
         builder.Services.AddSelfieVerification();
+        builder.Services.AddSelfieCaptureCredentials();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
         // Negar por padrão: toda rota exige sessão (e MFA, se a conta é privilegiada); as públicas declaram

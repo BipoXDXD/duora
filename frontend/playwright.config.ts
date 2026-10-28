@@ -20,7 +20,12 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', testIgnore: '**/edge-csp-probe.spec.ts', use: { ...devices['Desktop Chrome'] } },
-    { name: 'webkit', testIgnore: '**/edge-csp-probe.spec.ts', use: { ...devices['Desktop Safari'] } },
+    // selfie-csp usa câmera sintética e Permissions-Policy, que só o Chromium implementa.
+    {
+      name: 'webkit',
+      testIgnore: ['**/edge-csp-probe.spec.ts', '**/selfie-csp.spec.ts'],
+      use: { ...devices['Desktop Safari'] },
+    },
     { name: 'mobile-chromium', testIgnore: '**/edge-csp-probe.spec.ts', use: { ...devices['Pixel 7'] } },
     // The existing real-Caddy Chromium probe runs once, outside the three application/device variants.
     { name: 'edge-csp-probe', testMatch: '**/edge-csp-probe.spec.ts' },

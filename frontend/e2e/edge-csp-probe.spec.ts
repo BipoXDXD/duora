@@ -36,4 +36,8 @@ test('Caddy real: áudio privado e rejeição de fontes Blob/data no Chromium', 
   expect(stdout).toContain('PASS private PCM decodes through owned fetch under the unchanged CSP')
   expect(stdout).toContain('PASS data media blocked by CSP')
   expect(stdout).toContain('PASS blob media blocked by CSP')
+  expect(stdout).toContain('PASS selfie document compiles WebAssembly')
+  expect(stdout).toContain('PASS selfie document allows the camera for its own origin')
+  expect(stdout).toContain('PASS selfie document reaches only the Face Liveness hosts')
+  expect(stdout).toContain('PASS leaving the selfie document drops WebAssembly and camera')
 })
