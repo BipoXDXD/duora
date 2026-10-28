@@ -114,7 +114,7 @@ internal static class ApiProblems
         MfaRequired => "A second authentication factor is required.",
         PasswordChangeRequired => "Change your temporary password to continue.",
         PayloadTooLarge => "Request payload is too large.",
-        PhotoDeleteStateConflict => "The photo cannot be deleted while it is being processed or reviewed. Try again later.",
+        PhotoDeleteStateConflict => "The photo cannot be deleted while it is still being uploaded. Try again when the upload finishes.",
         PreconditionFailed => "The resource has changed. Reload it before saving.",
         PreconditionRequired => "Provide the ETag from the last read in If-Match.",
         MfaCodeInvalid => "Invalid authentication code.",
