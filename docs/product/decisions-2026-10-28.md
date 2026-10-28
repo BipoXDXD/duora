@@ -32,14 +32,23 @@ o que não está aqui continua valendo.
    lista do que mudou depois da aprovação original, respondeu "2. Sim". Os SHA-256 finais abaixo identificam o
    texto aprovado.
 
+5. **Mantém as três mudanças no aviso:** à pergunta "Mantém as 3 mudanças no aviso?", o dono respondeu
+   "1- Sim" (selfie, fornecedores e redação do backup do item 4).
+6. **Resend ligado para o e-mail de confirmação:** à pergunta "Ligo o Resend para o e-mail de confirmação
+   chegar, ou cadastro fica fechado?", o dono respondeu "2- Liga". O aviso de privacidade (PT-BR e EN-US) ganhou um
+   parágrafo em "Operação e fornecedores": e-mails transacionais (confirmação de cadastro, redefinição de senha e
+   avisos da conta) enviados pela Resend (Resend, Inc., EUA), domínio meetduora.com, envio pela região sa-east-1
+   (São Paulo), endereço do destinatário e conteúdo processados só para entregar, rastreamento de abertura e de
+   clique desligado. A ativação em produção é um passo de operação separado deste texto.
+
 SHA-256 de conteúdo da versão `2026-10-25`, fixados no teste `PublishedDocumentKeepsItsExactFingerprint`:
 
 | Documento | Primeira aprovação (`97a44f1`) | Final, aprovado |
 |---|---|---|
 | terms/pt-BR | `07fd125a…f30227` | igual |
 | terms/en-US | `fc36a782…27c8b6` | igual |
-| privacy/pt-BR | `2f1428b3…b13d2` | `fe09299a76bf712ecd5591b570672f5aa8696c54a49403137cbb7ef548011a84` |
-| privacy/en-US | `2789b0d6…58c4` | `24e8a3b9054b81b6d85da5179dbdce93279720b47b525854f87aadeac7a6ab6c` |
+| privacy/pt-BR | `2f1428b3…b13d2` | `ee20f316d68c3e7c08d2fd69f763358e6f8d8142164b9cf1afc8b1d722c8405a` |
+| privacy/en-US | `2789b0d6…58c4` | `a4802a18c0f2d731784375c7bba88d70f9e8778168d36b885297f59f0b6e174d` |
 
 Os textos foram aprovados na versão `2026-10-25` porque nenhum deles tinha sido publicado nem aceito antes; a partir
 de agora, qualquer mudança de texto, identidade, contato ou tradução exige versão nova

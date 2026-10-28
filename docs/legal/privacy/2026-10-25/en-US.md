@@ -31,6 +31,8 @@ Registrations, rooms, and activities use the information needed for their contex
 
 The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. The selfie presence check is processed by Amazon Web Services (AWS) in the us-east-1 region, in the United States. For people participating from Brazil, this processing takes place outside the country.
 
+Transactional emails (registration confirmation, password reset and account notices) are sent through Resend (Resend, Inc., United States), from the meetduora.com domain, through the sa-east-1 (São Paulo) sending region. Resend processes the recipient's address and the message content only to deliver it. Open and click tracking are turned off.
+
 ## Selfie presence check
 
 The selfie presence check uses Amazon Rekognition Face Liveness, from AWS, in the us-east-1 region, under the AWS standard data processing addendum. Duora does not keep any image from the selfie. An approved result is kept for as long as the account exists. Attempts that are not approved are deleted within 30 days.
