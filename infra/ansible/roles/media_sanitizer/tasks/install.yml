@@ -1,0 +1,376 @@
+---
+# Instalação idempotente e INATIVA. Não toca no daemon Docker do sistema, em /etc/docker, nos serviços da aplicação,
+# em /var/lib/duora-media (fotos) nem no sysctl kernel.apparmor_restrict_unprivileged_userns.
+
+- name: Exigir host suportado (amd64/arm64 com cgroup v2)
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Ubuntu'
+      - ansible_facts['distribution_version'] == '24.04'
+      - ansible_facts['architecture'] in ['x86_64', 'aarch64']
+    fail_msg: Runtime rootless validado só em Ubuntu 24.04 amd64/arm64.
+
+- name: Ler a hierarquia de cgroup
+  ansible.builtin.stat:
+    path: /sys/fs/cgroup/cgroup.controllers
+  register: media_sanitizer_cgroup2
+
+- name: Exigir cgroup v2 unificado
+  ansible.builtin.assert:
+    that:
+      - media_sanitizer_cgroup2.stat.exists
+    fail_msg: Sem cgroup v2 unificado os limites do sandbox não são impostos pelo kernel.
+
+- name: Ler o perfil AppArmor do rootlesskit distribuído pelo Ubuntu
+  ansible.builtin.slurp:
+    src: /etc/apparmor.d/rootlesskit
+  register: media_sanitizer_rootlesskit_profile
+
+# Ubuntu 24.04 restringe user namespaces sem privilégio. O perfil próprio do rootlesskit libera só esse binário;
+# desligar a restrição global (como fazem runners descartáveis) não é aceito no host da aplicação.
+- name: Exigir o perfil AppArmor que libera user namespace só para /usr/bin/rootlesskit
+  ansible.builtin.assert:
+    that:
+      - "'/usr/bin/rootlesskit' in (media_sanitizer_rootlesskit_profile.content | b64decode)"
+      - "'userns,' in (media_sanitizer_rootlesskit_profile.content | b64decode)"
+    fail_msg: Falta /etc/apparmor.d/rootlesskit; não enfraqueça o sysctl global, revise o host.
+
+- name: Instalar newuidmap/newgidmap, slirp4netns, sessão D-Bus de usuário e os extras rootless do Docker
+  ansible.builtin.apt:
+    name:
+      - uidmap
+      - slirp4netns
+      - dbus-user-session
+      - docker-ce-rootless-extras
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Criar o grupo do socket de controle do launcher
+  ansible.builtin.group:
+    name: "{{ media_sanitizer_client_group }}"
+    system: true
+    state: present
+
+- name: Criar a conta dedicada do launcher e do daemon rootless (sem login, sem sudo)
+  ansible.builtin.user:
+    name: "{{ media_sanitizer_user }}"
+    system: true
+    home: "{{ media_sanitizer_home }}"
+    create_home: true
+    shell: /usr/sbin/nologin
+    state: present
+
+- name: Fechar o home da conta (dados do daemon rootless ficam aqui)
+  ansible.builtin.file:
+    path: "{{ media_sanitizer_home }}"
+    state: directory
+    owner: "{{ media_sanitizer_user }}"
+    group: "{{ media_sanitizer_user }}"
+    mode: "0700"
+
+- name: Instalar o verificador de faixa subordinada
+  ansible.builtin.copy:
+    src: subid_range.py
+    dest: /usr/local/sbin/duora-media-subid-range
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Conferir a faixa subordinada da conta (recusa sobreposição com outra conta)
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/duora-media-subid-range
+      - --user
+      - "{{ media_sanitizer_user }}"
+      - --start
+      - "{{ media_sanitizer_subid_start }}"
+      - --count
+      - "{{ media_sanitizer_subid_count }}"
+      - /etc/subuid
+      - /etc/subgid
+  register: media_sanitizer_subid
+  changed_when: false
+  check_mode: false
+
+- name: Conceder a faixa subordinada para newuidmap/newgidmap
+  ansible.builtin.command:
+    argv:
+      - usermod
+      - --add-subuids
+      - "{{ media_sanitizer_subid_start }}-{{ (media_sanitizer_subid_start | int) + (media_sanitizer_subid_count | int) - 1 }}"
+      - --add-subgids
+      - "{{ media_sanitizer_subid_start }}-{{ (media_sanitizer_subid_start | int) + (media_sanitizer_subid_count | int) - 1 }}"
+      - "{{ media_sanitizer_user }}"
+  when: media_sanitizer_subid.stdout == 'absent'
+  changed_when: true
+
+- name: Ler UID e GIDs da conta e do grupo de controle
+  ansible.builtin.getent:
+    database: "{{ item }}"
+  loop:
+    - passwd
+    - group
+
+- name: Fixar os identificadores usados nos caminhos do systemd e do perfil
+  ansible.builtin.set_fact:
+    media_sanitizer_uid: "{{ ansible_facts['getent_passwd'][media_sanitizer_user][1] | int }}"
+    media_sanitizer_client_gid: "{{ ansible_facts['getent_group'][media_sanitizer_client_group][1] | int }}"
+
+- name: Criar os diretórios de drop-in do slice e do gerenciador desta conta
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "user-{{ media_sanitizer_uid }}.slice.d"
+    - "user@{{ media_sanitizer_uid }}.service.d"
+
+- name: Limitar memória, swap, CPU e tarefas de toda a conta (user-<uid>.slice)
+  ansible.builtin.template:
+    src: user-slice.conf.j2
+    dest: "/etc/systemd/system/user-{{ media_sanitizer_uid }}.slice.d/50-duora-media.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recarregar systemd
+
+- name: Delegar os controladores de cgroup só ao gerenciador desta conta
+  ansible.builtin.template:
+    src: user-delegate.conf.j2
+    dest: "/etc/systemd/system/user@{{ media_sanitizer_uid }}.service.d/50-duora-media.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  register: media_sanitizer_delegate
+  notify: Recarregar systemd
+
+- name: Aplicar os drop-ins antes de subir o gerenciador de usuário
+  ansible.builtin.meta: flush_handlers
+
+- name: Manter o gerenciador de usuário da conta sem sessão de login (linger)
+  ansible.builtin.command:
+    cmd: "loginctl enable-linger {{ media_sanitizer_user }}"
+    creates: "/var/lib/systemd/linger/{{ media_sanitizer_user }}"
+
+- name: Aguardar o diretório de runtime da conta
+  ansible.builtin.wait_for:
+    path: "/run/user/{{ media_sanitizer_uid }}/bus"
+    timeout: 60
+
+- name: Ler o estado do daemon rootless
+  ansible.builtin.systemd_service:
+    name: docker.service
+    scope: user
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ media_sanitizer_uid }}"
+  register: media_sanitizer_daemon_before
+  check_mode: false
+
+# A delegação só vale para um gerenciador iniciado depois do drop-in. Nunca reinicia com o daemon em uso.
+- name: Reiniciar o gerenciador de usuário quando a delegação mudou e o daemon está parado
+  ansible.builtin.systemd_service:
+    name: "user@{{ media_sanitizer_uid }}.service"
+    state: restarted
+  when:
+    - media_sanitizer_delegate is changed
+    - (media_sanitizer_daemon_before.status.ActiveState | default('inactive')) != 'active'
+
+- name: Aguardar o barramento do gerenciador de usuário
+  ansible.builtin.wait_for:
+    path: "/run/user/{{ media_sanitizer_uid }}/bus"
+    timeout: 60
+
+- name: Criar os diretórios de configuração do daemon rootless
+  ansible.builtin.file:
+    path: "{{ media_sanitizer_home }}/{{ item }}"
+    state: directory
+    owner: "{{ media_sanitizer_user }}"
+    group: "{{ media_sanitizer_user }}"
+    mode: "0700"
+  loop:
+    - .config
+    - .config/docker
+    - .config/systemd
+    - .config/systemd/user
+
+# overlay2 clássico mantém .Id = digest da configuração OCI, que o pin da release compara
+# (docs/operations/media-sanitizer-release.md). Só vale para este daemon; /etc/docker não é tocado.
+- name: Configurar o armazenamento do daemon rootless
+  ansible.builtin.copy:
+    src: daemon.json
+    dest: "{{ media_sanitizer_home }}/.config/docker/daemon.json"
+    owner: "{{ media_sanitizer_user }}"
+    group: "{{ media_sanitizer_user }}"
+    mode: "0600"
+
+- name: Instalar a unidade de usuário do daemon rootless (sem [Install])
+  ansible.builtin.copy:
+    src: docker-rootless.service
+    dest: "{{ media_sanitizer_home }}/.config/systemd/user/docker.service"
+    owner: "{{ media_sanitizer_user }}"
+    group: "{{ media_sanitizer_user }}"
+    mode: "0644"
+  notify: Recarregar o gerenciador de usuário do sanitizador
+
+- name: Aplicar a unidade de usuário
+  ansible.builtin.meta: flush_handlers
+
+- name: Iniciar o daemon rootless só durante o ensaio; parado no restante do tempo
+  ansible.builtin.systemd_service:
+    name: docker.service
+    scope: user
+    state: "{{ 'started' if (media_sanitizer_runtime_started | bool) else 'stopped' }}"
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ media_sanitizer_uid }}"
+
+- name: Aguardar o socket do daemon rootless
+  ansible.builtin.wait_for:
+    path: "/run/user/{{ media_sanitizer_uid }}/docker.sock"
+    timeout: 120
+  when: media_sanitizer_runtime_started | bool
+
+- name: Criar o diretório do código do launcher
+  ansible.builtin.file:
+    path: "{{ media_sanitizer_code_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Instalar o launcher desta versão do repositório (root, sem escrita para a conta)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../scripts/media/{{ item }}"
+    dest: "{{ media_sanitizer_code_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - launcher.py
+    - docker_runtime.py
+    - run_launcher.py
+    # Ferramenta do ensaio no host (corpus + evidências); só roda à mão, como root.
+    - host_corpus.py
+
+# O template não tem [Install]: não pode ser habilitado. O role nunca o inicia.
+- name: Instalar a unidade do launcher (template restrito, inativa)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../media/systemd/duora-media-launcher.service"
+    dest: /etc/systemd/system/duora-media-launcher.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recarregar systemd
+
+- name: Criar o diretório de autoridade e o journal do launcher (fora de /var/lib/duora-media)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ media_sanitizer_user }}"
+    group: "{{ media_sanitizer_client_group }}"
+    mode: "0700"
+  loop:
+    - "{{ media_sanitizer_authority_dir }}"
+    - "{{ media_sanitizer_authority_dir }}/journal"
+
+- name: Exigir imagem do sanitizador fixada por digest
+  ansible.builtin.assert:
+    that:
+      - media_sanitizer_image is match('^(ghcr\.io/bipoxdxd/duora-media-sanitizer@)?sha256:[0-9a-f]{64}$')
+    fail_msg: media_sanitizer_image aceita só referência por digest (sem tag).
+  when: media_sanitizer_image | length > 0
+
+- name: Escrever o perfil do launcher deste host (sem segredos; root, legível pela conta)
+  ansible.builtin.copy:
+    content: "{{ media_sanitizer_profile | to_json }}\n"
+    dest: "{{ media_sanitizer_profile_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    media_sanitizer_profile:
+      schema: 1
+      image: "{{ media_sanitizer_image }}"
+      runtime_socket: "/run/user/{{ media_sanitizer_uid }}/docker.sock"
+      control_socket: "{{ media_sanitizer_control_socket }}"
+      journal_directory: "{{ media_sanitizer_authority_dir }}/journal"
+      worker_uid: "{{ media_sanitizer_worker_uid | int }}"
+      control_gid: "{{ media_sanitizer_client_gid | int }}"
+  when: media_sanitizer_image | length > 0
+
+- name: Remover perfil sem imagem fixada
+  ansible.builtin.file:
+    path: "{{ media_sanitizer_profile_path }}"
+    state: absent
+  when: media_sanitizer_image | length == 0
+
+- name: Aplicar a unidade do launcher
+  ansible.builtin.meta: flush_handlers
+
+- name: Validar o perfil com o próprio parser do launcher e calcular o pin
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -I
+      - -c
+      - >-
+        import json, sys; sys.path.insert(0, sys.argv[1]);
+        from launcher import Profile;
+        print(Profile.from_dict(json.load(open(sys.argv[2])), int(sys.argv[3])).digest)
+      - "{{ media_sanitizer_code_dir }}"
+      - "{{ media_sanitizer_profile_path }}"
+      - "{{ media_sanitizer_uid }}"
+  register: media_sanitizer_profile_pin
+  changed_when: false
+  check_mode: false
+  when: media_sanitizer_image | length > 0
+
+- name: Ler o estado da unidade do launcher
+  ansible.builtin.systemd_service:
+    name: duora-media-launcher.service
+  register: media_sanitizer_launcher_state
+  check_mode: false
+
+- name: Exigir launcher inativo e não habilitável
+  ansible.builtin.assert:
+    that:
+      - media_sanitizer_launcher_state.status.UnitFileState == 'static'
+      - media_sanitizer_launcher_state.status.ActiveState == 'inactive'
+    fail_msg: O launcher precisa ficar parado (static/inactive) até a ativação autorizada.
+
+- name: Ler os tetos efetivos do slice da conta
+  ansible.builtin.slurp:
+    src: "/sys/fs/cgroup/user.slice/user-{{ media_sanitizer_uid }}.slice/{{ item }}"
+  loop:
+    - memory.max
+    - memory.swap.max
+    - cpu.max
+    - pids.max
+  register: media_sanitizer_slice
+
+- name: Exigir os tetos do slice aplicados pelo kernel
+  ansible.builtin.assert:
+    that:
+      - (media_sanitizer_slice.results[0].content | b64decode | trim) == (media_sanitizer_slice_memory_max | human_to_bytes | string)
+      - (media_sanitizer_slice.results[1].content | b64decode | trim) == '0'
+      - (media_sanitizer_slice.results[2].content | b64decode | trim) == media_sanitizer_expected_cpu_max
+      - (media_sanitizer_slice.results[3].content | b64decode | trim) == (media_sanitizer_slice_tasks_max | string)
+    fail_msg: Os valores lidos do cgroup não batem com o drop-in do slice.
+  vars:
+    media_sanitizer_expected_cpu_max: "{{ ((media_sanitizer_slice_cpu_quota | replace('%', '') | int) * 1000) | string }} 100000"
+
+- name: Resumo da instalação inativa
+  ansible.builtin.debug:
+    msg:
+      uid: "{{ media_sanitizer_uid }}"
+      control_gid: "{{ media_sanitizer_client_gid }}"
+      subid: "{{ media_sanitizer_subid_start }}+{{ media_sanitizer_subid_count }}"
+      daemon: "{{ 'iniciado' if (media_sanitizer_runtime_started | bool) else 'parado' }}"
+      launcher: "{{ media_sanitizer_launcher_state.status.UnitFileState }}/{{ media_sanitizer_launcher_state.status.ActiveState }}"
+      profile_sha256: "{{ media_sanitizer_profile_pin.stdout | default('sem perfil (imagem não fixada)') }}"

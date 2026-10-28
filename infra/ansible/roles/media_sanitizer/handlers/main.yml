@@ -1,0 +1,13 @@
+---
+- name: Recarregar systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Recarregar o gerenciador de usuário do sanitizador
+  ansible.builtin.systemd_service:
+    scope: user
+    daemon_reload: true
+  become: true
+  become_user: "{{ media_sanitizer_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ media_sanitizer_uid }}"
