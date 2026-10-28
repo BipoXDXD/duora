@@ -75,6 +75,30 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Contains("photo_review_appeals", refused.MessageText, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task TheMigrationGivesUpQuicklyInsteadOfQueueingTrafficBehindItsExclusiveLock()
+    {
+        await using var reader = new NpgsqlConnection(_database!.MigratorConnectionString);
+        await reader.OpenAsync(Ct);
+        await using var held = await reader.BeginTransactionAsync(Ct);
+        await using (var share = new NpgsqlCommand("lock table safety.photo_review_decisions in access share mode", reader, held))
+        {
+            await share.ExecuteNonQueryAsync(Ct);
+        }
+
+        await using var migrator = new NpgsqlConnection(_database.MigratorConnectionString);
+        await migrator.OpenAsync(Ct);
+        await using var transaction = await migrator.BeginTransactionAsync(Ct);
+        // Without lock_timeout the ALTER would wait for the reader; the 30 s command timeout turns that into a failure.
+        await using var up = new NpgsqlCommand(PhotoReviewWithoutAppeals.UpSql, migrator, transaction) { CommandTimeout = 30 };
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => up.ExecuteNonQueryAsync(Ct));
+
+        Assert.Equal(PostgresErrorCodes.LockNotAvailable, refused.SqlState);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(20), $"Waited {started.Elapsed} for the lock.");
+    }
+
     private async Task<string> CandidateMarkersAsync()
     {
         await using var connection = new NpgsqlConnection(_connectionString);

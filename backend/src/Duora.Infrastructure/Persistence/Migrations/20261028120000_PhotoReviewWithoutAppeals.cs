@@ -52,8 +52,15 @@ public sealed class PhotoReviewWithoutAppeals : Migration
               and candidate_retention_until_snapshot<=decided_at+interval '24 hours')));
         """;
 
-    protected override void Up(MigrationBuilder migrationBuilder) => migrationBuilder.Sql(
-        RefuseExistingAppealsSql + ExpandCandidateRetentionSql + RequestCleanupOfExistingRejectionsSql);
+    /// <summary>Falha rápido em vez de enfileirar o tráfego atrás do ACCESS EXCLUSIVE do ALTER; o migrator pode repetir.</summary>
+    private const string LockTimeoutSql = """
+        set local lock_timeout = '5s';
+        """;
+
+    internal const string UpSql =
+        LockTimeoutSql + RefuseExistingAppealsSql + ExpandCandidateRetentionSql + RequestCleanupOfExistingRejectionsSql;
+
+    protected override void Up(MigrationBuilder migrationBuilder) => migrationBuilder.Sql(UpSql);
 
     protected override void Down(MigrationBuilder migrationBuilder) => throw new NotSupportedException(
         "Preserve decisions and cleanup obligations; the previous release reads this expanded constraint as is.");
