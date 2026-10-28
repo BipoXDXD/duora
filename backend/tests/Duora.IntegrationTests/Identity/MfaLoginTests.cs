@@ -254,7 +254,7 @@ public sealed class MfaLoginTests : IAsyncDisposable
     public async Task NewRecoveryCodesNeedARecentAuthentication()
     {
         var (_, _, browser) = await SignedInAccountWithMfaAsync();
-        _time.Advance(TimeSpan.FromMinutes(6));
+        await StepUpClock.ExpireRecentAuthenticationAsync(browser, _time);
 
         using var response = await browser.PostJsonAsync(MfaScenario.RecoveryCodes, body: null);
 

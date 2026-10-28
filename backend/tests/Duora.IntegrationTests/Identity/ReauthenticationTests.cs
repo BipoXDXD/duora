@@ -4,7 +4,7 @@ using Microsoft.Extensions.Time.Testing;
 namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
-/// Reautenticação (API-A13) e troca de senha (API-A16). A prova fica na sessão, no servidor; a janela de 5 min é
+/// Reautenticação (API-A13) e troca de senha (API-A16). A prova fica na sessão, no servidor; a janela de 1 h (fechada) é
 /// conferida a cada requisição. Conta com MFA reautentica com senha e TOTP.
 /// </summary>
 public sealed class ReauthenticationTests : IAsyncDisposable
@@ -32,7 +32,7 @@ public sealed class ReauthenticationTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        _time.Advance(TimeSpan.FromMinutes(10));
+        await StepUpClock.ExpireRecentAuthenticationAsync(browser, _time);
         using var stale = await browser.PostJsonAsync(MfaScenario.Enrollments, body: null);
 
         using var reauthenticated = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = account.Password });
@@ -49,13 +49,13 @@ public sealed class ReauthenticationTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        _time.Advance(TimeSpan.FromMinutes(10));
+        await StepUpClock.ExpireRecentAuthenticationAsync(browser, _time);
 
         using var response = await browser.PostJsonAsync(MfaScenario.Reauthenticate, new { password = "não é a senha certa" });
         using var still = await browser.PostJsonAsync(MfaScenario.Enrollments, body: null);
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "INVALID_CREDENTIALS");
-        Assert.Equal(HttpStatusCode.Unauthorized, still.StatusCode);
+        await ProblemAssert.IsProblemAsync(still, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");
         Assert.Equal(1, await Scenario.ScalarAsync("select access_failed_count from identity.users where id = $1", account.UserId));
     }
 
@@ -154,13 +154,27 @@ public sealed class ReauthenticationTests : IAsyncDisposable
     {
         var account = await Scenario.CreateConfirmedAccountAsync();
         using var browser = await Scenario.SignedInBrowserAsync(account);
-        _time.Advance(TimeSpan.FromMinutes(6));
+        await StepUpClock.ExpireRecentAuthenticationAsync(browser, _time);
 
         using var response = await browser.PostJsonAsync(
             PasswordChanges,
             new { currentPassword = account.Password, newPassword = NewPassword });
 
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");
+    }
+
+    [Fact]
+    public async Task ChangingThePasswordAtTheEndOfTheWindowStillWorksWhileTheSessionIsInUse()
+    {
+        var account = await Scenario.CreateConfirmedAccountAsync();
+        using var browser = await Scenario.SignedInBrowserAsync(account);
+        await StepUpClock.ReachTheEndOfTheWindowAsync(browser, _time);
+
+        using var response = await browser.PostJsonAsync(
+            PasswordChanges,
+            new { currentPassword = account.Password, newPassword = NewPassword });
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
 
     [Fact]

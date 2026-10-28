@@ -1,0 +1,43 @@
+# Sobreposição do projeto sombra duora-c2 (issue #86; docs/operations/capacity-c2.md). NUNCA no projeto duora.
+#
+# Ordem: compose.prod.yml + scripts/backup/compose.drill.yml (MinIO como repositório) + este arquivo, com
+# --project-name duora-c2 e o env gerado pelo c2_shadow.py. Muda só o que colidiria com a produção no mesmo host
+# ou o que a carga sintética exige; imagens, limites de CPU/RAM/PIDs, pesos e hardening continuam os da produção.
+#   - sub-redes próprias: as fixas da produção (172.30.10/20/21.0/24) já existem no host e o Docker recusaria
+#     a sobreposição. O pg_hba e o pgbackrest-repo.conf da imagem citam o IP do backup; o c2_shadow gera as cópias
+#     com o IP sombra e elas entram por bind mount somente leitura;
+#   - LoginPerIp: todos os clientes sintéticos saem do mesmo IP (o túnel). O limite por conta continua o padrão.
+services:
+  postgres:
+    volumes:
+      - ${C2_CONF_DIR:?defina C2_CONF_DIR}/pg_hba.conf:/etc/postgresql/pg_hba.duora.conf:ro
+
+  backup:
+    volumes:
+      - ${C2_CONF_DIR:?defina C2_CONF_DIR}/pgbackrest-repo.conf:/etc/pgbackrest/pgbackrest-repo.conf:ro
+    networks:
+      pgbackrest:
+        ipv4_address: 10.231.21.10
+
+  restore:
+    volumes:
+      - ${C2_CONF_DIR:?defina C2_CONF_DIR}/pgbackrest-repo.conf:/etc/pgbackrest/pgbackrest-repo.conf:ro
+
+  web:
+    environment:
+      ReverseProxy__KnownNetworks__0: 10.231.10.0/24
+      RateLimiting__LoginPerIp__PermitLimit: "100000"
+
+networks:
+  edge:
+    ipam: !override
+      config:
+        - subnet: 10.231.10.0/24
+  pgbackrest:
+    ipam: !override
+      config:
+        - subnet: 10.231.21.0/24
+  backup-egress:
+    ipam: !override
+      config:
+        - subnet: 10.231.20.0/24
