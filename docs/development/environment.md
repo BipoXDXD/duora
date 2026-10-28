@@ -139,7 +139,16 @@ rode os dois a partir de `backend/`, como nos comandos deste arquivo.
 | `Email:PickupDirectory` (Worker) | `../.local/mail` | Cada e-mail de conta vira um `.eml` com o link de confirmação ou de redefinição |
 | `Email:Provider` (Worker) | `PickupDirectory` (padrão) | `Resend` e `Smtp` selecionam o envio externo; a seleção não muda o produtor da outbox |
 | `Media:Review` (Web e Worker) | `TechnicalOnly` | Liga o upload de fotos com aprovação só técnica (dados sintéticos; o boot a recusa em Production, ADR-0025) |
+| `Media:Deletion:EnvironmentId` e `Media:Deletion:OperationKeyId` (Web) | GUID fixo de desenvolvimento, `dev-v1` | Escopo da chave de operação da exclusão de fotos (API-M03); com o upload ligado, a Web não sobe sem eles |
 | `Media:Storage:Provider` e `Media:Storage:FileSystemRoot` (Web e Worker) | `FileSystem`, `../.local/media` | Quarentena e derivados num diretório local, o mesmo nos dois processos; em Production, `FileSystem` num diretório absoluto já montado nos dois, no disco da VPS (adendo do ADR-0010); o adaptador `S3` existe, mas não é o de produção |
+
+O material da chave da exclusão de fotos é segredo e não fica no `appsettings`. Com o upload ligado, defina-o uma
+vez nos user-secrets (32 a 64 bytes em base64) e mantenha o mesmo valor: trocá-lo faz repetições antigas da mesma
+`Idempotency-Key` virarem operações novas.
+
+```sh
+dotnet user-secrets set --project src/Duora.Web "Media:Deletion:OperationKey" "$(openssl rand -base64 32)"
+```
 
 Sem essas chaves os processos não sobem, salvo as de `Media`: sem `Media:Review`, o upload de fotos fica
 desligado (503), e o storage só deixa de ser exigido se `Media:Storage:Provider` também estiver ausente. Com o
