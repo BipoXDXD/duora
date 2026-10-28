@@ -67,6 +67,7 @@ internal static class DuoraWebApp
         builder.Services.AddParticipation();
         builder.Services.AddDuoraSafety();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
+        builder.Services.AddPhotoLibrary(builder.Configuration);
         builder.Services.AddSelfieVerification();
         builder.Services.AddHealthChecks().AddDuoraDatabase(HealthEndpoints.ReadyTag);
 
@@ -127,6 +128,7 @@ internal static class DuoraWebApp
         api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>()).MapPhotoReviewAdminEndpoints();
         api.MapPhotoEndpoints();
         api.MapPhotoReviewOwnerEndpoints();
+        api.MapMediaAssetEndpoints();
         api.MapAgeVerificationEndpoints();
         api.MapSelfieVerificationEndpoints();
         api.MapParticipationTestSentinel(app.Environment);

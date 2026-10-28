@@ -3,8 +3,10 @@ using Duora.Contracts.Media;
 using Duora.Core.Media;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Media;
+using Duora.Web.Accounts;
 using Duora.Web.Http;
 using Duora.Web.Identity;
+using Duora.Web.Safety;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -23,6 +25,7 @@ namespace Duora.Web.Media;
 internal static class PhotoEndpoints
 {
     private const string IdempotencyKeyHeader = "Idempotency-Key";
+    private const string PhotoTagKind = "photo";
 
     private static readonly TimeSpan InProgressRetryAfter = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan PendingLimitRetryAfter = TimeSpan.FromSeconds(60);
@@ -51,10 +54,29 @@ internal static class PhotoEndpoints
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .AddOpenApiOperationTransformer(DocumentUploadRequest);
         photos.MapGet("/{photoId:guid}/status", GetStatusAsync)
-            .WithDescription("Estado do processamento de uma foto do titular.")
+            .WithDescription(
+                "Estado do processamento de uma foto do titular. O header ETag traz a versão forte e opaca da foto, "
+                + "a única aceita no If-Match da exclusão.")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .AddOpenApiOperationTransformer(DocumentPhotoETag);
+        photos.MapDelete("/{photoId:guid}", DeleteAsync)
+            .WithDescription(
+                "Exclusão lógica imediata da própria foto (API-M03), sem corpo, com If-Match (ETag do status) e "
+                + "Idempotency-Key obrigatórios. Responde 204 com o ETag da foto excluída; a mesma chave repetida devolve "
+                + "o mesmo resultado. Foto de outra conta e foto inexistente dão o mesmo 404. A remoção dos arquivos é "
+                + "feita depois, por um job durável.")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status412PreconditionFailed)
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired)
+            .RequireMediaAdmission()
+            .AddOpenApiOperationTransformer(DocumentDeleteHeaders);
     }
 
     private static async Task<IResult> UploadAsync(
@@ -231,9 +253,116 @@ internal static class PhotoEndpoints
             return TypedResults.Unauthorized();
         }
 
-        return await uploads.FindOwnStatusAsync(userId, photoId, cancellationToken) is { } status
-            ? TypedResults.Ok(new PhotoStatusResponse(status.PhotoId, status.State.ToString(), status.RejectionCode))
-            : TypedResults.NotFound();
+        if (await uploads.FindOwnStatusAsync(userId, photoId, cancellationToken) is not { } status)
+        {
+            return TypedResults.NotFound();
+        }
+
+        context.Response.Headers.ETag = PhotoReviewHeaders.Tag(PhotoTagKind, status.PhotoId, status.Version);
+        return TypedResults.Ok(new PhotoStatusResponse(status.PhotoId, status.State.ToString(), status.RejectionCode));
+    }
+
+    private static async Task<IResult> DeleteAsync(
+        Guid photoId,
+        HttpContext context,
+        PhotoDeletions deletions,
+        CancellationToken cancellationToken)
+    {
+        if (HasBody(context))
+        {
+            return ApiProblems.Problem(StatusCodes.Status400BadRequest, ApiProblems.ValidationFailed);
+        }
+
+        if (PhotoReviewHeaders.Command(context, PhotoTagKind, photoId, out var version, out var key) is { } refused)
+        {
+            return refused;
+        }
+
+        var (userId, sessionId) = CurrentSession.Require(context);
+        var result = await deletions.DeleteAsync(userId, sessionId, photoId, version, key, cancellationToken);
+        switch (result)
+        {
+            case PhotoDeletionResult.Deleted deleted:
+                context.Response.Headers.ETag = PhotoReviewHeaders.Tag(PhotoTagKind, photoId, deleted.PhotoVersion);
+                return TypedResults.NoContent();
+            case PhotoDeletionResult.Forbidden:
+                return ApiProblems.Problem(StatusCodes.Status403Forbidden, "FORBIDDEN");
+            case PhotoDeletionResult.NotFound:
+                return ApiProblems.Problem(StatusCodes.Status404NotFound, "NOT_FOUND");
+            case PhotoDeletionResult.PreconditionFailed:
+                return ApiProblems.Problem(StatusCodes.Status412PreconditionFailed, ApiProblems.PreconditionFailed);
+            case PhotoDeletionResult.KeyReused:
+                return ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.IdempotencyKeyReused);
+            case PhotoDeletionResult.StateConflict:
+                return ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.PhotoDeleteStateConflict);
+            default:
+                throw new InvalidOperationException("Resultado de exclusão sem resposta.");
+        }
+    }
+
+    /// <summary>DELETE não tem corpo neste contrato: qualquer conteúdo é recusado antes de tocar no banco.</summary>
+    private static bool HasBody(HttpContext context) =>
+        context.Features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == true
+        || context.Request.ContentLength is > 0
+        || context.Request.Headers.TransferEncoding.Count != 0;
+
+    private static Task DocumentPhotoETag(
+        OpenApiOperation operation,
+        OpenApiOperationTransformerContext context,
+        CancellationToken cancellationToken)
+    {
+        if (operation.Responses?["200"] is OpenApiResponse ok)
+        {
+            ok.Headers ??= new Dictionary<string, IOpenApiHeader>();
+            ok.Headers["ETag"] = new OpenApiHeader
+            {
+                Description = "Strong opaque version of this photo, for If-Match on DELETE.",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+            };
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static Task DocumentDeleteHeaders(
+        OpenApiOperation operation,
+        OpenApiOperationTransformerContext context,
+        CancellationToken cancellationToken)
+    {
+        operation.Parameters ??= [];
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = "If-Match",
+            In = ParameterLocation.Header,
+            Required = true,
+            Description = "The exact strong ETag of this photo from the status read; weak tags, lists, wildcards and tags of other resources never match.",
+            Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+        });
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = IdempotencyKeyHeader,
+            In = ParameterLocation.Header,
+            Required = true,
+            Description = "A stable key for this exact deletion. Authenticated replay returns the confirmed result.",
+            Schema = new OpenApiSchema
+            {
+                Type = JsonSchemaType.String,
+                MinLength = 1,
+                MaxLength = IdempotencyKey.MaxLength,
+                Pattern = "^[A-Za-z0-9_-]+$",
+            },
+        });
+        if (operation.Responses?["204"] is OpenApiResponse deleted)
+        {
+            deleted.Headers ??= new Dictionary<string, IOpenApiHeader>();
+            deleted.Headers["ETag"] = new OpenApiHeader
+            {
+                Description = "Strong opaque version of the deleted photo.",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+            };
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>Corpo binário e Idempotency-Key obrigatório no contrato, como a rota exige.</summary>

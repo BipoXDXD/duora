@@ -23,6 +23,7 @@ public sealed class ProblemTextTests
         { "MEDIA_UPLOADS_DISABLED", "Photo uploads are disabled." },
         { "MFA_REQUIRED", "A second authentication factor is required." },
         { "PASSWORD_CHANGE_REQUIRED", "Change your temporary password to continue." },
+        { "PHOTO_DELETE_STATE_CONFLICT", "The photo cannot be deleted while it is being processed or reviewed. Try again later." },
         { "PAYLOAD_TOO_LARGE", "Request payload is too large." },
         { "PRECONDITION_FAILED", "The resource has changed. Reload it before saving." },
         { "PRECONDITION_REQUIRED", "Provide the ETag from the last read in If-Match." },

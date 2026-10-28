@@ -4153,7 +4153,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Estado do processamento de uma foto do titular. */
+        /** @description Estado do processamento de uma foto do titular. O header ETag traz a versão forte e opaca da foto, a única aceita no If-Match da exclusão. */
         get: {
             parameters: {
                 query?: never;
@@ -4168,6 +4168,8 @@ export interface paths {
                 /** @description OK */
                 200: {
                     headers: {
+                        /** @description Strong opaque version of this photo, for If-Match on DELETE. */
+                        ETag?: string;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4206,6 +4208,121 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/photos/{photoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Exclusão lógica imediata da própria foto (API-M03), sem corpo, com If-Match (ETag do status) e Idempotency-Key obrigatórios. Responde 204 com o ETag da foto excluída; a mesma chave repetida devolve o mesmo resultado. Foto de outra conta e foto inexistente dão o mesmo 404. A remoção dos arquivos é feita depois, por um job durável. */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The exact strong ETag of this photo from the status read; weak tags, lists, wildcards and tags of other resources never match. */
+                    "If-Match": string;
+                    /** @description A stable key for this exact deletion. Authenticated replay returns the confirmed result. */
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    photoId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        /** @description Strong opaque version of the deleted photo. */
+                        ETag?: string;
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Failed */
+                412: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Required */
+                428: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -4401,6 +4518,90 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/media/{assetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Derivado de uma foto aprovada (thumb, card ou full; padrão full) como image/webp. Hoje só o titular lê; asset de outra conta, inexistente, não aprovado ou excluído dão o mesmo 404. Cache-Control: no-store. */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Derivative size: thumb, card or full (default). */
+                    variant?: "thumb" | "card" | "full";
+                };
+                header?: never;
+                path: {
+                    assetId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;

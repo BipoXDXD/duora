@@ -99,6 +99,10 @@ internal sealed class Browser : IDisposable
     public Task<HttpResponseMessage> DeleteAsync(string path, MutationHeaders? headers = null) =>
         SendAsync(HttpMethod.Delete, path, content: null, headers);
 
+    /// <summary>DELETE com corpo, para provar que a rota recusa o que não aceita.</summary>
+    public Task<HttpResponseMessage> SendDeleteWithBodyAsync(string path, HttpContent content, MutationHeaders? headers = null) =>
+        SendAsync(HttpMethod.Delete, path, content, headers);
+
     /// <summary>PATCH com corpo cru e <c>If-Match</c> opcional, mandado sem validação para testar valores malformados.</summary>
     public Task<HttpResponseMessage> PatchRawJsonAsync(
         string path,

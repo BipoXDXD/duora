@@ -148,7 +148,12 @@ public sealed class StartupConfigurationTests
     [Fact]
     public async Task WebDoesNotStartWithPhotoUploadsOnAndNoStorage()
     {
-        await using var app = BuildWeb("--Media:Review=TechnicalOnly");
+        // Com a chave da exclusão presente, só o storage falta: é ele que a recusa precisa apontar.
+        await using var app = BuildWeb(
+            "--Media:Review=TechnicalOnly",
+            $"--Media:Deletion:EnvironmentId={Guid.NewGuid()}",
+            "--Media:Deletion:OperationKeyId=test-v1",
+            $"--Media:Deletion:OperationKey={Convert.ToBase64String(new byte[32])}");
 
         var exception = await Assert.ThrowsAsync<OptionsValidationException>(
             () => app.StartAsync(TestContext.Current.CancellationToken));

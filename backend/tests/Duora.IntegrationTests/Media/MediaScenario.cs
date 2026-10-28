@@ -19,6 +19,9 @@ internal sealed record StoredUpload(
     byte[]? ContentSha256,
     string? RejectionCode);
 
+/// <summary>Asset aprovado semeado por fora da API, com a chave e os bytes de cada derivado.</summary>
+internal sealed record SeededAsset(Guid AssetId, IReadOnlyDictionary<PhotoVariant, (ObjectKey Key, byte[] Bytes)> Variants);
+
 /// <summary>Passos de upload pela API e leitura do estado por fora, com contas sintéticas únicas por teste.</summary>
 internal sealed class MediaScenario(string connectionString, DuoraWebFactory factory)
 {
@@ -147,6 +150,65 @@ internal sealed class MediaScenario(string connectionString, DuoraWebFactory fac
         Directory.Exists(factory.MediaRoot)
             ? Directory.EnumerateFiles(factory.MediaRoot, "*", SearchOption.AllDirectories).Count()
             : 0;
+
+    /// <summary>
+    /// Leva um upload em quarentena a <c>Approved</c> com asset e três derivados no storage, por fora da API e sem
+    /// decoder: o comportamento sob teste é o que vem depois da aprovação (API-M03/M04), não o pipeline.
+    /// </summary>
+    public async Task<SeededAsset> ApproveWithVariantsAsync(StoredUpload upload)
+    {
+        var assetId = Guid.CreateVersion7();
+        var quarantine = ObjectKey.Parse(upload.QuarantineKey);
+        await ExecuteAsync("update media.uploads set state = 'Approved', version = version + 1 where id = $1", upload.Id);
+        await ExecuteAsync(
+            """
+            insert into media.media_assets (id, upload_id, owner_id, state, detected_type, width, height, sha256, approved_at, version)
+            values ($1, $2, $3, 'Approved', 'image/jpeg', 1600, 1200, $4, now(), 1)
+            """,
+            assetId,
+            upload.Id,
+            upload.OwnerId,
+            upload.ContentSha256 ?? new byte[32]);
+        var variants = new Dictionary<PhotoVariant, (ObjectKey Key, byte[] Bytes)>();
+        foreach (var variant in PhotoVariants.All)
+        {
+            var key = ObjectKey.ForDerivative(quarantine, variant);
+            var bytes = Enumerable.Range(0, 512 + (int)variant).Select(i => (byte)(i + (int)variant * 31)).ToArray();
+            await Store.PutAsync(key, new MemoryStream(bytes), bytes.Length, "image/webp", TestContext.Current.CancellationToken);
+            await ExecuteAsync(
+                """
+                insert into media.media_variants (id, media_asset_id, kind, object_key, width, height, size_bytes)
+                values ($1, $2, $3, $4, 10, 10, $5)
+                """,
+                Guid.CreateVersion7(),
+                assetId,
+                PhotoVariants.Name(variant),
+                key.Value,
+                (long)bytes.Length);
+            variants[variant] = (key, bytes);
+        }
+
+        return new SeededAsset(assetId, variants);
+    }
+
+    public async Task<bool> ObjectExistsAsync(ObjectKey key)
+    {
+        await using var stream = await Store.OpenReadAsync(key, TestContext.Current.CancellationToken);
+        return stream is not null;
+    }
+
+    public async Task<long> CountAsync(string sql, params object[] parameters)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.AddWithValue(parameter);
+        }
+
+        return Convert.ToInt64(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     public async Task ExecuteAsync(string sql, params object[] parameters)
     {
