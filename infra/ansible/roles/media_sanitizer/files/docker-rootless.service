@@ -1,0 +1,28 @@
+# Gerenciado pelo Ansible (role media_sanitizer, ADR-0036/#174). Unidade de usuário do daemon rootless dedicado.
+# Sem [Install]: nada a habilita; o daemon só roda quando o operador (ou o role com runtime_started) o inicia.
+[Unit]
+Description=Docker rootless dedicado ao media-sanitizer do Duora
+Documentation=https://docs.docker.com/engine/security/rootless/
+Requires=dbus.socket
+After=dbus.socket
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=notify
+NotifyAccess=all
+Environment=PATH=/usr/bin:/usr/sbin:/bin:/sbin
+# slirp4netns só dá saída ao próprio daemon (pull por digest); os containers do launcher usam --network none.
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin
+ExecStart=/usr/bin/dockerd-rootless.sh
+# O launcher recusa um socket acessível a grupo ou terceiros (scripts/media/docker_runtime.py).
+ExecStartPost=/bin/chmod 0600 %t/docker.sock
+ExecReload=/bin/kill -s HUP $MAINPID
+TimeoutStartSec=120
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=1048576
+Delegate=yes
+KillMode=mixed

@@ -79,7 +79,8 @@ estado, prazo e digest; não armazena fotos, stdout/stderr ou detalhes de erro.
 Não expurga ids automaticamente: lotação bloqueia novas admissões e exige
 procedimento operacional próprio antes de uso contínuo. Reinício recupera
 órfãos antes de abrir o controle; confirmação impossível mantém o launcher
-bloqueado. A unidade systemd é apenas um template, sem instalação automática.
+bloqueado. A unidade systemd não tem `[Install]`: o role `media_sanitizer` a instala
+inativa ([runbook](../operations/media-sanitizer-host.md)) e nada a habilita ou inicia sozinho.
 
 ## Evidência e trabalho restante
 
