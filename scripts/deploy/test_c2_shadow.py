@@ -231,6 +231,24 @@ class RestoreRehearsalTests(unittest.TestCase):
         self.assertFalse(any(" duora_pgdata" in c or "--project-name duora " in c for c in joined))
 
 
+class RehearsalSqlTests(unittest.TestCase):
+    def test_every_psql_value_read_suppresses_the_command_tag(self) -> None:
+        # Sem --quiet, "insert ... returning" imprime "INSERT 0 1" depois do valor e o float() quebra.
+        now = [1000.0]
+
+        def sleep(seconds: float) -> None:
+            now[0] += seconds
+
+        runner = FakeRunner({"returning extract": ["1000.0"], "pg_is_in_recovery": ["f"], "max(at)": ["1000.0"]})
+        with tempfile.TemporaryDirectory() as directory:
+            layout = shadow.Layout(Path(directory))
+            layout.state.mkdir()
+            shadow.restore_rehearsal(layout, runner, lambda: now[0], sleep, final_full=False)
+        reads = [c for c in runner.commands if "psql" in c]
+        self.assertTrue(reads)
+        self.assertTrue(all("--quiet" in c for c in reads))
+
+
 class RestoreWithoutFinalFullTests(unittest.TestCase):
     def test_window_skips_the_new_full_when_the_shadow_is_torn_down_next(self) -> None:
         now = [1000.0]

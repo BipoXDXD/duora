@@ -327,7 +327,7 @@ class HostRun:
         self.failures: list[str] = []
 
     def docker(self, *args: str, timeout: float = 60, check: bool = True) -> subprocess.CompletedProcess[str]:
-        command = ["runuser", "-u", self.user, "--", "/usr/bin/docker", "--config", str(self.cli),
+        command = ["/usr/sbin/runuser", "-u", self.user, "--", "/usr/bin/docker", "--config", str(self.cli),
                    "--host", "unix://" + str(self.socket), *args]
         return subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=check,
                               env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "LC_ALL": "C"})
@@ -436,7 +436,7 @@ class HostRun:
         observed: dict[str, Any] = {}
         began = time.monotonic()
         with log_path.open("w") as log:
-            command = ["runuser", "-u", self.user, "--", "/usr/bin/docker", "--config", str(self.cli),
+            command = ["/usr/sbin/runuser", "-u", self.user, "--", "/usr/bin/docker", "--config", str(self.cli),
                        "--host", "unix://" + str(self.socket), "start", "--attach", name]
             process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
                                        env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "LC_ALL": "C"})

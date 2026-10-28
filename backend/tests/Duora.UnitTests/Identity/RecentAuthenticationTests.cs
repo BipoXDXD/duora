@@ -7,23 +7,36 @@ public sealed class RecentAuthenticationTests
     private static readonly DateTimeOffset Now = new(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void WindowIsFiveMinutes()
+    public void WindowIsOneHour()
     {
-        Assert.Equal(TimeSpan.FromMinutes(5), RecentAuthentication.Window);
+        Assert.Equal(TimeSpan.FromHours(1), RecentAuthentication.Window);
     }
 
     [Theory]
     [InlineData(0)]
-    [InlineData(299)]
+    [InlineData(3599)]
+    [InlineData(3600)]
     public void ProofInsideTheWindowIsRecent(int secondsAgo)
     {
         Assert.True(RecentAuthentication.IsRecent(Now.AddSeconds(-secondsAgo), Now));
     }
 
+    [Fact]
+    public void ProofExactlyAtTheEndOfTheWindowIsStillRecent()
+    {
+        Assert.True(RecentAuthentication.IsRecent(Now - RecentAuthentication.Window, Now));
+    }
+
+    [Fact]
+    public void ProofOneTickPastTheEndOfTheWindowIsNotRecent()
+    {
+        Assert.False(RecentAuthentication.IsRecent(Now - RecentAuthentication.Window - TimeSpan.FromTicks(1), Now));
+    }
+
     [Theory]
-    [InlineData(300)]
-    [InlineData(301)]
-    public void ProofAtOrPastTheEndOfTheWindowIsNotRecent(int secondsAgo)
+    [InlineData(3601)]
+    [InlineData(86400)]
+    public void ProofPastTheEndOfTheWindowIsNotRecent(int secondsAgo)
     {
         Assert.False(RecentAuthentication.IsRecent(Now.AddSeconds(-secondsAgo), Now));
     }
@@ -38,6 +51,6 @@ public sealed class RecentAuthenticationTests
     public void ProofFromTheFutureIsNotRecent()
     {
         // Relógio que voltou ou dado adulterado: não concede privilégio.
-        Assert.False(RecentAuthentication.IsRecent(Now.AddSeconds(1), Now));
+        Assert.False(RecentAuthentication.IsRecent(Now.AddTicks(1), Now));
     }
 }

@@ -157,7 +157,7 @@ export const en = {
   'validation.passwordMismatch': 'Passwords do not match.',
   'changePassword.title': 'Change your initial password',
   'changePassword.instructions':
-    'Set your own password to continue. The temporary password lasts 24 hours; complete this step within 5 minutes of signing in. If it expired, ask your Duora administrator for a new one.',
+    'Set your own password to continue. The temporary password lasts 24 hours; complete this step within 1 hour of signing in; 15 minutes of inactivity end the session. If it expired, ask your Duora administrator for a new one.',
   'changePassword.currentPassword': 'Temporary password',
   'changePassword.confirmation': 'Confirm new password',
   'changePassword.reused': 'Choose a password different from the temporary password.',

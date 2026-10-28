@@ -88,9 +88,9 @@ public sealed class RoutesCatalogPublicationTests(PostgresFixture postgres)
                 "update experiences.experience_versions set experience_kind='unlikely-routes' where id=$1", ct, legacyId));
             Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
         }
-        clock.Advance(TimeSpan.FromMinutes(6));
+        await StepUpClock.ExpireRecentAuthenticationAsync(administrator, clock);
         using var staleMfa = await administrator.PostJsonAsync("/api/v1/admin/route-experience-versions", valid);
-        Assert.Equal(HttpStatusCode.Unauthorized, staleMfa.StatusCode);
+        await ProblemAssert.IsProblemAsync(staleMfa, HttpStatusCode.Unauthorized, "REAUTHENTICATION_REQUIRED");
     }
 
     internal static PublishRoutesCatalogRequest Request()

@@ -319,9 +319,16 @@ def _database_rates(before: dict[str, Any] | None, now: dict[str, Any] | None) -
     failed = None
     if before is not None and before.get("failed_count") is not None and now.get("failed_count") is not None:
         failed = max(0, now["failed_count"] - before["failed_count"])
-    return {"archive_lag_s": now.get("last_archived_age_s"), "archive_failed": failed,
+    return {"archive_lag_s": _archive_lag(now), "archive_failed": failed,
             "jobs_due": now.get("jobs_due"), "jobs_oldest_due_age_s": now.get("jobs_oldest_due_age_s"),
             "jobs_max_lateness_s": now.get("jobs_max_lateness_s"), "outbox_pending": now.get("outbox_pending")}
+
+
+def _archive_lag(stats: dict[str, Any]) -> float | None:
+    """Sem segmento completo pendente não há atraso; estado desconhecido mantém a idade (guarda conservadora)."""
+    if stats.get("archive_pending") == 0:
+        return 0.0
+    return stats.get("last_archived_age_s")
 
 
 @dataclass
