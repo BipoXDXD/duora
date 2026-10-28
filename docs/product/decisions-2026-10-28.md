@@ -20,19 +20,21 @@ o que não está aqui continua valendo.
    `controllerName: "Luca Grimmer"` e `registrationAvailable: true`, e o gate de documentos deixa de recusar o
    cadastro. Os outros gates de operação (implantação, entrega real do e-mail de confirmação, gates regionais) não
    mudam com esta decisão.
-4. **Ajustes no aviso de privacidade depois da aprovação, pendentes de confirmação do dono:** a revisão
+4. **Ajustes no aviso de privacidade depois da aprovação, também aprovados em 28/10:** a revisão
    independente do PR pediu mudanças no aviso de privacidade (PT-BR e EN-US), feitas antes de qualquer publicação
    ou aceite. Foi incluída a seção da selfie de presença, com os fatos decididos pelo dono para a #93: Amazon
    Rekognition Face Liveness na AWS us-east-1, DPA padrão, nenhuma imagem guardada, resultado aprovado guardado
    enquanto a conta existir e tentativas não aprovadas apagadas em 30 dias. Saiu a promessa de publicar nova
    versão antes de ativar a selfie ou um provedor de e-mail, e a AWS entrou na lista de fornecedores. O prazo de
    65 dias das cópias de segurança deu lugar a uma redação sem prazo, porque a retenção do backup do banco ainda é
-   proposta ([retention.md](../privacy/retention.md)). Os Termos não mudaram. A flag `approved` continua `true`,
-   mas estes ajustes ainda precisam da confirmação do dono.
+   proposta ([retention.md](../privacy/retention.md)). Os Termos não mudaram. A flag `approved` continua
+   `true`. O dono aprovou estes ajustes em 28/10/2026, na conversa com o coordenador: perguntado se aprovaria a
+   lista do que mudou depois da aprovação original, respondeu "2. Sim". Os SHA-256 finais abaixo identificam o
+   texto aprovado.
 
 SHA-256 de conteúdo da versão `2026-10-25`, fixados no teste `PublishedDocumentKeepsItsExactFingerprint`:
 
-| Documento | Aprovado em `97a44f1` | Final |
+| Documento | Primeira aprovação (`97a44f1`) | Final, aprovado |
 |---|---|---|
 | terms/pt-BR | `07fd125a…f30227` | igual |
 | terms/en-US | `fc36a782…27c8b6` | igual |
