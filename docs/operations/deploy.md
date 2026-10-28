@@ -51,11 +51,10 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   Alias Duora Support criado no Zoho Mail Lite em 21/10/2026; envio/recebimento internos e entrega ao servidor
   externo do titular verificados. Não é uma caixa independente nem configura SMTP transacional (#68).
   Responsável: proprietário do projeto; cobertura declarada de 24 horas por dia, em PT-BR e EN-US.
-  Escalonamento privado: Gmail pessoal do responsável, sem publicar seu endereço. O encaminhamento foi
-  adicionado no Zoho, mas exige confirmação local pelo código recebido no Gmail; não marcá-lo como ativo
-  antes de conferir status e testar o alias após a confirmação, mantendo a cópia no Zoho.
-  Substituto e processo de severidades/evidência/escalonamento da spec 12.5 ainda não foram definidos.
-  Essas pendências operacionais impedem declarar o atendimento pronto para participantes reais.
+  Escalonamento privado: Gmail pessoal do responsável, sem publicar seu endereço. Encaminhamento Zoho → Gmail
+  ativo desde 28/10/2026, com cópia retida no Zoho. Sem substituto, por decisão expressa. Severidades,
+  tempos-alvo, escalonamento e contingência do canal: [support-incidents.md](support-incidents.md). DMARC com
+  `rua` e plano de subida: [dmarc.md](dmarc.md); confira se a fase publicada no DNS é a registrada na #82.
 
 
 ## Manifesto da release (spec 17.2)

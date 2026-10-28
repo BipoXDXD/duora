@@ -1084,10 +1084,6 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("display_name");
 
-                    b.Property<string>("RegionCode")
-                        .HasColumnType("text")
-                        .HasColumnName("region_code");
-
                     b.Property<string>("SubdivisionCode")
                         .HasColumnType("text")
                         .HasColumnName("subdivision_code");
@@ -1113,8 +1109,6 @@ namespace Duora.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_profiles_display_name", "char_length(display_name) BETWEEN 1 AND 40");
 
                             t.HasCheckConstraint("ck_profiles_location_country", "subdivision_code IS NULL OR country_code IS NOT NULL");
-
-                            t.HasCheckConstraint("ck_profiles_region_code", "region_code IN ('BR-AC', 'BR-AL', 'BR-AM', 'BR-AP', 'BR-BA', 'BR-CE', 'BR-DF', 'BR-ES', 'BR-GO', 'BR-MA', 'BR-MG', 'BR-MS', 'BR-MT', 'BR-PA', 'BR-PB', 'BR-PE', 'BR-PI', 'BR-PR', 'BR-RJ', 'BR-RN', 'BR-RO', 'BR-RR', 'BR-RS', 'BR-SC', 'BR-SE', 'BR-SP', 'BR-TO')");
 
                             t.HasCheckConstraint("ck_profiles_version", "version >= 1");
                         });

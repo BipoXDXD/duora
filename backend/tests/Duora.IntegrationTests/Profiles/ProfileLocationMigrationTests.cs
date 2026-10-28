@@ -10,10 +10,13 @@ public sealed class ProfileLocationMigrationTests(PostgresFixture postgres)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>A ponte de expand continua valendo no schema expandido, que o Down do contract (#78) devolve.</summary>
     [Fact]
     public async Task LegacyBinaryWritesStayReadableAndDoNotResurrectClearedRegions()
     {
-        await using var connection = new NpgsqlConnection(postgres.ConnectionString);
+        var database = await ProfileRegionContractMigrationTests.MigrateToAsync(
+            postgres, ProfileRegionContractMigrationTests.MigrationBeforeContract);
+        await using var connection = new NpgsqlConnection(database.AppConnectionString);
         await connection.OpenAsync(Ct);
         var id = await RoleSeparationTests.InsertUserAsync(connection);
         await using var command = new NpgsqlCommand("""
@@ -59,7 +62,9 @@ public sealed class ProfileLocationMigrationTests(PostgresFixture postgres)
 
         await using (var after = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
-            await after.Database.MigrateAsync(Ct);
+            // Para antes do contract (#78), que retira region_code: aqui se compara o backfill com a coluna antiga.
+            await after.GetService<IMigrator>().MigrateAsync(
+                ProfileRegionContractMigrationTests.MigrationBeforeContract, cancellationToken: Ct);
         }
 
         await using var check = new NpgsqlCommand("""

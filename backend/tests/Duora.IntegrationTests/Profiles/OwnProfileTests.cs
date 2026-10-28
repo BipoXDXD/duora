@@ -290,8 +290,8 @@ public sealed class OwnProfileTests : IAsyncDisposable
     public static TheoryData<string> EveryState() => new(RegionCode.All);
 
     /// <summary>
-    /// O literal do CHECK na migração é uma cópia congelada de <c>RegionCode.All</c>: cada UF que o domínio aceita
-    /// tem de passar no banco real, ou a API aceitaria um código que a gravação recusa com 500.
+    /// O catálogo de subdivisões no banco é semeado à parte de <c>RegionCode.All</c>: cada UF que o domínio aceita
+    /// tem de passar na FK real, ou a API aceitaria um código que a gravação recusa com 500.
     /// </summary>
     [Theory]
     [MemberData(nameof(EveryState))]
@@ -302,7 +302,7 @@ public sealed class OwnProfileTests : IAsyncDisposable
         await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
-            "update profiles.profiles set region_code = $1 where user_id = $2",
+            "update profiles.profiles set country_code = 'BR', subdivision_code = $1 where user_id = $2",
             connection);
         command.Parameters.AddWithValue(regionCode);
         command.Parameters.AddWithValue(account.UserId);
@@ -311,7 +311,7 @@ public sealed class OwnProfileTests : IAsyncDisposable
         Assert.Equal($"{regionCode}|1", await StoredRegionAsync(account.UserId));
     }
 
-    /// <summary>O CHECK é a última barreira: nem uma escrita fora da API grava código fora das 27 UFs.</summary>
+    /// <summary>A FK composta é a última barreira: nem uma escrita fora da API grava no Brasil código fora das 27 UFs.</summary>
     [Theory]
     [InlineData("BR-XX")]
     [InlineData("br-sp")]
@@ -323,7 +323,7 @@ public sealed class OwnProfileTests : IAsyncDisposable
         await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
-            "update profiles.profiles set region_code = $1 where user_id = $2",
+            "update profiles.profiles set country_code = 'BR', subdivision_code = $1 where user_id = $2",
             connection);
         command.Parameters.AddWithValue(regionCode);
         command.Parameters.AddWithValue(account.UserId);
@@ -331,8 +331,8 @@ public sealed class OwnProfileTests : IAsyncDisposable
         var error = await Assert.ThrowsAsync<PostgresException>(
             () => command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
 
-        Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
-        Assert.Equal("ck_profiles_region_code", error.ConstraintName);
+        Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, error.SqlState);
+        Assert.Equal("fk_profiles_subdivisions", error.ConstraintName);
         Assert.Equal("BR-BA|1", await StoredRegionAsync(account.UserId));
     }
 
@@ -707,13 +707,19 @@ public sealed class OwnProfileTests : IAsyncDisposable
         return await command.ExecuteScalarAsync(TestContext.Current.CancellationToken) as string ?? "none";
     }
 
-    /// <summary>Região gravada como "código|versão", com <c>&lt;null&gt;</c> sem região; "none" sem linha.</summary>
+    /// <summary>
+    /// UF gravada como "código|versão", lida da localização canônica (só subdivisão do Brasil), com <c>&lt;null&gt;</c>
+    /// sem UF; "none" sem linha.
+    /// </summary>
     private async Task<string> StoredRegionAsync(Guid userId)
     {
         await using var connection = new NpgsqlConnection(_postgres.ConnectionString);
         await connection.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = new NpgsqlCommand(
-            "select coalesce(region_code, '<null>') || '|' || version from profiles.profiles where user_id = $1",
+            """
+            select coalesce(case when country_code = 'BR' then subdivision_code end, '<null>') || '|' || version
+            from profiles.profiles where user_id = $1
+            """,
             connection);
         command.Parameters.AddWithValue(userId);
         return await command.ExecuteScalarAsync(TestContext.Current.CancellationToken) as string ?? "none";

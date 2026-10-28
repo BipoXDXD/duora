@@ -4,11 +4,16 @@ using System.Text.Json.Nodes;
 using Duora.Core.Profiles;
 using Duora.Infrastructure.Profiles;
 using Duora.IntegrationTests.Identity;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Profiles;
 
-/// <summary>Compatibilidade do binário, não uma migration nem autorização de contract em produção.</summary>
+/// <summary>
+/// O binário atual com os dois schemas: o contraído (HEAD, issue #78) e o expandido que o <c>Down</c> do contract
+/// devolve num recuo. Nos dois, a API mantém <c>regionCode</c> derivado e a localização canônica.
+/// </summary>
 public sealed class ProfileStoreCompatibilityTests(PostgresFixture postgres)
 {
     private const string ProfilePath = "/api/v1/me/profile";
@@ -18,11 +23,7 @@ public sealed class ProfileStoreCompatibilityTests(PostgresFixture postgres)
     [InlineData(true)]
     public async Task BothSchemasKeepTheLegacyHttpShapeAndCanonicalLocation(bool contracted)
     {
-        var database = await CreateDatabaseAsync();
-        if (contracted)
-        {
-            await SimulateContractAsync(database);
-        }
+        var database = contracted ? await CreateDatabaseAsync() : await CreateExpandedDatabaseAsync();
         await using var factory = new DuoraWebFactory(database.AppConnectionString);
         var scenario = new IdentityScenario(database.AppConnectionString, factory);
         var account = await scenario.CreateConfirmedAccountAsync();
@@ -61,7 +62,7 @@ public sealed class ProfileStoreCompatibilityTests(PostgresFixture postgres)
     [Fact]
     public async Task AnObsoleteLegacyValueCannotReplaceOrResurrectTheCanonicalLocation()
     {
-        var database = await CreateDatabaseAsync();
+        var database = await CreateExpandedDatabaseAsync();
         await using var factory = new DuoraWebFactory(database.AppConnectionString);
         var scenario = new IdentityScenario(database.AppConnectionString, factory);
         var account = await scenario.CreateConfirmedAccountAsync();
@@ -89,9 +90,9 @@ public sealed class ProfileStoreCompatibilityTests(PostgresFixture postgres)
     }
 
     [Fact]
-    public async Task TheSameStoreContinuesWritingAfterTheTestOnlyContract()
+    public async Task TheSameStoreKeepsWorkingAcrossTheContractWithoutWritingTheLegacyColumn()
     {
-        var database = await CreateDatabaseAsync();
+        var database = await CreateExpandedDatabaseAsync();
         await using var source = NpgsqlDataSource.Create(database.AppConnectionString);
         var store = new ProfileStore(source, TimeProvider.System);
         await using var connection = await source.OpenConnectionAsync(TestContext.Current.CancellationToken);
@@ -101,11 +102,16 @@ public sealed class ProfileStoreCompatibilityTests(PostgresFixture postgres)
         Assert.Equal("BR-SP", first.RegionCode);
         await using (var legacy = new NpgsqlCommand("select region_code from profiles.profiles where user_id=$1", connection))
         {
+            // O binário atual não escreve mais a coluna legada; num recuo, só o Down a recompõe a partir da canônica.
             legacy.Parameters.AddWithValue(user);
-            Assert.Equal("BR-SP", await legacy.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(DBNull.Value, await legacy.ExecuteScalarAsync(TestContext.Current.CancellationToken));
         }
 
-        await SimulateContractAsync(database);
+        await using (var context = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
+        {
+            await context.GetService<IMigrator>().MigrateAsync(
+                ProfileRegionContractMigrationTests.ContractMigration, cancellationToken: TestContext.Current.CancellationToken);
+        }
         var read = await store.GetOwnAsync(user, TestContext.Current.CancellationToken);
         Assert.Equal("BR-SP", read.RegionCode);
         var changed = Assert.IsType<OwnProfile>(await store.UpdateOwnAsync(
@@ -135,31 +141,9 @@ public sealed class ProfileStoreCompatibilityTests(PostgresFixture postgres)
         return new ScratchDatabase(name, app, migrator.ConnectionString);
     }
 
-    private async Task SimulateContractAsync(ScratchDatabase database)
-    {
-        // O único DDL deste arquivo é privado do teste e limitado ao banco empty_<GUID> criado acima.
-        var target = new NpgsqlConnectionStringBuilder(database.MigratorConnectionString);
-        var fixture = new NpgsqlConnectionStringBuilder(postgres.MigratorConnectionString);
-        Assert.Matches("^empty_[a-f0-9]{32}$", database.Name);
-        Assert.Equal(database.Name, target.Database);
-        Assert.NotEqual(PostgresFixture.DatabaseName, target.Database);
-        Assert.Equal(fixture.Host, target.Host);
-        Assert.Equal(fixture.Port, target.Port);
-        await using var connection = new NpgsqlConnection(database.MigratorConnectionString);
-        await connection.OpenAsync(TestContext.Current.CancellationToken);
-        await using var command = new NpgsqlCommand("""
-            drop trigger sync_legacy_region on profiles.profiles;
-            drop function profiles.sync_legacy_region();
-            alter table profiles.profiles drop constraint ck_profiles_region_code;
-            alter table profiles.profiles drop column region_code;
-            """, connection);
-        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
-        command.CommandText = "select count(*) from information_schema.columns where table_schema='profiles' and table_name='profiles' and column_name='region_code'";
-        Assert.Equal(0L, await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
-        command.CommandText = "select region_code from profiles.profiles";
-        var failure = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
-        Assert.Equal(PostgresErrorCodes.UndefinedColumn, failure.SqlState);
-    }
+    /// <summary>Schema expandido, com a coluna legada: o estado que o Down do contract devolve num recuo.</summary>
+    private Task<ScratchDatabase> CreateExpandedDatabaseAsync() => ProfileRegionContractMigrationTests.MigrateToAsync(
+        postgres, ProfileRegionContractMigrationTests.MigrationBeforeContract);
 
     private static async Task AssertProfileAsync(HttpResponseMessage response, string? country, string? subdivision, string? legacy, long version)
     {

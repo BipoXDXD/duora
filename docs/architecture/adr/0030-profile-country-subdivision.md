@@ -73,3 +73,11 @@ O CLDR não é uma lista pronta de países habilitados pelo produto: o importado
 O usuário não aprovou responsáveis nominais nem a cadência definitiva de manutenção. A revisão mensal de releases/avisos permanece recomendação. Continuam pendentes a designação técnica/editorial, a revisão dos rótulos, a elegibilidade/idade mínima por jurisdição (J-05), a implementação/inventário do snapshot, os ensaios operacionais e a etapa contract.
 
 **A aprovação não habilita países nem autoriza implantação.** O catálogo executável continua somente BR + 27 UFs. Seeds, tabelas, validações, OpenAPI e SPA não mudam por este adendo. A inclusão de US no produto depende de autorização posterior e PR de implementação/testes; a implantação depende de autorização própria. O plano de transição e rollback acima continua aplicável, inclusive a pausa de edições ao retornar ao binário antigo e a preservação de schema/dados.
+
+## Adendo de 2026-10-28 — contract físico de `region_code`
+
+A migração `20261028074839_ProfileRegionContract` (issue #78) retira `profiles.profiles.region_code`, `ck_profiles_region_code` e o trigger/função `profiles.sync_legacy_region`. O modelo EF deixa de mapear a coluna e o `ProfileStore` deixa de detectá-la e de escrevê-la. O inventário no código encontrou um único escritor (o dual-write condicional do `ProfileStore`) e nenhum leitor em produção além do próprio trigger; web e worker já liam só país e subdivisão.
+
+O contrato HTTP não muda: `regionCode` continua presente e derivado da localização canônica (UF quando o país é `BR` e a subdivisão está em `RegionCode.All`; `null` nos demais casos, inclusive EUA), e o PATCH legado com `regionCode` continua aceito. A retirada do campo da API é outra transição incompatível e não faz parte deste passo.
+
+Recuo: o binário da revisão anterior tolera os dois schemas (detecta a coluna a cada gravação), então voltar o web/worker não exige mexer no schema. Para voltar a um binário anterior à ponte, o `Down` devolve coluna, CHECK e trigger, com `region_code` recomposto de país + subdivisão e sem alterar versão nem `updated_at`; ele deve rodar com o binário da revisão anterior em serviço, que volta a fazer o dual-write. A migração usa `lock_timeout` de 5 s para falhar rápido em vez de enfileirar tráfego atrás do lock exclusivo.
