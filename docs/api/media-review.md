@@ -229,7 +229,8 @@ transação:
   `DecidedCandidateCleanupDispatcher`;
 - foto excluída em `Quarantined`/`Processing` sem asset ganha obrigações para os três derivados determinísticos
   do TechnicalOnly, disponíveis só depois de 15 min (`InFlightWriterGrace`), para um Worker que já passou da
-  checagem de versão terminar de gravar;
+  checagem de versão terminar de gravar (não há coletor de órfãos: uma gravação que termine depois da folga
+  deixa o derivado sem obrigação; risco só do TechnicalOnly, restrito a Development/Testing);
 - candidato em preparo e promoção da aprovação ainda não confirmados ficam com os coletores de preparo, que não
   dependem do estado da foto.
 

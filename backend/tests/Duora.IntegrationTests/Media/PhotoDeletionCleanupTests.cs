@@ -193,6 +193,38 @@ public sealed class PhotoDeletionCleanupTests(PostgresFixture postgres) : IAsync
         Assert.True(await Media.ObjectExistsAsync(foreign));
     }
 
+    [Fact]
+    public async Task AnObligationOfOnePhotoNeverCollectsTheDerivativeOfAnother()
+    {
+        var account = await Media.Identity.CreateConfirmedAccountAsync();
+        using var browser = await Media.Identity.SignedInBrowserAsync(account);
+        var deleted = await UploadAsync(browser, account);
+        var other = await UploadAsync(browser, account);
+        using (var response = await PhotoDeletionTests.DeleteAsync(browser, deleted.Id, $"\"photo-{deleted.Id:N}-2\"", MediaScenario.NewKey()))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        }
+        var foreign = ObjectKey.ForDerivative(ObjectKey.Parse(other.QuarantineKey), PhotoVariant.Full);
+        await using (var bytes = new MemoryStream([1, 2, 3]))
+        {
+            await Media.Store.PutAsync(foreign, bytes, 3, "image/webp", Ct);
+        }
+        // A forged or corrupted row: the deleted photo claims the other photo's derivative.
+        await Media.ExecuteAsync("""
+            insert into media.photo_deletion_cleanup (object_key, photo_id, created_at, available_at)
+            values ($1, $2, $3, $3)
+            """, foreign.Value, deleted.Id, _time.GetUtcNow());
+        _time.Advance(PhotoDeletions.InFlightWriterGrace);
+        var dispatcher = Dispatcher(Media.Store);
+
+        while (await dispatcher.DispatchOnceAsync(Ct) != 0)
+        {
+        }
+
+        Assert.True(await Media.ObjectExistsAsync(foreign));
+        Assert.Equal(1, await Media.CountAsync("select count(*) from media.photo_deletion_cleanup where object_key = $1 and lease_until is null", foreign.Value));
+    }
+
     private PhotoDeletionCleanupDispatcher Dispatcher(IObjectStore store) =>
         new(Source, store, _time, enabled: true, NullLogger<PhotoDeletionCleanupDispatcher>.Instance);
 

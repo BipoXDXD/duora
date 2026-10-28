@@ -55,7 +55,9 @@ public sealed partial class PhotoDeletions
 
     /// <summary>
     /// Folga para um Worker que já passou da checagem de versão terminar de gravar os derivados antes da limpeza
-    /// (lease de processamento de 2 min mais margem). Gravação depois disso fica para a coleta de órfãos.
+    /// (lease de processamento de 2 min mais margem). Não existe coletor de órfãos: um PutAsync que termine depois
+    /// desta folga deixa o derivado sem obrigação. O risco é só do TechnicalOnly (Development/Testing), cujo Worker
+    /// confere a versão antes de gravar; a HumanReview grava candidatos com geração própria e coletor de preparo.
     /// </summary>
     internal static readonly TimeSpan InFlightWriterGrace = TimeSpan.FromMinutes(15);
 
