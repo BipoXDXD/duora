@@ -29,11 +29,15 @@ Registrations, rooms, and activities use the information needed for their contex
 
 ## Operations and providers
 
-The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. For people participating from Brazil, this processing takes place outside the country. Features with their own provider that are not yet active, such as the selfie presence check and email delivery through an external provider, will only be activated after they are identified in a new version of this notice.
+The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. The selfie presence check is processed by Amazon Web Services (AWS) in the us-east-1 region, in the United States. For people participating from Brazil, this processing takes place outside the country.
+
+## Selfie presence check
+
+The selfie presence check uses Amazon Rekognition Face Liveness, from AWS, in the us-east-1 region, under the AWS standard data processing addendum. Duora does not keep any image from the selfie. An approved result is kept for as long as the account exists. Attempts that are not approved are deleted within 30 days.
 
 ## Retention and requests
 
-Information is retained for as long as each feature needs it for its purpose. Backups follow their own cycle and expire within 65 days. To request access to, correction of, or deletion of your information, write to support@meetduora.com; before acting, we will ask for identity verification proportionate to the request.
+Information is retained for as long as each feature needs it for its purpose. Backups follow their own cycle; information deleted from the service may remain in them until the backup expires. To request access to, correction of, or deletion of your information, write to support@meetduora.com; before acting, we will ask for identity verification proportionate to the request.
 
 ## Changes to this notice
 

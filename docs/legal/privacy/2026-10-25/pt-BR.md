@@ -29,11 +29,15 @@ Inscrições, salas e atividades usam os dados necessários ao respectivo contex
 
 ## Operação e fornecedores
 
-O serviço e seus dados, inclusive fotografias, ficam em servidor contratado da Hostinger em Boston, Estados Unidos. Cópias de segurança são cifradas antes de sair do servidor e guardadas no Backblaze B2, na região leste dos Estados Unidos; esse fornecedor não recebe as chaves de cifra. Mensagens enviadas ao suporte são recebidas pelo Zoho Mail e encaminhadas a uma caixa Gmail do responsável. Para quem participa a partir do Brasil, esses tratamentos ocorrem fora do país. Recursos com fornecedor próprio ainda não ativos, como a verificação de presença por selfie e o envio de e-mail por provedor externo, só serão ativados depois de identificados em nova versão deste aviso.
+O serviço e seus dados, inclusive fotografias, ficam em servidor contratado da Hostinger em Boston, Estados Unidos. Cópias de segurança são cifradas antes de sair do servidor e guardadas no Backblaze B2, na região leste dos Estados Unidos; esse fornecedor não recebe as chaves de cifra. Mensagens enviadas ao suporte são recebidas pelo Zoho Mail e encaminhadas a uma caixa Gmail do responsável. A verificação de presença por selfie é processada pela Amazon Web Services (AWS) na região us-east-1, nos Estados Unidos. Para quem participa a partir do Brasil, esses tratamentos ocorrem fora do país.
+
+## Verificação de presença por selfie
+
+A verificação de presença por selfie usa o Amazon Rekognition Face Liveness, da AWS, na região us-east-1, sob o acordo de tratamento de dados padrão da AWS. O Duora não guarda nenhuma imagem da selfie. O resultado aprovado fica guardado enquanto a conta existir. Tentativas não aprovadas são apagadas em 30 dias.
 
 ## Conservação e direitos
 
-Os dados são conservados pelo tempo necessário à finalidade de cada recurso. Cópias de segurança seguem ciclo próprio e expiram em até 65 dias. Para pedir acesso, correção ou exclusão dos seus dados, escreva para support@meetduora.com; antes de atender, pediremos uma verificação de identidade proporcional ao pedido.
+Os dados são conservados pelo tempo necessário à finalidade de cada recurso. Cópias de segurança seguem ciclo próprio; um dado apagado do serviço pode permanecer nelas até que a cópia expire. Para pedir acesso, correção ou exclusão dos seus dados, escreva para support@meetduora.com; antes de atender, pediremos uma verificação de identidade proporcional ao pedido.
 
 ## Alterações deste aviso
 

@@ -55,6 +55,21 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
         }
     }
 
+    // Golden master of the published 2026-10-25 texts: a published version never changes. Editing a text,
+    // the controller or the contact without creating a new version must break this test.
+    [Theory]
+    [InlineData("terms", "pt-BR", "07fd125aa37cea239d0dc0bf702a32892e66e2d16ed0e5a0c1908c5034f30227")]
+    [InlineData("terms", "en-US", "fc36a782961b51fe8ab5b2b49ae71596763f4d365736855cd916cff38e27c8b6")]
+    [InlineData("privacy", "pt-BR", "fe09299a76bf712ecd5591b570672f5aa8696c54a49403137cbb7ef548011a84")]
+    [InlineData("privacy", "en-US", "24e8a3b9054b81b6d85da5179dbdce93279720b47b525854f87aadeac7a6ab6c")]
+    public void PublishedDocumentKeepsItsExactFingerprint(string kind, string locale, string expectedSha256)
+    {
+        var document = Assert.Single(LegalPublicationResources.Load().Documents,
+            candidate => candidate.Document == kind && candidate.Version == "2026-10-25" && candidate.Locale == locale);
+
+        Assert.Equal(expectedSha256, document.Sha256);
+    }
+
     [Fact]
     public async Task UnapprovedPublicationCannotWriteRegistrationEvidence()
     {

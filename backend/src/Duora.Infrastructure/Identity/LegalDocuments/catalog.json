@@ -132,13 +132,19 @@
         {
           "title": "Operação e fornecedores",
           "paragraphs": [
-            "O serviço e seus dados, inclusive fotografias, ficam em servidor contratado da Hostinger em Boston, Estados Unidos. Cópias de segurança são cifradas antes de sair do servidor e guardadas no Backblaze B2, na região leste dos Estados Unidos; esse fornecedor não recebe as chaves de cifra. Mensagens enviadas ao suporte são recebidas pelo Zoho Mail e encaminhadas a uma caixa Gmail do responsável. Para quem participa a partir do Brasil, esses tratamentos ocorrem fora do país. Recursos com fornecedor próprio ainda não ativos, como a verificação de presença por selfie e o envio de e-mail por provedor externo, só serão ativados depois de identificados em nova versão deste aviso."
+            "O serviço e seus dados, inclusive fotografias, ficam em servidor contratado da Hostinger em Boston, Estados Unidos. Cópias de segurança são cifradas antes de sair do servidor e guardadas no Backblaze B2, na região leste dos Estados Unidos; esse fornecedor não recebe as chaves de cifra. Mensagens enviadas ao suporte são recebidas pelo Zoho Mail e encaminhadas a uma caixa Gmail do responsável. A verificação de presença por selfie é processada pela Amazon Web Services (AWS) na região us-east-1, nos Estados Unidos. Para quem participa a partir do Brasil, esses tratamentos ocorrem fora do país."
+          ]
+        },
+        {
+          "title": "Verificação de presença por selfie",
+          "paragraphs": [
+            "A verificação de presença por selfie usa o Amazon Rekognition Face Liveness, da AWS, na região us-east-1, sob o acordo de tratamento de dados padrão da AWS. O Duora não guarda nenhuma imagem da selfie. O resultado aprovado fica guardado enquanto a conta existir. Tentativas não aprovadas são apagadas em 30 dias."
           ]
         },
         {
           "title": "Conservação e direitos",
           "paragraphs": [
-            "Os dados são conservados pelo tempo necessário à finalidade de cada recurso. Cópias de segurança seguem ciclo próprio e expiram em até 65 dias. Para pedir acesso, correção ou exclusão dos seus dados, escreva para support@meetduora.com; antes de atender, pediremos uma verificação de identidade proporcional ao pedido."
+            "Os dados são conservados pelo tempo necessário à finalidade de cada recurso. Cópias de segurança seguem ciclo próprio; um dado apagado do serviço pode permanecer nelas até que a cópia expire. Para pedir acesso, correção ou exclusão dos seus dados, escreva para support@meetduora.com; antes de atender, pediremos uma verificação de identidade proporcional ao pedido."
           ]
         },
         {
@@ -185,13 +191,19 @@
         {
           "title": "Operations and providers",
           "paragraphs": [
-            "The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. For people participating from Brazil, this processing takes place outside the country. Features with their own provider that are not yet active, such as the selfie presence check and email delivery through an external provider, will only be activated after they are identified in a new version of this notice."
+            "The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. The selfie presence check is processed by Amazon Web Services (AWS) in the us-east-1 region, in the United States. For people participating from Brazil, this processing takes place outside the country."
+          ]
+        },
+        {
+          "title": "Selfie presence check",
+          "paragraphs": [
+            "The selfie presence check uses Amazon Rekognition Face Liveness, from AWS, in the us-east-1 region, under the AWS standard data processing addendum. Duora does not keep any image from the selfie. An approved result is kept for as long as the account exists. Attempts that are not approved are deleted within 30 days."
           ]
         },
         {
           "title": "Retention and requests",
           "paragraphs": [
-            "Information is retained for as long as each feature needs it for its purpose. Backups follow their own cycle and expire within 65 days. To request access to, correction of, or deletion of your information, write to support@meetduora.com; before acting, we will ask for identity verification proportionate to the request."
+            "Information is retained for as long as each feature needs it for its purpose. Backups follow their own cycle; information deleted from the service may remain in them until the backup expires. To request access to, correction of, or deletion of your information, write to support@meetduora.com; before acting, we will ask for identity verification proportionate to the request."
           ]
         },
         {
