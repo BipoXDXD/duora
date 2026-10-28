@@ -116,7 +116,6 @@ describe('área da conta', () => {
     expect(await screen.findByText('ana@exemplo.com')).toBeInTheDocument()
     expect(document.title).toBe('Sua conta · Duora')
     expect(screen.getByText('Ativa')).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Segurança e contatos de emergência' })).toBeVisible()
     const items = await within(screen.getByRole('region', { name: 'Sessões ativas' })).findAllByRole('listitem')
     expect(items).toHaveLength(2)
     expect(within(items[0] ?? document.body).getByText('Esta sessão')).toBeInTheDocument()

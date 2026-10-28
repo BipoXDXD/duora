@@ -3,17 +3,17 @@
   "document": "privacy",
   "version": "2026-10-25",
   "locale": "en-US",
-  "controllerName": null,
+  "controllerName": "Luca Grimmer",
   "privacyContact": "support@meetduora.com",
-  "approved": false
+  "approved": true
 }
 ---
 
 # Privacy notice
 
-## Responsible party and qualification
+## Controller and contact
 
-The privacy-request contact is support@meetduora.com. The controller’s complete civil or company name must appear in the published edition. This identity is not inferred from the Duora name, a nickname, the interface language, or a visitor’s location. Registration remains unavailable while this identity is missing.
+The controller of the personal data processed in Duora is Luca Grimmer, an individual. The contact for privacy requests and for exercising your rights is support@meetduora.com.
 
 ## Registration, authentication, and acceptance
 
@@ -29,12 +29,18 @@ Registrations, rooms, and activities use the information needed for their contex
 
 ## Operations and providers
 
-The code and architecture records describe hosting, email, storage, backups, and optional features. The final edition must identify the actual configuration and applicable recipients, including processing outside a participant’s country. A prepared integration or a test does not prove that a provider is active in production. This draft does not invent a contractual provider list.
+The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. The selfie presence check is processed by Amazon Web Services (AWS) in the us-east-1 region, in the United States. For people participating from Brazil, this processing takes place outside the country.
+
+Transactional emails (registration confirmation, password reset and account notices) are sent through Resend (Resend, Inc., United States), from the meetduora.com domain, through the sa-east-1 (São Paulo) sending region. Resend processes the recipient's address and the message content only to deliver it. Open and click tracking are turned off.
+
+## Selfie presence check
+
+The selfie presence check uses Amazon Rekognition Face Liveness, from AWS, in the us-east-1 region, under the AWS standard data processing addendum. Duora does not keep any image from the selfie. An approved result is kept for as long as the account exists. Attempts that are not approved are deleted within 30 days.
 
 ## Retention and requests
 
-Information is retained according to its purpose, implemented features, and applicable policies. Proposed periods or routines that have not been activated are not described as completed deletion. Specific preservation and backups require their own rules. Access, correction, or deletion requests need an identified public contact and proportionate verification of the requester’s identity.
+Information is retained for as long as each feature needs it for its purpose. Backups follow their own cycle; information deleted from the service may remain in them until the backup expires. To request access to, correction of, or deletion of your information, write to support@meetduora.com; before acting, we will ask for identity verification proportionate to the request.
 
-## Limits of this edition
+## Changes to this notice
 
-The controller’s public identity and qualification of the final operational facts are still missing. Registration remains unavailable; acceptance of a text lacking these conditions is not treated as authorization for real collection. This notice does not assert legal compliance or replace the separate operational decisions and evidence.
+Changes to this notice create a new version, identified by date and language. Previous versions remain available at their own version address.

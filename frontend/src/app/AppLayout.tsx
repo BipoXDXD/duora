@@ -1,6 +1,5 @@
 import { Suspense } from 'react'
 import { Link, Outlet } from 'react-router'
-import { EmergencyContacts } from '@/features/safety/EmergencyContacts'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { RouteAnnouncer } from './RouteAnnouncer'
@@ -26,15 +25,7 @@ export function AppLayout(): React.JSX.Element {
           >
             {t('app.name')}
           </Link>
-          <div className="flex flex-wrap items-center gap-4">
-            <a
-              href="#safety"
-              className="inline-flex min-h-11 items-center font-semibold text-action underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
-            >
-              {t('emergency.navigation')}
-            </a>
-            <LanguageSwitcher />
-          </div>
+          <LanguageSwitcher />
         </div>
       </header>
       <main id={MAIN_CONTENT_ID} tabIndex={-1} className="mx-auto w-full max-w-5xl flex-1 px-4 py-12">
@@ -46,8 +37,7 @@ export function AppLayout(): React.JSX.Element {
       </main>
       <RouteAnnouncer mainId={MAIN_CONTENT_ID} />
       <footer className="border-t border-border bg-surface-muted">
-        <div className="mx-auto max-w-5xl space-y-6 px-4 py-6">
-          <EmergencyContacts />
+        <div className="mx-auto max-w-5xl px-4 py-6">
           <p className="text-sm text-text-muted">{t('app.footer')}</p>
         </div>
       </footer>

@@ -3,9 +3,9 @@
   "document": "terms",
   "version": "2026-10-25",
   "locale": "pt-BR",
-  "controllerName": null,
+  "controllerName": "Luca Grimmer",
   "privacyContact": "support@meetduora.com",
-  "approved": false
+  "approved": true
 }
 ---
 
@@ -31,6 +31,6 @@ As atividades respeitam as escolhas explícitas e os estados apresentados na sal
 
 Este documento é identificado por tipo, versão, idioma e resumo criptográfico. O cadastro só é admitido quando os documentos aplicáveis estão publicados e o aceite corresponde às versões e aos idiomas oferecidos. Evidências antigas sem idioma conhecido não recebem um idioma presumido.
 
-## Contato e situação desta edição
+## Responsável e contato
 
-O canal para suporte e solicitações de privacidade é support@meetduora.com. A identificação pública completa do controlador ainda não foi confirmada para esta edição. Ela permanece em preparação, não autoriza cadastro e não representa parecer jurídico.
+O Duora é mantido por Luca Grimmer, pessoa física, responsável pelo serviço e controlador dos dados pessoais tratados nele. O canal para suporte e solicitações de privacidade é support@meetduora.com.

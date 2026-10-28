@@ -7,9 +7,9 @@
       "version": "2026-10-25",
       "locale": "pt-BR",
       "title": "Termos de uso",
-      "controllerName": null,
+      "controllerName": "Luca Grimmer",
       "privacyContact": "support@meetduora.com",
-      "approved": false,
+      "approved": true,
       "sections": [
         {
           "title": "O serviço",
@@ -42,9 +42,9 @@
           ]
         },
         {
-          "title": "Contato e situação desta edição",
+          "title": "Responsável e contato",
           "paragraphs": [
-            "O canal para suporte e solicitações de privacidade é support@meetduora.com. A identificação pública completa do controlador ainda não foi confirmada para esta edição. Ela permanece em preparação, não autoriza cadastro e não representa parecer jurídico."
+            "O Duora é mantido por Luca Grimmer, pessoa física, responsável pelo serviço e controlador dos dados pessoais tratados nele. O canal para suporte e solicitações de privacidade é support@meetduora.com."
           ]
         }
       ]
@@ -54,9 +54,9 @@
       "version": "2026-10-25",
       "locale": "en-US",
       "title": "Terms of use",
-      "controllerName": null,
+      "controllerName": "Luca Grimmer",
       "privacyContact": "support@meetduora.com",
-      "approved": false,
+      "approved": true,
       "sections": [
         {
           "title": "The service",
@@ -89,9 +89,9 @@
           ]
         },
         {
-          "title": "Contact and status of this edition",
+          "title": "Responsible party and contact",
           "paragraphs": [
-            "The support and privacy-request contact is support@meetduora.com. The controller’s complete public identity has not yet been confirmed for this edition. It remains a draft, does not authorize registration, and is not a legal opinion."
+            "Duora is operated by Luca Grimmer, an individual, who is responsible for the service and is the controller of the personal data processed in it. The support and privacy-request contact is support@meetduora.com."
           ]
         }
       ]
@@ -101,14 +101,14 @@
       "version": "2026-10-25",
       "locale": "pt-BR",
       "title": "Aviso de privacidade",
-      "controllerName": null,
+      "controllerName": "Luca Grimmer",
       "privacyContact": "support@meetduora.com",
-      "approved": false,
+      "approved": true,
       "sections": [
         {
-          "title": "Responsável e qualificação",
+          "title": "Controlador e contato",
           "paragraphs": [
-            "O canal para solicitações de privacidade é support@meetduora.com. O nome civil completo ou a razão social do controlador precisa constar da edição publicada. Essa identidade não é inferida do nome Duora, de um apelido, do idioma ou da localização de quem acessa. Enquanto ela faltar, esta edição não habilita cadastro."
+            "O controlador dos dados pessoais tratados no Duora é Luca Grimmer, pessoa física. O canal para solicitações de privacidade e para o exercício de direitos é support@meetduora.com."
           ]
         },
         {
@@ -132,19 +132,26 @@
         {
           "title": "Operação e fornecedores",
           "paragraphs": [
-            "O código e os registros de arquitetura descrevem hospedagem, e-mail, armazenamento, cópias de segurança e recursos opcionais. A edição final precisa identificar a configuração efetiva e os destinatários aplicáveis, inclusive tratamento fora do país de quem participa. Uma integração preparada ou um teste não comprova que um fornecedor esteja ativo em produção. Esta edição não inventa uma lista contratual de fornecedores."
+            "O serviço e seus dados, inclusive fotografias, ficam em servidor contratado da Hostinger em Boston, Estados Unidos. Cópias de segurança são cifradas antes de sair do servidor e guardadas no Backblaze B2, na região leste dos Estados Unidos; esse fornecedor não recebe as chaves de cifra. Mensagens enviadas ao suporte são recebidas pelo Zoho Mail e encaminhadas a uma caixa Gmail do responsável. A verificação de presença por selfie é processada pela Amazon Web Services (AWS) na região us-east-1, nos Estados Unidos. Para quem participa a partir do Brasil, esses tratamentos ocorrem fora do país.",
+            "E-mails transacionais (confirmação de cadastro, redefinição de senha e avisos da conta) são enviados pela Resend (Resend, Inc., Estados Unidos), a partir do domínio meetduora.com, com envio pela região sa-east-1 (São Paulo). A Resend processa o endereço do destinatário e o conteúdo da mensagem apenas para entregá-la. O rastreamento de abertura e de clique está desligado."
+          ]
+        },
+        {
+          "title": "Verificação de presença por selfie",
+          "paragraphs": [
+            "A verificação de presença por selfie usa o Amazon Rekognition Face Liveness, da AWS, na região us-east-1, sob o acordo de tratamento de dados padrão da AWS. O Duora não guarda nenhuma imagem da selfie. O resultado aprovado fica guardado enquanto a conta existir. Tentativas não aprovadas são apagadas em 30 dias."
           ]
         },
         {
           "title": "Conservação e direitos",
           "paragraphs": [
-            "Dados são conservados conforme a finalidade, as funções implementadas e as políticas efetivamente aplicáveis. Propostas de prazo ou rotinas ainda não ativadas não são apresentadas como exclusão já executada. Preservações específicas e cópias de segurança exigem regras próprias. Solicitações de acesso, correção ou exclusão precisam de um canal público identificado e de verificação proporcional da identidade de quem solicita."
+            "Os dados são conservados pelo tempo necessário à finalidade de cada recurso. Cópias de segurança seguem ciclo próprio; um dado apagado do serviço pode permanecer nelas até que a cópia expire. Para pedir acesso, correção ou exclusão dos seus dados, escreva para support@meetduora.com; antes de atender, pediremos uma verificação de identidade proporcional ao pedido."
           ]
         },
         {
-          "title": "Limites desta edição",
+          "title": "Alterações deste aviso",
           "paragraphs": [
-            "Ainda faltam a identidade pública do controlador e a qualificação dos fatos operacionais da edição final. O cadastro permanece indisponível; nenhum aceite a um texto sem essas condições será tratado como autorização de coleta real. Este aviso não declara conformidade jurídica nem substitui decisões e evidências próprias de operação."
+            "Mudanças neste aviso geram uma nova versão, identificada por data e idioma. As versões anteriores continuam acessíveis no endereço próprio de cada versão."
           ]
         }
       ]
@@ -154,14 +161,14 @@
       "version": "2026-10-25",
       "locale": "en-US",
       "title": "Privacy notice",
-      "controllerName": null,
+      "controllerName": "Luca Grimmer",
       "privacyContact": "support@meetduora.com",
-      "approved": false,
+      "approved": true,
       "sections": [
         {
-          "title": "Responsible party and qualification",
+          "title": "Controller and contact",
           "paragraphs": [
-            "The privacy-request contact is support@meetduora.com. The controller’s complete civil or company name must appear in the published edition. This identity is not inferred from the Duora name, a nickname, the interface language, or a visitor’s location. Registration remains unavailable while this identity is missing."
+            "The controller of the personal data processed in Duora is Luca Grimmer, an individual. The contact for privacy requests and for exercising your rights is support@meetduora.com."
           ]
         },
         {
@@ -185,19 +192,26 @@
         {
           "title": "Operations and providers",
           "paragraphs": [
-            "The code and architecture records describe hosting, email, storage, backups, and optional features. The final edition must identify the actual configuration and applicable recipients, including processing outside a participant’s country. A prepared integration or a test does not prove that a provider is active in production. This draft does not invent a contractual provider list."
+            "The service and its data, including photos, are hosted on a server contracted from Hostinger in Boston, United States. Backups are encrypted before they leave the server and are stored in Backblaze B2, in the eastern United States region; that provider does not receive the encryption keys. Messages sent to support are received by Zoho Mail and forwarded to a Gmail inbox of the responsible party. The selfie presence check is processed by Amazon Web Services (AWS) in the us-east-1 region, in the United States. For people participating from Brazil, this processing takes place outside the country.",
+            "Transactional emails (registration confirmation, password reset and account notices) are sent through Resend (Resend, Inc., United States), from the meetduora.com domain, through the sa-east-1 (São Paulo) sending region. Resend processes the recipient's address and the message content only to deliver it. Open and click tracking are turned off."
+          ]
+        },
+        {
+          "title": "Selfie presence check",
+          "paragraphs": [
+            "The selfie presence check uses Amazon Rekognition Face Liveness, from AWS, in the us-east-1 region, under the AWS standard data processing addendum. Duora does not keep any image from the selfie. An approved result is kept for as long as the account exists. Attempts that are not approved are deleted within 30 days."
           ]
         },
         {
           "title": "Retention and requests",
           "paragraphs": [
-            "Information is retained according to its purpose, implemented features, and applicable policies. Proposed periods or routines that have not been activated are not described as completed deletion. Specific preservation and backups require their own rules. Access, correction, or deletion requests need an identified public contact and proportionate verification of the requester’s identity."
+            "Information is retained for as long as each feature needs it for its purpose. Backups follow their own cycle; information deleted from the service may remain in them until the backup expires. To request access to, correction of, or deletion of your information, write to support@meetduora.com; before acting, we will ask for identity verification proportionate to the request."
           ]
         },
         {
-          "title": "Limits of this edition",
+          "title": "Changes to this notice",
           "paragraphs": [
-            "The controller’s public identity and qualification of the final operational facts are still missing. Registration remains unavailable; acceptance of a text lacking these conditions is not treated as authorization for real collection. This notice does not assert legal compliance or replace the separate operational decisions and evidence."
+            "Changes to this notice create a new version, identified by date and language. Previous versions remain available at their own version address."
           ]
         }
       ]

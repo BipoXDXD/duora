@@ -3,17 +3,17 @@
   "document": "privacy",
   "version": "2026-10-25",
   "locale": "pt-BR",
-  "controllerName": null,
+  "controllerName": "Luca Grimmer",
   "privacyContact": "support@meetduora.com",
-  "approved": false
+  "approved": true
 }
 ---
 
 # Aviso de privacidade
 
-## Responsável e qualificação
+## Controlador e contato
 
-O canal para solicitações de privacidade é support@meetduora.com. O nome civil completo ou a razão social do controlador precisa constar da edição publicada. Essa identidade não é inferida do nome Duora, de um apelido, do idioma ou da localização de quem acessa. Enquanto ela faltar, esta edição não habilita cadastro.
+O controlador dos dados pessoais tratados no Duora é Luca Grimmer, pessoa física. O canal para solicitações de privacidade e para o exercício de direitos é support@meetduora.com.
 
 ## Cadastro, autenticação e aceites
 
@@ -29,12 +29,18 @@ Inscrições, salas e atividades usam os dados necessários ao respectivo contex
 
 ## Operação e fornecedores
 
-O código e os registros de arquitetura descrevem hospedagem, e-mail, armazenamento, cópias de segurança e recursos opcionais. A edição final precisa identificar a configuração efetiva e os destinatários aplicáveis, inclusive tratamento fora do país de quem participa. Uma integração preparada ou um teste não comprova que um fornecedor esteja ativo em produção. Esta edição não inventa uma lista contratual de fornecedores.
+O serviço e seus dados, inclusive fotografias, ficam em servidor contratado da Hostinger em Boston, Estados Unidos. Cópias de segurança são cifradas antes de sair do servidor e guardadas no Backblaze B2, na região leste dos Estados Unidos; esse fornecedor não recebe as chaves de cifra. Mensagens enviadas ao suporte são recebidas pelo Zoho Mail e encaminhadas a uma caixa Gmail do responsável. A verificação de presença por selfie é processada pela Amazon Web Services (AWS) na região us-east-1, nos Estados Unidos. Para quem participa a partir do Brasil, esses tratamentos ocorrem fora do país.
+
+E-mails transacionais (confirmação de cadastro, redefinição de senha e avisos da conta) são enviados pela Resend (Resend, Inc., Estados Unidos), a partir do domínio meetduora.com, com envio pela região sa-east-1 (São Paulo). A Resend processa o endereço do destinatário e o conteúdo da mensagem apenas para entregá-la. O rastreamento de abertura e de clique está desligado.
+
+## Verificação de presença por selfie
+
+A verificação de presença por selfie usa o Amazon Rekognition Face Liveness, da AWS, na região us-east-1, sob o acordo de tratamento de dados padrão da AWS. O Duora não guarda nenhuma imagem da selfie. O resultado aprovado fica guardado enquanto a conta existir. Tentativas não aprovadas são apagadas em 30 dias.
 
 ## Conservação e direitos
 
-Dados são conservados conforme a finalidade, as funções implementadas e as políticas efetivamente aplicáveis. Propostas de prazo ou rotinas ainda não ativadas não são apresentadas como exclusão já executada. Preservações específicas e cópias de segurança exigem regras próprias. Solicitações de acesso, correção ou exclusão precisam de um canal público identificado e de verificação proporcional da identidade de quem solicita.
+Os dados são conservados pelo tempo necessário à finalidade de cada recurso. Cópias de segurança seguem ciclo próprio; um dado apagado do serviço pode permanecer nelas até que a cópia expire. Para pedir acesso, correção ou exclusão dos seus dados, escreva para support@meetduora.com; antes de atender, pediremos uma verificação de identidade proporcional ao pedido.
 
-## Limites desta edição
+## Alterações deste aviso
 
-Ainda faltam a identidade pública do controlador e a qualificação dos fatos operacionais da edição final. O cadastro permanece indisponível; nenhum aceite a um texto sem essas condições será tratado como autorização de coleta real. Este aviso não declara conformidade jurídica nem substitui decisões e evidências próprias de operação.
+Mudanças neste aviso geram uma nova versão, identificada por data e idioma. As versões anteriores continuam acessíveis no endereço próprio de cada versão.
