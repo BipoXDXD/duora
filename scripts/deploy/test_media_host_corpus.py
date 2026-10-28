@@ -332,3 +332,21 @@ class EvidenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostCommandResolutionTests(unittest.TestCase):
+    """The host run clears PATH to /usr/bin:/bin, so every program it starts must be resolvable there or absolute."""
+
+    def test_docker_through_runuser_uses_an_absolute_program_path(self):
+        run = hc.HostRun.__new__(hc.HostRun)
+        run.user, run.cli, run.socket = "duora-media-launcher", Path("/tmp/cli"), Path("/run/user/988/docker.sock")
+        with patch.object(hc.subprocess, "run") as fake:
+            run.docker("ps")
+        command, environment = fake.call_args.args[0], fake.call_args.kwargs["env"]
+        self.assertEqual("/usr/sbin/runuser", command[0])
+        self.assertEqual("/usr/bin:/bin", environment["PATH"])
+
+    def test_no_restricted_path_call_names_runuser_relatively(self):
+        source = (ROOT / "scripts/media/host_corpus.py").read_text()
+        self.assertNotIn('["runuser"', source)
+
