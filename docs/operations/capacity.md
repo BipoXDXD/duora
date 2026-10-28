@@ -111,6 +111,29 @@ Só promover após revisão humana, gates de CI e ensaio aprovado; não há capa
 Consolidação #93: tetos de CPU de PostgreSQL/web e peso do edge conciliados com a alternativa do #89; RAM do #87. gateway/monitor permanecem desligados; antes de ativar, incluir seus containers em todos os cenários e medir a margem.
 
 
+## Coletor C1 somente leitura
+
+`scripts/deploy/capacity_inventory.py` produz o inventário C1 da VPS atual em JSON com `content_sha256`:
+identidade/boot/kernel, cgroup v2, discos (IOPS só observados, capacidade `UNKNOWN`), steal/iowait e PSI numa
+janela curta; todos os containers e cgroups populados com a cadeia declarado (Compose) → renderizado
+(`docker compose config`) → `HostConfig` → `cpu.max`/`cpu.weight`/`memory.max`/`pids.max`/`io.max` em todos os
+ancestrais; e o orçamento por dono (Duora, GoblinShift, StillOn, KairyaQuest, Coolify, OpenClaw, host) somado
+como `min(teto do nó, soma dos filhos)`, sem dupla contagem de limites aninhados. `UNBOUNDED` é teto `max`
+lido ou controlador desligado; `UNKNOWN` é falta de leitura ou de arquivo. Nenhum dos dois significa custo zero.
+
+```sh
+ssh <vps> 'nice -n 19 ionice -c 3 python3 -I - collect --source-sha256 <sha256 do script>' \
+  < scripts/deploy/capacity_inventory.py > c1.json
+python3 scripts/deploy/capacity_inventory.py summarize c1.json   # código 4 se o hash não confere
+```
+
+O script vai por stdin e não grava nada no host. Comandos passam por allowlist exata (sem `exec`, `update`,
+`up`/`down`). A saída leva só campos permitidos: sem `Env`, `Cmd`, `Mounts`, labels arbitrários ou o JSON
+renderizado, que contém segredos interpolados. Um guarda espera e depois aborta (código 3) quando PSI de CPU
+avg10 > 45 e CPU ocupada > 75% ao mesmo tempo, abaixo do gatilho do OpenClaw. Env files efêmeros do deploy já
+removidos deixam o render `UNKNOWN`, com o motivo `missing-file:<caminho>`. O coletor não roda carga, fio, C2
+nem restore, e não aceita C1 sozinho.
+
 ## Reconciliação gateway e backup de mídia
 
 A main após #96 contém dois Composes e serviços no host. O orçamento anterior de 7.296 MiB
