@@ -1,0 +1,14 @@
+---
+- name: Aceitar só os estados conhecidos do role
+  ansible.builtin.assert:
+    that:
+      - media_sanitizer_state in ['present', 'absent']
+    fail_msg: media_sanitizer_state deve ser present ou absent.
+
+- name: Instalar o runtime rootless do media-sanitizer (inativo)
+  ansible.builtin.include_tasks: install.yml
+  when: media_sanitizer_state == 'present'
+
+- name: Desfazer a instalação do runtime rootless do media-sanitizer
+  ansible.builtin.include_tasks: uninstall.yml
+  when: media_sanitizer_state == 'absent'
