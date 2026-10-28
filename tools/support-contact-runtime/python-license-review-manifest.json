@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "state": "CLOSED_SOURCE_DOCUMENTATION_AND_PROVENANCE_NO_ADMISSION",
+  "scope": "Exactly19legalnotice files, publicinventory, supportinglicense/changesdocumentation, upstreamPYTHON metadata and provenance. Manifest does not hash itself.",
+  "file_count": 23,
+  "notice_count": 19,
+  "files": [
+    {
+      "path": "docs/testing/support-contact-runtime-licenses.md",
+      "bytes": 13950,
+      "sha256": "dd57111d8af1d311537cfbb59495adb7b695feecfa69b1260ed3c86ced715cc7"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.bdb.txt",
+      "bytes": 7293,
+      "sha256": "3bdff06e69991c94664f2ef5c5f8096f60b7dbec071756ea6cc26b445e06ec5b"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.bzip2.txt",
+      "bytes": 1743,
+      "sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.cpython.txt",
+      "bytes": 36164,
+      "sha256": "86e61415828a8b5b06ec8d024e6f086ce155a8b85fd0c419c0ba4dc004e74fdd"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.expat.txt",
+      "bytes": 1144,
+      "sha256": "122f2c27000472a201d337b9b31f7eb2b52d091b02857061a8880371612d9534"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libX11.txt",
+      "bytes": 47018,
+      "sha256": "2daec087a88e7c9b8082557cdeebad5bbb8155a4137472f0b22e269cd99d0c1e"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libXau.txt",
+      "bytes": 1148,
+      "sha256": "56abe29bb1d9806a9e04fa9f80fed2c0f18027594df3f098148d814aef6bddfa"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libedit.txt",
+      "bytes": 1614,
+      "sha256": "29cea33c32bbc9785142386377915612a2fa786482c46843383384aded2e09b1"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libffi.txt",
+      "bytes": 1132,
+      "sha256": "deaf3a42effb551a5b140fa9afefed183a27f1341c6d1bf430d106a5e6931fc0"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.liblzma.txt",
+      "bytes": 660,
+      "sha256": "9a4062de0a2c388a98cf35a35d348b62fa97c838a71c3c28ee1a2d7d0a565b02"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libuuid.txt",
+      "bytes": 1432,
+      "sha256": "122ee1f7e258f2c3c0e538a75c037684f420454bf3850ddc74ce750bbf5fe86b"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.libxcb.txt",
+      "bytes": 1337,
+      "sha256": "c5ffbfeaa501071ceeb97b7de2c0d703fdaa35de01c0fb6cbac1c28453a3e9fd"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.mpdecimal.txt",
+      "bytes": 1284,
+      "sha256": "669512af7219f58be03a398766d7c9da11a3b3df9d3f05cb74c5ceca25c8da3b"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.ncurses.txt",
+      "bytes": 1447,
+      "sha256": "87a4c4442337b8968ef956031c406b74f9cb7149b7ba87311bdaba534816201c"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.openssl-3.txt",
+      "bytes": 10175,
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.sqlite.txt",
+      "bytes": 1481,
+      "sha256": "38bef3d28b24f145ea293bd3b6eb4b20396982abc8303128fb493986ea5bc719"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.tcl.txt",
+      "bytes": 2255,
+      "sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.zlib-ng.txt",
+      "bytes": 867,
+      "sha256": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/LICENSE.zlib.txt",
+      "bytes": 995,
+      "sha256": "818922b2620f12801a12bf78e399644a30990e66824abd8ca8ec24d451d6f92c"
+    },
+    {
+      "path": "tools/support-contact-runtime/notices/MPL-2.0.txt",
+      "bytes": 16725,
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    },
+    {
+      "path": "tools/support-contact-runtime/python-license-inventory.json",
+      "bytes": 196370,
+      "sha256": "6250d992b9615d91bb083c945b88ca6e0ab473bddddc09fd4a0e6471e370e7ec"
+    },
+    {
+      "path": "tools/support-contact-runtime/upstream-PYTHON.json",
+      "bytes": 127803,
+      "sha256": "6912dc06b4bad2af7602fe3366e22c3885defbc3a2d567f909d4c8528bcee69b"
+    },
+    {
+      "path": "tools/support-contact-runtime/upstream-distribution-provenance.json",
+      "bytes": 28924,
+      "sha256": "45e0ffe29305ad6d69b298e8bddde04128e3c6537f7d1f37d12afb1320df941f"
+    }
+  ],
+  "declared_vs_observed": {
+    "observed": [
+      "All listed sourcefile bytes and SHA256.",
+      "18actualfull-distribution native notices, plus retained MPL supplement.",
+      "96inittab modules equal96nonshared module metadata entries;13staticlibrary paths.",
+      "Favorable independent review of normalized V2 static projection for fixed artifacts.",
+      "Positive GNUbuildID only in libpython; executable arrays empty."
+    ],
+    "declared": [
+      "Individual native sourcepackage versions in upstream buildrecipe; not versionAPI observations.",
+      "Conditional grants and obligations from retained legaltexts; not internalpolicy admission."
+    ],
+    "not_observed": [
+      "Candidate image inclusion of source supportingdocumentation and notices.",
+      "Qualified operational runtime or private capture."
+    ]
+  },
+  "conditional_granted_acts_observed": [
+    {
+      "identifier": "bzip2-1.0.6",
+      "modules": [
+        "_bz2"
+      ],
+      "notice": "tools/support-contact-runtime/notices/LICENSE.bzip2.txt",
+      "notice_sha256": "1f38bbc7caacafd65169276d759c0d88c991b753b643ce35d0e45ea1971dd441",
+      "grant": "Use and redistribution in source/binary form with or without modification are explicitly permitted conditionally.",
+      "conditions": [
+        "Retain copyright, conditions and disclaimer in source redistributions.",
+        "Do not misrepresent origin or authorship.",
+        "Mark altered source versions and do not present them as original.",
+        "Do not use author name for endorsement/promotion without specific prior written permission."
+      ],
+      "no_additional_payment_or_provider_permission_stated_for_unmodified_use": true,
+      "product_acknowledgment_required": false,
+      "internal_policy_status": "REVIEW_PENDING_NO_WAIVER_CREATED"
+    },
+    {
+      "identifier": "X11",
+      "modules": [
+        "_curses",
+        "_curses_panel",
+        "readline"
+      ],
+      "notice": "tools/support-contact-runtime/notices/LICENSE.ncurses.txt",
+      "notice_sha256": "87a4c4442337b8968ef956031c406b74f9cb7149b7ba87311bdaba534816201c",
+      "grant": "Use, copying, modification, distribution, sublicensing and sale are explicitly permitted conditionally.",
+      "conditions": [
+        "Include copyright and permission notice in all copies or substantial portions.",
+        "Do not use copyright holders names in advertising or promotion without prior written authorization."
+      ],
+      "source_release_condition_observed": false,
+      "internal_policy_status": "REVIEW_PENDING_NO_WAIVER_CREATED"
+    },
+    {
+      "identifier": "Zlib",
+      "modules": [
+        "binascii",
+        "zlib"
+      ],
+      "notices": [
+        "tools/support-contact-runtime/notices/LICENSE.zlib.txt",
+        "tools/support-contact-runtime/notices/LICENSE.zlib-ng.txt"
+      ],
+      "grant": "Use for any purpose, including commercial applications, alteration and redistribution are explicitly permitted conditionally.",
+      "conditions": [
+        "Do not misrepresent origin or original authorship.",
+        "Mark altered source versions and do not present them as original.",
+        "Do not remove or alter this notice from source distributions."
+      ],
+      "product_acknowledgment_required": false,
+      "internal_policy_status": "REVIEW_PENDING_NO_WAIVER_CREATED"
+    },
+    {
+      "identifier": null,
+      "upstream_public_domain": true,
+      "module": "_sqlite3",
+      "notice": "tools/support-contact-runtime/notices/LICENSE.sqlite.txt",
+      "grant": "Notice dedicates deliverable SQLite code/documentation to public domain and expressly permits copying, modification, publication, use, compilation, sale and distribution in source or binary for commercial/noncommercial purposes.",
+      "scope_limit": "Source notice distinguishes build scripts with other terms from final deliverable library.",
+      "automatic_spdx_relabeling": false,
+      "internal_policy_status": "EXPLICIT_PUBLIC_DOMAIN_MAPPING_REVIEW_PENDING"
+    }
+  ],
+  "source_documentation_obligations_completed": [
+    "Integral PSF/BeOpen/CNRI/CWI copyright,permission,conditions and disclaimers retained in LICENSE.cpython.txt.",
+    "PSF3/CNRI3 factual briefsummary of upstreamstripped delivery and projectcuration included in supportingdocumentation; no projectnative recompile/edit or builtinremoval.",
+    "CWI copyright and permission reproduced verbatim in supportingdocumentation; no CWI endorsement/advertising use."
+  ],
+  "remaining_distribution_obligation": "Confirm listed notices and supportingdocumentation are included in the actual distributed image, under reviewed source/file hashes.",
+  "independent_static_review": {
+    "path_basename": "full-distribution-provenance-review.md",
+    "sha256": "19dc08ed669ff2b38222abb7ab025348c936cb14f6aab1c621eb104cd1dbee96",
+    "result": "FAVORABLE_WITH_NO_P1_P2_IN_STATIC_PROVENANCE_DELTA",
+    "scope": "V2 projection and supplied module/notice mapping; no license/profile/runtime/production/merge admission. Review names earlier inventory/doc hashes; this new obligation-summary documentation delta is not falsely claimed as already independently reviewed.",
+    "bytes": 6858,
+    "content_sha256_verified": true
+  },
+  "policy_modified": false,
+  "license_admission_emitted": false,
+  "runtime_admission_emitted": false,
+  "private_or_operational_capture_performed": false,
+  "proposed_acts_scope": {
+    "acts": [
+      "use",
+      "copy",
+      "curate/select existing files",
+      "distribute synthetic qualification candidate with retained notices and supportingdocumentation"
+    ],
+    "scope": "Synthetic isolated profile qualification only; no production, external network, real protected capture or generalredistribution approval.",
+    "admission_emitted_by_this_inventory": false
+  },
+  "notice_scope_counts": {
+    "metadata_required_selected_candidate": 13,
+    "preserved_supplemental_or_whole_input_not_effective_dependency_claim": 6
+  }
+}
