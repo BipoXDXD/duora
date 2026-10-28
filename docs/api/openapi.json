@@ -4053,7 +4053,7 @@
         "tags": [
           "Photos"
         ],
-        "description": "Estado do processamento de uma foto do titular.",
+        "description": "Estado do processamento de uma foto do titular. O header ETag traz a versão forte e opaca da foto, a única aceita no If-Match da exclusão.",
         "parameters": [
           {
             "name": "photoId",
@@ -4068,6 +4068,14 @@
         "responses": {
           "200": {
             "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Strong opaque version of this photo, for If-Match on DELETE.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -4098,6 +4106,139 @@
           },
           "403": {
             "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/photos/{photoId}": {
+      "delete": {
+        "tags": [
+          "Photos"
+        ],
+        "description": "Exclusão lógica imediata da própria foto (API-M03), sem corpo, com If-Match (ETag do status) e Idempotency-Key obrigatórios. Responde 204 com o ETag da foto excluída; a mesma chave repetida devolve o mesmo resultado. Foto de outra conta e foto inexistente dão o mesmo 404. A remoção dos arquivos é feita depois, por um job durável.",
+        "parameters": [
+          {
+            "name": "photoId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "The exact strong ETag of this photo from the status read; weak tags, lists, wildcards and tags of other resources never match.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "A stable key for this exact deletion. Authenticated replay returns the confirmed result.",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content",
+            "headers": {
+              "ETag": {
+                "description": "Strong opaque version of the deleted photo.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4313,6 +4454,94 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PhotoAppealRequestedResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/media/{assetId}": {
+      "get": {
+        "tags": [
+          "Media"
+        ],
+        "description": "Derivado de uma foto aprovada (thumb, card ou full; padrão full) como image/webp. Hoje só o titular lê; asset de outra conta, inexistente, não aprovado ou excluído dão o mesmo 404. Cache-Control: no-store.",
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "variant",
+            "in": "query",
+            "description": "Derivative size: thumb, card or full (default).",
+            "schema": {
+              "enum": [
+                "thumb",
+                "card",
+                "full"
+              ],
+              "type": "string",
+              "default": "full"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -7357,6 +7586,9 @@
     },
     {
       "name": "Photos"
+    },
+    {
+      "name": "Media"
     }
   ]
 }

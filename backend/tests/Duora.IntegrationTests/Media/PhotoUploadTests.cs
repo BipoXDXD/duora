@@ -451,6 +451,7 @@ public sealed class PhotoUploadTests : IAsyncDisposable
             "/api/v1/me/photos",
             "/api/v1/me/photos/{photoId:guid}/status",
             "/api/v1/me/photos/{photoId:guid}/review-history",
+            "/api/v1/media/{assetId:guid}",
             "/api/v1/admin/photo-reviews/capabilities",
             "/api/v1/admin/photo-reviews",
             "/api/v1/admin/photo-reviews/{caseId:guid}",

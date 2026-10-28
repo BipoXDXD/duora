@@ -101,6 +101,7 @@ DO $$
 DECLARE review_table text;
 BEGIN
   FOREACH review_table IN ARRAY ARRAY['media.review_promotion_variants',
+    'media.photo_deletion_commands','media.photo_tombstones',
     'safety.photo_review_appeal_assignment_commands','safety.photo_review_appeal_assignments',
     'safety.photo_review_appeal_commands','safety.photo_review_appeal_evidence_accesses',
     'safety.photo_review_appeal_decision_commands',

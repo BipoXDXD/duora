@@ -55,6 +55,9 @@ internal sealed record AuditAction
 
     public static readonly AuditAction PhotoReviewPermissionRevoked = new("safety.photo_review_permission_revoked");
 
+    /// <summary>O titular excluiu a própria foto (API-M03); o alvo é a foto, com a versão resultante.</summary>
+    public static readonly AuditAction MediaPhotoDeleted = new("media.photo_deleted");
+
     public static readonly AuditAction MfaEnrollmentStarted = new("identity.mfa_enrollment_started");
 
     public static readonly AuditAction MfaEnabled = new("identity.mfa_enabled");
@@ -170,6 +173,8 @@ internal static class AuditTargetTypes
     public const string PhotoReviewAppeal = "photo_review_appeal";
 
     public const string PhotoReviewGrant = "photo_review_grant";
+
+    public const string Photo = "photo";
 }
 
 /// <summary>

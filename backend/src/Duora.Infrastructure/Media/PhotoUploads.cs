@@ -40,7 +40,7 @@ public abstract record PhotoUploadResult
 }
 
 /// <summary>Estado de um upload como o titular o vê em API-M02.</summary>
-public sealed record PhotoStatus(Guid PhotoId, UploadState State, string? RejectionCode);
+public sealed record PhotoStatus(Guid PhotoId, UploadState State, string? RejectionCode, long Version);
 
 /// <summary>
 /// Recepção de fotos (API-M01) e leitura do estado (API-M02), ADR-0025. Três passos, sem transação aberta durante o
@@ -103,7 +103,7 @@ public sealed partial class PhotoUploads
         _db.Set<Upload>()
             .AsNoTracking()
             .Where(upload => upload.Id == photoId && upload.OwnerId == ownerId)
-            .Select(upload => new PhotoStatus(upload.Id, upload.State, upload.RejectionCode))
+            .Select(upload => new PhotoStatus(upload.Id, upload.State, upload.RejectionCode, upload.Version))
             .SingleOrDefaultAsync(cancellationToken);
 
     private async Task<Reservation> ReserveAsync(PhotoUploadCommand command, CancellationToken cancellationToken)

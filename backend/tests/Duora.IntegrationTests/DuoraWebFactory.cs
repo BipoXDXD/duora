@@ -36,6 +36,8 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
 
     private DirectoryInfo KeyRing => SharedKeyRing ?? (_ownKeyRing ??= Directory.CreateTempSubdirectory("duora-keys-"));
     private readonly DirectoryInfo _media = Directory.CreateTempSubdirectory("duora-media-");
+    private readonly Guid _deletionEnvironment = Guid.NewGuid();
+    private readonly string _deletionKey = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
     /// <summary>Relógio da aplicação; nulo usa o do sistema.</summary>
     public TimeProvider? Time { get; init; }
@@ -76,6 +78,10 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
             ["Media:Review"] = "TechnicalOnly",
             ["Media:Storage:Provider"] = "FileSystem",
             ["Media:Storage:FileSystemRoot"] = _media.FullName,
+            // Chave de operação de API-M03 gerada por fábrica: material sintético, nunca versionado.
+            ["Media:Deletion:EnvironmentId"] = _deletionEnvironment.ToString(),
+            ["Media:Deletion:OperationKeyId"] = "test-v1",
+            ["Media:Deletion:OperationKey"] = _deletionKey,
             // O banco compartilhado acumula uploads de todas as classes de teste; o teto global (somando contas) só
             // vale onde o teste o configura num banco próprio (UploadQueueLimitTests).
             ["Media:MaxQueuedUploads"] = int.MaxValue.ToString(CultureInfo.InvariantCulture),

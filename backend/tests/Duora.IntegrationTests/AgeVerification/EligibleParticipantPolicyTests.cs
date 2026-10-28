@@ -37,6 +37,8 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
         "GET /api/v1/me/photos",
         "GET /api/v1/me/photos/{photoId:guid}/review-history",
         "POST /api/v1/me/photos/{photoId:guid}/appeals",
+        "DELETE /api/v1/me/photos/{photoId:guid}",
+        "GET /api/v1/media/{assetId:guid}",
         "GET /api/v1/me/profile",
         "GET /api/v1/me/preferences",
         "PUT /api/v1/me/preferences",

@@ -25,6 +25,7 @@ internal static class ApiProblems
     public const string MfaRequired = "MFA_REQUIRED";
     public const string PasswordChangeRequired = "PASSWORD_CHANGE_REQUIRED";
     public const string PayloadTooLarge = "PAYLOAD_TOO_LARGE";
+    public const string PhotoDeleteStateConflict = "PHOTO_DELETE_STATE_CONFLICT";
     public const string PreconditionFailed = "PRECONDITION_FAILED";
     public const string PreconditionRequired = "PRECONDITION_REQUIRED";
     public const string MfaCodeInvalid = "MFA_CODE_INVALID";
@@ -113,6 +114,7 @@ internal static class ApiProblems
         MfaRequired => "A second authentication factor is required.",
         PasswordChangeRequired => "Change your temporary password to continue.",
         PayloadTooLarge => "Request payload is too large.",
+        PhotoDeleteStateConflict => "The photo cannot be deleted while it is being processed or reviewed. Try again later.",
         PreconditionFailed => "The resource has changed. Reload it before saving.",
         PreconditionRequired => "Provide the ETag from the last read in If-Match.",
         MfaCodeInvalid => "Invalid authentication code.",

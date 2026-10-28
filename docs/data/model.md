@@ -949,6 +949,23 @@ pessoal; decisão, leitura privada do recurso e composição canônica dos REVOK
 - **Constraints:** `UNIQUE (media_asset_id, kind)`; `UNIQUE (object_key)`; FK `media_asset_id` `CASCADE`.
 - **Classe:** P3.
 
+### media.photo_tombstones, media.photo_deletion_commands, media.photo_deletion_cleanup — API-M03
+
+- **Escrita:** uma transação curta da exclusão pelo titular grava foto e asset `Deleted`, o tombstone (uma linha
+  por foto: dono, chave de operação HMAC V1, hash da intenção, versão resultante, instante), o recibo idempotente
+  por chave de operação (snapshot capturado sob lock, versões esperada e resultante) e uma obrigação de limpeza
+  por chave exata (derivados do asset e o original sem obrigação própria em `original_cleanup`), mais a auditoria
+  `media.photo_deleted`. Nenhum I/O de storage nessa transação.
+- **Coletor:** o Worker reivindica uma chave por lease (`fencing_token`, `lease_until`), só de foto com tombstone
+  e ainda `Deleted`, e só se a chave for o original ou derivado do asset excluído; apaga fora de transação e remove
+  a obrigação, ou mantém com backoff de 15 s a 15 min.
+- **Constraints:** FKs `RESTRICT` para `media.uploads` e `identity.users`; chave de operação `^[0-9a-f]{64}$`;
+  hashes de 32 bytes; chaves de objeto só nos formatos gerados pelo servidor; lease e token juntos.
+- **Índices:** dono e foto (FKs), `(available_at, object_key)` da fila.
+- **Limites conhecidos:** o tombstone vive só neste banco; um restore anterior à exclusão o perde. O ledger externo
+  (docs/superpowers/specs/2026-10-24-photo-delete-tombstones-design.md) e a retenção destas linhas continuam abertos.
+- **Classe:** P3 (ids e hashes; nenhum conteúdo ou chave do cliente em claro).
+
 ## Schema `ops`
 
 Propriedade comum para outbox, jobs e idempotência (todo módulo grava na própria transação; Operations consome

@@ -11,8 +11,8 @@ A revisão humana da evolução de contrato/autorização permanece gate antes d
 |---|---|---|
 | API-M01 POST `/api/v1/me/photos` | PhotoEndpoints/PhotoUploads: corpo cru, idempotência, 202 e photoId/status; runtime padrão recusa uploads | Acrescentar HumanReview e replay de AwaitingReview após leitores compatíveis |
 | API-M02 GET `/api/v1/me/photos/{photoId}/status` | Titular recebe photoId/status/rejectionCode; seis estados existentes | Acrescentar estado editorial e assetId opcional para derivado aprovado |
-| API-M03 DELETE `/api/v1/me/photos/{photoId}` | Não mapeado em PhotoEndpoints | Exclusão lógica atômica, tombstone e limpeza durável; autorização do titular |
-| API-M04 GET `/api/v1/media/{assetId}` | Não mapeado no fluxo atual | Leitura autorizada de derivado aprovado pela API, nunca original/URL de storage |
+| API-M03 DELETE `/api/v1/me/photos/{photoId}` | Recorte executável (ver "Entrega API-M03/M04"): Approved/Rejected, tombstone no banco e coletor físico | Exclusão durante processamento/revisão/recurso e ledger externo de tombstones |
+| API-M04 GET `/api/v1/media/{assetId}` | Recorte executável: só o titular, derivado de asset Approved, `no-store` | Contextos de perfil/sala quando a seleção de foto existir (API-P04) |
 | Fila, evidência, decisão e recurso | Safety não persiste casos editoriais; não há painel | Persistência/contratos/rotas administrativas abaixo |
 | T-26 / exclusão e restore editorial | Não atendido por upload, outbox ou retenção operacional genérica | Testes de exclusão, preservação limitada, órfãos, backups/tombstones e candidato ausente |
 
@@ -202,3 +202,32 @@ M0 acima continuam delimitando o contrato futuro: assetId, ETag e rotas administ
 DTOs/OpenAPI/tipos atuais conservam strings e o formato existente; o gate contract regenera/compara os artefatos.
 A SPA tem transporte genérico testado, ainda sem tela consumidora de status.
 [Relatório M1 e gate de rollback antes dos escritores](../testing/reports/media-review-readers.md).
+
+## Entrega API-M03/M04 — recorte executável (#173)
+
+Atrás do mesmo gate do upload: sem `Media:Review`, as duas rotas respondem 503 `MEDIA_UPLOADS_DISABLED`;
+Production continua sem política admitida, então nada muda lá. Com o upload ligado, a Web exige `Media:Deletion`
+(escopo e material da chave de operação V1) no boot.
+
+**API-M03.** API-M02 passa a devolver o ETag forte `"photo-<id>-<versão>"`, o mesmo da linha do tempo de revisão.
+DELETE sem corpo, com If-Match exato (428 ausente, 412 qualquer outra forma ou versão vencida) e Idempotency-Key
+(400 inválida). A chave de operação e a intenção vêm de `PhotoDeletionIntentBinding`: o recibo é procurado pela
+chave antes de comparar a versão atual, e a intenção recalculada com o snapshot gravado distingue repetição (204
+com o mesmo ETag) de reuso para outra foto ou versão (409). Uma transação curta, depois da guarda Safety do dono e
+da sessão, trava a foto e o asset e grava estado `Deleted`, tombstone, recibo, obrigações de limpeza das chaves
+exatas e a auditoria `media.photo_deleted`. Alheio e inexistente dão o mesmo 404. Foto já `Deleted` com If-Match
+atual e chave nova dá 204 sem novo efeito. O coletor do Worker apaga um objeto por lease, fora de transação, com
+backoff, e só chaves do original ou de derivados do asset excluído dessa foto.
+
+Recorte deliberado: só `Approved` e `Rejected` sem candidato privado ou promoção ainda vivos. `Pending`,
+`Quarantined`, `Processing`, `AwaitingReview` e rejeição com candidato retido (recurso possível) respondem 409
+`PHOTO_DELETE_STATE_CONFLICT`, porque os coletores da revisão dependem do estado da foto e excluir agora deixaria
+bytes sem dono. O tombstone só existe no banco: o 204 não espera o ledger externo, e um restore anterior à exclusão
+ainda a desfaz. Retenção das linhas de tombstone/recibo e o fechamento do caso editorial na exclusão continuam
+abertos.
+
+**API-M04.** Só o titular lê, porque ainda não há seleção de foto de perfil nem contexto de sala. A autorização é
+relida no banco a cada pedido, antes de abrir o objeto e de novo antes do primeiro byte; asset e upload precisam
+estar `Approved`, sem tombstone. Resposta `image/webp`, `Cache-Control: no-store`, `nosniff`, sem range nem ETag.
+Variante `thumb`, `card` ou `full` (padrão); qualquer outro valor é 400. Alheio, inexistente, não aprovado,
+excluído ou arquivo ausente dão o mesmo 404.
