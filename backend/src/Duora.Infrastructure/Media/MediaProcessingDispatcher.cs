@@ -36,9 +36,9 @@ internal sealed class MediaProcessingOptions
 
 /// <summary>
 /// Consumidor da outbox de mídia (ADR-0025): um upload por vez (concorrência 1, spec 4.3). Toma a entrega com lease e
-/// fencing, leva o upload a <c>Processing</c>, sanitiza fora de qualquer transação, grava os derivados em chaves fixas
-/// do upload e conclui com <c>UPDATE</c> condicional pela versão. Tudo é repetível: outro worker que retome depois de
-/// um lease vencido sobrescreve os mesmos derivados, e um upload já decidido só encerra a entrega.
+/// fencing, leva o upload a <c>Processing</c> e sanitiza fora de qualquer transação. HumanReview prepara uma geração
+/// privada e um caso durável; TechnicalOnly grava derivados finais e aprova somente dados sintéticos. O commit é
+/// condicional pela versão; um upload já decidido ou entregue à revisão só encerra a entrega técnica.
 /// </summary>
 public sealed partial class MediaProcessingDispatcher
 {
@@ -102,11 +102,12 @@ public sealed partial class MediaProcessingDispatcher
     public async Task<int> DispatchOnceAsync(CancellationToken cancellationToken)
     {
         var now = _time.GetUtcNow();
+        var leaseExpiresAt = now + _options.LeaseDuration;
         var result = await _queue.ClaimWithAttemptLimitAsync(
             MediaProcessingOutbox.Consumer,
             batchSize: 1,
             now,
-            now + _options.LeaseDuration,
+            leaseExpiresAt,
             _options.MaxAttempts + GiveUpAttempts,
             cancellationToken);
         foreach (var exhausted in result.Exhausted)
@@ -116,7 +117,8 @@ public sealed partial class MediaProcessingDispatcher
 
         foreach (var delivery in result.Claimed)
         {
-            await DeliverAsync(delivery, cancellationToken);
+            var prepareUntil = delivery.DeadlineAt < leaseExpiresAt ? delivery.DeadlineAt : leaseExpiresAt;
+            await DeliverAsync(delivery, prepareUntil, cancellationToken);
         }
 
         return result.Claimed.Count + result.Exhausted.Count;
@@ -141,7 +143,7 @@ public sealed partial class MediaProcessingDispatcher
         }
     }
 
-    private async Task DeliverAsync(ClaimedDelivery delivery, CancellationToken cancellationToken)
+    private async Task DeliverAsync(ClaimedDelivery delivery, DateTimeOffset prepareUntil, CancellationToken cancellationToken)
     {
         if (_time.GetUtcNow() >= delivery.DeadlineAt)
         {
@@ -167,7 +169,7 @@ public sealed partial class MediaProcessingDispatcher
         Settlement settlement;
         try
         {
-            settlement = await ProcessAsync(message.UploadId, cancellationToken);
+            settlement = await ProcessAsync(message.UploadId, prepareUntil, cancellationToken);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -213,7 +215,7 @@ public sealed partial class MediaProcessingDispatcher
         await SettleAsync(delivery, OutboxDeliveryStatus.Expired, error: null, cancellationToken);
     }
 
-    private async Task<Settlement> ProcessAsync(Guid uploadId, CancellationToken cancellationToken)
+    private async Task<Settlement> ProcessAsync(Guid uploadId, DateTimeOffset prepareUntil, CancellationToken cancellationToken)
     {
         var upload = await _db.Set<Upload>().AsNoTracking().SingleOrDefaultAsync(u => u.Id == uploadId, cancellationToken);
         if (upload is null || upload.State is not (UploadState.Quarantined or UploadState.Processing))
@@ -248,7 +250,7 @@ public sealed partial class MediaProcessingDispatcher
         return outcome switch
         {
             SanitizeOutcome.Rejected rejected => await RejectAsync(upload, version, rejected.Reason, cancellationToken),
-            SanitizeOutcome.Sanitized sanitized => await PublishAsync(upload, fingerprint, version, sanitized, cancellationToken),
+            SanitizeOutcome.Sanitized sanitized => await CompleteSanitizationAsync(upload, fingerprint, version, prepareUntil, sanitized, cancellationToken),
             _ => throw new InvalidOperationException("Sanitização sem desfecho."),
         };
     }
@@ -309,20 +311,37 @@ public sealed partial class MediaProcessingDispatcher
     }
 
     /// <summary>
-    /// Derivados primeiro, depois o commit que os referencia: se o commit falhar, eles ficam órfãos e a próxima
-    /// tentativa os sobrescreve nas mesmas chaves (spec 16.2). Nunca se publica por ter gravado no storage. Antes de
-    /// gravar, confere que o upload continua nesta tentativa: outra que o retomou ou decidiu durante a sanitização é
-    /// dona das chaves, e esta só se retira.
+    /// HumanReview encerra a etapa técnica em um candidato privado e caso durável, dentro do prazo original do
+    /// claim limitado pelo deadline da entrega. TechnicalOnly mantém a publicação sintética: derivados primeiro,
+    /// depois o commit condicional que os referencia. Gravar bytes nunca é suficiente para publicar.
     /// </summary>
-    private async Task<Settlement> PublishAsync(
+    private async Task<Settlement> CompleteSanitizationAsync(
         Upload upload,
         UploadFingerprint fingerprint,
         long version,
+        DateTimeOffset prepareUntil,
         SanitizeOutcome.Sanitized sanitized,
         CancellationToken cancellationToken)
     {
         var verdict = MediaReview.VerdictAfterSanitizing(
             _media.Review ?? throw new InvalidOperationException("Processamento de mídia sem política de revisão."));
+        if (verdict == UploadState.AwaitingReview)
+        {
+            var candidate = await new PhotoReviewCandidates(_db, _store, _time, _options)
+                .StageAsync(upload.Id, version, prepareUntil, sanitized, cancellationToken);
+            return candidate switch
+            {
+                ReviewCandidateStageResult.Staged => Settlement.Delivered,
+                ReviewCandidateStageResult.LeaseLost => Settlement.LeaseLost,
+                _ => throw new InvalidOperationException("Preparação de candidato sem desfecho."),
+            };
+        }
+
+        if (verdict != UploadState.Approved)
+        {
+            throw new InvalidOperationException("Política de revisão sem um destino de sanitização permitido.");
+        }
+
         if (!await IsStillProcessingAtAsync(upload.Id, version, cancellationToken))
         {
             return Settlement.LeaseLost;
