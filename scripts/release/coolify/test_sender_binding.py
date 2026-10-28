@@ -80,6 +80,18 @@ class SenderBindingTests(unittest.TestCase):
             self.assertNotEqual(result['images'][role], FIXTURE['publication']['images'][role])
         self.assertEqual(result['images']['postgres'], FIXTURE['publication']['images']['postgres'])
 
+    def test_current_sender_emits_the_reviewed_e9_envelope_accepted_by_the_receiver(self):
+        result = self.invoke()
+        self.assertEqual(result['receiver_sha256'],
+                         'e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3')
+        self.assertEqual(receiver.validate_release(result, 'duora', SOURCE), result)
+
+    def test_historical_1ccd_envelope_is_refused_by_the_new_receiver(self):
+        result = self.invoke()
+        result['receiver_sha256'] = '1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb'
+        with self.assertRaises(ValueError):
+            receiver.validate_release(result, 'duora', SOURCE)
+
     def test_source_bytes_tampered_without_changing_scanned_reference_are_refused(self):
         def mutate(p, i, w, r):
             path = w / 'web.json'

@@ -1,0 +1,7 @@
+{
+  "web": "ghcr.io/bipoxdxd/duora-web@sha256:2dfea2ca945197c09bdd4f6d924b2a9c44e82c317061df1d59dcd967dee2138d",
+  "worker": "ghcr.io/bipoxdxd/duora-worker@sha256:73a8b6ada4f2ce322ab68fdce465c40fbab0e6ddc7c96a48eac8e07dcb1be995",
+  "migrator": "ghcr.io/bipoxdxd/duora-migrator@sha256:fc9f02c2522d79d0a0fc65bd923a78e0e283f07583bca2b0964ccf50abd363d7",
+  "edge": "ghcr.io/bipoxdxd/duora-edge@sha256:31076998ebfbb42c6ead5b38343e7796f5dde39998279af7f24920d2b9017616",
+  "postgres": "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c"
+}

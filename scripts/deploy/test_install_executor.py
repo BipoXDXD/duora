@@ -138,10 +138,11 @@ class InstallationTests(unittest.TestCase):
 
     def test_only_the_qualified_receiver_link_binds_literal_target_content_and_context(self) -> None:
         receiver = self.root / "coolify-release/receiver.py"
-        target = receiver.parent / "versions" / ("2.0.2-" + installer.RECEIVER_SHA256) / "receiver.py"
+        target = receiver.parent / "versions" / ("2.1.1-" + installer.RECEIVER_SHA256) / "receiver.py"
         target.parent.mkdir(parents=True)
-        source = Path(__file__).resolve().parents[1] / "release/coolify/receiver.py"
+        source = Path(__file__).resolve().parent / "fixtures/receiver-2.1.1-e9af.py.txt"
         original = source.read_bytes()
+        self.assertEqual(hashlib.sha256(original).hexdigest(), installer.RECEIVER_SHA256)
         target.write_bytes(original)
         target.chmod(0o755)
         receiver.symlink_to(target)
