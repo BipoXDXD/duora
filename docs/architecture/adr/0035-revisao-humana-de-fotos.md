@@ -141,9 +141,11 @@ a allowlist de "Segurança e operação"); o restante deste ADR continua vigente
    (MFA recente) na decisão. `product_admin` e `operator` não leem fotos. Sem cobertura (dono indisponível),
    continua valendo suspender novas admissões pelo procedimento aprovado; não existe substituto.
 5. **Continuam abertos** (não resolvidos por este adendo):
-   - exclusão de foto durante processamento ou revisão (hoje 409 `PHOTO_DELETE_STATE_CONFLICT`), a tratar em PR
-     separado da #173;
-   - ledger externo e retenção dos registros de exclusão (tombstones e recibos);
+   - ~~exclusão de foto durante processamento ou revisão (hoje 409 `PHOTO_DELETE_STATE_CONFLICT`)~~: resolvida no
+     PR seguinte da #173 (28/10/2026); só `Pending` ainda responde 409, e o candidato privado é limpo pelo tombstone
+     ([media-review.md](../../api/media-review.md));
+   - ledger externo e retenção dos registros de exclusão (tombstones e recibos): o ledger exige custódia B2 nova,
+     que é da #69; o restore já falha fechado sem a barreira do ledger;
    - API-P04: a spec não define o contrato da foto no perfil ou na sala, e `GET /profiles/{userId}` ainda não
      existe;
    - aceite da política de privacidade pelo titular;

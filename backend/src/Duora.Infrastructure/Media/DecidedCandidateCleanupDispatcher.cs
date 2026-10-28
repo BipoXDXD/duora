@@ -7,8 +7,9 @@ namespace Duora.Infrastructure.Media;
 internal sealed record DecidedCandidateCleanupClaim(Guid Generation, Guid Token, int Attempts);
 
 /// <summary>
-/// Consumes only the private-candidate cleanup obligation committed with a human decision: approval (the final
-/// derivatives already exist) or rejection (no appeal exists, owner decision of 2026-10-28; a new upload starts a new review).
+/// Consumes only the private-candidate cleanup obligation committed with a human decision: the reviewer's approval
+/// (the final derivatives already exist) or rejection (no appeal exists, owner decision of 2026-10-28; a new upload
+/// starts a new review), or the owner's deletion of the photo (API-M03), explained by its tombstone.
 /// </summary>
 public sealed partial class DecidedCandidateCleanupDispatcher
 {
@@ -19,18 +20,23 @@ public sealed partial class DecidedCandidateCleanupDispatcher
     private readonly TimeProvider _time;
     private readonly ILogger<DecidedCandidateCleanupDispatcher> _logger;
 
-    // No enrollment by file age or upload state. The immutable decision must explain this exact marker.
+    // No enrollment by file age or upload state. An immutable decision or tombstone must explain this exact marker; a
+    // deletion also takes over a marker another obligation set before it, since that obligation reads the photo state.
     private const string DecidedObligation = """
         c.committed_at is not null and c.writer_settled_at is not null
         and c.deleted_at is null and c.cleanup_requested_at is not null
-        and exists (
+        and (exists (
+          select 1 from media.uploads u join media.photo_tombstones t on t.photo_id=u.id
+          where u.id=c.upload_id and u.state='Deleted' and t.owner_id=u.owner_id
+            and c.cleanup_requested_at<=t.deleted_at)
+        or exists (
           select 1 from safety.photo_review_decisions d
           join safety.photo_review_cases r on r.id=d.case_id
           where d.case_id=c.case_id and d.candidate_generation=c.generation
             and r.candidate_generation=c.generation and r.upload_id=c.upload_id
             and d.appeal_id is null and d.policy_version=r.policy_version
             and ((d.decision='approve' and d.reason_code='meets_policy') or (d.decision='reject' and d.reason_code='does_not_meet_policy'))
-            and d.decided_at=c.cleanup_requested_at and d.candidate_retention_until_snapshot=c.retention_until)
+            and d.decided_at=c.cleanup_requested_at and d.candidate_retention_until_snapshot=c.retention_until))
         """;
 
     internal DecidedCandidateCleanupDispatcher(NpgsqlDataSource source, IObjectStore store,

@@ -17,7 +17,7 @@ descreve as rotas que restaram.
 |---|---|---|
 | API-M01 POST `/api/v1/me/photos` | PhotoEndpoints/PhotoUploads: corpo cru, idempotência, 202 e photoId/status; runtime padrão recusa uploads | Acrescentar HumanReview e replay de AwaitingReview após leitores compatíveis |
 | API-M02 GET `/api/v1/me/photos/{photoId}/status` | Titular recebe photoId/status/rejectionCode; seis estados existentes | Acrescentar estado editorial e assetId opcional para derivado aprovado |
-| API-M03 DELETE `/api/v1/me/photos/{photoId}` | Recorte executável (ver "Entrega API-M03/M04"): Approved/Rejected, tombstone no banco e coletor físico | Exclusão durante processamento/revisão (aberta, PR separado da #173) e ledger externo de tombstones |
+| API-M03 DELETE `/api/v1/me/photos/{photoId}` | Recorte executável (ver "Entrega API-M03/M04"): todos os estados menos Pending, tombstone no banco e coletores físicos | Ledger externo de tombstones (sem custódia B2 até a #69) e retenção dos registros |
 | API-M04 GET `/api/v1/media/{assetId}` | Recorte executável: só o titular, derivado de asset Approved, `no-store` | Contextos de perfil/sala quando a seleção de foto existir (API-P04) |
 | Fila, evidência e decisão | Safety não persiste casos editoriais; não há painel | Persistência/contratos/rotas administrativas abaixo (recurso removido em 28/10/2026) |
 | T-26 / exclusão e restore editorial | Não atendido por upload, outbox ou retenção operacional genérica | Testes de exclusão, preservação limitada, órfãos, backups/tombstones e candidato ausente |
@@ -220,12 +220,30 @@ exatas e a auditoria `media.photo_deleted`. Alheio e inexistente dão o mesmo 40
 atual e chave nova dá 204 sem novo efeito. O coletor do Worker apaga um objeto por lease, fora de transação, com
 backoff, e só chaves do original ou de derivados do asset excluído dessa foto.
 
-Recorte deliberado: só `Approved` e `Rejected` sem candidato privado ou promoção ainda vivos. `Pending`,
-`Quarantined`, `Processing`, `AwaitingReview` e rejeição cujo candidato privado ainda não foi limpo (até 24 h após a decisão) respondem 409
-`PHOTO_DELETE_STATE_CONFLICT`, porque os coletores da revisão dependem do estado da foto e excluir agora deixaria
-bytes sem dono. O tombstone só existe no banco: o 204 não espera o ledger externo, e um restore anterior à exclusão
-ainda a desfaz. Retenção das linhas de tombstone/recibo e o fechamento do caso editorial na exclusão continuam
-abertos.
+Estados (28/10/2026): `Quarantined`, `Processing`, `AwaitingReview`, `Approved` e `Rejected` são excluídos; só
+`Pending` (o original ainda chegando, dono da recepção) responde 409 `PHOTO_DELETE_STATE_CONFLICT`. Na mesma
+transação:
+
+- candidato privado confirmado da revisão recebe a obrigação de limpeza explicada pelo tombstone (um marcador
+  anterior de expiração, indisponibilidade ou decisão é mantido e assumido), consumida pelo
+  `DecidedCandidateCleanupDispatcher`;
+- foto excluída em `Quarantined`/`Processing` sem asset ganha obrigações para os três derivados determinísticos
+  do TechnicalOnly, disponíveis só depois de 15 min (`InFlightWriterGrace`), para um Worker que já passou da
+  checagem de versão terminar de gravar;
+- candidato em preparo e promoção da aprovação ainda não confirmados ficam com os coletores de preparo, que não
+  dependem do estado da foto.
+
+O caso editorial não é apagado: some da fila e da evidência do moderador, e decisão ou aprovação posteriores dão
+404 sem publicar nada. O Worker que chega depois encontra `Deleted` e só encerra a entrega. O tombstone só existe
+no banco: o 204 não espera ledger externo, e um restore anterior à exclusão ainda a desfaz (ver "Ledger externo"
+abaixo). Retenção das linhas de tombstone e recibo continua aberta.
+
+**Ledger externo (28/10/2026).** Não é viável sem custódia nova: para sobreviver a um restore do banco, o ledger
+precisa ficar fora dele, num bucket B2 com credencial e retenção próprias. Essa custódia não existe e a
+configuração de B2, backup e restore é da #69. O código de seleção do restore já exige a barreira autenticada do
+ledger (`ApprovedMediaRestoreSelection`, `DeletionLedgerBarrier`), então um restore sem ela falha fechado em vez de
+republicar foto excluída, e o passo 6 do runbook de restore ([backup-restore.md](../operations/backup-restore.md))
+exige reaplicar o registro externo de tombstones, falhando fechado enquanto ele não existir.
 
 **API-M04.** Só o titular lê, porque ainda não há seleção de foto de perfil nem contexto de sala. A autorização é
 relida no banco a cada pedido, antes de abrir o objeto e de novo antes do primeiro byte; asset e upload precisam
@@ -240,8 +258,7 @@ Registradas no [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#de
 contrato: HumanReview admitida em Development, Testing e Production (Staging recusado); upload ainda desligado
 em Production (`duora_media_review` vazio, #69); sem recurso de fotos; um único revisor, o dono do projeto, como
 `moderator` com as capacidades `assign`, `evidence` e `decide`; a rejeição grava a limpeza do candidato em 24 h.
-Continuam abertos: exclusão durante processamento ou revisão (409 hoje), ledger externo e retenção dos registros
-de exclusão, API-P04 (foto no perfil ou na sala; `GET /profiles/{userId}` não existe), aceite da política de
+Continuam abertos: ledger externo (sem custódia B2 até a #69) e retenção dos registros de exclusão, API-P04 (foto no perfil ou na sala; `GET /profiles/{userId}` não existe), aceite da política de
 privacidade pelo titular e ativação do upload (#69).
 
 ### Matriz de autorização (28/10/2026)
@@ -257,7 +274,7 @@ concedidas. "404 uniforme" quer dizer que alheio e inexistente dão o mesmo stat
 |---|---|---|---|---|---|
 | GET `/me/photos` (lista própria) | 200, só as próprias fotos | 200, só as fotos dele; nunca as do titular | 403 `FORBIDDEN` (política padrão: conta privilegiada não usa rota de participante) | 403 `FORBIDDEN` (idem) | 401 |
 | GET `/me/photos/{photoId}/review-history` | 200 | 404 uniforme | 403 `FORBIDDEN` (política padrão) | 403 `FORBIDDEN` (política padrão) | 401 (política padrão) |
-| DELETE `/me/photos/{photoId}` | 204 em `Approved` ou `Rejected` já limpo; 409 `PHOTO_DELETE_STATE_CONFLICT` em processamento, revisão ou candidato ainda não limpo | 404 uniforme, nada muda | 403 `FORBIDDEN` (política padrão) | 403 `FORBIDDEN` (política padrão) | 401 ou 403 (o teste aceita os dois; a foto fica intacta) |
+| DELETE `/me/photos/{photoId}` | 204 em `Quarantined`, `Processing`, `AwaitingReview`, `Approved` ou `Rejected`; 409 `PHOTO_DELETE_STATE_CONFLICT` só em `Pending` | 404 uniforme, nada muda | 403 `FORBIDDEN` (política padrão) | 403 `FORBIDDEN` (política padrão) | 401 ou 403 (o teste aceita os dois; a foto fica intacta) |
 | GET `/media/{assetId}` | 200 `image/webp`, `no-store`, só asset `Approved` | 404 uniforme (também para não aprovado, excluído ou sem arquivo) | 403 `FORBIDDEN` (política padrão) | 403 `FORBIDDEN` (política padrão) | 401 |
 | GET `/admin/photo-reviews/capabilities` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200 | 403 `PHOTO_REVIEW_FORBIDDEN` (sem capacidade) | 401 `UNAUTHENTICATED` |
 | GET `/admin/photo-reviews` | 403 `FORBIDDEN` | 403 `FORBIDDEN` | 200, só casos atribuídos a ele | 403 `PHOTO_REVIEW_FORBIDDEN` | 401 `UNAUTHENTICATED` |

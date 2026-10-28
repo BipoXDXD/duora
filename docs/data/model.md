@@ -972,7 +972,8 @@ pessoal; decisão, leitura privada do recurso e composição canônica dos REVOK
   por chave exata (derivados do asset e o original sem obrigação própria em `original_cleanup`), mais a auditoria
   `media.photo_deleted`. Nenhum I/O de storage nessa transação.
 - **Coletor:** o Worker reivindica uma chave por lease (`fencing_token`, `lease_until`), só de foto com tombstone
-  e ainda `Deleted`, e só se a chave for o original ou derivado do asset excluído; apaga fora de transação e remove
+  e ainda `Deleted`, e só se a chave for o original, derivado do asset excluído ou derivado determinístico do
+  original (foto excluída em `Quarantined`/`Processing`, disponível após 15 min); apaga fora de transação e remove
   a obrigação, ou mantém com backoff de 15 s a 15 min.
 - **Constraints:** FKs `RESTRICT` para `media.uploads` e `identity.users`; chave de operação `^[0-9a-f]{64}$`;
   hashes de 32 bytes; chaves de objeto só nos formatos gerados pelo servidor; lease e token juntos.

@@ -328,11 +328,26 @@ public sealed class PhotoDeletionTests : IAsyncDisposable
         Assert.Equal("Approved", Assert.Single(await _media.UploadsOfAsync(account.UserId)).State);
     }
 
+    [Fact]
+    public async Task APhotoWhoseBytesAreStillArrivingIsAStateConflict()
+    {
+        // Pending: a recepção ainda grava o original e é dona dele; a exclusão espera o upload terminar.
+        var (account, browser) = await SignedInAsync();
+        using var lifetime = browser;
+        var upload = await UploadAsync(browser, account);
+        await _media.ExecuteAsync("update media.uploads set state = 'Pending', content_sha256 = null, version = version + 1 where id = $1", upload.Id);
+
+        using var response = await DeleteAsync(browser, upload.Id, await ETagAsync(browser, upload.Id), MediaScenario.NewKey());
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "PHOTO_DELETE_STATE_CONFLICT");
+        Assert.Equal("Pending", Assert.Single(await _media.UploadsOfAsync(account.UserId)).State);
+        Assert.Equal(0, await _media.CountAsync("select count(*) from media.photo_deletion_commands where photo_id = $1", upload.Id));
+    }
+
     [Theory]
     [InlineData("Quarantined")]
     [InlineData("Processing")]
-    [InlineData("AwaitingReview")]
-    public async Task APhotoStillInProcessingOrReviewIsAStateConflict(string state)
+    public async Task APhotoStillInProcessingIsDeletedAndItsPossibleDerivativesWaitForTheWriter(string state)
     {
         var (account, browser) = await SignedInAsync();
         using var lifetime = browser;
@@ -344,33 +359,46 @@ public sealed class PhotoDeletionTests : IAsyncDisposable
 
         using var response = await DeleteAsync(browser, upload.Id, await ETagAsync(browser, upload.Id), MediaScenario.NewKey());
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "PHOTO_DELETE_STATE_CONFLICT");
-        Assert.Equal(state, Assert.Single(await _media.UploadsOfAsync(account.UserId)).State);
-        Assert.Equal(0, await _media.CountAsync("select count(*) from media.photo_deletion_commands where photo_id = $1", upload.Id));
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("Deleted", Assert.Single(await _media.UploadsOfAsync(account.UserId)).State);
+        Assert.Equal(1, await _media.CountAsync(
+            "select count(*) from media.photo_deletion_cleanup where photo_id = $1 and object_key = $2 and available_at <= now()",
+            upload.Id, upload.QuarantineKey));
+        // Um Worker em andamento pode ainda gravar os derivados determinísticos: a limpeza deles espera essa janela.
+        var token = upload.QuarantineKey["quarantine/".Length..];
+        foreach (var kind in new[] { "thumb", "card", "full" })
+        {
+            Assert.Equal(1, await _media.CountAsync("""
+                select count(*) from media.photo_deletion_cleanup c join media.photo_tombstones t on t.photo_id = c.photo_id
+                where c.photo_id = $1 and c.object_key = $2 and c.available_at = t.deleted_at + interval '15 minutes'
+                """, upload.Id, $"derivatives/{token}-{kind}"));
+        }
     }
 
     [Fact]
-    public async Task ARejectedPhotoWithAPrivateReviewCandidateStillRetainedIsAStateConflict()
+    public async Task AnUncommittedReviewCandidateStaysWithItsPreparationCollector()
     {
         var (account, browser) = await SignedInAsync();
         using var lifetime = browser;
         var upload = await UploadAsync(browser, account);
-        await _media.ExecuteAsync(
-            "update media.uploads set state = 'Rejected', rejection_code = 'PROCESSING_LIMIT', version = version + 1 where id = $1",
-            upload.Id);
+        await _media.ExecuteAsync("update media.uploads set state = 'Processing', version = version + 1 where id = $1", upload.Id);
+        var generation = Guid.NewGuid();
         await _media.ExecuteAsync(
             """
             insert into media.review_candidates (generation, upload_id, upload_version, detected_type, width, height,
               created_at, prepare_deadline, cleanup_available_at)
-            values ($1, $2, 1, 'image/jpeg', 10, 10, now(), now() + interval '15 seconds', now())
+            values ($1, $2, 3, 'image/jpeg', 10, 10, now(), now() + interval '15 seconds', now())
             """,
-            Guid.NewGuid(),
+            generation,
             upload.Id);
 
         using var response = await DeleteAsync(browser, upload.Id, await ETagAsync(browser, upload.Id), MediaScenario.NewKey());
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Conflict, "PHOTO_DELETE_STATE_CONFLICT");
-        Assert.Equal("Rejected", Assert.Single(await _media.UploadsOfAsync(account.UserId)).State);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(1, await _media.CountAsync("""
+            select count(*) from media.review_candidates
+            where generation = $1 and committed_at is null and cleanup_requested_at is null and deleted_at is null
+            """, generation));
     }
 
     [Fact]
