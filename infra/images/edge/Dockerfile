@@ -32,7 +32,8 @@ RUN pnpm build
 # --- Caddy recompilado: mesma versão da imagem oficial, com Go e x/net corrigidos --------------------------------
 # O binário da imagem oficial 2.11.7 foi compilado com Go 1.26.8 e golang.org/x/net 0.59.0, com CVEs HIGH de DoS em
 # HTTP/2 e TLS (CVE-2026-78667, CVE-2026-78669, CVE-2026-97031), justamente na borda pública.
-# Go 1.26.10 também corrige CVE-2026-111943 em crypto/x509. Aplicar os
+# Go 1.26.10 também corrige CVE-2026-111943 em crypto/x509, e go-jose 4.1.6 corrige o DoS ao ler JWK com chave RSA
+# (CVE-2026-116587), que vem pelo módulo ACME da 2.11.7. Aplicar os
 # patches resolve sem exceção no .trivyignore. Quando a imagem oficial trouxer o Go corrigido, volte a usar o
 # binário dela e remova este estágio. Compilação cruzada (CGO desligado), sem emulação.
 FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS caddy-build
@@ -41,7 +42,8 @@ ARG TARGETARCH
 ENV CGO_ENABLED=0
 RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7
 RUN GOOS="$TARGETOS" GOARCH="$TARGETARCH" XCADDY_GO_BUILD_FLAGS="-trimpath -ldflags=-s" \
-    xcaddy build v2.11.7 --replace golang.org/x/net=golang.org/x/net@v0.60.0 --output /out/caddy
+    xcaddy build v2.11.7 --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
+    --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6 --output /out/caddy
 
 # --- Caddy: usuário sem privilégio; as portas 80/443 vêm do sysctl do Compose, não de capability ------------------
 FROM caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f AS edge
