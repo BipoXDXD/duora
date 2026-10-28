@@ -80,7 +80,8 @@ class Proof:
         self.control = self.root/"control"; self.control.mkdir(mode=0o750)
         self.state = self.root/"state"; self.state.mkdir(mode=0o700)
         os.chown(self.control,args.launcher_uid,group); os.chown(self.state,args.launcher_uid,group)
-        self.authority = Path("/var/lib/duora-media")
+        from launcher import AUTHORITY_DIRECTORY
+        self.authority = AUTHORITY_DIRECTORY
         self.authority.mkdir(mode=0o700)
         os.chown(self.authority,args.launcher_uid,group)
         self.client_group = group
@@ -268,9 +269,13 @@ class Proof:
         self.profile.update(control_socket="/run/duora-media/socket", journal_directory=str(journal))
         configuration.write_text(json.dumps(self.profile)); configuration.chmod(0o644)
         template=(REPO/"infra/media/systemd/duora-media-launcher.service").read_text()
+        # A silent no-op replacement would run the CI unit against the production paths.
+        for fixed in ("User=duora-media-launcher", "Group=duora-media-client",
+                      "/opt/duora/media/run_launcher.py /etc/duora-media-launcher.json"):
+            assert fixed in template, fixed
         template=template.replace("User=duora-media-launcher", "User="+self.user)
         template=template.replace("Group=duora-media-client", "Group=duora-media-ci-client")
-        template=template.replace("/opt/duora/media/run_launcher.py /etc/duora/media-launcher.json",
+        template=template.replace("/opt/duora/media/run_launcher.py /etc/duora-media-launcher.json",
                                   str(code/"run_launcher.py")+" "+str(configuration))
         unit.write_text(template)
         try:
