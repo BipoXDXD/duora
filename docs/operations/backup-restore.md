@@ -613,6 +613,15 @@ continua recusada em Production, e qualquer valor fora da allowlist (inclusive g
 dela. `Editorial` nos testes do executor é apenas um valor sintético posto na allowlist pelo próprio teste:
 **não é uma política implementada**. Estar na allowlist **não liga o upload**: `duora_media_review` continua `""`
 no inventário, e preenchê-lo com `HumanReview` é o passo de ativação da #69, depois do checklist abaixo.
+Além da allowlist, `PRODUCTION_DELETION_LEDGER_READY = False` faz o `duora-deploy` recusar **qualquer**
+`DUORA_MEDIA_REVIEW` não vazio enquanto o ledger externo de exclusões em B2 não existir (#69): sem ele, um restore
+desfaria exclusões de fotos reais. Só a #69 muda essa constante, junto com o gate real do ledger.
+
+**Rollback da release de 28/10/2026 (migração `PhotoReviewWithoutAppeals`):** voltar ao binário anterior só é
+seguro com o upload desligado (`duora_media_review` vazio, como hoje). A migração não tem `Down`; o binário
+anterior lê o schema expandido, mas com o upload ligado ele voltaria a gravar rejeições de 168 h sem limpeza
+e a oferecer recurso que nenhuma release seguinte encerra. A migração usa `lock_timeout` de 5 s no ALTER da
+constraint: se falhar por lock, repita o deploy fora do pico, sem matar sessões.
 
 **Quando houver outra política aceita em Production**, o mesmo PR precisa: acrescentá-la a
 `PRODUCTION_MEDIA_REVIEW_POLICIES` (o teste confere que só entram nomes de `MediaReviewPolicy` e nunca

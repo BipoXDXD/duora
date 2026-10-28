@@ -135,7 +135,10 @@ a allowlist de "Segurança e operação"); o restante deste ADR continua vigente
    Testing). Tabelas, colunas `appeal_*` e privilégios de recurso ficam no schema para o rollback à release
    anterior funcionar. O contract (remover tabelas, colunas e os 168 h) fica para uma migração posterior, depois
    que nenhuma release em uso as conhecer. Em rollback, a release anterior pode mostrar `canRequestAppeal` numa
-   rejeição nova, mas o pedido é recusado porque o candidato já tem limpeza pedida; nenhum dado é perdido.
+   rejeição nova, mas o pedido é recusado porque o candidato já tem limpeza pedida; nenhum dado é perdido. O
+   rollback só é seguro com o upload desligado, e o `duora-deploy` recusa ligá-lo em Production enquanto o ledger
+   externo de exclusões (#69) não existir ([runbook](../../operations/backup-restore.md)). A migração usa
+   `lock_timeout` de 5 s no ALTER da constraint.
 4. **Um único revisor.** O dono do projeto é o responsável pelo serviço e o único revisor e moderador de fotos:
    papel `moderator` com as permissões explícitas da revisão (`assign`, `evidence`, `decide`), MFA e step-up
    (MFA recente) na decisão. `product_admin` e `operator` não leem fotos. Sem cobertura (dono indisponível),
