@@ -57,11 +57,15 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   `rua` e plano de subida: [dmarc.md](dmarc.md); confira se a fase publicada no DNS é a registrada na #82.
 
 
-- [ ] **Selfie de presença (#93):** a partir da release que liga a selfie, web e worker exigem
-  `/etc/duora/secrets/selfie-aws-access-key-id` e `/etc/duora/secrets/selfie-aws-secret-access-key` (chave do usuário
-  IAM `duora-selfie-backend`; dono 1654, modo 0400). Sem eles o Compose não cria os containers e, com arquivo vazio, o
-  boot falha na validação. Confira sem ler o conteúdo: `sudo stat -c '%u:%g %a %s' /etc/duora/secrets/selfie-aws-*`
-  (UID `1654`, modo `400`, tamanho maior que zero). Reaplique `app_dirs` para o `compose.prod.yml` novo chegar a `/opt/duora/`.
+- [ ] **Selfie de presença (#93):** a partir da release que liga a selfie, cada serviço exige o par do seu usuário IAM
+  (dono 1654, modo 0400): o web, `/etc/duora/secrets/selfie-web-aws-access-key-id` e `selfie-web-aws-secret-access-key`
+  (`duora-selfie-web`, só `sts:AssumeRole` no papel de captura); o worker, `selfie-worker-aws-access-key-id` e
+  `selfie-worker-aws-secret-access-key` (`duora-selfie-worker`, só as três chamadas do Rekognition). Cada par é montado
+  só no seu serviço. Sem eles o Compose não cria os containers e, com arquivo vazio, o boot falha na validação.
+  Confira sem ler o conteúdo: `sudo stat -c '%n %u %a %s' /etc/duora/secrets/selfie-*-aws-*` (UID `1654`, modo `400`,
+  tamanho maior que zero). Reaplique `app_dirs` para o `compose.prod.yml` novo e `DUORA_SELFIE_ENABLED=true`
+  (`duora_selfie_enabled`) chegarem a `/opt/duora/` e ao `duora.env`. **Rollback** para release anterior à #93: antes,
+  `duora_selfie_enabled: "false"` e `app_dirs` de novo; o web antigo recusa o boot com a selfie ligada.
 
 ## Manifesto da release (spec 17.2)
 

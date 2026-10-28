@@ -43,13 +43,16 @@ ativação desta ADR.
 4. **Testes em aparelho real dispensados** pelo dono. Os gates de câmera real, VoiceOver e dispositivos físicos desta
    ADR deixam de bloquear a ativação; a validação é a automatizada (câmera sintética do Chromium, sem AWS).
 
-Implementação: `Enabled=true` e `PrivacyApproved=true` no `compose.prod.yml` (web e worker). As credenciais do usuário
-IAM `duora-selfie-backend` chegam ao SDK só pelos arquivos de segredo `SelfieVerification__AwsAccessKeyId` e
-`SelfieVerification__AwsSecretAccessKey` em `/run/secrets` (origem: `/etc/duora/secrets/selfie-aws-*`), lidos pelo
-`SecretsDirectory` e passados explicitamente aos clientes STS e Rekognition; a cadeia padrão do SDK (ambiente, perfis,
-IMDS) não é consultada, e o boot falha se a selfie estiver ligada sem os dois. O web assume
-`arn:aws:iam::394877252106:role/duora-selfie-capture` (só `StartFaceLivenessSession`) para a credencial temporária do
-navegador. A CSP não é relaxada globalmente: só o documento `/account/selfie` recebe `'wasm-unsafe-eval'`,
+Implementação: `PrivacyApproved=true` no `compose.prod.yml` (web e worker) e `Enabled` vindo de `DUORA_SELFIE_ENABLED` no
+`duora.env` (Ansible `duora_selfie_enabled: "true"`; `false` é o rollback para releases anteriores). Cada serviço tem o próprio
+usuário IAM, com só as chamadas que faz: `duora-selfie-web` faz `sts:AssumeRole` em
+`arn:aws:iam::394877252106:role/duora-selfie-capture` (que só permite `StartFaceLivenessSession`) para a credencial
+temporária do navegador; `duora-selfie-worker` faz `CreateFaceLivenessSession`, `GetFaceLivenessSessionResults` e
+`DetectFaces`, em us-east-1. As chaves chegam ao SDK só pelos arquivos de segredo `SelfieVerification__AwsAccessKeyId` e
+`SelfieVerification__AwsSecretAccessKey` em `/run/secrets` de cada serviço (origem: `/etc/duora/secrets/selfie-web-aws-*`
+e `selfie-worker-aws-*`, cada par montado só no seu serviço), lidos pelo `SecretsDirectory` e passados explicitamente aos
+clientes STS e Rekognition; a cadeia padrão do SDK (ambiente, perfis, IMDS) não é consultada, e o boot falha se a
+selfie estiver ligada sem os dois. A CSP não é relaxada globalmente: só o documento `/account/selfie` recebe `'wasm-unsafe-eval'`,
 `cdn.liveness.rekognition.amazonaws.com`, `wss://streaming-rekognition.us-east-1.amazonaws.com` e `camera=(self)`
 ([deploy.md](../../operations/deploy.md#documento-da-selfie-issue-93)).
 

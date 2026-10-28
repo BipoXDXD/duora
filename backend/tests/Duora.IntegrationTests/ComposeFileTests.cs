@@ -82,38 +82,50 @@ public sealed class ComposeFileTests
     }
 
     /// <summary>
-    /// Issue #93 (decisões do dono em 28/10/2026): a selfie fica ligada em produção. As chaves do usuário IAM chegam
-    /// ao web (STS AssumeRole) e ao worker (Rekognition) só como arquivos em /run/secrets com o nome da chave de
+    /// Issue #93 (decisões do dono em 28/10/2026): a selfie fica ligada em produção. Cada serviço tem o próprio usuário
+    /// IAM, com só o que ele chama: o web faz sts:AssumeRole no papel de captura; o worker cria a sessão, lê o resultado
+    /// e roda DetectFaces. Cada par chega só ao seu serviço, como arquivos em /run/secrets com o nome da chave de
     /// configuração, montados dos arquivos do operador em DUORA_SECRETS_DIR. Nenhuma variável AWS_* em texto.
     /// </summary>
+    [Theory]
+    [InlineData("web", "worker")]
+    [InlineData("worker", "web")]
+    public void ProductionSelfieKeysReachOnlyTheirOwnServiceAsSecretFiles(string service, string other)
+    {
+        var compose = File.ReadAllText(Path.Combine(RepositoryRoot.Find(), "infra", "compose", "compose.prod.yml"));
+        var blocks = new Dictionary<string, string>
+        {
+            ["web"] = Between(compose, "\n  web:\n", "\n  worker:\n"),
+            ["worker"] = Between(compose, "\n  worker:\n", "\n  edge:\n"),
+        };
+        var topLevelSecrets = compose[compose.IndexOf("\nsecrets:\n", StringComparison.Ordinal)..];
+
+        foreach (var (part, target) in new[]
+        {
+            ("access_key_id", "SelfieVerification__AwsAccessKeyId"),
+            ("secret_access_key", "SelfieVerification__AwsSecretAccessKey"),
+        })
+        {
+            var source = $"selfie_{service}_aws_{part}";
+            Assert.Contains($"- source: {source}\n        target: {target}\n", blocks[service], StringComparison.Ordinal);
+            Assert.DoesNotContain($"selfie_{other}_aws_{part}", blocks[service], StringComparison.Ordinal);
+            Assert.Equal(1, Regex.Count(compose, $@"- source: {source}\b"));
+            Assert.Contains(
+                $"  {source}:\n    file: ${{DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}}/{source.Replace('_', '-')}\n",
+                topLevelSecrets, StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
-    public void ProductionSelfieIsEnabledAndGetsAwsKeysOnlyAsSecretFiles()
+    public void ProductionSelfieIsEnabledWithoutPlainTextAwsKeys()
     {
         var root = Path.Combine(RepositoryRoot.Find(), "infra", "compose");
         var compose = File.ReadAllText(Path.Combine(root, "compose.prod.yml"));
-        var web = Between(compose, "\n  web:\n", "\n  worker:\n");
-        var worker = Between(compose, "\n  worker:\n", "\n  edge:\n");
-        var topLevelSecrets = compose[compose.IndexOf("\nsecrets:\n", StringComparison.Ordinal)..];
 
-        foreach (var (source, target, file) in new[]
+        foreach (var service in new[] { Between(compose, "\n  web:\n", "\n  worker:\n"), Between(compose, "\n  worker:\n", "\n  edge:\n") })
         {
-            ("selfie_aws_access_key_id", "SelfieVerification__AwsAccessKeyId", "selfie-aws-access-key-id"),
-            ("selfie_aws_secret_access_key", "SelfieVerification__AwsSecretAccessKey", "selfie-aws-secret-access-key"),
-        })
-        {
-            foreach (var service in new[] { web, worker })
-            {
-                Assert.Contains($"- source: {source}\n        target: {target}\n", service, StringComparison.Ordinal);
-            }
-
-            Assert.Equal(2, Regex.Count(compose, $@"- source: {source}\b"));
-            Assert.Contains($"  {source}:\n    file: ${{DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}}/{file}\n",
-                topLevelSecrets, StringComparison.Ordinal);
-        }
-
-        foreach (var service in new[] { web, worker })
-        {
-            Assert.Contains("      SelfieVerification__Enabled: \"true\"\n", service, StringComparison.Ordinal);
+            // Liga pelo duora.env (Ansible, padrão "true"): um rollback para release anterior à #93 sobe com "false".
+            Assert.Contains("      SelfieVerification__Enabled: ${DUORA_SELFIE_ENABLED:-false}\n", service, StringComparison.Ordinal);
             Assert.Contains("      SelfieVerification__PrivacyApproved: \"true\"\n", service, StringComparison.Ordinal);
             Assert.Contains("      SelfieVerification__Region: us-east-1\n", service, StringComparison.Ordinal);
             Assert.Contains("      SelfieVerification__CaptureRoleArn: arn:aws:iam::394877252106:role/duora-selfie-capture\n",
@@ -122,6 +134,12 @@ public sealed class ComposeFileTests
             Assert.DoesNotContain("SelfieVerification__Maximum", service, StringComparison.Ordinal);
         }
 
+        Assert.DoesNotContain("selfie_aws_", compose, StringComparison.Ordinal);
+        var ansible = Path.Combine(RepositoryRoot.Find(), "infra", "ansible");
+        Assert.Contains("\nDUORA_SELFIE_ENABLED={{ duora_selfie_enabled }}\n",
+            File.ReadAllText(Path.Combine(ansible, "roles", "app_dirs", "templates", "duora.env.j2")), StringComparison.Ordinal);
+        Assert.Contains("\nduora_selfie_enabled: \"true\"\n",
+            File.ReadAllText(Path.Combine(ansible, "group_vars", "all.yml")), StringComparison.Ordinal);
         foreach (var file in Directory.GetFiles(root, "compose*.yml"))
         {
             var text = File.ReadAllText(file);

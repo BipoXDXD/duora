@@ -40,6 +40,10 @@ duora_media_backup_enabled: false
 # Upload de fotos em produção: vazio = desligado. Só se preenche depois do backup das fotos inicializado e verificado;
 # o duora-deploy recusa a release sem isso (DUORA_MEDIA_REVIEW no duora.env).
 duora_media_review: ""
+# Selfie de presença (#93; decisão do dono em 28/10/2026): ligada. Exige em duora_secrets_dir os pares
+# selfie-web-aws-* e selfie-worker-aws-* (dono 1654, 0400). "false" desliga e é obrigatório num rollback para
+# release anterior à #93.
+duora_selfie_enabled: "true"
 # Resolvedores DNS (IPv4) liberados na 53 para a rede backup-egress. Vazio = os upstream do systemd-resolved do host
 # (/run/systemd/resolve/resolv.conf), que é para onde o DNS embutido do Docker encaminha; o filtro falha sem nenhum.
 duora_backup_dns_resolvers: []

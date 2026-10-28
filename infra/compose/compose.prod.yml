@@ -198,19 +198,20 @@ services:
       Duora__PublicOrigin: https://${DUORA_DOMAIN:?defina DUORA_DOMAIN}
       DataProtection__KeysDirectory: /home/app/.aspnet/DataProtection-Keys
       ReverseProxy__KnownNetworks__0: 172.30.10.0/24
-      # Selfie de presença (issue #93, ADR-0029; decisões do dono em 28/10/2026). Limiares e versão da política
-      # vêm dos padrões versionados em SelfieProviderOptions, não daqui. As chaves do usuário IAM chegam só pelos
-      # arquivos de segredo abaixo; nunca como AWS_* em texto.
-      SelfieVerification__Enabled: "true"
+      # Selfie de presença (issue #93, ADR-0029; decisões do dono em 28/10/2026). Ligada pelo duora.env
+      # (DUORA_SELFIE_ENABLED, padrão "true" no Ansible); rollback para release anterior à #93 exige "false".
+      # Limiares e versão da política vêm dos padrões versionados em SelfieProviderOptions, não daqui. As chaves do
+      # usuário IAM deste serviço chegam só pelos arquivos de segredo abaixo; nunca como AWS_* em texto.
+      SelfieVerification__Enabled: ${DUORA_SELFIE_ENABLED:-false}
       SelfieVerification__PrivacyApproved: "true"
       SelfieVerification__Region: us-east-1
       SelfieVerification__CaptureRoleArn: arn:aws:iam::394877252106:role/duora-selfie-capture
     secrets:
       - source: duora_app_connection
         target: ConnectionStrings__Duora
-      - source: selfie_aws_access_key_id
+      - source: selfie_web_aws_access_key_id
         target: SelfieVerification__AwsAccessKeyId
-      - source: selfie_aws_secret_access_key
+      - source: selfie_web_aws_secret_access_key
         target: SelfieVerification__AwsSecretAccessKey
       # Certificado que cifra o key ring em repouso (spec 11.2) e os anteriores de uma rotação em curso. Só o web.
       - source: dataprotection_certificate
@@ -270,19 +271,20 @@ services:
       # Pickup é o padrão compatível, sem entrega externa. Ativação opt-in do Resend:
       # compose.resend.yml e docs/operations/resend.md. Não abrir para participantes reais com pickup.
       Email__PickupDirectory: /tmp/duora-mail
-      # Selfie de presença (issue #93, ADR-0029; decisões do dono em 28/10/2026). Limiares e versão da política
-      # vêm dos padrões versionados em SelfieProviderOptions, não daqui. As chaves do usuário IAM chegam só pelos
-      # arquivos de segredo abaixo; nunca como AWS_* em texto.
-      SelfieVerification__Enabled: "true"
+      # Selfie de presença (issue #93, ADR-0029; decisões do dono em 28/10/2026). Ligada pelo duora.env
+      # (DUORA_SELFIE_ENABLED, padrão "true" no Ansible); rollback para release anterior à #93 exige "false".
+      # Limiares e versão da política vêm dos padrões versionados em SelfieProviderOptions, não daqui. As chaves do
+      # usuário IAM deste serviço chegam só pelos arquivos de segredo abaixo; nunca como AWS_* em texto.
+      SelfieVerification__Enabled: ${DUORA_SELFIE_ENABLED:-false}
       SelfieVerification__PrivacyApproved: "true"
       SelfieVerification__Region: us-east-1
       SelfieVerification__CaptureRoleArn: arn:aws:iam::394877252106:role/duora-selfie-capture
     secrets:
       - source: duora_app_connection
         target: ConnectionStrings__Duora
-      - source: selfie_aws_access_key_id
+      - source: selfie_worker_aws_access_key_id
         target: SelfieVerification__AwsAccessKeyId
-      - source: selfie_aws_secret_access_key
+      - source: selfie_worker_aws_secret_access_key
         target: SelfieVerification__AwsSecretAccessKey
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -443,9 +445,13 @@ secrets:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/dataprotection_certificate
   dataprotection_previous_certificates:
     file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/dataprotection_previous_certificates
-  # Chave do usuário IAM duora-selfie-backend, gravada pelo operador (0400, dono 1654): web assume o papel de
-  # captura via STS; worker cria sessões e lê resultados do Face Liveness em us-east-1.
-  selfie_aws_access_key_id:
-    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/selfie-aws-access-key-id
-  selfie_aws_secret_access_key:
-    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/selfie-aws-secret-access-key
+  # Selfie (#93): um usuário IAM por serviço, chaves gravadas pelo operador (0400, dono 1654). O do web só faz
+  # sts:AssumeRole no papel de captura; o do worker cria a sessão, lê o resultado e roda DetectFaces, em us-east-1.
+  selfie_web_aws_access_key_id:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/selfie-web-aws-access-key-id
+  selfie_web_aws_secret_access_key:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/selfie-web-aws-secret-access-key
+  selfie_worker_aws_access_key_id:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/selfie-worker-aws-access-key-id
+  selfie_worker_aws_secret_access_key:
+    file: ${DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}/selfie-worker-aws-secret-access-key
