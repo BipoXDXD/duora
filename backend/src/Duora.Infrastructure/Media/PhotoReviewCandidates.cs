@@ -15,7 +15,7 @@ internal abstract record ReviewCandidateStageResult
 
 /// <summary>
 /// Prepares a private generation before any PUT, then coordinates Media and Safety in a short commit.
-/// Not connected to admission or the processing pipeline until the complete human review flow exists.
+/// The explicitly configured synthetic HumanReview pipeline calls this operation; production admission is separate.
 /// </summary>
 internal sealed class PhotoReviewCandidates(
     DuoraDbContext db, IObjectStore store, TimeProvider time, MediaProcessingOptions options)

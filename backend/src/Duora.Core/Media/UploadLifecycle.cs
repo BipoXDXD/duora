@@ -39,7 +39,7 @@ public static class UploadLifecycle
         (_, UploadState.Deleted) => true,
         (UploadState.Pending, UploadState.Quarantined) => true,
         (UploadState.Quarantined, UploadState.Processing) => true,
-        (UploadState.Processing, UploadState.Processing or UploadState.Approved or UploadState.Rejected) => true,
+        (UploadState.Processing, UploadState.Processing or UploadState.Approved or UploadState.Rejected or UploadState.AwaitingReview) => true,
         _ => false,
     };
 
