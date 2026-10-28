@@ -81,6 +81,58 @@ public sealed class ComposeFileTests
         }
     }
 
+    /// <summary>
+    /// Issue #93 (decisões do dono em 28/10/2026): a selfie fica ligada em produção. As chaves do usuário IAM chegam
+    /// ao web (STS AssumeRole) e ao worker (Rekognition) só como arquivos em /run/secrets com o nome da chave de
+    /// configuração, montados dos arquivos do operador em DUORA_SECRETS_DIR. Nenhuma variável AWS_* em texto.
+    /// </summary>
+    [Fact]
+    public void ProductionSelfieIsEnabledAndGetsAwsKeysOnlyAsSecretFiles()
+    {
+        var root = Path.Combine(RepositoryRoot.Find(), "infra", "compose");
+        var compose = File.ReadAllText(Path.Combine(root, "compose.prod.yml"));
+        var web = Between(compose, "\n  web:\n", "\n  worker:\n");
+        var worker = Between(compose, "\n  worker:\n", "\n  edge:\n");
+        var topLevelSecrets = compose[compose.IndexOf("\nsecrets:\n", StringComparison.Ordinal)..];
+
+        foreach (var (source, target, file) in new[]
+        {
+            ("selfie_aws_access_key_id", "SelfieVerification__AwsAccessKeyId", "selfie-aws-access-key-id"),
+            ("selfie_aws_secret_access_key", "SelfieVerification__AwsSecretAccessKey", "selfie-aws-secret-access-key"),
+        })
+        {
+            foreach (var service in new[] { web, worker })
+            {
+                Assert.Contains($"- source: {source}\n        target: {target}\n", service, StringComparison.Ordinal);
+            }
+
+            Assert.Equal(2, Regex.Count(compose, $@"- source: {source}\b"));
+            Assert.Contains($"  {source}:\n    file: ${{DUORA_SECRETS_DIR:?defina DUORA_SECRETS_DIR}}/{file}\n",
+                topLevelSecrets, StringComparison.Ordinal);
+        }
+
+        foreach (var service in new[] { web, worker })
+        {
+            Assert.Contains("      SelfieVerification__Enabled: \"true\"\n", service, StringComparison.Ordinal);
+            Assert.Contains("      SelfieVerification__PrivacyApproved: \"true\"\n", service, StringComparison.Ordinal);
+            Assert.Contains("      SelfieVerification__Region: us-east-1\n", service, StringComparison.Ordinal);
+            Assert.Contains("      SelfieVerification__CaptureRoleArn: arn:aws:iam::394877252106:role/duora-selfie-capture\n",
+                service, StringComparison.Ordinal);
+            Assert.DoesNotContain("SelfieVerification__Minimum", service, StringComparison.Ordinal);
+            Assert.DoesNotContain("SelfieVerification__Maximum", service, StringComparison.Ordinal);
+        }
+
+        foreach (var file in Directory.GetFiles(root, "compose*.yml"))
+        {
+            var text = File.ReadAllText(file);
+            Assert.DoesNotContain("AWS_ACCESS_KEY_ID", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("AWS_SECRET_ACCESS_KEY", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("AWS_SESSION_TOKEN", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("SelfieVerification__AwsAccessKeyId:", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("SelfieVerification__AwsSecretAccessKey:", text, StringComparison.Ordinal);
+        }
+    }
+
     private static string Between(string text, string start, string end)
     {
         var from = text.IndexOf(start, StringComparison.Ordinal);

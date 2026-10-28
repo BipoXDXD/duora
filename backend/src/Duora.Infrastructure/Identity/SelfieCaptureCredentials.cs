@@ -9,7 +9,8 @@ namespace Duora.Infrastructure.Identity;
 public sealed record SelfieCaptureCredentials(string AccessKeyId, string SecretAccessKey, string SessionToken, DateTime Expiration);
 public sealed record SelfieCaptureSession(string SessionId, string Region, SelfieCaptureCredentials Credentials);
 
-public sealed class SelfieCaptureCredentialService(SelfieVerificationService verifications, IOptions<SelfieProviderOptions> options)
+public sealed class SelfieCaptureCredentialService(SelfieVerificationService verifications, IOptions<SelfieProviderOptions> options,
+    IOptions<SelfieAwsCredentialOptions> backendCredentials)
 {
     public async Task<SelfieCaptureSession?> CreateAsync(Guid userId, Guid id, CancellationToken cancellationToken)
     {
@@ -18,7 +19,8 @@ public sealed class SelfieCaptureCredentialService(SelfieVerificationService ver
             return null;
         }
 
-        using var client = new AmazonSecurityTokenServiceClient(RegionEndpoint.GetBySystemName(options.Value.Region));
+        using var client = new AmazonSecurityTokenServiceClient(backendCredentials.Value.ToAwsCredentials(),
+            RegionEndpoint.GetBySystemName(options.Value.Region));
         var policy = JsonSerializer.Serialize(new
         {
             Version = "2012-10-17",

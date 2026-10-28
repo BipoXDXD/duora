@@ -57,6 +57,12 @@ Antes de cortar o manifesto, confira os pré-requisitos de ordem entre releases 
   `rua` e plano de subida: [dmarc.md](dmarc.md); confira se a fase publicada no DNS é a registrada na #82.
 
 
+- [ ] **Selfie de presença (#93):** a partir da release que liga a selfie, web e worker exigem
+  `/etc/duora/secrets/selfie-aws-access-key-id` e `/etc/duora/secrets/selfie-aws-secret-access-key` (chave do usuário
+  IAM `duora-selfie-backend`; dono 1654, modo 0400). Sem eles o Compose não cria os containers e, com arquivo vazio, o
+  boot falha na validação. Confira sem ler o conteúdo: `sudo stat -c '%u:%g %a %s' /etc/duora/secrets/selfie-aws-*`
+  (UID `1654`, modo `400`, tamanho maior que zero). Reaplique `app_dirs` para o `compose.prod.yml` novo chegar a `/opt/duora/`.
+
 ## Manifesto da release (spec 17.2)
 
 JSON, até 64 KiB, campos exatamente estes (campo desconhecido ou ausente é recusado):
@@ -495,6 +501,7 @@ checagem na edge.
 
 A CSP e a `Permissions-Policy` vivem só no `infra/caddy/Caddyfile` e valem para toda resposta da borda: documento,
 assets, API, hub, webhooks e os erros gerados pelo próprio Caddy (`handle_errors`, com `Cache-Control: no-store`).
+A única exceção é o documento exato `/account/selfie` ([abaixo](#documento-da-selfie-issue-93)).
 As duas são **allowlist contra a matriz de capacidades** abaixo: cada fonte e cada feature liberada tem uma
 capacidade que a usa, e o resto fica negado. A política esperada mora em `scripts/deploy/caddy_test_support.py`;
 mudar o Caddyfile sem mudar o teste no mesmo PR falha o job `ops`, e a mudança exige revisão humana.
@@ -511,11 +518,35 @@ mudar o Caddyfile sem mudar o teste no mesmo PR falha o job `ops`, e a mudança 
 | Voz ao vivo | `getUserMedia`; `<audio>.srcObject = MediaStream`; `RTCPeerConnection` com relay TURN; credencial por `POST /api/v1/rooms/{roomId}/voice/credentials` | nenhuma fonte nova: `srcObject` não passa pelo Fetch e ICE não passa por `connect-src` | `microphone=(self)`, `speaker-selection=(self)` |
 | 3D em tempo real (`<model-viewer>` 4.4.0) | bundle próprio; um `<style>` no shadow root; GLB por `fetch()`; textura embutida por `fetch(blob:)`; WebGL; política `lit-html` do Lit | hash do `<style>`, `connect-src blob:`, `trusted-types lit-html` | nenhuma (sem `ar`: `xr-spatial-tracking` e sensores negados) |
 
-Fora da matriz, e por isso negado: vídeo e câmera, compartilhamento de tela, tela cheia, AR, sensores, clipboard,
+Fora da matriz, e por isso negado (exceto câmera, WebAssembly e os dois hosts da AWS no
+[documento da selfie](#documento-da-selfie-issue-93)): vídeo e câmera, compartilhamento de tela, tela cheia, AR, sensores, clipboard,
 passkeys (spec 11.1 as deixa para depois; o PR delas libera `publickey-credentials-*`), pagamento, hardware
 (USB, serial, HID, Bluetooth, MIDI, gamepad), geolocalização, worker e service worker, WebAssembly, iframe e
 plugin. Pré-visualizar a foto antes do envio por `URL.createObjectURL` não existe hoje; se entrar, pede
 `img-src blob:` no PR das fotos.
+
+### Documento da selfie (issue #93)
+
+O `FaceLivenessDetector` 3.7.0 oficial da AWS ([ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md))
+precisa de câmera, de compilar o WASM do TensorFlow.js e de dois hosts da AWS. Em vez de relaxar a política global, o
+Caddy dá a política da selfie só à resposta do caminho exato `/account/selfie` (matchers complementares
+`@selfieDocument`/`@regularResponse`, nunca dois cabeçalhos). A SPA carrega essa rota por navegação completa
+(`SelfieVerificationPage` recarrega o documento quando chega por navegação interna) e recarrega o destino ao sair
+(`SelfieDocumentBoundary`), para o resto do site nunca rodar com ela.
+
+| Diferença em relação à política comum | Por quê |
+|---|---|
+| `script-src 'self' 'wasm-unsafe-eval'` | Compilar o WASM do backend `tfjs-backend-wasm` 4.11.0 do detector de rosto. Não libera `eval` de JavaScript (CSP3 `wasm-unsafe-eval`) |
+| `connect-src` + `https://cdn.liveness.rekognition.amazonaws.com` | WASM e modelo BlazeFace padrão do componente (`binaryPath`, `faceModelUrl`; [Amplify UI](https://ui.docs.amplify.aws/react/connected-components/liveness)) |
+| `connect-src` + `wss://streaming-rekognition.us-east-1.amazonaws.com` | WebSocket do `StartFaceLivenessSession`, só na região aprovada |
+| `camera=(self)` | Captura de vídeo pela própria origem; nenhuma outra feature muda |
+
+Continuam iguais: `worker-src 'none'` (sem `crossOriginIsolated` o TF.js usa o WASM sem threads, sem worker),
+Trusted Types, `img-src`/`media-src` (o vídeo entra por `srcObject`) e todo o resto. Testes:
+`test_caddy_security_headers.py` (política exata no caminho e comum nos vizinhos), a sonda Chromium
+`test_caddy_browser.cjs` (WASM, câmera e hosts permitidos na selfie; recusados fora dela) e
+`frontend/e2e/selfie-csp.spec.ts` (o componente real abre câmera e streaming sem violação de CSP; com a política
+comum, recusa `wasm-eval`).
 
 ### CSP, diretiva por diretiva
 

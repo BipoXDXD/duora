@@ -9,6 +9,11 @@ public static class SelfieVerificationServiceCollectionExtensions
         services.AddOptions<SelfieProviderOptions>().BindConfiguration("SelfieVerification")
             .Validate(o => o.IsValid(), "SelfieVerification requires approved privacy settings, role and calibrated thresholds.")
             .ValidateOnStart();
+        services.AddOptions<SelfieAwsCredentialOptions>().BindConfiguration("SelfieVerification")
+            .Validate<Microsoft.Extensions.Options.IOptions<SelfieProviderOptions>>(
+                (credentials, provider) => !provider.Value.Enabled || credentials.IsComplete,
+                "SelfieVerification:AwsAccessKeyId and SelfieVerification:AwsSecretAccessKey must come from secret files when enabled.")
+            .ValidateOnStart();
         services.AddScoped(p => new SelfieVerificationService(
             p.GetRequiredService<Duora.Infrastructure.Persistence.DuoraDbContext>(),
             p.GetRequiredService<Microsoft.Extensions.Options.IOptions<SelfieProviderOptions>>(),
@@ -17,7 +22,9 @@ public static class SelfieVerificationServiceCollectionExtensions
         {
             var options = p.GetRequiredService<Microsoft.Extensions.Options.IOptions<SelfieProviderOptions>>().Value;
             return options.Enabled
-                ? new RekognitionSelfieProvider(new Amazon.Rekognition.AmazonRekognitionClient(Amazon.RegionEndpoint.GetBySystemName(options.Region)), options, p.GetRequiredService<TimeProvider>())
+                ? new RekognitionSelfieProvider(new Amazon.Rekognition.AmazonRekognitionClient(
+                    p.GetRequiredService<Microsoft.Extensions.Options.IOptions<SelfieAwsCredentialOptions>>().Value.ToAwsCredentials(),
+                    Amazon.RegionEndpoint.GetBySystemName(options.Region)), options, p.GetRequiredService<TimeProvider>())
                 : new DisabledSelfieProvider();
         });
         services.AddScoped(p => new SelfieVerificationDispatcher(

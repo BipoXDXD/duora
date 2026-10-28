@@ -106,7 +106,10 @@ def main() -> int:
         for name, content in (("pgbackrest_repo.conf", "[global]\nrepo1-s3-endpoint=s3.invalid\n"
                                                         "repo1-s3-bucket=smoke\nrepo1-s3-region=us-east-1\n"
                                                         "repo1-s3-key=smoke\nrepo1-s3-key-secret=smoke\n"),
-                              ("pgbackrest_cipher.conf", "[global]\nrepo1-cipher-pass=smoke-synthetic\n")):
+                              ("pgbackrest_cipher.conf", "[global]\nrepo1-cipher-pass=smoke-synthetic\n"),
+                              # Chave sintética da selfie (#93): o boot só exige os dois arquivos; o smoke não chama a AWS.
+                              ("selfie-aws-access-key-id", "SMOKESYNTHETICKEYID\n"),
+                              ("selfie-aws-secret-access-key", "smoke-synthetic-secret\n")):
             (secrets_dir / name).write_text(content, encoding="utf-8")
         media_dir = workdir / "media"
         for area in ("quarantine", "derivatives"):

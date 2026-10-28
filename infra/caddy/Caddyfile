@@ -40,25 +40,30 @@
 		Referrer-Policy "no-referrer"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
-		# Allowlist contra a matriz de capacidades (docs/operations/deploy.md, "Cabeçalhos de segurança da borda"):
-		# (self) só para o que a voz ao vivo e o áudio usam (microphone, autoplay, speaker-selection); toda outra feature
-		# que o Chromium reconhece numa página comum fica (), inclusive fullscreen, câmera, tela, AR e sensores (o
-		# <model-viewer> sem ar). Ficam fora as ch-*, as só de Isolated Web App e quatro experimentais que, negadas,
-		# quebrariam a SPA. Feature que o navegador não conhece gera só um aviso no console. Só o Chromium lê este
-		# cabeçalho (MDN BCD); gesto e consentimento do microfone são regra da SPA (ADR-0028), não desta política.
-		Permissions-Policy "accelerometer=(), ambient-light-sensor=(), aria-notify=(), autoplay=(self), bluetooth=(), browsing-topics=(), camera=(), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), deferred-fetch-minimal=(), device-attributes=(), digital-credentials-create=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), haptics=(), hid=(), identity-credentials-get=(), idle-detection=(), interest-cohort=(), keyboard-map=(), language-detector=(), language-model=(), local-fonts=(), local-network=(), local-network-access=(), loopback-network=(), magnetometer=(), media-playback-while-not-visible=(), microphone=(self), midi=(), on-device-speech-recognition=(), otp-credentials=(), payment=(), picture-in-picture=(), private-state-token-issuance=(), private-state-token-redemption=(), publickey-credentials-create=(), publickey-credentials-get=(), publickey-credentials-remote-client-data-json=(), rewriter=(), screen-wake-lock=(), serial=(), speaker-selection=(self), storage-access=(), summarizer=(), sync-xhr=(), tools=(), translator=(), unbounded-element=(), unload=(), usb=(), web-app-installation=(), web-share=(), webnn=(), window-management=(), writer=(), xr-spatial-tracking=()"
-		# Só fontes próprias, sem inline, sem eval e sem worker. wss explícito para o hub (navegadores antigos não
-		# estendem 'self' a WebSocket). media-src 'self': áudio do catálogo e o fallback Opus (ADR-0027); a voz ao vivo
-		# entra por srcObject, fora do Fetch, e ICE/TURN não passa por connect-src (sem diretiva webrtc, ADR-0028).
-		# 3D em tempo real com <model-viewer> 4.4.0 e GLB autocontido sem Draco, meshopt nem KTX2: o hash libera só o
-		# <style> do shadow root dele, e blob: em connect-src é a textura embutida, lida por fetch(blob:). Trusted Types:
-		# nenhum sink de HTML/script aceita string; só a política lit-html, do Lit que o <model-viewer> usa.
-		# Mudou aqui, mude scripts/deploy/caddy_test_support.py.
-		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'sha256-PXtZZkJMMyc18o/DN1ZEFOJ2qEGq95IQbVaJFMOXOb0='; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' blob: wss://{hostport}; manifest-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types lit-html"
 		# Sem Server nem o Via que o reverse_proxy acrescenta: a resposta não diz qual servidor está na frente.
 		-Server
 		-Via
 	}
+}
+
+# CSP e Permissions-Policy de toda resposta, exceto o documento da selfie (site abaixo). Usado dentro de um bloco
+# header com defer, como os demais cabeçalhos da borda.
+(default_policies) {
+	# Allowlist contra a matriz de capacidades (docs/operations/deploy.md, "Cabeçalhos de segurança da borda"):
+	# (self) só para o que a voz ao vivo e o áudio usam (microphone, autoplay, speaker-selection); toda outra feature
+	# que o Chromium reconhece numa página comum fica (), inclusive fullscreen, câmera, tela, AR e sensores (o
+	# <model-viewer> sem ar). Ficam fora as ch-*, as só de Isolated Web App e quatro experimentais que, negadas,
+	# quebrariam a SPA. Feature que o navegador não conhece gera só um aviso no console. Só o Chromium lê este
+	# cabeçalho (MDN BCD); gesto e consentimento do microfone são regra da SPA (ADR-0028), não desta política.
+	Permissions-Policy "accelerometer=(), ambient-light-sensor=(), aria-notify=(), autoplay=(self), bluetooth=(), browsing-topics=(), camera=(), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), deferred-fetch-minimal=(), device-attributes=(), digital-credentials-create=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), haptics=(), hid=(), identity-credentials-get=(), idle-detection=(), interest-cohort=(), keyboard-map=(), language-detector=(), language-model=(), local-fonts=(), local-network=(), local-network-access=(), loopback-network=(), magnetometer=(), media-playback-while-not-visible=(), microphone=(self), midi=(), on-device-speech-recognition=(), otp-credentials=(), payment=(), picture-in-picture=(), private-state-token-issuance=(), private-state-token-redemption=(), publickey-credentials-create=(), publickey-credentials-get=(), publickey-credentials-remote-client-data-json=(), rewriter=(), screen-wake-lock=(), serial=(), speaker-selection=(self), storage-access=(), summarizer=(), sync-xhr=(), tools=(), translator=(), unbounded-element=(), unload=(), usb=(), web-app-installation=(), web-share=(), webnn=(), window-management=(), writer=(), xr-spatial-tracking=()"
+	# Só fontes próprias, sem inline, sem eval e sem worker. wss explícito para o hub (navegadores antigos não
+	# estendem 'self' a WebSocket). media-src 'self': áudio do catálogo e o fallback Opus (ADR-0027); a voz ao vivo
+	# entra por srcObject, fora do Fetch, e ICE/TURN não passa por connect-src (sem diretiva webrtc, ADR-0028).
+	# 3D em tempo real com <model-viewer> 4.4.0 e GLB autocontido sem Draco, meshopt nem KTX2: o hash libera só o
+	# <style> do shadow root dele, e blob: em connect-src é a textura embutida, lida por fetch(blob:). Trusted Types:
+	# nenhum sink de HTML/script aceita string; só a política lit-html, do Lit que o <model-viewer> usa.
+	# Mudou aqui, mude scripts/deploy/caddy_test_support.py.
+	Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'sha256-PXtZZkJMMyc18o/DN1ZEFOJ2qEGq95IQbVaJFMOXOb0='; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' blob: wss://{hostport}; manifest-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types lit-html"
 }
 
 {$DUORA_DOMAIN} {
@@ -86,9 +91,31 @@
 
 	import security_headers
 
+	# Selfie de presença (issue #93, ADR-0029): só o documento exato /account/selfie, que a SPA carrega por navegação
+	# completa (e recarrega ao sair), recebe a câmera e o que o FaceLivenessDetector oficial da AWS usa. O resto do site,
+	# inclusive assets e API, fica com a política comum. Matchers complementares: nunca dois cabeçalhos CSP.
+	# 'wasm-unsafe-eval': compilar o WASM do TensorFlow.js (sem eval de JavaScript); cdn.liveness: WASM e modelo
+	# BlazeFace padrão do componente; streaming-rekognition: WebSocket do StartFaceLivenessSession em us-east-1.
+	# Mudou aqui, mude scripts/deploy/caddy_test_support.py (EXPECTED_SELFIE_*).
+	@selfieDocument path /account/selfie
+	header @selfieDocument {
+		defer
+		Permissions-Policy "accelerometer=(), ambient-light-sensor=(), aria-notify=(), autoplay=(self), bluetooth=(), browsing-topics=(), camera=(self), captured-surface-control=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), cross-origin-isolated=(), deferred-fetch=(), deferred-fetch-minimal=(), device-attributes=(), digital-credentials-create=(), digital-credentials-get=(), display-capture=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), haptics=(), hid=(), identity-credentials-get=(), idle-detection=(), interest-cohort=(), keyboard-map=(), language-detector=(), language-model=(), local-fonts=(), local-network=(), local-network-access=(), loopback-network=(), magnetometer=(), media-playback-while-not-visible=(), microphone=(self), midi=(), on-device-speech-recognition=(), otp-credentials=(), payment=(), picture-in-picture=(), private-state-token-issuance=(), private-state-token-redemption=(), publickey-credentials-create=(), publickey-credentials-get=(), publickey-credentials-remote-client-data-json=(), rewriter=(), screen-wake-lock=(), serial=(), speaker-selection=(self), storage-access=(), summarizer=(), sync-xhr=(), tools=(), translator=(), unbounded-element=(), unload=(), usb=(), web-app-installation=(), web-share=(), webnn=(), window-management=(), writer=(), xr-spatial-tracking=()"
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'sha256-PXtZZkJMMyc18o/DN1ZEFOJ2qEGq95IQbVaJFMOXOb0='; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'self' blob: wss://{hostport} https://cdn.liveness.rekognition.amazonaws.com wss://streaming-rekognition.us-east-1.amazonaws.com; manifest-src 'self'; worker-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; require-trusted-types-for 'script'; trusted-types lit-html"
+	}
+	@regularResponse not path /account/selfie
+	header @regularResponse {
+		defer
+		import default_policies
+	}
+
 	# Erros de handlers (file_server/proxy) usam uma cadeia separada no Caddy.
 	handle_errors {
 		import security_headers
+		header {
+			defer
+			import default_policies
+		}
 		header Cache-Control "no-store"
 		respond "" {err.status_code}
 	}

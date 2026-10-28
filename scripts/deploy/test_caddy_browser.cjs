@@ -138,6 +138,46 @@ const otherOrigin = `https://127.0.0.1:${port}`;
         return await gathered;
       } finally { p.close(); }
     `), true);
+    // Selfie (issue #93): só o documento /account/selfie recebe WASM, câmera e os dois hosts do Face Liveness.
+    // O CDN é interceptado (nenhum byte da AWS); o WebSocket só precisa não ser recusado pela CSP.
+    await context.route('https://cdn.liveness.rekognition.amazonaws.com/**', route => route.fulfill({
+      status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{}',
+    }));
+    const selfie = await page.goto(`${origin}/account/selfie`);
+    assert.equal(selfie.status(), 200);
+    await context.grantPermissions(['camera'], { origin });
+    check('selfie document compiles WebAssembly', await evaluate(`
+      const m = await WebAssembly.instantiate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+      return m.instance instanceof WebAssembly.Instance;
+    `), true);
+    check('selfie document allows the camera for its own origin', await evaluate(`
+      const s = await navigator.mediaDevices.getUserMedia({video:true});
+      const live = s.getVideoTracks()[0].readyState;
+      s.getTracks().forEach(t => t.stop());
+      return [live, document.featurePolicy.allowsFeature('camera'), document.featurePolicy.allowsFeature('camera', '${otherOrigin}')];
+    `), ['live', true, false]);
+    check('selfie document reaches only the Face Liveness hosts', await evaluate(`
+      const violations = [];
+      document.addEventListener('securitypolicyviolation', e => violations.push(e.blockedURI));
+      const cdn = await (await fetch('https://cdn.liveness.rekognition.amazonaws.com/face-detection/probe.json')).text();
+      const socket = new WebSocket('wss://streaming-rekognition.us-east-1.amazonaws.com/probe');
+      socket.onerror = () => {};
+      socket.close();
+      await fetch('https://streaming-rekognition.us-west-2.amazonaws.com/').catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 300));
+      return [cdn, violations];
+    `), ['{}', ['https://streaming-rekognition.us-west-2.amazonaws.com/']]);
+    check('selfie document still blocks workers', await evaluate(`
+      return await new Promise(resolve => {
+        document.addEventListener('securitypolicyviolation', e => resolve(e.effectiveDirective), { once: true });
+        try { new Worker(trustedTypes.createPolicy('lit-html', { createScriptURL: s => s }).createScriptURL('/assets/probe.js')); } catch {}
+      });
+    `), 'worker-src');
+    await page.goto(`${origin}/account`);
+    check('leaving the selfie document drops WebAssembly and camera', await evaluate(`
+      const wasm = await WebAssembly.instantiate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])).then(() => 'compiled', e => e.name);
+      return [wasm, document.featurePolicy.allowsFeature('camera')];
+    `), ['CompileError', false]);
     // Separate policy-layer diagnostic: allow frames only in this intercepted test document,
     // retaining microphone=(self). The production CSP itself forbids frame navigation above.
     await context.route(`${origin}/policy-frame-probe`, async route => {
