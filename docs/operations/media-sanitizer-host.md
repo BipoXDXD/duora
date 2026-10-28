@@ -30,10 +30,30 @@ o bundle `ba5` publicado antes desta mudança não serve para ativar o launcher 
 Não toca: `/etc/docker`, o daemon do sistema e seus containers, `/var/lib/duora-media`, `/etc/duora`, segredos,
 Caddy/Coolify e as demais contas.
 
-## Runbook
+## Runbook (janela de 45 min)
 
-Pré-requisitos: worktree do repositório com este role, `uv` no Mac (o Ansible roda por `uvx`, sem instalar nada na
-VPS) e a mesma chave/known_hosts do acesso root. O inventário fica fora do git.
+A janela total de testes na VPS (#174 + C2 da #86) é de no máximo 2 a 3 horas; a #174 tem **45 min** reservados.
+Tudo que não toca a VPS acontece antes da janela. Cada passo tem teto: estourou, siga para "Abortar" em vez de
+esticar a janela.
+
+| Passo | Teto | Risco | Mexe na VPS? |
+|---|---|---|---|
+| 0. Preparar no Mac | antes da janela | nulo | não |
+| 1. Pré-checagens | 3 min | nulo | leitura |
+| 2. Instalar inativo + idempotência | 6 min | baixo | sim |
+| 3. Verificar limites, rede e segredos | 2 min | nulo | leitura |
+| 4. Corpus com coleta | 22 min (corte automático aos 20) | baixo a médio | sim, só a conta dedicada |
+| 5. Coletar evidências | 3 min | nulo | leitura |
+| 6. Voltar a inativo | 2 min | nulo | sim |
+| Folga (inclui o passo 7, se preciso) | 7 min | | |
+
+Abortar (qualquer passo): `Ctrl-C` (no passo 4 o `finally` remove só os containers da execução e grava a evidência
+parcial), depois o passo 6. Se a instalação ficou pela metade ou algo divergiu do esperado, o passo 7 desfaz.
+
+### 0. Preparar no Mac (antes da janela; risco nulo)
+
+Pré-requisitos: worktree com este role, `uv` e a mesma chave/known_hosts do acesso root. O inventário fica fora do
+git. Ansible e kit ficam prontos aqui para não gastar a janela com download.
 
 ```sh
 cat > "$TMPDIR/duora-174-inventory.yml" <<'EOF'
@@ -49,71 +69,83 @@ all:
 EOF
 cd infra/ansible
 AP="uvx --from ansible-core==2.21.5 ansible-playbook -i $TMPDIR/duora-174-inventory.yml media-sanitizer.yml"
+$AP --syntax-check                       # aquece o cache do uvx; não conecta na VPS
+# Kit compilado no MESMO commit do role (job backend do CI deste head):
+gh api "repos/BipoXDXD/duora/actions/artifacts?name=media-host-instrumentation-amd64-1" \
+  --jq '.artifacts[] | [.id, .workflow_run.head_sha[0:8], .expired] | @tsv' | head -3
+gh api repos/BipoXDXD/duora/actions/artifacts/<id>/zip > "$TMPDIR/duora-174-kit.zip"
+shasum -a 256 "$TMPDIR/duora-174-kit.zip"   # anote o hash: vai em --kit-sha256
 ```
 
-### 1. Pré-checagens (leitura; ~2 min; risco nulo)
+### 1. Pré-checagens (3 min; leitura; risco nulo)
 
 ```sh
-ssh root@VPS 'set -e; free -m; df -h /; docker ps -q | wc -l; cat /etc/subuid /etc/subgid;
-  ! id duora-media-launcher; ! test -e /var/lib/duora-media-launcher; ! test -e /var/lib/duora-media-runtime;
-  sysctl kernel.apparmor_restrict_unprivileged_userns; grep -c /usr/bin/rootlesskit /etc/apparmor.d/rootlesskit;
-  stat -c "%U:%G %a %n" /var/lib/duora-media /var/lib/duora-media/*; docker version --format "{{.Server.Version}}"'
+ssh root@VPS 'set -e; nproc; grep MemAvailable /proc/meminfo; df -h /; uptime; docker ps -q | wc -l;
+  cat /etc/subuid /etc/subgid; ! id duora-media-launcher; ! test -e /var/lib/duora-media-launcher;
+  ! test -e /var/lib/duora-media-runtime; sysctl kernel.apparmor_restrict_unprivileged_userns;
+  grep -c "profile rootlesskit /usr/bin/rootlesskit" /etc/apparmor.d/rootlesskit;
+  stat -c "%u:%g %a %n" /var/lib/duora-media /var/lib/duora-media/*; docker version --format "{{.Server.Version}}";
+  command -v tmux'
 ```
 
-Esperado: nenhuma linha `duora-media-launcher` em subuid/subgid e nada em `231072–296607`; sysctl `= 1`; fotos com
-`root:root 755` e `1654:1654 700`. Guarde a contagem de containers e as permissões das fotos para comparar.
+Esperado: nenhuma linha `duora-media-launcher` em subuid/subgid e nada em `231072–296607`; sysctl `= 1`; grep `1`;
+fotos `0:0 755` na raiz e `1654:1654 700` em `quarantine`/`derivatives` (numérico: o UID 1654 não tem nome no
+host). Guarde a contagem de containers e as permissões para comparar.
 
-### 2. Instalar inativo (~3–5 min; risco baixo)
+**Não siga** se `MemAvailable` estiver abaixo de 2,5 GiB (o slice pode usar 2 GiB e o host não tem swap) ou se o
+load passar do número de núcleos: pause o OpenClaw (autorizado pelo dono) e confira de novo, ou adie.
+
+### 2. Instalar inativo (6 min; risco baixo)
 
 ```sh
 $AP --diff        # instala; o resumo final mostra daemon parado e launcher static/inactive
 $AP               # reaplicar: changed=0 prova a idempotência
 ```
 
-Risco: `apt` instala quatro pacotes pequenos; o gerenciador de usuário da conta nova sobe (linger) sem processos
-de container. `--check` só é útil a partir da segunda aplicação (a primeira depende da conta já existir).
+Risco: `apt` instala `uidmap` e `slirp4netns` (os outros dois já estão no host); o gerenciador de usuário da conta
+nova sobe (linger) sem processos de container. Falhou, ou `changed` diferente de 0 na segunda: passo 7.
 
-### 3. Verificar (leitura; ~1 min; risco nulo)
+### 3. Verificar limites, rede e segredos (2 min; leitura; risco nulo)
 
 ```sh
 ssh root@VPS 'U=$(id -u duora-media-launcher); grep duora-media-launcher /etc/subuid /etc/subgid;
   cat /sys/fs/cgroup/user.slice/user-$U.slice/{memory.max,memory.swap.max,cpu.max,pids.max};
   systemctl is-enabled duora-media-launcher.service; systemctl is-active duora-media-launcher.service || true;
   systemctl --machine=duora-media-launcher@.host --user is-active docker.service || true;
-  stat -c "%U:%G %a %n" /var/lib/duora-media /var/lib/duora-media/*; docker ps -q | wc -l'
+  stat -c "%u:%g %a %n" /var/lib/duora-media /var/lib/duora-media/*; docker ps -q | wc -l'
 ```
 
 Esperado: `231072:65536` nos dois arquivos; `2147483648`, `0`, `150000 100000`, `1024`; `static`/`inactive`;
-daemon `inactive`; fotos e contagem de containers iguais às do passo 1.
+daemon `inactive`; fotos e contagem de containers iguais às do passo 1. Rede e segredos dentro do sandbox são
+provados pela sonda do passo 4 (só `lo`, DNS/TCP falhando, sem `/run/secrets`, socket Docker, fotos ou `/etc/duora`).
 
-Opcional, fixar o perfil com a imagem por digest (não inicia nada; imprime `profile_sha256` do perfil **deste**
-host): `$AP -e media_sanitizer_image=ghcr.io/bipoxdxd/duora-media-sanitizer@sha256:<digest amd64>`.
+Fixar o perfil com a imagem por digest fica **fora** desta janela: não muda o ensaio e só serve à ativação.
 
-### 4. Rodar o corpus com coleta (~10–20 min; risco baixo a médio)
-
-No Mac, baixe o kit compilado da main e confira o hash (o ZIP é verificado de novo no host contra o próprio
-manifesto fechado, membro a membro):
+### 4. Rodar o corpus com coleta (22 min; risco baixo a médio)
 
 ```sh
-gh api repos/BipoXDXD/duora/actions/artifacts/<id media-host-instrumentation-amd64-1>/zip > kit.zip
-shasum -a 256 kit.zip
-scp kit.zip root@VPS:/var/tmp/duora-174-kit.zip
+scp "$TMPDIR/duora-174-kit.zip" root@VPS:/var/tmp/duora-174-kit.zip
+$AP -e media_sanitizer_runtime_started=true      # só inicia o daemon dedicado (~1 min)
+ssh -t root@VPS tmux new -s duora174             # sobrevive a queda do SSH; reentrar: tmux attach -t duora174
 ```
 
-Na VPS (o `$AP` com `runtime_started=true` só inicia o daemon dedicado):
+Dentro do `tmux` na VPS (o `timeout` manda SIGINT aos 20 min, o que dispara a limpeza do `finally`):
 
 ```sh
-$AP -e media_sanitizer_runtime_started=true
-ssh root@VPS 'install -d -m 0700 /var/lib/duora-174-evidence &&
-  python3 -I /opt/duora/media/host_corpus.py --kit-zip /var/tmp/duora-174-kit.zip --kit-sha256 <sha256 do ZIP> \
-    --evidence-dir /var/lib/duora-174-evidence/$(date -u +%Y%m%dT%H%M%SZ)'
+install -d -m 0700 /var/lib/duora-174-evidence
+RUN=/var/lib/duora-174-evidence/$(date -u +%Y%m%dT%H%M%SZ)
+timeout -s INT -k 120 20m python3 -I /opt/duora/media/host_corpus.py --kit-zip /var/tmp/duora-174-kit.zip \
+  --kit-sha256 <sha256 do ZIP> --evidence-dir "$RUN" 2>&1 | tee /var/tmp/duora-174-run.log; echo "$RUN"
 ```
+
+Duração esperada: pull do SDK (~1 GB, só na primeira vez) 2–5 min, corpus 3–6 min com 0,5 CPU, falhas contidas
+2–3 min. Para acompanhar o host em outro terminal: `ssh root@VPS 'uptime; grep MemAvailable /proc/meminfo'`.
 
 O que roda, tudo no daemon rootless dedicado e com dados sintéticos:
 
 1. Preflight: socket 0600 do próprio UID, `rootless` + `seccomp builtin` + cgroup v2/systemd + `overlay2`, daemon
    sem containers; registra os tetos do slice e os IDs dos containers do daemon do sistema.
-2. Pull do SDK fixado por digest (o mesmo do workflow "Media isolation"; ~1 GB na primeira vez).
+2. Pull do SDK fixado por digest (o mesmo do workflow "Media isolation").
 3. Sonda com **os argumentos de criação do próprio launcher** (só o entrypoint muda): lê `memory.max`,
    `memory.swap.max`, `cpu.max`, `pids.max`, Seccomp/NoNewPrivs/CapEff e UID dentro do cgroup do container;
    prova só `lo`, DNS e TCP falhando, rootfs somente leitura, sem `/run/secrets`, socket Docker, fotos ou `/etc/duora`.
@@ -124,15 +156,16 @@ O que roda, tudo no daemon rootless dedicado e com dados sintéticos:
    remoção confirmada e reinício do daemon dedicado sem containers sobrando.
 6. Limpeza só dos containers criados pela execução; confere que os containers do daemon do sistema são os mesmos.
 
-Risco: CPU limitada a 1,5 núcleo e memória a 2 GiB pelo slice; um OOM proposital acontece dentro de um container de
-512 MiB. Se a memória livre do host estiver baixa, pause o OpenClaw antes (autorizado pelo dono) e retome depois.
-Interromper (Ctrl-C) remove os containers da execução no `finally`; nenhum recurso de outra conta é tocado.
+Risco: o slice limita a conta a 1,5 dos 2 núcleos e a 2 GiB; durante o pull e o corpus a produção fica com cerca de
+0,5 núcleo livre, e a latência pode subir por alguns minutos. O OOM proposital acontece dentro de um container de
+512 MiB. Nenhum recurso de outra conta é tocado. Não use `--skip-failures`: as falhas contidas fazem parte do ensaio.
+Corte aos 20 min ou `passed: false`: registre como execução incompleta ou reprovada; não repita dentro da janela.
 
-### 5. Coletar evidências (~2 min; risco nulo)
+### 5. Coletar evidências (3 min; risco nulo)
 
 ```sh
-ssh root@VPS 'cd /var/lib/duora-174-evidence/<execução> && sha256sum -c SHA256SUMS && python3 -m json.tool evidence.json'
-scp -r root@VPS:/var/lib/duora-174-evidence/<execução> .
+ssh root@VPS 'cd <RUN> && sha256sum -c SHA256SUMS && python3 -m json.tool evidence.json | head -80'
+scp -r root@VPS:<RUN> . && scp root@VPS:/var/tmp/duora-174-run.log .
 ```
 
 `evidence.json` traz `passed`, `failures` e, por verificação: `sandboxLimitsAndIsolation.values` (limites lidos do
@@ -141,22 +174,26 @@ cgroup do sandbox), `corpus.observed.cgroupChain` (cliente e ancestrais), `corpu
 e `systemDaemonPreserved`. `corpus.log` e `probe.txt` são saídas sintéticas; nenhum segredo é lido ou gravado.
 `operationalAcceptance` é sempre `false`: o aceite é do dono (#174) e do responsável #86.
 
-### 6. Voltar a inativo (~1 min; risco nulo)
+### 6. Voltar a inativo (2 min; risco nulo)
 
 ```sh
-$AP               # runtime_started=false: para o daemon dedicado
-ssh root@VPS 'rm -f /var/tmp/duora-174-kit.zip'
+$AP               # runtime_started=false: para o daemon dedicado; resumo com daemon parado e launcher static/inactive
+ssh root@VPS 'rm -f /var/tmp/duora-174-kit.zip /var/tmp/duora-174-run.log; tmux kill-session -t duora174 || true;
+  docker ps -q | wc -l'
 ```
 
-### 7. Desfazer (~2 min; risco baixo)
+A contagem de containers volta à do passo 1, e a C2 da #86 pode começar.
+
+### 7. Desfazer (3 min, dentro da folga; risco baixo)
 
 ```sh
 $AP -e media_sanitizer_state=absent
-ssh root@VPS '! id duora-media-launcher; ! grep duora-media-launcher /etc/subuid /etc/subgid; ls /etc/systemd/system | grep -c duora-media || true'
+ssh root@VPS '! id duora-media-launcher; ! grep duora-media-launcher /etc/subuid /etc/subgid;
+  ls /etc/systemd/system | grep -c duora-media || true'
 ```
 
 Para o daemon e o launcher, desliga o linger, remove drop-ins, unidade, código, perfil, autoridade, conta (com o home
-e o cache sintético do daemon), faixa subordinada e grupo. Mantém os pacotes e as evidências.
+e o cache do SDK, que exigirá novo pull), faixa subordinada e grupo. Mantém os pacotes e as evidências.
 
 ## O que continua pendente
 
