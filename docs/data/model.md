@@ -279,7 +279,8 @@ erDiagram
         uuid user_id PK
         text display_name
         text age_band
-        text region_code
+        text country_code FK
+        text subdivision_code FK
         bigint version
     }
     preferences {
@@ -296,11 +297,11 @@ erDiagram
 ### profiles.profiles
 
 - **Colunas:** `user_id uuid`; `display_name text` (≤ 40); `age_band text` (faixas fechadas, ex. `18-24`,
-  `25-34`; derivada de `birth_date`); `region_code text` (região aproximada: UF em ISO 3166-2:BR, opcional;
-  decisão do responsável técnico em 2026-10-16); `bio text` (≤ 500); `updated_at`; `version bigint` (`ETag` de
-  API-P01/P02).
-- **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos, de `age_band` e de
-  `region_code`.
+  `25-34`; derivada de `birth_date`); `country_code text` e `subdivision_code text` (localização aproximada e
+  opcional: país ISO 3166-1 e subdivisão ISO 3166-2 do catálogo, ADR-0030); `bio text` (≤ 500); `updated_at`;
+  `version bigint` (`ETag` de API-P01/P02).
+- **Constraints:** PK e FK `user_id` → `identity.users` `RESTRICT`; `CHECK` de tamanhos e de `age_band`; FKs de
+  localização para o catálogo e `CHECK` de país quando há subdivisão.
 - **Classe:** P2 (perfil exibido a contextos legítimos, spec 12.1).
 - **Implementado (migração `Profiles`):** `user_id`, `display_name text null` (1 a 40), `bio text null` (1 a 500),
   `version bigint` (`CHECK version >= 1`; a linha só nasce na primeira gravação, e o perfil sem linha é lido como
@@ -312,11 +313,15 @@ erDiagram
   composta para `profiles.subdivisions(country_code, code)` (MATCH SIMPLE). CHECK exige país quando há subdivisão;
   índice `ix_profiles_location(country_code, subdivision_code)` atende as FKs e consulta por país.
   O seed conserva BR e as 27 UFs; backfill preserva versão, timestamp e ausência de localização.
-  `region_code` e seu CHECK permanecem como contrato legado, com dual-write da API e ponte temporária para
-  escritores antigos. A fonte definitiva do catálogo e os países de lançamento não são decididos por esta expansão.
+  A fonte definitiva do catálogo e os países de lançamento não são decididos por esta expansão.
   Ver ADR-0030 para PATCH atômico da localização, ordem de atualização dos componentes e rollback sem apagar dados.
+- **Contract (migração `ProfileRegionContract`, issue #78):** retira `region_code`, `ck_profiles_region_code` e o
+  trigger/função `profiles.sync_legacy_region`. A API mantém o campo `regionCode`, derivado da localização
+  canônica: a UF quando o país é `BR` e a subdivisão é uma das 27 de `RegionCode.All`; `null` nos demais casos
+  (inclusive EUA). O `Down` devolve coluna, CHECK e trigger, com `region_code` recomposto de país + subdivisão, sem
+  alterar versão nem `updated_at`.
 
-- **Implementado (migração `ProfileRegion`, aditiva):** `region_code text null` com
+- **Histórico (migração `ProfileRegion`, aditiva; retirado pelo contract acima):** `region_code text null` com
   `ck_profiles_region_code` (`region_code IN ('BR-AC', ..., 'BR-TO')`, as 27 UFs). `null` é "não informada".
   - **CHECK, não lookup table** (regra de Estados acima, *SQL Antipatterns* cap. 11): as 27 UFs são um conjunto
     fixo, que muda raramente e exige processo legislativo (e revisão do ISO 3166-2:BR; o último ajuste foi em

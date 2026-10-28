@@ -1,5 +1,4 @@
 using Duora.IntegrationTests.Identity;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
@@ -42,7 +41,9 @@ public sealed class ProfileRegionMigrationTests(PostgresFixture postgres)
 
         await using (var after = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
-            await after.Database.MigrateAsync(Ct);
+            // Até o schema expandido: o contract (#78) retira region_code, verificado em ProfileRegionContractMigrationTests.
+            await after.GetService<IMigrator>().MigrateAsync(
+                ProfileRegionContractMigrationTests.MigrationBeforeContract, cancellationToken: Ct);
         }
 
         await using var check = new NpgsqlConnection(database.AppConnectionString);
