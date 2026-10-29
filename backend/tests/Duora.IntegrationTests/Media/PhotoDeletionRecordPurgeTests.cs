@@ -155,6 +155,82 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
     }
 
     [Fact]
+    public async Task ATombstoneWhoseOriginalCleanupIsStillPendingNeverLeaves()
+    {
+        // Com obrigação própria em original_cleanup, a exclusão não grava o original em photo_deletion_cleanup.
+        var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
+        await ExecuteAsync("""
+            insert into media.original_cleanup (upload_id, object_key, created_at, available_at)
+            select id, quarantine_key, $2, $2 from media.uploads where id = $1
+            """, photo, DeletedAt.AddMinutes(-5));
+        _time.SetUtcNow(DeletedAt.AddYears(3));
+
+        Assert.Equal(new PhotoDeletionRecordPurgeResult(1, 0), await Purge().PurgeOnceAsync(Ct));
+        Assert.Equal(1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
+
+        await ExecuteAsync("delete from media.original_cleanup where upload_id = $1", photo);
+        Assert.Equal(new PhotoDeletionRecordPurgeResult(0, 1), await Purge().PurgeOnceAsync(Ct));
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(64, false)]
+    [InlineData(65, true)]
+    [InlineData(66, true)]
+    public async Task ATombstoneLeavesOnlyWhenItsCandidateWasDeletedAtLeastTheBackupWindowAgo(int daysAgo, bool purged)
+    {
+        // A janela de backup conta da remoção física, no relógio do banco, não de deleted_at.
+        var databaseNow = await DatabaseNowAsync();
+        var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
+        var removedAt = databaseNow.AddDays(-daysAgo);
+        await ExecuteAsync("""
+            insert into media.review_candidates (generation, upload_id, upload_version, detected_type, width, height,
+              created_at, prepare_deadline, writer_settled_at, cleanup_requested_at, cleanup_available_at,
+              last_cleanup_at, deleted_at)
+            values (gen_random_uuid(), $1, 1, 'image/jpeg', 64, 32, $2 - interval '1 hour', $2,
+              $2 - interval '1 hour', $2, $2, $3, $3)
+            """, photo, DeletedAt, removedAt);
+        _time.SetUtcNow(new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+        var result = await Purge().PurgeOnceAsync(Ct);
+
+        Assert.Equal(purged ? 1 : 0, result.Tombstones);
+        Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public async Task ATombstoneExactlyOneYearOldOnTheDatabaseClockLeavesEvenWithTheCallerAhead(int minutesYounger, bool purged)
+    {
+        // Um ano no relógio do banco: 365 dias quando o intervalo não cruza um 29 de fevereiro.
+        var databaseNow = await DatabaseNowAsync();
+        var photo = (await SeedDeletionsAsync(1, databaseNow.AddYears(-1).AddMinutes(minutesYounger))).Single();
+        _time.SetUtcNow(new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+        var result = await Purge().PurgeOnceAsync(Ct);
+
+        Assert.Equal(new PhotoDeletionRecordPurgeResult(purged ? 1 : 0, purged ? 1 : 0), result);
+        Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
+    }
+
+    [Fact]
+    public async Task TheFunctionRunsWithExactlyItsPinnedSettings()
+    {
+        // Sem lock_timeout, um lock preso seguraria o lote até o statement timeout do cliente.
+        await using var connection = await Source.OpenConnectionAsync(Ct);
+        await using var command = new NpgsqlCommand("""
+            select p.proconfig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'media' and p.proname = 'purge_photo_deletion_records'
+            """, connection);
+
+        var settings = (string[])(await command.ExecuteScalarAsync(Ct) ?? Array.Empty<string>());
+
+        Assert.Equal(["TimeZone=UTC", "lock_timeout=500ms", "search_path=pg_catalog, pg_temp"],
+            settings.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task OneCallDeletesAtMostOneBatchPerTableAndTheNextCallTakesTheRest()
     {
         await SeedDeletionsAsync(PhotoDeletionRecordPurge.BatchSize + 1, DeletedAt);

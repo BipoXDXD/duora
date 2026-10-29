@@ -92,6 +92,21 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task OnlyAllowlistedFunctionsRunAsTheirOwner()
+    {
+        // SECURITY DEFINER contorna as permissões de tabela de duora_app; cada uma passa por revisão e entra aqui.
+        var definers = await QueryStringsAsync(
+            $"""
+            select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where {ApplicationSchemaFilter} and p.prosecdef
+            """);
+
+        Assert.Equal(["media.purge_photo_deletion_records(p_as_of timestamp with time zone, p_limit integer)"],
+            definers.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task AppSequencesAllowNextvalButNotSetval()
     {
         var sequences = await QueryStringsAsync(

@@ -156,7 +156,7 @@ espera por guarda. Timers atrasados não ampliam autorização nem tornam candid
 | Espera máxima 7 dias | awaitingReviewAt +168h (decisão de 29/10/2026; antes, +72h, prazo que os casos já abertos mantêm); sem decisão confirmada, PHOTO_REVIEW_EXPIRED, nunca aprovação; limpeza até +24h |
 | Candidato aprovado ou reprovado | decidedAt +24h; a decisão grava a obrigação de limpeza e o Worker a executa logo após (`DecidedCandidateCleanupDispatcher`). Até 28/10/2026 o reprovado ficava 7dias à espera de recurso |
 | Registro mínimo da decisão/auditoria | 1ano conforme ADR-0035; sem imagem ou texto sensível |
-| Tombstone (`media.photo_tombstones`) e recibo de exclusão (`media.photo_deletion_commands`) | 1 ano desde `deleted_at`/`created_at`, igual à auditoria (decisão de 29/10/2026). O Worker apaga pela função `SECURITY DEFINER` `media.purge_photo_deletion_records`; a aplicação continua sem `DELETE` nessas tabelas, o corte nunca passa do relógio do banco, e o tombstone fica enquanto houver obrigação física da foto pendente |
+| Tombstone (`media.photo_tombstones`) e recibo de exclusão (`media.photo_deletion_commands`) | 1 ano desde `deleted_at`/`created_at`, igual à auditoria (decisão de 29/10/2026). O Worker apaga pela função `SECURITY DEFINER` `media.purge_photo_deletion_records`; a aplicação continua sem `DELETE` nessas tabelas, o corte nunca passa do relógio do banco, e o tombstone fica enquanto houver obrigação física da foto pendente (ou candidato removido há menos de 65 dias) |
 
 Decisão empatada com a limpeza é serializada; não ressuscitar bytes apagados. Status público de rejeição
 continua Rejected, sem sanção extra e com orientação para novo envio. Se candidato desaparecer antes da
@@ -239,8 +239,9 @@ O caso editorial não é apagado: some da fila e da evidência do moderador, e d
 404 sem publicar nada. O Worker que chega depois encontra `Deleted` e só encerra a entrega. O tombstone só existe
 no banco: o 204 não espera ledger externo, e um restore anterior à exclusão ainda a desfaz (ver "Ledger externo"
 abaixo). Retenção das linhas de tombstone e recibo: 1 ano, igual à auditoria (decisão de 29/10/2026), aplicada pelo
-`PhotoDeletionRecordPurgeService` do Worker. Depois que o recibo sai, repetir o DELETE com a mesma chave não é mais
-replay: a foto já está `Deleted` com outra versão, e a resposta é 412, sem efeito novo.
+`PhotoDeletionRecordPurgeService` do Worker. A idempotência da chave vale, portanto, por 1 ano (o OpenAPI diz isso):
+depois que o recibo sai, repetir o DELETE com a mesma chave não é mais replay. A foto já está `Deleted` com outra
+versão, e a resposta é 412, sem efeito novo.
 
 **Ledger externo (28/10/2026).** Não é viável sem custódia nova: para sobreviver a um restore do banco, o ledger
 precisa ficar fora dele, num bucket B2 com credencial e retenção próprias. Essa custódia não existe e a

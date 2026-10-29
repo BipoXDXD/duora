@@ -161,6 +161,8 @@ recibos com mais de 1 ano desde `created_at` e os tombstones com mais de 1 ano d
 função `media.purge_photo_deletion_records`, dona das tabelas (`SECURITY DEFINER`); a aplicação só tem `EXECUTE`
 nela. O instante do corte vem do `TimeProvider` do Worker, mas nunca passa do relógio do banco, então nenhuma
 exclusão dentro da janela de backup (~65 dias) fica elegível. Um tombstone com obrigação física pendente
-(`media.photo_deletion_cleanup` ou candidato privado ainda não apagado) não sai. O upload continua `Deleted`.
+(`media.photo_deletion_cleanup`, `media.original_cleanup` ou candidato privado ainda não apagado) não sai, nem um
+cujo candidato foi removido há menos de 65 dias no relógio do banco. O upload continua `Deleted`. A conclusão de
+`photo_deletion_cleanup` não tem data guardada; o risco residual e por que ele não ressuscita a foto estão no ADR.
 Métrica `duora.media.deletion_records.purged` (meter `Duora.Media`, rótulo `table`) e log com as contagens.
 Motivo e alternativas no [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#expurgo-dos-registros-de-exclusão-p3).

@@ -23,6 +23,8 @@ public sealed class PhotoDeletionRecordRetention : Migration
         set lock_timeout = '500ms'
         as $function$
         declare
+          -- Janela de backup de docs/privacy/retention.md: 14 dias de recuperação + 21 de lock + 30 do lifecycle.
+          c_backup_window constant interval := interval '65 days';
           v_cutoff timestamptz;
         begin
           if p_as_of is null or not isfinite(p_as_of) then
@@ -47,13 +49,17 @@ public sealed class PhotoDeletionRecordRetention : Migration
           get diagnostics receipts = row_count;
 
           -- O tombstone explica obrigações físicas ainda pendentes (bytes no disco entram em cada novo backup de mídia):
-          -- enquanto houver uma, ele fica, por mais velho que seja.
+          -- enquanto houver uma, ele fica, por mais velho que seja. Um candidato removido só libera o tombstone depois
+          -- da janela de backup, contada da remoção física no relógio do banco.
           with doomed as (
             select t.photo_id from media.photo_tombstones t
             where t.deleted_at <= v_cutoff
               and not exists (select 1 from media.photo_deletion_cleanup c where c.photo_id = t.photo_id)
+              and not exists (select 1 from media.original_cleanup o where o.upload_id = t.photo_id)
               and not exists (select 1 from media.review_candidates rc
-                              where rc.upload_id = t.photo_id and rc.deleted_at is null)
+                              where rc.upload_id = t.photo_id
+                                and (rc.deleted_at is null
+                                  or rc.deleted_at > statement_timestamp() - c_backup_window))
             order by t.deleted_at, t.photo_id
             limit p_limit
             for update of t skip locked)
@@ -64,6 +70,7 @@ public sealed class PhotoDeletionRecordRetention : Migration
         end
         $function$;
 
+        alter function media.purge_photo_deletion_records(timestamptz, integer) owner to duora_migrator;
         revoke all on function media.purge_photo_deletion_records(timestamptz, integer) from public;
         grant execute on function media.purge_photo_deletion_records(timestamptz, integer) to duora_app;
         """);
