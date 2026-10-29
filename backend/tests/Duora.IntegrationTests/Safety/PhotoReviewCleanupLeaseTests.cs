@@ -61,8 +61,10 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Equal(files, Files());
         Assert.Equal(1, await dispatch(Ct));
         Assert.Equal(retained, Files());
+        // A remoção física grava deleted_at no relógio do banco, não no relógio falso (dias atrás): é dele que o
+        // expurgo de tombstones conta a janela de backup (ADR-0035, P3).
         Assert.Equal(writerSettled ? 1L : 0L, await ScalarAsync(
-            "select count(*) from media.review_candidates where generation=$1 and deleted_at is not null", generation));
+            "select count(*) from media.review_candidates where generation=$1 and deleted_at between statement_timestamp() - interval '5 minutes' and statement_timestamp()", generation));
         Assert.Equal(1, await ScalarAsync("""
             select count(*) from media.review_candidates where generation=$1 and cleanup_token is null
               and cleanup_lease_until is null and last_cleanup_at is not null
@@ -200,8 +202,10 @@ public sealed partial class PhotoReviewApprovalTests
         }
         else
         {
+            // A remoção física grava deleted_at no relógio do banco, não no relógio falso (dias atrás): é dele que o
+            // expurgo de tombstones conta a janela de backup (ADR-0035, P3).
             Assert.Equal(writerSettled ? 1L : 0L, await ScalarAsync(
-                "select count(*) from media.review_promotions where generation=$1 and deleted_at is not null", rowId));
+                "select count(*) from media.review_promotions where generation=$1 and deleted_at between statement_timestamp() - interval '5 minutes' and statement_timestamp()", rowId));
             Assert.Equal(1, await ScalarAsync("""
                 select count(*) from media.review_promotions where generation=$1 and cleanup_token is null
                   and cleanup_lease_until is null and last_cleanup_at is not null
