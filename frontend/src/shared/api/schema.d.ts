@@ -4772,6 +4772,10 @@ export interface components {
             /** Format: date-time */
             observedAt: string;
         };
+        /**
+         * @description Cadastro (API-A02). `ConfirmedAdult` é a confirmação explícita "Declaro ter 18 anos ou mais" pedida pelos
+         *     Termos e precisa ser `true`. Não informa idade nem data de nascimento e não é verificação etária.
+         */
         RegisterRequest: {
             email: null | string;
             password: null | string;
@@ -4781,6 +4785,7 @@ export interface components {
             acceptedPrivacyLocale?: null | string;
             acceptedTermsSha256?: null | string;
             acceptedPrivacySha256?: null | string;
+            confirmedAdult?: null | boolean;
         };
         ResetPasswordRequest: {
             /** Format: uuid */

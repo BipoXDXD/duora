@@ -5888,9 +5888,16 @@
               "null",
               "string"
             ]
+          },
+          "confirmedAdult": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Cadastro (API-A02). `ConfirmedAdult` é a confirmação explícita \"Declaro ter 18 anos ou mais\" pedida pelos\nTermos e precisa ser `true`. Não informa idade nem data de nascimento e não é verificação etária."
       },
       "ResetPasswordRequest": {
         "required": [

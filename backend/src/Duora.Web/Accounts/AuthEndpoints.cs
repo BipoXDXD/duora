@@ -84,6 +84,7 @@ internal static class AuthEndpoints
         validation.DocumentVersion("acceptedPrivacyVersion", request.AcceptedPrivacyVersion, out var privacyVersion);
         validation.DocumentLocale("acceptedTermsLocale", request.AcceptedTermsLocale);
         validation.DocumentLocale("acceptedPrivacyLocale", request.AcceptedPrivacyLocale);
+        validation.Confirmed("confirmedAdult", request.ConfirmedAdult);
         if (!validation.IsValid || email is null || password is null || termsVersion is null || privacyVersion is null)
         {
             return ApiProblems.Validation(validation.Errors);

@@ -50,6 +50,7 @@ internal sealed class IdentityScenario(string connectionString, DuoraWebFactory 
             acceptedPrivacyLocale = privacyLocale,
             acceptedTermsSha256 = SyntheticLegalPublication.Hash(publication ?? SyntheticLegalPublication.Default, "terms", termsLocale),
             acceptedPrivacySha256 = SyntheticLegalPublication.Hash(publication ?? SyntheticLegalPublication.Default, "privacy", privacyLocale),
+            confirmedAdult = true,
         };
 
     public static async Task<HttpResponseMessage> RegisterAsync(Browser browser, string email, string password = ValidPassword)

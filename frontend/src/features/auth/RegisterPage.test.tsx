@@ -21,6 +21,7 @@ interface RegisterInput {
   readonly password?: string
   readonly acceptTerms?: boolean
   readonly acceptPrivacy?: boolean
+  readonly confirmAdult?: boolean
 }
 
 async function fillAndSubmit({ user }: RenderedApp, input: RegisterInput) {
@@ -29,6 +30,7 @@ async function fillAndSubmit({ user }: RenderedApp, input: RegisterInput) {
     password = 'frase longa de senha',
     acceptTerms = true,
     acceptPrivacy = true,
+    confirmAdult = true,
   } = input
   await screen.findByRole('button', { name: 'Criar conta' })
   if (email !== '') {
@@ -44,6 +46,9 @@ async function fillAndSubmit({ user }: RenderedApp, input: RegisterInput) {
   }
   if (acceptPrivacy) {
     await user.click(screen.getByRole('checkbox', { name: /Política de privacidade/ }))
+  }
+  if (confirmAdult) {
+    await user.click(screen.getByRole('checkbox', { name: 'Declaro ter 18 anos ou mais' }))
   }
   await user.click(screen.getByRole('button', { name: 'Criar conta' }))
 }
@@ -93,7 +98,11 @@ describe('tela de cadastro', () => {
     for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
     expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeInTheDocument()
-    expect(received[0]?.body).toMatchObject({ acceptedTermsLocale: 'en-US', acceptedPrivacyLocale: 'en-US' })
+    expect(received[0]?.body).toMatchObject({
+      acceptedTermsLocale: 'en-US',
+      acceptedPrivacyLocale: 'en-US',
+      confirmedAdult: true,
+    })
   })
 
   it('resets acceptance when a document language changes and sends independent metadata', async () => {
@@ -174,6 +183,7 @@ describe('tela de cadastro', () => {
           acceptedTermsSha256: '1'.repeat(64),
           acceptedPrivacySha256: '3'.repeat(64),
           acceptedPrivacyLocale: 'pt-BR',
+          confirmedAdult: true,
         },
         token: antiforgery.latestToken(),
       },
@@ -221,6 +231,33 @@ describe('tela de cadastro', () => {
     )
     expect(await screen.findByLabelText('E-mail')).toHaveValue('ana@exemplo.com')
     expect(received).toEqual([])
+  })
+
+  it('exige a declaração de 18 anos ou mais e não envia o cadastro sem ela', async () => {
+    const received = useRegisterEndpoint(accepted)
+    const app = await renderApp('/register')
+
+    await fillAndSubmit(app, { confirmAdult: false })
+
+    const adult = screen.getByRole('checkbox', { name: 'Declaro ter 18 anos ou mais' })
+    expect(adult).toHaveFocus()
+    expect(adult).toHaveAttribute('aria-invalid', 'true')
+    expect(adult).toHaveAccessibleDescription('Para criar a conta, declare que tem 18 anos ou mais.')
+    expect(received).toEqual([])
+  })
+
+  it('pede só a declaração, sem data de nascimento nem idade', async () => {
+    await renderApp('/register')
+
+    await screen.findByRole('checkbox', { name: 'Declaro ter 18 anos ou mais' })
+    expect(screen.queryByLabelText(/nascimento|\bidade\b/i)).not.toBeInTheDocument()
+    expect(document.querySelector('input[type="date"], input[type="number"]')).toBeNull()
+  })
+
+  it('shows the adult declaration in the English interface', async () => {
+    await renderApp('/register', undefined, 'en-US')
+
+    expect(await screen.findByRole('checkbox', { name: 'I declare that I am 18 or older' })).not.toBeChecked()
   })
 
   it('e-mail inválido: erro associado e foco no campo', async () => {

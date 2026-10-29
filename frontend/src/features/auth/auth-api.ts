@@ -24,6 +24,8 @@ export interface Registration {
   readonly acceptedTermsSha256: string
   readonly acceptedPrivacySha256: string
   readonly acceptedPrivacyLocale: Locale
+  /** Explicit "18 or older" declaration required by the Terms; never an age or a birth date. */
+  readonly confirmedAdult: true
 }
 
 /** 202 neutro: a resposta não revela se o e-mail já tem conta. */
