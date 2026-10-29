@@ -30,9 +30,10 @@ updates:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 
-  # Atualiza o SHA fixado e o comentário de versão das actions.
+  # Atualiza o SHA fixado e o comentário de versão das actions. `/` cobre só .github/workflows;
+  # as actions compostas em .github/actions precisam ser listadas para não ficarem em versão antiga.
   - package-ecosystem: github-actions
-    directory: /
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: weekly
     groups:
