@@ -107,7 +107,7 @@ public sealed partial class PhotoReviewApprovalTests
         else if (mismatch == "wrong-case")
         {
             var other = await CaseAsync();
-            _time.Advance(TimeSpan.FromHours(73));
+            _time.Advance(ReviewWait + TimeSpan.FromHours(1));
             Assert.Equal(1, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
             await ExecuteAsync("""
                 update media.review_candidates set cleanup_audit_id=(select cleanup_audit_id from media.review_candidates
@@ -341,7 +341,7 @@ public sealed partial class PhotoReviewApprovalTests
     private async Task<(CaseData Item, Guid Generation)> ExpiredCleanupCaseAsync()
     {
         var item = await CaseAsync();
-        _time.Advance(TimeSpan.FromHours(73));
+        _time.Advance(ReviewWait + TimeSpan.FromHours(1));
         var advance = new AdvanceExpirationAuditClock(_time);
         Assert.Equal(1, await new PhotoReviewExpirations(Factory(advance), _time).ExpireOnceAsync(Ct));
         Assert.True(advance.Fired);

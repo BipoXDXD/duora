@@ -694,6 +694,9 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
         await using (var before = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
         {
             await before.GetService<IMigrator>().MigrateAsync("20261022210000_PrivateReviewPromotions", cancellationToken: Ct);
+            // The case writer below is the current one: its 7-day deadline needs the 29/10/2026 expand of that check.
+            await before.Database.ExecuteSqlRawAsync(
+                Duora.Infrastructure.Persistence.Migrations.PhotoReviewSevenDayWait.UpSql, Ct);
         }
 
         _connectionString = database.AppConnectionString;

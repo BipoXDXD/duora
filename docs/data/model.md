@@ -877,8 +877,9 @@ atribuição e decisões (o recurso foi removido em 28/10/2026). Não reutiliza 
 - **Colunas:** `id uuid`; `upload_id uuid`; `candidate_generation uuid`; `policy_version varchar(64)`;
   `awaiting_review_at`, `review_deadline timestamptz`; `version bigint`.
 - **Constraints:** PK `id`, UNIQUE `upload_id`, FK para `media.uploads` RESTRICT, versão positiva, identificador
-  de versão da política fechado em letras/dígitos/ponto/hífen/sublinhado e prazo exato de 72 horas desde início
-  finito. A unicidade é da raiz: uma revisão por upload; foto recusada gera outro upload e outra raiz.
+  de versão da política fechado em letras/dígitos/ponto/hífen/sublinhado e prazo exato desde início finito: 168
+  horas (7 dias) desde `20261029120000_PhotoReviewSevenDayWait`, que mantém aceitos os 72 horas da release
+  anterior (expand; nenhuma linha reescrita, e os casos pendentes conservam o prazo com que entraram). A unicidade é da raiz: uma revisão por upload; foto recusada gera outro upload e outra raiz.
 - **Índice:** `(review_deadline, id)` para futura varredura limitada. Nenhum job de expiração é ativado por M1.
 - **Classe:** P3; só referências/versionamento/prazos, sem imagem, chaves de storage ou motivo sensível.
 - **Permissões:** DML comum de `duora_app`, coberto pela allowlist de privilégios; nenhuma nova permissão de
@@ -979,7 +980,9 @@ pessoal; decisão, leitura privada do recurso e composição canônica dos REVOK
   hashes de 32 bytes; chaves de objeto só nos formatos gerados pelo servidor; lease e token juntos.
 - **Índices:** dono e foto (FKs), `(available_at, object_key)` da fila.
 - **Limites conhecidos:** o tombstone vive só neste banco; um restore anterior à exclusão o perde. O ledger externo
-  (docs/superpowers/specs/2026-10-24-photo-delete-tombstones-design.md) e a retenção destas linhas continuam abertos.
+  (docs/superpowers/specs/2026-10-24-photo-delete-tombstones-design.md) continua aberto. Retenção de tombstone e
+  recibo: 1 ano, igual à auditoria (decisão de 29/10/2026); o job de expurgo ainda não existe e a aplicação não tem
+  `UPDATE`/`DELETE` nessas tabelas.
 - **Classe:** P3 (ids e hashes; nenhum conteúdo ou chave do cliente em claro).
 
 ## Schema `ops`

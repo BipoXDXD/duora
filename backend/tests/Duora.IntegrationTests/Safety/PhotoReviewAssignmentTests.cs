@@ -277,7 +277,7 @@ public sealed class PhotoReviewAssignmentTests(PostgresFixture postgres) : IAsyn
         var item = await CaseAsync(Guid.Parse("00000000-0000-4000-8000-000000000001"));
         if (change == "deadline")
         {
-            _time.Advance(TimeSpan.FromHours(72) - TimeSpan.FromSeconds(1));
+            _time.Advance(TimeSpan.FromDays(7) - TimeSpan.FromSeconds(1));
         }
         var actor = await ActorAsync(AccountRoles.Moderator, Guid.Parse("ffffffff-ffff-4fff-bfff-ffffffffffff"));
         await GrantAsync(actor.UserId, PhotoReviewCapability.Assign, enabled: true);

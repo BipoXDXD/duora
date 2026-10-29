@@ -1,6 +1,6 @@
 # ADR-0035: Revisão humana de fotos antes da publicação
 
-- **Status:** Accepted (2026-10-22); emendado pelas [decisões de 28/10/2026](#decisões-de-28102026) (HumanReview admitida em Production, sem recurso de fotos, revisor único); ativação do upload pendente (#69)
+- **Status:** Accepted (2026-10-22); emendado pelas [decisões de 28/10/2026](#decisões-de-28102026) (HumanReview admitida em Production, sem recurso de fotos, revisor único) e pelas [decisões de 29/10/2026](#decisões-de-29102026) (espera de 7 dias, retenção de 1 ano dos registros de exclusão); ativação do upload pendente (#69)
 - **Origem:** [issue #173](https://github.com/BipoXDXD/duora/issues/173), [#69](https://github.com/BipoXDXD/duora/issues/69), [ADR-0025](0025-pipeline-de-fotos-imagesharp-s3-outbox.md), spec 12.3 e API-M01–M04.
 - **Revisar quando:** Estados/contrato, regras editoriais, retenção, equipe ou fronteira Media/Safety mudarem.
 
@@ -62,7 +62,7 @@ a política efetiva, limites ou configuração. Aceite arquitetural não comprov
 | P173-2 | `AwaitingReview` persistido e público, inclusive replay; não projetar como `Processing`. Preparar leitores, constraints, índices, cotas e consumidores antes dos escritores. | Evolução semântica exige revisão própria de contrato e testes. Rollback só com leitores compatíveis. |
 | P173-3 | `Rejected` com `PHOTO_REVIEW_REJECTED` para decisão humana, `PHOTO_REVIEW_EXPIRED` para espera vencida e `PHOTO_REVIEW_UNAVAILABLE` para candidato perdido. Motivos internos no caso; explicação pública acionável e localizada. | Códigos do resultado de revisão, não de `errors` ou da negociação ADR-0034. Requer contrato/CHECK próprios; não reutilizar `PROCESSING_LIMIT`. Categorias públicas/textos seguros ainda a detalhar. |
 | P173-4 | Safety possui caso, atribuição e decisão; Media possui upload, arquivos e publicação. Moderador apenas em casos atribuídos, MFA, step-up e versão esperada na decisão. Auditar leitura antes dos bytes. ~~Recurso decidido por outra pessoa.~~ *(Substituído pelo adendo de 28/10/2026: sem recurso de fotos e um único revisor.)* | Operações administrativas e auditoria transacional futuras; falha da auditoria nega leitura. Operador/product_admin não recebe acesso implícito. |
-| P173-5 | Alvo de primeira análise 24 h; espera expira em 72 h. ~~Recurso até 7 dias da rejeição; alvo de decisão em 7 dias. Candidato rejeitado retido por 7 dias; com recurso até encerramento + 24 h, limitado a 30 dias desde rejeição, salvo preservação excepcional explicitamente aprovada.~~ *(Substituído pelo adendo de 28/10/2026: sem recurso; o candidato rejeitado recebe a mesma obrigação de limpeza de 24 h da aprovação.)* Candidato expirado: limpeza em até 24 h. Original eliminado após derivação/commit, sem aguardar humano. Registro mínimo de decisão/auditoria: 1 ano, sem imagem/texto sensível. | Reconciliar política de privacidade, `retention_until`, exclusão e backups; não é conclusão jurídica. Detalhar exceções de preservação e reconciliação (o recurso vencido deixou de existir com o adendo de 28/10/2026). Alvos de atendimento não são evidência de capacidade. |
+| P173-5 | Alvo de primeira análise 24 h; espera expira em 72 h *(7 dias desde o adendo de 29/10/2026)*. ~~Recurso até 7 dias da rejeição; alvo de decisão em 7 dias. Candidato rejeitado retido por 7 dias; com recurso até encerramento + 24 h, limitado a 30 dias desde rejeição, salvo preservação excepcional explicitamente aprovada.~~ *(Substituído pelo adendo de 28/10/2026: sem recurso; o candidato rejeitado recebe a mesma obrigação de limpeza de 24 h da aprovação.)* Candidato expirado: limpeza em até 24 h. Original eliminado após derivação/commit, sem aguardar humano. Registro mínimo de decisão/auditoria: 1 ano, sem imagem/texto sensível. | Reconciliar política de privacidade, `retention_until`, exclusão e backups; não é conclusão jurídica. Detalhar exceções de preservação e reconciliação (o recurso vencido deixou de existir com o adendo de 28/10/2026). Alvos de atendimento não são evidência de capacidade. |
 | P173-6 | Área privada `review-candidates`, separada de quarantine/derivatives e fora do backup de mídia; somente derivados sanitizados. Promoção com geração/versão e commit condicional, seguida de limpeza. Perda após restore: `PHOTO_REVIEW_UNAVAILABLE` e novo envio. *(Atualizado pelo adendo de 28/10/2026: a rejeição também grava a obrigação de limpeza do candidato, executada pelo `DecidedCandidateCleanupDispatcher`.)* | Montagens/permissões, leitura administrativa, GC e tombstones. Metadados dos casos seguem no backup do banco; perda de disco pode exigir reenvio. |
 | P173-7 | ~~Modelo aceito: responsável pelo serviço, revisor principal e substituto capaz de julgar recurso independentemente.~~ *(Substituído pelo adendo de 28/10/2026: o dono do projeto é o responsável pelo serviço e o único revisor; não existe substituto.)* Sem cobertura, suspender novas admissões pelo procedimento aprovado e tratar pendências. | ~~Todos os nomes permanecem pendentes~~: nomeação resolvida pelo adendo de 28/10/2026. Sem recurso, a regra "uma pessoa não revisa a própria decisão" deixa de ter objeto. Indisponibilidade do dono continua exigindo a suspensão de novas admissões. |
 
@@ -167,3 +167,49 @@ Compliance: `HumanReviewIsAdmittedInSyntheticEnvironmentsAndInProduction` e
 (`PhotoReviewHttpTests`); `ARejectionWrittenByThePreviousReleaseGainsTheDecidedCleanupObligation`,
 `TheBackfillLeavesPendingAndApprovedCandidatesUntouched` e `TheMigrationRefusesADatabaseThatStillHasAnAppeal`
 (`PhotoReviewWithoutAppealsMigrationTests`). O resultado desses testes pertence ao CI do PR.
+
+## Decisões de 29/10/2026
+
+O dono do projeto decidiu em 29/10/2026 as pendências P1–P5 da política `HumanReview`
+([comentário na #173](https://github.com/BipoXDXD/duora/issues/173)). Este adendo não reescreve as seções
+anteriores: altera só o prazo de espera do P173-5 e fecha a retenção que o item 5 das decisões de 28/10/2026
+deixava aberta.
+
+1. **P1. Espera da fila: 7 dias.** O caso em `AwaitingReview` vence em `awaitingReviewAt` + 168 h, não mais
+   + 72 h (`PhotoReviewCases.ReviewWait`). Vencido, o `PhotoReviewExpirations` leva a foto a `Rejected` com
+   `PHOTO_REVIEW_EXPIRED`, resultado do sistema; nunca a aprova. A meta de 24 h para a primeira análise continua.
+   O candidato privado fica retido até o prazo + 24 h (antes, + 96 h desde a entrada), a mesma folga de limpeza
+   que os coletores já exigem.
+2. **Casos pendentes mantêm o prazo com que entraram.** O prazo é gravado por linha (`review_deadline`, com a
+   retenção do candidato derivada dele). A migração `20261029120000_PhotoReviewSevenDayWait` só expande a
+   constraint `ck_photo_review_cases_deadline` para aceitar 168 h e os 72 h da release anterior; nenhuma linha é
+   reescrita. Alternativa descartada: estender os pendentes para 7 dias. Ela guardaria a foto de quem já está na
+   fila por mais tempo do que o prazo vigente quando a pessoa a enviou, reescreveria tabelas de dois módulos
+   (Safety e Media) numa migração e mudaria um `reviewDeadline` já mostrado ao revisor e lido por leases de
+   evidência em andamento. Manter o prazo antigo não apaga nem aprova nada por si: no pior caso, um pendente
+   expira em 72 h e a pessoa envia a foto de novo. Hoje o upload está desligado em Production, então os pendentes
+   só existem em Development e Testing. O rollback continua seguro: a release anterior grava 72 h, que a
+   constraint expandida aceita. O contract (só 168 h) fica para depois que nenhuma release em uso gravar 72 h e
+   nenhum caso de 72 h estiver pendente. A constraint usa `interval '168 hours'`, não `'7 days'`, porque em
+   `timestamptz` o intervalo em dias segue o horário de verão do fuso da sessão.
+3. **P2. Sem Staging.** Não existe ambiente de Staging; a política continua só em Development, Testing e
+   Production, como no item 1 das decisões de 28/10/2026. Nada muda no código.
+4. **P3. Retenção de tombstones e recibos de exclusão: 1 ano**, igual à auditoria. Vale para
+   `media.photo_tombstones` (desde `deleted_at`) e `media.photo_deletion_commands` (desde `created_at`). Um ano
+   cobre com folga os ~65 dias em que uma cópia de backup ainda pode trazer de volta uma foto excluída. Não existe
+   job de expurgo dessas linhas, e a aplicação não tem `UPDATE`/`DELETE` nelas; até o job existir, nada é
+   apagado. O ledger externo continua aberto (#69).
+5. **P4. Política de privacidade sem mudança.** O texto continua sem mencionar a revisão humana.
+6. **P5. Upload em Production continua desligado** (#69); `duora_media_review` segue `""` no inventário.
+
+Continuam valendo as decisões de 28/10/2026: só o dono revisa, como `moderator` com MFA; toda foto passa pela
+revisão; o candidato é apagado 24 h após a decisão; o log de decisão fica 1 ano. Continuam abertos o ledger
+externo, o job de expurgo dos registros de exclusão, a API-P04, o aceite da política pelo titular e a ativação do
+upload (#69).
+
+Compliance: `ReviewExpirationUsesTheExactDeadlineAndCommitsOnlyASystemResultAndCleanupObligation` (7 dias menos
+1 tick não expira; 7 dias expira), `ANewCaseIsStillAwaitingReviewAtTheFormerSeventyTwoHourDeadline` e
+`ACaseOpenedByThePreviousReleaseKeepsItsSeventyTwoHourDeadline` (`PhotoReviewExpirationTests`);
+`CaseDeadlineIsSevenDaysOrTheSeventyTwoHoursOfThePreviousRelease` (`MediaReviewMigrationTests`);
+`SanitizedCandidateCommitsReviewCaseAndOriginalCleanupWithoutAnApprovedAsset` (`ReviewCandidateStageTests`).
+O resultado desses testes pertence ao CI do PR.
