@@ -25,6 +25,7 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
     private readonly FakeTimeProvider _time = new(DeletedAt);
     private readonly CapturingLoggerProvider _logs = new();
     private ServiceProvider? _meters;
+    private ScratchDatabase? _database;
     private NpgsqlDataSource? _source;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -36,7 +37,8 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
 
     public async ValueTask InitializeAsync()
     {
-        _source = NpgsqlDataSource.Create(await postgres.CreateMigratedDatabaseAsync(Ct));
+        _database = await postgres.CreateMigratedScratchDatabaseAsync(Ct);
+        _source = NpgsqlDataSource.Create(_database.AppConnectionString);
         _meters = new ServiceCollection().AddMetrics().BuildServiceProvider();
     }
 
@@ -50,6 +52,11 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
         if (_meters is not null)
         {
             await _meters.DisposeAsync();
+        }
+
+        if (_database is not null)
+        {
+            await _database.DisposeAsync();
         }
     }
 
@@ -201,17 +208,18 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
     [Theory]
     [InlineData(0, true)]
     [InlineData(1, false)]
-    public async Task ATombstoneExactlyOneYearOldOnTheDatabaseClockLeavesEvenWithTheCallerAhead(int minutesYounger, bool purged)
+    public async Task ATombstoneExactlyOneYearOldOnTheDatabaseClockLeavesEvenWithTheCallerAhead(
+        int microsecondsYounger, bool purged)
     {
-        // Um ano no relógio do banco: 365 dias quando o intervalo não cruza um 29 de fevereiro.
-        var databaseNow = await DatabaseNowAsync();
-        var photo = (await SeedDeletionsAsync(1, databaseNow.AddYears(-1).AddMinutes(minutesYounger))).Single();
-        _time.SetUtcNow(new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        // A idade e o expurgo saem do mesmo comando do cliente, então leem o mesmo statement_timestamp(): o registro
+        // tem exatamente 1 ano (365 dias quando o intervalo não cruza um 29 de fevereiro) no relógio do banco, sem
+        // que o relógio ande entre a leitura e a chamada. O chamador no ano 9999 deixa o relógio do banco como teto.
+        var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
 
-        var result = await Purge().PurgeOnceAsync(Ct);
+        await PurgeWithRecordsAgedOnTheSameStatementAsync(microsecondsYounger);
 
-        Assert.Equal(new PhotoDeletionRecordPurgeResult(purged ? 1 : 0, purged ? 1 : 0), result);
         Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
+        Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_deletion_commands where photo_id = $1", photo));
     }
 
     [Fact]
@@ -427,6 +435,39 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
           sha256(convert_to('repeat-intent:' || id, 'UTF8')), sha256(convert_to('repeat-snap:' || id, 'UTF8')), 3, 3, $2
         from media.uploads where id = $1
         """, photo, createdAt);
+
+    /// <summary>
+    /// Num único comando do cliente (bloco <c>DO</c>, como <c>duora_migrator</c>, dono das tabelas), envelhece
+    /// tombstones e recibos para <c>statement_timestamp() - 1 year</c> mais <paramref name="microsecondsYounger"/> e chama o expurgo com o chamador no
+    /// ano 9999. Dentro do mesmo comando, <c>statement_timestamp()</c> não muda.
+    /// </summary>
+    private async Task PurgeWithRecordsAgedOnTheSameStatementAsync(int microsecondsYounger)
+    {
+        var migrator = _database?.MigratorConnectionString ?? throw new InvalidOperationException("Teste não inicializado.");
+        await using var connection = new NpgsqlConnection(migrator);
+        await connection.OpenAsync(Ct);
+        await using (var setting = new NpgsqlCommand("select set_config('duora_test.younger', $1, false)", connection))
+        {
+            setting.Parameters.AddWithValue(
+                microsecondsYounger.ToString(System.Globalization.CultureInfo.InvariantCulture) + " microseconds");
+            await setting.ExecuteScalarAsync(Ct);
+        }
+
+        await using var purge = new NpgsqlCommand("""
+            do $$
+            declare
+              v_aged timestamptz;
+            begin
+              perform set_config('TimeZone', 'UTC', true);
+              v_aged := statement_timestamp() - interval '1 year' + current_setting('duora_test.younger')::interval;
+              update media.photo_tombstones set deleted_at = v_aged;
+              update media.photo_deletion_commands set created_at = v_aged;
+              perform media.purge_photo_deletion_records('9999-01-01 00:00:00+00', 1000);
+            end
+            $$
+            """, connection);
+        await purge.ExecuteNonQueryAsync(Ct);
+    }
 
     private async Task<DateTimeOffset> DatabaseNowAsync()
     {
