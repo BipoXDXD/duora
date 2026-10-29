@@ -1,5 +1,8 @@
 using System.Diagnostics.Metrics;
 using Duora.Infrastructure.Media;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
@@ -206,6 +209,28 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
     }
 
     [Theory]
+    [InlineData(null, false)]
+    [InlineData(0, false)]
+    [InlineData(64, false)]
+    [InlineData(65, true)]
+    [InlineData(66, true)]
+    public async Task ATombstoneLeavesOnlyWhenItsReviewPromotionWasRemovedAtLeastTheBackupWindowAgo(int? daysAgo, bool purged)
+    {
+        // Uma promoção não confirmada guarda bytes privados em review_promotion_variants até o coletor removê-los;
+        // como no candidato, a janela de backup conta da remoção física, no relógio do banco. O candidato da foto já
+        // saiu há muito tempo, então só a promoção segura o tombstone.
+        var databaseNow = await DatabaseNowAsync();
+        var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
+        await SeedReviewPromotionAsync(photo, daysAgo is { } days ? databaseNow.AddDays(-days) : null);
+        _time.SetUtcNow(new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+        var result = await Purge().PurgeOnceAsync(Ct);
+
+        Assert.Equal(purged ? 1 : 0, result.Tombstones);
+        Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
+    }
+
+    [Theory]
     [InlineData(0, true)]
     [InlineData(1, false)]
     public async Task ATombstoneExactlyOneYearOldOnTheDatabaseClockLeavesEvenWithTheCallerAhead(
@@ -377,6 +402,30 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
         Assert.False(await reader.ReadAsync(Ct));
     }
 
+    [Fact]
+    public async Task RollingBackThePromotionRuleRestoresThePreviousFunctionWithItsOwnerAndGrant()
+    {
+        // O Down da 20261029180000 devolve o corpo da 20261029150000: a promoção pendente deixa de segurar o
+        // tombstone, e o dono e o EXECUTE de duora_app continuam os mesmos.
+        var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
+        await SeedReviewPromotionAsync(photo, removedAt: null);
+        await using (var db = PostgresFixture.CreateDbContext(
+            _database?.MigratorConnectionString ?? throw new InvalidOperationException("Teste não inicializado.")))
+        {
+            await db.GetService<IMigrator>().MigrateAsync("20261029150000_PhotoDeletionRecordRetention", cancellationToken: Ct);
+        }
+
+        _time.SetUtcNow(new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        Assert.Equal(1, (await Purge().PurgeOnceAsync(Ct)).Tombstones);
+        Assert.Equal(1, await CountAsync("""
+            select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'media' and p.proname = 'purge_photo_deletion_records' and p.prosecdef
+              and pg_get_userbyid(p.proowner) = 'duora_migrator'
+              and has_function_privilege('duora_app', p.oid, 'EXECUTE')
+              and not has_function_privilege('public', p.oid, 'EXECUTE')
+            """));
+    }
+
     private PhotoDeletionRecordPurge Purge() =>
         new(Source, _time, new PhotoDeletionRecordPurgeMetrics(Meters), _logs.CreateLogger(PurgeCategory));
 
@@ -435,6 +484,48 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
           sha256(convert_to('repeat-intent:' || id, 'UTF8')), sha256(convert_to('repeat-snap:' || id, 'UTF8')), 3, 3, $2
         from media.uploads where id = $1
         """, photo, createdAt);
+
+    /// <summary>
+    /// Candidato removido há 400 dias, caso editorial e promoção não confirmada com o derivado <c>full</c> em
+    /// <c>review_promotion_variants</c>. Com <paramref name="removedAt"/>, o coletor já apagou os bytes nesse instante.
+    /// </summary>
+    private async Task SeedReviewPromotionAsync(Guid photo, DateTimeOffset? removedAt)
+    {
+        var candidate = Guid.NewGuid();
+        var reviewCase = Guid.NewGuid();
+        var promotion = Guid.NewGuid();
+        var candidateRemovedAt = (await DatabaseNowAsync()).AddDays(-400);
+        await ExecuteAsync("""
+            insert into media.review_candidates (generation, upload_id, upload_version, detected_type, width, height,
+              created_at, prepare_deadline, writer_settled_at, cleanup_requested_at, cleanup_available_at,
+              last_cleanup_at, deleted_at)
+            values ($1, $2, 1, 'image/jpeg', 64, 32, $3 - interval '1 hour', $3, $3 - interval '1 hour', $3, $3, $4, $4)
+            """, candidate, photo, DeletedAt, candidateRemovedAt);
+        await ExecuteAsync("""
+            insert into safety.photo_review_cases (id, upload_id, candidate_generation, policy_version,
+              awaiting_review_at, review_deadline, version)
+            values ($1, $2, $3, 'human-review-v1', $4 - interval '1 hour', $4 - interval '1 hour' + interval '168 hours', 1)
+            """, reviewCase, photo, candidate, DeletedAt);
+        await ExecuteAsync("""
+            insert into media.review_promotions (generation, upload_id, case_id, case_version, upload_version,
+              candidate_generation, policy_version, detected_type, width, height, created_at, prepare_deadline,
+              writer_settled_at, cleanup_available_at)
+            values ($1, $2, $3, 1, 1, $4, 'human-review-v1', 'image/jpeg', 64, 32, $5 - interval '30 minutes',
+              $5 - interval '30 minutes' + interval '10 seconds', $5 - interval '30 minutes', $5)
+            """, promotion, photo, reviewCase, candidate, DeletedAt);
+        await ExecuteAsync("""
+            insert into media.review_promotion_variants (generation, kind, object_key, width, height, size_bytes, sha256)
+            values ($1, 'full', 'derivatives/review-' || replace($1::text, '-', '') || '-full', 64, 32, 2048,
+              sha256(convert_to('full:' || $1::text, 'UTF8')))
+            """, promotion);
+        if (removedAt is { } at)
+        {
+            await ExecuteAsync("""
+                update media.review_promotions set cleanup_requested_at = $2, last_cleanup_at = $3, deleted_at = $3
+                where generation = $1
+                """, promotion, DeletedAt, at);
+        }
+    }
 
     /// <summary>
     /// Num único comando do cliente (bloco <c>DO</c>, como <c>duora_migrator</c>, dono das tabelas), envelhece
