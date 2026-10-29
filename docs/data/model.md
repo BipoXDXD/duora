@@ -980,9 +980,13 @@ pessoal; decisão, leitura privada do recurso e composição canônica dos REVOK
   hashes de 32 bytes; chaves de objeto só nos formatos gerados pelo servidor; lease e token juntos.
 - **Índices:** dono e foto (FKs), `(available_at, object_key)` da fila.
 - **Limites conhecidos:** o tombstone vive só neste banco; um restore anterior à exclusão o perde. O ledger externo
-  (docs/superpowers/specs/2026-10-24-photo-delete-tombstones-design.md) continua aberto. Retenção de tombstone e
-  recibo: 1 ano, igual à auditoria (decisão de 29/10/2026); o job de expurgo ainda não existe e a aplicação não tem
-  `UPDATE`/`DELETE` nessas tabelas.
+  (docs/superpowers/specs/2026-10-24-photo-delete-tombstones-design.md) continua aberto.
+- **Retenção:** tombstone e recibo ficam 1 ano, igual à auditoria (decisão de 29/10/2026). A aplicação continua sem
+  `UPDATE`/`DELETE`/`TRUNCATE` nessas tabelas; o Worker chama a função `SECURITY DEFINER`
+  `media.purge_photo_deletion_records(p_as_of, p_limit)` (dona: `duora_migrator`; `EXECUTE` só para `duora_app`;
+  `search_path` fixo, fuso UTC, lote de 1 a 1.000 com `SKIP LOCKED`). Ela apaga recibos com `created_at` e tombstones
+  com `deleted_at` até `least(p_as_of, statement_timestamp()) - 1 year`, e nunca um tombstone com obrigação em
+  `photo_deletion_cleanup` ou com candidato privado da foto ainda não apagado. O upload continua `Deleted`.
 - **Classe:** P3 (ids e hashes; nenhum conteúdo ou chave do cliente em claro).
 
 ## Schema `ops`
@@ -1324,7 +1328,7 @@ Conexões: cada processo tem fatia fixa no `max_connections=100` (web 40, worker
 
 | Papel do banco | Permissões |
 |---|---|
-| `duora_app` (web e worker) | `SELECT`, `INSERT`, `UPDATE`, `DELETE` nos schemas da aplicação, exceto `ops.audit_events` (só `INSERT`, `SELECT`); sem DDL, sem superuser |
+| `duora_app` (web e worker) | `SELECT`, `INSERT`, `UPDATE`, `DELETE` nos schemas da aplicação, exceto `ops.audit_events` (só `INSERT`, `SELECT`); sem DDL, sem superuser. `EXECUTE` em `media.purge_photo_deletion_records`, única função `SECURITY DEFINER`, que apaga das tabelas append-only de exclusão de foto só o que tem mais de 1 ano no relógio do banco |
 | `duora_migrator` | DDL; usado só pelo job de migração |
 | `duora_monitor` | `pg_monitor`; sem leitura de tabelas de negócio |
 | Backup | Papel e credenciais do pgBackRest, separados da aplicação |

@@ -53,6 +53,7 @@ internal static class WorkerHost
         builder.Services.AddHostedService<OriginalCleanupService>();
         builder.Services.AddHostedService<PhotoDeletionCleanupService>();
         builder.Services.AddHostedService<ReviewCandidateCleanupService>();
+        builder.Services.AddHostedService<PhotoDeletionRecordPurgeService>();
 
         return builder;
     }

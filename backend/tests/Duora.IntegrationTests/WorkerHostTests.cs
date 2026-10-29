@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using worker::Duora.Worker;
+using worker::Duora.Worker.Media;
 
 namespace Duora.IntegrationTests;
 
@@ -74,6 +75,23 @@ public sealed class WorkerHostTests
             .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         Assert.NotNull(warning.Exception);
+        Assert.False(host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
+        await host.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task PhotoDeletionRecordPurgeLogsUnreachableDatabaseAndKeepsRunning()
+    {
+        var logs = new CapturingLoggerProvider();
+        var connection = new CanaryConnectionString();
+        using var host = BuildHost(connection.Value, logs);
+        await host.StartAsync(TestContext.Current.CancellationToken);
+
+        var warning = await logs.FirstWarningFrom(typeof(PhotoDeletionRecordPurgeService).FullName ?? throw new InvalidOperationException())
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Null(warning.Exception);
+        Assert.DoesNotContain(connection.Password, warning.Text, StringComparison.Ordinal);
         Assert.False(host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
         await host.StopAsync(TestContext.Current.CancellationToken);
     }

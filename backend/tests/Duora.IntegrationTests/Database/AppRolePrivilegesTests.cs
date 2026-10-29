@@ -176,6 +176,10 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
     [InlineData("update safety.photo_review_appeal_commands set result_photo_version=result_photo_version")]
     [InlineData("delete from safety.photo_review_appeal_commands")]
     [InlineData("truncate safety.photo_review_appeal_commands")]
+    [InlineData("delete from media.photo_tombstones")]
+    [InlineData("delete from media.photo_deletion_commands")]
+    [InlineData("update media.photo_tombstones set deleted_at = deleted_at")]
+    [InlineData("truncate media.photo_tombstones")]
     [InlineData("select count(*) from ops.__ef_migrations_history")]
     [InlineData("delete from ops.__ef_migrations_history")]
     public async Task AppStatementIsDenied(string sql)
