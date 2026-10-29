@@ -76,7 +76,7 @@ async function buildManifest(): Promise<readonly (Rollup.OutputAsset | Rollup.Ou
     configFile: false,
     root: fileURLToPath(new URL('..', import.meta.url)),
     logLevel: 'silent',
-    build: { write: false, rollupOptions: { input: fileURLToPath(MANIFEST_URL) } },
+    build: { write: false, rolldownOptions: { input: fileURLToPath(MANIFEST_URL) } },
   })
   if (!('output' in result)) {
     throw new Error('build em modo watch não era esperado')
