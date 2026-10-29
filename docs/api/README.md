@@ -135,6 +135,23 @@ nascimento: a declaração fica registrada pelo aceite dos Termos (versão `2026
 idioma e SHA-256. Isso não é verificação etária nem conformidade com o ECA Digital
 ([decisões de 29/10](../product/decisions-2026-10-29.md)).
 
+## Novo aceite dos Termos (issue #296)
+
+`GET /me` (API-A08) traz `currentTermsAccepted`: `true` quando a conta tem aceite da versão ativa dos Termos,
+`false` quando o aceite é de uma versão anterior (ou não existe). O campo é aditivo e obrigatório na resposta.
+**Não bloqueia nada:** com `false`, a SPA mostra um aviso dispensável que leva a `/account/terms`, e todas as
+rotas continuam respondendo como antes (decisão do dono na #296).
+
+`POST /me/terms-acceptances` (API-A17) grava o novo aceite pelo mesmo mecanismo do cadastro: corpo
+`{acceptedTermsVersion, acceptedTermsLocale, acceptedTermsSha256, confirmedAdult}`, com o recibo exato dos Termos
+ativos (o mesmo que `GET /legal-documents` devolve) e `confirmedAdult: true`. Responde `204`; repetir também
+responde `204` e mantém o primeiro aceite (chave única conta + documento + versão). Os aceites anteriores continuam
+em `identity.consent_records` como histórico. Declaração ausente, `null` ou `false` → `400` `VALIDATION_FAILED`
+com `REQUIRED` em `confirmedAdult`; versão, idioma ou SHA-256 que não são os dos Termos ativos → `400`
+`VALIDATION_FAILED`; campo desconhecido ou tipo errado → `400` `INVALID_REQUEST`. Nenhum desses casos grava. Não
+há campo de conta: o aceite é sempre da conta da sessão. Exige sessão (`401`) e antiforgery (`403`); com a
+publicação fechada, `503`. Mudança aditiva: `oasdiff breaking` não aponta breaking change.
+
 ## Fuso privado da conta (issue #81)
 
 `GET /me/time-zone`: `{timeZone: string|null, version: string}` + ETag. `PUT /me/time-zone` exige
