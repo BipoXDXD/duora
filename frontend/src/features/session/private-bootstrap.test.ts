@@ -15,6 +15,7 @@ const ACCOUNT = {
   emailConfirmed: true,
   mfaEnabled: false,
   roles: ['participant'],
+  currentTermsAccepted: true,
 }
 const CONTEXT = { userId: A, sessionId: SID, phase: 'active', requestToken: 'private-secret-A' }
 function clientFor(store: SessionContextStore, fetch: ApiFetch) {

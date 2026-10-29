@@ -73,6 +73,48 @@ describe('fetchMe', () => {
     await expect(fetchMe()).rejects.toThrow()
   })
 
+  it('informa o aceite antigo dos Termos sem tratá-lo como erro (#296)', async () => {
+    server.use(
+      http.get(`${API}/me`, () =>
+        HttpResponse.json(
+          withSessionContext({
+            id: USER_ID,
+            email: 'ana@exemplo.com',
+            status: 'Active',
+            emailConfirmed: true,
+            mfaEnabled: false,
+            roles: ['participant'],
+            currentTermsAccepted: false,
+          }),
+        ),
+      ),
+    )
+
+    await expect(fetchMe()).resolves.toMatchObject({ currentTermsAccepted: false })
+  })
+
+  it.each([
+    ['sem currentTermsAccepted', undefined],
+    ['currentTermsAccepted em texto', 'true'],
+    ['currentTermsAccepted null', null],
+  ])('rejeita o aceite dos Termos fora do contrato: %s', async (_caso, value) => {
+    const body: Record<string, unknown> = {
+      ...withSessionContext({
+        id: USER_ID,
+        email: 'ana@exemplo.com',
+        status: 'Active',
+        emailConfirmed: true,
+        mfaEnabled: false,
+        roles: ['participant'],
+      }),
+    }
+    if (value === undefined) delete body.currentTermsAccepted
+    else body.currentTermsAccepted = value
+    server.use(http.get(`${API}/me`, () => HttpResponse.json(body)))
+
+    await expect(fetchMe()).rejects.toThrow()
+  })
+
   it('propaga o 401 sem sessão', async () => {
     server.use(http.get(`${API}/me`, () => problem(401, 'UNAUTHENTICATED')))
 

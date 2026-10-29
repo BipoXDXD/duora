@@ -31,6 +31,45 @@ public sealed class LegalPublicationTests
         Assert.False(publication.Accepts("terms-v2", "privacy-v3", "pt-BR", "fr"));
     }
 
+    [Fact]
+    public void TermsReacceptanceBindsTheActiveTermsVersionLanguageAndDigest()
+    {
+        var publication = Create();
+        var termsHash = publication.Documents.Single(document => document.Document == "terms" && document.Locale == "en-US").Sha256;
+        var privacyHash = publication.Documents.Single(document => document.Document == "privacy" && document.Locale == "en-US").Sha256;
+
+        Assert.True(publication.AcceptsTerms("terms-v2", "en-US", termsHash));
+        Assert.False(publication.AcceptsTerms("terms-v2", "pt-BR", termsHash));
+        Assert.False(publication.AcceptsTerms("terms-v2", "en-US", privacyHash));
+        Assert.False(publication.AcceptsTerms("terms-v2", "en-US", null));
+        Assert.False(publication.AcceptsTerms("old-terms", "en-US", termsHash));
+        Assert.False(publication.AcceptsTerms("privacy-v3", "en-US", privacyHash));
+        Assert.False(publication.AcceptsTerms("terms-v2", null, termsHash));
+        Assert.False(publication.AcceptsTerms("terms-v2", "en-us", termsHash));
+    }
+
+    [Fact]
+    public void AnInactiveTermsVersionStaysInTheCatalogButCannotBeAccepted()
+    {
+        var current = Create().Documents;
+        var older = current.Where(document => document.Document == "terms")
+            .Select(document => document with { Version = "terms-v1", Title = "Older synthetic document" });
+        var publication = new LegalPublication("terms-v2", "privacy-v3", current.Concat(older).ToArray());
+        var olderHash = publication.Documents.Single(document => document.Version == "terms-v1" && document.Locale == "pt-BR").Sha256;
+
+        Assert.True(publication.RegistrationAvailable);
+        Assert.False(publication.AcceptsTerms("terms-v1", "pt-BR", olderHash));
+    }
+
+    [Fact]
+    public void UnpublishedTermsCannotBeAccepted()
+    {
+        var publication = Create(approved: false);
+        var termsHash = publication.Documents.Single(document => document.Document == "terms" && document.Locale == "pt-BR").Sha256;
+
+        Assert.False(publication.AcceptsTerms("terms-v2", "pt-BR", termsHash));
+    }
+
     [Theory]
     [InlineData(".")]
     [InlineData("..")]

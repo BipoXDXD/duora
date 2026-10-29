@@ -20,6 +20,17 @@ public sealed record RegisterRequest(
     string? AcceptedTermsSha256 = null,
     string? AcceptedPrivacySha256 = null);
 
+/// <summary>
+/// Novo aceite dos Termos ativos por uma conta existente (API-A17). Mesmo recibo do cadastro: versão, idioma e
+/// SHA-256 do texto publicado, mais <c>ConfirmedAdult</c>, a declaração "Declaro ter 18 anos ou mais", que precisa
+/// ser <c>true</c>. Não há campo de conta: o aceite é sempre da conta da sessão.
+/// </summary>
+public sealed record AcceptTermsRequest(
+    string? AcceptedTermsVersion,
+    string? AcceptedTermsLocale,
+    string? AcceptedTermsSha256,
+    bool? ConfirmedAdult);
+
 public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 
 /// <summary>Pedido explícito e neutro de outro código; preserva senha, aceites e prazo do cadastro pendente.</summary>
@@ -48,7 +59,9 @@ public sealed record ResetPasswordRequest(Guid? UserId, string? Token, string? N
 /// <summary>
 /// Conta do titular. <c>Status</c>: PendingEmail | PendingEligibility | Active | Restricted | Suspended |
 /// DeletionPending. <c>Roles</c>: nomes do catálogo (participant, moderator, product_admin, operator); vazio para
-/// participante que nunca recebeu papel explícito.
+/// participante que nunca recebeu papel explícito. <c>CurrentTermsAccepted</c>: participante com aceite da versão
+/// ativa dos Termos; <c>false</c> pede o novo aceite (API-A17), que não bloqueia o uso do app. Conta privilegiada
+/// não aceita os Termos de participante (D13) e recebe sempre <c>true</c>: não há aceite pendente.
 /// </summary>
 public sealed record MeResponse(
     Guid Id,
@@ -57,6 +70,7 @@ public sealed record MeResponse(
     bool EmailConfirmed,
     bool MfaEnabled,
     IReadOnlyList<string> Roles,
+    bool CurrentTermsAccepted,
     PrivateSessionContextResponse SessionContext,
     string? PreferredLocale = null,
     string? PreferredTimeZone = null);

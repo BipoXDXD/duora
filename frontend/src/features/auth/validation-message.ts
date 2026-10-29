@@ -38,6 +38,8 @@ export function translateValidationMessage(t: Translate, message: string | undef
     case 'validation.termsRequired':
     case 'validation.privacyRequired':
     case 'validation.adultRequired':
+    case 'validation.termsAcceptanceRequired':
+    case 'validation.adultDeclarationRequired':
     case 'validation.passwordMismatch':
     case 'validation.totpCodeInvalid':
     case 'validation.recoveryCodeInvalid':

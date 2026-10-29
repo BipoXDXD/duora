@@ -20,6 +20,7 @@ const ACCOUNT: Omit<Me, 'owner'> = {
   emailConfirmed: true,
   mfaEnabled: false,
   roles: ['participant'],
+  currentTermsAccepted: true,
 }
 
 beforeEach(() => {

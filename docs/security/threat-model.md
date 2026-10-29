@@ -128,7 +128,7 @@ service, **E** elevation of privilege. Cada linha cita a ameaça (TM-xx) detalha
 | S | Pré-sequestro: atacante cadastra o e-mail da vítima e a conta fica com a senha dele quando a vítima confirma | TM-66 |
 | S | Endereço parecido (Unicode) que coincide na normalização acha a conta de outra pessoa e recebe o link de reset | TM-67 |
 
-### 5.2 Sessão e revogação (API-A05, A08 a A10, A13, A16; hub)
+### 5.2 Sessão e revogação (API-A05, A08 a A10, A13, A16, A17; hub)
 
 | STRIDE | Ameaça | Ref. |
 |---|---|---|
@@ -141,6 +141,8 @@ service, **E** elevation of privilege. Cada linha cita a ameaça (TM-xx) detalha
 | D | Ticket store indisponível derruba todas as requisições autenticadas | TM-16 |
 | E | Sessão revogada mantém hub conectado recebendo notificações | TM-17 |
 | E | Sessão de participante usada em rota administrativa; sessão administrativa sem MFA | TM-18 |
+| S/E | Novo aceite dos Termos (API-A17) gravado sem sessão, por CSRF ou em nome de outra conta | TM-82 |
+| T/R | Novo aceite repetido ou simultâneo reescreve ou duplica a evidência do aceite | TM-83 |
 
 ### 5.3 Recuperação de conta (API-A06, A07; e-mail)
 
@@ -363,6 +365,8 @@ Convenções:
 | TM-79 | Custo por abuso do relay | Teto de minutos de voz por conta e dia UTC no banco (API-R08 e API-R09 → `429` com `Retry-After`); orçamento de 1000 GB/mês de TURN (franquia gratuita da Cloudflare) com alerta a 80% (800 GB) e kill switch a 100%, pelo runbook enquanto a API de consumo for a confirmar; alerta de gasto e de GB transferidos na conta da Cloudflare; kill switch, gatilho operacional fora da lista de 7 eventos, que desliga a voz no produto inteiro (o botão some, API-R08 e API-R09 recusam e `RevokeAllVoice` revoga as sessões abertas); rate limits de TM-74 | a criar: `VoiceKillSwitchHidesVoiceRefusesCredentialsAndRevokesOpenSessions`; a criar: `JoinVoiceAboveTheDailyMinutesCapIsRefused` |
 | TM-80 | Leitura ou decisão de foto em revisão sem permissão | Rotas `/admin/photo-reviews` só com sessão administrativa/MFA, papel `moderator` e capacidades explícitas `assign`/`evidence`/`decide`; nenhum papel ganha grant implícito; caso não atribuído → `404`; decisão com MFA recente; evidência auditada antes dos bytes ([matriz](../api/media-review.md#matriz-de-autorização-28102026)) | `OtherRolesCannotReceiveReviewPermissionImplicitly`, `EachCapabilityRequiresItsOwnAuditedGrantAndRevocation`, `AParticipantSessionIsForbiddenOnEveryAdminRoute`, `OwnerHistoryMasksOtherOwnersWithTheSameNotFound` |
 | TM-81 | Erro ou viés do revisor único sem segunda análise | Aceito por decisão do dono em 28/10/2026: sem recurso de fotos e sem segundo revisor. Mitigações: rejeição não sanciona a conta, motivo fechado, trilha de decisão e auditoria por 1 ano, e a pessoa pode reenviar outra foto (cotas 3/100). Sem o dono disponível, suspender novas admissões. O recurso de sanção (TM-28, TM-34) não muda | `SingleModeratorRejectsThenANewUploadOpensANewReviewThatTheSameModeratorApproves`, `AppealRoutesNoLongerExistForOwnersOrModerators` |
+| TM-82 | Aceite dos Termos forjado, alheio ou em nome de outra conta (#296) | API-A17 exige sessão de participante (conta privilegiada → `403` `FORBIDDEN`, D13) e antiforgery; o corpo não tem campo de conta (DTO estrito: campo desconhecido → `400`); a conta é sempre a da sessão; o recibo precisa ser o exato dos Termos ativos (versão, idioma e SHA-256) e `confirmedAdult` só vale `true` | `WithoutSessionTheAnswerIs401AndNothingIsRecorded`, `WithoutTheAntiforgeryTokenTheAnswerIs403AndNothingIsRecorded`, `UnknownFieldIsRejectedAndNothingIsRecorded`, `ReacceptanceChangesOnlyTheSessionAccount`, `ReceiptThatIsNotTheActiveTermsIsRejectedAndNothingIsRecorded`, `WithoutTheAdultDeclarationNothingIsRecorded`, `PrivilegedAccountCannotUseTheParticipantReacceptanceAndNothingIsRecorded` |
+| TM-83 | Evidência de aceite reescrita ou duplicada (#296) | Inserção só com `on conflict (user_id, document, version) do nothing` e o gatilho `consent_records_immutable` contra UPDATE: repetir, inclusive em paralelo, mantém o primeiro aceite; os aceites anteriores ficam como histórico. Conta privilegiada não grava aceite de participante e `/me` responde `true` para ela (D13) | `RepeatingTheReacceptanceIsIdempotentAndKeepsTheFirstEvidence`, `ConcurrentReacceptancesRecordOneAcceptance`, `ReacceptanceRecordsTheActiveTermsWithTheAdultDeclarationAndKeepsTheHistory`, `PrivilegedAccountWithoutAnyAcceptanceHasNothingPending` |
 
 ## 7. Riscos aceitos e pendências
 

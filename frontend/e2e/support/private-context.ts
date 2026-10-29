@@ -18,8 +18,10 @@ interface SyntheticContext {
 export function withSessionContext<T extends SyntheticAccount>(
   account: T,
   sessionId = SYNTHETIC_SESSION_ID,
-): T & { readonly sessionContext: SyntheticContext } {
+): T & { readonly currentTermsAccepted: boolean; readonly sessionContext: SyntheticContext } {
+  // O servidor sempre informa o aceite dos Termos; a fixture positiva parte de uma conta em dia.
   return {
+    currentTermsAccepted: true,
     ...account,
     sessionContext: {
       userId: account.id,

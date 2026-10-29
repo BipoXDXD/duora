@@ -44,6 +44,8 @@ const meSchema = z.object({
   // Obrigatórios: sem eles a guarda de MFA não decide, e a leitura falha em vez de liberar a área.
   mfaEnabled: z.boolean(),
   roles: z.array(z.string()),
+  // Obrigatório: a ausência é erro de contrato, não "aceite em dia" (o aviso de novo aceite sumiria em silêncio).
+  currentTermsAccepted: z.boolean(),
   preferredTimeZone: z.string().nullable().optional(),
   preferredLocale: z.enum(['en-US', 'pt-BR']).nullable().optional(),
 }) satisfies z.ZodType<

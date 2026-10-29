@@ -26,14 +26,21 @@ aqui continua valendo.
      mecanismo de consentimento existente: a linha de `identity.consent_records` dos Termos guarda versão, idioma
      e SHA-256 do texto aceito, e o texto da versão `2026-10-29` contém a declaração.
    - **Nada de idade:** nenhuma data de nascimento, idade ou faixa etária é coletada (item 7 da #9; ADR-0029).
-   - **Novo aceite de quem já tem conta:** o produto não tem fluxo de reaceite quando a versão dos Termos muda; o
-     aceite só é gravado no cadastro. Contas confirmadas antes desta versão continuam com o aceite de `2026-10-25`.
-     O fluxo de reaceite fica como trabalho separado.
+   - **Novo aceite de quem já tem conta:** quando este registro foi feito, o aceite só era gravado no cadastro, e
+     o fluxo de reaceite ficou como trabalho separado ([#296](https://github.com/BipoXDXD/duora/issues/296)). Ver o
+     item 3.
 
 2. **Seed do property-based testing (item 12 da #9):** continua **aleatória** a cada execução, e a seed é
    registrada no log quando um teste falha, para reproduzir o caso. Não se fixa seed no CI. É o comportamento
    atual do CsCheck nas propriedades do backend: a falha informa a seed, que se repete com `seed:` no `Sample` ou
    com a variável de ambiente `CsCheck_Seed` (ver `PairSelectorPropertyTests`). Nada muda no código.
+
+3. **Reaceite não bloqueia o uso ([#296](https://github.com/BipoXDXD/duora/issues/296), comentário de 29/10):**
+   quem tem o aceite de uma versão antiga dos Termos vê um pedido de novo aceite, com a confirmação de 18 anos ou
+   mais, e continua usando o app enquanto não aceita. O app só bloqueia o uso quando a conta viola os Termos ou
+   quando é reprovada na verificação facial depois de atingir o limite de tentativas; esses bloqueios são de outras
+   features e não fazem parte da #296. O novo aceite usa o mecanismo de consentimento existente (versão, idioma e
+   SHA-256) por `POST /api/v1/me/terms-acceptances` (API-A17).
 
 SHA-256 de conteúdo dos Termos `2026-10-29`, fixados no teste `PublishedDocumentKeepsItsExactFingerprint`:
 

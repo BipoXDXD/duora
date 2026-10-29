@@ -20,6 +20,7 @@ export const paths = {
   photos: '/account/photos',
   profile: '/account/profile',
   preferences: '/account/preferences',
+  termsReacceptance: '/account/terms',
   events: '/events',
   photoReviewHistory: '/photos/:photoId/review',
   photoReviews: '/admin/photo-reviews',

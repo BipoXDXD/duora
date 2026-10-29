@@ -30,6 +30,9 @@ const SelfieVerificationPage = routePage(
 const AccountPage = routePage(async () => (await import('@/features/account/AccountPage')).AccountPage)
 const ProfilePage = routePage(async () => (await import('@/features/profile/ProfilePage')).ProfilePage)
 const PreferencesPage = routePage(async () => (await import('@/features/preferences/PreferencesPage')).PreferencesPage)
+const TermsReacceptancePage = routePage(
+  async () => (await import('@/features/legal/TermsReacceptancePage')).TermsReacceptancePage,
+)
 const EventsPage = routePage(async () => (await import('@/features/participation/EventsPage')).EventsPage)
 const RoomPage = routePage(async () => (await import('@/features/participation/RoomPage')).RoomPage)
 const PhotoReviewOwnerIndex = routePage(
@@ -52,6 +55,7 @@ const RequireSession = routePage(async () => {
     MfaEnrollmentPage.preload(),
     ProfilePage.preload(),
     PreferencesPage.preload(),
+    TermsReacceptancePage.preload(),
     EventsPage.preload(),
     RoomPage.preload(),
     PhotoReviewHistoryPage.preload(),
@@ -92,6 +96,7 @@ export function AppRoutes(): React.JSX.Element {
               <Route path={paths.photos} element={<PhotoReviewOwnerIndex />} />
               <Route path={paths.profile} element={<ProfilePage />} />
               <Route path={paths.preferences} element={<PreferencesPage />} />
+              <Route path={paths.termsReacceptance} element={<TermsReacceptancePage />} />
               <Route path={paths.events} element={<EventsPage />} />
               <Route path="/rooms/:roomId" element={<RoomPage />} />
               <Route path={paths.photoReviewHistory} element={<PhotoReviewHistoryPage />} />

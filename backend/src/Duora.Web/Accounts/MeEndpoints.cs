@@ -1,4 +1,5 @@
 using Duora.Contracts.Identity;
+using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Duora.Web.Http;
 using Duora.Web.Identity;
@@ -10,7 +11,10 @@ using Microsoft.OpenApi;
 
 namespace Duora.Web.Accounts;
 
-/// <summary>Conta e sessões do titular (API-A08 a API-A10). Exigem sessão pela política padrão de autorização.</summary>
+/// <summary>
+/// Conta, sessões e novo aceite dos Termos do titular (API-A08 a API-A10 e API-A17). Exigem sessão pela política
+/// padrão de autorização.
+/// </summary>
 internal static class MeEndpoints
 {
     public static void MapMeEndpoints(this IEndpointRouteBuilder api)
@@ -25,6 +29,12 @@ internal static class MeEndpoints
             .Produces<PrivateSessionRestrictionResponse>(StatusCodes.Status403Forbidden, "application/problem+json")
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .AddOpenApiOperationTransformer(DocumentRestrictedSession);
+        // Sem política própria: vale a de participante (fallback), e conta privilegiada recebe 403 FORBIDDEN (D13).
+        me.MapPost("/terms-acceptances", AcceptTermsAsync)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         sessions.MapGet("", ListSessionsAsync)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -72,9 +82,53 @@ internal static class MeEndpoints
             account.EmailConfirmed,
             account.MfaEnabled,
             account.Roles,
+            account.CurrentTermsAccepted,
             PrivateOperationContext.Issue(context, antiforgery),
             (await locales.GetOwnAsync(userId, cancellationToken))?.Locale,
             (await timeZones.GetOwnAsync(userId, cancellationToken))?.TimeZone));
+    }
+
+    /// <summary>
+    /// Novo aceite dos Termos ativos com a declaração de 18 anos ou mais (API-A17). Recibo que não é o dos Termos
+    /// ativos, ou declaração ausente, <c>null</c> ou <c>false</c>, responde 400 sem gravar. Repetir responde 204 e
+    /// mantém o primeiro aceite. Não existe recurso alheio aqui: a conta é a da sessão.
+    /// </summary>
+    private static async Task<Results<NoContent, ValidationProblem, ProblemHttpResult>> AcceptTermsAsync(
+        AcceptTermsRequest request,
+        HttpContext context,
+        AccountService accounts,
+        LegalPublication legal,
+        CancellationToken cancellationToken)
+    {
+        var (userId, _) = CurrentSession.Require(context);
+        var validation = new RequestValidation();
+        validation.DocumentVersion("acceptedTermsVersion", request.AcceptedTermsVersion, out var termsVersion);
+        validation.DocumentLocale("acceptedTermsLocale", request.AcceptedTermsLocale);
+        validation.Confirmed("confirmedAdult", request.ConfirmedAdult);
+        if (!validation.IsValid || termsVersion is null)
+        {
+            return ApiProblems.Validation(validation.Errors);
+        }
+
+        if (!legal.RegistrationAvailable)
+        {
+            return ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable);
+        }
+
+        if (!legal.AcceptsTerms(termsVersion, request.AcceptedTermsLocale, request.AcceptedTermsSha256)
+            || request.AcceptedTermsLocale is not { } termsLocale
+            || request.AcceptedTermsSha256 is not { } termsSha256)
+        {
+            return ApiProblems.Validation(new Dictionary<string, string[]>
+            {
+                ["acceptedTermsVersion"] = [RequestValidation.InvalidFormat],
+                ["acceptedTermsLocale"] = [RequestValidation.InvalidFormat],
+                ["acceptedTermsSha256"] = [RequestValidation.InvalidFormat],
+            });
+        }
+
+        await accounts.AcceptCurrentTermsAsync(userId, termsLocale, termsSha256, cancellationToken);
+        return TypedResults.NoContent();
     }
 
     private static async Task<Results<Ok<SessionListResponse>, UnauthorizedHttpResult>> ListSessionsAsync(

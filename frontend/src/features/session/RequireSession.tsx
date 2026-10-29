@@ -4,6 +4,7 @@ import { SecurityCompletionNotice } from '@/features/auth/SecurityCompletionNoti
 import { useEffect, useState } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router'
 import { apiClient, classifyRequestFailure, isUnauthorized } from '@/shared/api'
+import { TermsReacceptanceNotice } from '@/features/legal/TermsReacceptanceNotice'
 import { AccountTimeZoneProvider } from '@/shared/i18n/AccountTimeZoneProvider'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { paths } from '@/shared/paths'
@@ -118,6 +119,7 @@ export function RequireSession(): React.JSX.Element {
       <PrivateOperationProvider owner={me.data.owner}>
         <AccountContext value={me.data}>
           <AccountTimeZoneProvider timeZone={me.data.preferredTimeZone ?? null}>
+            <TermsReacceptanceNotice />
             <Outlet key={state.transitionEpoch} />
           </AccountTimeZoneProvider>
         </AccountContext>
