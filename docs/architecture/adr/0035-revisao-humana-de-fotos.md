@@ -246,20 +246,26 @@ chamada apaga até um lote por tabela, com `FOR UPDATE SKIP LOCKED`:
 - recibos com `created_at` até o corte;
 - tombstones com `deleted_at` até o corte, **sem** obrigação em `media.photo_deletion_cleanup` nem em
   `media.original_cleanup` (quando o original já tem obrigação própria ali, a exclusão não o grava em
-  `photo_deletion_cleanup`), e sem candidato privado da foto que não tenha sido removido há pelo menos 65 dias no
+  `photo_deletion_cleanup`), sem candidato privado da foto que não tenha sido removido há pelo menos 65 dias no
   relógio do banco (`review_candidates.deleted_at <= statement_timestamp() - 65 days`, a janela de backup de
-  [retention.md](../../privacy/retention.md), constante `c_backup_window` da função). Enquanto os bytes não saem do
-  disco, cada novo backup de mídia os copia, então a janela de backup nem começou; o tombstone fica, por mais
-  velho que seja.
+  [retention.md](../../privacy/retention.md), constante `c_backup_window` da função) e, pela mesma regra, sem
+  promoção privada não confirmada (`review_promotions.committed_at is null`, bytes em `review_promotion_variants`)
+  que não tenha sido removida há pelo menos 65 dias. A regra da promoção entrou na migração aditiva
+  `20261029180000_PhotoDeletionPurgeWaitsForPromotions` (#297), que só substitui o corpo da função. Enquanto os
+  bytes não saem do disco, cada novo backup de mídia os copia, então a janela de backup nem começou; o tombstone
+  fica, por mais velho que seja. A promoção confirmada não entra: seus derivados passam a ser do asset, cuja
+  exclusão gera obrigação em `photo_deletion_cleanup`.
 
-A janela de backup conta da remoção física, não de `deleted_at`. Os candidatos guardam a data (`deleted_at`) e a
-função a exige. `media.photo_deletion_cleanup` não guarda: a obrigação é apagada ao concluir. **Decisão: registrar
-o risco residual em vez de gravar `completed_at`.** Se o coletor só terminar um derivado perto de 1 ano depois da
-exclusão (falha de storage longa), o tombstone pode sair enquanto um snapshot do restic ainda tem os bytes, por até
-~65 dias. Isso não ressuscita a foto: o restore de mídia só devolve derivados de assets `Approved` no banco
+A janela de backup conta da remoção física, não de `deleted_at` do tombstone. Candidatos e promoções guardam a
+data (`deleted_at`) e a função a exige. Os coletores gravam essa data (e `last_cleanup_at`) com o relógio do banco
+(`statement_timestamp()`), não com o `TimeProvider` do Worker, para que a janela conte no mesmo relógio que a
+função compara (#297). `media.photo_deletion_cleanup` e `media.original_cleanup` não guardam: a obrigação é
+apagada ao concluir. **Decisão: registrar o risco residual em vez de gravar `completed_at`.** Se o coletor só
+terminar um derivado ou o original perto de 1 ano depois da exclusão (falha de storage longa), o tombstone pode
+sair enquanto um snapshot do restic ainda tem os bytes, por até ~65 dias. Isso não ressuscita a foto: o restore de mídia só devolve derivados de assets `Approved` no banco
 restaurado, e o asset e o upload continuam `Deleted` (o expurgo não os toca). E um restore do banco anterior à
 exclusão depende de backups que expiram ~65 dias depois de `deleted_at`, bem antes de 1 ano. Gravar `completed_at`
-exigiria tabela nova (a obrigação some ao concluir), mudar o coletor e abrir mais uma exceção de privilégio, para
+exigiria tabela nova nas duas filas (a obrigação some ao concluir), mudar o coletor e abrir mais uma exceção de privilégio, para
 proteger um caso que o estado do asset já cobre. Revisar se o restore de mídia deixar de filtrar por `Approved`.
 
 O upload continua `Deleted` (não é tocado): é esse estado, e não o tombstone, que barra a leitura (API-M04) e a
@@ -291,10 +297,14 @@ Compliance: `ATombstoneAndReceiptOneTickShortOfAYearAreKept`,
 dias, com o chamador no ano 9999), `ATombstoneWhosePhysicalDeletionIsStillPendingNeverLeaves`,
 `ATombstoneThatStillExplainsAPendingCandidateCleanupNeverLeaves`, `ATombstoneWhoseOriginalCleanupIsStillPendingNeverLeaves`,
 `ATombstoneLeavesOnlyWhenItsCandidateWasDeletedAtLeastTheBackupWindowAgo` (0 e 64 dias ficam; 65 e 66 saem),
-`ATombstoneExactlyOneYearOldOnTheDatabaseClockLeavesEvenWithTheCallerAhead`, `TheFunctionRunsWithExactlyItsPinnedSettings`,
+`ATombstoneLeavesOnlyWhenItsReviewPromotionWasRemovedAtLeastTheBackupWindowAgo` (pendente, 0 e 64 dias ficam; 65 e
+66 saem), `ATombstoneExactlyOneYearOldOnTheDatabaseClockLeavesEvenWithTheCallerAhead` (idade e expurgo no mesmo
+comando, então no mesmo `statement_timestamp()`: exatamente 1 ano sai, 1 µs a menos fica), `TheFunctionRunsWithExactlyItsPinnedSettings`,
 `TwoInstancesRunningTogetherDeleteEachRecordOnce`, `ConcurrentPurgesAddUpToTheEligibleRecordsExactly`,
 `OneCallDeletesAtMostOneBatchPerTableAndTheNextCallTakesTheRest`, `APurgeRecordsTheMetricPerTableAndLogsTheTotal`
 e `TheFunctionIsASecurityDefinerWithAPinnedSearchPathAndUtcClock` (`PhotoDeletionRecordPurgeTests`, PostgreSQL
 real); `AppStatementIsDenied` continua negando `DELETE`, `UPDATE` e `TRUNCATE` diretos nas duas tabelas
-e `OnlyAllowlistedFunctionsRunAsTheirOwner` (`AppRolePrivilegesTests`); `PhotoDeletionRecordPurgeLogsUnreachableDatabaseAndKeepsRunning` (`WorkerHostTests`).
+e `OnlyAllowlistedFunctionsRunAsTheirOwner` (`AppRolePrivilegesTests`); `PhotoDeletionRecordPurgeLogsUnreachableDatabaseAndKeepsRunning` (`WorkerHostTests`);
+`RepeatingTheSameKeyAfterItsReceiptWasPurgedIs412WithoutEffect` (`PhotoDeletionReplayAfterPurgeTests`); os testes
+de coletor em `PhotoReviewApprovalTests` conferem que `deleted_at` fica no relógio do banco, não no relógio falso.
 O resultado desses testes pertence ao CI do PR.
