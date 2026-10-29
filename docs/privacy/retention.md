@@ -44,6 +44,7 @@ Classes que a tabela 12.4 não cobre e que o modelo de dados cria. **Proposta �
 | Recibos de webhook (`ops.webhook_receipts`) | **Aprovado em 21/10/2026 (#46):** mais de 30 dias desde `processed_at`, somente `Processed`/`Rejected`; data ausente ou `Received` permanece | Janela de replay do fornecedor mais margem |
 | Recibos de e-mail (`ops.email_receipts`) | 30 dias | Diagnóstico de entrega e supressão |
 | Auditoria (`ops.audit_events`) | 1 ano para ações privilegiadas e de segurança **(hipótese)**; `actor_id` pseudonimizado na exclusão da conta | Revisão de moderação, recurso e incidentes (INV-10) |
+| Tombstones e recibos de exclusão de foto (`media.photo_tombstones`, `media.photo_deletion_commands`) | **Aprovado em 29/10/2026 (#173):** 1 ano desde `deleted_at` (tombstone) e `created_at` (recibo), igual à auditoria. Ainda não há job de expurgo: a aplicação não tem `UPDATE`/`DELETE` nessas tabelas, e nada sai antes de o job existir e ser testado | Provar a exclusão, responder à repetição do `DELETE` e reaplicá-la num restore; 1 ano cobre com folga os ~65 dias em que uma cópia de backup ainda pode trazer a foto de volta |
 | Selfie de presença (`identity.selfie_verifications`) | **Aprovado em 28/10/2026 (#93):** nenhuma imagem, vídeo, score ou template guardado. O resultado `Passed` (estado, política e datas) fica enquanto a conta existir ("a selfie fica guardada mesmo após 30 dias e a pessoa não perde participação"); tentativas não aprovadas saem 30 dias após a conclusão, ou após a expiração se nunca concluíram; referência da sessão AWS e feedback saem 24 h após a expiração; a exclusão física da conta apaga tudo (FK em cascata) | Prova de presença sem recoleta periódica; limpeza no worker (`SelfieVerificationDispatcher`), testada em `SelfieRetentionTests` |
 | Verificações etárias substituídas ou expiradas | Manter só a mais recente decisiva por conta; anteriores apagadas após 90 dias **(hipótese)** | Rastreabilidade do resultado sem acumular histórico |
 | Decisões privadas (`social.decisions`) | Apagar 30 dias após o fim da janela quando não houve conexão | A decisão negativa não tem uso depois da janela e é dado íntimo |
@@ -148,3 +149,9 @@ a executa logo após a decisão (`DecidedCandidateCleanupDispatcher`). As rejei�
 mesma obrigação na migração `20261028120000_PhotoReviewWithoutAppeals`. O registro mínimo de decisão e
 auditoria continua de 1 ano. Ledger externo e retenção dos registros de exclusão (tombstones e recibos)
 continuam abertos ([ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)).
+
+**Decisão de 29/10/2026.** A retenção dos tombstones e recibos de exclusão de foto passa a ser **1 ano**, igual à
+auditoria (linha própria em "Prazos complementares"); o expurgo ainda não está implementado. A espera da fila de
+revisão sobe de 72 h para **7 dias**, e o candidato pendente fica retido até o prazo + 24 h; casos abertos antes
+mantêm 72 h + 24 h. O ledger externo continua aberto (#69)
+([ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-29102026)).

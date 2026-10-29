@@ -17,7 +17,7 @@ descreve as rotas que restaram.
 |---|---|---|
 | API-M01 POST `/api/v1/me/photos` | PhotoEndpoints/PhotoUploads: corpo cru, idempotência, 202 e photoId/status; runtime padrão recusa uploads | Acrescentar HumanReview e replay de AwaitingReview após leitores compatíveis |
 | API-M02 GET `/api/v1/me/photos/{photoId}/status` | Titular recebe photoId/status/rejectionCode; seis estados existentes | Acrescentar estado editorial e assetId opcional para derivado aprovado |
-| API-M03 DELETE `/api/v1/me/photos/{photoId}` | Recorte executável (ver "Entrega API-M03/M04"): todos os estados menos Pending, tombstone no banco e coletores físicos | Ledger externo de tombstones (sem custódia B2 até a #69) e retenção dos registros |
+| API-M03 DELETE `/api/v1/me/photos/{photoId}` | Recorte executável (ver "Entrega API-M03/M04"): todos os estados menos Pending, tombstone no banco e coletores físicos | Ledger externo de tombstones (sem custódia B2 até a #69) e job de expurgo dos registros (retenção de 1 ano decidida em 29/10/2026) |
 | API-M04 GET `/api/v1/media/{assetId}` | Recorte executável: só o titular, derivado de asset Approved, `no-store` | Contextos de perfil/sala quando a seleção de foto existir (API-P04) |
 | Fila, evidência e decisão | Safety não persiste casos editoriais; não há painel | Persistência/contratos/rotas administrativas abaixo (recurso removido em 28/10/2026) |
 | T-26 / exclusão e restore editorial | Não atendido por upload, outbox ou retenção operacional genérica | Testes de exclusão, preservação limitada, órfãos, backups/tombstones e candidato ausente |
@@ -38,7 +38,7 @@ inclusive no replay de API-M01; não o projetar como Processing. Nenhum dado ant
 | Sanitização técnica válida com HumanReview | AwaitingReview | null | Candidato privado + caso; encerrar entrega técnica, apagar original duravelmente |
 | Decisão humana de aprovar + promoção/commit válidos | Approved | null | Asset/variantes finais + decisão/auditoria/outbox atômicos |
 | Decisão humana de reprovar | Rejected | PHOTO_REVIEW_REJECTED | Motivo interno no caso; sem recurso nem sanção da conta; limpeza do candidato em até 24 h; novo envio abre revisão nova |
-| Sem decisão até 72 h da entrada em revisão | Rejected | PHOTO_REVIEW_EXPIRED | Limpeza do candidato em até 24 h; não aprovar automaticamente |
+| Sem decisão até 7 dias da entrada em revisão (72 h para casos abertos antes de 29/10/2026) | Rejected | PHOTO_REVIEW_EXPIRED | Limpeza do candidato em até 24 h; não aprovar automaticamente |
 | Candidato irrecuperavelmente ausente, inclusive após restore | Rejected | PHOTO_REVIEW_UNAVAILABLE | Novo envio, nunca reconstrução/aprovação a partir de metadados |
 | Exclusão do titular | Deleted | null | Revogar acesso, persistir tombstone/limpeza; preservação só do recorte autorizado |
 | Rejeição técnica | Rejected | Código técnico atual | Preservar semântica; não disfarçar decisão humana com PROCESSING_LIMIT |
@@ -153,9 +153,10 @@ espera por guarda. Timers atrasados não ampliam autorização nem tornam candid
 | Marco | Referência / ação |
 |---|---|
 | Primeira análise alvo24h | awaitingReviewAt +24h; métrica/alerta, sem aprovação automática |
-| Espera máxima72h | awaitingReviewAt +72h; sem decisão confirmada, PHOTO_REVIEW_EXPIRED; limpeza até +24h |
+| Espera máxima 7 dias | awaitingReviewAt +168h (decisão de 29/10/2026; antes, +72h, prazo que os casos já abertos mantêm); sem decisão confirmada, PHOTO_REVIEW_EXPIRED, nunca aprovação; limpeza até +24h |
 | Candidato aprovado ou reprovado | decidedAt +24h; a decisão grava a obrigação de limpeza e o Worker a executa logo após (`DecidedCandidateCleanupDispatcher`). Até 28/10/2026 o reprovado ficava 7dias à espera de recurso |
 | Registro mínimo da decisão/auditoria | 1ano conforme ADR-0035; sem imagem ou texto sensível |
+| Tombstone (`media.photo_tombstones`) e recibo de exclusão (`media.photo_deletion_commands`) | 1 ano desde `deleted_at`/`created_at`, igual à auditoria (decisão de 29/10/2026). Ainda não há job de expurgo: a aplicação não pode apagar essas linhas, e nada é removido antes do job existir |
 
 Decisão empatada com a limpeza é serializada; não ressuscitar bytes apagados. Status público de rejeição
 continua Rejected, sem sanção extra e com orientação para novo envio. Se candidato desaparecer antes da
@@ -237,7 +238,8 @@ transação:
 O caso editorial não é apagado: some da fila e da evidência do moderador, e decisão ou aprovação posteriores dão
 404 sem publicar nada. O Worker que chega depois encontra `Deleted` e só encerra a entrega. O tombstone só existe
 no banco: o 204 não espera ledger externo, e um restore anterior à exclusão ainda a desfaz (ver "Ledger externo"
-abaixo). Retenção das linhas de tombstone e recibo continua aberta.
+abaixo). Retenção das linhas de tombstone e recibo: 1 ano, igual à auditoria (decisão de 29/10/2026); o expurgo
+ainda não existe.
 
 **Ledger externo (28/10/2026).** Não é viável sem custódia nova: para sobreviver a um restore do banco, o ledger
 precisa ficar fora dele, num bucket B2 com credencial e retenção próprias. Essa custódia não existe e a
@@ -292,3 +294,16 @@ desligado, 401 `REAUTHENTICATION_REQUIRED` sem MFA recente numa ação crítica)
 recebem grant). As células de `product_admin`/`operator` com upload ligado e as 403 da conta privilegiada em
 histórico, lista, DELETE e `/media` vêm do código (política padrão e recusa do serviço), sem teste HTTP próprio
 para cada célula.
+
+## Decisões de 29/10/2026
+
+Registradas no [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-29102026). Para este
+contrato:
+
+- **Espera da fila: 7 dias** (`awaitingReviewAt` + 168 h), em vez de 72 h. Vencida, a foto vai a `Rejected` com
+  `PHOTO_REVIEW_EXPIRED`, nunca a `Approved`; a meta de 24 h para a primeira análise não muda. O candidato privado
+  fica retido até o prazo + 24 h. O formato de `reviewDeadline` no contrato não muda, só o valor.
+- **Casos já pendentes mantêm o prazo de 72 h** com que entraram na fila: a migração
+  `20261029120000_PhotoReviewSevenDayWait` só expande a constraint e não reescreve linhas.
+- **Tombstones e recibos de exclusão: 1 ano**, igual à auditoria. O job de expurgo ainda não existe.
+- Staging continua fora; a política de privacidade não muda; o upload continua desligado em Production (#69).

@@ -133,6 +133,14 @@ em Staging (`HumanReviewIngressPolicyTests`), allowlist de deploy `{"HumanReview
 (`PhotoReviewWithoutAppealsMigrationTests`). A matriz de autorização das rotas que restaram está em
 [media-review.md](../api/media-review.md#matriz-de-autorização-28102026); os resultados pertencem ao CI do PR.
 
+**Decisões de 29/10/2026 (espera de 7 dias).** A espera da fila vence exatamente em 7 dias: 7 dias menos 1 tick
+não expira e 7 dias expira só como `PHOTO_REVIEW_EXPIRED`
+(`ReviewExpirationUsesTheExactDeadlineAndCommitsOnlyASystemResultAndCleanupObligation`); um caso novo continua
+pendente nas antigas 72 h (`ANewCaseIsStillAwaitingReviewAtTheFormerSeventyTwoHourDeadline`); um caso aberto pela
+release anterior mantém as 72 h (`ACaseOpenedByThePreviousReleaseKeepsItsSeventyTwoHourDeadline`); e a constraint
+aceita só 168 h ou os 72 h legados (`CaseDeadlineIsSevenDaysOrTheSeventyTwoHoursOfThePreviousRelease`). Ver o
+[ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-29102026).
+
 ## Transporte Resend — conta e recuperação
 
 `ResendEmailSenderTests` e `ResendEmailFlowTests` complementam INV-01/06/08/12: mensagens PT-BR/EN-US
