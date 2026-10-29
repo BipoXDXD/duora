@@ -86,7 +86,7 @@ public sealed partial class PhotoReviewApprovalTests
     {
         await using var web = ReviewWeb();
         var item = await CaseAsync();
-        _time.Advance(TimeSpan.FromHours(72));
+        _time.Advance(ReviewWait);
         Assert.Equal(1, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
         var generation = await CleanupGenerationAsync(item);
         var marker = await MarkerAsync(generation);
@@ -107,7 +107,7 @@ public sealed partial class PhotoReviewApprovalTests
     {
         await using var web = ReviewWeb();
         var item = await CaseAsync();
-        _time.Advance(TimeSpan.FromHours(72));
+        _time.Advance(ReviewWait);
         Assert.Equal(1, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
         await using var source = NpgsqlDataSource.Create(_connectionString);
         var expired = Assert.IsType<ExpiredCandidateCleanupClaim>(await ExpiredCleanup(source).ClaimAsync(Ct));

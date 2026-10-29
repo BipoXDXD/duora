@@ -29,7 +29,7 @@ public sealed partial class MediaPipelineTests
         Assert.Equal(0, await CountAsync("select count(*) from media.media_assets where upload_id=$1", upload.Id));
         Assert.Equal(1, await CountAsync("""
             select count(*) from safety.photo_review_cases where id=$1 and policy_version='human-review-v1'
-              and review_deadline=awaiting_review_at+interval '72 hours' and version=1
+              and review_deadline=awaiting_review_at+interval '168 hours' and version=1
             """, result.CaseId));
         Assert.Equal(1, await CountAsync("""
             select count(*) from media.review_candidates c join safety.photo_review_cases r
@@ -84,7 +84,7 @@ public sealed partial class MediaPipelineTests
         var first = Assert.IsType<ReviewCandidateStageResult.Staged>(await StageCandidateAsync(
             upload.Id, version, store, DateTimeOffset.UtcNow.AddMinutes(1)));
         var bytes = await CandidateBytesAsync(media.Store, upload.Id);
-        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddHours(condition == "review-expired" ? 73 : 1));
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow + (condition == "review-expired" ? TimeSpan.FromDays(7) + TimeSpan.FromHours(1) : TimeSpan.FromHours(1)));
         if (condition == "retention-expired")
         {
             await media.ExecuteAsync("update media.review_candidates set retention_until=$2 where upload_id=$1",

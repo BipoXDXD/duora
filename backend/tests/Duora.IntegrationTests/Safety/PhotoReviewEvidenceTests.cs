@@ -175,7 +175,7 @@ public sealed class PhotoReviewEvidenceTests(PostgresFixture postgres) : IAsyncL
         var (reviewer, item) = await PreparedAsync();
         if (change == "deadline")
         {
-            _time.Advance(TimeSpan.FromHours(72) - TimeSpan.FromSeconds(1));
+            _time.Advance(TimeSpan.FromDays(7) - TimeSpan.FromSeconds(1));
             reviewer = await ModeratorAsync(PhotoReviewCapability.Evidence, PhotoReviewCapability.Decide);
             var assigner = await ModeratorAsync(PhotoReviewCapability.Assign);
             await using var assignmentDb = Context();

@@ -134,7 +134,7 @@ public sealed partial class PhotoReviewApprovalTests
         }
         else if (outcome == "expired")
         {
-            _time.Advance(TimeSpan.FromHours(73));
+            _time.Advance(ReviewWait + TimeSpan.FromHours(1));
             Assert.Equal(1, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
         }
         else
