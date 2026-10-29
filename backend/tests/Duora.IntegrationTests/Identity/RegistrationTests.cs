@@ -1,4 +1,6 @@
 using System.Net;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Duora.IntegrationTests.Identity;
 
@@ -71,6 +73,8 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IAsyncDisposab
     [InlineData("role", "\"Admin\"")]
     [InlineData("emailConfirmed", "true")]
     [InlineData("id", "\"0199d700-7f20-7000-8000-000000000001\"")]
+    [InlineData("age", "30")]
+    [InlineData("birthDate", "\"1990-01-01\"")]
     public async Task UnknownFieldIsRejectedAndNothingIsCreated(string field, string value)
     {
         using var browser = new Browser(_factory);
@@ -87,6 +91,77 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IAsyncDisposab
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "INVALID_REQUEST");
         Assert.Equal(0, await Scenario.CountUsersAsync(email));
         Assert.Equal(0, await Scenario.CountOutboxEventsAsync(email));
+    }
+
+    // Issue #9, item 5: the 18+ declaration is a product requirement of the Terms, not age verification. Without an
+    // explicit true the request fails at the boundary and writes no account, consent or outbox row.
+    [Theory]
+    [InlineData("false")]
+    [InlineData("null")]
+    [InlineData(null)]
+    public async Task RegistrationWithoutTheAdultDeclarationIsRejectedAndNothingIsStored(string? confirmedAdult)
+    {
+        using var browser = new Browser(_factory);
+        await browser.FetchCsrfTokenAsync();
+        var email = IdentityScenario.NewEmail();
+
+        using var response = await browser.PostRawJsonAsync("/api/v1/auth/register", RegistrationJson(email, confirmedAdult));
+
+        var problem = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        Assert.Equal("REQUIRED", (string?)problem["errors"]?["confirmedAdult"]?[0]);
+        Assert.Single(problem["errors"]!.AsObject());
+        Assert.Equal(0, await Scenario.CountUsersAsync(email));
+        Assert.Equal(0, await Scenario.CountOutboxEventsAsync(email));
+    }
+
+    [Theory]
+    [InlineData("\"true\"")]
+    [InlineData("1")]
+    [InlineData("{}")]
+    public async Task AdultDeclarationOfTheWrongTypeIsRejectedAndNothingIsStored(string confirmedAdult)
+    {
+        using var browser = new Browser(_factory);
+        await browser.FetchCsrfTokenAsync();
+        var email = IdentityScenario.NewEmail();
+
+        using var response = await browser.PostRawJsonAsync("/api/v1/auth/register", RegistrationJson(email, confirmedAdult));
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "INVALID_REQUEST");
+        Assert.Equal(0, await Scenario.CountUsersAsync(email));
+        Assert.Equal(0, await Scenario.CountOutboxEventsAsync(email));
+    }
+
+    [Fact]
+    public async Task ReRegistrationWithoutTheAdultDeclarationLeavesThePendingAccountUntouched()
+    {
+        using var browser = new Browser(_factory);
+        var email = IdentityScenario.NewEmail();
+        using var first = await IdentityScenario.RegisterAsync(browser, email);
+        const string Evidence = """
+            select string_agg(c.document || '|' || c.version || '|' || c.accepted_at::text || '|' || u.password_hash, ',' order by c.document)
+            from identity.consent_records c join identity.users u on u.id = c.user_id
+            where u.normalized_email = upper($1)
+            """;
+        var before = await Scenario.ScalarTextAsync(Evidence, email);
+
+        using var second = await browser.PostRawJsonAsync("/api/v1/auth/register", RegistrationJson(email, "false", "outra frase longa o bastante"));
+
+        Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
+        await ProblemAssert.IsProblemAsync(second, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
+        Assert.Equal(before, await Scenario.ScalarTextAsync(Evidence, email));
+        Assert.Equal(1, await Scenario.CountOutboxEventsAsync(email));
+    }
+
+    /// <summary>A valid registration body whose <c>confirmedAdult</c> is replaced by raw JSON, or omitted when null.</summary>
+    private static string RegistrationJson(string email, string? confirmedAdult, string password = IdentityScenario.ValidPassword)
+    {
+        var body = JsonSerializer.SerializeToNode(IdentityScenario.RegistrationBody(email, password))!.AsObject();
+        body.Remove("confirmedAdult");
+        if (confirmedAdult is not null)
+        {
+            body["confirmedAdult"] = JsonNode.Parse(confirmedAdult);
+        }
+        return body.ToJsonString();
     }
 
     [Theory]

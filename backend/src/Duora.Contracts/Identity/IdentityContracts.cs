@@ -5,11 +5,16 @@ namespace Duora.Contracts.Identity;
 // DTOs de entrada da API de conta (spec 8.2). Todos os campos são anuláveis para que ausência e null cheguem até
 // a validação e virem 400 com código estável; campo desconhecido é recusado pelo serializador.
 
+/// <summary>
+/// Cadastro (API-A02). <c>ConfirmedAdult</c> é a confirmação explícita "Declaro ter 18 anos ou mais" pedida pelos
+/// Termos e precisa ser <c>true</c>. Não informa idade nem data de nascimento e não é verificação etária.
+/// </summary>
 public sealed record RegisterRequest(
     string? Email,
     string? Password,
     string? AcceptedTermsVersion,
     string? AcceptedPrivacyVersion,
+    bool? ConfirmedAdult,
     string? AcceptedTermsLocale = null,
     string? AcceptedPrivacyLocale = null,
     string? AcceptedTermsSha256 = null,

@@ -40,6 +40,7 @@ test.describe('interface em inglês (navegador em en-US)', () => {
     await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
     await page.getByRole('checkbox', { name: /Terms of Use/ }).check()
     await page.getByRole('checkbox', { name: /Privacy Policy/ }).check()
+    await page.getByRole('checkbox', { name: 'I declare that I am 18 or older' }).check()
     await page.getByRole('button', { name: 'Create account' }).click()
 
     await expect(page.getByRole('heading', { level: 1, name: 'Check your email' })).toBeVisible()

@@ -29,6 +29,7 @@ const registerSchema = z.object({
   password: newPasswordSchema,
   acceptTerms: z.boolean().refine((accepted) => accepted, 'validation.termsRequired' satisfies ValidationKey),
   acceptPrivacy: z.boolean().refine((accepted) => accepted, 'validation.privacyRequired' satisfies ValidationKey),
+  confirmAdult: z.boolean().refine((confirmed) => confirmed, 'validation.adultRequired' satisfies ValidationKey),
 })
 
 type RegisterForm = z.output<typeof registerSchema>
@@ -47,6 +48,8 @@ function submitRegistration(
     acceptedPrivacyVersion: receipt.privacy.version,
     acceptedTermsLocale: receipt.terms.locale,
     acceptedPrivacyLocale: receipt.privacy.locale,
+    // The schema refinement only lets a checked box through; the literal keeps the contract explicit.
+    confirmedAdult: true,
   })
 }
 
@@ -137,7 +140,7 @@ function RegistrationForm({ receipt }: { readonly receipt: LegalReceipt }): Reac
   }, [])
   const form = useForm<z.input<typeof registerSchema>, unknown, RegisterForm>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { email: '', password: '', acceptTerms: false, acceptPrivacy: false },
+    defaultValues: { email: '', password: '', acceptTerms: false, acceptPrivacy: false, confirmAdult: false },
   })
   const registration = usePublicMutation({
     mutationFn: (operation) => {
@@ -199,6 +202,11 @@ function RegistrationForm({ receipt }: { readonly receipt: LegalReceipt }): Reac
             label={t('register.acceptPrivacy', { version: receipt.privacy.version })}
             error={fieldError(errors.acceptPrivacy?.message)}
             {...form.register('acceptPrivacy')}
+          />
+          <CheckboxField
+            label={t('register.confirmAdult')}
+            error={fieldError(errors.confirmAdult?.message)}
+            {...form.register('confirmAdult')}
           />
         </fieldset>
         <SubmitButton

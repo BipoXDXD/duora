@@ -14,7 +14,7 @@ const API_PREFIX = '/api/v1'
 const ANTIFORGERY_COOKIE = 'XSRF-TOKEN'
 const ANTIFORGERY_HEADER = 'x-xsrf-token'
 
-/** Campos exatos (todos texto) de cada corpo do contrato; rota fora daqui não aceita corpo. */
+/** Campos exatos de cada corpo do contrato; rota fora daqui não aceita corpo. Texto, salvo os de BOOLEAN_FIELDS. */
 const REQUEST_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'POST /auth/register': [
     'email',
@@ -25,12 +25,16 @@ const REQUEST_FIELDS: Readonly<Record<string, readonly string[]>> = {
     'acceptedPrivacyLocale',
     'acceptedTermsSha256',
     'acceptedPrivacySha256',
+    'confirmedAdult',
   ],
   'POST /auth/confirm-email': ['userId', 'token', 'password'],
   'POST /auth/login': ['email', 'password'],
   'POST /auth/password-reset-requests': ['email'],
   'POST /auth/password-resets': ['userId', 'token', 'newPassword'],
 }
+
+/** Campos booleanos do contrato; chegam ao corpo simulado como 'true' ou 'false'. */
+const BOOLEAN_FIELDS: ReadonlySet<string> = new Set(['confirmedAdult'])
 
 type RequestBody = Readonly<Record<string, string>>
 
@@ -284,7 +288,8 @@ export class FakeDuoraApi {
           candidate.locale === body[document === 'terms' ? 'acceptedTermsLocale' : 'acceptedPrivacyLocale'] &&
           candidate.sha256 === body[document === 'terms' ? 'acceptedTermsSha256' : 'acceptedPrivacySha256'],
       )
-    if (!matches('terms') || !matches('privacy')) return problem(400, 'VALIDATION_FAILED')
+    if (!matches('terms') || !matches('privacy') || body.confirmedAdult !== 'true')
+      return problem(400, 'VALIDATION_FAILED')
     const email = body.email ?? ''
     if (!this.#users.has(email)) {
       const user: FakeUser = {
@@ -511,8 +516,9 @@ function problem(status: number, code: string, retryAfter?: string): Fulfillment
 }
 
 /**
- * Corpo da requisição contra o contrato: rotas com corpo exigem exatamente os campos listados, todos
- * texto; as demais não aceitam corpo. Devolve null quando o corpo não respeita o contrato.
+ * Corpo da requisição contra o contrato: rotas com corpo exigem exatamente os campos listados, em texto
+ * (ou booleano, para BOOLEAN_FIELDS); as demais não aceitam corpo. Devolve null quando o corpo não
+ * respeita o contrato.
  */
 function parseBody(key: string, raw: string | null): RequestBody | null {
   const fields = REQUEST_FIELDS[key]
@@ -525,8 +531,10 @@ function parseBody(key: string, raw: string | null): RequestBody | null {
   }
   const entries = Object.entries(body)
   const exactFields = entries.length === fields.length && entries.every(([name]) => fields.includes(name))
-  const allText = entries.every((entry): entry is [string, string] => typeof entry[1] === 'string')
-  return exactFields && allText ? Object.fromEntries(entries) : null
+  const wellTyped = entries.every(([name, value]) =>
+    BOOLEAN_FIELDS.has(name) ? typeof value === 'boolean' : typeof value === 'string',
+  )
+  return exactFields && wellTyped ? Object.fromEntries(entries.map(([name, value]) => [name, String(value)])) : null
 }
 
 function parseJson(raw: string | null): unknown {

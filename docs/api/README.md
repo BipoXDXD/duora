@@ -124,6 +124,17 @@ artefato e invalidar o aceite se trocar esse artefato; não basta copiar `useI18
 O servidor registra a declaração explícita do cliente; isso não prova leitura nem aprovação jurídica.
 Ver [evidência e validação](../testing/consent-document-locale.md).
 
+## Declaração de 18 anos ou mais (issue #9, item 5)
+
+API-A02 exige `confirmedAdult: true`, enviado pela caixa "Declaro ter 18 anos ou mais" do cadastro. Ausente,
+`null` ou `false` retorna 400 `VALIDATION_FAILED` com `REQUIRED` em `confirmedAdult`; outro tipo retorna 400
+`INVALID_REQUEST`. Em ambos os casos não se grava conta, aceite nem outbox. O campo é
+obrigatório no contrato (`required`) e tipado `boolean | null`: o null explícito também chega à validação com código
+estável. Para clientes antigos é uma mudança incompatível, aceitável porque a SPA e a API são publicadas juntas. Não há campo de idade nem de data de
+nascimento: a declaração fica registrada pelo aceite dos Termos (versão `2026-10-29` em diante), com versão,
+idioma e SHA-256. Isso não é verificação etária nem conformidade com o ECA Digital
+([decisões de 29/10](../product/decisions-2026-10-29.md)).
+
 ## Fuso privado da conta (issue #81)
 
 `GET /me/time-zone`: `{timeZone: string|null, version: string}` + ETag. `PUT /me/time-zone` exige

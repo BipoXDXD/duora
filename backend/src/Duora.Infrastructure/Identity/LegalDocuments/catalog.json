@@ -1,7 +1,113 @@
 {
-  "termsVersion": "2026-10-25",
+  "termsVersion": "2026-10-29",
   "privacyVersion": "2026-10-25",
   "documents": [
+    {
+      "document": "terms",
+      "version": "2026-10-29",
+      "locale": "pt-BR",
+      "title": "Termos de uso",
+      "controllerName": "Luca Grimmer",
+      "privacyContact": "support@meetduora.com",
+      "approved": true,
+      "sections": [
+        {
+          "title": "O serviço",
+          "paragraphs": [
+            "O Duora oferece encontros e atividades guiadas. A disponibilidade de cada recurso é indicada na interface. O serviço não garante afinidade, conexão ou continuidade de uma relação entre participantes."
+          ]
+        },
+        {
+          "title": "Idade mínima",
+          "paragraphs": [
+            "O Duora é destinado exclusivamente a pessoas com 18 anos ou mais. Ao se cadastrar, você declara ter 18 anos ou mais."
+          ]
+        },
+        {
+          "title": "Conta e segurança",
+          "paragraphs": [
+            "Use um endereço de e-mail ao qual você tenha acesso e cumpra as etapas de confirmação e segurança apresentadas. Não compartilhe senha, códigos de autenticação ou recuperação. Não use a conta de outra pessoa."
+          ]
+        },
+        {
+          "title": "Convivência",
+          "paragraphs": [
+            "Não ameace, assedie, se passe por outra pessoa nem envie conteúdo sem autorização para utilizá-lo. Evite incluir informações sensíveis ou de terceiros em campos livres. As decisões de moderação e os recursos dependem de seus fluxos próprios; automação não constitui julgamento humano."
+          ]
+        },
+        {
+          "title": "Participação e saída",
+          "paragraphs": [
+            "As atividades respeitam as escolhas explícitas e os estados apresentados na sala. Silêncio não equivale a confirmação. A interface não oferece tradução automática de uma conversa. Voz, quando disponível, é opcional. Sair ou bloquear não exige concordância da outra pessoa."
+          ]
+        },
+        {
+          "title": "Versão e aceite",
+          "paragraphs": [
+            "Este documento é identificado por tipo, versão, idioma e resumo criptográfico. O cadastro só é admitido quando os documentos aplicáveis estão publicados e o aceite corresponde às versões e aos idiomas oferecidos. Evidências antigas sem idioma conhecido não recebem um idioma presumido."
+          ]
+        },
+        {
+          "title": "Responsável e contato",
+          "paragraphs": [
+            "O Duora é mantido por Luca Grimmer, pessoa física, responsável pelo serviço e controlador dos dados pessoais tratados nele. O canal para suporte e solicitações de privacidade é support@meetduora.com."
+          ]
+        }
+      ]
+    },
+    {
+      "document": "terms",
+      "version": "2026-10-29",
+      "locale": "en-US",
+      "title": "Terms of use",
+      "controllerName": "Luca Grimmer",
+      "privacyContact": "support@meetduora.com",
+      "approved": true,
+      "sections": [
+        {
+          "title": "The service",
+          "paragraphs": [
+            "Duora provides meetings and guided activities. The interface identifies which features are available. The service does not guarantee compatibility, a connection, or an ongoing relationship between participants."
+          ]
+        },
+        {
+          "title": "Minimum age",
+          "paragraphs": [
+            "Duora is only for people aged 18 or older. By registering, you declare that you are 18 or older."
+          ]
+        },
+        {
+          "title": "Account and security",
+          "paragraphs": [
+            "Use an email address you can access and complete the confirmation and security steps presented to you. Do not share passwords, authentication codes, or recovery codes. Do not use another person’s account."
+          ]
+        },
+        {
+          "title": "Conduct",
+          "paragraphs": [
+            "Do not threaten, harass, impersonate another person, or submit content you are not authorized to use. Avoid entering sensitive information or information about other people in free-text fields. Moderation decisions and appeals depend on their own processes; automation is not a human judgment."
+          ]
+        },
+        {
+          "title": "Participation and leaving",
+          "paragraphs": [
+            "Activities respect explicit choices and the states shown in the room. Silence is not confirmation. The interface does not provide automatic translation of a conversation. Voice, when available, is optional. Leaving or blocking does not require the other person’s agreement."
+          ]
+        },
+        {
+          "title": "Version and acceptance",
+          "paragraphs": [
+            "This document is identified by its type, version, language, and cryptographic digest. Registration is admitted only when the applicable documents are published and acceptance matches the versions and languages offered. Historical evidence with an unknown language is not assigned an inferred language."
+          ]
+        },
+        {
+          "title": "Responsible party and contact",
+          "paragraphs": [
+            "Duora is operated by Luca Grimmer, an individual, who is responsible for the service and is the controller of the personal data processed in it. The support and privacy-request contact is support@meetduora.com."
+          ]
+        }
+      ]
+    },
     {
       "document": "terms",
       "version": "2026-10-25",

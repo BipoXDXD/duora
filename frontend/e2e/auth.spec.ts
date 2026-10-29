@@ -30,6 +30,7 @@ test.describe('jornada de entrada', () => {
     await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('checkbox', { name: /Termos de uso/ }).check()
     await page.getByRole('checkbox', { name: /Política de privacidade/ }).check()
+    await page.getByRole('checkbox', { name: 'Declaro ter 18 anos ou mais' }).check()
     await page.getByRole('button', { name: 'Criar conta' }).click()
 
     await expect(page.getByRole('heading', { level: 1, name: 'Verifique seu e-mail' })).toBeVisible()
@@ -165,6 +166,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
     await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('checkbox', { name: /Termos de uso/ }).check()
     await page.getByRole('checkbox', { name: /Política de privacidade/ }).check()
+    await page.getByRole('checkbox', { name: 'Declaro ter 18 anos ou mais' }).check()
     await page.getByRole('button', { name: 'Criar conta' }).click()
     await expect(page.getByRole('alert')).toContainText('Confira sua conexão')
 
@@ -245,6 +247,7 @@ test.describe('acessibilidade automática nos estados de erro (WCAG 2.2 A/AA)', 
     await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('checkbox', { name: /Termos de uso/ }).check()
     await page.getByRole('checkbox', { name: /Política de privacidade/ }).check()
+    await page.getByRole('checkbox', { name: 'Declaro ter 18 anos ou mais' }).check()
     await page.getByRole('button', { name: 'Criar conta' }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Verifique seu e-mail' })).toBeVisible()
     api.failNext({ method: 'GET', path: '/me/sessions', times: 3 }, 'network-error')

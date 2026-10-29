@@ -1,7 +1,9 @@
 {
-  "termsVersion": "2026-10-25",
+  "termsVersion": "2026-10-29",
   "privacyVersion": "2026-10-25",
   "documents": [
+    "terms/2026-10-29/pt-BR.md",
+    "terms/2026-10-29/en-US.md",
     "terms/2026-10-25/pt-BR.md",
     "terms/2026-10-25/en-US.md",
     "privacy/2026-10-25/pt-BR.md",

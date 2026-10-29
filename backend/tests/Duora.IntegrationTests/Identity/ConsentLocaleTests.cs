@@ -31,6 +31,7 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
             acceptedPrivacyLocale = privacy,
             acceptedTermsSha256 = SyntheticLegalPublication.Hash(publication, "terms", terms),
             acceptedPrivacySha256 = SyntheticLegalPublication.Hash(publication, "privacy", privacy),
+            confirmedAdult = true,
         });
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var proof = await scenario.ReadLatestLinkAsync(email, "EmailConfirmation");
@@ -106,6 +107,7 @@ public sealed class ConsentLocaleTests(PostgresFixture postgres)
             password = IdentityScenario.ValidPassword,
             acceptedTermsVersion = IdentityScenario.TermsVersion,
             acceptedPrivacyVersion = IdentityScenario.TermsVersion,
+            confirmedAdult = true,
         });
         await ProblemAssert.IsProblemAsync(registered, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
         Assert.Equal(0, await scenario.CountUsersAsync(email));

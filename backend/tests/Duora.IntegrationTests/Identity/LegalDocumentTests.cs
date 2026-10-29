@@ -8,6 +8,7 @@ namespace Duora.IntegrationTests.Identity;
 public sealed class LegalDocumentTests(PostgresFixture postgres)
 {
     private const string PublishedController = "Luca Grimmer";
+    private const string CurrentTermsVersion = "2026-10-29";
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -22,7 +23,11 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
         var catalog = await response.Content.ReadFromJsonAsync<LegalDocumentCatalogResponse>(Ct);
         Assert.NotNull(catalog);
         Assert.True(catalog.RegistrationAvailable);
-        Assert.Equal(4, catalog.Documents.Count);
+        Assert.Equal(CurrentTermsVersion, catalog.TermsVersion);
+        Assert.Equal(4, catalog.Documents.Count(document =>
+            document.Version == (document.Document == "terms" ? catalog.TermsVersion : catalog.PrivacyVersion)));
+        // The superseded terms stay in the catalog so earlier acceptance evidence still resolves to its text.
+        Assert.Equal(2, catalog.Documents.Count(document => document.Document == "terms" && document.Version == "2026-10-25"));
         Assert.All(catalog.Documents, document =>
         {
             Assert.True(document.Published);
@@ -55,19 +60,39 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
         }
     }
 
-    // Golden master of the published 2026-10-25 texts: a published version never changes. Editing a text,
-    // the controller or the contact without creating a new version must break this test.
+    // Golden master of every published text: a published version never changes. Editing a text, the controller
+    // or the contact without creating a new version must break this test.
     [Theory]
-    [InlineData("terms", "pt-BR", "07fd125aa37cea239d0dc0bf702a32892e66e2d16ed0e5a0c1908c5034f30227")]
-    [InlineData("terms", "en-US", "fc36a782961b51fe8ab5b2b49ae71596763f4d365736855cd916cff38e27c8b6")]
-    [InlineData("privacy", "pt-BR", "ee20f316d68c3e7c08d2fd69f763358e6f8d8142164b9cf1afc8b1d722c8405a")]
-    [InlineData("privacy", "en-US", "a4802a18c0f2d731784375c7bba88d70f9e8778168d36b885297f59f0b6e174d")]
-    public void PublishedDocumentKeepsItsExactFingerprint(string kind, string locale, string expectedSha256)
+    [InlineData("terms", "2026-10-25", "pt-BR", "07fd125aa37cea239d0dc0bf702a32892e66e2d16ed0e5a0c1908c5034f30227")]
+    [InlineData("terms", "2026-10-25", "en-US", "fc36a782961b51fe8ab5b2b49ae71596763f4d365736855cd916cff38e27c8b6")]
+    [InlineData("terms", "2026-10-29", "pt-BR", "7b7c64f8bb387fe287aa06018225ddda597401ce72a8b88a7742958391312ae6")]
+    [InlineData("terms", "2026-10-29", "en-US", "825198ad949b28c33a8d790809af4fe7a745969d8abc5d506249143e9a321d5c")]
+    [InlineData("privacy", "2026-10-25", "pt-BR", "ee20f316d68c3e7c08d2fd69f763358e6f8d8142164b9cf1afc8b1d722c8405a")]
+    [InlineData("privacy", "2026-10-25", "en-US", "a4802a18c0f2d731784375c7bba88d70f9e8778168d36b885297f59f0b6e174d")]
+    public void PublishedDocumentKeepsItsExactFingerprint(string kind, string version, string locale, string expectedSha256)
     {
         var document = Assert.Single(LegalPublicationResources.Load().Documents,
-            candidate => candidate.Document == kind && candidate.Version == "2026-10-25" && candidate.Locale == locale);
+            candidate => candidate.Document == kind && candidate.Version == version && candidate.Locale == locale);
 
         Assert.Equal(expectedSha256, document.Sha256);
+    }
+
+    // Issue #9, item 5: product coherence with the 18+ requirement, not age verification nor legal compliance.
+    // Accepting this terms version (stored with its digest) is the record of the registrant's declaration.
+    [Theory]
+    [InlineData("pt-BR", "Idade mínima", "exclusivamente a pessoas com 18 anos ou mais", "você declara ter 18 anos ou mais")]
+    [InlineData("en-US", "Minimum age", "only for people aged 18 or older", "you declare that you are 18 or older")]
+    public void CurrentTermsRestrictTheServiceToAdultsWhoDeclareTheirAge(string locale, string title, string restriction, string declaration)
+    {
+        var publication = LegalPublicationResources.Load();
+        var terms = Assert.Single(publication.Documents,
+            candidate => candidate.Document == "terms" && candidate.Version == publication.TermsVersion && candidate.Locale == locale);
+
+        var section = Assert.Single(terms.Sections, candidate => candidate.Title == title);
+        var text = string.Join(' ', section.Paragraphs);
+        Assert.Contains(restriction, text, StringComparison.Ordinal);
+        Assert.Contains(declaration, text, StringComparison.Ordinal);
+        Assert.Equal(CurrentTermsVersion, publication.TermsVersion);
     }
 
     [Fact]
@@ -108,6 +133,7 @@ public sealed class LegalDocumentTests(PostgresFixture postgres)
             acceptedPrivacyLocale = "en-US",
             acceptedTermsSha256 = termsSha256,
             acceptedPrivacySha256 = SyntheticLegalPublication.Hash(publication, "privacy", "en-US"),
+            confirmedAdult = true,
         });
         await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "VALIDATION_FAILED");
         var scenario = new IdentityScenario(postgres, factory);

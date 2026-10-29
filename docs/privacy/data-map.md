@@ -27,7 +27,7 @@ Finalidades, categorias de dados por tabela, base legal, fornecedores e acessos 
 | ID | Finalidade | Descrição | Tabelas principais |
 |---|---|---|---|
 | F-01 | Conta e autenticação | Criar e proteger a conta, autenticar, manter sessões revogáveis, recuperar acesso | `identity.users`, `identity.login_sessions`, `identity.auth_tickets`, `identity.user_tokens`, `identity.consent_records` |
-| F-02 | Elegibilidade etária | Garantir que só adultos participem (INV-01) | `identity.age_verifications`, `identity.users.birth_date` |
+| F-02 | Requisito de 18 anos ou mais | Registrar que quem se cadastra declarou ter 18 anos ou mais, como exigem os Termos (decisão de 29/10/2026). É autodeclaração, não verificação etária nem conformidade com o ECA Digital; nenhuma idade ou data de nascimento é coletada ([ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md)) | `identity.consent_records` (aceite dos Termos que contêm a declaração); `identity.age_verifications` só como histórico |
 | F-03 | Perfil e pareamento | Exibir perfil em contexto legítimo e formar pares mutuamente elegíveis | `profiles.*`, `events.*`, `media.*` (fotos de perfil) |
 | F-04 | Experiência e comunicação | Conduzir a sala, coletar decisão privada, criar conexão e conversa | `experiences.game_*`, `social.*` |
 | F-05 | Segurança interpessoal e moderação | Bloquear, receber denúncia, preservar evidência, aplicar e revisar medidas (INV-03, INV-10) | `safety.*` |
@@ -48,12 +48,12 @@ outro nome (por exemplo, consentimento *opt-in* para dado sensível), a confirma
 
 | Tabela | Categorias de dado | Titular | Classe | Finalidade | Sensível? | Base legal |
 |---|---|---|---|---|---|---|
-| `identity.users` | E-mail, hash de senha, estado da conta, data de nascimento, tentativas de login | Pessoa usuária | S / P3 | F-01, F-02 | Não, mas a data de nascimento serve à proteção etária | A definir com apoio jurídico |
+| `identity.users` | E-mail, hash de senha, estado da conta, tentativas de login (sem data de nascimento nem idade) | Pessoa usuária | S / P2 | F-01 | Não | A definir com apoio jurídico |
 | `identity.login_sessions` | Instantes de uso, resumo do dispositivo, prefixo de rede | Pessoa usuária | P2 | F-01, F-07 | Não | A definir com apoio jurídico |
 | `identity.auth_tickets`, `identity.user_tokens` | Ticket de sessão, chave TOTP, códigos de recuperação | Pessoa usuária | S | F-01 | Não | A definir com apoio jurídico |
-| `identity.age_verifications` | Resultado mínimo, instante da decisão, instante da suspeita de menor (`NotAdult`), referência do fornecedor, versão da política | Pessoa usuária | P3 | F-02 | Possível (biometria no fornecedor, se o método usar) | A definir com apoio jurídico |
-| `identity.consent_records` | Tipo, versão, idioma explícito do documento aceito (ou desconhecido/null) e instante | Pessoa usuária | P2 | F-01, F-08 | Não | A definir com apoio jurídico |
-| `profiles.profiles` | Nome de exibição, faixa etária, região aproximada (país opcional + subdivisão de primeiro nível opcional na expansão ADR-0030, inicialmente BR e as UFs existentes; campo UF legado mantido; nunca cidade, CEP, código postal nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
+| `identity.age_verifications` | Histórico do fluxo etário retirado pelo ADR-0029: resultado mínimo, instante da decisão, instante da suspeita de menor (`NotAdult`), referência do fornecedor, versão da política. Não recebe dados novos e não sustenta F-02, que é autodeclaração | Pessoa usuária | P3 | Histórico (antiga F-02) | Possível (biometria no fornecedor antigo, se o método usou) | A definir com apoio jurídico |
+| `identity.consent_records` | Tipo, versão, idioma explícito do documento aceito (ou desconhecido/null), resumo SHA-256 do texto e instante. O aceite dos Termos a partir da versão `2026-10-29` registra também a declaração de 18 anos ou mais, sem campo de idade | Pessoa usuária | P2 | F-01, F-02, F-08 | Não | A definir com apoio jurídico |
+| `profiles.profiles` | Nome de exibição, região aproximada (país opcional + subdivisão de primeiro nível opcional na expansão ADR-0030, inicialmente BR e as UFs existentes; campo UF legado mantido; nunca cidade, CEP, código postal nem coordenada), descrição | Pessoa usuária | P2 | F-03 | Pode conter dado sensível em texto livre (descrição) | A definir com apoio jurídico |
 | `profiles.preferences` | Critérios privados de compatibilidade | Pessoa usuária | P3 | F-03 | **Provável** se incluírem gênero buscado ou orientação (vida sexual) | A definir com apoio jurídico |
 | `profiles.profile_photos`, `media.*` | Fotos (originais em quarentena e derivados), hash, dimensões | Pessoa usuária e terceiros fotografados | P3 | F-03, F-05 | Imagem é dado pessoal; biometria só se houver tratamento biométrico (não previsto) | A definir com apoio jurídico |
 | `media.review_candidates`, `safety.photo_review_*` | Candidato privado de revisão (derivados sanitizados, fora do backup de mídia), caso, decisão e motivo fechado. Candidato aprovado ou rejeitado é limpo em 24 h após a decisão (sem recurso desde 28/10/2026); decisão e auditoria ficam 1 ano | Pessoa usuária e terceiros fotografados; revisor | P3 | F-03, F-05 | Imagem é dado pessoal | A definir com apoio jurídico |
@@ -69,7 +69,7 @@ outro nome (por exemplo, consentimento *opt-in* para dado sensível), a confirma
 | `ops.notification_preferences`, `ops.email_receipts` | Escolha de comunicação opcional; recibos de entrega | Pessoa usuária | P2 | F-06 | Não | A definir com apoio jurídico |
 | `ops.audit_events` | Ator, ação, alvo, motivo, instante | Pessoa usuária, moderador, operador | P2 / P3 | F-07, F-05 | Não | A definir com apoio jurídico |
 | `ops.idempotency_records`, `ops.outbox_*`, `ops.jobs` | IDs, hashes, resultados mínimos | Pessoa usuária | P1 / P2 | F-07 | Não | A definir com apoio jurídico |
-| `ops.webhook_receipts` | Callback de fornecedor (verificação etária, e-mail) | Pessoa usuária | P2 / P3 | F-02, F-06 | Possível (resultado etário) | A definir com apoio jurídico |
+| `ops.webhook_receipts` | Callback de fornecedor (e-mail; recibos históricos de verificação etária, cujas rotas respondem 410 desde o ADR-0029) | Pessoa usuária | P2 / P3 | F-06 | Possível só nos recibos etários históricos | A definir com apoio jurídico |
 | `privacy.export_requests`, `deletion_requests`, `deletion_steps` | Pedidos e execução de direitos | Pessoa usuária | P2 / P3 | F-08 | Não | A definir com apoio jurídico |
 | `privacy.retention_holds` | Escopo e motivo de preservação | Pessoa usuária | P3 | F-05, F-08, F-10 | Possível | A definir com apoio jurídico |
 | `privacy.deletion_tombstones` | HMAC do identificador excluído | Ex-usuário | P2 | F-08, F-09 | Não | A definir com apoio jurídico |
@@ -168,14 +168,18 @@ estão em [Jurisdições a confirmar](#jurisdições-a-confirmar).
    denúncias), que seguem o art. 11 da LGPD e não o art. 7.º.
 2. **Dimensões de preferência** não estão definidas na spec; se incluírem gênero buscado ou orientação, o
    tratamento é de dado sensível e a minimização precisa ser revista ([model.md](../data/model.md#schema-profiles)).
-3. **Data de nascimento** ([model.md](../data/model.md#decisões-de-modelagem-propostas), D12): confirmar se é
-   necessária ou se basta a faixa etária mais o resultado da verificação.
+3. **Data de nascimento e faixa etária:** ~~confirmar se a data de nascimento é necessária
+   ([model.md](../data/model.md#decisões-de-modelagem-propostas), D12)~~. Decidido: nenhuma das duas é coletada
+   ([ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md);
+   [registro de 24/10](../product/decisions-2026-10-24.md), item 3; issue #9, item 7).
 4. **Registros de acesso:** aplicabilidade do Marco Civil (art. 15, seis meses) ao Duora, armazenamento
    separado e acesso restrito (spec 12.1, 12.4).
-5. **ECA Digital:** ~~avaliar com apoio jurídico se o art. 9.º se aplica ao Duora~~. Decidido pelo dono
-   (2026-10-16, issue #9): não haverá análise jurídica; a verificação etária acontece só no cadastro, sem validade
-   nem reverificação por acesso ([ADR-0024](../architecture/adr/0024-fluxo-de-verificacao-etaria.md), adendo de
-   2026-10-16).
+5. **ECA Digital:** **continua em aberto.** Não há verificação etária: o [ADR-0029](../architecture/adr/0029-confirmacao-email-presenca-sem-idade.md)
+   substituiu a verificação no cadastro do ADR-0024. Em 29/10/2026 o dono decidiu
+   ([registro](../product/decisions-2026-10-29.md), item 1): os Termos exigem 18 anos ou mais e o cadastro pede a
+   confirmação "Declaro ter 18 anos ou mais", gravada com o aceite dos Termos. Isso dá coerência entre produto e
+   spec, mas **não é conformidade com o ECA Digital**: não houve parecer jurídico, e o texto citado veda a
+   autodeclaração.
 6. **Registro das operações de tratamento** (LGPD art. 37) e comunicação de incidentes (art. 48): responsável
    e procedimento (spec 12.5).
 7. **Fotos de terceiros** nas imagens de perfil e **terceiros mencionados** em mensagens e denúncias: tratamento
@@ -192,10 +196,10 @@ jurisdição correspondente até ter decisão (gate "Privacidade", spec 23.3).
 | ID | Jurisdição | Leis prováveis (a confirmar) | Pergunta para o apoio jurídico | Onde toca o Duora |
 |---|---|---|---|---|
 | J-01 | EUA e Brasil | — | **Recorte de produto aprovado em 2026-10-21:** EUA (50 estados + DC) e Brasil (27 UFs), conforme adendo do [ADR-0030](../architecture/adr/0030-profile-country-subdivision.md). Países ainda não habilitados por essa decisão; liberação operacional, análises de aplicabilidade e idade mínima das linhas seguintes permanecem pendentes | Elegibilidade do cadastro, país/subdivisão opcionais e campo legado de região (issue #78) |
-| J-02 | Brasil | LGPD; Marco Civil; ECA Digital (decisão do dono de 2026-10-16 mantida) | Escopo territorial (art. 3.º): a LGPD se aplica ao Duora pelo local do tratamento, pela oferta a pessoas no Brasil ou pela coleta no Brasil, e alcança também quem está fora do Brasil? Se se aplicar: com servidor e backup nos EUA, qual o enquadramento (transferência internacional, art. 33, ou coleta internacional, Res. CD/ANPD 19/2024) e a salvaguarda e quem é o encarregado (art. 41)? | Tabela de transferências acima; lacunas 1, 4, 5 e 6 |
+| J-02 | Brasil | LGPD; Marco Civil; ECA Digital (sem parecer jurídico; a decisão de 2026-10-16 de verificar idade no cadastro foi substituída pelo ADR-0029, e o requisito de 18+ por autodeclaração de 29/10/2026 não é conformidade, ver lacuna 5) | Escopo territorial (art. 3.º): a LGPD se aplica ao Duora pelo local do tratamento, pela oferta a pessoas no Brasil ou pela coleta no Brasil, e alcança também quem está fora do Brasil? Se se aplicar: com servidor e backup nos EUA, qual o enquadramento (transferência internacional, art. 33, ou coleta internacional, Res. CD/ANPD 19/2024) e a salvaguarda e quem é o encarregado (art. 41)? | Tabela de transferências acima; lacunas 1, 4, 5 e 6 |
 | J-03 | EUA, estados | Leis estaduais abrangentes de privacidade do consumidor (Califórnia CCPA/CPRA; Virgínia, Colorado, Connecticut, Texas, entre outras) | Os limiares de aplicabilidade (receita, número de residentes, venda de dados) alcançam o Duora? Preferências, vida afetiva e orientação são "dados sensíveis" com *opt-in*? Há avaliação de impacto obrigatória? Que direitos e prazos de resposta? | `profiles.preferences`, `social.decisions`, mensagens; direitos do titular; aviso de privacidade |
-| J-04 | EUA, estados | Washington My Health My Data Act e leis parecidas; leis de biometria (Illinois BIPA, Texas CUBI) | Algum dado do Duora cai em "dado de saúde do consumidor"? O método de verificação etária do fornecedor usa biometria ou estimativa facial e, se usar, que consentimento e retenção exige? | F-02 e fornecedor de verificação etária; fotos (não há tratamento biométrico previsto) |
-| J-05 | Todas (idade) | Maioridade civil por estado (18 na maioria dos estados dos EUA; 19 e 21 em alguns, a confirmar); COPPA (menores de 13, federal); leis estaduais de verificação etária e de proteção de menores online, em mudança e em litígio; ECA Digital no Brasil | Qual a idade mínima por jurisdição? A faixa etária pública começa em `18-24` (`age_band`, model.md): qual a primeira faixa onde a maioridade for 19 ou 21? Que método de verificação é aceitável em cada uma? Quais obrigações surgem ao descobrir uma conta de menor (COPPA, se menor de 13)? | `AgeCheckOutcome` e política versionada (ADR-0024, adendo de 2026-10-19); suspeita de menor (spec 12.2) |
+| J-04 | EUA, estados | Washington My Health My Data Act e leis parecidas; leis de biometria (Illinois BIPA, Texas CUBI) | Algum dado do Duora cai em "dado de saúde do consumidor"? O requisito de 18+ (F-02) é autodeclaração, sem fornecedor de verificação etária, biometria ou estimativa facial | Fotos (não há tratamento biométrico previsto) |
+| J-05 | Todas (idade) | Maioridade civil por estado (18 na maioria dos estados dos EUA; 19 e 21 em alguns, a confirmar); COPPA (menores de 13, federal); leis estaduais de verificação etária e de proteção de menores online, em mudança e em litígio; ECA Digital no Brasil | Qual a idade mínima por jurisdição? Os Termos exigem 18 anos ou mais e não há faixa etária nem data de nascimento (ADR-0029): onde a maioridade for 19 ou 21, o requisito basta? Que método de verificação é aceitável em cada uma? Quais obrigações surgem ao descobrir uma conta de menor (COPPA, se menor de 13)? | `AgeCheckOutcome` e política versionada (ADR-0024, adendo de 2026-10-19); suspeita de menor (spec 12.2) |
 | J-06 | EUA, estados | Leis estaduais de serviços de encontro online (por exemplo, Nova Jersey e Texas) | Quais estados exigem avisos de segurança, divulgação sobre checagem de antecedentes ou outro requisito para serviços de encontro? O formato de evento do Duora é "serviço de encontro" nessas leis? | Telas de cadastro e de evento; e-mails; documentos voltados ao usuário |
 | J-07 | EUA, federal | TAKE IT DOWN Act (2025), sobre imagens íntimas publicadas sem consentimento | O Duora é plataforma coberta? Qual o prazo de remoção após pedido válido e que canal de pedido é exigido? | Fotos, denúncias e moderação (spec 12.3, 16.1) |
 | J-08 | EUA, estados | Leis estaduais de notificação de incidente; normas de segurança da informação como a de Massachusetts (201 CMR 17.00) | A obrigação segue a residência da pessoa ou o local do servidor? Que prazos e destinatários de notificação? É exigido programa escrito de segurança? | Incidentes (spec 12.5); [threat-model.md](../security/threat-model.md) |
