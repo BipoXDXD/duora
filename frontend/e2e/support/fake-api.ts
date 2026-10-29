@@ -31,6 +31,12 @@ const REQUEST_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'POST /auth/login': ['email', 'password'],
   'POST /auth/password-reset-requests': ['email'],
   'POST /auth/password-resets': ['userId', 'token', 'newPassword'],
+  'POST /me/terms-acceptances': [
+    'acceptedTermsVersion',
+    'acceptedTermsLocale',
+    'acceptedTermsSha256',
+    'confirmedAdult',
+  ],
 }
 
 /** Campos booleanos do contrato; chegam ao corpo simulado como 'true' ou 'false'. */
@@ -45,6 +51,8 @@ interface FakeUser {
   emailConfirmed: boolean
   readonly confirmationToken: string
   passwordResetToken: string | null
+  /** Versão dos Termos do último aceite; diferente da ativa, /me pede o novo aceite (#296). */
+  acceptedTermsVersion: string
 }
 
 interface FakeProfile {
@@ -96,6 +104,7 @@ export class FakeDuoraApi {
   readonly #overrides = new Map<string, { readonly override: Override; remaining: number }>()
   readonly #emails: { readonly kind: EmailKind; readonly link: EmailLink }[] = []
   readonly #profiles = new Map<string, FakeProfile>()
+  readonly #termsAcceptances: RequestBody[] = []
   #currentSessionId: string | null = null
   #antiforgeryToken: string | null = null
   #publicProofSessionId: string | null = null
@@ -128,7 +137,20 @@ export class FakeDuoraApi {
       emailConfirmed: true,
       confirmationToken: randomUUID(),
       passwordResetToken: null,
+      acceptedTermsVersion: syntheticLegalCatalog.termsVersion,
     })
+  }
+
+  /** A conta aceitou uma versão anterior dos Termos, como as contas de antes de 2026-10-29 (#296). */
+  seedOlderTermsAcceptance(email: string): void {
+    const user = this.#users.get(email)
+    if (user === undefined) throw new Error(`Conta sintética inexistente: ${email}`)
+    user.acceptedTermsVersion = 'synthetic-older-terms'
+  }
+
+  /** Recibos recebidos por POST /me/terms-acceptances, na ordem. */
+  get termsAcceptances(): readonly RequestBody[] {
+    return this.#termsAcceptances
   }
 
   /**
@@ -159,6 +181,7 @@ export class FakeDuoraApi {
       emailConfirmed: false,
       confirmationToken: token,
       passwordResetToken: null,
+      acceptedTermsVersion: syntheticLegalCatalog.termsVersion,
     }
     this.#users.set(email, user)
     this.#sendEmail('confirmation', user.id, token)
@@ -272,6 +295,8 @@ export class FakeDuoraApi {
         return this.#currentUser() === null ? problem(401, 'UNAUTHENTICATED') : json({ enabled: false })
       case 'GET /me/profile':
         return this.#readProfile()
+      case 'POST /me/terms-acceptances':
+        return this.#acceptTerms(body)
       case 'DELETE /me/sessions/:id':
         return this.#revokeSession(decodeURIComponent(path.slice('/me/sessions/'.length)))
       default:
@@ -299,6 +324,7 @@ export class FakeDuoraApi {
         emailConfirmed: false,
         confirmationToken: randomUUID(),
         passwordResetToken: null,
+        acceptedTermsVersion: body.acceptedTermsVersion ?? '',
       }
       this.#users.set(email, user)
       this.#sendEmail('confirmation', user.id, user.confirmationToken)
@@ -383,8 +409,27 @@ export class FakeDuoraApi {
       emailConfirmed: user.emailConfirmed,
       mfaEnabled: false,
       roles: ['participant'],
+      currentTermsAccepted: user.acceptedTermsVersion === syntheticLegalCatalog.termsVersion,
       sessionContext: { userId: user.id, sessionId, phase: 'active', requestToken: privateProof },
     })
+  }
+
+  /** Regra do servidor (API-A17): só o recibo exato dos Termos ativos com confirmedAdult true; repetir é 204. */
+  #acceptTerms(body: RequestBody): Fulfillment {
+    const user = this.#currentUser()
+    if (user === null) return problem(401, 'UNAUTHENTICATED')
+    const active = syntheticLegalCatalog.documents.some(
+      (candidate) =>
+        candidate.document === 'terms' &&
+        candidate.version === syntheticLegalCatalog.termsVersion &&
+        candidate.version === body.acceptedTermsVersion &&
+        candidate.locale === body.acceptedTermsLocale &&
+        candidate.sha256 === body.acceptedTermsSha256,
+    )
+    if (!active || body.confirmedAdult !== 'true') return problem(400, 'VALIDATION_FAILED')
+    this.#termsAcceptances.push(body)
+    user.acceptedTermsVersion = syntheticLegalCatalog.termsVersion
+    return { status: 204 }
   }
 
   #profileOf(userId: string): FakeProfile {
