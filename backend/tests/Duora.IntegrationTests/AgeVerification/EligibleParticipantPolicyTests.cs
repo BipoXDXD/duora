@@ -54,6 +54,8 @@ public sealed class EligibleParticipantPolicyTests : IAsyncDisposable
         "POST /api/v1/me/age-verifications",
         "POST /api/v1/me/photos",
         "PUT /api/v1/me/blocks/{targetUserId:guid}",
+        // Novo aceite dos Termos (#296): não bloqueia o uso e vale também para quem ainda não é elegível.
+        "POST /api/v1/me/terms-acceptances",
     ];
 
     private static readonly string[] NonParticipationPolicies =
