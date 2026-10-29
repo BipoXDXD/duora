@@ -33,7 +33,11 @@ export function TermsReacceptanceNotice(): React.JSX.Element | null {
     staleTime: Infinity,
     gcTime: Infinity,
   })
-  if (account.currentTermsAccepted || pathname === paths.termsReacceptance || dismissed.data === true) return null
+  // Os Termos de participante não se aplicam a conta privilegiada (D13); o servidor já responde true para ela, e o
+  // papel decide aqui também, para o console administrativo nunca mostrar um aceite que a conta não pode dar.
+  const privileged = account.roles.some((role) => role !== 'participant')
+  if (privileged || account.currentTermsAccepted || pathname === paths.termsReacceptance || dismissed.data === true)
+    return null
   return (
     <aside
       ref={region}

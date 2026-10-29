@@ -47,6 +47,8 @@ async function mockBootstrapApi(page: Page, context: BrowserContext): Promise<un
             status: 'Active',
             roles: ['operator'],
             mfaEnabled: phase === 'complete',
+            // Defensivo: mesmo com false, a conta privilegiada não vê o aviso dos Termos de participante (#296).
+            currentTermsAccepted: false,
           },
           phase === 'complete' ? SYNTHETIC_RENEWED_SESSION_ID : SYNTHETIC_SESSION_ID,
         ),
@@ -105,6 +107,8 @@ test('senha temporária → senha própria → MFA, inclusive reload e navegaç�
   await page.getByRole('button', { name: 'Guardei os códigos, continuar' }).click()
   await expect(page).toHaveURL(/account$/)
   await expect(page.getByText('synthetic-recovery')).toHaveCount(0)
+  await expect(page.getByRole('heading', { level: 1, name: 'Sua conta' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Os Termos de uso mudaram' })).toHaveCount(0)
 })
 
 test.describe('jornada do bootstrap em inglês (navegador em en-US)', () => {

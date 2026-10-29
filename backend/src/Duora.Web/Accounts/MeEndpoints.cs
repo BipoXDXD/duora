@@ -29,8 +29,8 @@ internal static class MeEndpoints
             .Produces<PrivateSessionRestrictionResponse>(StatusCodes.Status403Forbidden, "application/problem+json")
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .AddOpenApiOperationTransformer(DocumentRestrictedSession);
+        // Sem política própria: vale a de participante (fallback), e conta privilegiada recebe 403 FORBIDDEN (D13).
         me.MapPost("/terms-acceptances", AcceptTermsAsync)
-            .RequireAccountSession()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)

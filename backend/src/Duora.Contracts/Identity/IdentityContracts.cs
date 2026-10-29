@@ -59,8 +59,9 @@ public sealed record ResetPasswordRequest(Guid? UserId, string? Token, string? N
 /// <summary>
 /// Conta do titular. <c>Status</c>: PendingEmail | PendingEligibility | Active | Restricted | Suspended |
 /// DeletionPending. <c>Roles</c>: nomes do catálogo (participant, moderator, product_admin, operator); vazio para
-/// participante que nunca recebeu papel explícito. <c>CurrentTermsAccepted</c>: a conta tem aceite da versão ativa
-/// dos Termos; <c>false</c> pede o novo aceite (API-A17), que não bloqueia o uso do app.
+/// participante que nunca recebeu papel explícito. <c>CurrentTermsAccepted</c>: participante com aceite da versão
+/// ativa dos Termos; <c>false</c> pede o novo aceite (API-A17), que não bloqueia o uso do app. Conta privilegiada
+/// não aceita os Termos de participante (D13) e recebe sempre <c>true</c>: não há aceite pendente.
 /// </summary>
 public sealed record MeResponse(
     Guid Id,

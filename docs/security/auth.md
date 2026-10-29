@@ -478,13 +478,19 @@ inclui a checagem de origem da seção [CSRF](#csrf). "Recente" = autenticação
 | API-A14 | `POST /me/mfa/recovery-codes` | Cookie | Sim | Sim | → `200` `recoveryCodes[]` (conjunto anterior revogado) | `409` `MFA_NOT_ENABLED`; `401`; `429` | `identity.mfa_recovery_codes_regenerated` |
 | API-A15 | `DELETE /me/mfa` | Cookie | Sim | Sim | → `204` (também se já estava inativo) + sessão renovada | `403` `MFA_REQUIRED_BY_ROLE`; `401`; `429` | `identity.mfa_disabled` |
 | API-A16 | `POST /me/password-changes` | Cookie | Sim | Sim | `currentPassword`, `newPassword` (12–128) → `204` + sessão renovada; outras sessões revogadas | `400` validação (inclusive `SAME_AS_TEMPORARY_PASSWORD`); `401` `INVALID_CREDENTIALS` (senha atual errada, conta no lockout); `403` `MFA_ENROLLMENT_REQUIRED` (conta privilegiada que já trocou a senha temporária e ainda deve o MFA); `429` | `identity.password_changed`, `password_change_failed`, `password_change_refused_locked_out`, `account_locked_out` |
-| API-A17 | `POST /me/terms-acceptances` | Cookie | Sim | — | `acceptedTermsVersion`, `acceptedTermsLocale`, `acceptedTermsSha256` (recibo exato dos Termos ativos) e `confirmedAdult` (`true` obrigatório) → `204`, também na repetição (o primeiro aceite fica) | `400` `VALIDATION_FAILED` (declaração ausente, `null` ou `false`; recibo que não é o dos Termos ativos) ou `INVALID_REQUEST` (campo desconhecido ou tipo errado), sem gravar; `401`; `403`; `503` com a publicação fechada | — (a evidência é a linha de `identity.consent_records`) |
+| API-A17 | `POST /me/terms-acceptances` | Cookie (só participante: conta privilegiada → `403` `FORBIDDEN`, D13) | Sim | — | `acceptedTermsVersion`, `acceptedTermsLocale`, `acceptedTermsSha256` (recibo exato dos Termos ativos) e `confirmedAdult` (`true` obrigatório) → `204`, também na repetição (o primeiro aceite fica) | `400` `VALIDATION_FAILED` (declaração ausente, `null` ou `false`; recibo que não é o dos Termos ativos) ou `INVALID_REQUEST` (campo desconhecido ou tipo errado), sem gravar; `401`; `403`; `503` com a publicação fechada | — (a evidência é a linha de `identity.consent_records`) |
 
 Regras comuns: DTO estrito (campo desconhecido ou repetido → `400` `INVALID_REQUEST`); corpo até 32 KiB; erros
 em `application/problem+json` com `type` (`urn:duora:problem:<código>`), `title`, `status`, `code` e `traceId`;
 instantes em RFC 3339 UTC com `Z`; nenhum segredo (senha, token, código, chave) em log,
 trace ou métrica; nenhuma credencial em query string; respostas de sucesso não ecoam e-mail nem dados de
 outras contas; contrato publicado pelo OpenAPI gerado (ADR-0018).
+
+Os Termos de participante não se aplicam a conta privilegiada (D13: contas disjuntas). O `AdministratorBootstrap`
+cria essas contas sem aceite; `GET /me` responde `currentTermsAccepted: true` para elas (nada pendente, sem campo
+novo no contrato), a SPA não mostra o aviso de novo aceite para papel privilegiado, e API-A17 segue a política de
+participante: `403` `FORBIDDEN`, sem gravar.
+
 
 ## Testes do M1
 

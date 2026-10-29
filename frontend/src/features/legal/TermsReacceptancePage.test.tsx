@@ -71,6 +71,49 @@ describe('aviso de novo aceite dos Termos (#296)', () => {
   })
 })
 
+describe('conta privilegiada (#296, D13)', () => {
+  it.each([true, false])(
+    'não vê o aviso no console administrativo nem na própria conta (currentTermsAccepted %s)',
+    async (currentTermsAccepted) => {
+      server.use(
+        http.get(`${API}/me`, () =>
+          HttpResponse.json(
+            withSessionContext({ ...ACCOUNT, roles: ['moderator'], mfaEnabled: true, currentTermsAccepted }),
+          ),
+        ),
+        http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
+        http.get(`${API}/admin/photo-reviews`, () => HttpResponse.json({ items: [] })),
+      )
+      useAntiforgeryEndpoint()
+      const { user } = await renderApp('/account')
+      expect(await screen.findByRole('heading', { level: 1, name: 'Sua conta' })).toBeInTheDocument()
+      expect(screen.queryByRole('complementary', { name: 'Os Termos de uso mudaram' })).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('link', { name: 'Editar perfil' }))
+      expect(screen.queryByRole('complementary', { name: 'Os Termos de uso mudaram' })).not.toBeInTheDocument()
+    },
+  )
+
+  it('não vê o aviso em /admin/photo-reviews', async () => {
+    server.use(
+      http.get(`${API}/me`, () =>
+        HttpResponse.json(
+          withSessionContext({ ...ACCOUNT, roles: ['moderator'], mfaEnabled: true, currentTermsAccepted: false }),
+        ),
+      ),
+      http.get(`${API}/admin/photo-reviews/capabilities`, () =>
+        HttpResponse.json({ assign: false, evidence: false, decide: false }),
+      ),
+      http.get(`${API}/admin/photo-reviews`, () => HttpResponse.json({ items: [], nextCursor: null })),
+    )
+    useAntiforgeryEndpoint()
+    await renderApp('/admin/photo-reviews')
+
+    expect(await screen.findByRole('heading', { level: 1 })).toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Os Termos de uso mudaram' })).not.toBeInTheDocument()
+  })
+})
+
 describe('tela de novo aceite dos Termos (#296)', () => {
   it('grava o recibo dos Termos ativos com a declaração de 18+ e o aviso some', async () => {
     const backend = useBackend()

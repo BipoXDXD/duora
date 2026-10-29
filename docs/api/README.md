@@ -138,7 +138,8 @@ idioma e SHA-256. Isso não é verificação etária nem conformidade com o ECA 
 ## Novo aceite dos Termos (issue #296)
 
 `GET /me` (API-A08) traz `currentTermsAccepted`: `true` quando a conta tem aceite da versão ativa dos Termos,
-`false` quando o aceite é de uma versão anterior (ou não existe). O campo é aditivo e obrigatório na resposta.
+`false` quando o aceite é de uma versão anterior (ou não existe). Conta privilegiada (moderator, product_admin,
+operator) não aceita os Termos de participante (D13) e recebe sempre `true`. O campo é aditivo e obrigatório na resposta.
 **Não bloqueia nada:** com `false`, a SPA mostra um aviso dispensável que leva a `/account/terms`, e todas as
 rotas continuam respondendo como antes (decisão do dono na #296).
 
@@ -149,7 +150,7 @@ responde `204` e mantém o primeiro aceite (chave única conta + documento + ver
 em `identity.consent_records` como histórico. Declaração ausente, `null` ou `false` → `400` `VALIDATION_FAILED`
 com `REQUIRED` em `confirmedAdult`; versão, idioma ou SHA-256 que não são os dos Termos ativos → `400`
 `VALIDATION_FAILED`; campo desconhecido ou tipo errado → `400` `INVALID_REQUEST`. Nenhum desses casos grava. Não
-há campo de conta: o aceite é sempre da conta da sessão. Exige sessão (`401`) e antiforgery (`403`); com a
+há campo de conta: o aceite é sempre da conta da sessão. Exige sessão de participante (`401` sem sessão; conta privilegiada → `403` `FORBIDDEN`, sem gravar) e antiforgery (`403`); com a
 publicação fechada, `503`. Mudança aditiva: `oasdiff breaking` não aponta breaking change.
 
 ## Fuso privado da conta (issue #81)

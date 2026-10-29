@@ -14,12 +14,13 @@ public sealed class TermsReacceptanceTests : IAsyncDisposable
     private const string Route = "/api/v1/me/terms-acceptances";
     private const string OlderTermsVersion = "2026-09-01";
 
+    private readonly Microsoft.Extensions.Time.Testing.FakeTimeProvider _time = TestClock.StartingNow();
     private readonly DuoraWebFactory _factory;
     private readonly IdentityScenario _scenario;
 
     public TermsReacceptanceTests(PostgresFixture postgres)
     {
-        _factory = new DuoraWebFactory(postgres.ConnectionString);
+        _factory = new DuoraWebFactory(postgres.ConnectionString) { Time = _time };
         _scenario = new IdentityScenario(postgres, _factory);
     }
 
@@ -34,6 +35,49 @@ public sealed class TermsReacceptanceTests : IAsyncDisposable
         var me = await ReadMeAsync(browser);
 
         Assert.True((bool?)me["currentTermsAccepted"]);
+    }
+
+    [Fact]
+    public async Task ParticipantWithoutAnyTermsAcceptanceIsReportedAsNotCurrent()
+    {
+        var account = await _scenario.CreateConfirmedAccountAsync();
+        await RemoveAllConsentsAsync(account.UserId);
+        using var browser = await _scenario.SignedInBrowserAsync(account);
+
+        var me = await ReadMeAsync(browser);
+
+        Assert.False((bool?)me["currentTermsAccepted"]);
+    }
+
+    // Os Termos de participante não se aplicam a conta privilegiada (D13): o bootstrap a cria sem aceite, e /me
+    // responde true ("nada pendente") para a SPA não pedir um aceite que a conta não pode dar.
+    [Theory]
+    [InlineData(Duora.Core.Identity.AccountRoles.Moderator)]
+    [InlineData(Duora.Core.Identity.AccountRoles.ProductAdmin)]
+    [InlineData(Duora.Core.Identity.AccountRoles.Operator)]
+    public async Task PrivilegedAccountWithoutAnyAcceptanceHasNothingPending(string role)
+    {
+        var account = await CreatePrivilegedAccountLikeTheBootstrapAsync(role);
+        using var browser = await _scenario.SignedInBrowserAsync(account);
+        await MfaScenario.EnableAsync(browser, _time);
+
+        var me = await ReadMeAsync(browser);
+
+        Assert.True((bool?)me["currentTermsAccepted"]);
+    }
+
+    [Fact]
+    public async Task PrivilegedAccountCannotUseTheParticipantReacceptanceAndNothingIsRecorded()
+    {
+        var account = await CreatePrivilegedAccountLikeTheBootstrapAsync(Duora.Core.Identity.AccountRoles.ProductAdmin);
+        using var browser = await _scenario.SignedInBrowserAsync(account);
+        await MfaScenario.EnableAsync(browser, _time);
+
+        using var response = await browser.PostJsonAsync(Route, Body("pt-BR"));
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "FORBIDDEN");
+        Assert.Equal(0, await _scenario.ScalarAsync(
+            "select count(*) from identity.consent_records where user_id = $1", account.UserId));
     }
 
     [Fact]
@@ -260,6 +304,21 @@ public sealed class TermsReacceptanceTests : IAsyncDisposable
             account.UserId, OlderTermsVersion);
         return account;
     }
+
+    /// <summary>
+    /// Conta privilegiada como o <c>AdministratorBootstrap</c> a deixa: sem nenhum aceite. A fixture parte do cadastro
+    /// (<see cref="IdentityScenario.CreatePrivilegedAccountAsync"/>) e apaga os aceites que ele gravou.
+    /// </summary>
+    private async Task<TestAccount> CreatePrivilegedAccountLikeTheBootstrapAsync(string role)
+    {
+        var account = await _scenario.CreatePrivilegedAccountAsync(role);
+        await RemoveAllConsentsAsync(account.UserId);
+        return account;
+    }
+
+    private Task<long> RemoveAllConsentsAsync(Guid userId) => _scenario.ScalarAsync(
+        "with removed as (delete from identity.consent_records where user_id = $1 returning 1) select count(*) from removed",
+        userId);
 
     private static object Body(string locale) => new
     {

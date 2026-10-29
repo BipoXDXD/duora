@@ -14,7 +14,8 @@ using Microsoft.Extensions.Options;
 namespace Duora.Infrastructure.Identity;
 
 /// <summary>
-/// Conta do titular como aparece em <c>/me</c>. <c>CurrentTermsAccepted</c>: há aceite da versão ativa dos Termos.
+/// Conta do titular como aparece em <c>/me</c>. <c>CurrentTermsAccepted</c>: participante com aceite da versão ativa
+/// dos Termos, ou conta privilegiada, à qual os Termos de participante não se aplicam (sempre <c>true</c>).
 /// </summary>
 public sealed record AccountSummary(
     Guid Id,
@@ -391,6 +392,7 @@ public sealed class AccountService
     public Task<AccountSummary?> FindAccountAsync(Guid userId, CancellationToken cancellationToken)
     {
         var activeTermsVersion = _legal.TermsVersion;
+        var privileged = AccountRoles.Privileged.ToArray();
         return _db.Users
             .AsNoTracking()
             .Where(user => user.Id == userId)
@@ -405,7 +407,12 @@ public sealed class AccountService
                     .Join(_db.Roles, link => link.RoleId, role => role.Id, (_, role) => role.Name ?? "")
                     .OrderBy(name => name)
                     .ToList(),
-                _db.Set<ConsentRecord>().Any(consent => consent.UserId == user.Id
+                // Os Termos de participante não se aplicam a conta privilegiada (D13): nada pendente, sempre true.
+                _db.UserRoles
+                    .Where(link => link.UserId == user.Id)
+                    .Join(_db.Roles, link => link.RoleId, role => role.Id, (_, role) => role.Name)
+                    .Any(name => privileged.Contains(name))
+                || _db.Set<ConsentRecord>().Any(consent => consent.UserId == user.Id
                     && consent.Document == LegalDocument.Terms
                     && consent.Version == activeTermsVersion)))
             .SingleOrDefaultAsync(cancellationToken);

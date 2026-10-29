@@ -538,7 +538,7 @@ Todos os caminhos desta tabela são relativos a `/api/v1`. “Público” não s
 | API-A05 | `POST /auth/logout` | Sem corpo relevante → `204` | Revoga a sessão corrente e sinaliza desconexão |
 | API-A06 | `POST /auth/password-reset-requests` | E-mail → `202` neutro | Rate limit; não revela cadastro |
 | API-A07 | `POST /auth/password-resets` | Token e nova senha → resultado | Invalidar sessões anteriores conforme política |
-| API-A08 | `GET /me` | Conta própria, elegibilidade, permissões, configuração pública e se o aceite dos Termos é o da versão ativa (`currentTermsAccepted`) | Autenticado; não retornar secrets/claims internos |
+| API-A08 | `GET /me` | Conta própria, elegibilidade, permissões, configuração pública e se o aceite dos Termos é o da versão ativa (`currentTermsAccepted`; sempre `true` para conta privilegiada, à qual os Termos de participante não se aplicam) | Autenticado; não retornar secrets/claims internos |
 | API-A09 | `GET /me/sessions` | Sessões próprias com descrição mínima | Reautenticação para detalhes sensíveis |
 | API-A10 | `DELETE /me/sessions/{sessionId}` | Revogação → `204` | Apenas sessão própria; encerrar sockets associados |
 | API-A11 | `POST /me/mfa/enrollments` | Início de configuração MFA | Reautenticação; segredo de configuração não vai a logs |
@@ -547,7 +547,7 @@ Todos os caminhos desta tabela são relativos a `/api/v1`. “Público” não s
 | API-A14 | `POST /me/mfa/recovery-codes` | Novo conjunto mostrado uma vez | Reautenticação; revogar conjunto anterior; não registrar códigos em logs |
 | API-A15 | `DELETE /me/mfa` | Desativação permitida → `204` | Reautenticação e política; não remover o único método exigido de administrador |
 | API-A16 | `POST /me/password-changes` | Prova atual e nova senha → confirmação | Atualizar stamp, revogar sessões e emitir sessão nova conforme política |
-| API-A17 | `POST /me/terms-acceptances` | Recibo dos Termos ativos (versão, idioma, SHA-256) e `confirmedAdult: true` → `204` | Sessão e CSRF; só a conta da sessão; idempotente; não bloqueia o uso (issue #296) |
+| API-A17 | `POST /me/terms-acceptances` | Recibo dos Termos ativos (versão, idioma, SHA-256) e `confirmedAdult: true` → `204` | Sessão de participante e CSRF (conta privilegiada → `403`, D13); só a conta da sessão; idempotente; não bloqueia o uso (issue #296) |
 | API-P01 | `GET /me/profile` | Perfil editável e `ETag` | Titular |
 | API-P02 | `PATCH /me/profile` | Campos permitidos e `If-Match` | Rejeitar overposting, validar conteúdo |
 | API-P07 | `GET /me/preferences` | Preferências privadas e `ETag` | Apenas titular; recurso versionado independentemente do perfil público |

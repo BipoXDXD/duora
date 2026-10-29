@@ -4606,8 +4606,9 @@ export interface components {
         /**
          * @description Conta do titular. `Status`: PendingEmail | PendingEligibility | Active | Restricted | Suspended |
          *     DeletionPending. `Roles`: nomes do catálogo (participant, moderator, product_admin, operator); vazio para
-         *     participante que nunca recebeu papel explícito. `CurrentTermsAccepted`: a conta tem aceite da versão ativa
-         *     dos Termos; `false` pede o novo aceite (API-A17), que não bloqueia o uso do app.
+         *     participante que nunca recebeu papel explícito. `CurrentTermsAccepted`: participante com aceite da versão
+         *     ativa dos Termos; `false` pede o novo aceite (API-A17), que não bloqueia o uso do app. Conta privilegiada
+         *     não aceita os Termos de participante (D13) e recebe sempre `true`: não há aceite pendente.
          */
         MeResponse: {
             /** Format: uuid */
