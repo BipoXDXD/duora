@@ -15,6 +15,9 @@ public static class SafetyServiceCollectionExtensions
             provider.GetRequiredService<AccountService>(),
             provider.GetRequiredService<AuditTrail>(),
             provider.GetRequiredService<TimeProvider>()));
+        services.AddScoped(provider => new AccountSuspensions(
+            provider.GetRequiredService<DuoraDbContext>(),
+            provider.GetRequiredService<TimeProvider>()));
         return services;
     }
 }

@@ -11,6 +11,10 @@ internal static class ApiProblems
 {
     public const string AccountNotEligible = "ACCOUNT_NOT_ELIGIBLE";
     public const string AccountRestricted = "ACCOUNT_RESTRICTED";
+    public const string AccountSuspended = "ACCOUNT_SUSPENDED";
+    public const string AccountAlreadySuspended = "ACCOUNT_ALREADY_SUSPENDED";
+    public const string AccountNotSuspendable = "ACCOUNT_NOT_SUSPENDABLE";
+    public const string AccountModerationForbidden = "ACCOUNT_MODERATION_FORBIDDEN";
     public const string AgeVerificationNotAvailable = "AGE_VERIFICATION_NOT_AVAILABLE";
     public const string AgeVerificationUnavailable = "AGE_VERIFICATION_UNAVAILABLE";
     public const string CsrfValidationFailed = "CSRF_VALIDATION_FAILED";
@@ -100,6 +104,10 @@ internal static class ApiProblems
     {
         AccountNotEligible => "The account is not eligible for this operation.",
         AccountRestricted => "The account cannot perform this operation.",
+        AccountSuspended => "The account is suspended.",
+        AccountAlreadySuspended => "The account already has an active suspension.",
+        AccountNotSuspendable => "The account cannot be suspended in its current state.",
+        AccountModerationForbidden => "Account moderation requires the moderator role.",
         AgeVerificationNotAvailable => "Age verification is not available.",
         AgeVerificationUnavailable => "Age verification is temporarily unavailable.",
         CsrfValidationFailed => "Request rejected.",

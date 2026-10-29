@@ -109,6 +109,7 @@ internal sealed partial class PostgresTicketStore(
             new(DuoraClaims.Policy, session.Policy.ToString()),
             new(DuoraClaims.AccountIsPrivileged, session.AccountIsPrivileged.ToString()),
             new(DuoraClaims.AwaitsPasswordChange, session.AwaitsPasswordChange.ToString()),
+            new(DuoraClaims.AccountIsSuspended, session.AccountIsSuspended.ToString()),
         };
         DuoraClaims.AddInstant(state, DuoraClaims.ReauthenticatedAt, session.ReauthenticatedAt);
         DuoraClaims.AddInstant(state, DuoraClaims.MfaVerifiedAt, session.MfaVerifiedAt);

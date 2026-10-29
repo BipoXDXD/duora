@@ -62,6 +62,7 @@ public sealed record ResetPasswordRequest(Guid? UserId, string? Token, string? N
 /// participante que nunca recebeu papel explícito. <c>CurrentTermsAccepted</c>: participante com aceite da versão
 /// ativa dos Termos; <c>false</c> pede o novo aceite (API-A17), que não bloqueia o uso do app. Conta privilegiada
 /// não aceita os Termos de participante (D13) e recebe sempre <c>true</c>: não há aceite pendente.
+/// <c>Suspension</c>: presente só com <c>Status</c> Suspended; o motivo em código e o instante, sem detalhe interno.
 /// </summary>
 public sealed record MeResponse(
     Guid Id,
@@ -73,7 +74,11 @@ public sealed record MeResponse(
     bool CurrentTermsAccepted,
     PrivateSessionContextResponse SessionContext,
     string? PreferredLocale = null,
-    string? PreferredTimeZone = null);
+    string? PreferredTimeZone = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] MeSuspensionResponse? Suspension = null);
+
+/// <summary>Suspensão da própria conta (issue #299). <c>ReasonCode</c>: TermsViolation | SelfieVerificationFailed.</summary>
+public sealed record MeSuspensionResponse(string ReasonCode, DateTime SuspendedAt);
 
 /// <summary>Contexto do titular, sem credencial portadora; a prova antiforgery fica só na memória da SPA.</summary>
 public sealed record PrivateSessionContextResponse(Guid UserId, Guid SessionId, string Phase, string RequestToken);

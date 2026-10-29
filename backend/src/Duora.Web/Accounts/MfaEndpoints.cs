@@ -16,7 +16,8 @@ internal static class MfaEndpoints
 {
     public static void MapMfaEndpoints(this IEndpointRouteBuilder api)
     {
-        var mfa = api.MapGroup("/me/mfa").WithTags("Me");
+        // Segurança da conta: a conta suspensa continua gerindo o segundo fator (spec 8.2, issue #299).
+        var mfa = api.MapGroup("/me/mfa").WithTags("Me").AllowForSuspendedAccount();
 
         mfa.MapPost("/enrollments", StartEnrollmentAsync)
             .AllowDuringMfaEnrollment()

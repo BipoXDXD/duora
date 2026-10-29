@@ -35,7 +35,8 @@ public sealed record TouchedSession(
     DateTimeOffset? TotpVerifiedAt,
     DateTimeOffset AbsoluteExpiresAt,
     bool AccountIsPrivileged,
-    bool AwaitsPasswordChange);
+    bool AwaitsPasswordChange,
+    bool AccountIsSuspended);
 
 /// <summary>
 /// Persistência das sessões de login (spec 11.1). A chave opaca do cookie só é guardada como hash. Recuperar uma
@@ -118,8 +119,9 @@ public sealed class LoginSessions
 
     /// <summary>
     /// Sessão ainda válida, já com a expiração ociosa da sua política renovada; null se não vale mais. Os papéis são
-    /// lidos agora: tirar o papel de alguém vale na requisição seguinte, sem esperar o fim da sessão. Uma senha
-    /// temporária vencida (bootstrap, D4) encerra a sessão aberta com ela.
+    /// lidos agora: tirar o papel de alguém vale na requisição seguinte, sem esperar o fim da sessão. A suspensão da
+    /// conta também (issue #299): a sessão continua, restrita à allowlist da conta suspensa. Uma senha temporária
+    /// vencida (bootstrap, D4) encerra a sessão aberta com ela.
     /// </summary>
     public async Task<TouchedSession?> TouchAsync(string key, CancellationToken cancellationToken)
     {
@@ -143,7 +145,8 @@ public sealed class LoginSessions
                 exists (
                     select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
                     where ur.user_id = s.user_id and r.name = any(@privileged_roles)),
-                u.temporary_password_expires_at is not null
+                u.temporary_password_expires_at is not null,
+                u.status = 'Suspended'
             """);
         command.Parameters.AddWithValue("key_hash", HashKey(key));
         command.Parameters.AddWithValue("now", _time.GetUtcNow());
@@ -164,7 +167,8 @@ public sealed class LoginSessions
             reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
             reader.GetFieldValue<DateTimeOffset>(5),
             reader.GetBoolean(6),
-            reader.GetBoolean(7));
+            reader.GetBoolean(7),
+            reader.GetBoolean(8));
     }
 
     public async Task ReplaceTicketAsync(string key, byte[] protectedTicket, CancellationToken cancellationToken)

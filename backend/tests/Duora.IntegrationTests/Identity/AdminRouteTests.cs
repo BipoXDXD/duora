@@ -125,6 +125,14 @@ public sealed class AdminRouteTests : IAsyncDisposable
 
         foreach (var route in AdminRoutesOf(_factory))
         {
+            if (route.Path.StartsWith(AdminPrefix + "/accounts/", StringComparison.Ordinal))
+            {
+                // Moderação de conta exige o papel moderator por cima da sessão administrativa (ADR-0042).
+                using var moderation = await SendAccountModerationAsync(browser, route);
+                await ProblemAssert.IsProblemAsync(moderation, HttpStatusCode.Forbidden, "ACCOUNT_MODERATION_FORBIDDEN");
+                continue;
+            }
+
             using var response = route.Path is AdminPrefix + "/events" or AdminPrefix + "/experience-versions" or AdminPrefix + "/route-experience-versions"
                 ? await browser.PostJsonAsync(route.Path, new { })
                 : await SendAsync(browser, route);
@@ -286,6 +294,25 @@ public sealed class AdminRouteTests : IAsyncDisposable
                 return (Name: $"{method} {path}", Method: method, Path: path);
             })),
     ];
+
+    /// <summary>Pedido válido de moderação de conta, para a resposta depender só da permissão de quem pede.</summary>
+    private static Task<HttpResponseMessage> SendAccountModerationAsync(Browser browser, (string Name, string Method, string Path) route)
+    {
+        var suspensionId = Guid.NewGuid();
+        var path = route.Path
+            .Replace("{userId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+            .Replace("{suspensionId:guid}", suspensionId.ToString(), StringComparison.Ordinal);
+        return route.Method switch
+        {
+            "GET" => browser.GetAsync(path),
+            "POST" when path.EndsWith("/lift", StringComparison.Ordinal) => browser.PostJsonAsync(path,
+                new { internalReason = "Sintético." },
+                new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = $"\"suspension-{suspensionId:N}-1\"" })),
+            "POST" => browser.PostJsonAsync(path, new { reasonCode = "TermsViolation", internalReason = "Sintético." },
+                new MutationHeaders(Extra: new Dictionary<string, string> { ["Idempotency-Key"] = $"k-{Guid.NewGuid():N}" })),
+            var method => throw new InvalidOperationException($"Método {method} sem caso no teste."),
+        };
+    }
 
     private static Task<HttpResponseMessage> SendAsync(Browser browser, (string Name, string Method, string Path) route)
     {

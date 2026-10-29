@@ -100,6 +100,8 @@ internal static class AppRoleTableAccess
 
             // safety (dono: Safety)
             ["safety.blocks"] = AppTableAccess.ReadWrite,
+            // Medida de moderação (#299): a revogação preenche as colunas lifted_*; a decisão é imutável (trigger).
+            ["safety.moderation_actions"] = AppTableAccess.ReadWriteWithoutDelete,
             ["safety.photo_review_appeal_assignment_commands"] = AppTableAccess.AppendOnly,
             ["safety.photo_review_appeal_assignments"] = AppTableAccess.AppendOnly,
             ["safety.photo_review_appeal_decision_commands"] = AppTableAccess.AppendOnly,
