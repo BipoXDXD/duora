@@ -729,6 +729,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/terms-acceptances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AcceptTermsRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/profile": {
         parameters: {
             query?: never;
@@ -4373,6 +4446,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description Novo aceite dos Termos ativos por uma conta existente (API-A17). Mesmo recibo do cadastro: versão, idioma e
+         *     SHA-256 do texto publicado, mais `ConfirmedAdult`, a declaração "Declaro ter 18 anos ou mais", que precisa
+         *     ser `true`. Não há campo de conta: o aceite é sempre da conta da sessão.
+         */
+        AcceptTermsRequest: {
+            acceptedTermsVersion: null | string;
+            acceptedTermsLocale: null | string;
+            acceptedTermsSha256: null | string;
+            confirmedAdult: null | boolean;
+        };
         AnswerResponse: {
             kind: string;
             option: null | components["schemas"]["OptionResponse"];
@@ -4522,7 +4606,8 @@ export interface components {
         /**
          * @description Conta do titular. `Status`: PendingEmail | PendingEligibility | Active | Restricted | Suspended |
          *     DeletionPending. `Roles`: nomes do catálogo (participant, moderator, product_admin, operator); vazio para
-         *     participante que nunca recebeu papel explícito.
+         *     participante que nunca recebeu papel explícito. `CurrentTermsAccepted`: a conta tem aceite da versão ativa
+         *     dos Termos; `false` pede o novo aceite (API-A17), que não bloqueia o uso do app.
          */
         MeResponse: {
             /** Format: uuid */
@@ -4532,6 +4617,7 @@ export interface components {
             emailConfirmed: boolean;
             mfaEnabled: boolean;
             roles: string[];
+            currentTermsAccepted: boolean;
             sessionContext: components["schemas"]["PrivateSessionContextResponse"];
             preferredLocale?: null | string;
             preferredTimeZone?: null | string;

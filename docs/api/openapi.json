@@ -571,6 +571,68 @@
         }
       }
     },
+    "/api/v1/me/terms-acceptances": {
+      "post": {
+        "tags": [
+          "Me"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptTermsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/profile": {
       "get": {
         "tags": [
@@ -4190,6 +4252,43 @@
   },
   "components": {
     "schemas": {
+      "AcceptTermsRequest": {
+        "required": [
+          "acceptedTermsVersion",
+          "acceptedTermsLocale",
+          "acceptedTermsSha256",
+          "confirmedAdult"
+        ],
+        "type": "object",
+        "properties": {
+          "acceptedTermsVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acceptedTermsLocale": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "acceptedTermsSha256": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "confirmedAdult": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Novo aceite dos Termos ativos por uma conta existente (API-A17). Mesmo recibo do cadastro: versão, idioma e\nSHA-256 do texto publicado, mais `ConfirmedAdult`, a declaração \"Declaro ter 18 anos ou mais\", que precisa\nser `true`. Não há campo de conta: o aceite é sempre da conta da sessão."
+      },
       "AnswerResponse": {
         "required": [
           "kind",
@@ -4841,6 +4940,7 @@
           "emailConfirmed",
           "mfaEnabled",
           "roles",
+          "currentTermsAccepted",
           "sessionContext"
         ],
         "type": "object",
@@ -4867,6 +4967,9 @@
               "type": "string"
             }
           },
+          "currentTermsAccepted": {
+            "type": "boolean"
+          },
           "sessionContext": {
             "$ref": "#/components/schemas/PrivateSessionContextResponse"
           },
@@ -4884,7 +4987,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Conta do titular. `Status`: PendingEmail | PendingEligibility | Active | Restricted | Suspended |\nDeletionPending. `Roles`: nomes do catálogo (participant, moderator, product_admin, operator); vazio para\nparticipante que nunca recebeu papel explícito."
+        "description": "Conta do titular. `Status`: PendingEmail | PendingEligibility | Active | Restricted | Suspended |\nDeletionPending. `Roles`: nomes do catálogo (participant, moderator, product_admin, operator); vazio para\nparticipante que nunca recebeu papel explícito. `CurrentTermsAccepted`: a conta tem aceite da versão ativa\ndos Termos; `false` pede o novo aceite (API-A17), que não bloqueia o uso do app."
       },
       "MfaEnrollmentResponse": {
         "required": [

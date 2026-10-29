@@ -13,14 +13,17 @@ using Microsoft.Extensions.Options;
 
 namespace Duora.Infrastructure.Identity;
 
-/// <summary>Conta do titular como aparece em <c>/me</c>.</summary>
+/// <summary>
+/// Conta do titular como aparece em <c>/me</c>. <c>CurrentTermsAccepted</c>: há aceite da versão ativa dos Termos.
+/// </summary>
 public sealed record AccountSummary(
     Guid Id,
     string Email,
     AccountStatus Status,
     bool EmailConfirmed,
     bool MfaEnabled,
-    IReadOnlyList<string> Roles);
+    IReadOnlyList<string> Roles,
+    bool CurrentTermsAccepted);
 
 /// <summary>Prazos do ciclo de vida da conta (seção <c>Identity</c>).</summary>
 internal sealed class AccountLifecycleOptions
@@ -385,8 +388,10 @@ public sealed class AccountService
         }
     }
 
-    public Task<AccountSummary?> FindAccountAsync(Guid userId, CancellationToken cancellationToken) =>
-        _db.Users
+    public Task<AccountSummary?> FindAccountAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var activeTermsVersion = _legal.TermsVersion;
+        return _db.Users
             .AsNoTracking()
             .Where(user => user.Id == userId)
             .Select(user => new AccountSummary(
@@ -399,8 +404,41 @@ public sealed class AccountService
                     .Where(link => link.UserId == user.Id)
                     .Join(_db.Roles, link => link.RoleId, role => role.Id, (_, role) => role.Name ?? "")
                     .OrderBy(name => name)
-                    .ToList()))
+                    .ToList(),
+                _db.Set<ConsentRecord>().Any(consent => consent.UserId == user.Id
+                    && consent.Document == LegalDocument.Terms
+                    && consent.Version == activeTermsVersion)))
             .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Novo aceite dos Termos ativos pela conta da sessão (API-A17), com a declaração de 18 anos ou mais que o texto
+    /// ativo contém. Os aceites anteriores ficam como histórico (a tabela não aceita UPDATE). Idempotente: a chave
+    /// única (conta, documento, versão) faz a repetição, inclusive a simultânea, manter o primeiro aceite.
+    /// </summary>
+    public async Task AcceptCurrentTermsAsync(
+        Guid userId,
+        string termsLocale,
+        string termsSha256,
+        CancellationToken cancellationToken)
+    {
+        if (!_legal.AcceptsTerms(_legal.TermsVersion, termsLocale, termsSha256))
+        {
+            throw new InvalidOperationException("The exact receipt of the active published Terms is required.");
+        }
+
+        var now = _time.GetUtcNow();
+        var terms = nameof(LegalDocument.Terms);
+        await _db.Database.ExecuteSqlAsync(
+            $"""
+            insert into identity.consent_records (id, user_id, document, version, accepted_at, document_locale, document_sha256)
+            select {Guid.CreateVersion7(now)}, u.id, {terms}, {_legal.TermsVersion}, {now}, {termsLocale}, {termsSha256}
+            from identity.users u
+            where u.id = {userId}
+            on conflict (user_id, document, version) do nothing
+            """,
+            cancellationToken);
+    }
 
     /// <summary>
     /// A conta existe? Para outros módulos conferirem um id vindo de fora sem ler <c>identity.users</c> nem receber

@@ -19,6 +19,7 @@ export function withSessionContext<T extends SyntheticAccount>(
   account: T,
   sessionId = TEST_SESSION_ID,
 ): T & {
+  readonly currentTermsAccepted: boolean
   readonly sessionContext: {
     readonly userId: string
     readonly sessionId: string
@@ -28,7 +29,12 @@ export function withSessionContext<T extends SyntheticAccount>(
 } {
   const phase: SessionPhase =
     !account.mfaEnabled && account.roles.some((role) => role !== 'participant') ? 'mfa-enrollment' : 'active'
-  return { ...account, sessionContext: { userId: account.id, sessionId, phase, requestToken: TEST_PRIVATE_PROOF } }
+  // O servidor sempre informa o aceite dos Termos; a fixture positiva parte de uma conta em dia.
+  return {
+    currentTermsAccepted: true,
+    ...account,
+    sessionContext: { userId: account.id, sessionId, phase, requestToken: TEST_PRIVATE_PROOF },
+  }
 }
 
 /** Nova página sintética por teste, usando a mesma confirmação anônima do protocolo real. */
@@ -42,7 +48,9 @@ export function resetTestSessionContext(): void {
 }
 
 /** Componentes unitários isolados reconhecem explicitamente a barreira fora de RequireSession. */
-export function installTestMe(account: Omit<Me, 'owner'>): Me {
+export function installTestMe(
+  account: Omit<Me, 'owner' | 'currentTermsAccepted'> & { readonly currentTermsAccepted?: boolean },
+): Me {
   const store = apiClient.sessionContext
   const source = store.getSnapshot().protected
     ? { kind: 'explicit' as const, ticket: store.beginExplicitRevalidation() }
@@ -61,7 +69,7 @@ export function installTestMe(account: Omit<Me, 'owner'>): Me {
   store.finishBootstrap(ticket)
   if (store.getSnapshot().pendingOwner === owner)
     store.completeOwnerInstallation(store.getSnapshot().transitionEpoch, owner)
-  return { ...account, owner }
+  return { currentTermsAccepted: true, ...account, owner }
 }
 
 export function testPrivateOperation(): OperationHandle {

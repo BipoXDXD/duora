@@ -95,6 +95,13 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             ["PUT /api/v1/me/locale"] = new { locale = "en-US" },
             ["PUT /api/v1/me/regional-preferences"] = new { mode = "countries", countryCodes = new[] { "BR" } },
             ["PUT /api/v1/me/time-zone"] = new { timeZone = "America/New_York" },
+            ["POST /api/v1/me/terms-acceptances"] = new
+            {
+                acceptedTermsVersion = IdentityScenario.TermsVersion,
+                acceptedTermsLocale = "pt-BR",
+                acceptedTermsSha256 = SyntheticLegalPublication.Hash(SyntheticLegalPublication.Default, "terms", "pt-BR"),
+                confirmedAdult = true,
+            },
             ["PUT /api/v1/events/{eventId:guid}/registration"] = null,
             ["POST /api/v1/events/{eventId:guid}/check-in"] = null,
             ["POST /api/v1/rooms/{roomId:guid}/accept"] = null,

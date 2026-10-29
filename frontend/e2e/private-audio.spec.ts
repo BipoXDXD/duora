@@ -79,6 +79,7 @@ test('player privado: gesto, teclado e PCM real com a CSP literal da borda', asy
           emailConfirmed: true,
           mfaEnabled: false,
           roles: ['participant'],
+          currentTermsAccepted: true,
           sessionContext: {
             userId: '00000000-0000-4000-8000-000000000001',
             sessionId: '00000000-0000-4000-8000-000000000011',

@@ -66,15 +66,22 @@ public sealed class LegalPublication
     public bool RegistrationAvailable { get; }
 
     public bool Accepts(string termsVersion, string privacyVersion, string? termsLocale, string? privacyLocale, string? termsSha256 = null, string? privacySha256 = null) =>
+        AcceptsTerms(termsVersion, termsLocale, termsSha256)
+        && AcceptsActive("privacy", PrivacyVersion, privacyVersion, privacyLocale, privacySha256);
+
+    /// <summary>
+    /// Exact receipt of the active Terms alone (API-A17, re-acceptance by an existing account): the active version,
+    /// a supported locale and the digest of that exact text, under a publication open for acceptance.
+    /// </summary>
+    public bool AcceptsTerms(string termsVersion, string? termsLocale, string? termsSha256) =>
+        AcceptsActive("terms", TermsVersion, termsVersion, termsLocale, termsSha256);
+
+    private bool AcceptsActive(string kind, string activeVersion, string version, string? locale, string? sha256) =>
         RegistrationAvailable
-        && string.Equals(termsVersion, TermsVersion, StringComparison.Ordinal)
-        && string.Equals(privacyVersion, PrivacyVersion, StringComparison.Ordinal)
-        && termsLocale is "pt-BR" or "en-US"
-        && privacyLocale is "pt-BR" or "en-US"
-        && Documents.Any(document => document.Document == "terms" && document.Version == termsVersion
-            && document.Locale == termsLocale && string.Equals(document.Sha256, termsSha256, StringComparison.Ordinal))
-        && Documents.Any(document => document.Document == "privacy" && document.Version == privacyVersion
-            && document.Locale == privacyLocale && string.Equals(document.Sha256, privacySha256, StringComparison.Ordinal));
+        && string.Equals(version, activeVersion, StringComparison.Ordinal)
+        && locale is "pt-BR" or "en-US"
+        && Documents.Any(document => document.Document == kind && document.Version == version
+            && document.Locale == locale && string.Equals(document.Sha256, sha256, StringComparison.Ordinal));
 
     public static bool IsPublished(PublicLegalDocument document) => document.Approved
         && !string.IsNullOrWhiteSpace(document.ControllerName)

@@ -78,7 +78,7 @@ public sealed class SessionTests : IAsyncDisposable
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         var body = await ReadObjectAsync(response);
         Assert.Equal(
-            ["email", "emailConfirmed", "id", "mfaEnabled", "preferredLocale", "preferredTimeZone", "roles", "sessionContext", "status"],
+            ["currentTermsAccepted", "email", "emailConfirmed", "id", "mfaEnabled", "preferredLocale", "preferredTimeZone", "roles", "sessionContext", "status"],
             body.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.False((bool?)body["mfaEnabled"]);
         Assert.Equal(["participant"], body["roles"]!.AsArray().Select(role => (string?)role));
