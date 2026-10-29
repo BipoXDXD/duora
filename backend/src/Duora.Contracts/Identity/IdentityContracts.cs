@@ -14,11 +14,11 @@ public sealed record RegisterRequest(
     string? Password,
     string? AcceptedTermsVersion,
     string? AcceptedPrivacyVersion,
+    bool? ConfirmedAdult,
     string? AcceptedTermsLocale = null,
     string? AcceptedPrivacyLocale = null,
     string? AcceptedTermsSha256 = null,
-    string? AcceptedPrivacySha256 = null,
-    bool? ConfirmedAdult = null);
+    string? AcceptedPrivacySha256 = null);
 
 public sealed record ConfirmEmailRequest(Guid? UserId, string? Token, string? Password);
 

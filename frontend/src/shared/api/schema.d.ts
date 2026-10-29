@@ -4781,11 +4781,11 @@ export interface components {
             password: null | string;
             acceptedTermsVersion: null | string;
             acceptedPrivacyVersion: null | string;
+            confirmedAdult: null | boolean;
             acceptedTermsLocale?: null | string;
             acceptedPrivacyLocale?: null | string;
             acceptedTermsSha256?: null | string;
             acceptedPrivacySha256?: null | string;
-            confirmedAdult?: null | boolean;
         };
         ResetPasswordRequest: {
             /** Format: uuid */

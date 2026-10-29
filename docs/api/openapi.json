@@ -5837,7 +5837,8 @@
           "email",
           "password",
           "acceptedTermsVersion",
-          "acceptedPrivacyVersion"
+          "acceptedPrivacyVersion",
+          "confirmedAdult"
         ],
         "type": "object",
         "properties": {
@@ -5865,6 +5866,12 @@
               "string"
             ]
           },
+          "confirmedAdult": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
           "acceptedTermsLocale": {
             "type": [
               "null",
@@ -5887,12 +5894,6 @@
             "type": [
               "null",
               "string"
-            ]
-          },
-          "confirmedAdult": {
-            "type": [
-              "null",
-              "boolean"
             ]
           }
         },

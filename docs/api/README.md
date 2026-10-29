@@ -128,8 +128,9 @@ Ver [evidência e validação](../testing/consent-document-locale.md).
 
 API-A02 exige `confirmedAdult: true`, enviado pela caixa "Declaro ter 18 anos ou mais" do cadastro. Ausente,
 `null` ou `false` retorna 400 `VALIDATION_FAILED` com `REQUIRED` em `confirmedAdult`; outro tipo retorna 400
-`INVALID_REQUEST`. Em ambos os casos não se grava conta, aceite nem outbox. O campo é anulável no contrato, como
-os demais do DTO, para que a ausência chegue à validação com código estável. Não há campo de idade nem de data de
+`INVALID_REQUEST`. Em ambos os casos não se grava conta, aceite nem outbox. O campo é
+obrigatório no contrato (`required`) e tipado `boolean | null`: o null explícito também chega à validação com código
+estável. Para clientes antigos é uma mudança incompatível, aceitável porque a SPA e a API são publicadas juntas. Não há campo de idade nem de data de
 nascimento: a declaração fica registrada pelo aceite dos Termos (versão `2026-10-29` em diante), com versão,
 idioma e SHA-256. Isso não é verificação etária nem conformidade com o ECA Digital
 ([decisões de 29/10](../product/decisions-2026-10-29.md)).

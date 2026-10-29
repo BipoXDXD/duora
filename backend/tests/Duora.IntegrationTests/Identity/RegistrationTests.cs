@@ -73,6 +73,8 @@ public sealed class RegistrationTests(PostgresFixture postgres) : IAsyncDisposab
     [InlineData("role", "\"Admin\"")]
     [InlineData("emailConfirmed", "true")]
     [InlineData("id", "\"0199d700-7f20-7000-8000-000000000001\"")]
+    [InlineData("age", "30")]
+    [InlineData("birthDate", "\"1990-01-01\"")]
     public async Task UnknownFieldIsRejectedAndNothingIsCreated(string field, string value)
     {
         using var browser = new Browser(_factory);

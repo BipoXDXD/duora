@@ -163,10 +163,10 @@ internal sealed class RequestValidation
         return !value.Any(char.IsControl) || Fail(field, InvalidCharacters);
     }
 
-    /// <summary>Campo que não pode vir junto com outro (ex.: código do autenticador e de recuperação).</summary>
     /// <summary>Confirmação explícita: só <c>true</c> vale; ausente, null ou false é <see cref="Required"/>.</summary>
     public bool Confirmed(string field, bool? value) => value is true || Fail(field, Required);
 
+    /// <summary>Campo que não pode vir junto com outro (ex.: código do autenticador e de recuperação).</summary>
     public bool Exclusive(string field, bool bothPresent) => !bothPresent || Fail(field, InvalidFormat);
 
     public bool Present<T>(string field, T? value, out T present)
