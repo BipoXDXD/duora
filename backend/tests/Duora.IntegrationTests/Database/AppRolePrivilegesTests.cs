@@ -92,6 +92,21 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task OnlyAllowlistedFunctionsRunAsTheirOwner()
+    {
+        // SECURITY DEFINER contorna as permissões de tabela de duora_app; cada uma passa por revisão e entra aqui.
+        var definers = await QueryStringsAsync(
+            $"""
+            select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where {ApplicationSchemaFilter} and p.prosecdef
+            """);
+
+        Assert.Equal(["media.purge_photo_deletion_records(p_as_of timestamp with time zone, p_limit integer)"],
+            definers.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task AppSequencesAllowNextvalButNotSetval()
     {
         var sequences = await QueryStringsAsync(
@@ -176,6 +191,10 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
     [InlineData("update safety.photo_review_appeal_commands set result_photo_version=result_photo_version")]
     [InlineData("delete from safety.photo_review_appeal_commands")]
     [InlineData("truncate safety.photo_review_appeal_commands")]
+    [InlineData("delete from media.photo_tombstones")]
+    [InlineData("delete from media.photo_deletion_commands")]
+    [InlineData("update media.photo_tombstones set deleted_at = deleted_at")]
+    [InlineData("truncate media.photo_tombstones")]
     [InlineData("select count(*) from ops.__ef_migrations_history")]
     [InlineData("delete from ops.__ef_migrations_history")]
     public async Task AppStatementIsDenied(string sql)
