@@ -28,6 +28,9 @@ const SelfieVerificationPage = routePage(
   async () => (await import('@/features/account/SelfieVerificationPage')).SelfieVerificationPage,
 )
 const AccountPage = routePage(async () => (await import('@/features/account/AccountPage')).AccountPage)
+const SuspendedAccountPage = routePage(
+  async () => (await import('@/features/account/SuspendedAccountPage')).SuspendedAccountPage,
+)
 const ProfilePage = routePage(async () => (await import('@/features/profile/ProfilePage')).ProfilePage)
 const PreferencesPage = routePage(async () => (await import('@/features/preferences/PreferencesPage')).PreferencesPage)
 const TermsReacceptancePage = routePage(
@@ -51,6 +54,7 @@ const RequireSession = routePage(async () => {
   const [{ RequireSession: guard }] = await Promise.all([
     import('@/features/session/RequireSession'),
     AccountPage.preload(),
+    SuspendedAccountPage.preload(),
     ChangePasswordPage.preload(),
     MfaEnrollmentPage.preload(),
     ProfilePage.preload(),
@@ -93,6 +97,7 @@ export function AppRoutes(): React.JSX.Element {
               <Route path={paths.mfaEnrollment} element={<MfaEnrollmentPage />} />
               <Route path={paths.selfie} element={<SelfieVerificationPage />} />
               <Route path={paths.account} element={<AccountPage />} />
+              <Route path={paths.accountSuspended} element={<SuspendedAccountPage />} />
               <Route path={paths.photos} element={<PhotoReviewOwnerIndex />} />
               <Route path={paths.profile} element={<ProfilePage />} />
               <Route path={paths.preferences} element={<PreferencesPage />} />

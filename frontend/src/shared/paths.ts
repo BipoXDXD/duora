@@ -21,6 +21,7 @@ export const paths = {
   profile: '/account/profile',
   preferences: '/account/preferences',
   termsReacceptance: '/account/terms',
+  accountSuspended: '/account/suspended',
   events: '/events',
   photoReviewHistory: '/photos/:photoId/review',
   photoReviews: '/admin/photo-reviews',

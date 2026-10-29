@@ -53,6 +53,8 @@ interface FakeUser {
   passwordResetToken: string | null
   /** Versão dos Termos do último aceite; diferente da ativa, /me pede o novo aceite (#296). */
   acceptedTermsVersion: string
+  /** Instante da suspensão por violação dos Termos (#299); ausente para conta não suspensa. */
+  suspendedAt?: string
 }
 
 interface FakeProfile {
@@ -146,6 +148,13 @@ export class FakeDuoraApi {
     const user = this.#users.get(email)
     if (user === undefined) throw new Error(`Conta sintética inexistente: ${email}`)
     user.acceptedTermsVersion = 'synthetic-older-terms'
+  }
+
+  /** A moderação suspende a conta por violação dos Termos (#299); /me passa a dizer Suspended. */
+  seedSuspension(email: string, suspendedAt: string): void {
+    const user = this.#users.get(email)
+    if (user === undefined) throw new Error(`Conta sintética inexistente: ${email}`)
+    user.suspendedAt = suspendedAt
   }
 
   /** Recibos recebidos por POST /me/terms-acceptances, na ordem. */
@@ -405,12 +414,15 @@ export class FakeDuoraApi {
     return json({
       id: user.id,
       email: user.email,
-      status: user.emailConfirmed ? 'Active' : 'PendingEmail',
+      status: user.suspendedAt !== undefined ? 'Suspended' : user.emailConfirmed ? 'Active' : 'PendingEmail',
       emailConfirmed: user.emailConfirmed,
       mfaEnabled: false,
       roles: ['participant'],
       currentTermsAccepted: user.acceptedTermsVersion === syntheticLegalCatalog.termsVersion,
       sessionContext: { userId: user.id, sessionId, phase: 'active', requestToken: privateProof },
+      ...(user.suspendedAt === undefined
+        ? {}
+        : { suspension: { reasonCode: 'TermsViolation', suspendedAt: user.suspendedAt } }),
     })
   }
 

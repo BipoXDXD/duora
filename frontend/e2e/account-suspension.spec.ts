@@ -1,0 +1,51 @@
+import { AxeBuilder } from '@axe-core/playwright'
+import { expect, test, type Page } from '@playwright/test'
+import { FakeDuoraApi } from './support/fake-api.ts'
+
+// axe-core 4.13 marca critérios WCAG 2.2 A/AA com estas tags (ver smoke.spec.ts).
+const WCAG_22_A_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
+const PASSWORD = 'frase longa de senha de teste'
+
+async function expectNoAxeViolations(page: Page): Promise<void> {
+  const results = await new AxeBuilder({ page }).withTags(WCAG_22_A_AA_TAGS).analyze()
+  expect(results.violations).toEqual([])
+}
+
+async function signInSuspended(page: Page, email: string, labels: { email: string; password: string; submit: string }) {
+  const api = await FakeDuoraApi.install(page)
+  api.seedConfirmedUser(email, PASSWORD)
+  api.seedSuspension(email, '2026-10-30T12:00:00Z')
+  await page.goto('/login')
+  await page.getByLabel(labels.email, { exact: true }).fill(email)
+  await page.getByLabel(labels.password, { exact: true }).fill(PASSWORD)
+  await page.getByRole('button', { name: labels.submit }).click()
+  return api
+}
+
+test.describe('conta suspensa (#299)', () => {
+  test('entra, vê a tela da suspensão e não alcança outras áreas', async ({ page }) => {
+    await signInSuspended(page, 'ana@exemplo.com', { email: 'E-mail', password: 'Senha', submit: 'Entrar' })
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
+    await expect(page).toHaveURL(/\/account\/suspended$/)
+    await expect(page.getByText('Violação dos Termos de uso')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: 'Sessões ativas' })).toBeVisible()
+    await expectNoAxeViolations(page)
+
+    await page.goto('/events')
+    await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
+    await expect(page).toHaveURL(/\/account\/suspended$/)
+  })
+})
+
+test.describe('suspended account in English (#299)', () => {
+  test.use({ locale: 'en-US' })
+
+  test('the suspension screen is translated and accessible', async ({ page }) => {
+    await signInSuspended(page, 'bia@example.com', { email: 'Email', password: 'Password', submit: 'Sign in' })
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Account suspended' })).toBeVisible()
+    await expect(page.getByText('Violation of the Terms of Use')).toBeVisible()
+    await expectNoAxeViolations(page)
+  })
+})

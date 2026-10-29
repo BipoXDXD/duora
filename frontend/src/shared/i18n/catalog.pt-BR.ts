@@ -237,6 +237,18 @@ export const ptBR = {
   'landing.register': 'Criar conta',
   'landing.signIn': 'Entrar',
 
+  'accountSuspended.title': 'Conta suspensa',
+  'accountSuspended.intro':
+    'Sua conta foi suspensa. Enquanto a suspensão durar, você não participa de eventos, salas nem conversas, e seu perfil não aparece para ninguém.',
+  'accountSuspended.reason': 'Motivo',
+  'accountSuspended.since': 'Desde',
+  'accountSuspended.reason.TermsViolation': 'Violação dos Termos de uso',
+  'accountSuspended.reason.SelfieVerificationFailed': 'Confirmação de presença não aprovada',
+  'accountSuspended.reason.Unknown': 'Indisponível no momento',
+  'accountSuspended.stillAvailable':
+    'Você continua podendo ver o estado da sua conta, encerrar sessões abertas, cuidar da segurança dela e sair.',
+  'accountSuspended.appeal': 'O pedido de revisão desta medida ainda não está disponível pelo app.',
+
   'termsReacceptance.title': 'Novo aceite dos Termos',
   'termsReacceptance.intro':
     'Os Termos de uso mudaram: agora o Duora é só para quem tem 18 anos ou mais. Você pode continuar usando o app; quando puder, leia a versão nova e confirme o aceite.',

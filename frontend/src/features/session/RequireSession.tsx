@@ -113,13 +113,17 @@ export function RequireSession(): React.JSX.Element {
   }
   if (active && me.data !== undefined) {
     const needsMfa = !me.data.mfaEnabled && me.data.roles.some((role) => role !== 'participant')
+    // Conta suspensa só alcança a própria conta e a segurança dela (spec 8.2, #299); o servidor nega o resto.
+    const suspended = me.data.status === 'Suspended'
+    if (suspended && pathname !== paths.accountSuspended) return <Navigate to={paths.accountSuspended} replace />
+    if (!suspended && pathname === paths.accountSuspended) return <Navigate to={paths.account} replace />
     if (needsMfa && pathname !== paths.mfaEnrollment) return <Navigate to={paths.mfaEnrollment} replace />
     if (pathname === paths.changePassword) return <Navigate to={paths.account} replace />
     return (
       <PrivateOperationProvider owner={me.data.owner}>
         <AccountContext value={me.data}>
           <AccountTimeZoneProvider timeZone={me.data.preferredTimeZone ?? null}>
-            <TermsReacceptanceNotice />
+            {suspended ? null : <TermsReacceptanceNotice />}
             <Outlet key={state.transitionEpoch} />
           </AccountTimeZoneProvider>
         </AccountContext>

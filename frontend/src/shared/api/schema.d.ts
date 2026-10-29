@@ -3537,6 +3537,294 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/accounts/{userId}/suspension": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    userId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AccountModerationStateResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/accounts/{userId}/suspensions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description A stable key for this exact suspension request; a replay returns the same suspension. */
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    userId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SuspendAccountRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AccountSuspensionResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/accounts/{userId}/suspensions/{suspensionId}/lift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The exact strong ETag of this suspension, from the last read. */
+                    "If-Match": string;
+                };
+                path: {
+                    userId: string;
+                    suspensionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LiftSuspensionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AccountSuspensionResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Failed */
+                412: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Required */
+                428: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/photos": {
         parameters: {
             query?: never;
@@ -4457,6 +4745,29 @@ export interface components {
             acceptedTermsSha256: null | string;
             confirmedAdult: null | boolean;
         };
+        /** @description Estado de moderação de uma conta: a suspensão ativa, ou nula. */
+        AccountModerationStateResponse: {
+            /** Format: uuid */
+            userId: string;
+            activeSuspension: null | components["schemas"]["AccountSuspensionResponse"];
+        };
+        /**
+         * @description Uma suspensão, sem o motivo interno. `ReasonCode`: TermsViolation | SelfieVerificationFailed.
+         *     `ETag`: o valor de `If-Match` para revogá-la. Instantes em UTC, com "Z" (spec 8.1).
+         */
+        AccountSuspensionResponse: {
+            /** Format: uuid */
+            suspensionId: string;
+            /** Format: uuid */
+            userId: string;
+            reasonCode: string;
+            decidedAutomatically: boolean;
+            /** Format: date-time */
+            suspendedAt: string;
+            /** Format: date-time */
+            liftedAt: null | string;
+            eTag: string;
+        };
         AnswerResponse: {
             kind: string;
             option: null | components["schemas"]["OptionResponse"];
@@ -4593,6 +4904,10 @@ export interface components {
             title: string;
             paragraphs: string[];
         };
+        /** @description Revogar uma suspensão; o motivo vai só para a auditoria (1 a 2000 caracteres). */
+        LiftSuspensionRequest: {
+            internalReason: null | string;
+        };
         /**
          * @description Login (API-A04). Conta com MFA ativo manda também `twoFactorCode` (6 dígitos do autenticador) ou
          *     `recoveryCode`, nunca os dois.
@@ -4609,6 +4924,7 @@ export interface components {
          *     participante que nunca recebeu papel explícito. `CurrentTermsAccepted`: participante com aceite da versão
          *     ativa dos Termos; `false` pede o novo aceite (API-A17), que não bloqueia o uso do app. Conta privilegiada
          *     não aceita os Termos de participante (D13) e recebe sempre `true`: não há aceite pendente.
+         *     `Suspension`: presente só com `Status` Suspended; o motivo em código e o instante, sem detalhe interno.
          */
         MeResponse: {
             /** Format: uuid */
@@ -4622,6 +4938,13 @@ export interface components {
             sessionContext: components["schemas"]["PrivateSessionContextResponse"];
             preferredLocale?: null | string;
             preferredTimeZone?: null | string;
+            suspension?: null | components["schemas"]["MeSuspensionResponse"];
+        };
+        /** @description Suspensão da própria conta (issue #299). `ReasonCode`: TermsViolation | SelfieVerificationFailed. */
+        MeSuspensionResponse: {
+            reasonCode: string;
+            /** Format: date-time */
+            suspendedAt: string;
         };
         /** @description Cadastro do TOTP (API-A11): mostrado uma vez, com `Cache-Control: no-store`. */
         MfaEnrollmentResponse: {
@@ -5010,6 +5333,14 @@ export interface components {
         StartSelfieVerificationRequest: Record<string, never>;
         /** Format: binary */
         Stream: string;
+        /**
+         * @description Suspender uma conta por violação dos Termos (issue #299). `ReasonCode`: só `TermsViolation` nesta rota.
+         *     `InternalReason`: texto para a auditoria, de 1 a 2000 caracteres, que nunca chega à pessoa suspensa.
+         */
+        SuspendAccountRequest: {
+            reasonCode: null | string;
+            internalReason: null | string;
+        };
         TimeZoneOptionsResponse: {
             timeZones: string[];
         };
