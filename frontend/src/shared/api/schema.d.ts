@@ -3741,7 +3741,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** @description Exclusão lógica imediata da própria foto (API-M03), sem corpo, com If-Match (ETag do status) e Idempotency-Key obrigatórios. Responde 204 com o ETag da foto excluída; a mesma chave repetida devolve o mesmo resultado. Foto de outra conta e foto inexistente dão o mesmo 404. A remoção dos arquivos é feita depois, por um job durável. */
+        /** @description Exclusão lógica imediata da própria foto (API-M03), sem corpo, com If-Match (ETag do status) e Idempotency-Key obrigatórios. Responde 204 com o ETag da foto excluída; a mesma chave repetida devolve o mesmo resultado por 1 ano. Depois disso o recibo sai pela retenção, e repetir o DELETE com a mesma chave devolve 412, sem novo efeito. Foto de outra conta e foto inexistente dão o mesmo 404. A remoção dos arquivos é feita depois, por um job durável. */
         delete: {
             parameters: {
                 query?: never;

@@ -1,7 +1,9 @@
+using System.Diagnostics.Metrics;
 using Duora.Core.Media;
 using Duora.Infrastructure.Outbox;
 using Duora.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -74,6 +76,12 @@ public static class MediaProcessingServiceCollectionExtensions
             provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value.Provider != MediaStorageProvider.Unset,
             provider.GetRequiredService<ILogger<UnavailableCandidateCleanupDispatcher>>()));
 
+        services.TryAddSingleton(provider => new PhotoDeletionRecordPurgeMetrics(provider.GetRequiredService<IMeterFactory>()));
+        services.AddSingleton(provider => new PhotoDeletionRecordPurge(
+            provider.GetRequiredService<NpgsqlDataSource>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<PhotoDeletionRecordPurgeMetrics>(),
+            provider.GetRequiredService<ILogger<PhotoDeletionRecordPurge>>()));
 
         return services;
     }

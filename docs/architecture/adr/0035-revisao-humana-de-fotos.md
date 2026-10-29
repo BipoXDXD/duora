@@ -196,20 +196,105 @@ deixava aberta.
    Production, como no item 1 das decisões de 28/10/2026. Nada muda no código.
 4. **P3. Retenção de tombstones e recibos de exclusão: 1 ano**, igual à auditoria. Vale para
    `media.photo_tombstones` (desde `deleted_at`) e `media.photo_deletion_commands` (desde `created_at`). Um ano
-   cobre com folga os ~65 dias em que uma cópia de backup ainda pode trazer de volta uma foto excluída. Não existe
-   job de expurgo dessas linhas, e a aplicação não tem `UPDATE`/`DELETE` nelas; até o job existir, nada é
-   apagado. O ledger externo continua aberto (#69).
+   cobre com folga os ~65 dias em que uma cópia de backup ainda pode trazer de volta uma foto excluída. O expurgo
+   foi implementado depois deste adendo, sem dar `UPDATE`/`DELETE` à aplicação (ver "Expurgo dos registros de
+   exclusão (P3)" abaixo). O ledger externo continua aberto (#69).
 5. **P4. Política de privacidade sem mudança.** O texto continua sem mencionar a revisão humana.
 6. **P5. Upload em Production continua desligado** (#69); `duora_media_review` segue `""` no inventário.
 
 Continuam valendo as decisões de 28/10/2026: só o dono revisa, como `moderator` com MFA; toda foto passa pela
 revisão; o candidato é apagado 24 h após a decisão; o log de decisão fica 1 ano. Continuam abertos o ledger
-externo, o job de expurgo dos registros de exclusão, a API-P04, o aceite da política pelo titular e a ativação do
-upload (#69).
+externo, a API-P04, o aceite da política pelo titular e a ativação do upload (#69).
 
 Compliance: `ReviewExpirationUsesTheExactDeadlineAndCommitsOnlyASystemResultAndCleanupObligation` (7 dias menos
 1 tick não expira; 7 dias expira), `ANewCaseIsStillAwaitingReviewAtTheFormerSeventyTwoHourDeadline` e
 `ACaseOpenedByThePreviousReleaseKeepsItsSeventyTwoHourDeadline` (`PhotoReviewExpirationTests`);
 `CaseDeadlineIsSevenDaysOrTheSeventyTwoHoursOfThePreviousRelease` (`MediaReviewMigrationTests`);
 `SanitizedCandidateCommitsReviewCaseAndOriginalCleanupWithoutAnApprovedAsset` (`ReviewCandidateStageTests`).
+O resultado desses testes pertence ao CI do PR.
+
+### Expurgo dos registros de exclusão (P3)
+
+**Contexto.** `media.photo_tombstones` e `media.photo_deletion_commands` são append-only para `duora_app`
+(`REVOKE UPDATE, DELETE, TRUNCATE` na migração `PhotoDeletions` e de novo no `reconcile-privileges.sql`). A
+imutabilidade protege a prova da exclusão: um processo da aplicação comprometido, ou um defeito, não consegue
+apagar o tombstone de uma exclusão recente. O tombstone precisa durar enquanto existir backup capaz de desfazer a
+exclusão; a cópia mais longa é a do bucket B2, até ~65 dias (14 de recuperação + 21 de lock + 30 do lifecycle),
+bem menos que 1 ano. Além disso, o tombstone justifica as obrigações físicas ainda pendentes
+(`media.photo_deletion_cleanup` referencia o tombstone com `RESTRICT`, e o `DecidedCandidateCleanupDispatcher` só
+limpa o candidato privado de uma foto excluída se o tombstone existir).
+
+Alternativas consideradas:
+
+- **`GRANT DELETE` a `duora_app`.** Mais simples, mas desfaz a garantia: a aplicação poderia apagar qualquer
+  tombstone, inclusive de uma exclusão de ontem, e o `reconcile-privileges.sql` e a allowlist de privilégios
+  teriam de abrir uma exceção.
+- **Papel de banco dedicado (`duora_retention`) com `DELETE` só nas duas tabelas.** Separa a credencial, mas exige
+  papel novo no initdb, segredo e connection string próprios, fatia no orçamento de conexões e a fixture dos testes
+  com mais um papel. E não limita a idade: quem tem a credencial (o Worker) ainda apaga um tombstone recente.
+- **Função `SECURITY DEFINER` com escopo mínimo (escolhida).** `media.purge_photo_deletion_records(p_as_of,
+  p_limit)`, da dona das tabelas (`duora_migrator`), com `EXECUTE` só para `duora_app`. A função decide sozinha o
+  que sai e não aceita SQL nem nomes do chamador. O instante é `least(p_as_of, statement_timestamp())`: o
+  `TimeProvider` do Worker define o corte (e os testes usam `FakeTimeProvider`), mas o relógio do banco é o teto, e
+  nenhum chamador torna elegível uma exclusão com menos de 1 ano. Nenhum papel, segredo ou conexão novos.
+
+**Decisão.** A migração aditiva `20261029150000_PhotoDeletionRecordRetention` cria a função com `search_path`
+fixo (`pg_catalog, pg_temp`), fuso `UTC` (para `interval '1 year'` igualar o `AddYears(-1)` do .NET) e
+`lock_timeout` de 500 ms. Ela recusa instante infinito ou nulo e lote fora de 1 a 1.000 (`22023`). Em cada
+chamada apaga até um lote por tabela, com `FOR UPDATE SKIP LOCKED`:
+
+- recibos com `created_at` até o corte;
+- tombstones com `deleted_at` até o corte, **sem** obrigação em `media.photo_deletion_cleanup` nem em
+  `media.original_cleanup` (quando o original já tem obrigação própria ali, a exclusão não o grava em
+  `photo_deletion_cleanup`), e sem candidato privado da foto que não tenha sido removido há pelo menos 65 dias no
+  relógio do banco (`review_candidates.deleted_at <= statement_timestamp() - 65 days`, a janela de backup de
+  [retention.md](../../privacy/retention.md), constante `c_backup_window` da função). Enquanto os bytes não saem do
+  disco, cada novo backup de mídia os copia, então a janela de backup nem começou; o tombstone fica, por mais
+  velho que seja.
+
+A janela de backup conta da remoção física, não de `deleted_at`. Os candidatos guardam a data (`deleted_at`) e a
+função a exige. `media.photo_deletion_cleanup` não guarda: a obrigação é apagada ao concluir. **Decisão: registrar
+o risco residual em vez de gravar `completed_at`.** Se o coletor só terminar um derivado perto de 1 ano depois da
+exclusão (falha de storage longa), o tombstone pode sair enquanto um snapshot do restic ainda tem os bytes, por até
+~65 dias. Isso não ressuscita a foto: o restore de mídia só devolve derivados de assets `Approved` no banco
+restaurado, e o asset e o upload continuam `Deleted` (o expurgo não os toca). E um restore do banco anterior à
+exclusão depende de backups que expiram ~65 dias depois de `deleted_at`, bem antes de 1 ano. Gravar `completed_at`
+exigiria tabela nova (a obrigação some ao concluir), mudar o coletor e abrir mais uma exceção de privilégio, para
+proteger um caso que o estado do asset já cobre. Revisar se o restore de mídia deixar de filtrar por `Approved`.
+
+O upload continua `Deleted` (não é tocado): é esse estado, e não o tombstone, que barra a leitura (API-M04) e a
+seleção do restore de mídia (só derivados de assets `Approved`). O `PhotoDeletionRecordPurgeService` do Worker
+chama `PhotoDeletionRecordPurge` (lote de 500 por tabela); se apagou algo, repete após 1 s; senão, espera 1 h mais
+até 5 min de jitter. Toda instância roda o job: o `SKIP LOCKED` deixa as linhas disjuntas, e repetir é inócuo. O
+total apagado vai ao log (Information, só contagens) e ao contador `duora.media.deletion_records.purged` do meter
+`Duora.Media`, rotulado só pelo nome da tabela. Falha registra só o tipo da exceção e tenta na hora seguinte. Não
+há flag: até 28/10/2027 nenhuma linha tem 1 ano, e a primeira exclusão em Production depende da #69.
+
+O `Up` fixa o dono com `alter function ... owner to duora_migrator`, sem depender de qual papel aplica a migração, e
+`OnlyAllowlistedFunctionsRunAsTheirOwner` falha se surgir outra função `SECURITY DEFINER` fora da allowlist.
+`duora_app` é o mesmo papel na Web e no Worker, então a Web também tem `EXECUTE` na função, embora só o Worker a
+chame. O dano de uma Web comprometida fica limitado pelo teto: ela só antecipa o que o Worker apagaria de qualquer
+forma (registros com mais de 1 ano no relógio do banco e sem obrigação física pendente). Separar a credencial do
+Worker continua desejável ([model.md](../../data/model.md#permissões-de-banco-spec-107)), mas não é exigida por este
+expurgo.
+
+**Consequências.** Pelo código de `PhotoDeletions`, um DELETE repetido com a mesma `Idempotency-Key` depois que o
+recibo sai não é mais replay: a foto já está `Deleted` com outra versão, então a resposta é 412 em vez de 204, sem
+efeito novo. Um tombstone
+preso por obrigação física que nunca termina fica indefinidamente; o sinal disso é a obrigação, que já tem retry e
+log próprios. A janela de backup de ~65 dias está fixa no texto; se ela passar de 1 ano, este expurgo precisa ser
+revisto. O rollback é seguro: a release anterior não chama a função, e o `Down` só a remove.
+
+Compliance: `ATombstoneAndReceiptOneTickShortOfAYearAreKept`,
+`ATombstoneAndReceiptExactlyAYearOldArePurgedAndThePhotoStaysDeleted`,
+`ATombstoneWhoseDeletionIsStillInsideTheBackupWindowNeverLeavesWhateverTheCallerClockSays` (0, 64, 65, 66 e 364
+dias, com o chamador no ano 9999), `ATombstoneWhosePhysicalDeletionIsStillPendingNeverLeaves`,
+`ATombstoneThatStillExplainsAPendingCandidateCleanupNeverLeaves`, `ATombstoneWhoseOriginalCleanupIsStillPendingNeverLeaves`,
+`ATombstoneLeavesOnlyWhenItsCandidateWasDeletedAtLeastTheBackupWindowAgo` (0 e 64 dias ficam; 65 e 66 saem),
+`ATombstoneExactlyOneYearOldOnTheDatabaseClockLeavesEvenWithTheCallerAhead`, `TheFunctionRunsWithExactlyItsPinnedSettings`,
+`TwoInstancesRunningTogetherDeleteEachRecordOnce`, `ConcurrentPurgesAddUpToTheEligibleRecordsExactly`,
+`OneCallDeletesAtMostOneBatchPerTableAndTheNextCallTakesTheRest`, `APurgeRecordsTheMetricPerTableAndLogsTheTotal`
+e `TheFunctionIsASecurityDefinerWithAPinnedSearchPathAndUtcClock` (`PhotoDeletionRecordPurgeTests`, PostgreSQL
+real); `AppStatementIsDenied` continua negando `DELETE`, `UPDATE` e `TRUNCATE` diretos nas duas tabelas
+e `OnlyAllowlistedFunctionsRunAsTheirOwner` (`AppRolePrivilegesTests`); `PhotoDeletionRecordPurgeLogsUnreachableDatabaseAndKeepsRunning` (`WorkerHostTests`).
 O resultado desses testes pertence ao CI do PR.
