@@ -10,12 +10,15 @@ namespace Duora.IntegrationTests.Safety;
 
 public sealed partial class PhotoReviewApprovalTests
 {
+    // Decisão do dono de 29/10/2026 (#173, ADR-0035): a fila espera 7 dias, não mais 72 h.
+    private static readonly TimeSpan ReviewWait = TimeSpan.FromDays(7);
+
     [Fact]
     public async Task ReviewExpirationUsesTheExactDeadlineAndCommitsOnlyASystemResultAndCleanupObligation()
     {
         var item = await CaseAsync();
         var files = Files();
-        _time.Advance(TimeSpan.FromHours(72).Subtract(TimeSpan.FromTicks(1)));
+        _time.Advance(TimeSpan.FromDays(7).Subtract(TimeSpan.FromTicks(1)));
         Assert.Equal(0, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
         Assert.Equal(files, Files());
         _time.Advance(TimeSpan.FromTicks(1));
@@ -29,6 +32,44 @@ public sealed partial class PhotoReviewApprovalTests
     }
 
     [Fact]
+    public async Task ANewCaseIsStillAwaitingReviewAtTheFormerSeventyTwoHourDeadline()
+    {
+        var item = await CaseAsync();
+        var projections = await ExpirationProjectionAsync();
+        _time.Advance(TimeSpan.FromHours(72));
+
+        Assert.Equal(0, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
+
+        Assert.Equal(projections, await ExpirationProjectionAsync());
+        Assert.Equal(1, await ScalarAsync("""
+            select count(*) from safety.photo_review_cases r join media.review_candidates c on c.case_id=r.id
+            where r.id=$1 and r.review_deadline=r.awaiting_review_at+interval '168 hours'
+              and c.retention_until=r.review_deadline+interval '24 hours'
+            """, item.CaseId));
+    }
+
+    [Fact]
+    public async Task ACaseOpenedByThePreviousReleaseKeepsItsSeventyTwoHourDeadline()
+    {
+        var item = await CaseAsync();
+        // The release before 29/10/2026 wrote deadline = start + 72 h and candidate retention = start + 96 h.
+        await ExecuteAsync("""
+            update safety.photo_review_cases set review_deadline=awaiting_review_at+interval '72 hours' where id=$1
+            """, item.CaseId);
+        await ExecuteAsync("""
+            update media.review_candidates c set retention_until=r.review_deadline+interval '24 hours'
+            from safety.photo_review_cases r where r.id=c.case_id and r.id=$1
+            """, item.CaseId);
+        _time.Advance(TimeSpan.FromHours(72).Subtract(TimeSpan.FromTicks(1)));
+        Assert.Equal(0, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
+        _time.Advance(TimeSpan.FromTicks(1));
+
+        Assert.Equal(1, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
+
+        await AssertExpiredWithSystemProofAsync(item);
+    }
+
+    [Fact]
     public async Task ReviewExpirationKeepsTheProducerRetentionContractAndRejectsADivergentSnapshot()
     {
         var item = await CaseAsync();
@@ -38,7 +79,7 @@ public sealed partial class PhotoReviewApprovalTests
             where c.generation=$1 and c.retention_until=r.review_deadline+interval '24 hours'
             """, generation));
         await ExecuteAsync("update media.review_candidates set retention_until=retention_until-interval '1 second' where generation=$1", generation);
-        _time.Advance(TimeSpan.FromHours(73));
+        _time.Advance(ReviewWait + TimeSpan.FromHours(1));
         var before = await ExpirationProjectionAsync();
         var files = Files();
 
@@ -52,7 +93,7 @@ public sealed partial class PhotoReviewApprovalTests
     public async Task ReviewExpirationKeepsTheEffectMarkerWhenTheAuditClockAdvancesBeforeAppend()
     {
         var item = await CaseAsync();
-        _time.Advance(TimeSpan.FromHours(72));
+        _time.Advance(ReviewWait);
         var effectAt = _time.GetUtcNow();
         var advance = new AdvanceExpirationAuditClock(_time);
 
@@ -71,7 +112,7 @@ public sealed partial class PhotoReviewApprovalTests
     public async Task ConcurrentReviewExpirationsCommitExactlyOneResultAndAudit()
     {
         var item = await CaseAsync();
-        _time.Advance(TimeSpan.FromHours(73));
+        _time.Advance(ReviewWait + TimeSpan.FromHours(1));
         var results = await Task.WhenAll(
             new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct),
             new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
@@ -86,7 +127,7 @@ public sealed partial class PhotoReviewApprovalTests
         var oldest = await CaseAsync();
         _time.Advance(TimeSpan.FromSeconds(1));
         var next = await CaseAsync();
-        _time.Advance(TimeSpan.FromHours(73));
+        _time.Advance(ReviewWait + TimeSpan.FromHours(1));
         await ExecuteAsync("update safety.photo_review_cases set candidate_generation=$2 where id=$1", oldest.CaseId, Guid.NewGuid());
         var before = await ExpirationCaseProjectionAsync(oldest);
         var files = Files();
@@ -127,7 +168,7 @@ public sealed partial class PhotoReviewApprovalTests
         var history = await CleanupHistoryAsync();
         var candidate = await CandidateMetadataAsync(item);
         var projections = await ExpirationProjectionAsync();
-        _time.Advance(TimeSpan.FromHours(73));
+        _time.Advance(ReviewWait + TimeSpan.FromHours(1));
 
         Assert.Equal(0, await new PhotoReviewExpirations(Factory(), _time).ExpireOnceAsync(Ct));
         Assert.Equal(files, Files());
@@ -142,7 +183,7 @@ public sealed partial class PhotoReviewApprovalTests
         var item = await CaseAsync();
         var candidate = await CandidateMetadataAsync(item);
         var files = Files();
-        _time.Advance(TimeSpan.FromHours(72));
+        _time.Advance(ReviewWait);
         var fault = new RefuseExpirationAudit();
 
         await Assert.ThrowsAsync<IOException>(() => new PhotoReviewExpirations(Factory(fault), _time).ExpireOnceAsync(Ct));
@@ -170,7 +211,7 @@ public sealed partial class PhotoReviewApprovalTests
     public async Task ReviewExpirationReadsTheEffectClockAfterWaitingForTheOwnersGuard()
     {
         var item = await CaseAsync();
-        _time.Advance(TimeSpan.FromHours(72));
+        _time.Advance(ReviewWait);
         var result = await ExpireWhileGuardedAsync(item, (_, _) =>
         {
             _time.Advance(TimeSpan.FromSeconds(10));
@@ -188,7 +229,7 @@ public sealed partial class PhotoReviewApprovalTests
     {
         var item = await CaseAsync();
         var files = Files();
-        _time.Advance(TimeSpan.FromHours(72));
+        _time.Advance(ReviewWait);
         string? winner = null;
         var result = await ExpireWhileGuardedAsync(item, async (connection, transaction) =>
         {
@@ -222,7 +263,7 @@ public sealed partial class PhotoReviewApprovalTests
         var item = await CaseAsync();
         var before = await ExpirationProjectionAsync();
         var files = Files();
-        _time.Advance(TimeSpan.FromHours(72));
+        _time.Advance(ReviewWait);
         var fault = new ExpirationCommitFault(_connectionString, item.UploadId, afterCommit);
 
         await Assert.ThrowsAsync<IOException>(() => new PhotoReviewExpirations(Factory(fault), _time).ExpireOnceAsync(Ct));

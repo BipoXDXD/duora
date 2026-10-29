@@ -20,6 +20,10 @@ internal abstract record ReviewCandidateStageResult
 internal sealed class PhotoReviewCandidates(
     DuoraDbContext db, IObjectStore store, TimeProvider time, MediaProcessingOptions options)
 {
+    // Same instant as the case start: the cleanup collectors only accept retention = review deadline + 24 h.
+    private static readonly TimeSpan CandidateRetention =
+        PhotoReviewCases.ReviewWait + PhotoReviewCases.CandidateCleanupAfterDeadline;
+
     private sealed record Variant(PhotoVariant Kind, ObjectKey Key, byte[] Content, int Width, int Height, byte[] Sha256);
 
     private sealed record StoredVariant(string ObjectKey, long SizeBytes, byte[] Sha256);
@@ -296,7 +300,7 @@ internal sealed class PhotoReviewCandidates(
             where id={upload.Id} and state='Processing' and version={upload.Version}
             """, cancellationToken);
         var confirmed = await db.Database.ExecuteSqlAsync($"""
-            update media.review_candidates set committed_at={now},case_id={caseId},retention_until={now.AddHours(96)}
+            update media.review_candidates set committed_at={now},case_id={caseId},retention_until={now.Add(CandidateRetention)}
             where generation={generation} and committed_at is null and cleanup_requested_at is null
               and writer_settled_at is not null and prepare_deadline>{now}
             """, cancellationToken);

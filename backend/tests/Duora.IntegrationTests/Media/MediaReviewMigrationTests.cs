@@ -157,6 +157,45 @@ public sealed class MediaReviewMigrationTests(PostgresFixture postgres)
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, orphan.SqlState);
     }
 
+    [Theory]
+    [InlineData(168 * 60, true)]
+    [InlineData(72 * 60, true)]
+    [InlineData(168 * 60 - 1, false)]
+    [InlineData(168 * 60 + 1, false)]
+    [InlineData(72 * 60 - 1, false)]
+    [InlineData(72 * 60 + 1, false)]
+    [InlineData(96 * 60, false)]
+    public async Task CaseDeadlineIsSevenDaysOrTheSeventyTwoHoursOfThePreviousRelease(int minutes, bool accepted)
+    {
+        var database = await postgres.CreateMigratedDatabaseAsync(Ct);
+        await using var factory = new DuoraWebFactory(database);
+        var media = new MediaScenario(database, factory);
+        var account = await media.Identity.CreateConfirmedAccountAsync();
+        using var browser = await media.Identity.SignedInBrowserAsync(account);
+        using var uploaded = await MediaScenario.UploadAsync(browser, MediaScenario.JpegLike());
+        var photo = Assert.Single(await media.UploadsOfAsync(account.UserId));
+        await media.ExecuteAsync("update media.uploads set state = 'AwaitingReview' where id = $1", photo.Id);
+        var start = new DateTimeOffset(2026, 10, 29, 0, 0, 0, TimeSpan.Zero);
+        const string Insert = """
+            insert into safety.photo_review_cases
+                (id, upload_id, candidate_generation, policy_version, awaiting_review_at, review_deadline, version)
+            values ($1, $2, $3, 'human-review-v1', $4, $5, 1)
+            """;
+
+        var insert = () => media.ExecuteAsync(
+            Insert, Guid.NewGuid(), photo.Id, Guid.NewGuid(), start, start.AddMinutes(minutes));
+
+        if (accepted)
+        {
+            await insert();
+        }
+        else
+        {
+            var invalid = await Assert.ThrowsAsync<PostgresException>(insert);
+            Assert.Equal(PostgresErrorCodes.CheckViolation, invalid.SqlState);
+        }
+    }
+
     private static async Task<List<string>> RowsAsync(NpgsqlConnection connection)
     {
         await using var command = new NpgsqlCommand("select row_to_json(u)::text from media.uploads u order by id", connection);
