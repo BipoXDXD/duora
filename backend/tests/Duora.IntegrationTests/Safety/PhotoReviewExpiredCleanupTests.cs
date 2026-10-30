@@ -192,7 +192,9 @@ public sealed partial class PhotoReviewApprovalTests
         Assert.Equal(before, await ExpirationProjectionAsync());
         Assert.Equal(files, Files());
         Assert.Equal(1, await gc.DispatchOnceAsync(Ct));
-        Assert.Equal(1, await ScalarAsync("select count(*) from media.review_candidates where generation=$1 and deleted_at is not null", generation));
+        // A remoção física grava deleted_at no relógio do banco, não no relógio falso (dias atrás): é dele que o
+        // expurgo de tombstones conta a janela de backup (ADR-0035, P3).
+        Assert.Equal(1, await ScalarAsync("select count(*) from media.review_candidates where generation=$1 and deleted_at between statement_timestamp() - interval '5 minutes' and statement_timestamp() and last_cleanup_at = deleted_at", generation));
     }
 
     [Fact]
