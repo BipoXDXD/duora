@@ -41,15 +41,22 @@ internal sealed class RekognitionSelfieProvider(
             return Result(SelfieState.Expired, null);
         }
 
+        // Sem confiança ou sem frame de referência utilizável a AWS recomenda repetir a verificação: falha técnica,
+        // não julgamento da captura, então não conta no limite (issue #300).
+        if (response.Status == LivenessSessionStatus.SUCCEEDED && response.Confidence is null)
+        {
+            return Result(SelfieState.Expired, null);
+        }
+
         if (response.Status != LivenessSessionStatus.SUCCEEDED || response.Confidence is not { } confidence
             || !options.AcceptsLiveness(confidence))
         {
             return Result(SelfieState.Inconclusive, "PRESENCE_INCONCLUSIVE");
         }
 
-        if (bytes is null || bytes.Length == 0 || bytes.Length > 5 * 1024 * 1024)
+        if (bytes is null || bytes.Length == 0 || bytes.Length > MaximumReferenceFrameBytes)
         {
-            return Result(SelfieState.RecaptureRequired, "CAPTURE_QUALITY");
+            return Result(SelfieState.Expired, null);
         }
 
         var faces = await client.DetectFacesAsync(new DetectFacesRequest
@@ -65,6 +72,9 @@ internal sealed class RekognitionSelfieProvider(
         var good = options.AcceptsFace(new SelfieFaceQuality(brightness, sharpness, pitch, yaw, roll));
         return good ? Result(SelfieState.Passed, null) : Result(SelfieState.RecaptureRequired, "CAPTURE_QUALITY");
     }
+
+    /// <summary>Teto do DetectFaces para imagem em bytes (5 MB).</summary>
+    private const int MaximumReferenceFrameBytes = 5 * 1024 * 1024;
 
     private SelfieResult Result(SelfieState state, string? feedback) => new(state, feedback, options.PolicyVersion);
 }
