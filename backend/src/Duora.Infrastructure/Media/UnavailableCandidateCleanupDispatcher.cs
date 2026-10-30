@@ -112,9 +112,11 @@ public sealed partial class UnavailableCandidateCleanupDispatcher
         }
 
         var now = _time.GetUtcNow();
+        // The sweep's timestamps come from the database clock: the tombstone purge counts its backup window from
+        // deleted_at (ADR-0035, P3).
         await using var command = Command(connection, $"""
             update media.review_candidates c
-            set last_cleanup_at=$3,deleted_at=$3,cleanup_token=null,cleanup_lease_until=null
+            set last_cleanup_at=statement_timestamp(),deleted_at=statement_timestamp(),cleanup_token=null,cleanup_lease_until=null
             where c.generation=$1 and c.cleanup_token=$2 and c.cleanup_lease_until>$3
               and c.cleanup_requested_at<=$3 and {UnavailableObligation}
             """, claim.Generation, claim.Token, now);

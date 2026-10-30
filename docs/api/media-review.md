@@ -156,7 +156,7 @@ espera por guarda. Timers atrasados não ampliam autorização nem tornam candid
 | Espera máxima 7 dias | awaitingReviewAt +168h (decisão de 29/10/2026; antes, +72h, prazo que os casos já abertos mantêm); sem decisão confirmada, PHOTO_REVIEW_EXPIRED, nunca aprovação; limpeza até +24h |
 | Candidato aprovado ou reprovado | decidedAt +24h; a decisão grava a obrigação de limpeza e o Worker a executa logo após (`DecidedCandidateCleanupDispatcher`). Até 28/10/2026 o reprovado ficava 7dias à espera de recurso |
 | Registro mínimo da decisão/auditoria | 1ano conforme ADR-0035; sem imagem ou texto sensível |
-| Tombstone (`media.photo_tombstones`) e recibo de exclusão (`media.photo_deletion_commands`) | 1 ano desde `deleted_at`/`created_at`, igual à auditoria (decisão de 29/10/2026). O Worker apaga pela função `SECURITY DEFINER` `media.purge_photo_deletion_records`; a aplicação continua sem `DELETE` nessas tabelas, o corte nunca passa do relógio do banco, e o tombstone fica enquanto houver obrigação física da foto pendente (ou candidato removido há menos de 65 dias) |
+| Tombstone (`media.photo_tombstones`) e recibo de exclusão (`media.photo_deletion_commands`) | 1 ano desde `deleted_at`/`created_at`, igual à auditoria (decisão de 29/10/2026). O Worker apaga pela função `SECURITY DEFINER` `media.purge_photo_deletion_records`; a aplicação continua sem `DELETE` nessas tabelas, o corte nunca passa do relógio do banco, e o tombstone fica enquanto houver obrigação física da foto pendente (ou candidato ou promoção não confirmada removidos há menos de 65 dias no relógio do banco) |
 
 Decisão empatada com a limpeza é serializada; não ressuscitar bytes apagados. Status público de rejeição
 continua Rejected, sem sanção extra e com orientação para novo envio. Se candidato desaparecer antes da
@@ -232,8 +232,8 @@ transação:
   do TechnicalOnly, disponíveis só depois de 15 min (`InFlightWriterGrace`), para um Worker que já passou da
   checagem de versão terminar de gravar (não há coletor de órfãos: uma gravação que termine depois da folga
   deixa o derivado sem obrigação; risco só do TechnicalOnly, restrito a Development/Testing);
-- candidato em preparo e promoção da aprovação ainda não confirmados ficam com os coletores de preparo, que não
-  dependem do estado da foto.
+- candidato em preparo e promoção da aprovação ainda não confirmados ficam com os coletores de preparo
+  (`ReviewCandidateCleanupService` e `ReviewPromotionCleanupService` do Worker), que não dependem do estado da foto.
 
 O caso editorial não é apagado: some da fila e da evidência do moderador, e decisão ou aprovação posteriores dão
 404 sem publicar nada. O Worker que chega depois encontra `Deleted` e só encerra a entrega. O tombstone só existe

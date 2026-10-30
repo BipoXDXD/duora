@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -581,7 +582,8 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
             var approved = Assert.IsType<PhotoReviewApprovalResult.Approved>(result);
             _time.Advance(TimeSpan.FromSeconds(16));
             await using var source = NpgsqlDataSource.Create(_connectionString);
-            var gc = new ReviewPromotionCleanupDispatcher(source, inner, _time, enabled: true);
+            var gc = new ReviewPromotionCleanupDispatcher(source, inner, _time, enabled: true,
+                NullLogger<ReviewPromotionCleanupDispatcher>.Instance);
             Assert.Null(await gc.ClaimAsync(Ct));
             Assert.Equal(0, await gc.DispatchOnceAsync(Ct));
             Assert.Equal(3, await ScalarAsync("select count(*) from media.media_variants where media_asset_id=$1", approved.AssetId));
@@ -674,7 +676,8 @@ public sealed partial class PhotoReviewApprovalTests(PostgresFixture postgres) :
 
             Fired = true;
             await using var source = NpgsqlDataSource.Create(fixture._connectionString);
-            var gc = new ReviewPromotionCleanupDispatcher(source, inner, fixture._time, enabled: true);
+            var gc = new ReviewPromotionCleanupDispatcher(source, inner, fixture._time, enabled: true,
+                NullLogger<ReviewPromotionCleanupDispatcher>.Instance);
             var claim = Assert.IsType<ReviewPromotionCleanupClaim>(await gc.ClaimAsync(cancellationToken));
             Assert.Equal(expected, claim.Generation);
             Assert.True(claim.WriterWasSettled);

@@ -992,8 +992,9 @@ pessoal; decisão, leitura privada do recurso e composição canônica dos REVOK
   `media.purge_photo_deletion_records(p_as_of, p_limit)` (dona: `duora_migrator`; `EXECUTE` só para `duora_app`;
   `search_path` fixo, fuso UTC, lote de 1 a 1.000 com `SKIP LOCKED`). Ela apaga recibos com `created_at` e tombstones
   com `deleted_at` até `least(p_as_of, statement_timestamp()) - 1 year`, e nunca um tombstone com obrigação em
-  `photo_deletion_cleanup` ou `original_cleanup`, ou com candidato privado da foto não removido há pelo menos 65
-  dias no relógio do banco. O upload continua `Deleted`. Dono fixado no `Up` (`duora_migrator`); é a única função
+  `photo_deletion_cleanup` ou `original_cleanup`, ou com candidato privado ou promoção não confirmada da foto não
+  removidos há pelo menos 65 dias no relógio do banco (os coletores gravam `deleted_at` com `statement_timestamp()`).
+  O upload continua `Deleted`. Dono fixado no `Up` (`duora_migrator`); é a única função
   `SECURITY DEFINER` (`OnlyAllowlistedFunctionsRunAsTheirOwner`).
 - **Classe:** P3 (ids e hashes; nenhum conteúdo ou chave do cliente em claro).
 
