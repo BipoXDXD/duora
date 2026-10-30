@@ -22,9 +22,11 @@ public sealed class AccountSuspensionTests : IAsyncDisposable
     private readonly FakeTimeProvider _time = new(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
     private readonly DuoraWebFactory _factory;
     private readonly AccountSuspensionScenario _scenario;
+    private readonly string _connectionString;
 
     public AccountSuspensionTests(PostgresFixture postgres)
     {
+        _connectionString = postgres.ConnectionString;
         _factory = new DuoraWebFactory(postgres.ConnectionString) { Time = _time };
         _scenario = new AccountSuspensionScenario(postgres.ConnectionString, _factory, _time);
     }
@@ -539,6 +541,9 @@ public sealed class AccountSuspensionTests : IAsyncDisposable
     }
 
     [Theory]
+    [InlineData("{", true)]
+    [InlineData("[1,2]", true)]
+    [InlineData("""{"reasonCode":"TermsViolation","internalReason":"Motivo.","extra":1}""", true)]
     [InlineData("""{"reasonCode":"Unknown","internalReason":"Motivo."}""", true)]
     [InlineData("""{"reasonCode":"TermsViolation"}""", true)]
     [InlineData("""{"reasonCode":"TermsViolation","internalReason":"Motivo."}""", false)]
@@ -555,6 +560,118 @@ public sealed class AccountSuspensionTests : IAsyncDisposable
         Assert.Equal(0, await _scenario.CountAsync(
             "select count(*) from safety.user_guards where user_id = $1", participant.UserId));
     }
+
+    [Fact]
+    public async Task TheServiceRefusesASuspensionByANonModeratorBeforeTouchingAnyGuard()
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        var (admin, browser) = await _scenario.PrivilegedBrowserAsync(AccountRoles.ProductAdmin);
+        using var __ = browser;
+        var session = new ModeratorSession(admin.UserId, await MfaScenario.ReadSessionIdAsync(browser));
+        // A guarda do alvo está travada por outra transação: se o serviço tentasse travá-la antes de conferir o papel,
+        // esperaria o lock_timeout e responderia Busy em vez de Forbidden.
+        await using var holder = await HoldGuardAsync(participant.UserId);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var outcome = await scope.ServiceProvider.GetRequiredService<AccountSuspensions>().SuspendAsModeratorAsync(
+            session,
+            SuspensionOrder.ByModerator(admin.UserId, participant.UserId, SuspensionReason.TermsViolation, "Motivo."),
+            ModerationCommandKey.ForModerator(admin.UserId, AccountSuspensionScenario.NewKey()),
+            Ct);
+
+        Assert.IsType<SuspensionOutcome.Forbidden>(outcome);
+        await holder.DisposeAsync();
+        Assert.Equal(0, await _scenario.CountAsync("select count(*) from safety.user_guards where user_id = $1", admin.UserId));
+    }
+
+    [Fact]
+    public async Task TheServiceRefusesALiftByANonModeratorBeforeTouchingItsGuard()
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        var (_, moderator) = await _scenario.PrivilegedBrowserAsync();
+        using var __ = moderator;
+        var suspension = await AccountSuspensionScenario.SuspendAsync(moderator, participant.UserId);
+        var (admin, browser) = await _scenario.PrivilegedBrowserAsync(AccountRoles.ProductAdmin);
+        using var ___ = browser;
+        var session = new ModeratorSession(admin.UserId, await MfaScenario.ReadSessionIdAsync(browser));
+        await using var holder = await HoldGuardAsync(participant.UserId);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var outcome = await scope.ServiceProvider.GetRequiredService<AccountSuspensions>().LiftAsModeratorAsync(
+            session, participant.UserId, Guid.Parse((string)suspension["suspensionId"]!), 1,
+            SuspensionLift.ByModerator(admin.UserId, "Motivo."), Ct);
+
+        Assert.IsType<LiftOutcome.Forbidden>(outcome);
+        await holder.DisposeAsync();
+        Assert.Equal(0, await _scenario.CountAsync("select count(*) from safety.user_guards where user_id = $1", admin.UserId));
+        Assert.Equal("Suspended", await _scenario.TextAsync("select status from identity.users where id = $1", participant.UserId));
+    }
+
+    [Theory]
+    [InlineData("Human", "moderator", "selfie-verification")]
+    [InlineData("Automated", null, null)]
+    [InlineData("Automated", null, "Selfie_Verification")]
+    public async Task TheDatabaseTiesTheSourceToAutomatedMeasures(string authorKind, string? author, string? source)
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        var (moderatorAccount, moderator) = await _scenario.PrivilegedBrowserAsync();
+        moderator.Dispose();
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => InsertMeasureAsync(
+            participant.UserId, authorKind, author is null ? null : moderatorAccount.UserId, source));
+
+        Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+        Assert.Equal("ck_moderation_actions_source", error.ConstraintName);
+    }
+
+    [Theory]
+    [InlineData("source_code = 'another-source'")]
+    [InlineData("source_id = gen_random_uuid()")]
+    public async Task TheSourceOfAnActiveMeasureCannotBeRewritten(string change)
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        await InsertMeasureAsync(participant.UserId, "Automated", null, "selfie-verification");
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => _scenario.ExecuteAsync(
+            $"update safety.moderation_actions set {change} where subject_user_id = $1", participant.UserId));
+
+        Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+        Assert.Contains("immutable", error.MessageText, StringComparison.Ordinal);
+    }
+
+    /// <summary>Cria a guarda da pessoa e a mantém travada (FOR UPDATE) até o descarte.</summary>
+    private async Task<GuardLock> HoldGuardAsync(Guid userId)
+    {
+        await _scenario.ExecuteAsync("insert into safety.user_guards (user_id) values ($1) on conflict do nothing", userId);
+        var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(Ct);
+        var transaction = await connection.BeginTransactionAsync(Ct);
+        await using var command = new NpgsqlCommand(
+            "select 1 from safety.user_guards where user_id = $1 for update", connection, transaction);
+        command.Parameters.AddWithValue(userId);
+        await command.ExecuteNonQueryAsync(Ct);
+        return new GuardLock(connection, transaction);
+    }
+
+    private sealed class GuardLock(NpgsqlConnection connection, NpgsqlTransaction transaction) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            await transaction.DisposeAsync();
+            await connection.DisposeAsync();
+        }
+    }
+
+    private Task InsertMeasureAsync(Guid subject, string authorKind, Guid? author, string? source) =>
+        _scenario.ExecuteAsync(
+            """
+            insert into safety.moderation_actions (id, subject_user_id, measure, reason_code, internal_reason, author_kind,
+              author_user_id, decided_at, command_key, command_intent, source_code, source_id)
+            values (gen_random_uuid(), $1, 'Suspension', 'SelfieVerificationFailed', 'Direto no banco.', $2, $3::uuid,
+              now(), encode(sha256(gen_random_uuid()::text::bytea), 'hex'), sha256('x'::bytea), $4::varchar,
+              case when $4::varchar is null then null else gen_random_uuid() end)
+            """,
+            subject, authorKind, (object?)author ?? DBNull.Value, (object?)source ?? DBNull.Value);
 
     [Theory]
     [InlineData("""{"reasonCode":"TermsViolation"}""")]

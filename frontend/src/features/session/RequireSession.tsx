@@ -2,7 +2,7 @@ import { Alert } from '@/shared/ui/alert'
 import { useSecurityResultSnapshot } from '@/features/auth/security-result-hooks'
 import { SecurityCompletionNotice } from '@/features/auth/SecurityCompletionNotice'
 import { useEffect, useState } from 'react'
-import { Navigate, Outlet, useLocation } from 'react-router'
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router'
 import { apiClient, classifyRequestFailure, isUnauthorized } from '@/shared/api'
 import { TermsReacceptanceNotice } from '@/features/legal/TermsReacceptanceNotice'
 import { AccountTimeZoneProvider } from '@/shared/i18n/AccountTimeZoneProvider'
@@ -12,7 +12,7 @@ import { RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { DocumentTitle } from '@/shared/ui/document-title'
 import { AccountContext } from './account-context'
-import { readLoginState, type LoginState } from './login-state'
+import { isSignInNavigation, readLoginState, type LoginState } from './login-state'
 import { useMe } from './session-hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { PendingOwnerInstallation, PrivateOperationProvider } from './PrivateOperationProvider'
@@ -55,7 +55,17 @@ export function RequireSession(): React.JSX.Element {
       setRetrying(false)
     }
   }
-  const { pathname } = useLocation()
+  const location = useLocation()
+  const { pathname } = location
+  const navigationState: unknown = location.state
+  const navigate = useNavigate()
+  // A marca do login vale uma vez: ela fica na entrada do histórico, e um reload depois não é mais "logo após o login".
+  const signedInNow = isSignInNavigation(navigationState)
+  useEffect(() => {
+    if (signedInNow) {
+      void navigate({ pathname, search: location.search, hash: location.hash }, { replace: true, state: null })
+    }
+  }, [signedInNow, navigate, pathname, location.search, location.hash])
   const { t, locale, changeLocale } = useI18n()
   const preferredLocale = active ? me.data?.preferredLocale : undefined
   useEffect(() => {
@@ -116,7 +126,9 @@ export function RequireSession(): React.JSX.Element {
     // Conta suspensa só alcança as telas da allowlist do servidor (spec 8.2, #299); ele nega o resto.
     const suspended = me.data.status === 'Suspended'
     if (suspended && !SUSPENDED_ACCOUNT_PATHS.has(pathname)) {
-      const navigation: SuspendedAccountNavigation = { suspendedFrom: pathname }
+      // A própria conta e a chegada pelo login não são "área indisponível": a pessoa não pediu outra área.
+      const quiet = pathname === paths.account || signedInNow
+      const navigation: SuspendedAccountNavigation | undefined = quiet ? undefined : { suspendedFrom: pathname }
       return <Navigate to={paths.accountSuspended} replace state={navigation} />
     }
     if (!suspended && pathname === paths.accountSuspended) return <Navigate to={paths.account} replace />

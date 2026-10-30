@@ -77,6 +77,8 @@ internal static class DuoraWebApp
         builder.Services.AddSessionAuthorization();
         builder.Services.AddAuthorizationBuilder().AddEligibleParticipant();
         builder.Services.AddScoped<IAuthorizationHandler, EligibleParticipantHandler>();
+        builder.Services.AddAuthorizationBuilder().AddAccountModerator();
+        builder.Services.AddScoped<IAuthorizationHandler, AccountModeratorHandler>();
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
         builder.Services.AddSingleton<Microsoft.AspNetCore.Antiforgery.IAntiforgeryAdditionalDataProvider,
             SessionAntiforgeryAdditionalDataProvider>();

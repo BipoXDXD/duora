@@ -131,4 +131,30 @@ describe('tela da conta suspensa (#299)', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeInTheDocument()
     expect(screen.getByText('Esta área não está disponível para a sua conta agora.')).toBeInTheDocument()
   })
+
+  it('não mostra o aviso de área indisponível a quem chega pela própria conta', async () => {
+    useBackend(SUSPENDED)
+    await renderApp('/account')
+
+    await screen.findByRole('heading', { level: 1, name: 'Conta suspensa' })
+    expect(screen.queryByText('Esta área não está disponível para a sua conta agora.')).not.toBeInTheDocument()
+  })
+
+  it('esconde o histórico de revisão das fotos, que a conta suspensa não alcança', async () => {
+    useBackend(SUSPENDED)
+    const photoId = '0199f1a2-3b4c-7d5e-8f60-718293a4b5c7'
+    server.use(
+      http.get(`${API}/me/photos`, () =>
+        HttpResponse.json({
+          items: [{ photoId, status: 'Approved', rejectionCode: null, createdAt: '2026-10-30T12:00:00Z' }],
+          nextCursor: null,
+        }),
+      ),
+    )
+    await renderApp('/account/photos')
+
+    await screen.findByRole('heading', { level: 1, name: 'Minhas fotos' })
+    expect(await screen.findByText('Aprovada')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: new RegExp(photoId) })).not.toBeInTheDocument()
+  })
 })

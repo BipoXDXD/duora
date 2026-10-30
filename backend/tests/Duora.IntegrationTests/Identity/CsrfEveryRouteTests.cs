@@ -47,6 +47,11 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
         await MakeEligibleAsync(administrator.UserId);
         using var adminBrowser = await scenario.SignedInBrowserAsync(administrator);
         await MfaScenario.EnableAsync(adminBrowser, _time);
+        // A moderação de conta exige o papel moderator antes do CSRF (ADR-0042); sem ele a recusa seria 403 de papel.
+        var moderator = await scenario.CreatePrivilegedAccountAsync(AccountRoles.Moderator);
+        await MakeEligibleAsync(moderator.UserId);
+        using var moderatorBrowser = await scenario.SignedInBrowserAsync(moderator);
+        await MfaScenario.EnableAsync(moderatorBrowser, _time);
         using var browser = await scenario.SignedInBrowserAsync(account);
         var sessionId = (await SessionTests.ListSessionsAsync(browser)).Single().Id;
         var bodies = new Dictionary<string, object?>
@@ -122,7 +127,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 editorialApproved = true,
             },
         };
-        string[] emails = [account.Email, administrator.Email, pendingEmail, newEmail];
+        string[] emails = [account.Email, administrator.Email, moderator.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
 
         var routes = MutatingRoutes();
@@ -141,7 +146,8 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 .Replace("{userId:guid}", account.UserId.ToString(), StringComparison.Ordinal)
                 .Replace("{suspensionId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
             var headers = new MutationHeaders(SendCsrfToken: false);
-            var caller = pattern.StartsWith("/api/v1/admin/", StringComparison.Ordinal) ? adminBrowser : browser;
+            var caller = pattern.StartsWith("/api/v1/admin/accounts/", StringComparison.Ordinal) ? moderatorBrowser
+                : pattern.StartsWith("/api/v1/admin/", StringComparison.Ordinal) ? adminBrowser : browser;
             using var response = method switch
             {
                 "DELETE" => await caller.DeleteAsync(path, headers),
