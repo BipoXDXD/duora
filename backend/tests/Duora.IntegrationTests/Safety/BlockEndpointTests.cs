@@ -122,7 +122,6 @@ public sealed class BlockEndpointTests(PostgresFixture postgres) : IAsyncDisposa
     [Theory]
     [InlineData("Active")]
     [InlineData("Restricted")]
-    [InlineData("Suspended")]
     public async Task ReachableAccountsMayBlock(string status)
     {
         var scenario = new SafetyScenario(postgres, _factory);
@@ -134,6 +133,24 @@ public sealed class BlockEndpointTests(PostgresFixture postgres) : IAsyncDisposa
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal(1, (await scenario.ReadAsync(blocker.UserId, blocked.UserId)).Rows);
+    }
+
+    /// <summary>
+    /// A sessão da conta suspensa só alcança a allowlist da conta e da segurança dela (spec 8.2, issue #299); o
+    /// bloqueio fica fora, e nada é gravado.
+    /// </summary>
+    [Fact]
+    public async Task ASuspendedAccountCannotBlockAndNothingIsWritten()
+    {
+        var scenario = new SafetyScenario(postgres, _factory);
+        var blocker = await scenario.CreateAccountAsync("Suspended");
+        var blocked = await scenario.CreateAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(blocker);
+
+        using var response = await browser.PutAsync(SafetyScenario.BlockPath(blocked.UserId));
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "ACCOUNT_SUSPENDED");
+        Assert.Equal(0, (await scenario.ReadAsync(blocker.UserId, blocked.UserId)).Rows);
     }
 
     [Theory]

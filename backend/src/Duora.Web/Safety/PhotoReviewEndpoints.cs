@@ -19,7 +19,7 @@ internal static class PhotoReviewEndpoints
     internal static void MapPhotoReviewOwnerEndpoints(this IEndpointRouteBuilder api)
     {
         var owner = api.MapGroup("/me/photos").WithTags("Photos");
-        Read(owner.MapGet("", OwnerPhotosAsync)).Produces<PhotoReviewPhotoPageResponse>()
+        Read(owner.MapGet("", OwnerPhotosAsync)).Produces<PhotoReviewPhotoPageResponse>().AllowForSuspendedAccount()
             .WithDescription("Owner-only photo discovery, ordered by creation time and photo ID. Limit 1..50, default 20; the opaque cursor is bound to this authenticated owner. No images or storage locators.");
         Read(owner.MapGet("/{photoId:guid}/review-history", HistoryAsync))
             .Produces<PhotoReviewHistoryResponse>();

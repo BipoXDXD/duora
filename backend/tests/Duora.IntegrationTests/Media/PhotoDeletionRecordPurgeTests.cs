@@ -456,13 +456,17 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
     public async Task RollingBackThePromotionRuleRestoresThePreviousFunctionWithItsOwnerAndGrant()
     {
         // O Down da 20261029180000 devolve o corpo da 20261029150000: a promoção pendente deixa de segurar o
-        // tombstone, e o dono, o EXECUTE de duora_app e as configurações fixas continuam os mesmos.
+        // tombstone, e o dono, o EXECUTE de duora_app e as configurações fixas continuam os mesmos. Só o Down
+        // desta migração roda: migrações posteriores podem recusar o próprio Down para preservar histórico.
         var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
         await SeedReviewPromotionAsync(photo, removedAt: null);
         await using (var db = PostgresFixture.CreateDbContext(
             _database?.MigratorConnectionString ?? throw new InvalidOperationException("Teste não inicializado.")))
         {
-            await db.GetService<IMigrator>().MigrateAsync("20261029150000_PhotoDeletionRecordRetention", cancellationToken: Ct);
+            var down = db.GetService<IMigrator>().GenerateScript(
+                fromMigration: "20261029180000_PhotoDeletionPurgeWaitsForPromotions",
+                toMigration: "20261029150000_PhotoDeletionRecordRetention");
+            await db.Database.ExecuteSqlRawAsync(down, Ct);
         }
 
         _time.SetUtcNow(new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.Zero));

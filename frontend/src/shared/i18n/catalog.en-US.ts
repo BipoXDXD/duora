@@ -234,6 +234,20 @@ export const en = {
   'landing.register': 'Create account',
   'landing.signIn': 'Sign in',
 
+  'accountSuspended.title': 'Account suspended',
+  'accountSuspended.intro':
+    'Your account has been suspended. While the suspension lasts, you cannot join events, rooms or conversations, and your profile is not shown to anyone.',
+  'accountSuspended.reason': 'Reason',
+  'accountSuspended.since': 'Since',
+  'accountSuspended.reason.TermsViolation': 'Violation of the Terms of Use',
+  'accountSuspended.reason.SelfieVerificationFailed': 'Presence check not approved',
+  'accountSuspended.reason.Unknown': 'Unavailable right now',
+  'accountSuspended.stillAvailable':
+    'You can still see the state of your account, end open sessions, look after its security and sign out.',
+  'accountSuspended.areaUnavailable': 'This area is not available for your account right now.',
+  'accountSuspended.mfaLink': 'Two-step authentication',
+  'accountSuspended.appeal': 'Requesting a review of this measure is not available in the app yet.',
+
   'termsReacceptance.title': 'Updated Terms of Use',
   'termsReacceptance.intro':
     'The Terms of Use have changed: Duora is now only for people aged 18 or older. You can keep using the app; when you can, read the new version and confirm your acceptance.',

@@ -131,3 +131,15 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Account moderation measures (#299): lifting fills lifted_* once; deletion must never erase moderation history.
+DO $$
+BEGIN
+  IF to_regclass('safety.moderation_actions') IS NOT NULL THEN
+    REVOKE DELETE, TRUNCATE ON safety.moderation_actions FROM duora_app;
+    IF has_table_privilege('duora_app', 'safety.moderation_actions', 'DELETE')
+       OR has_table_privilege('duora_app', 'safety.moderation_actions', 'TRUNCATE') THEN
+      RAISE EXCEPTION 'duora_app may not erase moderation history';
+    END IF;
+  END IF;
+END $$;

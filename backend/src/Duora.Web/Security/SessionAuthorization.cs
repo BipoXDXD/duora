@@ -179,6 +179,14 @@ internal sealed class SessionAuthorizationResultHandler(IAntiforgery antiforgery
             return;
         }
 
+        if (authorizeResult.Forbidden
+            && authorizeResult.AuthorizationFailure?.FailureReasons.OfType<AccountModerationForbiddenReason>().Any() == true)
+        {
+            await ApiProblems.Problem(StatusCodes.Status403Forbidden, ApiProblems.AccountModerationForbidden)
+                .ExecuteAsync(context);
+            return;
+        }
+
         if (awaitsPasswordChange)
         {
             var problem = ApiProblems.Problem(StatusCodes.Status403Forbidden, ApiProblems.PasswordChangeRequired);

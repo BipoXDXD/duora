@@ -623,10 +623,9 @@ public sealed class OwnProfileTests : IAsyncDisposable
         Assert.Equal("none", await StoredAsync(intruder.UserId));
     }
 
-    /// <summary>Spec 8.2: conta restrita, suspensa ou em exclusão lê o próprio perfil, mas não o altera.</summary>
+    /// <summary>Spec 8.2: conta restrita ou em exclusão lê o próprio perfil, mas não o altera.</summary>
     [Theory]
     [InlineData("Restricted")]
-    [InlineData("Suspended")]
     [InlineData("DeletionPending")]
     public async Task AccountOutOfGoodStandingReadsButCannotEdit(string status)
     {
@@ -639,6 +638,26 @@ public sealed class OwnProfileTests : IAsyncDisposable
 
         await ProblemAssert.IsProblemAsync(write, HttpStatusCode.Forbidden, "ACCOUNT_RESTRICTED");
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        Assert.Equal("Ana|Oi|1", await StoredAsync(account.UserId));
+    }
+
+    /// <summary>
+    /// Conta suspensa (issue #299): a sessão só alcança a allowlist da conta suspensa, e o perfil fica fora dela,
+    /// tanto na leitura quanto na escrita (spec 8.2: sem perfis, salas nem chat).
+    /// </summary>
+    [Fact]
+    public async Task ASuspendedAccountNeitherReadsNorEditsTheProfile()
+    {
+        var (account, browser) = await SavedProfileAsync("Ana", "Oi");
+        using var _ = browser;
+        await SetStatusAsync(account.UserId, "Suspended");
+
+        using var write = await PatchAsync(browser, """{"displayName":"Bia"}""", "\"1\"");
+        using var read = await browser.GetAsync(ProfilePath);
+
+        await ProblemAssert.IsProblemAsync(write, HttpStatusCode.Forbidden, "ACCOUNT_SUSPENDED");
+        var body = await ProblemAssert.IsProblemAsync(read, HttpStatusCode.Forbidden, "ACCOUNT_SUSPENDED");
+        Assert.DoesNotContain("Ana", body.ToJsonString(), StringComparison.Ordinal);
         Assert.Equal("Ana|Oi|1", await StoredAsync(account.UserId));
     }
 

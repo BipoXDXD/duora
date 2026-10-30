@@ -10,6 +10,10 @@ public sealed class ProblemTextTests
     {
         { "ACCOUNT_NOT_ELIGIBLE", "The account is not eligible for this operation." },
         { "ACCOUNT_RESTRICTED", "The account cannot perform this operation." },
+        { "ACCOUNT_SUSPENDED", "The account is suspended." },
+        { "ACCOUNT_ALREADY_SUSPENDED", "The account already has an active suspension." },
+        { "ACCOUNT_NOT_SUSPENDABLE", "The account cannot be suspended in its current state." },
+        { "ACCOUNT_MODERATION_FORBIDDEN", "Account moderation requires the moderator role." },
         { "AGE_VERIFICATION_NOT_AVAILABLE", "Age verification is not available." },
         { "AGE_VERIFICATION_UNAVAILABLE", "Age verification is temporarily unavailable." },
         { "CSRF_VALIDATION_FAILED", "Request rejected." },

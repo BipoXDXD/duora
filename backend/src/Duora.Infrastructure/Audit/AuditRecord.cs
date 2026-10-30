@@ -27,6 +27,17 @@ internal sealed record AuditAction
 {
     public static readonly AuditAction SafetyBlockCreated = new("safety.block_created");
 
+    /// <summary>Conta suspensa (issue #299); o alvo é a medida, com a versão 1.</summary>
+    public static readonly AuditAction AccountSuspended = new("safety.account_suspended");
+
+    /// <summary>Suspensão revogada; o alvo é a medida, com a versão 2.</summary>
+    public static readonly AuditAction AccountSuspensionLifted = new("safety.account_suspension_lifted");
+
+    /// <summary>
+    /// Origem da suspensão automática (a evidência utilizada, spec 12.3); o alvo é o registro de origem, pelo id.
+    /// </summary>
+    public static readonly AuditAction AccountSuspensionSourceRecorded = new("safety.account_suspension_source_recorded");
+
     public static readonly AuditAction PhotoReviewRequested = new("safety.photo_review_requested");
 
     public static readonly AuditAction PhotoReviewAssigned = new("safety.photo_review_assigned");
@@ -175,6 +186,8 @@ internal static class AuditTargetTypes
     public const string PhotoReviewGrant = "photo_review_grant";
 
     public const string Photo = "photo";
+
+    public const string ModerationAction = "moderation_action";
 }
 
 /// <summary>

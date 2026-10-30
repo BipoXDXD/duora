@@ -47,6 +47,11 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
         await MakeEligibleAsync(administrator.UserId);
         using var adminBrowser = await scenario.SignedInBrowserAsync(administrator);
         await MfaScenario.EnableAsync(adminBrowser, _time);
+        // A moderação de conta exige o papel moderator antes do CSRF (ADR-0042); sem ele a recusa seria 403 de papel.
+        var moderator = await scenario.CreatePrivilegedAccountAsync(AccountRoles.Moderator);
+        await MakeEligibleAsync(moderator.UserId);
+        using var moderatorBrowser = await scenario.SignedInBrowserAsync(moderator);
+        await MfaScenario.EnableAsync(moderatorBrowser, _time);
         using var browser = await scenario.SignedInBrowserAsync(account);
         var sessionId = (await SessionTests.ListSessionsAsync(browser)).Single().Id;
         var bodies = new Dictionary<string, object?>
@@ -87,6 +92,8 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             ["DELETE /api/v1/me/photos/{photoId:guid}"] = null,
             ["POST /api/v1/admin/photo-reviews/{caseId:guid}/assignments"] = new { reviewerId = administrator.UserId },
             ["POST /api/v1/admin/photo-reviews/{caseId:guid}/decisions"] = new { decision = "reject", reasonCode = "does_not_meet_policy" },
+            ["POST /api/v1/admin/accounts/{userId:guid}/suspensions"] = new { reasonCode = "TermsViolation", internalReason = "Sintético." },
+            ["POST /api/v1/admin/accounts/{userId:guid}/suspensions/{suspensionId:guid}/lift"] = new { internalReason = "Sintético." },
             ["POST /api/v1/me/age-verifications"] = new { },
             ["POST /api/v1/me/selfie-verifications"] = new { },
             ["POST /api/v1/me/selfie-verifications/{id:guid}/capture"] = new { },
@@ -120,7 +127,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 editorialApproved = true,
             },
         };
-        string[] emails = [account.Email, administrator.Email, pendingEmail, newEmail];
+        string[] emails = [account.Email, administrator.Email, moderator.Email, pendingEmail, newEmail];
         var before = await SnapshotAsync(emails);
 
         var routes = MutatingRoutes();
@@ -135,9 +142,12 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 .Replace("{eventId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
                 .Replace("{photoId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
                 .Replace("{caseId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
-                .Replace("{roomId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
+                .Replace("{roomId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+                .Replace("{userId:guid}", account.UserId.ToString(), StringComparison.Ordinal)
+                .Replace("{suspensionId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
             var headers = new MutationHeaders(SendCsrfToken: false);
-            var caller = pattern.StartsWith("/api/v1/admin/", StringComparison.Ordinal) ? adminBrowser : browser;
+            var caller = pattern.StartsWith("/api/v1/admin/accounts/", StringComparison.Ordinal) ? moderatorBrowser
+                : pattern.StartsWith("/api/v1/admin/", StringComparison.Ordinal) ? adminBrowser : browser;
             using var response = method switch
             {
                 "DELETE" => await caller.DeleteAsync(path, headers),

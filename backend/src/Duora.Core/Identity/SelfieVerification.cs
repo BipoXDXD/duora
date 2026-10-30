@@ -28,4 +28,13 @@ public static class ParticipationEligibility
 {
     public static bool CanParticipate(AccountStatus status, bool emailConfirmed, SelfieState? selfie) =>
         status == AccountStatus.Active && emailConfirmed && selfie == SelfieState.Passed;
+
+    /// <summary>
+    /// Estado da conta depois da prova de presença: a conta em <c>PendingEligibility</c> sobe a <c>Active</c> quando,
+    /// ativa, já poderia participar (e-mail confirmado e selfie aprovada). Qualquer outro estado fica como está.
+    /// </summary>
+    public static AccountStatus AfterPresenceCheck(AccountStatus status, bool emailConfirmed, SelfieState? selfie) =>
+        status == AccountStatus.PendingEligibility && CanParticipate(AccountStatus.Active, emailConfirmed, selfie)
+            ? AccountStatus.Active
+            : status;
 }

@@ -778,26 +778,32 @@ erDiagram
 
 ### safety.moderation_actions
 
-- **Colunas:** `id`; `report_id uuid` (anulável: medida por sinal de abuso sem denúncia); `subject_user_id`;
-  `measure text` (`Warning`, `Restriction`, `Suspension`, `PermanentBan`, `Cleared`; `Cleared` só existe como
-  revisão que reverte uma medida em recurso; por tabela de referência se a política crescer); `policy_version_id`;
-  `internal_reason text` (≤ 2000; auditoria, nunca exibido à pessoa); `notice_reason_code text` e `notice_text text`
-  (≤ 500, anulável), o aviso que a pessoa sancionada lê; `author_kind text` (`Human`, `Automated`; o termo segue
-  o domínio, `ModerationAuthor.Automated`, em vez do antigo `System`); `author_user_id uuid`; `decided_at`,
-  `effective_until timestamptz`; `supersedes_action_id uuid`; `version bigint`.
-- **Constraints:** FKs `RESTRICT` (`report_id`, `subject_user_id`, `policy_version_id`); FK
-  `author_user_id` `SET NULL`; FK `supersedes_action_id` → `moderation_actions` `RESTRICT`;
-  `UNIQUE (supersedes_action_id)` (uma medida tem no máximo uma revisão; sem revisões irmãs);
-  FK `(policy_version_id, notice_reason_code)` → `policy_clauses` `RESTRICT` (o código do aviso é uma cláusula da
-  versão aplicada);
-  `CHECK (author_kind = 'Human' OR measure = 'Restriction')` (o sistema só aplica restrição de contenção; spec
-  12.3, TM-34);
-  `CHECK (measure <> 'Cleared' OR supersedes_action_id IS NOT NULL)`;
-  `CHECK (effective_until IS NULL OR effective_until <= decided_at + interval '365 days')` (teto absoluto de
-  `ModerationLimits`; o teto do parameter set e o da automação ficam no domínio, porque mudam com a versão);
-  `CHECK ((author_kind = 'Human') = (author_user_id IS NOT NULL))` até a anonimização do autor.
-- **Índices:** um por FK; `ix_moderation_actions_subject_user_id`.
+**Implementado (#299, [ADR-0042](../architecture/adr/0042-suspensao-de-conta-por-violacao-dos-termos.md)), só para
+suspensão de conta:**
+
+- **Colunas:** `id uuid`; `subject_user_id`; `measure varchar(32)` (`Suspension`); `reason_code varchar(64)`
+  (`TermsViolation`, `SelfieVerificationFailed`); `internal_reason varchar(2000)` (auditoria, nunca exibido à
+  pessoa); `author_kind` (`Human`, `Automated`); `author_user_id uuid`; `decided_at`; `command_key varchar(64)`
+  (SHA-256 do escopo do comando) e `command_intent bytea` (SHA-256 do pedido), para idempotência; `source_code` e
+  `source_id` (origem da medida automática, a evidência utilizada; obrigatórios só para `Automated`); `version bigint`
+  (1 ativa, 2 revogada); `lifted_at`, `lifted_by_kind`, `lifted_by_user_id`, `lift_reason`.
+- **Constraints:** FKs `subject_user_id`, `author_user_id` e `lifted_by_user_id` → `identity.users` `RESTRICT`;
+  `UNIQUE (command_key)`; índice único parcial `ux_moderation_actions_active_suspension` em `(subject_user_id)`
+  `WHERE measure = 'Suspension' AND lifted_at IS NULL` (uma suspensão ativa por conta); CHECKs de autor coerente,
+  `TermsViolation` só com autor humano, autor diferente da pessoa, motivo não vazio, revogação completa ou ausente
+  com `version`; trigger `safety.keep_moderation_decision` rejeita mudar a decisão ou uma medida revogada.
+- **Índices:** `ix_moderation_actions_subject` `(subject_user_id, decided_at)`, `ix_moderation_actions_author`,
+  `ix_moderation_actions_lifted_by`.
+- **Privilégios:** `duora_app` com `SELECT`, `INSERT` e `UPDATE`, sem `DELETE` nem `TRUNCATE`.
+- **Estado da conta:** `identity.users.status_before_suspension` guarda o estado de onde a suspensão partiu (dono:
+  Identity). A revogação recalcula a elegibilidade a partir dele; sair de `Suspended` exige limpar a coluna (CHECK).
 - **Classe:** P3.
+
+**Proposto para quando existirem denúncias e versões de política (migração aditiva):** `report_id uuid` (anulável);
+`policy_version_id`; `notice_reason_code` e `notice_text` (≤ 500), o aviso que a pessoa lê; `effective_until` para
+medidas temporárias (nunca para suspensão, spec 4.2); `supersedes_action_id` com `UNIQUE`, para a revisão do
+recurso; demais medidas (`Warning`, `Restriction`, `PermanentBan`, `Cleared`) com as regras de autor de TM-34; FK
+`(policy_version_id, notice_reason_code)` → `policy_clauses` `RESTRICT`.
 
 ### safety.appeals
 

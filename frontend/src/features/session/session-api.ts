@@ -36,6 +36,20 @@ function toAccountStatus(value: string): AccountStatus {
   return KNOWN_ACCOUNT_STATUSES.find((status) => status === value) ?? 'Unknown'
 }
 
+const KNOWN_SUSPENSION_REASONS = ['TermsViolation', 'SelfieVerificationFailed'] as const
+
+/** Motivo da suspensão; motivo novo do servidor vira 'Unknown', e a tela mostra um texto genérico (spec 8.1). */
+export type SuspensionReason = (typeof KNOWN_SUSPENSION_REASONS)[number] | 'Unknown'
+
+function toSuspensionReason(value: string): SuspensionReason {
+  return KNOWN_SUSPENSION_REASONS.find((reason) => reason === value) ?? 'Unknown'
+}
+
+const suspensionSchema = z.object({
+  reasonCode: z.string().transform(toSuspensionReason),
+  suspendedAt: z.iso.datetime(),
+})
+
 const meSchema = z.object({
   id: z.uuid(),
   email: z.string().min(1),
@@ -48,10 +62,13 @@ const meSchema = z.object({
   currentTermsAccepted: z.boolean(),
   preferredTimeZone: z.string().nullable().optional(),
   preferredLocale: z.enum(['en-US', 'pt-BR']).nullable().optional(),
+  // Só vem com a conta suspensa (issue #299): o motivo em código e o instante, nada interno.
+  suspension: suspensionSchema.nullable().optional(),
 }) satisfies z.ZodType<
-  Omit<MeResponse, 'preferredLocale' | 'preferredTimeZone' | 'sessionContext'> & {
+  Omit<MeResponse, 'preferredLocale' | 'preferredTimeZone' | 'sessionContext' | 'suspension'> & {
     preferredLocale?: string | null | undefined
     preferredTimeZone?: string | null | undefined
+    suspension?: MeResponse['suspension'] | undefined
   }
 >
 

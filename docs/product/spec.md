@@ -560,6 +560,8 @@ Após login, logout ou mudança de identidade, renovar o token antiforgery no cl
 
 Suspender a participação não deve eliminar o canal de recurso: uma sessão restrita pode acessar somente estado da própria conta, segurança e recurso, sem perfis alheios, salas ou chat. Exclusão revoga a sessão e usa um canal de confirmação separado, definido na política de atendimento.
 
+**Conta suspensa (issue #299, [ADR-0042](../architecture/adr/0042-suspensao-de-conta-por-violacao-dos-termos.md)).** A conta `Suspended` entra normalmente, e a sessão não é revogada. Toda rota com sessão responde `403` `ACCOUNT_SUSPENDED`, salvo a allowlist: API-A08 (com `suspension: { reasonCode, suspendedAt }`), A09, A10, A11, A12, A13, A14, A15, A16 e, por privacidade, a lista, o estado (M02) e a exclusão (M03) das próprias fotos. O recurso (API-S06) entra na allowlist quando existir. O estado vem do banco a cada requisição: a suspensão vale na requisição seguinte de toda sessão aberta, e a revogação devolve o acesso do mesmo jeito.
+
 ### 8.3. Eventos, salas e decisões
 
 | ID | Método e rota | Entrada/saída principal | Invariante |
@@ -643,6 +645,9 @@ Os caminhos administrativos abaixo também usam `/api/v1`. Todos exigem sessão 
 | API-ADM18 | `PUT /admin/operations/uploads` | Pausar/retomar recebimento; preserva leitura autorizada e jobs de segurança |
 | API-ADM19 | `GET /admin/jobs` | Jobs por categoria/estado com causas sanitizadas; sem edição livre de payload |
 | API-ADM20 | `POST /admin/jobs/{jobId}/retry` | Reprocessar apenas operação permitida, revalidando prazo, autorização e idempotência |
+| API-ADM21 | `GET /admin/accounts/{userId}/suspension` | Suspensão ativa da conta e o `ETag` para revogá-la; papel `moderator` (ADR-0042) |
+| API-ADM22 | `POST /admin/accounts/{userId}/suspensions` | Suspender por violação dos Termos: `reasonCode` `TermsViolation`, motivo interno, `Idempotency-Key`, TOTP recente; uma ativa por conta (409 `ACCOUNT_ALREADY_SUSPENDED`); auditada |
+| API-ADM23 | `POST /admin/accounts/{userId}/suspensions/{suspensionId}/lift` | Revogar com motivo, `If-Match` (412 se mudou, 428 sem ele) e TOTP recente; devolve o estado anterior da conta; auditada |
 
 **Revisão de fotos (decisão de 28/10/2026, [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#decisões-de-28102026)).** As rotas `/admin/photo-reviews` (capacidades, lista de casos atribuídos, caso, atribuição, evidência e decisão) têm **um único revisor**: o dono do projeto, com papel `moderator`, as capacidades explícitas `assign`, `evidence` e `decide`, MFA e step-up na decisão; `product_admin` e `operator` não leem fotos. **Não há recurso de fotos**: foto recusada continua recusada, e a pessoa pode enviar outra foto, que abre uma revisão nova dentro das cotas e rate limits existentes. Sem o dono disponível, novas admissões de fotos são suspensas pelo procedimento aprovado; não há substituto. Matriz de autorização: [media-review.md](../api/media-review.md#matriz-de-autorização-28102026). O recurso de moderação (API-S06, API-ADM15, INV-10) é outra feature e não muda.
 

@@ -3318,6 +3318,326 @@
         }
       }
     },
+    "/api/v1/admin/accounts/{userId}/suspension": {
+      "get": {
+        "tags": [
+          "AccountModeration"
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountModerationStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/accounts/{userId}/suspensions": {
+      "post": {
+        "tags": [
+          "AccountModeration"
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "A stable key for this exact suspension request; a replay returns the same suspension.",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountSuspensionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/accounts/{userId}/suspensions/{suspensionId}/lift": {
+      "post": {
+        "tags": [
+          "AccountModeration"
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "suspensionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "The exact strong ETag of this suspension, from the last read.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiftSuspensionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountSuspensionResponse"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Precondition Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/photos": {
       "post": {
         "tags": [
@@ -4289,6 +4609,75 @@
         "additionalProperties": false,
         "description": "Novo aceite dos Termos ativos por uma conta existente (API-A17). Mesmo recibo do cadastro: versão, idioma e\nSHA-256 do texto publicado, mais `ConfirmedAdult`, a declaração \"Declaro ter 18 anos ou mais\", que precisa\nser `true`. Não há campo de conta: o aceite é sempre da conta da sessão."
       },
+      "AccountModerationStateResponse": {
+        "required": [
+          "userId",
+          "activeSuspension"
+        ],
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "activeSuspension": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AccountSuspensionResponse"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Estado de moderação de uma conta: a suspensão ativa, ou nula."
+      },
+      "AccountSuspensionResponse": {
+        "required": [
+          "suspensionId",
+          "userId",
+          "reasonCode",
+          "decidedAutomatically",
+          "suspendedAt",
+          "liftedAt",
+          "eTag"
+        ],
+        "type": "object",
+        "properties": {
+          "suspensionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reasonCode": {
+            "type": "string"
+          },
+          "decidedAutomatically": {
+            "type": "boolean"
+          },
+          "suspendedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "liftedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "eTag": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Uma suspensão, sem o motivo interno. `ReasonCode`: TermsViolation | SelfieVerificationFailed.\n`ETag`: o valor de `If-Match` para revogá-la. Instantes em UTC, com \"Z\" (spec 8.1)."
+      },
       "AnswerResponse": {
         "required": [
           "kind",
@@ -4897,6 +5286,22 @@
         },
         "additionalProperties": false
       },
+      "LiftSuspensionRequest": {
+        "required": [
+          "internalReason"
+        ],
+        "type": "object",
+        "properties": {
+          "internalReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Revogar uma suspensão; o motivo vai só para a auditoria (1 a 2000 caracteres)."
+      },
       "LoginRequest": {
         "required": [
           "email",
@@ -4984,10 +5389,38 @@
               "null",
               "string"
             ]
+          },
+          "suspension": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MeSuspensionResponse"
+              }
+            ]
           }
         },
         "additionalProperties": false,
-        "description": "Conta do titular. `Status`: PendingEmail | PendingEligibility | Active | Restricted | Suspended |\nDeletionPending. `Roles`: nomes do catálogo (participant, moderator, product_admin, operator); vazio para\nparticipante que nunca recebeu papel explícito. `CurrentTermsAccepted`: participante com aceite da versão\nativa dos Termos; `false` pede o novo aceite (API-A17), que não bloqueia o uso do app. Conta privilegiada\nnão aceita os Termos de participante (D13) e recebe sempre `true`: não há aceite pendente."
+        "description": "Conta do titular. `Status`: PendingEmail | PendingEligibility | Active | Restricted | Suspended |\nDeletionPending. `Roles`: nomes do catálogo (participant, moderator, product_admin, operator); vazio para\nparticipante que nunca recebeu papel explícito. `CurrentTermsAccepted`: participante com aceite da versão\nativa dos Termos; `false` pede o novo aceite (API-A17), que não bloqueia o uso do app. Conta privilegiada\nnão aceita os Termos de participante (D13) e recebe sempre `true`: não há aceite pendente.\n`Suspension`: presente só com `Status` Suspended; o motivo em código e o instante, sem detalhe interno."
+      },
+      "MeSuspensionResponse": {
+        "required": [
+          "reasonCode",
+          "suspendedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "reasonCode": {
+            "type": "string"
+          },
+          "suspendedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Suspensão da própria conta (issue #299). `ReasonCode`: TermsViolation | SelfieVerificationFailed."
       },
       "MfaEnrollmentResponse": {
         "required": [
@@ -6592,6 +7025,29 @@
         "type": "string",
         "format": "binary"
       },
+      "SuspendAccountRequest": {
+        "required": [
+          "reasonCode",
+          "internalReason"
+        ],
+        "type": "object",
+        "properties": {
+          "reasonCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "internalReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Suspender uma conta por violação dos Termos (issue #299). `ReasonCode`: só `TermsViolation` nesta rota.\n`InternalReason`: texto para a auditoria, de 1 a 2000 caracteres, que nunca chega à pessoa suspensa."
+      },
       "TimeZoneOptionsResponse": {
         "required": [
           "timeZones"
@@ -6891,6 +7347,9 @@
     },
     {
       "name": "PhotoReviews"
+    },
+    {
+      "name": "AccountModeration"
     },
     {
       "name": "Photos"

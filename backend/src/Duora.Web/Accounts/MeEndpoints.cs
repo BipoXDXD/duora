@@ -1,6 +1,7 @@
 using Duora.Contracts.Identity;
 using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
+using Duora.Infrastructure.Safety;
 using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Security;
@@ -20,11 +21,13 @@ internal static class MeEndpoints
     public static void MapMeEndpoints(this IEndpointRouteBuilder api)
     {
         var me = api.MapGroup("/me").WithTags("Me");
-        var sessions = me.MapGroup("/sessions").RequireAccountSession();
+        // Estado da própria conta e sessões: a conta suspensa ainda os alcança (spec 8.2, issue #299).
+        var sessions = me.MapGroup("/sessions").RequireAccountSession().AllowForSuspendedAccount();
 
         me.MapGet("", GetMeAsync)
             .WithMetadata(new SessionContextBootstrapEndpoint())
             .AllowDuringMfaEnrollment()
+            .AllowForSuspendedAccount()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .Produces<PrivateSessionRestrictionResponse>(StatusCodes.Status403Forbidden, "application/problem+json")
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
@@ -67,6 +70,7 @@ internal static class MeEndpoints
         AccountService accounts,
         LocaleStore locales,
         TimeZoneStore timeZones,
+        AccountSuspensions suspensions,
         CancellationToken cancellationToken)
     {
         if (DuoraClaims.ReadUserId(context.User) is not { } userId
@@ -85,7 +89,11 @@ internal static class MeEndpoints
             account.CurrentTermsAccepted,
             PrivateOperationContext.Issue(context, antiforgery),
             (await locales.GetOwnAsync(userId, cancellationToken))?.Locale,
-            (await timeZones.GetOwnAsync(userId, cancellationToken))?.TimeZone));
+            (await timeZones.GetOwnAsync(userId, cancellationToken))?.TimeZone,
+            account.Status == AccountStatus.Suspended
+                && await suspensions.FindOwnNoticeAsync(userId, cancellationToken) is { } notice
+                ? new MeSuspensionResponse(notice.Reason.ToString(), notice.SuspendedAt.UtcDateTime)
+                : null));
     }
 
     /// <summary>

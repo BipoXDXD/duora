@@ -65,3 +65,14 @@ export function readLoginState(state: unknown): LoginState {
   const { notice, from } = parsed.data
   return { ...(notice === undefined ? {} : { notice }), ...(from == null ? {} : { from }) }
 }
+
+/** Marca da navegação logo depois do login, para as guardas não a tratarem como um pedido de outra área. */
+export interface SignInNavigation {
+  readonly signedIn: true
+}
+
+export const signInNavigation: SignInNavigation = { signedIn: true }
+
+export function isSignInNavigation(state: unknown): state is SignInNavigation {
+  return typeof state === 'object' && state !== null && 'signedIn' in state && state.signedIn === true
+}

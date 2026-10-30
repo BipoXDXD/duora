@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router'
 import { apiClient } from '@/shared/api'
 import { paths } from '@/shared/paths'
 import { identityBroadcast } from './identity-broadcast'
-import type { LoginNotice, LoginState } from './login-state'
+import { signInNavigation, type LoginNotice, type LoginState } from './login-state'
 import { usePrivateOperation, useSessionContextSnapshot } from './private-operation'
 import { usePrivateMutation, type PrivateMutationResult } from './private-mutation'
 import { meQueryKey, sessionsQueryKey } from './query-keys'
@@ -79,7 +79,7 @@ export function useSessionTransitions(): SessionTransitions {
           retry: false,
           staleTime: 0,
         })
-        void navigate(destination, { replace: true })
+        void navigate(destination, { replace: true, state: signInNavigation })
       } catch (error) {
         if (error instanceof SessionRestrictionError) {
           void navigate(paths.changePassword, { replace: true })

@@ -50,6 +50,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0039](0039-transporte-smtp-opcional.md) | SMTP opcional com TLS obrigatório; correlação por Message-ID sem garantia de deduplicação remota | Accepted para integração; ativação em produção não autorizada | Provedor, autenticação, retry, TLS ou garantia de deduplicação |
 | [0040](0040-pares-de-conexoes-encerradas.md) | Excluir Ended/Blocked de novos pares, sem reconexão implícita | Accepted; módulo Connections ainda não integrado | Jornada explícita de reconexão |
 | [0041](0041-janela-de-autenticacao-recente-de-1-hora.md) | Janela de autenticação recente (step-up) de 1 h, intervalo fechado | Accepted | Abuso de sessão aberta ou step-up por passkey |
+| [0042](0042-suspensao-de-conta-por-violacao-dos-termos.md) | Suspensão de conta em `safety.moderation_actions`, uma ativa por conta por índice parcial, e sessão suspensa negada por padrão fora da allowlist | Proposed | Regras da #300, recurso de moderação ou segundo moderador |
 
 ## Regras
 

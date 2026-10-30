@@ -53,6 +53,8 @@ interface FakeUser {
   passwordResetToken: string | null
   /** Versão dos Termos do último aceite; diferente da ativa, /me pede o novo aceite (#296). */
   acceptedTermsVersion: string
+  /** Instante da suspensão por violação dos Termos (#299); ausente para conta não suspensa. */
+  suspendedAt?: string
 }
 
 interface FakeProfile {
@@ -63,6 +65,38 @@ interface FakeProfile {
   subdivisionCode?: string | null
   version: number
 }
+
+/**
+ * Allowlist da conta suspensa, igual à do servidor (SuspendedAccountRoutesTests, ADR-0042). As rotas públicas não
+ * exigem sessão e ficam fora da regra, como no SuspendedAccountGate.
+ */
+const SUSPENDED_ALLOWLIST: ReadonlySet<string> = new Set([
+  'GET /me',
+  'GET /me/sessions',
+  'DELETE /me/sessions/:id',
+  'POST /me/mfa/enrollments',
+  'POST /me/mfa/confirmations',
+  'POST /me/mfa/recovery-codes',
+  'DELETE /me/mfa',
+  'POST /auth/reauthenticate',
+  'POST /me/password-changes',
+  'GET /me/photos',
+  'GET /me/photos/:id/status',
+  'DELETE /me/photos/:id',
+])
+
+/** Rotas sem sessão (AllowAnonymous no servidor). */
+const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
+  'GET /auth/csrf',
+  'GET /legal-documents',
+  'POST /auth/register',
+  'POST /auth/confirm-email',
+  'POST /auth/email-confirmation-requests',
+  'POST /auth/login',
+  'POST /auth/logout',
+  'POST /auth/password-reset-requests',
+  'POST /auth/password-resets',
+])
 
 const PROFILE_FIELDS: readonly string[] = ['displayName', 'bio', 'regionCode', 'countryCode', 'subdivisionCode']
 
@@ -146,6 +180,13 @@ export class FakeDuoraApi {
     const user = this.#users.get(email)
     if (user === undefined) throw new Error(`Conta sintética inexistente: ${email}`)
     user.acceptedTermsVersion = 'synthetic-older-terms'
+  }
+
+  /** A moderação suspende a conta por violação dos Termos (#299); /me passa a dizer Suspended, e o resto, 403. */
+  seedSuspension(email: string, suspendedAt: string): void {
+    const user = this.#users.get(email)
+    if (user === undefined) throw new Error(`Conta sintética inexistente: ${email}`)
+    user.suspendedAt = suspendedAt
   }
 
   /** Recibos recebidos por POST /me/terms-acceptances, na ordem. */
@@ -271,6 +312,15 @@ export class FakeDuoraApi {
   }
 
   #respond(key: string, body: RequestBody, path: string): Fulfillment {
+    // Regra do servidor (#299, ADR-0042): a sessão da conta suspensa só alcança a allowlist.
+    const route = key.replace(/\/[0-9a-f-]{36}/g, '/:id')
+    if (
+      this.#currentUser()?.suspendedAt !== undefined &&
+      !PUBLIC_ROUTES.has(route) &&
+      !SUSPENDED_ALLOWLIST.has(route)
+    ) {
+      return problem(403, 'ACCOUNT_SUSPENDED')
+    }
     switch (key) {
       case 'GET /legal-documents':
         return json(syntheticLegalCatalog)
@@ -295,6 +345,8 @@ export class FakeDuoraApi {
         return this.#currentUser() === null ? problem(401, 'UNAUTHENTICATED') : json({ enabled: false })
       case 'GET /me/profile':
         return this.#readProfile()
+      case 'GET /me/photos':
+        return json({ items: [], nextCursor: null })
       case 'POST /me/terms-acceptances':
         return this.#acceptTerms(body)
       case 'DELETE /me/sessions/:id':
@@ -405,12 +457,15 @@ export class FakeDuoraApi {
     return json({
       id: user.id,
       email: user.email,
-      status: user.emailConfirmed ? 'Active' : 'PendingEmail',
+      status: user.suspendedAt !== undefined ? 'Suspended' : user.emailConfirmed ? 'Active' : 'PendingEmail',
       emailConfirmed: user.emailConfirmed,
       mfaEnabled: false,
       roles: ['participant'],
       currentTermsAccepted: user.acceptedTermsVersion === syntheticLegalCatalog.termsVersion,
       sessionContext: { userId: user.id, sessionId, phase: 'active', requestToken: privateProof },
+      ...(user.suspendedAt === undefined
+        ? {}
+        : { suspension: { reasonCode: 'TermsViolation', suspendedAt: user.suspendedAt } }),
     })
   }
 

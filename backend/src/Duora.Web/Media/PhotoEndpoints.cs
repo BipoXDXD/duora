@@ -7,6 +7,7 @@ using Duora.Web.Accounts;
 using Duora.Web.Http;
 using Duora.Web.Identity;
 using Duora.Web.Safety;
+using Duora.Web.Security;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -53,7 +54,9 @@ internal static class PhotoEndpoints
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .AddOpenApiOperationTransformer(DocumentUploadRequest);
+        // Privacidade (issue #299): a conta suspensa ainda acha e exclui as próprias fotos; não envia novas.
         photos.MapGet("/{photoId:guid}/status", GetStatusAsync)
+            .AllowForSuspendedAccount()
             .WithDescription(
                 "Estado do processamento de uma foto do titular. O header ETag traz a versão forte e opaca da foto, "
                 + "a única aceita no If-Match da exclusão.")
@@ -62,6 +65,7 @@ internal static class PhotoEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .AddOpenApiOperationTransformer(DocumentPhotoETag);
         photos.MapDelete("/{photoId:guid}", DeleteAsync)
+            .AllowForSuspendedAccount()
             .WithDescription(
                 "Exclusão lógica imediata da própria foto (API-M03), sem corpo, com If-Match (ETag do status) e "
                 + "Idempotency-Key obrigatórios. Responde 204 com o ETag da foto excluída; a mesma chave repetida devolve "

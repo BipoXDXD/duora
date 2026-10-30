@@ -77,6 +77,8 @@ internal static class DuoraWebApp
         builder.Services.AddSessionAuthorization();
         builder.Services.AddAuthorizationBuilder().AddEligibleParticipant();
         builder.Services.AddScoped<IAuthorizationHandler, EligibleParticipantHandler>();
+        builder.Services.AddAuthorizationBuilder().AddAccountModerator();
+        builder.Services.AddScoped<IAuthorizationHandler, AccountModeratorHandler>();
         builder.Services.AddAntiforgery(AntiforgeryTokens.Configure);
         builder.Services.AddSingleton<Microsoft.AspNetCore.Antiforgery.IAntiforgeryAdditionalDataProvider,
             SessionAntiforgeryAdditionalDataProvider>();
@@ -102,6 +104,7 @@ internal static class DuoraWebApp
         app.UseRouting();
         app.UseRateLimiter();
         app.UseAuthentication();
+        app.UseSuspendedAccountGate();
         app.UseAuthorization();
         app.UseMiddleware<CsrfProtectionMiddleware>();
 
@@ -126,7 +129,9 @@ internal static class DuoraWebApp
         api.MapBlockEndpoints();
         api.MapMfaEndpoints();
         api.MapReauthenticationEndpoints();
-        api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>()).MapPhotoReviewAdminEndpoints();
+        var admin = api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
+        admin.MapPhotoReviewAdminEndpoints();
+        admin.MapAccountSuspensionAdminEndpoints();
         api.MapPhotoEndpoints();
         api.MapPhotoReviewOwnerEndpoints();
         api.MapMediaAssetEndpoints();
