@@ -1,4 +1,5 @@
 using Duora.Core.Media;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Duora.Infrastructure.Media;
@@ -6,8 +7,11 @@ namespace Duora.Infrastructure.Media;
 /// <summary>Writer settlement is captured at claim time, before this sweep starts any DELETE.</summary>
 internal sealed record ReviewPromotionCleanupClaim(Guid Generation, Guid Token, int Attempts, bool WriterWasSettled);
 
-/// <summary>Unregistered collector for abandoned generation-owned promotions; committed assets are excluded.</summary>
-internal sealed class ReviewPromotionCleanupDispatcher
+/// <summary>
+/// Collector for abandoned generation-owned promotions, run by the Worker's <c>ReviewPromotionCleanupService</c>;
+/// committed assets are excluded.
+/// </summary>
+public sealed partial class ReviewPromotionCleanupDispatcher
 {
     internal static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(60);
     internal static readonly TimeSpan DeleteBudget = TimeSpan.FromSeconds(15);
@@ -15,19 +19,22 @@ internal sealed class ReviewPromotionCleanupDispatcher
     private readonly NpgsqlDataSource _source;
     private readonly IObjectStore _store;
     private readonly TimeProvider _time;
+    private readonly ILogger<ReviewPromotionCleanupDispatcher> _logger;
 
     internal ReviewPromotionCleanupDispatcher(
-        NpgsqlDataSource source, IObjectStore store, TimeProvider time, bool enabled)
+        NpgsqlDataSource source, IObjectStore store, TimeProvider time, bool enabled,
+        ILogger<ReviewPromotionCleanupDispatcher> logger)
     {
         _source = source;
         _store = store;
         _time = time;
         Enabled = enabled;
+        _logger = logger;
     }
 
-    internal bool Enabled { get; }
+    public bool Enabled { get; }
 
-    internal async Task<int> DispatchOnceAsync(CancellationToken cancellationToken)
+    public async Task<int> DispatchOnceAsync(CancellationToken cancellationToken)
     {
         if (!Enabled || await ClaimAsync(cancellationToken) is not { } claim)
         {
@@ -46,13 +53,17 @@ internal sealed class ReviewPromotionCleanupDispatcher
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested && exception is not OutOfMemoryException)
         {
+            LogRetry(_logger, claim.Attempts, exception.GetType().Name);
             await RetryAsync(claim, cancellationToken);
             return 1;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         // A lost lease cannot acknowledge another collector's sweep. Its persisted claim recovers.
-        await CompleteSweepAsync(claim, cancellationToken);
+        if (!await CompleteSweepAsync(claim, cancellationToken))
+        {
+            LogLeaseLost(_logger);
+        }
 
         return 1;
     }
@@ -91,9 +102,11 @@ internal sealed class ReviewPromotionCleanupDispatcher
         }
 
         var now = _time.GetUtcNow();
+        // The sweep's timestamps come from the database clock: the tombstone purge counts its backup window from
+        // deleted_at (ADR-0035, P3).
         await using var command = Command(connection, """
-            update media.review_promotions set last_cleanup_at=$4,
-              deleted_at=case when $3 then $4 else null end,
+            update media.review_promotions set last_cleanup_at=statement_timestamp(),
+              deleted_at=case when $3 then statement_timestamp() else null end,
               cleanup_available_at=$5,cleanup_token=null,cleanup_lease_until=null
             where generation=$1 and cleanup_token=$2 and cleanup_lease_until>$4
               and committed_at is null and deleted_at is null and cleanup_requested_at is not null
@@ -147,4 +160,10 @@ internal sealed class ReviewPromotionCleanupDispatcher
 
         return command;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Private promotion cleanup failed on attempt {Attempt} ({Cause}); durable retry retained")]
+    private static partial void LogRetry(ILogger logger, int attempt, string cause);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Private promotion cleanup lost its lease; persisted ownership protects recovery")]
+    private static partial void LogLeaseLost(ILogger logger);
 }

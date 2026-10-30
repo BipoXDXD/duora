@@ -2,6 +2,7 @@ using Duora.Core.Media;
 using Duora.Infrastructure.Media;
 using Duora.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
 
@@ -280,7 +281,8 @@ public sealed partial class MediaPipelineTests
     }
 
     private ReviewPromotionCleanupDispatcher PromotionCleanup(IObjectStore store, TimeProvider clock, bool enabled = true) =>
-        new(Web.Services.GetRequiredService<NpgsqlDataSource>(), store, clock, enabled);
+        new(Web.Services.GetRequiredService<NpgsqlDataSource>(), store, clock, enabled,
+            NullLogger<ReviewPromotionCleanupDispatcher>.Instance);
 
     private async Task<(MediaScenario Media, ReviewPromotionRequest Request, Guid Generation)> AbandonedPromotionAsync()
     {
