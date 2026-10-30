@@ -105,6 +105,16 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
   const status = query.data
   const attempts = status?.attempts
   const blocked = attempts?.state === 'CoolingDown' || attempts?.state === 'Exhausted'
+  const reopensAt = attempts?.state === 'CoolingDown' ? attempts.lockedUntil : null
+  const { refetch } = query
+  useEffect(() => {
+    if (reopensAt === null) return
+    // O servidor decide; no fim da pausa a tela só relê o estado para devolver a captura.
+    const timer = setTimeout(() => void refetch(), untilDelay(reopensAt))
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [reopensAt, refetch])
   return (
     <Page title={copy.title}>
       <p>{copy.intro}</p>
@@ -165,6 +175,13 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
     </Page>
   )
 }
+
+/** Espera até o fim da pausa, no teto que o setTimeout aceita (cerca de 24,8 dias). */
+function untilDelay(instant: string): number {
+  return Math.min(Math.max(0, Date.parse(instant) - Date.now()), MAX_TIMER_DELAY_MS)
+}
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 function isAttemptLimit(failure: Error): boolean {
   return failure instanceof ApiProblemError && SELFIE_ATTEMPT_PROBLEMS.has(failure.problem.code ?? '')

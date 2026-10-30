@@ -161,4 +161,42 @@ describe('tentativas da selfie', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Iniciar captura' })).not.toBeInTheDocument()
   })
+
+  it('quando a pausa termina, relê o estado sozinha e devolve a captura', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      const until = new Date(Date.now() + 60_000).toISOString()
+      let reads = 0
+      server.use(
+        http.get(`${API}/me`, () => HttpResponse.json(account)),
+        http.get(`${API}/me/selfie-verifications/current`, () => {
+          reads++
+          const reopened = Date.now() >= Date.parse(until)
+          return HttpResponse.json({
+            id: null,
+            state: 'NotStarted',
+            nextStep: 'Start',
+            feedbackCode: null,
+            expiresAt: null,
+            attempts: reopened
+              ? { state: 'Available', remaining: 5, lastCycle: true, lockedUntil: null }
+              : { state: 'CoolingDown', remaining: 0, lastCycle: true, lockedUntil: until },
+          })
+        }),
+      )
+      await open()
+      await screen.findByText(/Você pode tentar de novo a partir de/)
+      const readsDuringPause = reads
+
+      await vi.advanceTimersByTimeAsync(59_000)
+      const readsBeforeTheEnd = reads
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(readsBeforeTheEnd).toBe(readsDuringPause)
+      expect(await screen.findByRole('button', { name: 'Iniciar captura' })).toBeInTheDocument()
+      expect(screen.queryByText(/Você pode tentar de novo a partir de/)).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
