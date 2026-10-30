@@ -135,6 +135,11 @@ public sealed class AccountSuspensions
             throw new ArgumentException("A porta interna só aceita suspensão do sistema.", nameof(order));
         }
 
+        if (key.Source is null)
+        {
+            throw new ArgumentException("A suspensão do sistema usa a chave da origem que a motivou.", nameof(key));
+        }
+
         return SuspendAsync(moderator: null, order, key, cancellationToken);
     }
 
@@ -149,6 +154,11 @@ public sealed class AccountSuspensions
         if (!order.Author.Is(moderator.UserId))
         {
             throw new ArgumentException("O autor do pedido é o moderador da sessão.", nameof(order));
+        }
+
+        if (key.Source is not null)
+        {
+            throw new ArgumentException("O comando do moderador usa a chave do moderador.", nameof(key));
         }
 
         return SuspendAsync(moderator, order, key, cancellationToken);
@@ -178,6 +188,13 @@ public sealed class AccountSuspensions
             return new LiftOutcome.Busy();
         }
     }
+
+    /// <summary>
+    /// Pré-checagem da permissão, sem lock e sem tocar o alvo: a fronteira responde 403 antes de validar corpo ou
+    /// chave. Os comandos conferem de novo, ao vivo, na própria transação.
+    /// </summary>
+    public Task<bool> IsModeratorSessionAsync(ModeratorSession moderator, CancellationToken cancellationToken) =>
+        IsModeratorAsync(moderator, requireRecentTotp: false, cancellationToken);
 
     public async Task<SuspensionReadOutcome> ReadAsModeratorAsync(
         ModeratorSession moderator,
@@ -235,6 +252,12 @@ public sealed class AccountSuspensions
         var commandKey = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key.Scope)));
         var intent = Intent(order);
         await using var transaction = await BeginAsync(cancellationToken);
+        // Permissão antes de criar ou travar a guarda do alvo; depois das guardas, de novo, ao vivo.
+        if (moderator is { } early && !await IsModeratorAsync(early, requireRecentTotp: true, cancellationToken))
+        {
+            return new SuspensionOutcome.Forbidden();
+        }
+
         await GuardUsersAsync(moderator is { } actor ? [actor.UserId, subject] : [subject], cancellationToken);
         if (moderator is { } session && !await IsModeratorAsync(session, requireRecentTotp: true, cancellationToken))
         {
@@ -269,9 +292,9 @@ public sealed class AccountSuspensions
         var inserted = await _db.Database.ExecuteSqlAsync($"""
             insert into safety.moderation_actions
               (id, subject_user_id, measure, reason_code, internal_reason, author_kind, author_user_id, decided_at,
-               command_key, command_intent, version)
+               command_key, command_intent, source_code, source_id, version)
             values ({id}, {subject}, {Suspension}, {reason}, {order.InternalReason}, {authorKind}, {authorId}, {now},
-                    {commandKey}, {intent}, 1)
+                    {commandKey}, {intent}, {key.Source?.Code}, {key.Source?.Id}, 1)
             on conflict do nothing
             """, cancellationToken);
         if (inserted != 1)
@@ -283,6 +306,14 @@ public sealed class AccountSuspensions
         await ReleaseRoomsAsync(subject, now, cancellationToken);
         await BumpSecurityVersionAsync(subject, cancellationToken);
         await AuditAsync(moderator, AuditAction.AccountSuspended, id, version: 1, cancellationToken);
+        if (key.Source is { } source)
+        {
+            await new AuditTrail(_db, _time).AppendAsync(
+                new AuditRecord(AuditActorKind.System, actorId: null, AuditAction.AccountSuspensionSourceRecorded,
+                    source.Code.Replace('-', '_'), source.Id),
+                cancellationToken);
+        }
+
         await transaction.CommitAsync(cancellationToken);
         return new SuspensionOutcome.Suspended(
             new SuspensionView(id, subject, order.Reason, order.Author is ModerationAuthor.Automated, now, 1, null),
@@ -298,6 +329,11 @@ public sealed class AccountSuspensions
         CancellationToken cancellationToken)
     {
         await using var transaction = await BeginAsync(cancellationToken);
+        if (!await IsModeratorAsync(moderator, requireRecentTotp: true, cancellationToken))
+        {
+            return new LiftOutcome.Forbidden();
+        }
+
         await GuardUsersAsync([moderator.UserId, subjectUserId], cancellationToken);
         if (!await IsModeratorAsync(moderator, requireRecentTotp: true, cancellationToken))
         {

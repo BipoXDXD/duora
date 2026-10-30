@@ -455,6 +455,107 @@ public sealed class AccountSuspensionTests : IAsyncDisposable
         Assert.Equal("Restricted", await _scenario.TextAsync("select status from identity.users where id = $1", participant.UserId));
     }
 
+    /// <summary>
+    /// B1 da revisão do #302: a selfie aprovada durante a suspensão não promove a conta (o worker só promove quem está
+    /// em PendingEligibility). Revogar recalcula a elegibilidade pela mesma regra, em vez de copiar o estado antigo.
+    /// </summary>
+    [Fact]
+    public async Task LiftingPromotesAPendingAccountWhosePresenceWasApprovedDuringTheSuspension()
+    {
+        var participant = await _scenario.Identity.CreateConfirmedAccountAsync();
+        var (_, moderator) = await _scenario.PrivilegedBrowserAsync();
+        using var __ = moderator;
+        var suspension = await AccountSuspensionScenario.SuspendAsync(moderator, participant.UserId);
+        await _scenario.ExecuteAsync(
+            """
+            insert into identity.selfie_verifications (id, user_id, state, policy_version, requested_at, expires_at, version)
+            values (gen_random_uuid(), $1, 'Passed', 'test', now(), now(), 0)
+            """,
+            participant.UserId);
+
+        using var lifted = await moderator.PostJsonAsync(
+            AccountSuspensionScenario.LiftPath(participant.UserId, Guid.Parse((string)suspension["suspensionId"]!)),
+            new { internalReason = "Revisto." },
+            AccountSuspensionScenario.WithIfMatch((string)suspension["eTag"]!));
+
+        Assert.Equal(HttpStatusCode.OK, lifted.StatusCode);
+        Assert.Equal("Active", await _scenario.TextAsync("select status from identity.users where id = $1", participant.UserId));
+    }
+
+    [Fact]
+    public async Task LiftingKeepsAPendingAccountPendingWithoutApprovedPresence()
+    {
+        var participant = await _scenario.Identity.CreateConfirmedAccountAsync();
+        var (_, moderator) = await _scenario.PrivilegedBrowserAsync();
+        using var __ = moderator;
+        var suspension = await AccountSuspensionScenario.SuspendAsync(moderator, participant.UserId);
+
+        using var lifted = await moderator.PostJsonAsync(
+            AccountSuspensionScenario.LiftPath(participant.UserId, Guid.Parse((string)suspension["suspensionId"]!)),
+            new { internalReason = "Revisto." },
+            AccountSuspensionScenario.WithIfMatch((string)suspension["eTag"]!));
+
+        Assert.Equal(HttpStatusCode.OK, lifted.StatusCode);
+        Assert.Equal("PendingEligibility", await _scenario.TextAsync(
+            "select status from identity.users where id = $1", participant.UserId));
+    }
+
+    [Fact]
+    public async Task ASuspendedAccountSignsOut()
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        using var session = await _scenario.Identity.SignedInBrowserAsync(participant);
+        var (_, moderator) = await _scenario.PrivilegedBrowserAsync();
+        using var __ = moderator;
+        await AccountSuspensionScenario.SuspendAsync(moderator, participant.UserId);
+
+        using var logout = await session.PostJsonAsync("/api/v1/auth/logout", body: null);
+        using var me = await session.GetAsync("/api/v1/me");
+
+        Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, me.StatusCode);
+    }
+
+    [Fact]
+    public async Task TheSameKeyFromTwoModeratorsCreatesIndependentCommands()
+    {
+        var first = await _scenario.CreateEligibleParticipantAsync();
+        var second = await _scenario.CreateEligibleParticipantAsync();
+        var (_, maria) = await _scenario.PrivilegedBrowserAsync();
+        using var __ = maria;
+        var (_, pedro) = await _scenario.PrivilegedBrowserAsync();
+        using var ___ = pedro;
+        var key = AccountSuspensionScenario.NewKey();
+
+        var byMaria = await AccountSuspensionScenario.SuspendAsync(maria, first.UserId, key);
+        using var byPedro = await pedro.PostJsonAsync(AccountSuspensionScenario.SuspendPath(second.UserId),
+            AccountSuspensionScenario.SuspendBody(), AccountSuspensionScenario.WithKey(key));
+
+        Assert.Equal(HttpStatusCode.Created, byPedro.StatusCode);
+        var pedroBody = await MfaScenario.ReadObjectAsync(byPedro);
+        Assert.NotEqual((string?)byMaria["suspensionId"], (string?)pedroBody["suspensionId"]);
+        Assert.Equal(second.UserId.ToString(), (string?)pedroBody["userId"]);
+        Assert.Equal("Suspended", await _scenario.TextAsync("select status from identity.users where id = $1", second.UserId));
+    }
+
+    [Theory]
+    [InlineData("""{"reasonCode":"Unknown","internalReason":"Motivo."}""", true)]
+    [InlineData("""{"reasonCode":"TermsViolation"}""", true)]
+    [InlineData("""{"reasonCode":"TermsViolation","internalReason":"Motivo."}""", false)]
+    public async Task AProductAdministratorIsForbiddenBeforeTheBodyOrKeyIsValidated(string body, bool withKey)
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        var (_, admin) = await _scenario.PrivilegedBrowserAsync(AccountRoles.ProductAdmin);
+        using var __ = admin;
+
+        using var response = await admin.PostRawJsonAsync(AccountSuspensionScenario.SuspendPath(participant.UserId), body,
+            withKey ? AccountSuspensionScenario.WithKey(AccountSuspensionScenario.NewKey()) : null);
+
+        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.Forbidden, "ACCOUNT_MODERATION_FORBIDDEN");
+        Assert.Equal(0, await _scenario.CountAsync(
+            "select count(*) from safety.user_guards where user_id = $1", participant.UserId));
+    }
+
     [Theory]
     [InlineData("""{"reasonCode":"TermsViolation"}""")]
     [InlineData("""{"reasonCode":"TermsViolation","internalReason":"   "}""")]
@@ -531,6 +632,34 @@ public sealed class AccountSuspensionTests : IAsyncDisposable
             where action = 'safety.account_suspended' and actor_kind = 'System' and actor_id is null and target_id = $1
             """,
             suspended.View.Id));
+        // Evidência utilizada (spec 12.3): a origem da decisão, só pelo id, sem dado biométrico.
+        Assert.Equal(1, await _scenario.CountAsync(
+            """
+            select count(*) from safety.moderation_actions
+            where id = $1 and source_code = 'selfie-verification' and source_id = $2
+            """,
+            suspended.View.Id, source));
+        Assert.Equal(1, await _scenario.CountAsync(
+            """
+            select count(*) from ops.audit_events
+            where action = 'safety.account_suspension_source_recorded' and actor_kind = 'System'
+              and target_type = 'selfie_verification' and target_id = $1
+            """,
+            source));
+    }
+
+    [Fact]
+    public async Task AModeratorSuspensionHasNoSystemSource()
+    {
+        var participant = await _scenario.CreateEligibleParticipantAsync();
+        var (_, moderator) = await _scenario.PrivilegedBrowserAsync();
+        using var __ = moderator;
+
+        await AccountSuspensionScenario.SuspendAsync(moderator, participant.UserId);
+
+        Assert.Equal(1, await _scenario.CountAsync(
+            "select count(*) from safety.moderation_actions where subject_user_id = $1 and source_code is null and source_id is null",
+            participant.UserId));
     }
 
     [Fact]

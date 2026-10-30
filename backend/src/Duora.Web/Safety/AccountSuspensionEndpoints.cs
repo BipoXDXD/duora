@@ -23,7 +23,9 @@ internal static class AccountSuspensionEndpoints
 
     internal static void MapAccountSuspensionAdminEndpoints(this RouteGroupBuilder admin)
     {
-        var accounts = admin.MapGroup("/accounts/{userId:guid}").WithTags("AccountModeration");
+        // Permissão primeiro: quem não modera recebe 403 antes de qualquer validação de corpo ou chave.
+        var accounts = admin.MapGroup("/accounts/{userId:guid}").WithTags("AccountModeration")
+            .AddEndpointFilter(RequireModeratorAsync);
         Problems(accounts.MapGet("/suspension", ReadAsync))
             .Produces<AccountModerationStateResponse>();
         Problems(accounts.MapPost("/suspensions", SuspendAsync))
@@ -145,6 +147,17 @@ internal static class AccountSuspensionEndpoints
             default:
                 throw new InvalidOperationException("Revogação sem resultado mapeado.");
         }
+    }
+
+    private static async ValueTask<object?> RequireModeratorAsync(
+        EndpointFilterInvocationContext invocation,
+        EndpointFilterDelegate next)
+    {
+        var http = invocation.HttpContext;
+        var suspensions = http.RequestServices.GetRequiredService<AccountSuspensions>();
+        return await suspensions.IsModeratorSessionAsync(Moderator(http), http.RequestAborted)
+            ? await next(invocation)
+            : Forbidden();
     }
 
     private static ModeratorSession Moderator(HttpContext http)

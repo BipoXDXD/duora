@@ -105,6 +105,7 @@ public sealed class AccountSuspensionTests
         var key = ModerationCommandKey.ForSystem("selfie-verification", source);
 
         Assert.Equal("system:selfie-verification:00000000-0000-0000-0000-0000000000c1", key.Scope);
+        Assert.Equal(new ModerationSource("selfie-verification", source), key.Source);
         Assert.NotEqual(key, ModerationCommandKey.ForSystem("selfie-verification", Guid.Parse("00000000-0000-0000-0000-0000000000c2")));
     }
 
@@ -112,6 +113,8 @@ public sealed class AccountSuspensionTests
     [InlineData("")]
     [InlineData("Selfie")]
     [InlineData("selfie verification")]
+    [InlineData("selfie2")]
+    [InlineData("selfie.verification")]
     public void ASystemCommandSourceIsACatalogCode(string source)
     {
         Assert.Throws<ArgumentException>(() => ModerationCommandKey.ForSystem(source, Guid.NewGuid()));
@@ -125,5 +128,6 @@ public sealed class AccountSuspensionTests
 
         Assert.NotEqual(maria, pedro);
         Assert.Equal($"moderator:{ModeratorMaria:D}:chave-1", maria.Scope);
+        Assert.Null(maria.Source);
     }
 }

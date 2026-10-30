@@ -22,4 +22,16 @@ public sealed class ParticipationEligibilityTests
     public void OnlyConfirmedActiveAccountsWithPresenceCanParticipate(
         AccountStatus account, bool emailConfirmed, SelfieState? selfie, bool expected)
         => Assert.Equal(expected, ParticipationEligibility.CanParticipate(account, emailConfirmed, selfie));
+
+    [Theory]
+    [InlineData(AccountStatus.PendingEligibility, true, SelfieState.Passed, AccountStatus.Active)]
+    [InlineData(AccountStatus.PendingEligibility, false, SelfieState.Passed, AccountStatus.PendingEligibility)]
+    [InlineData(AccountStatus.PendingEligibility, true, SelfieState.Processing, AccountStatus.PendingEligibility)]
+    [InlineData(AccountStatus.PendingEligibility, true, null, AccountStatus.PendingEligibility)]
+    [InlineData(AccountStatus.Active, true, SelfieState.Passed, AccountStatus.Active)]
+    [InlineData(AccountStatus.Restricted, true, SelfieState.Passed, AccountStatus.Restricted)]
+    [InlineData(AccountStatus.PendingEmail, false, SelfieState.Passed, AccountStatus.PendingEmail)]
+    public void OnlyAPendingConfirmedAccountWithPresenceMovesToActive(
+        AccountStatus account, bool emailConfirmed, SelfieState? selfie, AccountStatus expected)
+        => Assert.Equal(expected, ParticipationEligibility.AfterPresenceCheck(account, emailConfirmed, selfie));
 }
