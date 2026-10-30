@@ -97,6 +97,34 @@ public sealed class WorkerHostTests
     }
 
     [Fact]
+    public async Task ReviewPromotionCleanupLogsUnreachableDatabaseAndKeepsRunning()
+    {
+        // Com storage configurado, o coletor de promoções abandonadas roda no Worker (#297) e uma falha do banco só
+        // vira aviso, sem a senha e sem derrubar o host.
+        var logs = new CapturingLoggerProvider();
+        var connection = new CanaryConnectionString();
+        var root = Directory.CreateTempSubdirectory("duora-worker-promotion-");
+        try
+        {
+            using var host = BuildHost(connection.Value, logs,
+                "--Media:Storage:Provider=FileSystem", $"--Media:Storage:FileSystemRoot={root.FullName}");
+            await host.StartAsync(TestContext.Current.CancellationToken);
+
+            var warning = await logs.FirstWarningFrom(typeof(ReviewPromotionCleanupService).FullName ?? throw new InvalidOperationException())
+                .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+            Assert.Null(warning.Exception);
+            Assert.DoesNotContain(connection.Password, warning.Text, StringComparison.Ordinal);
+            Assert.False(host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
+            await host.StopAsync(TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SelfieQueueDatabaseFailureDoesNotStopTheWorker()
     {
         var logs = new CapturingLoggerProvider();
