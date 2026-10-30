@@ -298,3 +298,21 @@ e `TheFunctionIsASecurityDefinerWithAPinnedSearchPathAndUtcClock` (`PhotoDeletio
 real); `AppStatementIsDenied` continua negando `DELETE`, `UPDATE` e `TRUNCATE` diretos nas duas tabelas
 e `OnlyAllowlistedFunctionsRunAsTheirOwner` (`AppRolePrivilegesTests`); `PhotoDeletionRecordPurgeLogsUnreachableDatabaseAndKeepsRunning` (`WorkerHostTests`).
 O resultado desses testes pertence ao CI do PR.
+
+**Coletor de promoções no Worker (#297).** O `ReviewPromotionCleanupDispatcher` existia, mas não estava registrado:
+uma promoção privada abandonada (`committed_at` nulo) segurava os bytes `derivatives/review-*` da geração e, pela
+regra do expurgo, o tombstone da foto. Agora o `ReviewPromotionCleanupService` do Worker roda o coletor no mesmo
+padrão dos coletores de candidato: laço independente da admissão, sem trabalho quando o storage não está
+configurado, próximo item imediato quando processa algo e espera de 2 s quando não há nada, aviso só com o tipo da
+causa quando o banco falha, e retry durável com backoff até 15 min quando o storage falha (o log leva só a
+tentativa e o tipo da causa, nunca a geração nem a chave). Uma varredura que perde o lease registra aviso e deixa a
+posse persistida para a recuperação. Como nos outros coletores, não há métrica própria. Cada instância do Worker
+roda o laço: o `FOR UPDATE SKIP LOCKED` do claim e o lease impedem que duas instâncias apaguem a mesma geração ao
+mesmo tempo. Continua valendo o caso do escritor incerto: sem `writer_settled_at`, o coletor apaga as chaves de novo
+a cada `UncertainWriterPoll`, mas nunca grava `deleted_at`.
+
+Compliance: `ASweepRemovesTheThreeKeysRecordsTheRemovalAndStaysSilent`,
+`AFailedDeletionLogsOnlyTheAttemptAndItsCauseAndSchedulesADurableRetry` e
+`ASweepThatOutlivesItsLeaseLogsTheLossAndKeepsThePersistedClaim` (`ReviewPromotionCollectorTests`, PostgreSQL real);
+`ReviewPromotionCleanupLogsUnreachableDatabaseAndKeepsRunning` (`WorkerHostTests`). Os testes de lease e concorrência
+do coletor em `ReviewPromotionCleanupTests` e `PhotoReviewApprovalTests` continuam valendo.

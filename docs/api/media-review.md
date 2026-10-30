@@ -232,8 +232,8 @@ transação:
   do TechnicalOnly, disponíveis só depois de 15 min (`InFlightWriterGrace`), para um Worker que já passou da
   checagem de versão terminar de gravar (não há coletor de órfãos: uma gravação que termine depois da folga
   deixa o derivado sem obrigação; risco só do TechnicalOnly, restrito a Development/Testing);
-- candidato em preparo e promoção da aprovação ainda não confirmados ficam com os coletores de preparo, que não
-  dependem do estado da foto.
+- candidato em preparo e promoção da aprovação ainda não confirmados ficam com os coletores de preparo
+  (`ReviewCandidateCleanupService` e `ReviewPromotionCleanupService` do Worker), que não dependem do estado da foto.
 
 O caso editorial não é apagado: some da fila e da evidência do moderador, e decisão ou aprovação posteriores dão
 404 sem publicar nada. O Worker que chega depois encontra `Deleted` e só encerra a entrega. O tombstone só existe
