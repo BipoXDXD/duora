@@ -26,7 +26,7 @@ public sealed class SelfieLocalHomologationTests(PostgresFixture postgres)
         var scenario = new IdentityScenario(connection, factory);
         var account = await scenario.CreateConfirmedAccountAsync();
         using var scope = factory.Services.CreateScope();
-        Assert.Null(await scope.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(account.UserId, ct));
+        Assert.IsType<SelfieRequestOutcome.Unavailable>(await scope.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(account.UserId, ct));
         Assert.Null(await scope.ServiceProvider.GetRequiredService<SelfieCaptureCredentialService>().CreateAsync(account.UserId, Guid.NewGuid(), ct));
         Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>().DispatchBatchAsync(ct));
         Assert.Equal(0, provider.Calls);
@@ -38,7 +38,7 @@ public sealed class SelfieLocalHomologationTests(PostgresFixture postgres)
         options.PolicyVersion = "synthetic-policy";
         var pending = await scope.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(account.UserId, ct);
         options.Enabled = false;
-        Assert.NotNull(pending);
+        Assert.IsType<SelfieRequestOutcome.Accepted>(pending);
         Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>().DispatchBatchAsync(ct));
         Assert.Equal("Pending", (await scope.ServiceProvider.GetRequiredService<SelfieVerificationService>().GetCurrentAsync(account.UserId, ct)).State);
         Assert.Equal(0, provider.Calls);

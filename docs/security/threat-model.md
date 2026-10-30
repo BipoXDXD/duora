@@ -143,6 +143,7 @@ service, **E** elevation of privilege. Cada linha cita a ameaça (TM-xx) detalha
 | E | Sessão de participante usada em rota administrativa; sessão administrativa sem MFA | TM-18 |
 | S/E | Novo aceite dos Termos (API-A17) gravado sem sessão, por CSRF ou em nome de outra conta | TM-82 |
 | T/R | Novo aceite repetido ou simultâneo reescreve ou duplica a evidência do aceite | TM-83 |
+| TM-84 | Limite de reprovações da selfie (#300): reentrega conta duas vezes, o navegador burla a pausa, esperar a retenção zera a contagem, falha do fornecedor bloqueia a conta, crash perde a suspensão, reentrega suspende de novo depois da revogação | Uma linha por reprovação com a tentativa como PK; pausa e esgotamento aplicados no servidor sob a trava da conta; tabela própria sem FK para a tentativa; só `RecaptureRequired`/`Inconclusive` finais da mesma política contam; pedido de suspensão na outbox da transação, retry sem teto; chave de comando pela tentativa (ADR-0043) | `SelfieFailureLockoutTests` (ver STRIDE do ADR-0043), `SelfieAttemptPolicyTests`, `ASessionThatNeverProducedAJudgementEndsExpiredNotRejected` |
 
 ### 5.3 Recuperação de conta (API-A06, A07; e-mail)
 
@@ -179,6 +180,7 @@ service, **E** elevation of privilege. Cada linha cita a ameaça (TM-xx) detalha
 | I | Moderador lê evidência de caso não atribuído; exportação em massa | TM-32 |
 | D | Denúncias falsas em massa para soterrar a fila ou provocar suspensão automática | TM-33 |
 | E | Sanção permanente aplicada só por classificador; recurso revisado pelo mesmo autor | TM-34 |
+| T/D | Limite de reprovações da selfie contado em dobro, burlado ou perdido; suspensão automática por falha técnica (#300) | TM-84 |
 
 ### 5.6 Verificação etária com callback de fornecedor (API-P05, P06; `/webhooks/{provider}`)
 
@@ -317,7 +319,7 @@ Convenções:
 | TM-31 | Exposição da pessoa denunciante | Denunciado nunca recebe identidade do denunciante; API-S05 mostra só estado permitido; denúncia não bloqueia automaticamente (spec 7.3, 8.4) | a criar: `ReportStatusExposesOnlyAllowedFields` (conjunto exato de chaves) |
 | TM-32 | Moderador fora do caso | Acesso por atribuição (`assigned_moderator_id`), sem listagem global de evidências nem exportação; leitura auditada (spec 8.5) | T-10; a criar: `ModeratorCannotReadEvidenceOfUnassignedCase` |
 | TM-33 | Denúncias em massa | Rate limit por conta e por alvo; denúncia não gera sanção automática; triagem prioriza, humano decide (spec 12.3) | a criar: `ReportsDoNotTriggerAutomaticSanction`; a criar: `ReportEndpointIsRateLimitedPerReporter` |
-| TM-34 | Sanção sem humano; recurso não independente | Sanção permanente exige autor humano; recurso revisado por moderador diferente do autor da medida (spec 12.3) | T-10; a criar: `AppealCannotBeDecidedByOriginalAuthor` |
+| TM-34 | Sanção sem humano; recurso não independente | Sanção permanente exige autor humano; recurso revisado por moderador diferente do autor da medida (spec 12.3). Exceção decidida pelo dono (#300, ADR-0043): a suspensão por `SelfieVerificationFailed` depois de dez reprovações é automática e revertida só por moderador; violação dos Termos segue exigindo pessoa (`TheSystemCannotSuspendForATermsViolation` e o CHECK `ck_moderation_actions_terms_need_human`) | T-10; a criar: `AppealCannotBeDecidedByOriginalAuthor` |
 | TM-35 | Resultado etário vindo do navegador | API-P05 só cria solicitação; nenhum DTO aceita resultado; estado muda só por callback autenticado ou consulta do worker ao fornecedor (spec 12.2) | `AgeVerificationRequestTests.AgeVerificationRequestIgnoresClientSuppliedResult` (corpo com `isAdult`, `result`, `state`, `outcome` ou `expiresAt` → `400`, banco inalterado) |
 | TM-36 | Callback forjado ou repetido | Assinatura sobre os bytes recebidos, timestamp com janela, `webhook_receipts` único por `(provider, provider_event_id)` gravado antes de processar, associação a solicitação criada pelo servidor (nonce/referência), limite de tamanho (spec 16.4) | T-17; `AgeWebhookTests.WebhookWithInvalidSignatureIsRejectedWithoutSideEffects`, `WebhookReplayOutsideTimestampWindowIsRejected`, `CallbackNotMatchingAServerCreatedRequestChangesNothing`, `DuplicateCallbackHasASingleEffect`, `TwoConcurrentCallbacksResultInASingleTransition`, `TheSameCallbackTwiceConcurrentlyIsRecordedOnce`, `BodyOfExactly64KiBIsAcceptedAndOneByteMoreIsRefused` |
 | TM-37 | Resultado sem rastreabilidade | `age_verifications` guarda usuário, fornecedor, referência, versão da política e instante da decisão; a verificação adulta não tem validade (verificação única no cadastro, ADR-0024, adendo de 2026-10-16); transições auditadas ([model.md](../data/model.md#t-identity-age-verifications)) | `AgeWebhookTests.AgeVerificationResultRecordsPolicyVersionWithoutExpiry` |

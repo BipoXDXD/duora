@@ -71,6 +71,7 @@ internal static class MeEndpoints
         LocaleStore locales,
         TimeZoneStore timeZones,
         AccountSuspensions suspensions,
+        SelfieVerificationService selfies,
         CancellationToken cancellationToken)
     {
         if (DuoraClaims.ReadUserId(context.User) is not { } userId
@@ -93,6 +94,9 @@ internal static class MeEndpoints
             account.Status == AccountStatus.Suspended
                 && await suspensions.FindOwnNoticeAsync(userId, cancellationToken) is { } notice
                 ? new MeSuspensionResponse(notice.Reason.ToString(), notice.SuspendedAt.UtcDateTime)
+                : null,
+            await selfies.GetAttemptsAsync(userId, cancellationToken) is { } attempts
+                ? SelfieVerificationEndpoints.Attempts(attempts)
                 : null));
     }
 

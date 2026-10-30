@@ -9,6 +9,9 @@ internal enum AppTableAccess
     /// <summary><c>SELECT</c>, <c>INSERT</c> e <c>UPDATE</c>: preserva o journal e seu pai contra exclusão pelo app.</summary>
     ReadWriteWithoutDelete,
 
+    /// <summary><c>SELECT</c>, <c>INSERT</c> e <c>DELETE</c>: registro que se grava e se apaga, mas nunca se reescreve.</summary>
+    InsertDeleteWithoutUpdate,
+
     /// <summary>Catálogo mantido pelo migrador; a aplicação apenas lê.</summary>
     ReadOnly,
 
@@ -51,6 +54,9 @@ internal static class AppRoleTableAccess
             ["identity.login_sessions"] = AppTableAccess.ReadWrite,
             ["identity.role_claims"] = AppTableAccess.ReadWrite,
             ["identity.roles"] = AppTableAccess.ReadWrite,
+            // Reprovações da selfie (#300): a aprovação e a revogação da suspensão por selfie apagam a contagem; uma
+            // reprovação gravada nunca é reescrita (UPDATE e TRUNCATE revogados na migração e no reconcile).
+            ["identity.selfie_failures"] = AppTableAccess.InsertDeleteWithoutUpdate,
             ["identity.selfie_verifications"] = AppTableAccess.ReadWrite,
             ["identity.user_claims"] = AppTableAccess.ReadWrite,
             ["identity.user_logins"] = AppTableAccess.ReadWrite,
@@ -129,6 +135,7 @@ internal static class AppRoleTableAccess
         AppTableAccess.ReadWrite => ["SELECT", "INSERT", "UPDATE", "DELETE"],
         AppTableAccess.ReadWriteWithoutDelete => ["SELECT", "INSERT", "UPDATE"],
         AppTableAccess.AppendOnly => ["SELECT", "INSERT"],
+        AppTableAccess.InsertDeleteWithoutUpdate => ["SELECT", "INSERT", "DELETE"],
         AppTableAccess.None => [],
         _ => throw new ArgumentOutOfRangeException(nameof(access), access, "Acesso de tabela desconhecido."),
     };

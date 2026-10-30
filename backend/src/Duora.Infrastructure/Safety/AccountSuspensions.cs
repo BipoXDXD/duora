@@ -366,6 +366,12 @@ public sealed class AccountSuspensions
         }
 
         await AccountSuspensionStatus.RestoreAsync(_db, subjectUserId, cancellationToken);
+        if (row.ParseReason() == SuspensionReason.SelfieVerificationFailed)
+        {
+            // Revogar a suspensão por selfie é a revisão humana prevista na issue #300: a conta volta ao primeiro ciclo.
+            await SelfieFailureLedger.ClearAsync(_db, subjectUserId, cancellationToken);
+        }
+
         await BumpSecurityVersionAsync(subjectUserId, cancellationToken);
         await AuditAsync(moderator, AuditAction.AccountSuspensionLifted, suspensionId, version: 2, cancellationToken);
         await transaction.CommitAsync(cancellationToken);

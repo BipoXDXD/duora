@@ -1,4 +1,5 @@
 using Duora.Contracts.Identity;
+using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Duora.Web.Http;
 using Duora.Web.Identity;
@@ -11,13 +12,20 @@ internal static partial class SelfieVerificationEndpoints
     public static void MapSelfieVerificationEndpoints(this IEndpointRouteBuilder api)
     {
         var group = api.MapGroup("/me/selfie-verifications").WithTags("Me").ProducesProblem(401).ProducesProblem(403);
-        group.MapPost("", async (StartSelfieVerificationRequest request, HttpContext context, SelfieVerificationService service, CancellationToken ct) =>
+        group.MapPost("", async (StartSelfieVerificationRequest request, HttpContext context, SelfieVerificationService service,
+            TimeProvider time, CancellationToken ct) =>
         {
-            var status = await service.RequestAsync(DuoraClaims.ReadUserId(context.User)!.Value, ct);
-            return status is null
-                ? ApiProblems.Problem(503, "SELFIE_UNAVAILABLE") as IResult
-                : TypedResults.Accepted("/api/v1/me/selfie-verifications/current", Response(status));
-        }).Produces<SelfieVerificationResponse>(202).ProducesProblem(503).RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption);
+            var outcome = await service.RequestAsync(DuoraClaims.ReadUserId(context.User)!.Value, ct);
+            return outcome switch
+            {
+                SelfieRequestOutcome.Accepted accepted =>
+                    TypedResults.Accepted("/api/v1/me/selfie-verifications/current", Response(accepted.Status)),
+                SelfieRequestOutcome.AttemptsLocked locked => Locked(context, locked.Until - time.GetUtcNow()),
+                SelfieRequestOutcome.AttemptsExhausted => ApiProblems.Problem(403, ApiProblems.SelfieAttemptsExhausted),
+                _ => ApiProblems.Problem(503, "SELFIE_UNAVAILABLE") as IResult,
+            };
+        }).Produces<SelfieVerificationResponse>(202).ProducesProblem(429).ProducesProblem(503)
+            .RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption);
         group.MapGet("/current", async (HttpContext context, SelfieVerificationService service, CancellationToken ct) =>
             TypedResults.Ok(Response(await service.GetCurrentAsync(DuoraClaims.ReadUserId(context.User)!.Value, ct))));
         group.MapPost("/{id:guid}/capture", async (Guid id, SelfieCaptureRequest request, HttpContext context,
@@ -58,5 +66,23 @@ internal static partial class SelfieVerificationEndpoints
     private static partial void LogCaptureUnavailable(ILogger logger, string errorType, string? errorCode, int? statusCode);
 
     private static SelfieVerificationResponse Response(SelfieStatus status) =>
-        new(status.Id, status.State, status.NextStep, status.FeedbackCode, status.ExpiresAt?.UtcDateTime);
+        new(status.Id, status.State, status.NextStep, status.FeedbackCode, status.ExpiresAt?.UtcDateTime,
+            status.Attempts is { } attempts ? Attempts(attempts) : null);
+
+    /// <summary>Pausa de 1 hora (issue #300): o <c>Retry-After</c> diz em quantos segundos o segundo ciclo abre.</summary>
+    private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Locked(HttpContext context, TimeSpan remaining)
+    {
+        ApiProblems.SetRetryAfter(context, remaining);
+        return ApiProblems.Problem(429, ApiProblems.SelfieAttemptsLocked);
+    }
+
+    internal static SelfieAttemptsResponse Attempts(SelfieAttemptStanding standing) => standing switch
+    {
+        SelfieAttemptStanding.Available available => new(nameof(SelfieAttemptStanding.Available), available.Remaining,
+            available.LastCycle, null),
+        SelfieAttemptStanding.CoolingDown cooling => new(nameof(SelfieAttemptStanding.CoolingDown), 0, true,
+            cooling.Until.UtcDateTime),
+        SelfieAttemptStanding.Exhausted => new(nameof(SelfieAttemptStanding.Exhausted), 0, true, null),
+        _ => throw new InvalidOperationException("Situação de tentativas desconhecida."),
+    };
 }

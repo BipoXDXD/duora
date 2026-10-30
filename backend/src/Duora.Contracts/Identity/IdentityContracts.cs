@@ -75,7 +75,8 @@ public sealed record MeResponse(
     PrivateSessionContextResponse SessionContext,
     string? PreferredLocale = null,
     string? PreferredTimeZone = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] MeSuspensionResponse? Suspension = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] MeSuspensionResponse? Suspension = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SelfieAttemptsResponse? SelfieAttempts = null);
 
 /// <summary>Suspensão da própria conta (issue #299). <c>ReasonCode</c>: TermsViolation | SelfieVerificationFailed.</summary>
 public sealed record MeSuspensionResponse(string ReasonCode, DateTime SuspendedAt);

@@ -49,6 +49,7 @@ internal static class WorkerHost
         builder.Services.AddHostedService<HeartbeatService>();
         builder.Services.AddHostedService<TransactionalEmailService>();
         builder.Services.AddHostedService<SelfieVerificationProviderService>();
+        builder.Services.AddHostedService<SelfieAttemptsSuspensionService>();
         builder.Services.AddHostedService<MediaProcessingService>();
         builder.Services.AddHostedService<OriginalCleanupService>();
         builder.Services.AddHostedService<PhotoDeletionCleanupService>();

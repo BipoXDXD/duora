@@ -4371,6 +4371,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Service Unavailable",
             "content": {
@@ -5397,6 +5407,16 @@
               },
               {
                 "$ref": "#/components/schemas/MeSuspensionResponse"
+              }
+            ]
+          },
+          "selfieAttempts": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SelfieAttemptsResponse"
               }
             ]
           }
@@ -6883,6 +6903,40 @@
         },
         "additionalProperties": false
       },
+      "SelfieAttemptsResponse": {
+        "required": [
+          "state",
+          "remaining",
+          "lastCycle",
+          "lockedUntil"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "remaining": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lastCycle": {
+            "type": "boolean"
+          },
+          "lockedUntil": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Limite de reprovações da selfie (issue #300). `State`: Available | CoolingDown | Exhausted.\n`Remaining`: reprovações que ainda cabem no ciclo (0 fora de Available). `LastCycle`: esgotar este ciclo\nsuspende a conta. `LockedUntil`: só em CoolingDown, instante UTC em que o segundo ciclo abre."
+      },
       "SelfieCaptureCredentialsResponse": {
         "required": [
           "accessKeyId",
@@ -6938,7 +6992,8 @@
           "state",
           "nextStep",
           "feedbackCode",
-          "expiresAt"
+          "expiresAt",
+          "attempts"
         ],
         "type": "object",
         "properties": {
@@ -6967,6 +7022,16 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "attempts": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SelfieAttemptsResponse"
+              }
+            ]
           }
         },
         "additionalProperties": false

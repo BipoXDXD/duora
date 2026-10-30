@@ -1368,6 +1368,8 @@ imagem real):
 
 ## Identidade — presença sem idade (ADR-0029)
 
+Tabela implementada `identity.selfie_failures` (issue #300, ADR-0043): PK `verification_id` (a tentativa reprovada; sem FK, porque a tentativa sai em 30 dias), `user_id` com FK `ON DELETE CASCADE` e índice `(user_id, failed_at)`, `failed_at timestamptz` finito. Uma linha por reprovação; contagem e pausa são derivadas. duora_app tem SELECT/INSERT/UPDATE/DELETE (a aprovação e a revogação da suspensão por selfie apagam as linhas da conta).
+
 Tabela implementada `identity.selfie_verifications`: PK id; FK user_id com Restrict; estados Pending/Capturing/Processing/Passed/RecaptureRequired/Inconclusive/Expired; policy_version, provider_reference transitório único, feedback_code, requested_at, expires_at, completed_at e version de concorrência. Índice único parcial permite uma tentativa aberta por conta, índice user_id/requested_at atende status e orçamento. duora_app tem SELECT/INSERT/UPDATE/DELETE conforme allowlist explícita. Não armazena imagens, idade, documentos ou scores. Registros etários antigos ficam somente para compatibilidade histórica.
 
 Código de e-mail: identity.user_tokens guarda hash ligado ao security stamp e instante de emissão explícito. O registro separado Duora.RegistrationBudget/Hourly guarda início/contador do limite de emissões e não é segredo de autenticação nem fator MFA. Ambos são serializados pelo lock da conta.

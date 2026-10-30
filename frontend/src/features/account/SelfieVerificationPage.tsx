@@ -3,7 +3,7 @@ import { usePrivateMutation } from '@/features/session/private-mutation'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount } from '@/features/session/account-context'
-import { classifyRequestFailure } from '@/shared/api'
+import { ApiProblemError, classifyRequestFailure } from '@/shared/api'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
@@ -13,7 +13,9 @@ import {
   captureSelfie,
   completeSelfie,
   currentSelfie,
+  SELFIE_ATTEMPT_PROBLEMS,
   startSelfie,
+  type SelfieAttempts,
   type SelfieCapture as Capture,
 } from './selfie-verification-api'
 import { isSelfieDocument, loadSelfieDocument } from './selfie-document'
@@ -87,6 +89,9 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
       setCaptureFailed(false)
       await query.refetch()
     },
+    onError: async (failure) => {
+      if (isAttemptLimit(failure)) await query.refetch()
+    },
   })
   const open = usePrivateMutation({
     mutationFn: (operation, id: string) => captureSelfie(operation, id),
@@ -95,18 +100,34 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
       setCapture({ ...session, attemptId })
     },
   })
-  const error = query.error ?? start.error ?? open.error
+  const startError = start.error && !isAttemptLimit(start.error) ? start.error : null
+  const error = query.error ?? startError ?? open.error
   const status = query.data
+  const attempts = status?.attempts
+  const blocked = attempts?.state === 'CoolingDown' || attempts?.state === 'Exhausted'
+  const reopensAt = attempts?.state === 'CoolingDown' ? attempts.lockedUntil : null
+  const { refetch } = query
+  useEffect(() => {
+    if (reopensAt === null) return
+    // O servidor decide; no fim da pausa a tela só relê o estado para devolver a captura.
+    const timer = setTimeout(() => void refetch(), untilDelay(reopensAt))
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [reopensAt, refetch])
   return (
     <Page title={copy.title}>
       <p>{copy.intro}</p>
       <p>{copy.guidance}</p>
       <p>{copy.help}</p>
       {error ? <RequestFailureAlert failure={classifyRequestFailure(error)} /> : null}
-      {captureFailed || status?.nextStep === 'Recapture' ? <Alert variant="info">{copy.retry}</Alert> : null}
+      {(captureFailed || status?.nextStep === 'Recapture') && !blocked ? (
+        <Alert variant="info">{copy.retry}</Alert>
+      ) : null}
+      {attempts && status.state !== 'Passed' ? <AttemptsNotice attempts={attempts} /> : null}
       {status?.state === 'Passed' ? <Alert variant="success">{copy.done}</Alert> : null}
       {query.isPending || status?.nextStep === 'Wait' ? <p role="status">{copy.waiting}</p> : null}
-      {status && ['Start', 'Recapture'].includes(status.nextStep) ? (
+      {status && ['Start', 'Recapture'].includes(status.nextStep) && !blocked ? (
         <Button
           disabled={start.isPending}
           onClick={() => {
@@ -154,3 +175,52 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
     </Page>
   )
 }
+
+/** Espera até o fim da pausa, no teto que o setTimeout aceita (cerca de 24,8 dias). */
+function untilDelay(instant: string): number {
+  return Math.min(Math.max(0, Date.parse(instant) - Date.now()), MAX_TIMER_DELAY_MS)
+}
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+function isAttemptLimit(failure: Error): boolean {
+  return failure instanceof ApiProblemError && SELFIE_ATTEMPT_PROBLEMS.has(failure.problem.code ?? '')
+}
+
+/**
+ * Limite de reprovações (issue #300). O servidor decide; a tela só conta o que falta. A contagem aparece depois da
+ * primeira reprovação, e sempre no segundo ciclo, que termina na suspensão da conta.
+ */
+function AttemptsNotice({ attempts }: { readonly attempts: SelfieAttempts }): React.JSX.Element | null {
+  const { t, formatDateTime } = useI18n()
+  switch (attempts.state) {
+    case 'Available':
+      if (attempts.lastCycle) {
+        return <Alert variant="info">{t('selfieAttempts.lastCycle', { remaining: attempts.remaining })}</Alert>
+      }
+      return attempts.remaining < FULL_CYCLE ? (
+        <p role="status">{t('selfieAttempts.firstCycle', { remaining: attempts.remaining })}</p>
+      ) : null
+    case 'CoolingDown': {
+      if (attempts.lockedUntil === null) return null
+      const [before, after] = t('selfieAttempts.coolingDown', { time: TIME_SLOT }).split(TIME_SLOT)
+      return (
+        <Alert variant="info">
+          {before}
+          <time dateTime={attempts.lockedUntil}>{formatDateTime(new Date(attempts.lockedUntil))}</time>
+          {after}
+        </Alert>
+      )
+    }
+    case 'Exhausted':
+      return <Alert variant="error">{t('selfieAttempts.exhausted')}</Alert>
+    case 'Unknown':
+      return null
+  }
+}
+
+/** Tentativas de um ciclo cheio; com todas, ainda não houve reprovação e a tela não mostra contagem. */
+const FULL_CYCLE = 5
+
+/** Marcador para pôr o horário num elemento time dentro do texto traduzido. */
+const TIME_SLOT = '\u0000time\u0000'

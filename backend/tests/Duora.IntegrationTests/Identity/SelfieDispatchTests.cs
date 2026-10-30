@@ -30,7 +30,7 @@ public sealed class SelfieDispatchTests(PostgresFixture postgres)
         using var scope = factory.Services.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<SelfieVerificationService>();
         var dispatcher = scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>();
-        Assert.NotNull(await service.RequestAsync(account.UserId, ct));
+        Assert.IsType<SelfieRequestOutcome.Accepted>(await service.RequestAsync(account.UserId, ct));
         await dispatcher.DispatchBatchAsync(ct);
         Assert.Equal("Capturing", (await service.GetCurrentAsync(account.UserId, ct)).State);
         if (suspendBeforeResult)

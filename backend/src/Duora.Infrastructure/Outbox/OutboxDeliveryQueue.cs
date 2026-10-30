@@ -102,6 +102,16 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         where id = @id and fencing_token = @fencing_token and status = @in_flight and lease_expires_at > @now
         """;
 
+    // Espera sem falha: devolve a tentativa que o claim contou, para o teto medir só falhas de verdade.
+    private const string PostponeSql =
+        """
+        update ops.outbox_deliveries
+        set status = @pending, available_at = @available_at, lease_expires_at = null, last_error = @error,
+            attempts = attempts - 1
+        where id = @id and fencing_token = @fencing_token and status = @in_flight and lease_expires_at > @now
+          and attempts > 0
+        """;
+
     // Mesma condição de posse da conclusão: o heartbeat nunca ressuscita um lease vencido nem um token antigo.
     private const string RenewLeaseSql =
         """
@@ -260,6 +270,26 @@ internal sealed class OutboxDeliveryQueue(NpgsqlDataSource dataSource)
         AddOwnership(command, delivery, now);
         command.Parameters.AddWithValue("available_at", availableAt);
         command.Parameters.AddWithValue("error", error);
+        command.Parameters.AddWithValue("pending", Pending);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    /// <summary>
+    /// Adia a entrega sem gastar tentativa: para quando o consumidor está esperando outra coisa acontecer, não falhou.
+    /// O teto de <see cref="ClaimWithAttemptLimitAsync"/> passa a contar só as falhas. Falso quando perdeu a posse.
+    /// </summary>
+    public async Task<bool> PostponeAsync(
+        ClaimedDelivery delivery,
+        DateTimeOffset availableAt,
+        string reason,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(PostponeSql);
+        AddOwnership(command, delivery, now);
+        command.Parameters.AddWithValue("available_at", availableAt);
+        command.Parameters.AddWithValue("error", reason);
         command.Parameters.AddWithValue("pending", Pending);
 
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;

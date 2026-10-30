@@ -154,6 +154,24 @@ public sealed class SelfieVerificationDispatcher
         }
     }
 
+    /// <summary>
+    /// Na transação do resultado, sob a trava da conta (issue #300): grava a reprovação e, se ela é a décima, o pedido
+    /// de suspensão na outbox. A suspensão em si roda depois, fora desta transação.
+    /// </summary>
+    private async Task RecordFailureAsync(SelfieVerificationRecord record, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (!await SelfieFailureLedger.RecordAsync(_db, record.Id, record.UserId, now, cancellationToken))
+        {
+            return;
+        }
+
+        var failures = await SelfieFailureLedger.ReadAsync(_db, record.UserId, cancellationToken);
+        if (SelfieAttemptPolicy.ExhaustsAttempts(failures.Count))
+        {
+            _db.Add(SelfieAttemptsSuspensionOutbox.Create(record.UserId, record.Id, now));
+        }
+    }
+
     private async Task<bool> ApplyAsync(SelfieVerificationRecord previous, ClaimedDelivery delivery,
         SelfieSession? session, SelfieResult? result, CancellationToken cancellationToken)
     {
@@ -201,6 +219,11 @@ public sealed class SelfieVerificationDispatcher
                     update identity.users set status = 'Active', concurrency_stamp = {Guid.NewGuid().ToString()}
                     where id = {record.UserId} and status = 'PendingEligibility' and email_confirmed
                     """, cancellationToken);
+                await SelfieFailureLedger.ClearAsync(_db, record.UserId, cancellationToken);
+            }
+            else if (SelfieAttemptPolicy.CountsAsFailure(result, record.PolicyVersion))
+            {
+                await RecordFailureAsync(record, now, cancellationToken);
             }
         }
 

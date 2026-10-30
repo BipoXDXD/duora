@@ -90,6 +90,12 @@ de dado biométrico entra: só o código da origem e o id. A automação só sus
 violação dos Termos segue exigindo pessoa (spec 12.3, TM-34). Essa é a exceção a
 `SafetyRule.MeasureRequiresHumanAuthor`, condicionada às decisões da #300.
 
+**Adendo (2026-10-30, issue #300).** A exceção fica registrada no
+[ADR-0043](0043-limite-de-reprovacoes-da-selfie.md), com a decisão do dono de 29/10/2026: a décima reprovação da selfie
+suspende a conta automaticamente, pela porta interna e fora da transação do resultado, com a chave
+`system:selfie-verification:{verificationId}`. Revogar essa suspensão apaga as reprovações da selfie na mesma
+transação (operação do Identity), e a conta volta ao primeiro ciclo.
+
 ## Consequências
 
 - Uma rota nova nasce negada para a conta suspensa. Abri-la exige a marca e muda a allowlist de
