@@ -50,7 +50,7 @@ internal static class SelfieConcurrencyHarness
     public static async Task RequestAsync(DuoraWebFactory host, Guid userId, CancellationToken cancellationToken)
     {
         using var scope = host.Services.CreateScope();
-        Assert.NotNull(await scope.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(userId, cancellationToken));
+        Assert.IsType<SelfieRequestOutcome.Accepted>(await scope.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(userId, cancellationToken));
     }
 }
 

@@ -37,15 +37,15 @@ public sealed class SelfieRequestSecurityTests(PostgresFixture postgres)
         var attempts = await Task.WhenAll(
             first.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(owner.UserId, ct),
             second.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(owner.UserId, ct));
-        Assert.NotNull(attempts[0]);
-        Assert.Equal(attempts[0]!.Id, attempts[1]!.Id);
+        var firstStatus = Assert.IsType<SelfieRequestOutcome.Accepted>(attempts[0]).Status;
+        Assert.Equal(firstStatus.Id, Assert.IsType<SelfieRequestOutcome.Accepted>(attempts[1]).Status.Id);
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1", owner.UserId));
         // A valid-looking capture reference must still be restricted to its owner, without calling STS.
-        await scenario.ScalarAsync("update identity.selfie_verifications set state = 'Capturing', provider_reference = $2 where id = $1 returning 1", attempts[0]!.Id!, Guid.NewGuid().ToString());
+        await scenario.ScalarAsync("update identity.selfie_verifications set state = 'Capturing', provider_reference = $2 where id = $1 returning 1", firstStatus.Id!, Guid.NewGuid().ToString());
         var credentials = second.ServiceProvider.GetRequiredService<SelfieCaptureCredentialService>();
-        Assert.Null(await credentials.CreateAsync(other.UserId, attempts[0]!.Id!.Value, ct));
+        Assert.Null(await credentials.CreateAsync(other.UserId, firstStatus.Id!.Value, ct));
         using var browser = await scenario.SignedInBrowserAsync(other);
-        using var response = await browser.PostJsonAsync($"/api/v1/me/selfie-verifications/{attempts[0]!.Id}/complete", new { });
+        using var response = await browser.PostJsonAsync($"/api/v1/me/selfie-verifications/{firstStatus.Id}/complete", new { });
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
@@ -61,14 +61,13 @@ public sealed class SelfieRequestSecurityTests(PostgresFixture postgres)
         {
             using var scope = factory.Services.CreateScope();
             var service = scope.ServiceProvider.GetRequiredService<SelfieVerificationService>();
-            var result = await service.RequestAsync(owner.UserId, ct);
-            Assert.NotNull(result);
+            var result = Assert.IsType<SelfieRequestOutcome.Accepted>(await service.RequestAsync(owner.UserId, ct)).Status;
             await scenario.ScalarAsync("update identity.selfie_verifications set state = 'Inconclusive' where id = $1 returning 1", result.Id!);
             time.Advance(TimeSpan.FromMinutes(1));
         }
 
         using var final = factory.Services.CreateScope();
-        Assert.Null(await final.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(owner.UserId, ct));
+        Assert.IsType<SelfieRequestOutcome.Unavailable>(await final.ServiceProvider.GetRequiredService<SelfieVerificationService>().RequestAsync(owner.UserId, ct));
         Assert.Equal(5, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1", owner.UserId));
     }
 }

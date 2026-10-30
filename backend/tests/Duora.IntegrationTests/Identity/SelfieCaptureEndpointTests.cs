@@ -186,9 +186,9 @@ public sealed class SelfieCaptureEndpointTests(PostgresFixture postgres)
     private static async Task<Guid> CapturingAttemptAsync(IdentityScenario scenario, DuoraWebFactory factory, Guid userId)
     {
         using var scope = factory.Services.CreateScope();
-        var status = await scope.ServiceProvider.GetRequiredService<Duora.Infrastructure.Identity.SelfieVerificationService>()
+        var outcome = await scope.ServiceProvider.GetRequiredService<Duora.Infrastructure.Identity.SelfieVerificationService>()
             .RequestAsync(userId, TestContext.Current.CancellationToken);
-        var id = status!.Id!.Value;
+        var id = Assert.IsType<Duora.Infrastructure.Identity.SelfieRequestOutcome.Accepted>(outcome).Status.Id!.Value;
         await scenario.ScalarAsync("""
             update identity.selfie_verifications
             set state = 'Capturing', provider_reference = 'synthetic-reference-' || id::text, expires_at = now() + interval '3 minutes'

@@ -13,10 +13,10 @@ internal static partial class SelfieVerificationEndpoints
         var group = api.MapGroup("/me/selfie-verifications").WithTags("Me").ProducesProblem(401).ProducesProblem(403);
         group.MapPost("", async (StartSelfieVerificationRequest request, HttpContext context, SelfieVerificationService service, CancellationToken ct) =>
         {
-            var status = await service.RequestAsync(DuoraClaims.ReadUserId(context.User)!.Value, ct);
-            return status is null
-                ? ApiProblems.Problem(503, "SELFIE_UNAVAILABLE") as IResult
-                : TypedResults.Accepted("/api/v1/me/selfie-verifications/current", Response(status));
+            var outcome = await service.RequestAsync(DuoraClaims.ReadUserId(context.User)!.Value, ct);
+            return outcome is SelfieRequestOutcome.Accepted accepted
+                ? TypedResults.Accepted("/api/v1/me/selfie-verifications/current", Response(accepted.Status)) as IResult
+                : ApiProblems.Problem(503, "SELFIE_UNAVAILABLE");
         }).Produces<SelfieVerificationResponse>(202).ProducesProblem(503).RequireRateLimiting(AuthRateLimitPolicies.TokenRedemption);
         group.MapGet("/current", async (HttpContext context, SelfieVerificationService service, CancellationToken ct) =>
             TypedResults.Ok(Response(await service.GetCurrentAsync(DuoraClaims.ReadUserId(context.User)!.Value, ct))));
