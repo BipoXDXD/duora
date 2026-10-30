@@ -86,6 +86,7 @@ public sealed class ReviewPromotionCollectorTests(PostgresFixture postgres) : IA
         Assert.Contains(nameof(IOException), warning.Text, StringComparison.Ordinal);
         Assert.Null(warning.Exception);
         Assert.DoesNotContain(generation.ToString("N"), warning.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("derivatives/", warning.Text, StringComparison.Ordinal);
         Assert.DoesNotContain(generation.ToString("D"), warning.Text, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, await CountAsync("""
             select count(*) from media.review_promotions where generation = $1 and deleted_at is null
@@ -194,8 +195,9 @@ public sealed class ReviewPromotionCollectorTests(PostgresFixture postgres) : IA
 
         public Task<Stream?> OpenReadAsync(ObjectKey key, CancellationToken cancellationToken) => throw new NotSupportedException();
 
+        /// <summary>A mensagem carrega a chave (com a geração) como canário: o log não pode repeti-la.</summary>
         public Task DeleteAsync(ObjectKey key, CancellationToken cancellationToken) =>
-            throw new IOException("Synthetic promotion deletion failure.");
+            throw new IOException($"Synthetic promotion deletion failure for {key.Value}.");
     }
 
     /// <summary>Cada remoção leva mais que o lease inteiro: quando a varredura termina, o lease já venceu.</summary>

@@ -158,6 +158,7 @@ public sealed partial class ReviewPromotionCleanupDispatcher
 
         return command;
     }
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Private promotion cleanup failed on attempt {Attempt} ({Cause}); durable retry retained")]
     private static partial void LogRetry(ILogger logger, int attempt, string cause);
 
