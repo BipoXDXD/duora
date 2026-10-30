@@ -165,8 +165,8 @@ exclusão dentro da janela de backup (~65 dias) fica elegível. Um tombstone com
 apagados) não sai, nem um cujo candidato ou promoção foi removido há menos de 65 dias no relógio do banco (os
 coletores gravam essa data com o relógio do banco, #297). O upload continua `Deleted`. A conclusão de
 `photo_deletion_cleanup` e de `original_cleanup` não tem data guardada; o risco residual e por que ele não
-ressuscita a foto estão no ADR. O coletor de promoções ainda não está registrado no Worker, então uma promoção abandonada
-segura o tombstone e os bytes privados dela até isso ser feito; um escritor que cai no meio da gravação (candidato ou
-promoção) nunca recebe `deleted_at` e segura o tombstone indefinidamente. Os dois riscos estão no ADR.
+ressuscita a foto estão no ADR. O `ReviewPromotionCleanupService` do Worker remove as promoções abandonadas (#303),
+então elas só seguram o tombstone até a remoção e a janela de backup. Um escritor que cai no meio da gravação
+(candidato ou promoção) nunca recebe `deleted_at` e segura o tombstone indefinidamente; esse risco está no ADR.
 Métrica `duora.media.deletion_records.purged` (meter `Duora.Media`, rótulo `table`) e log com as contagens.
 Motivo e alternativas no [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#expurgo-dos-registros-de-exclusão-p3).
