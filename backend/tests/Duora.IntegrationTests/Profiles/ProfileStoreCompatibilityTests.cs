@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Duora.Core.Profiles;
 using Duora.Infrastructure.Profiles;
 using Duora.IntegrationTests.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
@@ -141,9 +142,25 @@ public sealed class ProfileStoreCompatibilityTests(PostgresFixture postgres)
         return new ScratchDatabase(name, app, migrator.ConnectionString);
     }
 
-    /// <summary>Schema expandido, com a coluna legada: o estado que o Down do contract devolve num recuo.</summary>
-    private Task<ScratchDatabase> CreateExpandedDatabaseAsync() => ProfileRegionContractMigrationTests.MigrateToAsync(
-        postgres, ProfileRegionContractMigrationTests.MigrationBeforeContract);
+    /// <summary>
+    /// Schema expandido, com a coluna legada: o estado que o Down do contract devolve num recuo. Num recuo real, as
+    /// migrações aditivas posteriores continuam aplicadas (o Down delas é recusado); aqui entram, sem registro no
+    /// histórico, as que o fluxo de login e de GET /me já lê: <c>identity.selfie_failures</c> (issue #300).
+    /// </summary>
+    private async Task<ScratchDatabase> CreateExpandedDatabaseAsync()
+    {
+        var database = await ProfileRegionContractMigrationTests.MigrateToAsync(
+            postgres, ProfileRegionContractMigrationTests.MigrationBeforeContract);
+        await using var context = PostgresFixture.CreateDbContext(database.MigratorConnectionString);
+        var later = new Duora.Infrastructure.Persistence.Migrations.SelfieFailures();
+        var commands = context.GetService<IMigrationsSqlGenerator>().Generate(later.UpOperations, context.Model);
+        foreach (var command in commands)
+        {
+            await context.Database.ExecuteSqlRawAsync(command.CommandText, TestContext.Current.CancellationToken);
+        }
+
+        return database;
+    }
 
     private static async Task AssertProfileAsync(HttpResponseMessage response, string? country, string? subdivision, string? legacy, long version)
     {
