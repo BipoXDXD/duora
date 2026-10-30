@@ -40,6 +40,8 @@ public sealed class ProblemTextTests
         { "REAUTHENTICATION_REQUIRED", "Confirm your credentials to continue." },
         { "RATE_LIMITED", "Too many requests. Try again later." },
         { "SELF_BLOCK", "You cannot block your own account." },
+        { "SELFIE_ATTEMPTS_EXHAUSTED", "Selfie attempts are exhausted. The account is blocked pending review." },
+        { "SELFIE_ATTEMPTS_LOCKED", "Too many rejected selfies. Try again after the pause." },
         { "STORAGE_UNAVAILABLE", "Photo storage is temporarily unavailable. Retry with the same key." },
         { "TEMPORARILY_UNAVAILABLE", "Service temporarily unavailable. Try again later." },
         { "UNSUPPORTED_MEDIA_TYPE", "Unsupported media type." },

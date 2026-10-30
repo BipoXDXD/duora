@@ -14,6 +14,8 @@ internal sealed partial class SelfieVerificationProviderService(IServiceScopeFac
             {
                 using var scope = scopes.CreateScope();
                 await scope.ServiceProvider.GetRequiredService<SelfieVerificationDispatcher>().DispatchBatchAsync(stoppingToken);
+                // Roda mesmo com a selfie desligada: um pedido de suspensão já gravado não pode ficar parado (issue #300).
+                await scope.ServiceProvider.GetRequiredService<SelfieAttemptsSuspensionDispatcher>().DispatchBatchAsync(stoppingToken);
             }
             catch (Exception exception) when (exception is DbException
                 or InvalidOperationException { InnerException: DbException }

@@ -5,7 +5,14 @@ using Microsoft.Extensions.Options;
 
 namespace Duora.Infrastructure.Identity;
 
-public sealed record SelfieStatus(Guid? Id, string State, string NextStep, string? FeedbackCode, DateTimeOffset? ExpiresAt);
+/// <summary>Estado mínimo da selfie e as tentativas que restam antes da pausa ou da suspensão (issue #300).</summary>
+public sealed record SelfieStatus(
+    Guid? Id,
+    string State,
+    string NextStep,
+    string? FeedbackCode,
+    DateTimeOffset? ExpiresAt,
+    SelfieAttemptStanding Attempts);
 
 /// <summary>Resposta a um pedido de nova tentativa de selfie (API-P05).</summary>
 public abstract record SelfieRequestOutcome
@@ -19,6 +26,12 @@ public abstract record SelfieRequestOutcome
 
     /// <summary>Integração desligada, conta fora do fluxo ou orçamento por hora esgotado: nenhuma captura nova.</summary>
     public sealed record Unavailable : SelfieRequestOutcome;
+
+    /// <param name="Until">Fim da pausa de 1 hora depois da quinta reprovação; a partir dele, o segundo ciclo abre.</param>
+    public sealed record AttemptsLocked(DateTimeOffset Until) : SelfieRequestOutcome;
+
+    /// <summary>Dez reprovações: a conta é suspensa e só um moderador devolve tentativas.</summary>
+    public sealed record AttemptsExhausted : SelfieRequestOutcome;
 }
 
 /// <summary>Medidas do DetectFaces (Attributes DEFAULT) no frame de referência: brilho e nitidez 0–100, pose em graus.</summary>
@@ -111,7 +124,15 @@ public sealed class SelfieVerificationService
         var row = await _db.Set<SelfieVerificationRecord>().AsNoTracking()
             .Where(v => v.UserId == userId).OrderByDescending(v => v.RequestedAt).ThenByDescending(v => v.Id)
             .FirstOrDefaultAsync(cancellationToken);
-        return ToStatus(row);
+        return ToStatus(row, await SelfieFailureLedger.StandingAsync(_db, userId, _time.GetUtcNow(), cancellationToken));
+    }
+
+    /// <summary>Tentativas da conta para GET /me; nula quando a selfie já foi aprovada e a contagem acabou.</summary>
+    public async Task<SelfieAttemptStanding?> GetAttemptsAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        var passed = await _db.Set<SelfieVerificationRecord>().AsNoTracking()
+            .AnyAsync(v => v.UserId == userId && v.State == SelfieState.Passed, cancellationToken);
+        return passed ? null : await SelfieFailureLedger.StandingAsync(_db, userId, _time.GetUtcNow(), cancellationToken);
     }
 
     public async Task<SelfieRequestOutcome> RequestAsync(Guid userId, CancellationToken cancellationToken)
@@ -136,10 +157,20 @@ public sealed class SelfieVerificationService
                 .SetProperty(v => v.Version, v => v.Version + 1), cancellationToken);
         var active = await _db.Set<SelfieVerificationRecord>().AsNoTracking().FirstOrDefaultAsync(v => v.UserId == userId
             && (v.State == SelfieState.Passed || v.State == SelfieState.Pending || v.State == SelfieState.Capturing || v.State == SelfieState.Processing), cancellationToken);
+        var attempts = await SelfieFailureLedger.StandingAsync(_db, userId, now, cancellationToken);
         if (active is not null)
         {
             await transaction.CommitAsync(cancellationToken);
-            return new SelfieRequestOutcome.Accepted(ToStatus(active));
+            return new SelfieRequestOutcome.Accepted(ToStatus(active, attempts));
+        }
+
+        // Sob a trava da conta: o worker grava a reprovação sob a mesma trava, então a pausa não tem janela de corrida.
+        switch (attempts)
+        {
+            case SelfieAttemptStanding.CoolingDown cooling:
+                return new SelfieRequestOutcome.AttemptsLocked(cooling.Until);
+            case SelfieAttemptStanding.Exhausted:
+                return new SelfieRequestOutcome.AttemptsExhausted();
         }
 
         var recent = _db.Set<SelfieVerificationRecord>().Where(v => v.UserId == userId && v.RequestedAt > now.AddHours(-1));
@@ -162,7 +193,7 @@ public sealed class SelfieVerificationService
         _db.Add(SelfieVerificationOutbox.Create(record.Id, now, record.ExpiresAt));
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new SelfieRequestOutcome.Accepted(ToStatus(record));
+        return new SelfieRequestOutcome.Accepted(ToStatus(record, attempts));
     }
 
     internal async Task<string?> CaptureReferenceAsync(Guid userId, Guid id, CancellationToken cancellationToken)
@@ -175,11 +206,11 @@ public sealed class SelfieVerificationService
             .Select(v => v.ProviderReference).SingleOrDefaultAsync(cancellationToken);
     }
 
-    private SelfieStatus ToStatus(SelfieVerificationRecord? row)
+    private SelfieStatus ToStatus(SelfieVerificationRecord? row, SelfieAttemptStanding attempts)
     {
         if (row is null)
         {
-            return new(null, "NotStarted", "Start", null, null);
+            return new(null, "NotStarted", "Start", null, null, attempts);
         }
 
         var state = row.State;
@@ -194,6 +225,6 @@ public sealed class SelfieVerificationService
             SelfieState.Capturing => "Capture",
             SelfieState.Pending or SelfieState.Processing => "Wait",
             _ => "Recapture",
-        }, row.FeedbackCode, state == SelfieState.Passed ? null : row.ExpiresAt);
+        }, row.FeedbackCode, state == SelfieState.Passed ? null : row.ExpiresAt, attempts);
     }
 }

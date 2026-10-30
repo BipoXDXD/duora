@@ -41,6 +41,8 @@ internal static class ApiProblems
     public const string ReauthenticationRequired = "REAUTHENTICATION_REQUIRED";
     public const string RateLimited = "RATE_LIMITED";
     public const string SelfBlock = "SELF_BLOCK";
+    public const string SelfieAttemptsExhausted = "SELFIE_ATTEMPTS_EXHAUSTED";
+    public const string SelfieAttemptsLocked = "SELFIE_ATTEMPTS_LOCKED";
     public const string StorageUnavailable = "STORAGE_UNAVAILABLE";
     public const string TemporarilyUnavailable = "TEMPORARILY_UNAVAILABLE";
     public const string UnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE";
@@ -134,6 +136,8 @@ internal static class ApiProblems
         ReauthenticationRequired => "Confirm your credentials to continue.",
         RateLimited => "Too many requests. Try again later.",
         SelfBlock => "You cannot block your own account.",
+        SelfieAttemptsExhausted => "Selfie attempts are exhausted. The account is blocked pending review.",
+        SelfieAttemptsLocked => "Too many rejected selfies. Try again after the pause.",
         StorageUnavailable => "Photo storage is temporarily unavailable. Retry with the same key.",
         TemporarilyUnavailable => "Service temporarily unavailable. Try again later.",
         UnsupportedMediaType => "Unsupported media type.",

@@ -51,6 +51,8 @@ internal static class AppRoleTableAccess
             ["identity.login_sessions"] = AppTableAccess.ReadWrite,
             ["identity.role_claims"] = AppTableAccess.ReadWrite,
             ["identity.roles"] = AppTableAccess.ReadWrite,
+            // Reprovações da selfie (#300): a aprovação e a revogação da suspensão por selfie apagam a contagem.
+            ["identity.selfie_failures"] = AppTableAccess.ReadWrite,
             ["identity.selfie_verifications"] = AppTableAccess.ReadWrite,
             ["identity.user_claims"] = AppTableAccess.ReadWrite,
             ["identity.user_logins"] = AppTableAccess.ReadWrite,

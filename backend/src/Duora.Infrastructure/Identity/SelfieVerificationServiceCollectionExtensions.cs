@@ -36,6 +36,10 @@ public static class SelfieVerificationServiceCollectionExtensions
             p.GetRequiredService<Duora.Core.Identity.ISelfieProvider>(),
             p.GetRequiredService<Microsoft.Extensions.Options.IOptions<SelfieProviderOptions>>(),
             p.GetRequiredService<TimeProvider>()));
+        services.AddScoped(p => new SelfieAttemptsSuspensionDispatcher(
+            p.GetRequiredService<Duora.Infrastructure.Persistence.DuoraDbContext>(),
+            new Duora.Infrastructure.Outbox.OutboxDeliveryQueue(p.GetRequiredService<Npgsql.NpgsqlDataSource>()),
+            p.GetRequiredService<TimeProvider>()));
         return services;
     }
 
