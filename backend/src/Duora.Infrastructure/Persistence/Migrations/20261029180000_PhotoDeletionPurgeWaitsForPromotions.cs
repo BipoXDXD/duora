@@ -5,8 +5,10 @@ namespace Duora.Infrastructure.Persistence.Migrations;
 
 /// <summary>
 /// #297 (ADR-0035, P3): o expurgo de tombstones passa a esperar também a promoção privada não confirmada
-/// (<c>media.review_promotions</c> com bytes em <c>review_promotion_variants</c>), com a mesma regra do candidato: fica
-/// enquanto ela não for removida e por mais 65 dias (janela de backup) depois da remoção no relógio do banco. Aditiva:
+/// (<c>media.review_promotions</c> com <c>committed_at</c> nulo), com a mesma regra do candidato: fica enquanto ela não
+/// for removida e por mais 65 dias (janela de backup) depois da remoção no relógio do banco. O filtro não exige linha em
+/// <c>review_promotion_variants</c>: as variantes nascem na mesma transação da promoção, antes de qualquer byte, e o
+/// coletor apaga as três chaves da geração de qualquer forma. Aditiva:
 /// só substitui o corpo da função, com a mesma assinatura, dono e grants de
 /// <see cref="PhotoDeletionRecordRetention"/>; nenhuma linha muda. O <c>Down</c> devolve o corpo anterior.
 /// </summary>

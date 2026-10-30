@@ -98,6 +98,8 @@ public sealed partial class ReviewCandidateCleanupDispatcher
         }
 
         var now = _time.GetUtcNow();
+        // The sweep's timestamps come from the database clock: the tombstone purge counts its backup window from
+        // deleted_at (ADR-0035, P3).
         await using var command = Command(connection, """
             update media.review_candidates set last_cleanup_at=statement_timestamp(),
               deleted_at=case when $3 then statement_timestamp() else null end,
@@ -107,8 +109,6 @@ public sealed partial class ReviewCandidateCleanupDispatcher
               and (not $3 or writer_settled_at is not null)
             """, claim.Generation, claim.Token, claim.WriterWasSettled, now, now + UncertainWriterPoll);
         // An uncertain writer never has a terminal ACK, even if it settled while these DELETEs were running.
-        // The sweep's timestamps come from the database clock: the tombstone purge counts its backup window from
-        // deleted_at (ADR-0035, P3).
         command.Transaction = transaction;
         var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
         await transaction.CommitAsync(cancellationToken);
