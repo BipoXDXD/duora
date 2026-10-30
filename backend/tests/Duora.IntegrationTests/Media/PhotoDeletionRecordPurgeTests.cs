@@ -192,19 +192,28 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
         // A janela de backup conta da remoção física, no relógio do banco, não de deleted_at.
         var databaseNow = await DatabaseNowAsync();
         var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
-        var removedAt = databaseNow.AddDays(-daysAgo);
-        await ExecuteAsync("""
-            insert into media.review_candidates (generation, upload_id, upload_version, detected_type, width, height,
-              created_at, prepare_deadline, writer_settled_at, cleanup_requested_at, cleanup_available_at,
-              last_cleanup_at, deleted_at)
-            values (gen_random_uuid(), $1, 1, 'image/jpeg', 64, 32, $2 - interval '1 hour', $2,
-              $2 - interval '1 hour', $2, $2, $3, $3)
-            """, photo, DeletedAt, removedAt);
+        await SeedRemovedCandidateAsync(photo, databaseNow.AddDays(-daysAgo));
         _time.SetUtcNow(new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.Zero));
 
         var result = await Purge().PurgeOnceAsync(Ct);
 
         Assert.Equal(purged ? 1 : 0, result.Tombstones);
+        Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public async Task ATombstoneLeavesWhenItsCandidateWasRemovedExactlyTheBackupWindowAgoOnTheDatabaseClock(
+        int microsecondsYounger, bool purged)
+    {
+        // A remoção e o expurgo saem do mesmo comando, com o mesmo statement_timestamp(): exatamente 65 dias libera,
+        // 1 µs a menos ainda segura.
+        var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
+        await SeedRemovedCandidateAsync(photo, (await DatabaseNowAsync()).AddDays(-100));
+
+        await PurgeOnTheSameStatementAsync(CandidatesRemovedOneBackupWindowAgo, microsecondsYounger);
+
         Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
     }
 
@@ -233,6 +242,47 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
     [Theory]
     [InlineData(0, true)]
     [InlineData(1, false)]
+    public async Task ATombstoneLeavesWhenItsReviewPromotionWasRemovedExactlyTheBackupWindowAgoOnTheDatabaseClock(
+        int microsecondsYounger, bool purged)
+    {
+        var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
+        await SeedReviewPromotionAsync(photo, (await DatabaseNowAsync()).AddDays(-100));
+
+        await PurgeOnTheSameStatementAsync(PromotionsRemovedOneBackupWindowAgo, microsecondsYounger);
+
+        Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
+    }
+
+    [Fact]
+    public async Task ACommittedReviewPromotionDoesNotHoldTheTombstone()
+    {
+        // Confirmada, a promoção entrega os derivados ao asset; a exclusão do asset é que gera a obrigação física
+        // (photo_deletion_cleanup), e aqui ela já terminou.
+        var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
+        var promotion = await SeedReviewPromotionAsync(photo, removedAt: null);
+        var asset = Guid.NewGuid();
+        await ExecuteAsync("""
+            insert into media.media_assets (id, upload_id, owner_id, state, detected_type, width, height, sha256,
+              approved_at, version, deleted_at)
+            select $1, id, owner_id, 'Deleted', 'image/jpeg', 64, 32, sha256(convert_to('asset:' || id, 'UTF8')),
+              $2 - interval '20 minutes', 2, $2
+            from media.uploads where id = $3
+            """, asset, DeletedAt, photo);
+        await ExecuteAsync("""
+            update media.review_promotions set committed_at = $2 - interval '20 minutes', asset_id = $3
+            where generation = $1
+            """, promotion, DeletedAt, asset);
+        _time.SetUtcNow(new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.Zero));
+
+        var result = await Purge().PurgeOnceAsync(Ct);
+
+        Assert.Equal(1, result.Tombstones);
+        Assert.Equal(0, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
     public async Task ATombstoneExactlyOneYearOldOnTheDatabaseClockLeavesEvenWithTheCallerAhead(
         int microsecondsYounger, bool purged)
     {
@@ -241,7 +291,7 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
         // que o relógio ande entre a leitura e a chamada. O chamador no ano 9999 deixa o relógio do banco como teto.
         var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
 
-        await PurgeWithRecordsAgedOnTheSameStatementAsync(microsecondsYounger);
+        await PurgeOnTheSameStatementAsync(RecordsOneYearOld, microsecondsYounger);
 
         Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_tombstones where photo_id = $1", photo));
         Assert.Equal(purged ? 0 : 1, await CountAsync("select count(*) from media.photo_deletion_commands where photo_id = $1", photo));
@@ -406,7 +456,7 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
     public async Task RollingBackThePromotionRuleRestoresThePreviousFunctionWithItsOwnerAndGrant()
     {
         // O Down da 20261029180000 devolve o corpo da 20261029150000: a promoção pendente deixa de segurar o
-        // tombstone, e o dono e o EXECUTE de duora_app continuam os mesmos.
+        // tombstone, e o dono, o EXECUTE de duora_app e as configurações fixas continuam os mesmos.
         var photo = (await SeedDeletionsAsync(1, DeletedAt)).Single();
         await SeedReviewPromotionAsync(photo, removedAt: null);
         await using (var db = PostgresFixture.CreateDbContext(
@@ -423,6 +473,8 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
               and pg_get_userbyid(p.proowner) = 'duora_migrator'
               and has_function_privilege('duora_app', p.oid, 'EXECUTE')
               and not has_function_privilege('public', p.oid, 'EXECUTE')
+              and p.proconfig @> array['search_path=pg_catalog, pg_temp', 'TimeZone=UTC', 'lock_timeout=500ms']
+              and cardinality(p.proconfig) = 3
             """));
     }
 
@@ -489,7 +541,7 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
     /// Candidato removido há 400 dias, caso editorial e promoção não confirmada com o derivado <c>full</c> em
     /// <c>review_promotion_variants</c>. Com <paramref name="removedAt"/>, o coletor já apagou os bytes nesse instante.
     /// </summary>
-    private async Task SeedReviewPromotionAsync(Guid photo, DateTimeOffset? removedAt)
+    private async Task<Guid> SeedReviewPromotionAsync(Guid photo, DateTimeOffset? removedAt)
     {
         var candidate = Guid.NewGuid();
         var reviewCase = Guid.NewGuid();
@@ -525,14 +577,45 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
                 where generation = $1
                 """, promotion, DeletedAt, at);
         }
+
+        return promotion;
     }
 
+    /// <summary>Candidato privado da foto cujo coletor já apagou os bytes em <paramref name="removedAt"/>.</summary>
+    private Task SeedRemovedCandidateAsync(Guid photo, DateTimeOffset removedAt) => ExecuteAsync("""
+        insert into media.review_candidates (generation, upload_id, upload_version, detected_type, width, height,
+          created_at, prepare_deadline, writer_settled_at, cleanup_requested_at, cleanup_available_at,
+          last_cleanup_at, deleted_at)
+        values (gen_random_uuid(), $1, 1, 'image/jpeg', 64, 32, $2 - interval '1 hour', $2,
+          $2 - interval '1 hour', $2, $2, $3, $3)
+        """, photo, DeletedAt, removedAt);
+
+    // Envelhecimentos usados por PurgeOnTheSameStatementAsync; v_younger é o deslocamento do teste.
+    private const string RecordsOneYearOld = """
+        update media.photo_tombstones set deleted_at = statement_timestamp() - interval '1 year' + v_younger;
+        update media.photo_deletion_commands set created_at = statement_timestamp() - interval '1 year' + v_younger;
+        """;
+
+    private const string CandidatesRemovedOneBackupWindowAgo = """
+        update media.review_candidates
+        set last_cleanup_at = statement_timestamp() - interval '65 days' + v_younger,
+            deleted_at = statement_timestamp() - interval '65 days' + v_younger
+        where deleted_at is not null;
+        """;
+
+    private const string PromotionsRemovedOneBackupWindowAgo = """
+        update media.review_promotions
+        set last_cleanup_at = statement_timestamp() - interval '65 days' + v_younger,
+            deleted_at = statement_timestamp() - interval '65 days' + v_younger
+        where deleted_at is not null;
+        """;
+
     /// <summary>
-    /// Num único comando do cliente (bloco <c>DO</c>, como <c>duora_migrator</c>, dono das tabelas), envelhece
-    /// tombstones e recibos para <c>statement_timestamp() - 1 year</c> mais <paramref name="microsecondsYounger"/> e chama o expurgo com o chamador no
-    /// ano 9999. Dentro do mesmo comando, <c>statement_timestamp()</c> não muda.
+    /// Num único comando do cliente (bloco <c>DO</c>, como <c>duora_migrator</c>, dono das tabelas), aplica
+    /// <paramref name="aging"/> com <c>v_younger</c> = <paramref name="microsecondsYounger"/> e chama o expurgo com o
+    /// chamador no ano 9999. Dentro do mesmo comando, <c>statement_timestamp()</c> não muda, então a idade é exata.
     /// </summary>
-    private async Task PurgeWithRecordsAgedOnTheSameStatementAsync(int microsecondsYounger)
+    private async Task PurgeOnTheSameStatementAsync(string aging, int microsecondsYounger)
     {
         var migrator = _database?.MigratorConnectionString ?? throw new InvalidOperationException("Teste não inicializado.");
         await using var connection = new NpgsqlConnection(migrator);
@@ -544,19 +627,13 @@ public sealed class PhotoDeletionRecordPurgeTests(PostgresFixture postgres) : IA
             await setting.ExecuteScalarAsync(Ct);
         }
 
-        await using var purge = new NpgsqlCommand("""
-            do $$
-            declare
-              v_aged timestamptz;
-            begin
-              perform set_config('TimeZone', 'UTC', true);
-              v_aged := statement_timestamp() - interval '1 year' + current_setting('duora_test.younger')::interval;
-              update media.photo_tombstones set deleted_at = v_aged;
-              update media.photo_deletion_commands set created_at = v_aged;
-              perform media.purge_photo_deletion_records('9999-01-01 00:00:00+00', 1000);
-            end
-            $$
-            """, connection);
+        // aging é sempre uma das constantes acima, nunca entrada externa.
+        await using var purge = new NpgsqlCommand(
+            "do $$ declare v_younger constant interval := current_setting('duora_test.younger')::interval; begin\n"
+            + "perform set_config('TimeZone', 'UTC', true);\n"
+            + aging
+            + "\nperform media.purge_photo_deletion_records('9999-01-01 00:00:00+00', 1000);\nend $$",
+            connection);
         await purge.ExecuteNonQueryAsync(Ct);
     }
 
