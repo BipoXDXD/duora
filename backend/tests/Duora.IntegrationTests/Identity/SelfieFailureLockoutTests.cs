@@ -3,6 +3,7 @@ using Duora.Core.Identity;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Persistence;
 using Duora.IntegrationTests.Safety;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
@@ -190,6 +191,31 @@ public sealed class SelfieFailureLockoutTests(PostgresFixture postgres)
 
         Assert.Equal(1, recorded.Count(isNew => isNew));
         Assert.Equal(1, await scenario.ScalarAsync("select count(*) from identity.selfie_failures where user_id = $1", account.UserId));
+    }
+
+    [Fact]
+    public async Task TheMigrationAloneKeepsTheAppFromRewritingARecordedRejection()
+    {
+        var database = await postgres.CreateEmptyDatabaseAsync(Ct);
+        await using (var context = PostgresFixture.CreateDbContext(database.MigratorConnectionString))
+        {
+            await context.Database.MigrateAsync(Ct);
+        }
+
+        await using var owner = new NpgsqlConnection(database.MigratorConnectionString);
+        await owner.OpenAsync(Ct);
+        await using var privileges = new NpgsqlCommand("""
+            select array[has_table_privilege('duora_app', 'identity.selfie_failures', 'SELECT'),
+                         has_table_privilege('duora_app', 'identity.selfie_failures', 'INSERT'),
+                         has_table_privilege('duora_app', 'identity.selfie_failures', 'DELETE'),
+                         has_table_privilege('duora_app', 'identity.selfie_failures', 'UPDATE'),
+                         has_table_privilege('duora_app', 'identity.selfie_failures', 'TRUNCATE')]
+            """, owner);
+
+        var granted = (bool[])(await privileges.ExecuteScalarAsync(Ct))!;
+
+        Assert.Equal("SELECT INSERT DELETE", string.Join(' ', granted.Zip(["SELECT", "INSERT", "DELETE", "UPDATE", "TRUNCATE"])
+            .Where(pair => pair.First).Select(pair => pair.Second)));
     }
 
     [Fact]

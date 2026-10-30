@@ -143,3 +143,16 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Selfie failures (#300): the app inserts, reads and deletes; a recorded rejection is never rewritten.
+DO $$
+BEGIN
+  IF to_regclass('identity.selfie_failures') IS NOT NULL THEN
+    REVOKE UPDATE, TRUNCATE ON identity.selfie_failures FROM duora_app;
+    IF has_table_privilege('duora_app', 'identity.selfie_failures', 'UPDATE')
+       OR has_any_column_privilege('duora_app', 'identity.selfie_failures', 'UPDATE')
+       OR has_table_privilege('duora_app', 'identity.selfie_failures', 'TRUNCATE') THEN
+      RAISE EXCEPTION 'duora_app may not rewrite selfie failures';
+    END IF;
+  END IF;
+END $$;

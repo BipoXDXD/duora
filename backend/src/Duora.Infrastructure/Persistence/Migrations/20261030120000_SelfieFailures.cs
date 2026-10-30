@@ -25,6 +25,9 @@ public sealed class SelfieFailures : Migration
 
         -- Leitura por conta em ordem de tempo, e índice da FK (o PostgreSQL não o cria sozinho).
         create index ix_selfie_failures_user on identity.selfie_failures (user_id, failed_at);
+
+        -- Uma reprovação gravada nunca é reescrita: o app grava, lê e apaga (aprovação, revogação), sem UPDATE.
+        revoke update, truncate on identity.selfie_failures from duora_app;
         """);
 
     // A release anterior ignora a tabela; apagá-la devolveria tentativas a quem já as esgotou.
