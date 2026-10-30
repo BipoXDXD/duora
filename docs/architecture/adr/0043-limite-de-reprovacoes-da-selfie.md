@@ -40,7 +40,9 @@ Alternativas consideradas:
 `PolicyVersion` da tentativa: `RecaptureRequired` (qualidade, pose, rosto) e `Inconclusive` (presença abaixo do
 limiar). Não contam `Expired` (abandono ou prazo), a indisponibilidade do fornecedor (que só reagenda), o erro técnico
 nem o resultado sob outra versão de política (que termina `Inconclusive`, sem contar). A sessão que a AWS encerra
-como `EXPIRED` ou `FAILED` não julgou a captura e passa a terminar `Expired`. A aprovação encerra a contagem e apaga as
+como `EXPIRED` ou `FAILED` não julgou a captura e passa a terminar `Expired` (premissa: a documentação da AWS lista
+`FAILED` sem dizer a causa; tratá-lo como falha técnica não está confirmado por ela). `SUCCEEDED` sem `Confidence`, sem
+frame de referência, com frame vazio ou acima de 5 MB também termina `Expired`: a AWS recomenda repetir a verificação. A aprovação encerra a contagem e apaga as
 reprovações. Regra pura em `SelfieAttemptPolicy` (Core).
 
 **Contagem.** `identity.selfie_failures (verification_id PK, user_id FK ON DELETE CASCADE, failed_at)`, sem FK para a
@@ -58,17 +60,37 @@ antes): `CoolingDown` → `429` `SELFIE_ATTEMPTS_LOCKED` com `Retry-After` em se
 `Exhausted` → `403` `SELFIE_ATTEMPTS_EXHAUSTED`. Nenhuma tentativa nova é criada nesses casos.
 
 **Estado (API-P06 e API-A08).** `attempts: { state, remaining, lastCycle, lockedUntil }` em
-`GET /me/selfie-verifications/current` e `selfieAttempts` em `GET /me` (só participante, e só até a aprovação). Nada
-do fornecedor: nem score, nem motivo, nem instantes das reprovações.
+`GET /me/selfie-verifications/current` e `selfieAttempts` em `GET /me` (só participante, e `selfieAttempts` só até a
+aprovação). Conta privilegiada não recebe nenhum dos dois; a regra mora no serviço. Nada do fornecedor: nem score, nem
+motivo, nem instantes das reprovações. A tela reabre a captura sozinha no fim da pausa (consulta agendada para
+`lockedUntil`).
+
+**Permissões.** `duora_app` tem `SELECT`, `INSERT` e `DELETE` em `identity.selfie_failures`; `UPDATE` e `TRUNCATE` são
+revogados na migração e de novo no `reconcile-privileges.sql`: uma reprovação gravada nunca é reescrita.
 
 **Bloqueio da conta (default a confirmar).** A décima reprovação grava, na mesma transação, o evento
 `identity.selfie-attempts-exhausted` v1 (payload `userId`, `verificationId`) para o consumidor
-`selfie-attempts-suspension`, sem teto de tentativas. O worker chama
+`selfie-attempts-suspension`. O worker, num loop próprio (`SelfieAttemptsSuspensionService`, separado do loop do
+fornecedor e ativo mesmo com a selfie desligada), confere que a contagem ainda está esgotada e chama
 `AccountSuspensions.SuspendAutomaticallyAsync(SuspensionOrder.Automated(userId, SelfieVerificationFailed, texto fixo),
-ModerationCommandKey.ForSystem("selfie-verification", verificationId))` fora de transação. `Busy` reagenda em 5 s;
-`Suspended` e `AlreadySuspended` concluem; conta apagada, em exclusão ou privilegiada conclui sem suspender (o limite
-da selfie continua valendo); chave reusada falha para revisão. O consumidor roda mesmo com a selfie desligada. Até o
-worker gravar a suspensão, o próprio limite já recusa novas tentativas.
+ModerationCommandKey.ForSystem("selfie-verification", verificationId))` fora de transação:
+
+- `Suspended` conclui. Conta apagada, em exclusão ou privilegiada conclui sem suspender (o limite da selfie continua).
+- Contagem que acabou enquanto o pedido esperava (aprovação, revogação de suspensão por selfie) conclui sem suspender.
+- **Outra medida ativa** (`AlreadySuspended` por motivo que não é a selfie, por exemplo violação dos Termos) **não
+  conclui**: o pedido espera, porque se o moderador revogasse a outra medida a conta ficaria sem tentativas e sem
+  suspensão por selfie para revogar. A espera cresce com a idade do pedido, entre 30 s e 1 h, e não gasta tentativa;
+  quando a outra medida sai, a suspensão por selfie é gravada. Se a ativa já é por selfie, conclui.
+- `Busy` (contenção de lock) adia 5 s, sem gastar tentativa.
+- **Falha** (exceção em uma entrega) não trava o lote: a entrega volta à fila com o tipo do erro em `last_error` e recuo
+  exponencial (5 s a 15 min). No teto de 10 falhas ela fica **morta**: `Failed` na outbox (estado terminal que a
+  revisão de entregas falhas já cobre), log de erro só com o id da entrega e a métrica
+  `duora.identity.selfie_suspension_requests.dead`. Chave reusada ou permissão negada também ficam mortas na hora.
+  O pedido nunca some em silêncio; e o limite da selfie continua recusando tentativas enquanto isso.
+- O prazo da entrega é longo de propósito (10 anos): esgotar depois do prazo viraria `Expired`, fora da revisão.
+
+Para que esperar não conte como falha, a fila ganhou `OutboxDeliveryQueue.PostponeAsync`, que adia e devolve a
+tentativa contada no claim.
 
 **A exceção do ADR-0042.** É esta: a suspensão por `SelfieVerificationFailed` é automática, de autor `Automated`,
 sem prazo (spec 4.2), e só a revogação por moderador a desfaz. Violação dos Termos continua exigindo pessoa (TM-34).
@@ -108,7 +130,10 @@ proposta de parágrafo em PT-BR e EN-US para o dono aprovar, e a ativação em p
 | T: navegador burla a pausa | Pausa aplicada no servidor, sob a trava da conta | `FiveRejectionsLockTheSelfieUntilExactlyOneHourAfterTheFifth`, `TheLockedRequestAnswers429WithTheStableCodeAndTheSecondsUntilTheSecondCycle` |
 | T: esperar a retenção de 30 dias zera o limite | Reprovação em tabela própria, sem FK para a tentativa | `TheTenthRejectionExhaustsTheAttemptsAndSuspendsTheAccountOnce` (contagem independe das tentativas) |
 | D: falha do fornecedor ou abandono bloqueia a conta | Só julgamento final sob a mesma política conta | `AProviderOutageIsRetriedAndNeverCounted`, `ExpiryAndApprovalAreNotRejections`, `AResultUnderAnotherPolicyVersionEndsInconclusiveWithoutCounting`, `ASessionThatNeverProducedAJudgementEndsExpiredNotRejected` |
-| D: bloqueio perdido por crash ou contenção | Outbox na transação, retry sem teto, lease | `ASuspensionBlockedByALockIsRetriedUntilItIsRecorded`, `ASuspensionLostWithTheWorkerIsTakenAgainAfterTheLease` |
+| D: bloqueio perdido por crash ou contenção | Outbox na transação, espera sem gastar tentativa, lease | `ASuspensionBlockedByALockIsRetriedUntilItIsRecorded`, `ASuspensionLostWithTheWorkerIsTakenAgainAfterTheLease` |
+| E: outra medida antes do consumidor deixa a conta sem saída depois da revogação | Pedido espera a outra medida sair | `AnotherSuspensionBeforeTheConsumerIsWaitedForAndTheSelfieSuspensionFollowsTheLift`, `WhileAnotherMeasureLastsTheWaitGrowsWithTheAgeOfTheRequestUpToOneHour`, `ARequestWhoseCountEndedWhileWaitingFinishesWithoutSuspending` |
+| D: entrega com falha determinística trava o lote ou some | Teto de 10 falhas, estado `Failed`, log e métrica; loop próprio no worker | `ADeterministicFailureIsRetriedUpToTheCeilingThenMarkedDeadWithoutStoppingTheOthers`, `SelfieSuspensionQueueRunsInItsOwnLoopAndADatabaseFailureDoesNotStopTheWorker` |
+| T: app reescreve a reprovação | `UPDATE`/`TRUNCATE` revogados (migração e reconcile) | `TheMigrationAloneKeepsTheAppFromRewritingARecordedRejection`, `AppRolePrivilegesTests`, `CanonicalReconciliationTests` |
 | E: reentrega depois da revogação suspende de novo | Chave do comando pela tentativa (INV-06) | `ASuspensionRedeliveredAfterTheModeratorLiftedItDoesNotSuspendAgain`, `ASuspensionRedeliveredAfterItWasRecordedKeepsOneMeasure` |
 | I: estado expõe dado do fornecedor | DTO com estado, contagem e instante de reabertura | `TheLockedRequestAnswers429WithTheStableCodeAndTheSecondsUntilTheSecondCycle` (chaves exatas) |
 | R: suspensão automática sem trilha | Auditoria `safety.account_suspended` com autor `System` | `TheTenthRejectionExhaustsTheAttemptsAndSuspendsTheAccountOnce` |
@@ -117,5 +142,6 @@ proposta de parágrafo em PT-BR e EN-US para o dono aprovar, e a ativação em p
 
 - Unidade: `SelfieAttemptPolicyTests` (0, 1, 4, 5, 6, 9, 10 e 11 reprovações; fronteira de 1 h on/off point;
   estados que contam e que não contam).
-- Integração (PostgreSQL real): `SelfieFailureLockoutTests` e `RekognitionSelfieProviderTests`.
+- Integração (PostgreSQL real): `SelfieFailureLockoutTests`, `SelfieSuspensionRequestTests`,
+  `RekognitionSelfieProviderTests` e `WorkerHostTests`.
 - Frontend: `SelfieAttempts.test.tsx` (Vitest) e `e2e/selfie-attempts.spec.ts` (Playwright com axe, PT-BR e EN-US).

@@ -53,21 +53,22 @@ internal sealed class SelfieFailureLockoutHarness(string connection, FakeTimePro
     /// <summary>Maior que a espera de 5 s até a próxima leitura do resultado.</summary>
     public static readonly TimeSpan UntilResult = TimeSpan.FromSeconds(6);
 
-    public DuoraWebFactory Host(SelfieCommitFault? fault = null) => new(connection)
-    {
-        Time = time,
-        Settings = SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy),
-        TestServices = services =>
+    public DuoraWebFactory Host(SelfieCommitFault? fault = null, Microsoft.Extensions.Logging.ILoggerProvider? logs = null) =>
+        new(connection, logs)
         {
-            services.RemoveAll<ISelfieProvider>();
-            services.AddSingleton<ISelfieProvider>(provider);
-            if (fault is not null)
+            Time = time,
+            Settings = SelfieTestSettings.Enabled(ScriptedSelfieProvider.Policy),
+            TestServices = services =>
             {
-                services.ConfigureDbContext<Duora.Infrastructure.Persistence.DuoraDbContext>(
-                    options => options.AddInterceptors(fault));
-            }
-        },
-    };
+                services.RemoveAll<ISelfieProvider>();
+                services.AddSingleton<ISelfieProvider>(provider);
+                if (fault is not null)
+                {
+                    services.ConfigureDbContext<Duora.Infrastructure.Persistence.DuoraDbContext>(
+                        options => options.AddInterceptors(fault));
+                }
+            },
+        };
 
     public static async Task<SelfieRequestOutcome> RequestAsync(DuoraWebFactory host, Guid userId)
     {
@@ -100,6 +101,14 @@ internal sealed class SelfieFailureLockoutHarness(string connection, FakeTimePro
         await SelfieConcurrencyHarness.DispatchAsync(host, TestContext.Current.CancellationToken);
         time.Advance(BetweenAttempts);
         return id;
+    }
+
+    /// <summary>As dez reprovações dos dois ciclos, com a pausa de 1 hora entre eles.</summary>
+    public async Task ExhaustAsync(DuoraWebFactory host, Guid userId)
+    {
+        await RejectAsync(host, userId, 5);
+        time.Advance(TimeSpan.FromHours(1));
+        await RejectAsync(host, userId, 5);
     }
 
     public async Task RejectAsync(DuoraWebFactory host, Guid userId, int times)

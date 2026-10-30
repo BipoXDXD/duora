@@ -112,6 +112,27 @@ public sealed class WorkerHostTests
         await host.StopAsync(TestContext.Current.CancellationToken);
     }
 
+    /// <summary>
+    /// Issue #300: o pedido de suspensão por selfie tem loop próprio; o banco indisponível vira aviso dele, sem parar o
+    /// worker nem depender do loop do fornecedor.
+    /// </summary>
+    [Fact]
+    public async Task SelfieSuspensionQueueRunsInItsOwnLoopAndADatabaseFailureDoesNotStopTheWorker()
+    {
+        var logs = new CapturingLoggerProvider();
+        var connection = new CanaryConnectionString();
+        using var host = BuildHost(connection.Value, logs);
+        await host.StartAsync(TestContext.Current.CancellationToken);
+
+        var warning = await logs.FirstWarningFrom(typeof(SelfieAttemptsSuspensionService).FullName ?? throw new InvalidOperationException())
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Null(warning.Exception);
+        Assert.DoesNotContain(connection.Password, warning.Text, StringComparison.Ordinal);
+        Assert.False(host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping.IsCancellationRequested);
+        await host.StopAsync(TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public async Task HeartbeatFailureLogsNeverContainThePassword()
     {
