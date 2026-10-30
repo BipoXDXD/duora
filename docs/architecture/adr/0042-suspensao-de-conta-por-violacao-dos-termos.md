@@ -50,15 +50,15 @@ migração aditiva quando existirem denúncias e versões de política. Não há
 volta automática a `Active` por decurso de prazo.
 
 **Estado da conta.** Na mesma transação, o Identity (dono de `identity.users`) move a conta para `Suspended` e guarda
-o estado anterior em `status_before_suspension` (`PendingEligibility`, `Active` ou `Restricted`). A revogação não copia
-esse estado às cegas: ela o recalcula pela regra do domínio `ParticipationEligibility.AfterPresenceCheck`. Uma conta
-em `PendingEligibility` com e-mail confirmado e selfie aprovada durante a suspensão volta como `Active`, porque o worker
-só promove quem está em `PendingEligibility` e não a promoveu enquanto ela estava suspensa. O CHECK
+o estado anterior em `status_before_suspension` (`PendingEligibility`, `Active` ou `Restricted`). A revogação não
+copia esse estado às cegas: ela o recalcula pela regra do domínio `ParticipationEligibility.AfterPresenceCheck`. Uma
+conta em `PendingEligibility` com e-mail confirmado e selfie aprovada durante a suspensão volta como `Active`, porque
+o worker só promove quem está em `PendingEligibility` e não a promoveu enquanto ela estava suspensa. O CHECK
 `ck_users_status_before_suspension` só admite a coluna preenchida com `status = 'Suspended'`. Por isso, sair de
 `Suspended` por qualquer caminho exige limpar a coluna na mesma instrução. A revogação já faz isso; o futuro fluxo de
 exclusão de conta (API-D03) precisa fazer o mesmo, ou a transição falha no CHECK. A revogação só restaura conta que
-ainda está em `Suspended` com estado anterior registrado; nenhum outro caminho de saída existe hoje. Só participantes são suspensos: conta
-inexistente ou privilegiada dá o mesmo 404; `PendingEmail` e `DeletionPending` dão 409.
+ainda está em `Suspended` com estado anterior registrado; nenhum outro caminho de saída existe hoje. Só participantes
+são suspensos: conta inexistente ou privilegiada dá o mesmo 404; `PendingEmail` e `DeletionPending` dão 409.
 
 **Sessão.** `LoginSessions.TouchAsync`, que já roda a cada requisição, lê `status = 'Suspended'` junto com papéis e
 stamp. O `SuspendedAccountGate` roda entre autenticação e autorização e responde 403 `ACCOUNT_SUSPENDED` a toda rota
@@ -71,22 +71,24 @@ Allowlist: `GET /me` (com `suspension: { reasonCode, suspendedAt }`), `GET /me/s
 e, por privacidade, `GET /me/photos`, `GET /me/photos/{id}/status` e `DELETE /me/photos/{id}` (a pessoa acha e
 exclui as próprias fotos; não envia novas). O recurso (API-S06) entra quando existir.
 
-**Rotas administrativas.** No grupo `/admin` (sessão administrativa com MFA): `GET /admin/accounts/{userId}/suspension`,
-`POST /admin/accounts/{userId}/suspensions` (`Idempotency-Key`; motivo `TermsViolation` e texto obrigatórios) e
-`POST /admin/accounts/{userId}/suspensions/{id}/lift` (`If-Match` com o ETag da medida; motivo obrigatório). Os comandos
-exigem TOTP recente (ADR-0041). Um filtro no grupo confere o papel antes de qualquer validação de corpo ou de
-`Idempotency-Key`, e o serviço o confere de novo antes de criar ou travar a guarda do alvo e depois das guardas. A permissão específica é o papel `moderator`, conferido ao vivo na transação, junto com
-conta ativa com MFA e sessão administrativa válida; `product_admin` e `operator` recebem 403. Auditoria em
-`ops.audit_events` (`safety.account_suspended` v1 e `safety.account_suspension_lifted` v2, alvo `moderation_action`).
+**Rotas administrativas.** No grupo `/admin` (sessão administrativa com MFA):
+`GET /admin/accounts/{userId}/suspension`, `POST /admin/accounts/{userId}/suspensions` (`Idempotency-Key`; motivo
+`TermsViolation` e texto obrigatórios) e `POST /admin/accounts/{userId}/suspensions/{id}/lift` (`If-Match` com o ETag
+da medida; motivo obrigatório). Os comandos exigem TOTP recente (ADR-0041). A policy `account-moderator`, que roda no
+middleware de autorização antes do binding, confere o papel antes de qualquer validação de JSON, corpo ou
+`Idempotency-Key`, e o serviço o confere de novo antes de criar ou travar a guarda do alvo e depois das guardas. A
+permissão específica é o papel `moderator`, conferido ao vivo na transação, junto com conta ativa com MFA e sessão
+administrativa válida; `product_admin` e `operator` recebem 403. Auditoria em `ops.audit_events`
+(`safety.account_suspended` v1 e `safety.account_suspension_lifted` v2, alvo `moderation_action`).
 
 **API interna.** `AccountSuspensions.SuspendAutomaticallyAsync(SuspensionOrder.Automated(...),
-ModerationCommandKey.ForSystem(origem, idDaOrigem), ct)`. Ela abre a própria transação e é idempotente pela chave.
-Se a conta já está suspensa por outra medida, devolve `AlreadySuspended`. É a porta da issue #300. A medida guarda a origem
-(`source_code`, `source_id`; por exemplo, `selfie-verification` e o id da verificação) e a auditoria registra
+ModerationCommandKey.ForSystem(origem, idDaOrigem), ct)`. Ela abre a própria transação e é idempotente pela chave. Se
+a conta já está suspensa por outra medida, devolve `AlreadySuspended`. É a porta da issue #300. A medida guarda a
+origem (`source_code`, `source_id`; por exemplo, `selfie-verification` e o id da verificação) e a auditoria registra
 `safety.account_suspension_source_recorded` com a origem como alvo, que é a "evidência utilizada" da spec 12.3. Nada
-de dado biométrico entra: só o código da origem e o id. A automação só
-suspende por `SelfieVerificationFailed`: violação dos Termos segue exigindo pessoa (spec 12.3, TM-34). Essa é a
-exceção a `SafetyRule.MeasureRequiresHumanAuthor`, condicionada às decisões da #300.
+de dado biométrico entra: só o código da origem e o id. A automação só suspende por `SelfieVerificationFailed`:
+violação dos Termos segue exigindo pessoa (spec 12.3, TM-34). Essa é a exceção a
+`SafetyRule.MeasureRequiresHumanAuthor`, condicionada às decisões da #300.
 
 ## Consequências
 
@@ -121,13 +123,13 @@ exceção a `SafetyRule.MeasureRequiresHumanAuthor`, condicionada às decisões 
 | S: sessão sequestrada de moderador suspende alguém | MFA, sessão administrativa, TOTP recente (1 h) | `WithoutARecentTotpTheModeratorMustReauthenticateAndNothingIsWritten` |
 | T: reescrever a decisão ou apagar a medida | Trigger de imutabilidade e `REVOKE DELETE` | `TheRecordedDecisionCannotBeRewrittenNorDeletedByTheApp` |
 | R: moderador nega ter suspendido | Auditoria na transação, com autor e versão | `SuspendingAndLiftingAreAuditedWithTheModeratorAndTheMeasure` |
-| R: suspensão automática sem a evidência utilizada | Origem na medida e na auditoria | `TheSystemSuspendsThroughTheInternalApiIdempotentlyAndAudited` |
+| R: suspensão automática sem a evidência utilizada | Origem na medida e na auditoria; CHECK liga origem a autor automático; trigger a torna imutável | `TheSystemSuspendsThroughTheInternalApiIdempotentlyAndAudited`, `TheDatabaseTiesTheSourceToAutomatedMeasures`, `TheSourceOfAnActiveMeasureCannotBeRewritten` |
 | T: chave de idempotência de um moderador reaproveitada por outro | Escopo da chave por moderador | `TheSameKeyFromTwoModeratorsCreatesIndependentCommands` |
 | I: suspenso vê motivo interno ou o moderador | `/me` só com código e instante | `TheSuspendedPersonReadsOnlyTheMinimalStateOfTheOwnAccount` |
 | I: enumerar contas privilegiadas pela rota | 404 igual para inexistente e privilegiada | `AnUnknownOrPrivilegedTargetIsTheSameNotFoundWithoutItsId` |
 | D: duas suspensões simultâneas | Índice único parcial | `TwoSimultaneousSuspensionsOfTheSameAccountCreateOneMeasure`, `TheDatabaseRefusesASecondActiveSuspensionEvenWithoutTheService` |
 | E: sessão suspensa usa rotas de participação | Gate negar por padrão | `EveryRouteWithSessionOutsideTheAllowlistIsForbiddenToTheSuspendedAccount`, `AnOpenSessionLosesParticipationOnTheVeryNextRequestAfterTheSuspension` |
-| E: papel administrativo genérico modera | Papel `moderator` conferido ao vivo, antes de validar o pedido | `AProductAdministratorOrOperatorWithMfaCannotModerateAccounts`, `AProductAdministratorIsForbiddenBeforeTheBodyOrKeyIsValidated` |
+| E: papel administrativo genérico modera | Papel `moderator` por policy, antes do binding e da guarda do alvo | `AProductAdministratorOrOperatorWithMfaCannotModerateAccounts`, `AProductAdministratorIsForbiddenBeforeTheBodyOrKeyIsValidated`, `TheServiceRefuses…ByANonModerator…` |
 | D: revogação deixa a conta presa em `PendingEligibility` | Estado recalculado pela regra de elegibilidade | `LiftingPromotesAPendingAccountWhosePresenceWasApprovedDuringTheSuspension` |
 
 ## Compliance
