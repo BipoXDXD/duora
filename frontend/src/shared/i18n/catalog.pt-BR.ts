@@ -249,6 +249,14 @@ export const ptBR = {
     'Você continua podendo ver o estado da sua conta, encerrar sessões abertas, cuidar da segurança dela e sair.',
   'accountSuspended.appeal': 'O pedido de revisão desta medida ainda não está disponível pelo app.',
 
+  'selfieAttempts.firstCycle':
+    '{remaining, plural, one {Resta # tentativa} other {Restam # tentativas}} antes de uma pausa de 1 hora.',
+  'selfieAttempts.lastCycle':
+    '{remaining, plural, one {Resta # tentativa} other {Restam # tentativas}}. Se nenhuma for aprovada, a conta será bloqueada.',
+  'selfieAttempts.coolingDown':
+    'Muitas tentativas não foram aprovadas. Você pode tentar de novo a partir de {time}. Depois disso, restam 5 tentativas; se nenhuma for aprovada, a conta será bloqueada.',
+  'selfieAttempts.exhausted': 'As tentativas acabaram e a conta foi bloqueada. Só uma revisão humana pode liberá-la.',
+
   'termsReacceptance.title': 'Novo aceite dos Termos',
   'termsReacceptance.intro':
     'Os Termos de uso mudaram: agora o Duora é só para quem tem 18 anos ou mais. Você pode continuar usando o app; quando puder, leia a versão nova e confirme o aceite.',

@@ -246,6 +246,14 @@ export const en = {
     'You can still see the state of your account, end open sessions, look after its security and sign out.',
   'accountSuspended.appeal': 'Requesting a review of this measure is not available in the app yet.',
 
+  'selfieAttempts.firstCycle': '{remaining, plural, one {# attempt} other {# attempts}} left before a 1-hour pause.',
+  'selfieAttempts.lastCycle':
+    '{remaining, plural, one {# attempt} other {# attempts}} left. If none is approved, the account will be blocked.',
+  'selfieAttempts.coolingDown':
+    'Too many attempts were not approved. You can try again from {time}. After that, 5 attempts remain; if none is approved, the account will be blocked.',
+  'selfieAttempts.exhausted':
+    'No attempts are left and the account has been blocked. Only a human review can unblock it.',
+
   'termsReacceptance.title': 'Updated Terms of Use',
   'termsReacceptance.intro':
     'The Terms of Use have changed: Duora is now only for people aged 18 or older. You can keep using the app; when you can, read the new version and confirm your acceptance.',

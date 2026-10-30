@@ -4510,6 +4510,15 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
                 /** @description Service Unavailable */
                 503: {
                     headers: {
@@ -4939,6 +4948,7 @@ export interface components {
             preferredLocale?: null | string;
             preferredTimeZone?: null | string;
             suspension?: null | components["schemas"]["MeSuspensionResponse"];
+            selfieAttempts?: null | components["schemas"]["SelfieAttemptsResponse"];
         };
         /** @description Suspensão da própria conta (issue #299). `ReasonCode`: TermsViolation | SelfieVerificationFailed. */
         MeSuspensionResponse: {
@@ -5295,6 +5305,19 @@ export interface components {
             prompt: string;
             options: components["schemas"]["OptionResponse"][];
         };
+        /**
+         * @description Limite de reprovações da selfie (issue #300). `State`: Available | CoolingDown | Exhausted.
+         *     `Remaining`: reprovações que ainda cabem no ciclo (0 fora de Available). `LastCycle`: esgotar este ciclo
+         *     suspende a conta. `LockedUntil`: só em CoolingDown, instante UTC em que o segundo ciclo abre.
+         */
+        SelfieAttemptsResponse: {
+            state: string;
+            /** Format: int32 */
+            remaining: number | string;
+            lastCycle: boolean;
+            /** Format: date-time */
+            lockedUntil: null | string;
+        };
         SelfieCaptureCredentialsResponse: {
             accessKeyId: string;
             secretAccessKey: string;
@@ -5316,6 +5339,7 @@ export interface components {
             feedbackCode: null | string;
             /** Format: date-time */
             expiresAt: null | string;
+            attempts: components["schemas"]["SelfieAttemptsResponse"];
         };
         SessionListResponse: {
             items: components["schemas"]["SessionResponse"][];
