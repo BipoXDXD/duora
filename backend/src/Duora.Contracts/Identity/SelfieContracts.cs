@@ -9,7 +9,8 @@ public sealed record SelfieVerificationResponse(
     string NextStep,
     string? FeedbackCode,
     DateTime? ExpiresAt,
-    SelfieAttemptsResponse Attempts);
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    SelfieAttemptsResponse? Attempts);
 
 /// <summary>
 /// Limite de reprovações da selfie (issue #300). <c>State</c>: Available | CoolingDown | Exhausted.

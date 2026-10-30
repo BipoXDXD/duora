@@ -67,7 +67,7 @@ internal static partial class SelfieVerificationEndpoints
 
     private static SelfieVerificationResponse Response(SelfieStatus status) =>
         new(status.Id, status.State, status.NextStep, status.FeedbackCode, status.ExpiresAt?.UtcDateTime,
-            Attempts(status.Attempts));
+            status.Attempts is { } attempts ? Attempts(attempts) : null);
 
     /// <summary>Pausa de 1 hora (issue #300): o <c>Retry-After</c> diz em quantos segundos o segundo ciclo abre.</summary>
     private static Microsoft.AspNetCore.Http.HttpResults.ProblemHttpResult Locked(HttpContext context, TimeSpan remaining)

@@ -7024,7 +7024,14 @@
             "format": "date-time"
           },
           "attempts": {
-            "$ref": "#/components/schemas/SelfieAttemptsResponse"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SelfieAttemptsResponse"
+              }
+            ]
           }
         },
         "additionalProperties": false

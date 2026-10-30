@@ -5,14 +5,17 @@ using Microsoft.Extensions.Options;
 
 namespace Duora.Infrastructure.Identity;
 
-/// <summary>Estado mínimo da selfie e as tentativas que restam antes da pausa ou da suspensão (issue #300).</summary>
+/// <summary>
+/// Estado mínimo da selfie e as tentativas que restam antes da pausa ou da suspensão (issue #300); sem tentativas para
+/// conta privilegiada, a quem a selfie de participante não se aplica.
+/// </summary>
 public sealed record SelfieStatus(
     Guid? Id,
     string State,
     string NextStep,
     string? FeedbackCode,
     DateTimeOffset? ExpiresAt,
-    SelfieAttemptStanding Attempts);
+    SelfieAttemptStanding? Attempts);
 
 /// <summary>Resposta a um pedido de nova tentativa de selfie (API-P05).</summary>
 public abstract record SelfieRequestOutcome
@@ -124,15 +127,31 @@ public sealed class SelfieVerificationService
         var row = await _db.Set<SelfieVerificationRecord>().AsNoTracking()
             .Where(v => v.UserId == userId).OrderByDescending(v => v.RequestedAt).ThenByDescending(v => v.Id)
             .FirstOrDefaultAsync(cancellationToken);
-        return ToStatus(row, await SelfieFailureLedger.StandingAsync(_db, userId, _time.GetUtcNow(), cancellationToken));
+        return ToStatus(row, await ShownAttemptsAsync(userId,
+            await SelfieFailureLedger.StandingAsync(_db, userId, _time.GetUtcNow(), cancellationToken), cancellationToken));
     }
 
-    /// <summary>Tentativas da conta para GET /me; nula quando a selfie já foi aprovada e a contagem acabou.</summary>
+    /// <summary>
+    /// Tentativas da conta para GET /me; nula para conta privilegiada e quando a selfie já foi aprovada e a contagem
+    /// acabou.
+    /// </summary>
     public async Task<SelfieAttemptStanding?> GetAttemptsAsync(Guid userId, CancellationToken cancellationToken)
     {
         var passed = await _db.Set<SelfieVerificationRecord>().AsNoTracking()
             .AnyAsync(v => v.UserId == userId && v.State == SelfieState.Passed, cancellationToken);
-        return passed ? null : await SelfieFailureLedger.StandingAsync(_db, userId, _time.GetUtcNow(), cancellationToken);
+        return passed ? null : await ShownAttemptsAsync(userId,
+            await SelfieFailureLedger.StandingAsync(_db, userId, _time.GetUtcNow(), cancellationToken), cancellationToken);
+    }
+
+    /// <summary>O limite é da selfie de participante: conta privilegiada não vê tentativas (GET /me nem current).</summary>
+    private async Task<SelfieAttemptStanding?> ShownAttemptsAsync(Guid userId, SelfieAttemptStanding standing,
+        CancellationToken cancellationToken)
+    {
+        var privileged = await _db.Database.SqlQuery<bool>($"""
+            select exists (select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
+                           where ur.user_id = {userId} and r.name = any({AccountRoles.Privileged.ToArray()})) as "Value"
+            """).SingleAsync(cancellationToken);
+        return privileged ? null : standing;
     }
 
     public async Task<SelfieRequestOutcome> RequestAsync(Guid userId, CancellationToken cancellationToken)
@@ -161,7 +180,7 @@ public sealed class SelfieVerificationService
         if (active is not null)
         {
             await transaction.CommitAsync(cancellationToken);
-            return new SelfieRequestOutcome.Accepted(ToStatus(active, attempts));
+            return new SelfieRequestOutcome.Accepted(ToStatus(active, await ShownAttemptsAsync(userId, attempts, cancellationToken)));
         }
 
         // Sob a trava da conta: o worker grava a reprovação sob a mesma trava, então a pausa não tem janela de corrida.
@@ -193,7 +212,7 @@ public sealed class SelfieVerificationService
         _db.Add(SelfieVerificationOutbox.Create(record.Id, now, record.ExpiresAt));
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new SelfieRequestOutcome.Accepted(ToStatus(record, attempts));
+        return new SelfieRequestOutcome.Accepted(ToStatus(record, await ShownAttemptsAsync(userId, attempts, cancellationToken)));
     }
 
     internal async Task<string?> CaptureReferenceAsync(Guid userId, Guid id, CancellationToken cancellationToken)
@@ -206,7 +225,7 @@ public sealed class SelfieVerificationService
             .Select(v => v.ProviderReference).SingleOrDefaultAsync(cancellationToken);
     }
 
-    private SelfieStatus ToStatus(SelfieVerificationRecord? row, SelfieAttemptStanding attempts)
+    private SelfieStatus ToStatus(SelfieVerificationRecord? row, SelfieAttemptStanding? attempts)
     {
         if (row is null)
         {

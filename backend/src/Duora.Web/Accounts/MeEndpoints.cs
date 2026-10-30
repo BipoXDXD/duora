@@ -95,24 +95,9 @@ internal static class MeEndpoints
                 && await suspensions.FindOwnNoticeAsync(userId, cancellationToken) is { } notice
                 ? new MeSuspensionResponse(notice.Reason.ToString(), notice.SuspendedAt.UtcDateTime)
                 : null,
-            await OwnSelfieAttemptsAsync(account.Roles, userId, selfies, cancellationToken)));
-    }
-
-    /// <summary>Limite da selfie (issue #300): só de participante, e só até a selfie ser aprovada.</summary>
-    private static async Task<SelfieAttemptsResponse?> OwnSelfieAttemptsAsync(
-        IReadOnlyList<string> roles,
-        Guid userId,
-        SelfieVerificationService selfies,
-        CancellationToken cancellationToken)
-    {
-        if (roles.Any(AccountRoles.IsPrivileged))
-        {
-            return null;
-        }
-
-        return await selfies.GetAttemptsAsync(userId, cancellationToken) is { } standing
-            ? SelfieVerificationEndpoints.Attempts(standing)
-            : null;
+            await selfies.GetAttemptsAsync(userId, cancellationToken) is { } attempts
+                ? SelfieVerificationEndpoints.Attempts(attempts)
+                : null));
     }
 
     /// <summary>

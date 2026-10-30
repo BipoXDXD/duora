@@ -270,6 +270,46 @@ public sealed class SelfieFailureLockoutTests(PostgresFixture postgres)
         Assert.Equal(5, await scenario.ScalarAsync("select count(*) from identity.selfie_verifications where user_id = $1", account.UserId));
     }
 
+    [Theory]
+    [InlineData(Duora.Core.Identity.AccountRoles.Moderator)]
+    [InlineData(Duora.Core.Identity.AccountRoles.ProductAdmin)]
+    [InlineData(Duora.Core.Identity.AccountRoles.Operator)]
+    public async Task APrivilegedAccountHasNoSelfieAttemptsInMeNorInTheCurrentSelfie(string role)
+    {
+        var (lockout, connection) = await NewAsync();
+        await using var host = lockout.Host();
+        var suspensions = new AccountSuspensionScenario(connection, host, _time);
+        var (privileged, browser) = await suspensions.PrivilegedBrowserAsync(role);
+        using var __ = browser;
+
+        using var me = await browser.GetAsync("/api/v1/me");
+        using var current = await browser.GetAsync("/api/v1/me/selfie-verifications/current");
+        var status = await CurrentAsync(host, privileged.UserId);
+
+        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
+        Assert.False((await MfaScenario.ReadObjectAsync(me)).ContainsKey("selfieAttempts"));
+        // A rota da selfie é de participante (403 para conta privilegiada); o serviço também não calcula tentativas.
+        var problem = await ProblemAssert.IsProblemAsync(current, HttpStatusCode.Forbidden, "FORBIDDEN");
+        Assert.False(problem.ContainsKey("attempts"));
+        Assert.Null(status.Attempts);
+    }
+
+    [Fact]
+    public async Task AParticipantSeesTheAttemptsInMeAndInTheCurrentSelfie()
+    {
+        var (lockout, connection) = await NewAsync();
+        await using var host = lockout.Host();
+        var scenario = new IdentityScenario(connection, host);
+        var account = await scenario.CreateConfirmedAccountAsync();
+        using var browser = await scenario.SignedInBrowserAsync(account);
+
+        using var me = await browser.GetAsync("/api/v1/me");
+        using var current = await browser.GetAsync("/api/v1/me/selfie-verifications/current");
+
+        Assert.Equal("Available", (string?)(await MfaScenario.ReadObjectAsync(me))["selfieAttempts"]?["state"]);
+        Assert.Equal("Available", (string?)(await MfaScenario.ReadObjectAsync(current))["attempts"]?["state"]);
+    }
+
     [Fact]
     public async Task AnApprovalInTheMiddleEndsTheCount()
     {

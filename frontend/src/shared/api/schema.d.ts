@@ -5339,7 +5339,7 @@ export interface components {
             feedbackCode: null | string;
             /** Format: date-time */
             expiresAt: null | string;
-            attempts: components["schemas"]["SelfieAttemptsResponse"];
+            attempts: null | components["schemas"]["SelfieAttemptsResponse"];
         };
         SessionListResponse: {
             items: components["schemas"]["SessionResponse"][];
