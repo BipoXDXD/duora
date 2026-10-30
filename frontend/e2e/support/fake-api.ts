@@ -66,15 +66,36 @@ interface FakeProfile {
   version: number
 }
 
-/** Rotas com sessão que a conta suspensa alcança (as públicas não passam por aqui com sessão exigida). */
+/**
+ * Allowlist da conta suspensa, igual à do servidor (SuspendedAccountRoutesTests, ADR-0042). As rotas públicas não
+ * exigem sessão e ficam fora da regra, como no SuspendedAccountGate.
+ */
 const SUSPENDED_ALLOWLIST: ReadonlySet<string> = new Set([
-  'GET /legal-documents',
-  'POST /auth/login',
-  'POST /auth/logout',
   'GET /me',
   'GET /me/sessions',
   'DELETE /me/sessions/:id',
+  'POST /me/mfa/enrollments',
+  'POST /me/mfa/confirmations',
+  'POST /me/mfa/recovery-codes',
+  'DELETE /me/mfa',
+  'POST /auth/reauthenticate',
+  'POST /me/password-changes',
   'GET /me/photos',
+  'GET /me/photos/:id/status',
+  'DELETE /me/photos/:id',
+])
+
+/** Rotas sem sessão (AllowAnonymous no servidor). */
+const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
+  'GET /auth/csrf',
+  'GET /legal-documents',
+  'POST /auth/register',
+  'POST /auth/confirm-email',
+  'POST /auth/email-confirmation-requests',
+  'POST /auth/login',
+  'POST /auth/logout',
+  'POST /auth/password-reset-requests',
+  'POST /auth/password-resets',
 ])
 
 const PROFILE_FIELDS: readonly string[] = ['displayName', 'bio', 'regionCode', 'countryCode', 'subdivisionCode']
@@ -292,9 +313,11 @@ export class FakeDuoraApi {
 
   #respond(key: string, body: RequestBody, path: string): Fulfillment {
     // Regra do servidor (#299, ADR-0042): a sessão da conta suspensa só alcança a allowlist.
+    const route = key.replace(/\/[0-9a-f-]{36}/g, '/:id')
     if (
       this.#currentUser()?.suspendedAt !== undefined &&
-      !SUSPENDED_ALLOWLIST.has(key.replace(/\/[0-9a-f-]{36}/g, '/:id'))
+      !PUBLIC_ROUTES.has(route) &&
+      !SUSPENDED_ALLOWLIST.has(route)
     ) {
       return problem(403, 'ACCOUNT_SUSPENDED')
     }

@@ -29,6 +29,8 @@ test.describe('conta suspensa (#299)', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
     await expect(page).toHaveURL(/\/account\/suspended$/)
     await expect(page.getByText('Violação dos Termos de uso')).toBeVisible()
+    // Logo depois do login a pessoa não pediu outra área: sem o aviso de área indisponível.
+    await expect(page.getByText('Esta área não está disponível para a sua conta agora.')).toBeHidden()
     await expect(page.getByRole('heading', { level: 2, name: 'Sessões ativas' })).toBeVisible()
     await expectNoAxeViolations(page)
 
@@ -36,6 +38,20 @@ test.describe('conta suspensa (#299)', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
     await expect(page).toHaveURL(/\/account\/suspended$/)
     await expect(page.getByText('Esta área não está disponível para a sua conta agora.')).toBeVisible()
+  })
+
+  test('o login que volta para outra área não mostra o aviso de área indisponível', async ({ page }) => {
+    const api = await FakeDuoraApi.install(page)
+    api.seedConfirmedUser('eva@exemplo.com', PASSWORD)
+    api.seedSuspension('eva@exemplo.com', '2026-10-30T12:00:00Z')
+    await page.goto('/events')
+    await expect(page).toHaveURL(/\/login$/)
+    await page.getByLabel('E-mail', { exact: true }).fill('eva@exemplo.com')
+    await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
+    await page.getByRole('button', { name: 'Entrar' }).click()
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
+    await expect(page.getByText('Esta área não está disponível para a sua conta agora.')).toBeHidden()
   })
 
   test('alcança as telas da allowlist a partir da tela de suspensão', async ({ page }) => {

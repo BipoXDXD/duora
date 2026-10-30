@@ -12,7 +12,7 @@ import { RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { DocumentTitle } from '@/shared/ui/document-title'
 import { AccountContext } from './account-context'
-import { readLoginState, type LoginState } from './login-state'
+import { isSignInNavigation, readLoginState, type LoginState } from './login-state'
 import { useMe } from './session-hooks'
 import { useQueryClient } from '@tanstack/react-query'
 import { PendingOwnerInstallation, PrivateOperationProvider } from './PrivateOperationProvider'
@@ -55,7 +55,9 @@ export function RequireSession(): React.JSX.Element {
       setRetrying(false)
     }
   }
-  const { pathname } = useLocation()
+  const location = useLocation()
+  const { pathname } = location
+  const navigationState: unknown = location.state
   const { t, locale, changeLocale } = useI18n()
   const preferredLocale = active ? me.data?.preferredLocale : undefined
   useEffect(() => {
@@ -116,7 +118,9 @@ export function RequireSession(): React.JSX.Element {
     // Conta suspensa só alcança as telas da allowlist do servidor (spec 8.2, #299); ele nega o resto.
     const suspended = me.data.status === 'Suspended'
     if (suspended && !SUSPENDED_ACCOUNT_PATHS.has(pathname)) {
-      const navigation: SuspendedAccountNavigation = { suspendedFrom: pathname }
+      // A própria conta e a chegada pelo login não são "área indisponível": a pessoa não pediu outra área.
+      const quiet = pathname === paths.account || isSignInNavigation(navigationState)
+      const navigation: SuspendedAccountNavigation | undefined = quiet ? undefined : { suspendedFrom: pathname }
       return <Navigate to={paths.accountSuspended} replace state={navigation} />
     }
     if (!suspended && pathname === paths.accountSuspended) return <Navigate to={paths.account} replace />

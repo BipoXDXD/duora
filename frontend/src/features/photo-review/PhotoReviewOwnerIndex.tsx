@@ -30,10 +30,16 @@ const REJECTION_REASONS: Readonly<Record<string, PlainMessageKey | undefined>> =
 
 export function PhotoReviewOwnerIndex(): React.JSX.Element {
   const account = useAccount()
-  return <OwnerPhotos key={account.id} userId={account.id} />
+  return <OwnerPhotos key={account.id} userId={account.id} suspended={account.status === 'Suspended'} />
 }
 
-function OwnerPhotos({ userId }: { readonly userId: string }): React.JSX.Element {
+function OwnerPhotos({
+  userId,
+  suspended,
+}: {
+  readonly userId: string
+  readonly suspended: boolean
+}): React.JSX.Element {
   const { t, formatDateTime } = useI18n()
   const client = useQueryClient()
   const privateOperation = usePrivateOperation()
@@ -91,10 +97,13 @@ function OwnerPhotos({ userId }: { readonly userId: string }): React.JSX.Element
                     <p>{t(state ?? 'photoReview.unknownPhotoState')}</p>
                     {reason === undefined ? null : <p>{t(reason)}</p>}
                     <time dateTime={photo.createdAt}>{formatDateTime(new Date(photo.createdAt))}</time>
-                    <PhotoReviewHistoryLink
-                      photoId={photo.photoId}
-                      accessibleName={t('photoReview.historyFor', { id: photo.photoId })}
-                    />
+                    {/* A conta suspensa não alcança o histórico de revisão (ADR-0042). */}
+                    {suspended ? null : (
+                      <PhotoReviewHistoryLink
+                        photoId={photo.photoId}
+                        accessibleName={t('photoReview.historyFor', { id: photo.photoId })}
+                      />
+                    )}
                   </li>
                 )
               })}
