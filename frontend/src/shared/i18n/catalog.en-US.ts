@@ -244,6 +244,8 @@ export const en = {
   'accountSuspended.reason.Unknown': 'Unavailable right now',
   'accountSuspended.stillAvailable':
     'You can still see the state of your account, end open sessions, look after its security and sign out.',
+  'accountSuspended.areaUnavailable': 'This area is not available for your account right now.',
+  'accountSuspended.mfaLink': 'Two-step authentication',
   'accountSuspended.appeal': 'Requesting a review of this measure is not available in the app yet.',
 
   'termsReacceptance.title': 'Updated Terms of Use',

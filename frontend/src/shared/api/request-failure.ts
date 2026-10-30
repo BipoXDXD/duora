@@ -36,6 +36,9 @@ export function isSessionRestriction(error: unknown): boolean {
   return (
     error instanceof ApiProblemError &&
     error.status === 403 &&
-    (error.problem.code === 'PASSWORD_CHANGE_REQUIRED' || error.problem.code === 'MFA_ENROLLMENT_REQUIRED')
+    (error.problem.code === 'PASSWORD_CHANGE_REQUIRED' ||
+      error.problem.code === 'MFA_ENROLLMENT_REQUIRED' ||
+      // Suspensão com a sessão aberta (#299): revalidar /me leva à tela da conta suspensa.
+      error.problem.code === 'ACCOUNT_SUSPENDED')
   )
 }

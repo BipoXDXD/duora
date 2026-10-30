@@ -6,7 +6,10 @@ import type { PlainMessageKey } from '@/shared/i18n/catalog'
 import { useI18n } from '@/shared/i18n/i18n-context'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
-import { Page } from '@/shared/ui/page'
+import { useLocation } from 'react-router'
+import type { SuspendedAccountNavigation } from '@/features/session/RequireSession'
+import { paths } from '@/shared/paths'
+import { Page, TextLink } from '@/shared/ui/page'
 import { SessionList } from './SessionList'
 
 const REASON_LABELS: Readonly<Record<SuspensionReason, PlainMessageKey>> = {
@@ -25,6 +28,8 @@ export function SuspendedAccountPage(): React.JSX.Element {
   const logout = useLogout()
   const { t, formatDateTime } = useI18n()
   const suspension = account.suspension ?? null
+  const location = useLocation()
+  const redirected = isSuspendedNavigation(location.state)
 
   return (
     <Page
@@ -44,6 +49,11 @@ export function SuspendedAccountPage(): React.JSX.Element {
       }
     >
       {logout.isError ? <RequestFailureAlert failure={classifyRequestFailure(logout.error)} /> : null}
+      {redirected ? (
+        <Alert variant="info" focusOnMount>
+          {t('accountSuspended.areaUnavailable')}
+        </Alert>
+      ) : null}
       <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">
         <dt className="font-semibold">{t('accountSuspended.reason')}</dt>
         <dd className="text-text-muted">{t(REASON_LABELS[suspension?.reasonCode ?? 'Unknown'])}</dd>
@@ -57,8 +67,20 @@ export function SuspendedAccountPage(): React.JSX.Element {
         )}
       </dl>
       <p>{t('accountSuspended.stillAvailable')}</p>
+      <ul className="flex flex-col gap-1">
+        <li>
+          <TextLink to={paths.mfaEnrollment}>{t('accountSuspended.mfaLink')}</TextLink>
+        </li>
+        <li>
+          <TextLink to={paths.photos}>{t('photoReview.myPhotos')}</TextLink>
+        </li>
+      </ul>
       <Alert variant="info">{t('accountSuspended.appeal')}</Alert>
       <SessionList userId={account.id} />
     </Page>
   )
+}
+
+function isSuspendedNavigation(state: unknown): state is SuspendedAccountNavigation {
+  return typeof state === 'object' && state !== null && 'suspendedFrom' in state
 }

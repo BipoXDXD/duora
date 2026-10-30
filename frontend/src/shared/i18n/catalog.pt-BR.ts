@@ -247,6 +247,8 @@ export const ptBR = {
   'accountSuspended.reason.Unknown': 'Indisponível no momento',
   'accountSuspended.stillAvailable':
     'Você continua podendo ver o estado da sua conta, encerrar sessões abertas, cuidar da segurança dela e sair.',
+  'accountSuspended.areaUnavailable': 'Esta área não está disponível para a sua conta agora.',
+  'accountSuspended.mfaLink': 'Autenticação em duas etapas',
   'accountSuspended.appeal': 'O pedido de revisão desta medida ainda não está disponível pelo app.',
 
   'termsReacceptance.title': 'Novo aceite dos Termos',

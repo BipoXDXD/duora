@@ -113,9 +113,12 @@ export function RequireSession(): React.JSX.Element {
   }
   if (active && me.data !== undefined) {
     const needsMfa = !me.data.mfaEnabled && me.data.roles.some((role) => role !== 'participant')
-    // Conta suspensa só alcança a própria conta e a segurança dela (spec 8.2, #299); o servidor nega o resto.
+    // Conta suspensa só alcança as telas da allowlist do servidor (spec 8.2, #299); ele nega o resto.
     const suspended = me.data.status === 'Suspended'
-    if (suspended && pathname !== paths.accountSuspended) return <Navigate to={paths.accountSuspended} replace />
+    if (suspended && !SUSPENDED_ACCOUNT_PATHS.has(pathname)) {
+      const navigation: SuspendedAccountNavigation = { suspendedFrom: pathname }
+      return <Navigate to={paths.accountSuspended} replace state={navigation} />
+    }
     if (!suspended && pathname === paths.accountSuspended) return <Navigate to={paths.account} replace />
     if (needsMfa && pathname !== paths.mfaEnrollment) return <Navigate to={paths.mfaEnrollment} replace />
     if (pathname === paths.changePassword) return <Navigate to={paths.account} replace />
@@ -166,6 +169,21 @@ export function RequireSession(): React.JSX.Element {
       {t('account.loading')}
     </p>
   )
+}
+
+/**
+ * Telas que a conta suspensa ainda abre: a da suspensão (estado da conta e sessões), o MFA e as próprias fotos, as
+ * mesmas rotas da allowlist do servidor (ADR-0042).
+ */
+const SUSPENDED_ACCOUNT_PATHS: ReadonlySet<string> = new Set([
+  paths.accountSuspended,
+  paths.mfaEnrollment,
+  paths.photos,
+])
+
+/** Estado da navegação que trouxe a conta suspensa de outra área, para a tela avisar sem dizer por quê. */
+export interface SuspendedAccountNavigation {
+  readonly suspendedFrom: string
 }
 
 /** Leva à entrada; a tela de entrada descarta o cache da identidade que expirou (spec 13.5). */
