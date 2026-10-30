@@ -2,7 +2,7 @@ import { Alert } from '@/shared/ui/alert'
 import { useSecurityResultSnapshot } from '@/features/auth/security-result-hooks'
 import { SecurityCompletionNotice } from '@/features/auth/SecurityCompletionNotice'
 import { useEffect, useState } from 'react'
-import { Navigate, Outlet, useLocation } from 'react-router'
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router'
 import { apiClient, classifyRequestFailure, isUnauthorized } from '@/shared/api'
 import { TermsReacceptanceNotice } from '@/features/legal/TermsReacceptanceNotice'
 import { AccountTimeZoneProvider } from '@/shared/i18n/AccountTimeZoneProvider'
@@ -58,6 +58,14 @@ export function RequireSession(): React.JSX.Element {
   const location = useLocation()
   const { pathname } = location
   const navigationState: unknown = location.state
+  const navigate = useNavigate()
+  // A marca do login vale uma vez: ela fica na entrada do histórico, e um reload depois não é mais "logo após o login".
+  const signedInNow = isSignInNavigation(navigationState)
+  useEffect(() => {
+    if (signedInNow) {
+      void navigate({ pathname, search: location.search, hash: location.hash }, { replace: true, state: null })
+    }
+  }, [signedInNow, navigate, pathname, location.search, location.hash])
   const { t, locale, changeLocale } = useI18n()
   const preferredLocale = active ? me.data?.preferredLocale : undefined
   useEffect(() => {
@@ -119,7 +127,7 @@ export function RequireSession(): React.JSX.Element {
     const suspended = me.data.status === 'Suspended'
     if (suspended && !SUSPENDED_ACCOUNT_PATHS.has(pathname)) {
       // A própria conta e a chegada pelo login não são "área indisponível": a pessoa não pediu outra área.
-      const quiet = pathname === paths.account || isSignInNavigation(navigationState)
+      const quiet = pathname === paths.account || signedInNow
       const navigation: SuspendedAccountNavigation | undefined = quiet ? undefined : { suspendedFrom: pathname }
       return <Navigate to={paths.accountSuspended} replace state={navigation} />
     }
