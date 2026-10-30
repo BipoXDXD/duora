@@ -34,6 +34,13 @@ internal sealed class RekognitionSelfieProvider(
             return Result(SelfieState.Processing, null);
         }
 
+        // Sessão que expirou (abandono) ou falhou no fornecedor não julgou a captura: não conta como reprovação no
+        // limite de tentativas (issue #300) e pede nova captura como qualquer tentativa expirada.
+        if (response.Status == LivenessSessionStatus.EXPIRED || response.Status == LivenessSessionStatus.FAILED)
+        {
+            return Result(SelfieState.Expired, null);
+        }
+
         if (response.Status != LivenessSessionStatus.SUCCEEDED || response.Confidence is not { } confidence
             || !options.AcceptsLiveness(confidence))
         {

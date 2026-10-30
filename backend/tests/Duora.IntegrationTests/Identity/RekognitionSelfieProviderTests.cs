@@ -51,6 +51,26 @@ public sealed class RekognitionSelfieProviderTests
         Assert.Equal("aws-docs-2026-10-28", result.PolicyVersion);
     }
 
+    /// <summary>
+    /// Issue #300: sessão expirada (abandono) ou que falhou no fornecedor não é reprovação da captura e não conta no
+    /// limite de tentativas; vira <c>Expired</c>, com o mesmo próximo passo de nova captura.
+    /// </summary>
+    [Theory]
+    [InlineData("EXPIRED")]
+    [InlineData("FAILED")]
+    public async Task ASessionThatNeverProducedAJudgementEndsExpiredNotRejected(string status)
+    {
+        using var client = new Client(99, 80) { Status = new LivenessSessionStatus(status) };
+        var provider = new RekognitionSelfieProvider(client, new SelfieProviderOptions(), TimeProvider.System);
+        var ct = TestContext.Current.CancellationToken;
+        var session = await provider.StartAsync(Guid.NewGuid(), ct);
+
+        var result = await provider.ReadAsync(session.Reference, ct);
+
+        Assert.Equal(new SelfieResult(SelfieState.Expired, null, "aws-docs-2026-10-28"), result);
+        Assert.Null(client.FaceRequest);
+    }
+
     [Fact]
     public async Task StartRetriesKeepTheAttemptTokenAndNewAttemptsUseAnotherToken()
     {
@@ -72,6 +92,7 @@ public sealed class RekognitionSelfieProviderTests
     {
         public CreateFaceLivenessSessionRequest? StartRequest { get; private set; }
         public DetectFacesRequest? FaceRequest { get; private set; }
+        public LivenessSessionStatus Status { get; init; } = LivenessSessionStatus.SUCCEEDED;
 
         public override Task<CreateFaceLivenessSessionResponse> CreateFaceLivenessSessionAsync(CreateFaceLivenessSessionRequest request, CancellationToken cancellationToken = default)
         {
@@ -82,7 +103,7 @@ public sealed class RekognitionSelfieProviderTests
         public override Task<GetFaceLivenessSessionResultsResponse> GetFaceLivenessSessionResultsAsync(GetFaceLivenessSessionResultsRequest request, CancellationToken cancellationToken = default)
             => Task.FromResult(new GetFaceLivenessSessionResultsResponse
             {
-                Status = LivenessSessionStatus.SUCCEEDED,
+                Status = Status,
                 Confidence = liveness,
                 ReferenceImage = new AuditImage { Bytes = new MemoryStream([1, 2, 3]) },
             });
