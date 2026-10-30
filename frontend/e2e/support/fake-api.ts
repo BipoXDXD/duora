@@ -66,6 +66,17 @@ interface FakeProfile {
   version: number
 }
 
+/** Rotas com sessão que a conta suspensa alcança (as públicas não passam por aqui com sessão exigida). */
+const SUSPENDED_ALLOWLIST: ReadonlySet<string> = new Set([
+  'GET /legal-documents',
+  'POST /auth/login',
+  'POST /auth/logout',
+  'GET /me',
+  'GET /me/sessions',
+  'DELETE /me/sessions/:id',
+  'GET /me/photos',
+])
+
 const PROFILE_FIELDS: readonly string[] = ['displayName', 'bio', 'regionCode', 'countryCode', 'subdivisionCode']
 
 /** Formato da UF em ISO 3166-2:BR; a lista exata das 27 é do servidor e do contrato, não deste dublê. */
@@ -150,7 +161,7 @@ export class FakeDuoraApi {
     user.acceptedTermsVersion = 'synthetic-older-terms'
   }
 
-  /** A moderação suspende a conta por violação dos Termos (#299); /me passa a dizer Suspended. */
+  /** A moderação suspende a conta por violação dos Termos (#299); /me passa a dizer Suspended, e o resto, 403. */
   seedSuspension(email: string, suspendedAt: string): void {
     const user = this.#users.get(email)
     if (user === undefined) throw new Error(`Conta sintética inexistente: ${email}`)
@@ -280,6 +291,13 @@ export class FakeDuoraApi {
   }
 
   #respond(key: string, body: RequestBody, path: string): Fulfillment {
+    // Regra do servidor (#299, ADR-0042): a sessão da conta suspensa só alcança a allowlist.
+    if (
+      this.#currentUser()?.suspendedAt !== undefined &&
+      !SUSPENDED_ALLOWLIST.has(key.replace(/\/[0-9a-f-]{36}/g, '/:id'))
+    ) {
+      return problem(403, 'ACCOUNT_SUSPENDED')
+    }
     switch (key) {
       case 'GET /legal-documents':
         return json(syntheticLegalCatalog)
@@ -304,6 +322,8 @@ export class FakeDuoraApi {
         return this.#currentUser() === null ? problem(401, 'UNAUTHENTICATED') : json({ enabled: false })
       case 'GET /me/profile':
         return this.#readProfile()
+      case 'GET /me/photos':
+        return json({ items: [], nextCursor: null })
       case 'POST /me/terms-acceptances':
         return this.#acceptTerms(body)
       case 'DELETE /me/sessions/:id':

@@ -35,6 +35,37 @@ test.describe('conta suspensa (#299)', () => {
     await page.goto('/events')
     await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
     await expect(page).toHaveURL(/\/account\/suspended$/)
+    await expect(page.getByText('Esta área não está disponível para a sua conta agora.')).toBeVisible()
+  })
+
+  test('alcança as telas da allowlist a partir da tela de suspensão', async ({ page }) => {
+    await signInSuspended(page, 'caio@exemplo.com', { email: 'E-mail', password: 'Senha', submit: 'Entrar' })
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Autenticação em duas etapas' })).toHaveAttribute(
+      'href',
+      '/account/enable-mfa',
+    )
+    await page.getByRole('link', { name: 'Minhas fotos' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Minhas fotos' })).toBeVisible()
+    await expect(page).toHaveURL(/\/account\/photos$/)
+    await expectNoAxeViolations(page)
+  })
+
+  test('suspensa com a sessão aberta, a próxima ação leva à tela da suspensão', async ({ page }) => {
+    const api = await FakeDuoraApi.install(page)
+    api.seedConfirmedUser('dani@exemplo.com', PASSWORD)
+    await page.goto('/login')
+    await page.getByLabel('E-mail', { exact: true }).fill('dani@exemplo.com')
+    await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
+    await page.getByRole('button', { name: 'Entrar' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Sua conta' })).toBeVisible()
+
+    api.seedSuspension('dani@exemplo.com', '2026-10-30T12:00:00Z')
+    await page.getByRole('link', { name: 'Editar perfil' }).click()
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
+    await expect(page.getByText('Esta área não está disponível para a sua conta agora.')).toBeVisible()
   })
 })
 

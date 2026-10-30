@@ -71,17 +71,40 @@ internal static class AccountSuspensionStatus
     }
 
     /// <summary>
-    /// Devolve o estado anterior à suspensão. Se a conta saiu de <c>Suspended</c> por outro caminho (exclusão, por
-    /// exemplo), nada muda: revogar a medida nunca reativa uma conta que já seguiu outro fluxo.
+    /// Devolve o estado anterior à suspensão, recalculando a elegibilidade pela regra do domínio
+    /// (<see cref="ParticipationEligibility.AfterPresenceCheck"/>): a selfie aprovada durante a suspensão não promoveu a
+    /// conta, porque o worker só promove quem está em <c>PendingEligibility</c>. Se a conta saiu de <c>Suspended</c> por
+    /// outro caminho (exclusão, por exemplo), nada muda: revogar a medida nunca reativa uma conta que já seguiu outro
+    /// fluxo. Quem chama já travou a linha (<see cref="LockAsync"/>).
     /// </summary>
-    /// <returns>Se o estado anterior foi devolvido.</returns>
-    public static async Task<bool> RestoreAsync(DuoraDbContext db, Guid userId, CancellationToken cancellationToken) =>
-        await db.Database.ExecuteSqlAsync($"""
+    /// <returns>Se o estado foi devolvido.</returns>
+    public static async Task<bool> RestoreAsync(DuoraDbContext db, Guid userId, CancellationToken cancellationToken)
+    {
+        var rows = await db.Database.SqlQuery<SuspendedRow>($"""
+            select u.status_before_suspension as "Before", u.email_confirmed as "EmailConfirmed",
+                   exists (select 1 from identity.selfie_verifications v
+                           where v.user_id = u.id and v.state = {nameof(SelfieState.Passed)}) as "PresencePassed"
+            from identity.users u
+            where u.id = {userId} and u.status = {nameof(AccountStatus.Suspended)} and u.status_before_suspension is not null
+            """).ToListAsync(cancellationToken);
+        if (rows is not [var row])
+        {
+            return false;
+        }
+
+        var restored = ParticipationEligibility.AfterPresenceCheck(
+            Enum.Parse<AccountStatus>(row.Before),
+            row.EmailConfirmed,
+            row.PresencePassed ? SelfieState.Passed : null).ToString();
+        return await db.Database.ExecuteSqlAsync($"""
             update identity.users
-            set status = status_before_suspension, status_before_suspension = null,
+            set status = {restored}, status_before_suspension = null,
                 concurrency_stamp = {Guid.NewGuid().ToString("D")}
             where id = {userId} and status = {nameof(AccountStatus.Suspended)} and status_before_suspension is not null
             """, cancellationToken) == 1;
+    }
+
+    private sealed record SuspendedRow(string Before, bool EmailConfirmed, bool PresencePassed);
 
     private sealed record AccountRow(string Status, bool Privileged);
 }

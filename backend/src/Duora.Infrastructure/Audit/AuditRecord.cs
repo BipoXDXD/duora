@@ -33,6 +33,11 @@ internal sealed record AuditAction
     /// <summary>Suspensão revogada; o alvo é a medida, com a versão 2.</summary>
     public static readonly AuditAction AccountSuspensionLifted = new("safety.account_suspension_lifted");
 
+    /// <summary>
+    /// Origem da suspensão automática (a evidência utilizada, spec 12.3); o alvo é o registro de origem, pelo id.
+    /// </summary>
+    public static readonly AuditAction AccountSuspensionSourceRecorded = new("safety.account_suspension_source_recorded");
+
     public static readonly AuditAction PhotoReviewRequested = new("safety.photo_review_requested");
 
     public static readonly AuditAction PhotoReviewAssigned = new("safety.photo_review_assigned");

@@ -96,18 +96,31 @@ public sealed record SuspensionLift
 }
 
 /// <summary>
+/// Registro do sistema que motivou uma medida automática (a "evidência utilizada" da spec 12.3), só pelo código da
+/// origem e pelo id, nunca pelo conteúdo: uma verificação de selfie entra pelo id, sem dado biométrico.
+/// </summary>
+public sealed record ModerationSource(string Code, Guid Id);
+
+/// <summary>
 /// Chave de um comando de moderação: repetir o comando com a mesma chave devolve o mesmo resultado (INV-06). O escopo
 /// separa a chave de um moderador da de outro e da de uma origem do sistema (por exemplo, uma verificação de selfie).
 /// </summary>
 public readonly record struct ModerationCommandKey
 {
     private const int MaxKeyLength = 64;
-    private const int MaxSourceLength = 64;
+    private const int MaxSourceLength = 31;
 
-    private ModerationCommandKey(string scope) => Scope = scope;
+    private ModerationCommandKey(string scope, ModerationSource? source)
+    {
+        Scope = scope;
+        Source = source;
+    }
 
     /// <summary>Texto canônico do escopo; quem persiste guarda só o hash dele.</summary>
     public string Scope { get; }
+
+    /// <summary>A origem do comando do sistema; nula no comando de um moderador.</summary>
+    public ModerationSource? Source { get; }
 
     /// <param name="moderatorId">Quem envia o comando, vindo da sessão.</param>
     /// <param name="key">A <c>Idempotency-Key</c> do pedido, em <c>[A-Za-z0-9_-]{1,64}</c>.</param>
@@ -120,15 +133,26 @@ public readonly record struct ModerationCommandKey
             throw new ArgumentException("Chave fora do formato.", nameof(key));
         }
 
-        return new ModerationCommandKey(string.Create(CultureInfo.InvariantCulture, $"moderator:{moderatorId:D}:{key}"));
+        return new ModerationCommandKey(
+            string.Create(CultureInfo.InvariantCulture, $"moderator:{moderatorId:D}:{key}"), source: null);
     }
 
-    /// <param name="source">Código da origem, como <c>selfie-verification</c>.</param>
+    /// <param name="source">
+    /// Código da origem, em letras minúsculas e hífens (<c>selfie-verification</c>), até 31 caracteres: vira o tipo de
+    /// alvo da auditoria com <c>_</c> no lugar do hífen.
+    /// </param>
     /// <param name="sourceId">Id do registro que motivou o comando; a mesma origem nunca suspende duas vezes.</param>
     public static ModerationCommandKey ForSystem(string source, Guid sourceId)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(sourceId, Guid.Empty);
         var code = SafetyText.RequireCatalogCode(source, MaxSourceLength, nameof(source));
-        return new ModerationCommandKey(string.Create(CultureInfo.InvariantCulture, $"system:{code}:{sourceId:D}"));
+        if (!code.All(c => char.IsAsciiLetterLower(c) || c == '-'))
+        {
+            throw new ArgumentException("Origem só com letras minúsculas e hífens.", nameof(source));
+        }
+
+        return new ModerationCommandKey(
+            string.Create(CultureInfo.InvariantCulture, $"system:{code}:{sourceId:D}"),
+            new ModerationSource(code, sourceId));
     }
 }

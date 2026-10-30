@@ -30,6 +30,8 @@ public sealed class AccountSuspensions : Migration
           decided_at timestamptz not null,
           command_key varchar(64) not null,
           command_intent bytea not null,
+          source_code varchar(31) null,
+          source_id uuid null,
           version bigint not null default 1,
           lifted_at timestamptz null,
           lifted_by_kind varchar(16) null,
@@ -50,6 +52,11 @@ public sealed class AccountSuspensions : Migration
           constraint ck_moderation_actions_terms_need_human check (reason_code <> 'TermsViolation' or author_kind = 'Human'),
           constraint ck_moderation_actions_not_self check (author_user_id is distinct from subject_user_id),
           constraint ck_moderation_actions_internal_reason check (length(btrim(internal_reason)) > 0),
+          -- Evidência utilizada pela automação (spec 12.3): origem e id, sem conteúdo; moderador não tem origem.
+          constraint ck_moderation_actions_source check (
+            (source_code is null) = (source_id is null)
+            and (source_code is null or source_code ~ '^[a-z][a-z-]{0,30}$')
+            and ((author_kind = 'Automated') = (source_code is not null))),
           constraint ck_moderation_actions_command check (
             command_key ~ '^[0-9a-f]{64}$' and octet_length(command_intent) = 32),
           constraint ck_moderation_actions_lift check (
@@ -76,10 +83,10 @@ public sealed class AccountSuspensions : Migration
             raise exception 'A lifted moderation action is immutable' using errcode = '23514';
           end if;
           if (new.id, new.subject_user_id, new.measure, new.reason_code, new.internal_reason, new.author_kind,
-              new.author_user_id, new.decided_at, new.command_key, new.command_intent)
+              new.author_user_id, new.decided_at, new.command_key, new.command_intent, new.source_code, new.source_id)
              is distinct from
              (old.id, old.subject_user_id, old.measure, old.reason_code, old.internal_reason, old.author_kind,
-              old.author_user_id, old.decided_at, old.command_key, old.command_intent) then
+              old.author_user_id, old.decided_at, old.command_key, old.command_intent, old.source_code, old.source_id) then
             raise exception 'A moderation decision is immutable' using errcode = '23514';
           end if;
           return new;

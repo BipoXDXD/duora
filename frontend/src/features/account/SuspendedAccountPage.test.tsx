@@ -86,4 +86,49 @@ describe('tela da conta suspensa (#299)', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Sua conta' })).toBeInTheDocument()
   })
+
+  it('oferece as telas da allowlist e as deixa abrir sem voltar para a suspensão', async () => {
+    useBackend(SUSPENDED)
+    server.use(http.get(`${API}/me/photos`, () => HttpResponse.json({ items: [], nextCursor: null })))
+    const { user } = await renderApp('/account/suspended')
+
+    await screen.findByRole('heading', { level: 1, name: 'Conta suspensa' })
+    expect(screen.getByRole('link', { name: 'Autenticação em duas etapas' })).toHaveAttribute(
+      'href',
+      '/account/enable-mfa',
+    )
+    await user.click(screen.getByRole('link', { name: 'Minhas fotos' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Minhas fotos' })).toBeInTheDocument()
+  })
+
+  it('abre a tela de MFA para a conta suspensa', async () => {
+    useBackend(SUSPENDED)
+    await renderApp('/account/enable-mfa')
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Ative a autenticação em duas etapas' }),
+    ).toBeInTheDocument()
+  })
+
+  it('com a sessão aberta, um 403 ACCOUNT_SUSPENDED revalida a conta e leva à tela da suspensão', async () => {
+    let suspended = false
+    server.use(
+      http.get(`${API}/me`, () =>
+        HttpResponse.json(
+          withSessionContext(suspended ? SUSPENDED : { ...ACCOUNT, status: 'Active', currentTermsAccepted: true }),
+        ),
+      ),
+      http.get(`${API}/me/sessions`, () => HttpResponse.json({ items: [] })),
+      http.get(`${API}/me/profile`, () => {
+        suspended = true
+        return problem(403, 'ACCOUNT_SUSPENDED')
+      }),
+    )
+    useAntiforgeryEndpoint()
+    await renderApp('/account/profile')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeInTheDocument()
+    expect(screen.getByText('Esta área não está disponível para a sua conta agora.')).toBeInTheDocument()
+  })
 })

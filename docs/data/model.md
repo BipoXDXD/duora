@@ -784,7 +784,8 @@ suspensão de conta:**
 - **Colunas:** `id uuid`; `subject_user_id`; `measure varchar(32)` (`Suspension`); `reason_code varchar(64)`
   (`TermsViolation`, `SelfieVerificationFailed`); `internal_reason varchar(2000)` (auditoria, nunca exibido à
   pessoa); `author_kind` (`Human`, `Automated`); `author_user_id uuid`; `decided_at`; `command_key varchar(64)`
-  (SHA-256 do escopo do comando) e `command_intent bytea` (SHA-256 do pedido), para idempotência; `version bigint`
+  (SHA-256 do escopo do comando) e `command_intent bytea` (SHA-256 do pedido), para idempotência; `source_code` e
+  `source_id` (origem da medida automática, a evidência utilizada; obrigatórios só para `Automated`); `version bigint`
   (1 ativa, 2 revogada); `lifted_at`, `lifted_by_kind`, `lifted_by_user_id`, `lift_reason`.
 - **Constraints:** FKs `subject_user_id`, `author_user_id` e `lifted_by_user_id` → `identity.users` `RESTRICT`;
   `UNIQUE (command_key)`; índice único parcial `ux_moderation_actions_active_suspension` em `(subject_user_id)`
@@ -794,8 +795,8 @@ suspensão de conta:**
 - **Índices:** `ix_moderation_actions_subject` `(subject_user_id, decided_at)`, `ix_moderation_actions_author`,
   `ix_moderation_actions_lifted_by`.
 - **Privilégios:** `duora_app` com `SELECT`, `INSERT` e `UPDATE`, sem `DELETE` nem `TRUNCATE`.
-- **Estado da conta:** `identity.users.status_before_suspension` guarda o estado de onde a suspensão partiu, e a
-  revogação o devolve (dono: Identity).
+- **Estado da conta:** `identity.users.status_before_suspension` guarda o estado de onde a suspensão partiu (dono:
+  Identity). A revogação recalcula a elegibilidade a partir dele; sair de `Suspended` exige limpar a coluna (CHECK).
 - **Classe:** P3.
 
 **Proposto para quando existirem denúncias e versões de política (migração aditiva):** `report_id uuid` (anulável);
