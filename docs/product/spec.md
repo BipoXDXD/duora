@@ -538,7 +538,7 @@ Todos os caminhos desta tabela são relativos a `/api/v1`. “Público” não s
 | API-A05 | `POST /auth/logout` | Sem corpo relevante → `204` | Revoga a sessão corrente e sinaliza desconexão |
 | API-A06 | `POST /auth/password-reset-requests` | E-mail → `202` neutro | Rate limit; não revela cadastro |
 | API-A07 | `POST /auth/password-resets` | Token e nova senha → resultado | Invalidar sessões anteriores conforme política |
-| API-A08 | `GET /me` | Conta própria, elegibilidade, permissões, configuração pública e se o aceite dos Termos é o da versão ativa (`currentTermsAccepted`; sempre `true` para conta privilegiada, à qual os Termos de participante não se aplicam) | Autenticado; não retornar secrets/claims internos |
+| API-A08 | `GET /me` | Conta própria, elegibilidade, permissões, configuração pública, limite da selfie do participante até a aprovação (`selfieAttempts`, issue #300) e se o aceite dos Termos é o da versão ativa (`currentTermsAccepted`; sempre `true` para conta privilegiada, à qual os Termos de participante não se aplicam) | Autenticado; não retornar secrets/claims internos |
 | API-A09 | `GET /me/sessions` | Sessões próprias com descrição mínima | Reautenticação para detalhes sensíveis |
 | API-A10 | `DELETE /me/sessions/{sessionId}` | Revogação → `204` | Apenas sessão própria; encerrar sockets associados |
 | API-A11 | `POST /me/mfa/enrollments` | Início de configuração MFA | Reautenticação; segredo de configuração não vai a logs |
@@ -553,8 +553,8 @@ Todos os caminhos desta tabela são relativos a `/api/v1`. “Público” não s
 | API-P07 | `GET /me/preferences` | Preferências privadas e `ETag` | Apenas titular; recurso versionado independentemente do perfil público |
 | API-P03 | `PUT /me/preferences` | Preferências e `If-Match` | Atualizar guarda de elegibilidade; não alterar sala já iniciada sem necessidade de segurança |
 | API-P04 | `GET /profiles/{userId}` | Projeção autorizada | Apenas contexto legítimo de sala/conexão; sem diretório global |
-| API-P05 | `POST /me/selfie-verifications` | Solicitação → tarefa durável | Titular, CSRF, orçamento persistente; indisponibilidade ou teto responde 503 sem nova captura; rota etária antiga retorna 410 |
-| API-P06 | `GET /me/selfie-verifications/current` | Estado mínimo e próximo passo | Titular; capture emite credenciais temporárias no-store; complete não aceita resultado; rota etária antiga retorna 410 |
+| API-P05 | `POST /me/selfie-verifications` | Solicitação → tarefa durável | Titular, CSRF, orçamento persistente; indisponibilidade ou teto responde 503 sem nova captura; pausa do limite de reprovações responde 429 `SELFIE_ATTEMPTS_LOCKED` com `Retry-After`, e tentativas esgotadas 403 `SELFIE_ATTEMPTS_EXHAUSTED` (issue #300); rota etária antiga retorna 410 |
+| API-P06 | `GET /me/selfie-verifications/current` | Estado mínimo, próximo passo e `attempts` (estado, restantes, último ciclo, fim da pausa) | Titular; capture emite credenciais temporárias no-store; complete não aceita resultado; rota etária antiga retorna 410 |
 
 Após login, logout ou mudança de identidade, renovar o token antiforgery no cliente conforme o fluxo do framework. Retornar erros de API como `401`/`403`, não como uma página HTML de login. Notificar mudanças de senha/MFA sem incluir segredo. Endpoints padrão de Identity não dispensam revisão de CSRF, enumeração e autorização.
 
@@ -955,6 +955,8 @@ A implementação deve ser revisada à luz da LGPD, das regras aplicáveis do Ma
 Decisão definitiva da issue #93 (19/10/2026), consolidada no ADR-0029: não exigir verificação etária, estimativa de idade nem documentos. Confirmação por código de e-mail é obrigatória; SMS é somente possibilidade futura.
 
 Participação requer Active + EmailConfirmed + Selfie Passed, além das demais regras de segurança. Estados da selfie: Pending, Capturing, Processing, Passed, RecaptureRequired, Inconclusive e Expired. Indisponibilidade mantém pendência; navegador nunca decide o resultado. Tentativas são serializadas por conta, com cinco novas solicitações por hora e intervalo mínimo de um minuto; repetir solicitação aberta é idempotente. O limite HTTP existente também se aplica.
+
+**Limite de reprovações (issue #300, decisão do dono de 29/10/2026, [ADR-0043](../architecture/adr/0043-limite-de-reprovacoes-da-selfie.md)).** Primeiro ciclo com cinco tentativas; cinco reprovações pausam a selfie por 1 hora, contada da quinta reprovação (no instante exato o segundo ciclo abre). Segundo ciclo com mais cinco; a décima reprovação suspende a conta automaticamente, com motivo `SelfieVerificationFailed`, sem prazo, revertida só por moderador; a revogação devolve o primeiro ciclo. Contam só os resultados finais `RecaptureRequired` e `Inconclusive` sob a mesma versão de política; abandono, expiração, indisponibilidade e erro técnico não contam, e a aprovação encerra a contagem. Cada reprovação é registrada uma vez por tentativa, à parte da retenção de 30 dias das tentativas. A pausa e o esgotamento são aplicados no servidor (API-P05); API-P06 e API-A08 (`selfieAttempts`) mostram o estado mínimo, sem dado do fornecedor.
 
 Fornecedor integrado: AWS Rekognition Face Liveness, avaliação de brilho/nitidez/pose com DEFAULT, sem atributos etários. Integração desativada até homologação de privacidade, limiares, captura, CSP e acessibilidade. Consultar ADR-0029 para retenção, credenciais temporárias, migração e rollback. Evidências etárias históricas não concedem nem retiram participação.
 

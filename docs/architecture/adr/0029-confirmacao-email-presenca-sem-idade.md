@@ -61,6 +61,13 @@ selfie estiver ligada sem os dois. A CSP não é relaxada globalmente: só o doc
 Continuam fora desta decisão: alternativa assistida, recuperação dedicada de host/PostgreSQL e opt-out de uso secundário
 na AWS Organizations (passo operacional do dono).
 
+## Adendo — 30/10/2026: limite de reprovações (issue #300)
+
+Decisão do dono de 29/10/2026, detalhada no [ADR-0043](0043-limite-de-reprovacoes-da-selfie.md): cinco reprovações
+pausam a selfie por 1 hora; mais cinco, depois da pausa, suspendem a conta. As reprovações ficam em
+`identity.selfie_failures`, à parte da retenção de 30 dias das tentativas, e saem na aprovação, na revogação da
+suspensão por selfie e com a conta. A sessão da AWS encerrada como `EXPIRED` ou `FAILED` termina `Expired` e não conta.
+
 ## Evidências
 
 [Testes e plano](../../superpowers/plans/2026-10-19-consolidacao-93.md). [Issue #93](https://github.com/BipoXDXD/duora/issues/93). As limitações de validação devem constar no relatório da entrega; mocks do fornecedor não equivalem a homologação AWS.

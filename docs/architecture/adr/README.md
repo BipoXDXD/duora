@@ -51,6 +51,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0040](0040-pares-de-conexoes-encerradas.md) | Excluir Ended/Blocked de novos pares, sem reconexão implícita | Accepted; módulo Connections ainda não integrado | Jornada explícita de reconexão |
 | [0041](0041-janela-de-autenticacao-recente-de-1-hora.md) | Janela de autenticação recente (step-up) de 1 h, intervalo fechado | Accepted | Abuso de sessão aberta ou step-up por passkey |
 | [0042](0042-suspensao-de-conta-por-violacao-dos-termos.md) | Suspensão de conta em `safety.moderation_actions`, uma ativa por conta por índice parcial, e sessão suspensa negada por padrão fora da allowlist | Proposed | Regras da #300, recurso de moderação ou segundo moderador |
+| [0043](0043-limite-de-reprovacoes-da-selfie.md) | Limite de reprovações da selfie: uma linha por reprovação, pausa de 1 h derivada e suspensão automática pela outbox | Proposed | Recurso de moderação, nova política da selfie ou alternativa assistida |
 
 ## Regras
 
