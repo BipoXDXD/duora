@@ -176,7 +176,8 @@ public sealed partial class PhotoReviewApprovalTests
             rowId = await db.Database.SqlQuery<Guid>($"""
                 select generation as "Value" from media.review_promotions where case_id={item.CaseId}
                 """).SingleAsync(Ct);
-            var gc = new ReviewPromotionCleanupDispatcher(source, store, _time, enabled: true);
+            var gc = new ReviewPromotionCleanupDispatcher(source, store, _time, enabled: true,
+                NullLogger<ReviewPromotionCleanupDispatcher>.Instance);
             var claim = Assert.IsType<ReviewPromotionCleanupClaim>(await gc.ClaimAsync(Ct));
             Assert.Equal(writerSettled, claim.WriterWasSettled);
             prefix = $"derivatives/review-{rowId:N}-";

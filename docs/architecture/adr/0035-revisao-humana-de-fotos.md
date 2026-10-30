@@ -288,14 +288,13 @@ expurgo.
 recibo sai não é mais replay: a foto já está `Deleted` com outra versão, então a resposta é 412 em vez de 204, sem
 efeito novo. Um tombstone
 preso por obrigação física que nunca termina fica indefinidamente. Para `photo_deletion_cleanup`,
-`original_cleanup` e os coletores de candidato registrados no Worker, o sinal disso é a obrigação, que já tem retry
-e log próprios. Duas exceções ficam registradas como risco (#297):
+`original_cleanup` e os coletores de candidato e de promoção do Worker, o sinal disso é a obrigação, que já tem retry
+e log próprios. Dois riscos foram registrados na #297:
 
-- **Coletor de promoções sem registro.** O `ReviewPromotionCleanupDispatcher` existe, mas não está registrado no
-  Worker (nem na DI, nem no `WorkerHost`). Uma promoção abandonada (`committed_at` nulo) segura o tombstone da foto
-  e os bytes `derivatives/review-*` da geração até esse coletor ser registrado, sem retry nem log que avisem. O
-  registro vai num PR separado.
-- **Escritor que cai no meio da gravação.** Quem cai depois de `BeginWritingAsync` (`PhotoReviewPromotions`; o
+- **Coletor de promoções sem registro (resolvido no #303).** O `ReviewPromotionCleanupDispatcher` existia, mas não
+  estava registrado no Worker, e uma promoção abandonada (`committed_at` nulo) segurava o tombstone da foto e os
+  bytes `derivatives/review-*` da geração. O #303 registrou o coletor; ver "Coletor de promoções no Worker" abaixo.
+- **Escritor que cai no meio da gravação (continua aberto).** Quem cai depois de `BeginWritingAsync` (`PhotoReviewPromotions`; o
   candidato segue o mesmo protocolo) deixa `writer_settled_at` nulo. O coletor, por segurança, nunca dá baixa
   terminal a um escritor incerto: apaga as chaves de novo a cada `UncertainWriterPoll`, mas nunca grava
   `deleted_at`. O tombstone dessa foto fica para sempre, e o sinal é só a linha com `last_cleanup_at` recente e
@@ -327,3 +326,21 @@ e `OnlyAllowlistedFunctionsRunAsTheirOwner` (`AppRolePrivilegesTests`); `PhotoDe
 de coletor em `PhotoReviewApprovalTests` conferem que `deleted_at` e `last_cleanup_at` ficam no relógio do banco, não
 no relógio falso, e são iguais.
 O resultado desses testes pertence ao CI do PR.
+
+**Coletor de promoções no Worker (#297, PR #303).** O `ReviewPromotionCleanupDispatcher` existia, mas não estava registrado:
+uma promoção privada abandonada (`committed_at` nulo) segurava os bytes `derivatives/review-*` da geração e, pela
+regra do expurgo, o tombstone da foto. Agora o `ReviewPromotionCleanupService` do Worker roda o coletor no mesmo
+padrão dos coletores de candidato: laço independente da admissão, sem trabalho quando o storage não está
+configurado, próximo item imediato quando processa algo e espera de 2 s quando não há nada, aviso só com o tipo da
+causa quando o banco falha, e retry durável com backoff até 15 min quando o storage falha (o log leva só a
+tentativa e o tipo da causa, nunca a geração nem a chave). Uma varredura que perde o lease registra aviso e deixa a
+posse persistida para a recuperação. Como nos outros coletores, não há métrica própria. Cada instância do Worker
+roda o laço: o `FOR UPDATE SKIP LOCKED` do claim e o lease impedem que duas instâncias apaguem a mesma geração ao
+mesmo tempo. Continua valendo o caso do escritor incerto: sem `writer_settled_at`, o coletor apaga as chaves de novo
+a cada `UncertainWriterPoll`, mas nunca grava `deleted_at`.
+
+Compliance: `ASweepRemovesTheThreeKeysRecordsTheRemovalAndStaysSilent`,
+`AFailedDeletionLogsOnlyTheAttemptAndItsCauseAndSchedulesADurableRetry` e
+`ASweepThatOutlivesItsLeaseLogsTheLossAndKeepsThePersistedClaim` (`ReviewPromotionCollectorTests`, PostgreSQL real);
+`ReviewPromotionCleanupLogsUnreachableDatabaseAndKeepsRunning` (`WorkerHostTests`). Os testes de lease e concorrência
+do coletor em `ReviewPromotionCleanupTests` e `PhotoReviewApprovalTests` continuam valendo.
