@@ -11,7 +11,7 @@ namespace Duora.IntegrationTests.Media;
 /// coletores de candidato. O log leva só a tentativa e o tipo da causa, nunca a geração nem a chave. Banco próprio,
 /// com uma promoção sintética, sem o Worker isolado (que só roda no runner Linux).
 /// </summary>
-public sealed class ReviewPromotionCollectorTests(PostgresFixture postgres) : IAsyncLifetime
+public sealed partial class ReviewPromotionCollectorTests(PostgresFixture postgres) : IAsyncLifetime
 {
     private static readonly string Category =
         typeof(ReviewPromotionCleanupDispatcher).FullName ?? throw new InvalidOperationException("Tipo sem nome completo.");
