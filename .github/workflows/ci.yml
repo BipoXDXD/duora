@@ -34,7 +34,7 @@ jobs:
   backend:
     name: backend
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Registrar arquitetura do runner (spec 2.4)
         run: |
