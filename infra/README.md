@@ -35,6 +35,13 @@ digest do índice multiarquitetura; atualizar as duas juntas.
 - **Build sem emulação**: o SDK roda no `BUILDPLATFORM`. Web e worker saem como IL portátil (`UseAppHost=false`),
   idêntico nas duas arquiteturas; só o bundle de migração é nativo (gerado com o RID do alvo). Restore em
   `--locked-mode`, como no CI.
+- **NuGet na camada de build**: os pacotes restaurados e os arquivos `obj` ficam juntos no estágio `build`,
+  sem cache mount mutável. O publish com `--no-restore` continua válido mesmo se o BuildKit perder seus caches
+  de diretório. O cache de camadas continua disponível; reconstruir a camada após mudança no código exige
+  novo download dos pacotes. As imagens finais recebem somente a saída publicada, sem o cache NuGet.
+  `scripts/deploy/test_dotnet_restore_cache.py` reproduz a perda do cache entre restore e publish em web e
+  worker, sem rede, e verifica também a rejeição de dependência divergente do lockfile. Esse teste entra no
+  gate `ops` pela descoberta existente; os gates de imagens nativas continuam verificando a aplicação real.
 - **Scan das imagens** (spec 17.1): Trivy em cada imagem, nas duas arquiteturas; HIGH e CRITICAL com correção
   publicada bloqueiam. Achado sem correção (hoje só pacotes do Debian da base do postgres, status `affected`) não
   tem bump possível: sai num relatório no resumo do job e volta a bloquear quando a correção for publicada.
