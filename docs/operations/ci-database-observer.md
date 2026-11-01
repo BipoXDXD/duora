@@ -39,7 +39,9 @@ estática, dos dois deploys, da recuperação, do rollback e das guardas negativ
 
 O protocolo admite apenas o handshake e os códigos 0–3 do `pg_isready`. Saída parcial não pode bloquear
 `readline`: leitura por selector e bytes usa um único deadline absoluto, com tamanho limitado e prazo
-revalidado depois de `os.read`, inclusive quando o pipe já estava pronto antes de o host perder agendamento. EOF,
+revalidado depois de `os.read`, inclusive quando o pipe já estava pronto antes de o host perder agendamento.
+`sample()` também confere um checkpoint final após o helper/frame: captura timestamp e duração em locais,
+rejeita duração maior ou igual a dois segundos e devolve esses mesmos valores, sem recalcular relógios no retorno. EOF,
 protocolo inválido, atraso e processo morto são erros. Códigos 1, 2 e 3 continuam sendo amostras de banco
 não pronto, que reprovam a qualificação. Diagnósticos contêm somente fase/motivo fixos; stdout/stderr do
 filho não são incluídos em erros. O relatório acrescenta tempo de inicialização, duração e código de
@@ -121,6 +123,13 @@ não foi incorporado o stop/restart do fixture compartilhado de privilégios do 
 O nonce por pedido do #330 não foi incorporado: não foi demonstrado replay no shell serial real. O shell
 mantido executa uma sondagem nova por requisição e o leitor rejeita frames inválidos ou excedentes; não há retry
 ou reaproveitamento de amostra após timeout. Nenhum workflow, limite ou gate é relaxado por esta consolidação.
+
+A revisão final do head `881729a…` demonstrou outra pausa de agendamento possível, depois do retorno do helper
+e antes do registro da amostra. Com pipes e relógios reais, SIGSTOP/SIGCONT produziu uma resposta saudável de
+aproximadamente 2,11 s que a cobertura de três segundos ainda aceitava. Uma regressão nova reproduz esse ponto
+depois de uma leitura realmente bem-sucedida. O checkpoint final de `sample()` rejeita essa resposta e congela
+os dois valores verificados. A CI e as seis provas de `881729a…` são históricas e não aprovam o SHA corrigido;
+é necessária CI completa nova. Os limites e a qualificação dos três trials permanecem inalterados.
 
 ## Três qualificações completas por arquitetura (#327)
 

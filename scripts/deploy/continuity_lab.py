@@ -88,8 +88,12 @@ done
         status = self._read_line(deadline=started + 2, phase="probe")
         if status not in (b"0", b"1", b"2", b"3"):
             raise DatabaseObservationError("probe:invalid-frame")
-        return {"at": time.time(), "database_ready": status == b"0", "exitCode": int(status),
-                "probeSeconds": time.monotonic() - started}
+        at = time.time()
+        probe_seconds = time.monotonic() - started
+        if probe_seconds >= 2:
+            raise DatabaseObservationError("probe:deadline")
+        return {"at": at, "database_ready": status == b"0", "exitCode": int(status),
+                "probeSeconds": probe_seconds}
 
     def close(self) -> None:
         if self._closed:

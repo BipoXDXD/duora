@@ -55,6 +55,18 @@ class DatabaseObserverTests(unittest.TestCase):
                 with self.assertRaisesRegex(lab.DatabaseObservationError, "probe:deadline"):
                     observer.sample()
 
+    def test_a_completed_frame_cannot_qualify_after_the_caller_loses_its_deadline(self) -> None:
+        with patch.dict(os.environ, {"OBSERVER_TEST_MODE": "0"}):
+            observer = lab.DatabaseObserver("synthetic")
+            read_line = observer._read_line
+            def descheduled_frame(*, deadline: float, phase: str) -> bytes:
+                frame = read_line(deadline=deadline, phase=phase)
+                time.sleep(2.05)  # Real successful read, then descheduling at the helper/caller boundary.
+                return frame
+            with self.assertRaisesRegex(lab.DatabaseObservationError, "probe:deadline"):
+                with observer, patch.object(observer, "_read_line", descheduled_frame):
+                    observer.sample()
+
     def test_late_startup_greeting_is_refused_even_if_the_pipe_was_readable(self) -> None:
         class DescheduledSelector(selectors.DefaultSelector):
             def select(self, timeout=None):
