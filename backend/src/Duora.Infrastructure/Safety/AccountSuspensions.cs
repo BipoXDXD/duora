@@ -55,6 +55,12 @@ public abstract record SuspensionOutcome
 
     /// <summary>Contenção de lock; nada foi gravado e o pedido pode ser repetido com a mesma chave.</summary>
     public sealed record Busy : SuspensionOutcome;
+
+    /// <summary>Entrega não é uma falha de selfie não revisada vinculada ao ledger atual desta conta.</summary>
+    public sealed record RecoveryUnavailable : SuspensionOutcome;
+
+    /// <summary>O vínculo existe, mas o ledger atual não esgotou as tentativas; nenhuma medida foi aplicada.</summary>
+    public sealed record RecoveryNotRequired : SuspensionOutcome;
 }
 
 public abstract record LiftOutcome
@@ -103,7 +109,7 @@ public abstract record SuspensionReadOutcome
 /// transação READ COMMITTED; quem chama não pode ter uma aberta. Ordem de locks (spec 10.4): guardas de usuário em
 /// UUID ordenado, linha da conta, coordenadores de evento e rodada, sessões de jogo.
 /// </remarks>
-public sealed class AccountSuspensions
+public sealed partial class AccountSuspensions
 {
     private const string LockTimeout = "2s";
     private const string Suspension = "Suspension";
@@ -145,12 +151,21 @@ public sealed class AccountSuspensions
         return SuspendAsync(moderator: null, order, key, cancellationToken);
     }
 
+    /// <param name="moderator">Sessão vinda da fronteira autenticada.</param>
+    /// <param name="order">Pedido de autoria do moderador desta sessão.</param>
+    /// <param name="key">Chave estável do pedido do moderador.</param>
+    /// <param name="cancellationToken">Cancelamento.</param>
+    /// <param name="failedDeliveryId">
+    /// Na recuperação humana de selfie (#319), a entrega morta a validar sob a trava da conta, na transação da
+    /// medida. Vincula também a idempotência ao incidente; não reenfileira nem marca a entrega como revisada.
+    /// </param>
     /// <exception cref="ArgumentException">O pedido não foi feito em nome do moderador da sessão.</exception>
     public Task<SuspensionOutcome> SuspendAsModeratorAsync(
         ModeratorSession moderator,
         SuspensionOrder order,
         ModerationCommandKey key,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? failedDeliveryId = null)
     {
         ArgumentNullException.ThrowIfNull(order);
         if (!order.Author.Is(moderator.UserId))
@@ -163,7 +178,13 @@ public sealed class AccountSuspensions
             throw new ArgumentException("O comando do moderador usa a chave do moderador.", nameof(key));
         }
 
-        return SuspendAsync(moderator, order, key, cancellationToken);
+        if (failedDeliveryId is { } delivery
+            && (delivery == Guid.Empty || order.Reason != SuspensionReason.SelfieVerificationFailed))
+        {
+            throw new ArgumentException("A recuperação exige entrega identificada e motivo de selfie.", nameof(failedDeliveryId));
+        }
+
+        return SuspendAsync(moderator, order, key, cancellationToken, failedDeliveryId);
     }
 
     /// <exception cref="ArgumentException">A revogação não foi feita em nome do moderador da sessão.</exception>
@@ -232,13 +253,14 @@ public sealed class AccountSuspensions
         ModeratorSession? moderator,
         SuspensionOrder order,
         ModerationCommandKey key,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? failedDeliveryId = null)
     {
         for (var attempt = 0; attempt < 3; attempt++)
         {
             try
             {
-                return await RecordSuspensionAsync(moderator, order, key, cancellationToken);
+                return await RecordSuspensionAsync(moderator, order, key, failedDeliveryId, cancellationToken);
             }
             catch (RegistrationPlanChangedException)
             {
@@ -246,6 +268,13 @@ public sealed class AccountSuspensions
             }
             catch (PostgresException error) when (IsContention(error))
             {
+                return new SuspensionOutcome.Busy();
+            }
+            catch (InvalidOperationException error) when (failedDeliveryId is not null
+                && error.InnerException is PostgresException postgres && IsContention(postgres))
+            {
+                // Npgsql envolve o timeout de lock das consultas EF como falha transitória. A transação já foi
+                // descartada pelo RecordSuspensionAsync; a recuperação pode ser repetida com a mesma chave.
                 return new SuspensionOutcome.Busy();
             }
         }
@@ -256,11 +285,12 @@ public sealed class AccountSuspensions
         ModeratorSession? moderator,
         SuspensionOrder order,
         ModerationCommandKey key,
+        Guid? failedDeliveryId,
         CancellationToken cancellationToken)
     {
         var subject = order.SubjectUserId;
         var commandKey = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key.Scope)));
-        var intent = Intent(order);
+        var intent = failedDeliveryId is { } recovery ? RecoveryIntent(order, recovery) : Intent(order);
         await using var transaction = await BeginAsync(cancellationToken);
         // Permissão antes de criar ou travar a guarda do alvo; depois das guardas, de novo, ao vivo.
         if (moderator is { } early && !await IsModeratorAsync(early, requireRecentTotp: true, cancellationToken))
@@ -283,18 +313,33 @@ public sealed class AccountSuspensions
             return replay;
         }
 
-        switch (await AccountSuspensionStatus.LockAsync(_db, subject, cancellationToken))
+        var standing = await AccountSuspensionStatus.LockAsync(_db, subject, cancellationToken);
+        switch (standing)
         {
             case SuspensionStanding.NotFound:
                 return new SuspensionOutcome.NotFound();
             case SuspensionStanding.NotSuspendable:
                 return new SuspensionOutcome.NotSuspendable();
-            case SuspensionStanding.Suspended:
+            case SuspensionStanding.Suspended when failedDeliveryId is null:
                 return new SuspensionOutcome.AlreadySuspended();
+            case SuspensionStanding.Suspended:
             case SuspensionStanding.Suspendable:
                 break;
             default:
                 throw new InvalidOperationException("Situação da conta desconhecida.");
+        }
+
+        if (failedDeliveryId is { } failed)
+        {
+            if (await ValidateSelfieRecoveryAsync(subject, failed, cancellationToken) is { } refused)
+            {
+                return refused;
+            }
+
+            if (standing == SuspensionStanding.Suspended)
+            {
+                return new SuspensionOutcome.AlreadySuspended();
+            }
         }
 
         await plan.LockEventsAsync(connection, cancellationToken);
@@ -323,6 +368,13 @@ public sealed class AccountSuspensions
         await ReleaseRoomsAsync(subject, now, cancellationToken);
         await BumpSecurityVersionAsync(subject, cancellationToken);
         await AuditAsync(moderator, AuditAction.AccountSuspended, id, version: 1, cancellationToken);
+        if (failedDeliveryId is { } recoveredDelivery && moderator is { } recoveringModerator)
+        {
+            await new AuditTrail(_db, _time).AppendAsync(
+                new AuditRecord(AuditActorKind.Moderator, recoveringModerator.UserId,
+                    AuditAction.AccountSuspensionSourceRecorded, "outbox_delivery", recoveredDelivery), cancellationToken);
+        }
+
         if (key.Source is { } source)
         {
             await new AuditTrail(_db, _time).AppendAsync(

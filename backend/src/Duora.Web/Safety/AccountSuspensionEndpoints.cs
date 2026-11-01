@@ -17,7 +17,7 @@ namespace Duora.Web.Safety;
 /// revogar. O grupo <c>/admin</c> já exige sessão administrativa com MFA; os comandos pedem também TOTP recente
 /// (ADR-0041), e o serviço confere ao vivo, na transação, o papel <c>moderator</c>, que é a permissão específica.
 /// </summary>
-internal static class AccountSuspensionEndpoints
+internal static partial class AccountSuspensionEndpoints
 {
     private const string TagKind = "suspension";
 
@@ -42,6 +42,12 @@ internal static class AccountSuspensionEndpoints
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
             .ProducesProblem(StatusCodes.Status428PreconditionRequired)
             .AddOpenApiOperationTransformer(DocumentIfMatch);
+        Problems(accounts.MapPost("/selfie-suspension-recoveries/{deliveryId:guid}", RecoverSelfieAsync))
+            .RequireRecentMfa()
+            .Produces<AccountSuspensionResponse>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .AddOpenApiOperationTransformer(DocumentIdempotencyKey);
     }
 
     private static RouteHandlerBuilder Problems(RouteHandlerBuilder route) => route

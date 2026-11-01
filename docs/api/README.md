@@ -267,3 +267,9 @@ autorização, retenção e o recorte faltante de API-M03/M04/T-26 (o recurso de
 ver a [matriz de autorização](media-review.md#matriz-de-autorização-28102026)). É alvo de implementação M1–M7,
 sem endpoints, DTOs, OpenAPI ou tipos executáveis novos nesta entrega. AwaitingReview e PHOTO_REVIEW_*
 não são negociação de errors do ADR-0034. Upload permanece desligado.
+
+## Recuperação de suspensão por selfie (#319)
+
+API-ADM24 acrescenta uma rota administrativa específica para recuperar o efeito de uma entrega morta, sem alterar
+a rota comum de suspensão por violação dos Termos. Ver [contrato, autorização e códigos de erro](selfie-suspension-recovery.md).
+A adição não altera DTOs nem respostas existentes; requer revisão humana de bloqueio antes do merge.
