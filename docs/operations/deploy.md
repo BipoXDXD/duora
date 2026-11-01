@@ -15,6 +15,29 @@ caminho Ansible descrito abaixo vale para uma VPS nova.
 **Não é zero-downtime.** Com uma instância web, o deploy tem uma breve interrupção planejada (spec 17.3): o worker
 para antes da migração e web/edge são recriados. Escala horizontal exige o ADR de SignalR, sessões e fan-out.
 
+## Diagnóstico da observação de continuidade no laboratório (#326)
+
+O laboratório descartável dos jobs nativos `images` usa um único `docker exec` persistente para sondar o
+PostgreSQL. Cada pedido recebe um desafio novo e só aceita sua resposta completa, com prazo de **2 segundos**.
+A admissão do transporte tem prazo de 5 segundos, mas a janela positiva continua exigindo a primeira amostra em
+até **3 segundos**: esse prazo de admissão não amplia a cobertura permitida. O intervalo solicitado permanece
+0,25 s, e o timestamp da amostra é gravado depois do recebimento da resposta.
+
+Os logs `[continuity-observer]` e o campo `databaseObserver` da qualificação registram `startupSeconds`,
+`maximumProbeSeconds`, `sampleCount` e `lastError`, sem comandos, saída do processo ou credenciais. Códigos como
+`startup-timeout`, `probe-timeout`, `unexpected-eof`, `invalid-frame` e `shutdown-failed` identificam falhas do
+observador; readiness negativa continua sendo uma amostra negativa. Ambas as situações reprovam a qualificação.
+
+Preservar os logs e a janela de observação ao investigar uma falha. O rótulo histórico `database:TimeoutExpired`
+abrangia também a inicialização do processo via Docker, sem identificar a causa da demora. Sucesso na repetição
+não demonstra a causa do timeout anterior. Ver [investigação e controles da #326](../testing/reports/2026-11-01-continuity-observer.md).
+
+Não ignorar erros do observador nem lacunas para promover uma release. Permanecem obrigatórios: pelo menos duas
+amostras, cobertura do início/fim e lacunas máximas de 3 s, prontidão positiva do banco, fluxo de eventos vivo,
+ausência de eventos de reinício/destruição, identidade de banco/backup, sessão SQL e rollback compatível.
+Uma reexecução administrativa segue a autorização específica do AGENTS.md. Este observador pertence somente ao
+laboratório descartável; não instala serviço nem modifica o executor ou o banco de produção.
+
 ## Peças
 
 | Peça | Onde | Papel |
