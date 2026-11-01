@@ -301,6 +301,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
         var suspensionId = Guid.NewGuid();
         var path = route.Path
             .Replace("{userId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+            .Replace("{deliveryId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
             .Replace("{suspensionId:guid}", suspensionId.ToString(), StringComparison.Ordinal);
         return route.Method switch
         {
@@ -308,6 +309,9 @@ public sealed class AdminRouteTests : IAsyncDisposable
             "POST" when path.EndsWith("/lift", StringComparison.Ordinal) => browser.PostJsonAsync(path,
                 new { internalReason = "Sintético." },
                 new MutationHeaders(Extra: new Dictionary<string, string> { ["If-Match"] = $"\"suspension-{suspensionId:N}-1\"" })),
+            "POST" when path.Contains("/selfie-suspension-recoveries/", StringComparison.Ordinal) => browser.PostJsonAsync(path,
+                new { internalReason = "Incidente sintético." },
+                new MutationHeaders(Extra: new Dictionary<string, string> { ["Idempotency-Key"] = $"k-{Guid.NewGuid():N}" })),
             "POST" => browser.PostJsonAsync(path, new { reasonCode = "TermsViolation", internalReason = "Sintético." },
                 new MutationHeaders(Extra: new Dictionary<string, string> { ["Idempotency-Key"] = $"k-{Guid.NewGuid():N}" })),
             var method => throw new InvalidOperationException($"Método {method} sem caso no teste."),

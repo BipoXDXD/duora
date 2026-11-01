@@ -42,6 +42,8 @@ public sealed class ProblemTextTests
         { "SELF_BLOCK", "You cannot block your own account." },
         { "SELFIE_ATTEMPTS_EXHAUSTED", "Selfie attempts are exhausted. The account is blocked pending review." },
         { "SELFIE_ATTEMPTS_LOCKED", "Too many rejected selfies. Try again after the pause." },
+        { "SELFIE_RECOVERY_UNAVAILABLE", "This delivery is not available for selfie suspension recovery. Investigate before proceeding." },
+        { "SELFIE_RECOVERY_NOT_REQUIRED", "Selfie attempts are no longer exhausted. No suspension was applied." },
         { "STORAGE_UNAVAILABLE", "Photo storage is temporarily unavailable. Retry with the same key." },
         { "TEMPORARILY_UNAVAILABLE", "Service temporarily unavailable. Try again later." },
         { "UNSUPPORTED_MEDIA_TYPE", "Unsupported media type." },

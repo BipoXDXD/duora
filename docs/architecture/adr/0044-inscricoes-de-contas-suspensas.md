@@ -1,6 +1,6 @@
 # ADR-0044: Retirar inscrições de contas suspensas sem restauração
 
-- **Status:** Proposed para a implementação e revisão humana; política autorizada pelo dono em 31/10/2026 na tarefa da issue #305.
+- **Status:** Accepted (2026-11-01).
 - **Origem:** #305, follow-up de #299/PR #302; spec 4.2, 8.3, 10.3–10.5; INV-01/02/06/10; T-01/T-06/T-28.
 - **Revisar quando:** houver jornada explícita de readmissão no mesmo evento, mudança da janela de check-in ou transporte de notificações de participação.
 
@@ -13,6 +13,24 @@ sem retorno ao mesmo evento após revogação, promovendo somente pessoas elegí
 Alternativas descartadas: congelar mantendo vaga prejudicaria a espera; congelar sem vaga exigiria outro estado e
 uma nova regra de retorno. Restaurar automaticamente poderia ultrapassar capacidade ou desalojar uma promoção.
 A proibição de nova inscrição no mesmo evento já é testada por `WithdrawnPersonCannotRegisterAgain`.
+
+## Aceite e acompanhamento — 01/11/2026
+
+O dono autorizou a formalização deste ADR como Accepted em 01/11/2026, após a implementação pelo
+[PR #310](https://github.com/BipoXDXD/duora/pull/310), as revisões independentes e a confirmação da publicação.
+A política permanece a autorizada em 31/10/2026; este aceite não altera comportamento, contratos ou ordem de locks.
+A [release 41281627285](https://github.com/BipoXDXD/duora/actions/runs/41281627285) confirmou `healthy` para
+[`b915b106`](https://github.com/BipoXDXD/duora/commit/b915b1062d479cfe705cd77723321c082c8b8629), que contém a implementação.
+
+Os desdobramentos continuam separados do escopo aceito:
+
+- [#320 — avisos de promoção](https://github.com/BipoXDXD/duora/issues/320): consumidor do fato já gravado na outbox,
+  com decisões de canal, atraso e consumo de fatos anteriores ainda sujeitas a revisão antes da implementação.
+- [#321 — reconciliação retroativa](https://github.com/BipoXDXD/duora/issues/321): operação específica para inscrições
+  legadas, com prévia, revalidação da medida original, idempotência e autorização própria de aplicação.
+
+O aceite não conclui essas issues nem autoriza envio de avisos, consulta a participantes, reconciliação real,
+ativação de serviços ou alteração de configuração em produção. Permanecem os limites operacionais abaixo.
 
 ## Comportamento
 

@@ -37,8 +37,13 @@ Código de saída 0 indica alteração, 1 indica estado incompatível/já revisa
 Para o consumidor `selfie-attempts-suspension`, seguir antes a
 [recuperação manual do ADR-0043](../architecture/adr/0043-limite-de-reprovacoes-da-selfie.md#recuperação-manual-de-entrega-morta-306):
 o payload terminal pode estar vazio, mas a conta pode ser localizada pelo `resource_id` do evento e pelo ledger.
-Registrar a revisão não efetiva a suspensão. Conferir o efeito e as limitações da ferramenta de moderação antes
-de marcar `resolved`; o endpoint HTTP existente aceita apenas `TermsViolation`, não o motivo da selfie.
+Registrar a revisão não efetiva a suspensão. O PR #315 documentou a ausência de ferramenta de recuperação; a #319
+acrescenta a [rota específica para moderador](../api/selfie-suspension-recovery.md), com sessão administrativa,
+TOTP recente, motivo interno e chave estável do incidente. A rota HTTP comum de suspensão continua aceitando
+somente `TermsViolation`. Confirmar a disponibilidade da rota específica na release, o efeito, a autoria e a
+auditoria antes de marcar `resolved`. Outra medida ativa mantém o caso pendente; ausência de vínculo ou revisão
+prévia exige investigação. A recuperação não reenvia nem revisa a entrega automaticamente; sua conclusão continua
+sendo esta operação de retenção, após confirmação humana do desfecho.
 
 ## Falha do job
 

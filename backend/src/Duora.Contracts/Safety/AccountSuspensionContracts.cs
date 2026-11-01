@@ -11,6 +11,9 @@ public sealed record SuspendAccountRequest(string? ReasonCode, string? InternalR
 /// <summary>Revogar uma suspensão; o motivo vai só para a auditoria (1 a 2000 caracteres).</summary>
 public sealed record LiftSuspensionRequest(string? InternalReason);
 
+/// <summary>Recuperação humana de entrega morta da selfie; motivo interno do incidente, de 1 a 2000 caracteres.</summary>
+public sealed record RecoverSelfieSuspensionRequest(string? InternalReason);
+
 /// <summary>
 /// Uma suspensão, sem o motivo interno. <c>ReasonCode</c>: TermsViolation | SelfieVerificationFailed.
 /// <c>ETag</c>: o valor de <c>If-Match</c> para revogá-la. Instantes em UTC, com "Z" (spec 8.1).
