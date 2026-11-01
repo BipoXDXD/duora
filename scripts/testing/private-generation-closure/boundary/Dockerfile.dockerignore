@@ -1,0 +1,15 @@
+*
+!global.json
+!Directory.Build.props
+!Directory.Packages.props
+!.editorconfig
+!backend/src/Duora.Core/Media/IObjectStore.cs
+!backend/src/Duora.Core/Media/ObjectKey.cs
+!backend/src/Duora.Core/Media/PhotoVariants.cs
+!backend/src/Duora.Infrastructure/Media/ExactLengthStream.cs
+!backend/src/Duora.Infrastructure/Media/FileSystemObjectStore.cs
+!scripts/testing/private-generation-closure/Barrier.cs
+!scripts/testing/private-generation-closure/boundary/
+**/bin/
+**/obj/
+**/__pycache__/

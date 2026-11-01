@@ -53,6 +53,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0042](0042-suspensao-de-conta-por-violacao-dos-termos.md) | Suspensão de conta em `safety.moderation_actions`, uma ativa por conta por índice parcial, e sessão suspensa negada por padrão fora da allowlist | Proposed | Regras da #300, recurso de moderação ou segundo moderador |
 | [0043](0043-limite-de-reprovacoes-da-selfie.md) | Limite de reprovações da selfie: uma linha por reprovação, pausa de 1 h derivada e suspensão automática pela outbox | Proposed | Recurso de moderação, nova política da selfie ou alternativa assistida |
 | [0044](0044-inscricoes-de-contas-suspensas.md) | Retirada de inscrições por suspensão, sem restauração; promoção elegível antes do início | Proposed; política autorizada em 31/10/2026 (#305) | Readmissão no mesmo evento ou mudança da janela de check-in |
+| [0045](0045-protecao-dos-controles-de-geracao.md) | Fronteira de capacidades e journal de gerações privadas em fixture Linux descartável | Proposed; sem fechamento terminal no runtime | Autoridade real, admissão SQL, retirada de escritores e restore |
 
 ## Regras
 
