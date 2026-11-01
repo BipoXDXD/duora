@@ -19,6 +19,127 @@ import install_executor as installer
 import reconcile_payload as payload
 import runtime_guard as guard
 import smoke_local
+from continuity_trials import TrialCpuLoad, save_qualification, validate_trial
+
+
+class DatabaseObservationError(RuntimeError):
+    """Fixed phase/reason codes only; never expose child output or credentials."""
+
+
+class DatabaseObserver:
+    """One warmed exec transport; every request still performs a fresh readiness probe."""
+
+    def __init__(self, container: str) -> None:
+        # No autonomous loop: closing stdin ends the remote shell, including on failure cleanup.
+        script = '''printf 'READY\\n'
+while IFS= read -r request; do
+    [ "$request" = probe ] || exit 64
+    pg_isready -q -h 127.0.0.1 -U duora_app -d postgres -t 1 >/dev/null 2>&1
+    result=$?
+    printf '%s\\n' "$result" || exit 65
+done
+'''
+        self._process = subprocess.Popen(["docker", "exec", "--interactive", container, "sh", "-c", script],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                         bufsize=0)
+        self._closed = False
+        started = time.monotonic()
+        try:
+            if self._read_line(deadline=started + 5, phase="startup") != b"READY":
+                raise DatabaseObservationError("startup:invalid-frame")
+            self.startup_seconds = time.monotonic() - started
+        except BaseException:
+            self.abort()
+            raise
+
+    def _read_line(self, *, deadline: float, phase: str) -> bytes:
+        assert self._process.stdout is not None
+        frame = bytearray()
+        with selectors.DefaultSelector() as selector:
+            selector.register(self._process.stdout, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise DatabaseObservationError(phase + ":deadline")
+                chunk = os.read(self._process.stdout.fileno(), 128)
+                # Readability does not guarantee the host was scheduled again before the deadline.
+                if time.monotonic() >= deadline:
+                    raise DatabaseObservationError(phase + ":deadline")
+                if not chunk:
+                    raise DatabaseObservationError(phase + ":eof")
+                frame.extend(chunk)
+                if len(frame) > 32:
+                    raise DatabaseObservationError(phase + ":invalid-frame")
+                if b"\n" in frame:
+                    if frame.count(b"\n") != 1 or not frame.endswith(b"\n"):
+                        raise DatabaseObservationError(phase + ":invalid-frame")
+                    return bytes(frame[:-1])
+
+    def sample(self) -> dict:
+        started = time.monotonic()
+        if self._closed or self._process.poll() is not None:
+            raise DatabaseObservationError("probe:closed")
+        assert self._process.stdin is not None
+        try:
+            self._process.stdin.write(b"probe\n")
+            self._process.stdin.flush()
+        except OSError:
+            raise DatabaseObservationError("probe:closed") from None
+        status = self._read_line(deadline=started + 2, phase="probe")
+        if status not in (b"0", b"1", b"2", b"3"):
+            raise DatabaseObservationError("probe:invalid-frame")
+        at = time.time()
+        probe_seconds = time.monotonic() - started
+        if probe_seconds >= 2:
+            raise DatabaseObservationError("probe:deadline")
+        return {"at": at, "database_ready": status == b"0", "exitCode": int(status),
+                "probeSeconds": probe_seconds}
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        assert self._process.stdin is not None and self._process.stdout is not None
+        try:
+            if self._process.poll() is not None:
+                raise DatabaseObservationError("shutdown:unexpected-exit")
+            self._process.stdin.close()
+            if self._process.wait(timeout=2) != 0:
+                raise DatabaseObservationError("shutdown:nonzero-exit")
+        except subprocess.TimeoutExpired:
+            # A forced cleanup cannot qualify a successful observation window.
+            self._process.kill()
+            raise DatabaseObservationError("shutdown:deadline") from None
+        except OSError:
+            raise DatabaseObservationError("shutdown:transport") from None
+        finally:
+            self.abort()
+
+    def abort(self) -> None:
+        """Reap a failed proof without masking its original error; never qualifies continuity."""
+        if self._closed:
+            return
+        self._closed = True
+        assert self._process.stdin is not None and self._process.stdout is not None
+        try:
+            self._process.stdin.close()
+        except OSError:
+            pass  # Failure cleanup only; the original proof already failed.
+        try:
+            self._process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            self._process.wait(timeout=2)
+        finally:
+            self._process.stdout.close()
+
+    def __enter__(self) -> "DatabaseObserver":
+        return self
+
+    def __exit__(self, exception_type: object, *_: object) -> None:
+        if exception_type is None:
+            self.close()
+        else:
+            self.abort()
 
 
 def validate_observations(samples: list[dict], *, start: float, end: float,
@@ -47,23 +168,25 @@ def _instances(compose: list[str]) -> dict:
         {"id": v["Id"], "startedAt": v["State"]["StartedAt"], "restartCount": v["RestartCount"]} for v in values}
 
 
-def run_preservation_lab() -> dict:
+def run_preservation_lab(*, trial: int = 1) -> dict:
+    validate_trial(trial)
     if (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted"
             or os.environ.get("GITHUB_REPOSITORY") != "BipoXDXD/duora"):
         raise RuntimeError("Continuity qualification is restricted to disposable hosted Actions")
     if os.geteuid() != 0:
         names = "GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_SHA,GITHUB_EVENT_PATH,RUNNER_TEMP"
         result = subprocess.run(["sudo", "--non-interactive", "--preserve-env=" + names,
-            sys.executable, str(Path(__file__).resolve()), "--actions-lab"], text=True, capture_output=True,
+            sys.executable, str(Path(__file__).resolve()), "--actions-lab", "--trial", str(trial)], text=True, capture_output=True,
             check=False, timeout=1200)
         if result.returncode:
             raise RuntimeError("Disposable root lab failed: " + (result.stdout + result.stderr)[-6000:])
         line = next(line for line in reversed(result.stdout.splitlines()) if line.startswith("LAB_RESULT="))
         return json.loads(line.removeprefix("LAB_RESULT="))
-    return _root_lab()
+    return _root_lab(trial=trial)
 
 
-def _root_lab() -> dict:
+def _root_lab(*, trial: int = 1) -> dict:
+    validate_trial(trial)
     architecture = command(["docker", "version", "--format", "{{.Server.Arch}}"])
     if architecture not in guard.LEGACY_DIGESTS:
         raise RuntimeError("Unsupported disposable architecture")
@@ -128,7 +251,13 @@ def _root_lab() -> dict:
     observer_errors: list[str] = []
     monitor = None
     app_monitor = None
+    database_observer = None
+    controlled_load = None
     try:
+        if trial == 3:
+            controlled_load = TrialCpuLoad(root / "controlled-load")
+        trial_start = time.time()
+        load_before = list(os.getloadavg())
         pin_fixture = root / "pin-policy"
         pin_fixture.mkdir(mode=0o700)
         pinned_json = pin_fixture / "compose.coolify.json"
@@ -307,6 +436,8 @@ def _root_lab() -> dict:
             legacy_history = query('select string_agg("MigrationId",\',\' order by "MigrationId") from ops.__ef_migrations_history')
             if legacy_history != ",".join(legacy["migrations"]):
                 raise RuntimeError("Historical v1 migrator did not establish its exact real schema")
+            # Warm the one exec transport BEFORE the unchanged deployment observation window.
+            database_observer = DatabaseObserver(pg)
             events_file = (root / "events.jsonl").open("w")
             window_start = time.time()
             events = subprocess.Popen(["docker", "events", "--since", str(window_start), "--format", "{{json .}}", "--filter", "type=container",
@@ -314,11 +445,11 @@ def _root_lab() -> dict:
             def sample() -> None:
                 try:
                     while not stop.is_set():
-                        at = time.time()
-                        db = subprocess.run(["docker", "exec", pg, "pg_isready", "-h", "127.0.0.1", "-U", "duora_app"],
-                                            capture_output=True, check=False, timeout=2).returncode
-                        samples.append({"at": at, "database_ready": db == 0})
+                        assert database_observer is not None
+                        samples.append(database_observer.sample())
                         stop.wait(0.25)
+                except DatabaseObservationError as error:
+                    observer_errors.append("database:" + str(error))
                 except Exception as error:
                     observer_errors.append("database:" + type(error).__name__)  # No output or credentials in proof.
             def sample_application() -> None:
@@ -527,6 +658,7 @@ def _root_lab() -> dict:
                 raise RuntimeError("Database readiness continuity failed")
             validate_observations(samples, start=window_start, end=window_end, errors=observer_errors,
                                   events_alive=events.poll() is None)
+            database_observer.close()
             if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("Read-only guards lost SQL session")
             assert session.stdin is not None
             session.stdin.write("\\q\n")
@@ -594,6 +726,7 @@ def _root_lab() -> dict:
                     "negativeCases": receiver_negatives, "bindingRestoredExactly": True},
                 "receiver_installer_interlock_proved": True,
                 "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,
+                    "databaseObserverStartupSeconds": database_observer.startup_seconds,
                     "maximumAllowedGapSeconds": 3, "startedBefore": first.release_id, "endedAfter": "compatible rollback and negative read-only guards"},
                 "staticInstallation": receipt, "manifestSha256": manifest_sha, "readiness": samples,
                 "applicationReadiness": app_samples,
@@ -604,16 +737,28 @@ def _root_lab() -> dict:
                 "payloadOrigin": "Real candidate build in disposable loopback OCI registry; production GHCR path remains a separate pre-worker gate",
                 "backupScope": "No production backup touched; existing mandatory restore/PITR job remains separate",
                 "negativeRestartScope": "Intentional backup recreation/foreign mount and PG restart only AFTER positive window; separate synthetic audited enrollments isolate negatives, no product auto-enrollment"}
-            output = Path(os.environ["RUNNER_TEMP"]) / "duora-executor-lab" / architecture
-            output.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(bundle, output / "bundle")
-            (output / "qualification.json").write_text(json.dumps(report, indent=2) + "\n")
-            for path in [output.parent, output, *(output.rglob("*"))]: path.chmod(0o755 if path.is_dir() else 0o644)
+            trial_end = time.time()
+            load_metrics = controlled_load.finish() if controlled_load is not None else {"workers": 0}
+            if controlled_load is not None and (load_metrics["startedAt"] > trial_start or load_metrics["finishedAt"] < trial_end):
+                raise RuntimeError("Controlled load did not cover the whole qualification")
+            times = [sample["at"] for sample in samples]
+            report["qualificationTrial"] = {"ordinal": trial, "total": 3,
+                "start": trial_start, "end": trial_end, "cpuCount": os.cpu_count(),
+                "loadAverageBefore": load_before, "loadAverageAfter": list(os.getloadavg()),
+                "load": load_metrics, "samples": len(samples),
+                "maximumProbeSeconds": max(sample["probeSeconds"] for sample in samples),
+                "maximumGapSeconds": max(right - left for left, right in zip(times, times[1:])),
+                "firstSampleDelaySeconds": times[0] - window_start,
+                "lastSampleGapSeconds": window_end - times[-1]}
+            # No positive artifact is written before load coverage, metrics and shutdown have passed.
+            save_qualification(report, bundle, Path(os.environ["RUNNER_TEMP"]), trial=trial)
             return report
     finally:
         stop.set()
         if monitor is not None: monitor.join(timeout=15)
         if app_monitor is not None: app_monitor.join(timeout=10)
+        if database_observer is not None: database_observer.abort()
+        if controlled_load is not None: controlled_load.abort()
         if session is not None:
             session.kill()
             session.wait(timeout=10)
@@ -627,5 +772,11 @@ def _root_lab() -> dict:
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] != ["--actions-lab"]: raise SystemExit("Actions-only qualification entry required")
-    print("LAB_RESULT=" + json.dumps(run_preservation_lab(), separators=(",", ":")))
+    args = sys.argv[1:]
+    if args == ["--actions-lab"]:
+        trial = 1
+    elif len(args) == 3 and args[:2] == ["--actions-lab", "--trial"] and args[2] in ("1", "2", "3"):
+        trial = int(args[2])
+    else:
+        raise SystemExit("Actions-only qualification entry required")
+    print("LAB_RESULT=" + json.dumps(run_preservation_lab(trial=trial), separators=(",", ":")))
