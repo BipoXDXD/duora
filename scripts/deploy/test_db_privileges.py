@@ -133,14 +133,25 @@ class MigratorPayloadImageTests(unittest.TestCase):
 class RuntimeContinuityLabTests(unittest.TestCase):
     def test_real_two_deploy_continuity_guards_installer_and_compatible_rollback(self) -> None:
         from continuity_lab import run_preservation_lab
-        report = run_preservation_lab()
-        for field in ["sql_session_survived", "database_backup_identity_preserved", "negative_guards_passed",
-                      "static_installation_preserved_services", "compatible_v2_rollback_passed",
-                      "two_forward_deploys_under_observation", "failed_product_recovered", "receiver_installer_interlock_proved",
-                      "first_failed_v2_current_v1_app_recovery_preserved_floor", "pinnedComposePolicy", "receiverVersionedLinkPolicy",
-                      "historical_v1_application_qualified", "legacy_schema_upgraded_preserving_history"]:
-            self.assertTrue(report[field], field)
-        print("[continuity-lab] " + json.dumps(report))
+        completed = []
+        for trial in (1, 2, 3):
+            print("[continuity-trial-start] " + json.dumps({"ordinal": trial, "total": 3}), flush=True)
+            report = run_preservation_lab(trial=trial)
+            for field in ["sql_session_survived", "database_backup_identity_preserved", "negative_guards_passed",
+                          "static_installation_preserved_services", "compatible_v2_rollback_passed",
+                          "two_forward_deploys_under_observation", "failed_product_recovered", "receiver_installer_interlock_proved",
+                          "first_failed_v2_current_v1_app_recovery_preserved_floor", "pinnedComposePolicy", "receiverVersionedLinkPolicy",
+                          "historical_v1_application_qualified", "legacy_schema_upgraded_preserving_history"]:
+                self.assertTrue(report[field], field)
+            self.assertEqual(report["qualificationOrdinal"], trial)
+            self.assertEqual(report["qualificationTrial"]["ordinal"], trial)
+            self.assertEqual(report["qualificationTrial"]["load"]["workers"], int(trial == 3))
+            print("[continuity-lab] " + json.dumps(report), flush=True)
+            completed.append({"architecture": report["architecture"], "path": report["qualificationPath"],
+                              "trial": report["qualificationTrial"]})
+        # An exception/assertion interrupts the sequence; no retry or partial success is accepted.
+        self.assertEqual(len(completed), 3)
+        print("[continuity-trials] " + json.dumps(completed), flush=True)
 
 
 @unittest.skipUnless(IMAGE, "real observer regression runs in both native Actions images jobs")
