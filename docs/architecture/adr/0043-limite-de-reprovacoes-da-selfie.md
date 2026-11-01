@@ -155,7 +155,11 @@ produção ao agente nem autoriza uma suspensão por ele.
    humana é `AccountSuspensions.SuspendAsModeratorAsync`, com `SuspensionOrder.ByModerator` e motivo
    `SelfieVerificationFailed`. A sessão vem da fronteira autenticada; não se monta uma sessão com IDs escolhidos
    no terminal. O serviço confere papel, sessão administrativa e TOTP recente, abre a própria transação e aplica
-   os efeitos da suspensão e a auditoria. O contrato para uma ferramenta administrativa revisada é:
+   os efeitos da suspensão e a auditoria. A ferramenta da #319 é a rota específica
+   `POST /api/v1/admin/accounts/{userId}/selfie-suspension-recoveries/{deliveryId}`
+   ([contrato e resultados](../../api/selfie-suspension-recovery.md)). Ela exige a sessão administrativa real,
+   TOTP recente, a prova de contexto/CSRF e `Idempotency-Key`; o corpo contém somente `internalReason`.
+   A rota chama a mesma porta de aplicação com a entrega a revalidar:
 
    ```csharp
    await suspensions.SuspendAsModeratorAsync(
@@ -163,7 +167,8 @@ produção ao agente nem autoriza uma suspensão por ele.
        SuspensionOrder.ByModerator(moderatorSession.UserId, userId,
            SuspensionReason.SelfieVerificationFailed, incidentReason),
        ModerationCommandKey.ForModerator(moderatorSession.UserId, stableIncidentKey),
-       cancellationToken);
+       cancellationToken,
+       failedDeliveryId: deliveryId);
    ```
 
    Manter a mesma chave e o mesmo pedido ao repetir uma intervenção cujo resultado ficou incerto; registrar a
@@ -171,14 +176,22 @@ produção ao agente nem autoriza uma suspensão por ele.
    `Forbidden`, `KeyReused`, `NotFound` ou `NotSuspendable` exigem investigação, não troca de identidade/chave para
    forçar a operação. `AlreadySuspended` exige reler a medida e aplicar as distinções do passo 2.
 
-   **Limite operacional atual:** o exemplo é um contrato de aplicação, não um CLI disponível. A rota HTTP
+   **Limite registrado pelo PR #315 e tratado pela #319:** não há CLI de suspensão. A rota HTTP comum
    `POST /api/v1/admin/accounts/{userId}/suspensions` aceita somente `TermsViolation`; não aceita esse motivo de
-   selfie. Uma intervenção por `SelfieVerificationFailed` exige ferramenta administrativa revisada que use a
-   porta acima e preserve a autenticação real. Na ausência dela, escalar ao responsável e manter o caso pendente.
+   selfie. A rota específica de recuperação fixa o motivo `SelfieVerificationFailed`, confirma a identidade
+   do evento e seu vínculo com o ledger da conta, e reavalia `Exhausted` na transação da suspensão, depois da
+   trava da conta. A entrega também fica travada até o commit para serializar revisão e retenção. Outra medida
+   ativa não é substituída. Sem vínculo ou com revisão anterior, a operação recusa e exige diagnóstico.
+   Enquanto uma release revisada com essa rota não estiver publicada, escalar ao responsável e manter o caso pendente.
    Não disfarçar a falha como violação dos Termos nem oferecer um endpoint/comando que a release não possui.
    Essa distinção importa: só a revogação de `SelfieVerificationFailed` limpa o ledger e devolve o primeiro ciclo.
+   A mesma chave, conta, entrega e motivo devolvem a medida original, inclusive `liftedAt` se já revogada, sem
+   suspendê-la novamente. Uma chave com pedido diferente é recusada. Após revogação ou aprovação, o evento antigo
+   perde o vínculo com o ledger e uma chave nova também não o torna apto à recuperação.
 4. **Conferir e registrar o efeito.** Verificar a medida retornada e sua leitura administrativa, motivo, autoria
-   humana e auditoria `safety.account_suspended`. Guardar no registro privado o ID da entrega, evento, tentativa,
+   humana e auditoria `safety.account_suspended`. A recuperação registra também
+   `safety.account_suspension_source_recorded`, de ator `Moderator` e alvo `outbox_delivery`, na mesma transação,
+   sem duplicar os registros num replay. Guardar no registro privado o ID da entrega, evento, tentativa,
    conta e medida, o responsável, o instante e o desfecho. Não escrever diretamente em `identity.users`,
    `safety.moderation_actions` ou no ledger: isso contornaria a operação que retira inscrições, encerra salas,
    atualiza a versão de segurança e audita. Não reconstruir payload, zerar tentativas da entrega, mudar `Failed`
