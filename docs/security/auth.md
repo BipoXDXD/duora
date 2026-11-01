@@ -34,6 +34,13 @@ conta no login, sem "elevar" uma sessão de participante. **Decisão I2 (revisã
 não acessa rota de participante (perfil, bloqueio, salas): a política padrão das rotas responde `403` a ela, e só
 as rotas da própria conta (sessões, MFA, senha) e as `/admin` a aceitam.
 
+O idioma de exibição (`GET`/`PUT /api/v1/me/locale`) pertence à própria conta em `identity.users`,
+inclusive quando ela é privilegiada. Essas duas rotas exigem a sessão de conta completa: senha inicial
+trocada, MFA confirmado quando obrigatório e prova de contexto privado/CSRF. A alteração continua
+condicional a `If-Match`; não abre as preferências de comunicação de participante, não altera papéis
+nem permite remover MFA obrigatório. Regressões: `Profiles.PrivilegedLocaleTests`, para os três papéis
+privilegiados, persistência, CSRF, concorrência e recusa antes do MFA.
+
 **Revisão de fotos (decisão de 28/10/2026).** Um único revisor, o dono do projeto: papel `moderator` com as
 capacidades explícitas `assign`, `evidence` e `decide`, sessão administrativa com MFA e step-up (MFA na última
 hora, ADR-0041) na decisão. `product_admin` e `operator` não recebem essas capacidades, e não há recurso de fotos. A matriz
