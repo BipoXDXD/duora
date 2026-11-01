@@ -182,6 +182,35 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 | Auditoria | `ops.audit_events` na mesma transação: `identity.mfa_enrollment_started`, `mfa_enabled`, `mfa_disabled`, `mfa_recovery_codes_regenerated`, `mfa_recovery_code_used`, `reauthenticated` e `password_changed` |
 | Risco residual | O key ring é ponto único de falha do TOTP (D2). O lock por conta serializa as verificações da mesma conta durante um hash; a espera acontece numa fila em memória por conta (`AccountCheckGate`), sem conexão, e só quem tem a vez abre a transação, então uma fila de verificações não esgota o pool nem o `max_connections` (antes, 25 logins paralelos seguravam 25 conexões, e o servidor respondia 53300 → `500`). A espera em memória tem teto próprio (`Identity:AccountQueueTimeout`, **30 s, hipótese**) e o bloqueio PostgreSQL mantém `Identity:AccountLockTimeout` (**5 s**); o login (A04) inteiro tem ainda um prazo total, `Identity:LoginTimeout` (**30 s, hipótese**), passado o qual o pedido é cancelado. Exceder qualquer teto responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem executar a verificação que não conseguiu entrar. Quatro logins já ultrapassavam a fila antiga de 5 s sob carga (issue #65); não existe quantidade fixa de requisições que garanta ausência de `503`. No A04, uma fila por e-mail normalizado antecede a consulta da conta, incluindo endereços inexistentes; o piso de latência de falha é contado depois da admissão e mantido dentro dessa vez, após liberar a transação. Ver detalhes e limitações em [concorrência](../data/concurrency.md#concorrência-na-autenticação-issue-65). **Aceito pelo responsável técnico (residual do I3):** login com código de recuperação ainda libera, por até 1 h (enquanto a sessão estiver viva), o A16 e, para participante, o A15, porque esse é o caminho de quem perdeu o dispositivo; o A14 e as ações administrativas críticas continuam exigindo TOTP |
 
+### QR Code no cadastro (issue #276)
+
+API-A11 fornece a URI `authenticatorUri` completa. `MfaEnrollmentPage` a passa sem reconstrução para
+`QRCodeSVG` (`qrcode.react` 4.2.0, ISC), que gera o SVG no navegador. Não há serviço remoto, imagem
+baixada, link `otpauth://`, download ou URL de objeto em produção. A chave textual continua selecionável,
+com instruções e nome/descrição acessíveis em PT-BR e EN-US. O SVG tem preto/branco explícitos e margem de
+quatro módulos, sem depender do tema; adapta-se à largura disponível. O bloco mantém o foco ao aparecer.
+
+URI e chave usam o mesmo resultado em memória de `SecurityResultStore`, vinculado ao usuário/SID confirmado
+pelo bootstrap. Não entram em QueryCache, MutationCache, URL, storage ou logs. Confirmação substitui o resultado
+por códigos de recuperação; proteção do contexto, descarte e navegação removem o resultado e o SVG. Respostas
+API continuam `no-store`; nenhum recurso HTTP novo contém o segredo. Reabrir a tela exige novo gesto de cadastro.
+MFA só é ativado pela API-A12 após confirmar o código. Regras de papéis do ADR-0017 e erros existentes permanecem.
+
+Revisão STRIDE desta apresentação (não altera autenticação/autorização do backend):
+
+| Classe | Mitigação e regressão |
+|---|---|
+| Spoofing | Resultado só é exibido para o owner confirmado; testes existentes de usuário/SID incorretos em `MfaEnrollmentPage.test.tsx` continuam descartando o recibo |
+| Tampering | URI passada integralmente ao gerador; `admin-bootstrap.spec.ts` decodifica o SVG real e compara a URI completa, inclusive label codificado, issuer, secret, digits e period |
+| Repudiation | Auditoria de início/confirmação permanece no backend; teste de console garante ausência de chave/URI, sem acrescentar log de credencial |
+| Information disclosure | Geração local; testes de cache, storage, URL, console, requisições de saída e descarte; não há terceiro recebendo a URI |
+| Denial of service | Sem chamadas ou retries adicionais; testes existentes de pending, código inválido e `429` mantidos; chave textual oferece alternativa à leitura por câmera |
+| Elevation of privilege | QR apenas apresenta o cadastro; confirmação ainda envia só `{ code }`; testes de rotas privilegiadas, CSRF e SID renovado mantidos |
+
+Aceite: T-21 (limpeza de estado), T-23 (acessibilidade), API-A11/API-A12 e ADR-0017, sem mudar invariantes de
+negócio nem esquema/contrato. Reversão: reverter este patch de frontend e suas dependências; sem migração ou
+mudança de chave no servidor. Revisão humana de autenticação continua necessária antes do merge.
+
 ## CSRF
 
 Cookie same-origin com `SameSite=Lax` reduz, mas não elimina CSRF; login e logout também são mutações

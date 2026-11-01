@@ -5,9 +5,10 @@ import {
   TEST_SESSION_ID,
   TEST_RENEWED_SESSION_ID,
 } from '@/test/private-context'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { pageSecurityResult } from './page-security-result'
 import { API, problem, server, useAntiforgeryEndpoint } from '@/test/msw'
 import { renderApp, ROUTE_CHUNK_TIMEOUT_MS, type RenderedApp } from '@/test/render'
 
@@ -20,6 +21,7 @@ const ADMIN_WITHOUT_MFA = {
   mfaEnabled: false,
 }
 const SHARED_KEY = 'SYNTHETICKEY'
+const AUTHENTICATOR_URI = `otpauth://totp/Duora:admin%2Bqr%40example.test?secret=${SHARED_KEY}&issuer=Duora&digits=6&period=30`
 const RECHECK_LATENCY_MS = 50
 
 /**
@@ -41,7 +43,7 @@ function mfaPhase() {
 }
 
 function useEnrollmentEndpoint(
-  respond: () => Response = () => HttpResponse.json({ sharedKey: SHARED_KEY, authenticatorUri: 'otpauth://totp/test' }),
+  respond: () => Response = () => HttpResponse.json({ sharedKey: SHARED_KEY, authenticatorUri: AUTHENTICATOR_URI }),
 ) {
   let calls = 0
   server.use(
@@ -82,6 +84,91 @@ async function submitCode(user: RenderedApp['user'], code: string) {
   await user.type(screen.getByLabelText('Código do autenticador'), code)
   await user.click(screen.getByRole('button', { name: 'Ativar MFA' }))
 }
+
+describe('QR Code do cadastro', () => {
+  it.each([
+    {
+      locale: 'pt-BR',
+      startLabel: 'Configurar autenticador',
+      label: 'QR Code para configurar o autenticador',
+      description: 'Leia este QR Code com seu aplicativo autenticador ou digite a chave de configuração abaixo.',
+    },
+    {
+      locale: 'en-US',
+      startLabel: 'Set up authenticator',
+      label: 'QR code to set up your authenticator',
+      description: 'Scan this QR code with your authenticator app or enter the setup key below.',
+    },
+  ] as const)(
+    'apresenta QR Code acessível e chave alternativa em $locale',
+    async ({ locale, startLabel, label, description }) => {
+      mfaPhase()
+      useEnrollmentEndpoint()
+      const { user } = await renderApp('/account/enable-mfa', undefined, locale)
+      expect(screen.queryByRole('img', { name: label })).not.toBeInTheDocument()
+      await user.click(await screen.findByRole('button', { name: startLabel }))
+      const qr = await screen.findByRole('img', { name: label })
+      expect(qr.tagName.toLowerCase()).toBe('svg')
+      expect(qr).toHaveAccessibleDescription(description)
+      expect(qr).not.toHaveAttribute('src')
+      expect(qr).not.toHaveAttribute('tabindex')
+      expect(qr.outerHTML).not.toContain(AUTHENTICATOR_URI)
+      expect(qr.outerHTML).not.toContain(SHARED_KEY)
+      expect(screen.getByText(SHARED_KEY)).toBeVisible()
+      expect(document.activeElement).toContainElement(qr)
+      expect(document.activeElement).toContainElement(screen.getByText(SHARED_KEY))
+    },
+  )
+
+  it('remove QR Code e chave ao descartar o resultado e não os restaura ao remontar', async () => {
+    mfaPhase()
+    useEnrollmentEndpoint()
+    const app = await renderApp('/account/enable-mfa')
+    await startEnrollment(app.user)
+    const qr = screen.getByRole('img', { name: 'QR Code para configurar o autenticador' })
+    act(() => {
+      pageSecurityResult.discard()
+    })
+    expect(qr).not.toBeInTheDocument()
+    expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
+    expect(pageSecurityResult.getSnapshot().phase).toBe('idle')
+    app.unmount()
+    await renderApp('/account/enable-mfa', app.queryClient)
+    expect(screen.queryByRole('img', { name: 'QR Code para configurar o autenticador' })).not.toBeInTheDocument()
+    expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
+  })
+
+  it('descarta QR Code e chave ao navegar para fora do cadastro', async () => {
+    mfaPhase()
+    useEnrollmentEndpoint()
+    const { user } = await renderApp('/account/enable-mfa')
+    await startEnrollment(user)
+    const qr = screen.getByRole('img', { name: 'QR Code para configurar o autenticador' })
+    await user.click(screen.getByRole('link', { name: 'Duora' }))
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^\/$/))
+    expect(qr).not.toBeInTheDocument()
+    expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
+    expect(pageSecurityResult.getSnapshot().phase).toBe('idle')
+  })
+
+  it('não registra URI nem chave em console durante cadastro e confirmação', async () => {
+    const logs = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => undefined),
+    )
+    mfaPhase()
+    useEnrollmentEndpoint()
+    useConfirmationEndpoint(() =>
+      HttpResponse.json({ resultSessionId: TEST_RENEWED_SESSION_ID, recoveryCodes: ['synthetic-recovery'] }),
+    )
+    const { user } = await renderApp('/account/enable-mfa')
+    await startEnrollment(user)
+    await submitCode(user, '123456')
+    await screen.findByText('synthetic-recovery')
+    const traces = JSON.stringify(logs.flatMap((log) => log.mock.calls))
+    expect(traces).not.toContain(SHARED_KEY)
+    expect(traces).not.toContain('otpauth://')
+  })
+})
 
 describe('fase do cadastro de MFA', () => {
   it.each(['/account', '/account/profile', '/change-initial-password', '/account/enable-mfa'])(
@@ -148,6 +235,8 @@ describe('fase do cadastro de MFA', () => {
 
     expect(await screen.findByText('synthetic-recovery', {}, { timeout: ROUTE_CHUNK_TIMEOUT_MS })).toBeInTheDocument()
     expect(bodies).toEqual([{ code: '123456' }])
+    expect(screen.queryByText(SHARED_KEY)).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'QR Code para configurar o autenticador' })).not.toBeInTheDocument()
   })
 
   it.each([
@@ -219,6 +308,7 @@ describe('limite de tentativas', () => {
       'espere 2 minutos',
     )
     expect(screen.getByText(SHARED_KEY)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'QR Code para configurar o autenticador' })).toBeInTheDocument()
     expect(confirmation.calls()).toBe(1)
   })
 })
@@ -338,7 +428,7 @@ describe('textos da tela', () => {
     server.use(
       http.post(`${API}/me/mfa/enrollments`, async () => {
         await pending
-        return HttpResponse.json({ sharedKey: SHARED_KEY, authenticatorUri: 'otpauth://totp/test' })
+        return HttpResponse.json({ sharedKey: SHARED_KEY, authenticatorUri: AUTHENTICATOR_URI })
       }),
     )
     const { user } = await renderApp('/account/enable-mfa')
@@ -471,7 +561,13 @@ it('não exibe os códigos na árvore antiga enquanto confirma o novo SID e não
   expect(await screen.findByText('delayed-code-secret')).toBeInTheDocument()
   unsubQuery()
   unsubMutation()
-  for (const secret of ['delayed-code-secret', SHARED_KEY, TEST_PRIVATE_PROOF, TEST_RENEWED_SESSION_ID])
+  for (const secret of [
+    'delayed-code-secret',
+    SHARED_KEY,
+    AUTHENTICATOR_URI,
+    TEST_PRIVATE_PROOF,
+    TEST_RENEWED_SESSION_ID,
+  ])
     expect(captured.join('\n')).not.toContain(secret)
 })
 
