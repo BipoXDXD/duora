@@ -16,17 +16,30 @@ Base: `6c397a34a19969e93148b7e5cdb760c508bbdec2`. Branch isolada `feat/google-oi
 - Google Playwright: **6/6**, produção preview, Chromium/WebKit/mobile e PT-BR/EN-US. Prova navegação inteira e gesto explícito; API/retorno sintéticos não equivalem ao protocolo OIDC, que é exercitado no backend.
 - `pnpm --dir frontend api:generate`: passou após OpenAPI gerado pelo build. `git diff --check`: passou.
 
-## Verificações ainda pendentes no primeiro candidato
+## Revisão incremental após análise independente
 
-A máquina de 16 GB exige janela única; ela foi liberada para a frente de autoridade de mídia. Nenhuma compilação ou suíte pesada será executada em paralelo.
+A revisão do SHA `112add751b77135e1f1d0f3a9e83b17f9b23d09c` encontrou uma falha de recuperação: flags de novos vínculos escondiam a gestão, a conta suspensa não alcançava a lista/tela e a remoção reutilizava uma guarda que negava papéis privilegiados. Registrei RED real: backend **6 falhas esperadas / 8 casos** (2 guardas já passavam) e frontend **4 falhas / 4 casos**, sem erros de importação/execução.
 
-Pendentes: recompilar a última configuração que desativa as duas rotas externas de signout e obter GREEN; restore locked final; `dotnet format ... --verify-no-changes` integral; suíte completa de backend/unidade/arquitetura/integração; conjunto Playwright preexistente; secret-scan, contract e supply-chain completos; revisão independente e humana. Os gates permanecem exigidos. Os resultados acima não significam que todo o candidato, CI ou integração já foram aprovados.
+Correção: a remoção agora usa guarda local separada; mantém senha utilizável/recente, SID/stamp, lockout e TOTP quando ativo, sem negar o titular por mudança de papel. GET/DELETE da gestão continuam acessíveis ao suspenso e com provider/linking off; novos vínculos/login privilegiados continuam negados. UI de recuperação não depende das flags e aparece também na suspensão. Não há rede nem credencial Google nessa operação. A lista explícita de rotas de segurança da suspensão ganhou apenas GET da lista e DELETE; os demais bloqueios permanecem.
+
+Verificações do delta, em janela exclusiva e sem paralelismo pesado:
+
+- Restore locked final: `dotnet restore backend/Duora.slnx --locked-mode --disable-parallel` passou.
+- Build serial de integração: passou, 0 erros e os 2 avisos históricos ImageSharp.
+- `dotnet .../Duora.IntegrationTests.dll -class 'Duora.IntegrationTests.Identity.GoogleOidc*' -class Duora.IntegrationTests.Safety.SuspendedAccountRoutesTests -class Duora.IntegrationTests.Identity.EndpointAuthorizationTests -class Duora.IntegrationTests.Identity.CsrfEveryRouteTests -class Duora.IntegrationTests.Database.AppRolePrivilegesTests -parallel none`: **92/92**, zero erros/falhas/skips. Inclui os 2 signout, consumidor Worker desligado e as regressões de recuperação.
+- Frontend do delta: **58/58** em GoogleAuth, GoogleRecovery, AccountPage, SuspendedAccountPage e session-hooks; typecheck/lint/format passaram. A suíte completa de 1.173 e os 6 Playwright citados antes pertencem ao candidato anterior; não foram repetidos no delta.
+- `dotnet format backend/Duora.slnx --verify-no-changes --no-restore --include <35 arquivos C# da tarefa>` passou após corrigir somente a ordem de imports em 2 arquivos. Código gerado de migração/snapshot fica fora dessa verificação focada por convenção; format integral continua gate central.
+- `pnpm --dir frontend api:generate` passou após o OpenAPI atualizado; `git diff --check` passou.
+
+## Verificações restantes
+
+A janela foi liberada explicitamente para a outra frente, sem processos ativos. A integração central executará suíte completa de backend/unidade/arquitetura/integração, frontend/Playwright preexistentes conforme necessário, format integral, secret-scan, contract e supply-chain, além da revisão do delta e revisão humana. Os gates permanecem exigidos. Não se afirma que CI, integração, merge ou ativação já foram aprovados.
 
 ## Limites e riscos operacionais
 
 - A issue original descrevia funcionalidade ausente; não foi demonstrada vulnerabilidade Google/OIDC no runtime publicado. Defeitos relatados aqui pertenciam ao candidato em desenvolvimento e foram capturados antes de integração.
 - Cadastro precisa terminar prova Google em cinco minutos, mesmo que o código de e-mail dure quinze; intenção vencida pode ser concluída localmente e vinculada depois.
 - Revogação no Google não encerra tickets Duora automaticamente. Reset de senha mantém MFA e vínculo, com aviso e orientação para revisar/remover métodos em caso de invasão.
-- Flags desligadas retiram novos desafios/cadastro/vínculo. A interface de gestão segue as capacidades anunciadas; revisar o procedimento de revogação durante rollback antes de ativar produção.
+- Flags desligadas retiram novos desafios/cadastro/vínculo; gestão e remoção locais permanecem disponíveis com prova do titular, mesmo durante rollback e suspensão. Não há revogação Google em tempo real.
 - Publicação de privacidade, console/credenciais de homologação, callback/proxy com query redigida, navegadores com fornecedor real e reconciliação de exclusão/restore/hub continuam gates próprios. Não se presume prova operacional a partir do stub.
 - Sem instrução não confiável detectada. Nenhum keyring, segredo real ou volume alheio foi exportado; Testcontainers próprios foram removidos, sem prune.

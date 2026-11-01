@@ -41,13 +41,13 @@ internal static class GoogleOidcEndpoints
             var (user, _) = CurrentSession.Require(c);
             var items = await service.ListAsync(user, ct);
             return new ExternalLoginsResponse(items.Select(i => new ExternalLoginResponse(i.Provider, i.LinkedAt.UtcDateTime)).ToArray());
-        }).Produces<ExternalLoginsResponse>().ProducesProblem(401).ProducesProblem(403).ProducesProblem(503);
+        }).AllowForSuspendedAccount().Produces<ExternalLoginsResponse>().ProducesProblem(401).ProducesProblem(403).ProducesProblem(503);
         owner.MapPost("/google/requests", LinkRequestAsync).RequireRecentAuthentication().RequireAccountRateLimit()
             .Produces<GoogleAuthorizationResponse>().ProducesAccountSecurityProblems().ProducesProblem(404);
         owner.MapPost("/google/confirmations", LinkAsync).RequireRecentAuthentication().RequireAccountRateLimit()
             .Produces(204).ProducesAccountSecurityProblems().ProducesProblem(404);
         owner.MapDelete("/google", UnlinkAsync).AllowForSuspendedAccount().RequireRecentAuthentication().RequireAccountRateLimit()
-            .Produces(204).ProducesAccountSecurityProblems().ProducesProblem(404);
+            .Produces(204).ProducesAccountSecurityProblems();
     }
 
     private static string? Cookie(HttpContext c) => c.Request.Cookies[GoogleOidcAuthentication.FlowCookie];
@@ -299,13 +299,8 @@ internal static class GoogleOidcEndpoints
     }
 
     private static async Task<IResult> UnlinkAsync(HttpContext c, ExternalAuthenticationService service,
-        IOptions<GoogleOidcSettings> settings, IAntiforgery antiforgery, CancellationToken ct)
+        IAntiforgery antiforgery, CancellationToken ct)
     {
-        if (!settings.Value.Enabled)
-        {
-            return Disabled();
-        }
-
         var (user, session) = CurrentSession.Require(c);
         var state = CurrentSession.State(c);
         var result = await service.UnlinkAsync(user, session, ct);

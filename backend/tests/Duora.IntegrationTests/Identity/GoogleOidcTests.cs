@@ -1,10 +1,10 @@
 extern alias worker;
 
 using System.Net;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
-using System.Text.Json;
 
 namespace Duora.IntegrationTests.Identity;
 

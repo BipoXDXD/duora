@@ -27,3 +27,7 @@ Rollback operacional: desligar desafios/cadastro/vínculo, manter esquema expand
 ## Aceite e limites
 
 INV01/05/06/11/12; T01/06/13/14/15/21. Testes devem exercitar handler real com discovery/JWKS/token endpoint sintéticos, PostgreSQL18.6 com papéis reais, ausência de auto-link por e-mail, pré-cadastro/recadastro, token/state/nonce/PKCE, MFA, troca de SID, unicidade concorrente e rollback de aviso/vínculo. Componentes/E2E sintéticos não equivalem à console Google nem à homologação com conta real. Código é candidato local, sem PR/push/merge/deploy; evidências e lacunas ficam no relatório de entrega.
+
+## Revisão da recuperação local
+
+Listar e remover um vínculo existente são gestão de credencial Duora, independentes de Enabled/LinkingEnabled e de rede/credenciais Google. Permanecem disponíveis ao titular suspenso e a quem passou de participante a papel privilegiado, com sessão/contexto privado e, na remoção, senha utilizável e recente, stamp atual e TOTP recente quando há MFA. Isso não autoriza nova associação nem login Google para privilegiados ou suspensos fora dos controles vigentes. A tela da conta suspensa expõe a gestão; apenas o botão de novo vínculo depende das flags e do papel de participante.

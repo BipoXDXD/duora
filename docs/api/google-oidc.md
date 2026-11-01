@@ -11,10 +11,10 @@ Implementação do [ADR-0046](../architecture/adr/0046-google-oidc-com-senha-loc
 | API-A22 | POST /auth/google/completions | CSRF ligado ao fluxo; conclui login por vínculo existente, com MFA Duora quando ativo; nova sessão |
 | API-A23 | POST /auth/google/registrations | Prova externa, senha e recibos/declaração iguais ao cadastro local; 202 neutro; sem vínculo ativo |
 | API-A24 | POST /auth/google/registration-confirmations | Código de oito dígitos + senha; verifica stamp e confirma/vincula no mesmo commit; sem login automático |
-| API-A25 | GET /me/external-logins | Sessão/contexto privado; lista do titular sem sub/token |
+| API-A25 | GET /me/external-logins | Sessão/contexto privado; lista do titular sem sub/token, inclusive suspenso ou privilegiado e com Google desligado |
 | API-A26 | POST /me/external-logins/google/requests | Participante confirmado, prova local recente e MFA aplicável; cria intenção Link presa a SID/stamp |
 | API-A27 | POST /me/external-logins/google/confirmations | Mesmo titular/SID/stamp/prova; confirmação explícita; vínculo, aviso e auditoria atômicos; renova sessão |
-| API-A28 | DELETE /me/external-logins/google | Prova local e MFA aplicável; remove vínculo, troca stamp, revoga sessões/intenções e renova a corrente |
+| API-A28 | DELETE /me/external-logins/google | Gestão local independente das flags/rede Google; prova local e MFA aplicável, inclusive suspenso ou privilegiado; remove vínculo, troca stamp, revoga sessões/intenções e renova a corrente |
 
 O callback de protocolo `GET /signin-google-oidc` fica fora da API: transporte exato code/query, proteção contra parâmetros ambíguos/implicit, correlação/state/nonce/PKCE e token validados antes de preparar prova. Sucesso ou falha válida retorna 303 para `/google/continue`; transporte inválido retorna 400. Rotas de signout do handler externo não são utilizadas. Nenhuma isenção ampla de CSRF foi criada.
 

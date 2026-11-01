@@ -23,19 +23,18 @@ import { Button } from '@/shared/ui/button'
 import { PasswordField, TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 
-export function GoogleAccountSettings(): React.JSX.Element | null {
+export function GoogleAccountSettings(): React.JSX.Element {
   const account = useAccount()
   const options = useGoogleOptions()
-  if (
-    !options.data?.enabled ||
-    !options.data.linkingEnabled ||
-    account.roles.length !== 1 ||
-    account.roles[0] !== 'participant'
-  )
-    return null
-  return <GoogleSettings />
+  const canLink =
+    options.data?.enabled === true &&
+    options.data.linkingEnabled &&
+    account.roles.length === 1 &&
+    account.roles[0] === 'participant' &&
+    account.status !== 'Suspended'
+  return <GoogleSettings canLink={canLink} />
 }
-function GoogleSettings(): React.JSX.Element {
+function GoogleSettings({ canLink }: { readonly canLink: boolean }): React.JSX.Element | null {
   const { t } = useI18n()
   const account = useAccount()
   const privateOperation = usePrivateOperation()
@@ -71,6 +70,7 @@ function GoogleSettings(): React.JSX.Element {
   const failure = error ? classifyRequestFailure(error) : null
   const needsReauth = failure?.kind === 'problem' && failure.code === 'REAUTHENTICATION_REQUIRED'
   const linked = (logins.data?.length ?? 0) > 0
+  if (!canLink && !linked && result?.kind !== 'external-login-unlinked' && !logins.isError) return null
   return (
     <section
       aria-label={t('google.settings')}
@@ -130,7 +130,7 @@ function GoogleSettings(): React.JSX.Element {
               </>
             )}
           </>
-        ) : (
+        ) : canLink ? (
           <Button
             variant="secondary"
             aria-disabled={request.isPending || needsReauth}
@@ -140,7 +140,7 @@ function GoogleSettings(): React.JSX.Element {
           >
             {t('google.link')}
           </Button>
-        )
+        ) : null
       ) : null}
       {needsReauth ? (
         <GoogleLocalReauthentication

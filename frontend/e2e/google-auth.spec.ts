@@ -61,6 +61,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
             )
             return
           case '/api/v1/me/sessions':
+          case '/api/v1/me/external-logins':
             await route.fulfill({ json: { items: [] } })
             return
           default:

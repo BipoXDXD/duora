@@ -293,7 +293,7 @@ public sealed class ExternalAuthenticationService
         }
 
         await using var check = await _security.LockAccountAsync(user, ct);
-        if (!await CanLinkAsync(user, sessionId, ct))
+        if (!await CanManageCredentialAsync(user, sessionId, ct))
         {
             return new("Invalid");
         }
@@ -408,9 +408,15 @@ public sealed class ExternalAuthenticationService
         && user.TemporaryPasswordExpiresAt is null && user.Status != AccountStatus.DeletionPending
         && !await _users.IsLockedOutAsync(user) && !(await _users.GetRolesAsync(user)).Any(AccountRoles.IsPrivileged);
 
-    private async Task<bool> CanLinkAsync(DuoraUser user, Guid sid, CancellationToken ct)
+    private async Task<bool> CanLinkAsync(DuoraUser user, Guid sid, CancellationToken ct) =>
+        await CanEnterAsync(user) && await CanManageCredentialAsync(user, sid, ct);
+
+    // Local credential removal must remain available after role changes and provider shutdown. It grants no
+    // provider authentication or new association; the local password/session/MFA proof is still mandatory.
+    private async Task<bool> CanManageCredentialAsync(DuoraUser user, Guid sid, CancellationToken ct)
     {
-        if (!await CanEnterAsync(user))
+        if (!user.EmailConfirmed || user.PasswordHash is null || user.TemporaryPasswordExpiresAt is not null
+            || user.Status == AccountStatus.DeletionPending || await _users.IsLockedOutAsync(user))
         {
             return false;
         }

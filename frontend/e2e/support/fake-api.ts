@@ -72,6 +72,7 @@ interface FakeProfile {
  */
 const SUSPENDED_ALLOWLIST: ReadonlySet<string> = new Set([
   'GET /me',
+  'GET /me/external-logins',
   'GET /me/sessions',
   'DELETE /me/sessions/:id',
   'POST /me/mfa/enrollments',
@@ -344,6 +345,8 @@ export class FakeDuoraApi {
         return this.#me()
       case 'GET /me/sessions':
         return this.#listSessions()
+      case 'GET /me/external-logins':
+        return json({ items: [] })
       case 'GET /me/region-detection/capability':
         return this.#currentUser() === null ? problem(401, 'UNAUTHENTICATED') : json({ enabled: false })
       case 'GET /me/profile':
