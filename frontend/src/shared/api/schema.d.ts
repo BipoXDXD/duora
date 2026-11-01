@@ -3825,6 +3825,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/accounts/{userId}/selfie-suspension-recoveries/{deliveryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description A stable key for this exact suspension request; a replay returns the same suspension. */
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    userId: string;
+                    deliveryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RecoverSelfieSuspensionRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AccountSuspensionResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/photos": {
         parameters: {
             query?: never;
@@ -5172,6 +5271,10 @@ export interface components {
         ReauthenticateRequest: {
             password: null | string;
             twoFactorCode?: null | string;
+        };
+        /** @description Recuperação humana de entrega morta da selfie; motivo interno do incidente, de 1 a 2000 caracteres. */
+        RecoverSelfieSuspensionRequest: {
+            internalReason: null | string;
         };
         /** @description Códigos de recuperação (API-A12 e A14): mostrados uma vez; o servidor guarda só o hash. */
         RecoveryCodesResponse: {

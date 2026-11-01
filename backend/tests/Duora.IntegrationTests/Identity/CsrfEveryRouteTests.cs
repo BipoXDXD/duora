@@ -56,6 +56,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
         var sessionId = (await SessionTests.ListSessionsAsync(browser)).Single().Id;
         var bodies = new Dictionary<string, object?>
         {
+            ["POST /api/v1/admin/accounts/{userId:guid}/selfie-suspension-recoveries/{deliveryId:guid}"] = new { internalReason = "Incidente sintético." },
             ["POST /api/v1/auth/register"] = IdentityScenario.RegistrationBody(newEmail),
             ["POST /api/v1/auth/email-confirmation-requests"] = new { email = pendingEmail, password = IdentityScenario.ValidPassword },
             ["POST /api/v1/auth/confirm-email"] = new
@@ -144,6 +145,7 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 .Replace("{caseId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
                 .Replace("{roomId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
                 .Replace("{userId:guid}", account.UserId.ToString(), StringComparison.Ordinal)
+                .Replace("{deliveryId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
                 .Replace("{suspensionId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
             var headers = new MutationHeaders(SendCsrfToken: false);
             var caller = pattern.StartsWith("/api/v1/admin/accounts/", StringComparison.Ordinal) ? moderatorBrowser
