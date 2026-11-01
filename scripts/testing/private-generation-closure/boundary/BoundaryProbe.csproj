@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../../backend/src/Duora.Core/Media/IObjectStore.cs" Link="IObjectStore.cs" />
+    <Compile Include="../../../../backend/src/Duora.Core/Media/ObjectKey.cs" Link="ObjectKey.cs" />
+    <Compile Include="../../../../backend/src/Duora.Core/Media/PhotoVariants.cs" Link="PhotoVariants.cs" />
+    <Compile Include="../../../../backend/src/Duora.Infrastructure/Media/ExactLengthStream.cs" Link="ExactLengthStream.cs" />
+    <Compile Include="../../../../backend/src/Duora.Infrastructure/Media/FileSystemObjectStore.cs" Link="FileSystemObjectStore.cs" />
+    <Compile Include="../Barrier.cs" Link="Barrier.cs" />
+  </ItemGroup>
+</Project>

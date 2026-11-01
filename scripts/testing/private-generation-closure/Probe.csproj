@@ -4,6 +4,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The independent nested experiment must not be compiled into the baseline executable. -->
+    <Compile Remove="boundary/**/*.cs" />
     <!-- Compile the current adapter, not a model or a reimplementation of its PUT. -->
     <Compile Include="../../../backend/src/Duora.Core/Media/IObjectStore.cs" Link="IObjectStore.cs" />
     <Compile Include="../../../backend/src/Duora.Core/Media/ObjectKey.cs" Link="ObjectKey.cs" />
