@@ -75,10 +75,15 @@ test.describe('conta suspensa (#299)', () => {
     await signInSuspended(page, 'caio@exemplo.com', { email: 'E-mail', password: 'Senha', submit: 'Entrar' })
 
     await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Autenticação em duas etapas' })).toHaveAttribute(
+    await expect(page.getByRole('link', { name: 'Ativar 2FA', exact: true })).toHaveAttribute(
       'href',
       '/account/enable-mfa',
     )
+    await page.getByRole('link', { name: 'Ativar 2FA', exact: true }).click()
+    await expect(page).toHaveURL(/\/account\/enable-mfa$/)
+    await expect(page.getByRole('heading', { level: 1, name: 'Ative a autenticação em duas etapas' })).toBeVisible()
+    await page.getByRole('link', { name: 'Voltar para a conta', exact: true }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Conta suspensa' })).toBeVisible()
     await page.getByRole('link', { name: 'Minhas fotos' }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Minhas fotos' })).toBeVisible()
     await expect(page).toHaveURL(/\/account\/photos$/)
