@@ -8,6 +8,7 @@
     <Project Path="src/Duora.Web/Duora.Web.csproj" />
     <Project Path="src/Duora.Web.Identity/Duora.Web.Identity.csproj" />
     <Project Path="src/Duora.Worker/Duora.Worker.csproj" />
+    <Project Path="src/Duora.StorageAuthority/Duora.StorageAuthority.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Duora.ArchitectureTests/Duora.ArchitectureTests.csproj" />

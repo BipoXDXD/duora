@@ -64,6 +64,13 @@ internal sealed partial class PhotoReviewPromotions(DuoraDbContext db, IObjectSt
             }
 
             prepared = true; // Only a confirmed metadata COMMIT permits storage I/O.
+            var privateManifest = PrivateGenerationMetadata.Manifest(store, PrivateGenerationArea.Promotion,
+                generation, snapshot.Variants.Select(v => new PrivateGenerationVariant(v.Kind, v.SizeBytes,
+                    Convert.ToHexStringLower(v.Sha256))));
+            if (privateManifest is not null)
+            {
+                await ((IPrivateGenerationStore)store).RegisterAsync(privateManifest, budget.Token);
+            }
             foreach (var variant in snapshot.Variants)
             {
                 EnsureLive(deadline, budget.Token);
@@ -91,8 +98,16 @@ internal sealed partial class PhotoReviewPromotions(DuoraDbContext db, IObjectSt
                     writerSettled = false;
                     await using (var content = new MemoryStream(bytes, writable: false))
                     {
-                        await store.PutAsync(variant.Destination, content, bytes.LongLength,
-                            IPhotoSanitizer.VariantContentType, budget.Token);
+                        if (privateManifest is not null)
+                        {
+                            await ((IPrivateGenerationStore)store).PutVariantAsync(
+                                privateManifest, variant.Kind, content, budget.Token);
+                        }
+                        else
+                        {
+                            await store.PutAsync(variant.Destination, content, bytes.LongLength,
+                                IPhotoSanitizer.VariantContentType, budget.Token);
+                        }
                         writerSettled = true;
                     }
 
@@ -104,6 +119,10 @@ internal sealed partial class PhotoReviewPromotions(DuoraDbContext db, IObjectSt
                 }
             }
 
+            if (privateManifest is not null)
+            {
+                await ((IPrivateGenerationStore)store).SealAsync(privateManifest, budget.Token);
+            }
             await SettleWriterAsync(generation, budget.Token);
             EnsureLive(deadline, budget.Token);
             if (!await ConfirmPreparedAsync(request, generation, snapshot, deadline, budget.Token))
@@ -178,6 +197,9 @@ internal sealed partial class PhotoReviewPromotions(DuoraDbContext db, IObjectSt
         }
 
         EnsureLive(deadline, cancellationToken);
+        await PrivateGenerationMetadata.BindAsync(db, store, PrivateGenerationArea.Promotion, generation,
+            snapshot.Variants.Select(v => new PrivateGenerationVariant(v.Kind, v.SizeBytes,
+                Convert.ToHexStringLower(v.Sha256))), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return snapshot;
     }

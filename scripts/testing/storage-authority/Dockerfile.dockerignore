@@ -1,0 +1,16 @@
+*
+!Directory.Build.props
+!Directory.Packages.props
+!.editorconfig
+!global.json
+!NuGet.Config
+!backend/src/**
+!backend/tests/**
+!backend/Duora.slnx
+!scripts/storage-authority/reference.sql
+!scripts/testing/storage-authority/**
+!infra/images/postgres/initdb/10-duora-roles.sh
+!infra/images/dotnet/reconcile-privileges.sql
+**/bin/
+**/obj/
+**/__pycache__/

@@ -48,6 +48,15 @@ public static class MediaServiceCollectionExtensions
         string environmentName)
     {
         var isProduction = string.Equals(environmentName, ProductionEnvironment, StringComparison.OrdinalIgnoreCase);
+        services.AddOptions<PrivateGenerationOptions>()
+            .Bind(configuration.GetSection(PrivateGenerationOptions.Section))
+            .Validate(o => !o.Enabled || string.Equals(environmentName, "Testing", StringComparison.Ordinal),
+                "Private generation authority is unqualified outside Testing; operational admission is disabled.")
+            .Validate(o => !o.Enabled || Path.IsPathFullyQualified(o.SocketPath),
+                "Private generation authority requires an absolute socket path.")
+            .Validate(o => !o.Enabled || (o.AuthorityUid > 0 && o.DomainId != Guid.Empty && o.Epoch > 0 && o.Layout == 1),
+                "Private generation authority requires an enrolled identity and layout.")
+            .ValidateOnStart();
         services.AddOptions<MediaOptions>()
             .Bind(configuration.GetSection(MediaOptions.Section))
             .Validate(
@@ -86,14 +95,24 @@ public static class MediaServiceCollectionExtensions
 
         services.AddSingleton<IObjectStore>(provider =>
         {
+            var privateOptions = provider.GetRequiredService<IOptions<PrivateGenerationOptions>>().Value;
             var options = provider.GetRequiredService<IOptions<MediaStorageOptions>>().Value;
-            return options.Provider switch
+            IObjectStore store = options.Provider switch
             {
                 MediaStorageProvider.FileSystem => new FileSystemObjectStore(options.FileSystemRoot, createMissingDirectories: !isProduction),
                 MediaStorageProvider.S3 => new S3ObjectStore(options.S3, provider.GetRequiredService<ILogger<S3ObjectStore>>()),
                 // Só com o upload desligado (a validação garante): o serviço de upload existe, mas não grava nada.
                 _ => new UnconfiguredObjectStore(),
             };
+            if (!privateOptions.Enabled)
+            {
+                return store;
+            }
+            if (options.Provider != MediaStorageProvider.FileSystem)
+            {
+                throw new InvalidOperationException("Private generation authority supports only local FileSystem.");
+            }
+            return new PrivateGenerationObjectStore(store, new PrivateGenerationClient(privateOptions));
         });
         services.AddScoped(provider => new PhotoUploads(
             provider.GetRequiredService<DuoraDbContext>(),

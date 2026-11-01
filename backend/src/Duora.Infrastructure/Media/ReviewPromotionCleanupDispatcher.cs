@@ -5,7 +5,7 @@ using Npgsql;
 namespace Duora.Infrastructure.Media;
 
 /// <summary>Writer settlement is captured at claim time, before this sweep starts any DELETE.</summary>
-internal sealed record ReviewPromotionCleanupClaim(Guid Generation, Guid Token, int Attempts, bool WriterWasSettled);
+internal sealed record ReviewPromotionCleanupClaim(Guid Generation, Guid Token, int Attempts, bool WriterWasSettled, Guid StorageProofId = default);
 
 /// <summary>
 /// Collector for abandoned generation-owned promotions, run by the Worker's <c>ReviewPromotionCleanupService</c>;
@@ -45,10 +45,19 @@ public sealed partial class ReviewPromotionCleanupDispatcher
         budget.CancelAfter(DeleteBudget);
         try
         {
-            foreach (var kind in PhotoVariants.All)
+            var proof = await PrivateGenerationMetadata.CloseAndSweepAsync(_source, _store,
+                PrivateGenerationArea.Promotion, claim.Generation, claim.Token, budget.Token);
+            if (proof is { } id)
             {
-                await _store.DeleteAsync(ObjectKey.ForPromotedDerivative(claim.Generation, kind), budget.Token);
-                budget.Token.ThrowIfCancellationRequested();
+                claim = claim with { StorageProofId = id };
+            }
+            else
+            {
+                foreach (var kind in PhotoVariants.All)
+                {
+                    await _store.DeleteAsync(ObjectKey.ForPromotedDerivative(claim.Generation, kind), budget.Token);
+                    budget.Token.ThrowIfCancellationRequested();
+                }
             }
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested && exception is not OutOfMemoryException)
@@ -107,11 +116,13 @@ public sealed partial class ReviewPromotionCleanupDispatcher
         await using var command = Command(connection, """
             update media.review_promotions set last_cleanup_at=statement_timestamp(),
               deleted_at=case when $3 then statement_timestamp() else null end,
+              storage_proof_id=nullif($6,'00000000-0000-0000-0000-000000000000'::uuid),
               cleanup_available_at=$5,cleanup_token=null,cleanup_lease_until=null
             where generation=$1 and cleanup_token=$2 and cleanup_lease_until>$4
               and committed_at is null and deleted_at is null and cleanup_requested_at is not null
-              and (not $3 or writer_settled_at is not null)
-            """, claim.Generation, claim.Token, claim.WriterWasSettled, now, now + UncertainWriterPoll);
+              and (not $3 or writer_settled_at is not null or $6<>'00000000-0000-0000-0000-000000000000'::uuid)
+            """, claim.Generation, claim.Token, claim.WriterWasSettled || claim.StorageProofId != Guid.Empty,
+            now, now + UncertainWriterPoll, claim.StorageProofId);
         // An uncertain writer never has a terminal ACK, even if it settled while these DELETEs were running.
         command.Transaction = transaction;
         var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
