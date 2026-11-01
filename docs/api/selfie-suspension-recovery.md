@@ -34,6 +34,13 @@ retenção. Não se usa o payload, nem se exige a tentativa original, que pode t
 | `400 IDEMPOTENCY_KEY_INVALID` / `400 VALIDATION_FAILED` | Corrigir o formato antes da intervenção, sem alterar uma intenção já confirmada. JSON/campos extras também são recusados. |
 | `401` / `403` | Aplicam-se os códigos existentes de sessão, MFA, step-up, papel e CSRF. Reautenticar pelo fluxo normal; nunca fabricar identidade administrativa. |
 
+**Resultado incerto:** perda da conexão ou erro sem resposta de sucesso não comprova rollback. O PostgreSQL
+pode ter confirmado a medida antes da perda da confirmação. Manter o incidente pendente, conservar o mesmo
+moderador com sessão autorizada (reautenticando se necessário), chave, conta, entrega e motivo interno, e
+repetir o pedido de forma controlada. Conferir a medida retornada, a leitura administrativa e a auditoria
+antes de concluir a revisão da entrega; não trocar a chave nem aplicar outra medida para compensar uma
+resposta perdida.
+
 A medida humana passa pela mesma operação que retira inscrições com histórico, libera reservas, aborta salas,
 atualiza a versão de segurança e audita. `safety.account_suspended` aponta para a medida;
 `safety.account_suspension_source_recorded` aponta para a entrega (`outbox_delivery`), com ator `Moderator`,
@@ -52,6 +59,10 @@ Após revogação humana, repetir a chave só lê a medida revogada; uma chave n
 Tentativas, suspensão automática e seus limites não mudam.
 
 Validação: `SelfieSuspensionRecoveryTests` usa dados sintéticos e PostgreSQL real para permissões, payload limpo,
-idempotência, auditoria, revogação, revisão, contenção e barreiras de concorrência. Não valida incidentes reais.
+idempotência, auditoria, revogação, revisão, contenção e barreiras de concorrência. O teste
+`ALostCommitConnectionCanBeRetriedWithTheSameKeyWithoutDuplicatingTheHumanMeasure` corta a conexão da operação
+de aplicação antes do COMMIT e depois do COMMIT sem entregar sua confirmação; a repetição por HTTP observa
+o resultado persistido, com uma única medida humana e auditoria, sem revisar ou reenfileirar a entrega.
+Não valida incidentes reais.
 O merge exige revisão humana de bloqueio/autorização. Rollback: reverter a rota e sua implementação em release
 revisada; não apagar medidas/auditorias nem resetar entregas. Na ausência da ferramenta, escalar e manter pendente.
