@@ -15,12 +15,15 @@ import os
 import hashlib
 import json
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 import duora_deploy as deploy
 import reconcile_payload as payload
@@ -138,6 +141,84 @@ class RuntimeContinuityLabTests(unittest.TestCase):
                       "historical_v1_application_qualified", "legacy_schema_upgraded_preserving_history"]:
             self.assertTrue(report[field], field)
         print("[continuity-lab] " + json.dumps(report))
+
+
+@unittest.skipUnless(IMAGE, "real observer regression runs in both native Actions images jobs")
+class DatabaseObserverImageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.container = "duora-observer-" + uuid.uuid4().hex[:12]
+        self.addCleanup(subprocess.run, ["docker", "rm", "--force", "--volumes", self.container],
+                        capture_output=True, check=False, timeout=30)
+        # Isolated loopback-only cluster; no production config, credentials, ports or persistent data.
+        _run(["docker", "run", "--detach", "--name", self.container, "--network", "none", "--user", "999:999",
+              "--entrypoint", "sh", IMAGE, "-c",
+              "initdb -D /tmp/observer-pgdata --auth=trust >/dev/null && "
+              "pg_ctl -D /tmp/observer-pgdata -l /tmp/observer-postgres.log "
+              "-o '-h 127.0.0.1 -k /tmp' start && exec sleep infinity"])
+        deadline = time.monotonic() + READY_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            result = subprocess.run(["docker", "exec", self.container, "pg_isready", "-h", "127.0.0.1",
+                                     "-U", "postgres", "-d", "postgres", "-t", "1"],
+                                    capture_output=True, check=False, timeout=5)
+            if result.returncode == 0:
+                _run(["docker", "exec", self.container, "psql", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres",
+                      "-c", "create role duora_app login"])
+                return
+            time.sleep(0.25)
+        self.fail("Synthetic observer PostgreSQL did not become ready")
+
+    def test_slow_exec_launch_is_outside_window_and_does_not_kill_healthy_sampler(self) -> None:
+        import continuity_lab as lab
+        real_docker = shutil.which("docker")
+        self.assertIsNotNone(real_docker)
+        with tempfile.TemporaryDirectory(prefix="duora-observer-delay-") as directory:
+            wrapper = Path(directory) / "docker"
+            wrapper.write_text("#!" + sys.executable + "\nimport os, sys, time\n"
+                               "time.sleep(2.2)\nos.execv(os.environ['OBSERVER_REAL_DOCKER'], sys.argv)\n")
+            wrapper.chmod(0o755)
+            with patch.dict(os.environ, {"PATH": directory + os.pathsep + os.environ["PATH"],
+                                         "OBSERVER_REAL_DOCKER": str(real_docker)}):
+                # Characterize the original per-sample launch: healthy PostgreSQL, yet timeout before exec.
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    subprocess.run(["docker", "exec", self.container, "pg_isready", "-h", "127.0.0.1",
+                                    "-U", "duora_app"], capture_output=True, check=False, timeout=2)
+                with lab.DatabaseObserver(self.container) as observer:
+                    start = time.time()
+                    samples = []
+                    for _ in range(3):
+                        samples.append(observer.sample())
+                        time.sleep(0.25)
+                    lab.validate_observations(samples, start=start, end=time.time(), errors=[], events_alive=True)
+                    self.assertTrue(all(sample["database_ready"] for sample in samples))
+
+    def test_paused_database_still_fails_the_two_second_probe_deadline(self) -> None:
+        import continuity_lab as lab
+        with lab.DatabaseObserver(self.container) as observer:
+            self.assertTrue(observer.sample()["database_ready"])
+            _run(["docker", "pause", self.container])
+            try:
+                with self.assertRaisesRegex(lab.DatabaseObservationError, "probe:deadline"):
+                    observer.sample()
+            finally:
+                _run(["docker", "unpause", self.container])
+
+    def test_unresponsive_postgres_is_nonready_even_with_a_live_observer_transport(self) -> None:
+        import continuity_lab as lab
+        with lab.DatabaseObserver(self.container) as observer:
+            self.assertTrue(observer.sample()["database_ready"])
+            # PID 1 remains alive; suspend only the real postmaster, leaving exec and TCP socket intact.
+            _run(["docker", "exec", self.container, "sh", "-c",
+                  'kill -STOP "$(head -n 1 /tmp/observer-pgdata/postmaster.pid)"'])
+            try:
+                start = time.time()
+                samples = [observer.sample(), observer.sample()]
+                self.assertTrue(all(not sample["database_ready"] for sample in samples))
+                self.assertTrue(all(sample["exitCode"] == 2 for sample in samples))
+                with self.assertRaises(RuntimeError):
+                    lab.validate_observations(samples, start=start, end=time.time(), errors=[], events_alive=True)
+            finally:
+                _run(["docker", "exec", self.container, "sh", "-c",
+                      'kill -CONT "$(head -n 1 /tmp/observer-pgdata/postmaster.pid)"'])
 
 
 @unittest.skipUnless(IMAGE, "defina DUORA_POSTGRES_IMAGE com a imagem derivada (docker)")

@@ -21,6 +21,96 @@ import runtime_guard as guard
 import smoke_local
 
 
+class DatabaseObservationError(RuntimeError):
+    """Fixed phase/reason codes only; never expose child output or credentials."""
+
+
+class DatabaseObserver:
+    """One warmed exec transport; every request still performs a fresh readiness probe."""
+
+    def __init__(self, container: str) -> None:
+        # No autonomous loop: closing stdin ends the remote shell, including on failure cleanup.
+        script = '''printf 'READY\\n'
+while IFS= read -r request; do
+    [ "$request" = probe ] || exit 64
+    pg_isready -q -h 127.0.0.1 -U duora_app -d postgres -t 1 >/dev/null 2>&1
+    result=$?
+    printf '%s\\n' "$result" || exit 65
+done
+'''
+        self._process = subprocess.Popen(["docker", "exec", "--interactive", container, "sh", "-c", script],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                         bufsize=0)
+        self._closed = False
+        started = time.monotonic()
+        try:
+            if self._read_line(deadline=started + 5, phase="startup") != b"READY":
+                raise DatabaseObservationError("startup:invalid-frame")
+            self.startup_seconds = time.monotonic() - started
+        except BaseException:
+            self.close()
+            raise
+
+    def _read_line(self, *, deadline: float, phase: str) -> bytes:
+        assert self._process.stdout is not None
+        frame = bytearray()
+        with selectors.DefaultSelector() as selector:
+            selector.register(self._process.stdout, selectors.EVENT_READ)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise DatabaseObservationError(phase + ":deadline")
+                chunk = os.read(self._process.stdout.fileno(), 128)
+                if not chunk:
+                    raise DatabaseObservationError(phase + ":eof")
+                frame.extend(chunk)
+                if len(frame) > 32:
+                    raise DatabaseObservationError(phase + ":invalid-frame")
+                if b"\n" in frame:
+                    if frame.count(b"\n") != 1 or not frame.endswith(b"\n"):
+                        raise DatabaseObservationError(phase + ":invalid-frame")
+                    return bytes(frame[:-1])
+
+    def sample(self) -> dict:
+        started = time.monotonic()
+        at = time.time()
+        if self._closed or self._process.poll() is not None:
+            raise DatabaseObservationError("probe:closed")
+        assert self._process.stdin is not None
+        try:
+            self._process.stdin.write(b"probe\n")
+            self._process.stdin.flush()
+        except OSError:
+            raise DatabaseObservationError("probe:closed") from None
+        status = self._read_line(deadline=started + 2, phase="probe")
+        if status not in (b"0", b"1", b"2", b"3"):
+            raise DatabaseObservationError("probe:invalid-frame")
+        return {"at": at, "database_ready": status == b"0", "exitCode": int(status),
+                "probeSeconds": time.monotonic() - started}
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        assert self._process.stdin is not None and self._process.stdout is not None
+        try:
+            self._process.stdin.close()
+        finally:
+            try:
+                self._process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait(timeout=2)
+            finally:
+                self._process.stdout.close()
+
+    def __enter__(self) -> "DatabaseObserver":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
 def validate_observations(samples: list[dict], *, start: float, end: float,
                           errors: list[str], events_alive: bool) -> None:
     if errors or not events_alive or len(samples) < 2 or end <= start:
@@ -128,6 +218,7 @@ def _root_lab() -> dict:
     observer_errors: list[str] = []
     monitor = None
     app_monitor = None
+    database_observer = None
     try:
         pin_fixture = root / "pin-policy"
         pin_fixture.mkdir(mode=0o700)
@@ -307,6 +398,8 @@ def _root_lab() -> dict:
             legacy_history = query('select string_agg("MigrationId",\',\' order by "MigrationId") from ops.__ef_migrations_history')
             if legacy_history != ",".join(legacy["migrations"]):
                 raise RuntimeError("Historical v1 migrator did not establish its exact real schema")
+            # Warm the one exec transport BEFORE the unchanged deployment observation window.
+            database_observer = DatabaseObserver(pg)
             events_file = (root / "events.jsonl").open("w")
             window_start = time.time()
             events = subprocess.Popen(["docker", "events", "--since", str(window_start), "--format", "{{json .}}", "--filter", "type=container",
@@ -314,11 +407,11 @@ def _root_lab() -> dict:
             def sample() -> None:
                 try:
                     while not stop.is_set():
-                        at = time.time()
-                        db = subprocess.run(["docker", "exec", pg, "pg_isready", "-h", "127.0.0.1", "-U", "duora_app"],
-                                            capture_output=True, check=False, timeout=2).returncode
-                        samples.append({"at": at, "database_ready": db == 0})
+                        assert database_observer is not None
+                        samples.append(database_observer.sample())
                         stop.wait(0.25)
+                except DatabaseObservationError as error:
+                    observer_errors.append("database:" + str(error))
                 except Exception as error:
                     observer_errors.append("database:" + type(error).__name__)  # No output or credentials in proof.
             def sample_application() -> None:
@@ -527,6 +620,7 @@ def _root_lab() -> dict:
                 raise RuntimeError("Database readiness continuity failed")
             validate_observations(samples, start=window_start, end=window_end, errors=observer_errors,
                                   events_alive=events.poll() is None)
+            database_observer.close()
             if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("Read-only guards lost SQL session")
             assert session.stdin is not None
             session.stdin.write("\\q\n")
@@ -594,6 +688,7 @@ def _root_lab() -> dict:
                     "negativeCases": receiver_negatives, "bindingRestoredExactly": True},
                 "receiver_installer_interlock_proved": True,
                 "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,
+                    "databaseObserverStartupSeconds": database_observer.startup_seconds,
                     "maximumAllowedGapSeconds": 3, "startedBefore": first.release_id, "endedAfter": "compatible rollback and negative read-only guards"},
                 "staticInstallation": receipt, "manifestSha256": manifest_sha, "readiness": samples,
                 "applicationReadiness": app_samples,
@@ -614,6 +709,7 @@ def _root_lab() -> dict:
         stop.set()
         if monitor is not None: monitor.join(timeout=15)
         if app_monitor is not None: app_monitor.join(timeout=10)
+        if database_observer is not None: database_observer.close()
         if session is not None:
             session.kill()
             session.wait(timeout=10)
