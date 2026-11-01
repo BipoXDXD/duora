@@ -1,5 +1,5 @@
 import { AxeBuilder } from '@axe-core/playwright'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { FakeDuoraApi } from './support/fake-api.ts'
 
 const PASSWORD = 'synthetic long test passphrase'
@@ -23,6 +23,24 @@ const protectedAliases = [
   ['/conta/ativar-mfa', '/account/enable-mfa'],
   ['/trocar-senha-inicial', '/change-initial-password'],
 ] as const
+
+async function waitForCanonicalLoginDocument(page: Page, from: string) {
+  // Leaving the privileged selfie document reloads /login to restore the ordinary edge policy.
+  // URL and heading can already match in the old document while that reload is still pending.
+  await page.waitForFunction(
+    (expectedFrom) => {
+      const [entry] = performance.getEntriesByType('navigation')
+      return (
+        location.pathname === '/login' &&
+        entry !== undefined &&
+        new URL(entry.name).pathname !== '/account/selfie' &&
+        (history.state as { usr?: { from?: unknown } } | null)?.usr?.from === expectedFrom
+      )
+    },
+    from,
+    { timeout: 5_000 },
+  )
+}
 
 for (const locale of ['pt-BR', 'en-US'] as const) {
   test.describe(`route compatibility ${locale}`, () => {
@@ -59,6 +77,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       for (const [legacy, canonical] of protectedAliases) {
         for (const path of [legacy, canonical]) {
           await page.goto(`${path}?tab=details#section`)
+          await waitForCanonicalLoginDocument(page, `${canonical}?tab=details#section`)
           await expect(page).toHaveURL(/\/login$/)
           await expect(page.getByRole('heading', { level: 1, name: loginLabel })).toBeVisible()
           expect(await page.evaluate(() => (history.state as { usr: { from: string } }).usr.from)).toBe(
@@ -67,6 +86,7 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
         }
       }
       await page.goto('/conta/perfil?TOKEN=synthetic-secret&userId=private&tab=photos#token=synthetic-secret')
+      await waitForCanonicalLoginDocument(page, '/account/profile?tab=photos')
       await expect(page).toHaveURL(/\/login$/)
       expect(await page.evaluate(() => history.state as unknown)).toMatchObject({
         usr: { from: '/account/profile?tab=photos' },
