@@ -51,6 +51,7 @@ internal static class AppRoleTableAccess
             // identity (dono: Identity)
             ["identity.age_verifications"] = AppTableAccess.ReadWrite,
             ["identity.consent_records"] = AppTableAccess.ReadWrite,
+            ["identity.external_auth_flows"] = AppTableAccess.ReadWrite,
             ["identity.login_sessions"] = AppTableAccess.ReadWrite,
             ["identity.role_claims"] = AppTableAccess.ReadWrite,
             ["identity.roles"] = AppTableAccess.ReadWrite,

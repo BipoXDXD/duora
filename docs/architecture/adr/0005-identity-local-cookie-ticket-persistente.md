@@ -48,3 +48,7 @@ produção. Bootstrap administrativo por comando operacional auditado, fora da A
 - T-13 (CSRF), T-14 (revogação com hub ativo), T-15 (Data Protection após recriar container) e T-21 (troca de
   identidade no mesmo navegador): a implementar no M1.
 - Revisão humana e testes de segurança obrigatórios para mudanças em autenticação (spec 14.2).
+
+## Revisão — Google como método adicional (01/11/2026)
+
+O ADR[0046](0046-google-oidc-com-senha-local.md) permite Google OIDC junto do login local, com senha Duora mantida e associação explícita por posse. Substitui a exclusão de um segundo método simultâneo acima; preserva UUIDs, cookie, ticket persistente, MFA e revogação. Integração nasce desativada e ativação exige revisão/gates.

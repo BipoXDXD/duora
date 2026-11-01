@@ -14,4 +14,6 @@ public enum SecurityChange
     /// </summary>
     PasswordReset,
     RecoveryCodeUsed,
+    GoogleLinked,
+    GoogleUnlinked,
 }

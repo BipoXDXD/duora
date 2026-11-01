@@ -104,7 +104,8 @@ public sealed class AccountService
         string? termsLocale = null,
         string? privacyLocale = null,
         string? termsSha256 = null,
-        string? privacySha256 = null)
+        string? privacySha256 = null,
+        Func<Guid, string?, CancellationToken, Task>? bindExternalRegistration = null)
     {
         if (!_legal.Accepts(termsVersion, privacyVersion, termsLocale, privacyLocale, termsSha256, privacySha256))
         {
@@ -150,6 +151,10 @@ public sealed class AccountService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        if (bindExternalRegistration is not null)
+        {
+            await bindExternalRegistration(user.Id, registration.EmailConfirmed ? null : user.SecurityStamp, cancellationToken);
+        }
         await transaction.CommitAsync(cancellationToken);
     }
 
@@ -228,7 +233,8 @@ public sealed class AccountService
         Guid userId,
         string linkToken,
         string password,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Guid, string, CancellationToken, Task<bool>>? confirmExternal = null)
     {
         var user = await _users.FindByIdAsync(userId.ToString("D"));
         if (user is null)
@@ -251,6 +257,10 @@ public sealed class AccountService
             return false;
         }
 
+        if (confirmExternal is not null && !await confirmExternal(user.Id, verifiedStamp, cancellationToken))
+        {
+            return false;
+        }
         var confirmed = await MarkEmailConfirmedAsync(user.Id, verifiedStamp, cancellationToken);
         await check.CommitAsync(cancellationToken);
         return confirmed;

@@ -270,6 +270,7 @@ internal static class AuthEndpoints
 
         await context.SignOutAsync(DuoraAuthentication.Scheme);
         context.User = new ClaimsPrincipal(new ClaimsIdentity());
+        await GoogleOidcAuthentication.ClearBrowserFlowAsync(context);
         AntiforgeryTokens.Issue(context, antiforgery);
         return TypedResults.NoContent();
     }
@@ -342,6 +343,7 @@ internal static class AuthEndpoints
     /// </summary>
     internal static async Task StartSessionAsync(HttpContext context, IAntiforgery antiforgery, SessionGrant grant)
     {
+        await GoogleOidcAuthentication.ClearBrowserFlowAsync(context);
         await context.SignOutAsync(DuoraAuthentication.Scheme);
         var principal = DuoraClaims.ForSignIn(grant);
         await context.SignInAsync(

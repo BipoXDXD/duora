@@ -31,6 +31,9 @@ internal static class IdentityModelConfiguration
     {
         modelBuilder.Entity<DuoraUser>(ConfigureUser);
         modelBuilder.Entity<IdentityRole<Guid>>(ConfigureRoles);
+        modelBuilder.Entity<IdentityUserLogin<Guid>>().HasIndex(l => l.UserId);
+        modelBuilder.Entity<IdentityUserLogin<Guid>>().HasIndex(l => new { l.UserId, l.LoginProvider })
+            .IsUnique().HasFilter("login_provider = 'google-oidc'");
 
         foreach (var (entity, table) in IdentityTables)
         {
@@ -181,6 +184,7 @@ internal sealed class LoginSessionConfiguration : IEntityTypeConfiguration<Login
     {
         builder.ToTable("login_sessions", DatabaseSchemas.Identity, table =>
         {
+            table.HasCheckConstraint("ck_login_sessions_authentication_method", "authentication_method IN ('LocalPassword','GoogleOidc')");
             table.HasCheckConstraint("ck_login_sessions_window", "idle_expires_at <= absolute_expires_at");
             table.HasCheckConstraint("ck_login_sessions_key_hash", "octet_length(key_hash) = 32");
             var policies = string.Join(", ", Enum.GetNames<SessionPolicy>().Select(name => $"'{name}'"));
@@ -194,6 +198,7 @@ internal sealed class LoginSessionConfiguration : IEntityTypeConfiguration<Login
         builder.Property(s => s.Ticket).HasColumnName("ticket");
         builder.Property(s => s.SecurityStamp).HasColumnName("security_stamp").HasMaxLength(256).IsRequired();
         builder.Property(s => s.Description).HasColumnName("description").HasMaxLength(64).IsRequired();
+        builder.Property(s => s.AuthenticationMethod).HasColumnName("authentication_method").HasMaxLength(24).HasDefaultValue("LocalPassword");
         builder.Property(s => s.CreatedAt).HasColumnName("created_at");
         builder.Property(s => s.LastSeenAt).HasColumnName("last_seen_at");
         builder.Property(s => s.IdleExpiresAt).HasColumnName("idle_expires_at");

@@ -17,10 +17,12 @@ export type SecurityResult =
   | { readonly kind: 'mfa-enrollment'; readonly sharedKey: string; readonly authenticatorUri: string }
   | { readonly kind: 'recovery-codes'; readonly codes: readonly string[]; readonly resultSessionId: string }
   | { readonly kind: 'mfa-disabled' }
+  | { readonly kind: 'external-login-linked' | 'external-login-unlinked' }
 export type OwnedSecurityResult =
   | { readonly kind: 'mfa-enrollment'; readonly sharedKey: string; readonly authenticatorUri: string }
   | { readonly kind: 'recovery-codes'; readonly codes: readonly string[] }
   | { readonly kind: 'mfa-disabled' }
+  | { readonly kind: 'external-login-linked' | 'external-login-unlinked' }
 export interface SecurityResultSnapshot {
   readonly phase: 'idle' | 'pending' | 'ready' | 'failed'
 }
@@ -120,7 +122,9 @@ export function createSecurityResultStore(context: SessionContextStore): Securit
         (record.payload.kind === 'mfa-disabled' && me.mfaEnabled) ||
         !matchesSecurityResultOwner(context, record.source, {
           owner: me.owner,
-          ...(record.payload.kind === 'mfa-disabled'
+          ...(record.payload.kind === 'mfa-disabled' ||
+          record.payload.kind === 'external-login-linked' ||
+          record.payload.kind === 'external-login-unlinked'
             ? { allowSessionRenewal: true as const }
             : record.expectedSessionId === null
               ? {}

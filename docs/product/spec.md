@@ -2128,3 +2128,7 @@ A matriz assegura rastreabilidade **documental** dos controles listados. Aprova�
 
 
 <!--                                                                          -->
+
+## Adendo — Google OIDC (ADR-0046)
+
+API-A18 a API-A28 estão em [google-oidc.md](../api/google-oidc.md), com OpenAPI gerado. A02/A03 preservam confirmação por senha/código, A04 continua local e A13 mantém step-up de senha/MFA. INV-01/05/06/11/12 e T-01/06/13/14/15/21 permanecem. A integração de participantes por Google nasce desativada; política de senha local e vínculo explícito aprovada em 01/11/2026, sujeita a revisão/testes antes de integrar e ativar.

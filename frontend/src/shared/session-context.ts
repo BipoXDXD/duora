@@ -416,7 +416,7 @@ export function captureOperationOwner(store: SessionContextStore, operation: Ope
   return record.owner
 }
 
-/** Correlação de resultado. A renovação sem SID de recibo é exclusiva do aviso sem segredo da API-A15. */
+/** Correlação de resultado. A renovação sem SID de recibo serve apenas para resultados de segurança sem segredo. */
 export function matchesSecurityResultOwner(
   store: SessionContextStore,
   source: OwnerHandle,

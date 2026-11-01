@@ -21,7 +21,8 @@ public sealed record NewLoginSession(
     SessionPolicy Policy,
     DateTimeOffset? ReauthenticatedAt,
     DateTimeOffset? MfaVerifiedAt,
-    DateTimeOffset? TotpVerifiedAt);
+    DateTimeOffset? TotpVerifiedAt,
+    string AuthenticationMethod = "LocalPassword");
 
 /// <summary>
 /// Sessão válida depois do toque: o ticket e o estado que muda sem novo ticket (reautenticação, prova de MFA) ou
@@ -95,14 +96,15 @@ public sealed class LoginSessions
             insert into identity.login_sessions
                 (id, user_id, key_hash, ticket, security_stamp, description,
                  created_at, last_seen_at, idle_expires_at, absolute_expires_at,
-                 policy, reauthenticated_at, mfa_verified_at, totp_verified_at)
+                 policy, reauthenticated_at, mfa_verified_at, totp_verified_at, authentication_method)
             values
                 (@id, @user_id, @key_hash, @ticket, @security_stamp, @description,
                  @created_at, @created_at, @idle_expires_at, @absolute_expires_at,
-                 @policy, @reauthenticated_at, @mfa_verified_at, @totp_verified_at)
+                 @policy, @reauthenticated_at, @mfa_verified_at, @totp_verified_at, @authentication_method)
             """);
         command.Parameters.AddWithValue("id", session.Id);
         command.Parameters.AddWithValue("user_id", session.UserId);
+        command.Parameters.AddWithValue("authentication_method", session.AuthenticationMethod);
         command.Parameters.AddWithValue("key_hash", HashKey(session.Key));
         command.Parameters.AddWithValue("ticket", session.ProtectedTicket);
         command.Parameters.AddWithValue("security_stamp", session.SecurityStamp);

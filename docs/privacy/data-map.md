@@ -233,3 +233,9 @@ não está implementada e requer aceite próprio, como as demais linhas deste ma
 retenção adicional de dados pessoais. A classificação não resolve as lacunas jurídicas já registradas neste
 mapa. Titular e Gmail privado foram designados sem publicação do endereço; não há envio real. Ensaios usam
 somente dados sintéticos; homologação de fornecedor, transporte, cobertura e armazenamento continua pendente.
+
+## Identidade Google — integração desabilitada (ADR0046)
+
+Finalidade: autenticação opcional e associação explícita ao UUID Duora. Dados mínimos: issuerGoogle fixo/sub no vínculo Identity; e-mail verificado transitório para cadastro/apresentação, sem substituir contato Duora. Sem perfil/foto/importação de rede social, access/refresh/IDtoken durável. Intenções com claims mínimas cifradas, prazo5min e purga pelo Worker independente do provider. Vínculo segue a conta; FKcascade remove dados associados na exclusão física; ciclo operacional de exclusão/restore precisa da reconciliação vigente do produto.
+
+Avisos de mudança vão ao contato Duora armazenado; auditoria de credencial registra ator/UUID/política, sem token/sub/e-mail externo nos logs/métricas. Antes de habilitar: revisar textos públicos PTBR/ENUS, finalidade/fornecedor/transferência e redaction de callback nos sinks. Esta alteração interna não publica nem aprova novos textos jurídicos e não configura credenciais Google.

@@ -63,6 +63,7 @@ internal static class DuoraWebApp
         builder.Services.AddSingleton<System.Diagnostics.DistributedContextPropagator>(new InboundTraceContextDiscarded());
         builder.Services.AddInfrastructure(builder.Configuration, ConnectionShare.Web);
         builder.Services.AddDuoraWebIdentity(builder.Configuration);
+        builder.Services.AddGoogleOidc(builder.Configuration);
         builder.Services.AddDuoraProfiles();
         builder.Services.AddParticipation();
         builder.Services.AddDuoraSafety();
@@ -103,6 +104,7 @@ internal static class DuoraWebApp
         app.Use(PreventCachingOfApiResponses);
         app.UseRouting();
         app.UseRateLimiter();
+        app.UseGoogleOidcCallbackGuard();
         app.UseAuthentication();
         app.UseSuspendedAccountGate();
         app.UseAuthorization();
@@ -118,6 +120,7 @@ internal static class DuoraWebApp
 
         var api = app.MapGroup("/api/v1").WithMetadata(new PrivateOperationEndpoint());
         api.MapAuthEndpoints();
+        api.MapGoogleOidcEndpoints();
         api.MapLegalDocumentEndpoints();
         api.MapMeEndpoints();
         api.MapProfileEndpoints();

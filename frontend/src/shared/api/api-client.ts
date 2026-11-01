@@ -77,6 +77,7 @@ export function createApiClient(dependencies: ApiClientDependencies): ApiClient 
     if (
       ((method === 'GET' || method === 'HEAD') && path === '/api/v1/auth/csrf') ||
       ((method === 'GET' || method === 'HEAD') && path === '/api/v1/legal-documents') ||
+      (method === 'GET' && (path === '/api/v1/auth/google/options' || path === '/api/v1/auth/google/flow')) ||
       isPublicAuthenticationMutation(method, path)
     )
       return 'public'

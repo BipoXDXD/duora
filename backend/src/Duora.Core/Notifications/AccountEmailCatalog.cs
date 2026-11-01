@@ -140,9 +140,15 @@ internal sealed class BrazilianPortugueseAccountEmails : IAccountEmailCatalog
             SecurityChange.PasswordChanged => (
                 "Senha alterada no Duora",
                 $"A senha da sua conta do Duora foi alterada em {occurredAtUtc}."),
+            SecurityChange.GoogleLinked => (
+                "Conta Google conectada ao Duora",
+                $"Uma conta Google foi conectada à sua conta Duora em {occurredAtUtc}. Se não reconhece a mudança, entre com sua senha Duora, remova o vínculo Google e encerre as outras sessões."),
+            SecurityChange.GoogleUnlinked => (
+                "Conta Google desconectada do Duora",
+                $"A conta Google foi desconectada da sua conta Duora em {occurredAtUtc}. Seu acesso por senha Duora foi preservado."),
             SecurityChange.PasswordReset => (
                 "Senha redefinida no Duora",
-                $"A senha da sua conta do Duora foi redefinida em {occurredAtUtc}, pelo link de recuperação ou por quem administra o Duora."),
+                $"A senha da sua conta do Duora foi redefinida em {occurredAtUtc}, pelo link de recuperação ou por quem administra o Duora. Essa redefinição não remove a verificação em duas etapas nem uma conta Google conectada; revise os métodos de entrada e as sessões se suspeitar de invasão."),
             _ => throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida."),
         };
         var recovery = change == SecurityChange.MfaEnabled
@@ -288,9 +294,15 @@ internal sealed class EnglishAccountEmails : IAccountEmailCatalog
             SecurityChange.PasswordChanged => (
                 "Duora password changed",
                 $"The password of your Duora account was changed on {occurredAtUtc}."),
+            SecurityChange.GoogleLinked => (
+                "Google account connected to Duora",
+                $"A Google account was connected to your Duora account on {occurredAtUtc}. If you do not recognize this change, sign in with your Duora password, disconnect Google and end your other sessions."),
+            SecurityChange.GoogleUnlinked => (
+                "Google account disconnected from Duora",
+                $"The Google account was disconnected from your Duora account on {occurredAtUtc}. Your Duora password sign-in remains available."),
             SecurityChange.PasswordReset => (
                 "Duora password reset completed",
-                $"The password of your Duora account was reset on {occurredAtUtc}, through the recovery link or by whoever runs Duora."),
+                $"The password of your Duora account was reset on {occurredAtUtc}, through the recovery link or by whoever runs Duora. This reset does not remove two-step verification or a connected Google account; review sign-in methods and sessions if you suspect a compromise."),
             _ => throw new ArgumentOutOfRangeException(nameof(change), change, "Mudança de credencial desconhecida."),
         };
         var recovery = change == SecurityChange.MfaEnabled

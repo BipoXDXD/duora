@@ -94,6 +94,12 @@ internal sealed record AuditAction
     /// <summary>Senha redefinida pelo link de recuperação (API-A07).</summary>
     public static readonly AuditAction PasswordReset = new("identity.password_reset");
 
+    public static readonly AuditAction ExternalLinked = new("identity.external_linked");
+    public static readonly AuditAction ExternalUnlinked = new("identity.external_unlinked");
+    public static readonly AuditAction ExternalSecondFactorRequired = new("identity.external_second_factor_required");
+    public static readonly AuditAction ExternalLoginFailed = new("identity.external_login_failed");
+    public static readonly AuditAction ExternalLoginSucceeded = new("identity.external_login_succeeded");
+
     public static readonly AuditAction LoginSucceeded = new("identity.login_succeeded");
 
     /// <summary>Senha errada numa conta confirmada (conta no bloqueio).</summary>

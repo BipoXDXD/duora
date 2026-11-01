@@ -29,6 +29,8 @@ internal sealed class LoginSession
 
     public string Description { get; private set; } = "";
 
+    public string AuthenticationMethod { get; private set; } = "LocalPassword";
+
     /// <summary>Política decidida no login pelos papéis da conta; fixa a janela ociosa e a absoluta.</summary>
     public SessionPolicy Policy { get; private set; }
 

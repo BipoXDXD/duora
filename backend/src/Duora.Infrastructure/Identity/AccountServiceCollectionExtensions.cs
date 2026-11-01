@@ -57,6 +57,13 @@ public static class AccountServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<IOptions<AccountLockOptions>>().Value,
             provider.GetRequiredService<AccountCheckGate>()));
+        services.AddScoped(provider => new ExternalAuthenticationService(
+            provider.GetRequiredService<DuoraDbContext>(),
+            provider.GetRequiredService<UserManager<DuoraUser>>(),
+            provider.GetRequiredService<AccountSecurityService>(),
+            provider.GetRequiredService<IExternalIdentityProtection>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<ExternalAuthenticationMetrics>()));
         services.AddScoped(provider => new AdministratorBootstrap(
             provider.GetRequiredService<DuoraDbContext>(),
             provider.GetRequiredService<UserManager<DuoraUser>>(),

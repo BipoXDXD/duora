@@ -10,6 +10,7 @@ import { paths } from '@/shared/paths'
 import { Page, TextLink } from '@/shared/ui/page'
 import { SessionList } from './SessionList'
 import { AccountMfaSettings } from './AccountMfaSettings'
+import { GoogleAccountSettings } from './GoogleAccountSettings'
 
 const STATUS_LABELS: Readonly<Record<AccountStatus, PlainMessageKey>> = {
   PendingEmail: 'account.statusLabel.PendingEmail',
@@ -63,6 +64,7 @@ export function AccountPage(): React.JSX.Element {
       <TextLink to={paths.photos}>{t('photoReview.myPhotos')}</TextLink>
       <TextLink to={paths.events}>{t('participation.events')}</TextLink>
       <AccountMfaSettings />
+      <GoogleAccountSettings />
       <SessionList userId={account.id} />
     </Page>
   )

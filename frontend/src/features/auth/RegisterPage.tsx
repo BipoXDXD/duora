@@ -21,6 +21,8 @@ import { RequestFailureAlert } from '@/shared/ui/alert'
 import { CheckboxField, PasswordField, TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { register } from './auth-api'
+import { registerGoogle } from './google-api'
+import { GoogleAuthButton } from './GoogleAuthButton'
 import { emailSchema, newPasswordSchema, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from './auth-schemas'
 import { useValidationMessage, type ValidationKey } from './validation-message'
 
@@ -37,9 +39,9 @@ type RegisterForm = z.output<typeof registerSchema>
 function submitRegistration(
   operation: OperationHandle,
   { email, password }: RegisterForm,
-  receipt: LegalReceipt,
+  { receipt, google }: { readonly receipt: LegalReceipt; readonly google: boolean },
 ): Promise<void> {
-  return register(operation, {
+  return (google ? registerGoogle : register)(operation, {
     email,
     password,
     acceptedTermsSha256: receipt.terms.sha256,
@@ -53,7 +55,10 @@ function submitRegistration(
   })
 }
 
-export function RegisterPage(): React.JSX.Element {
+export function RegisterPage({
+  googleEmail,
+  onGoogleRegistered,
+}: { readonly googleEmail?: string; readonly onGoogleRegistered?: () => Promise<unknown> } = {}): React.JSX.Element {
   const { locale, t } = useI18n()
   const copy = legalCopy(t)
   const publication = useLegalPublication()
@@ -63,6 +68,7 @@ export function RegisterPage(): React.JSX.Element {
   return (
     <Page title={t('register.title')} intro={t('register.intro')}>
       <LegalNavigation />
+      {googleEmail === undefined ? <GoogleAuthButton purpose="Register" /> : null}
       {publication.isPending ? (
         <p role="status">{copy.loading}</p>
       ) : !receipt ? (
@@ -113,6 +119,8 @@ export function RegisterPage(): React.JSX.Element {
           <RegistrationForm
             key={`${receipt.terms.version}/${receipt.terms.locale}/${receipt.terms.sha256}/${receipt.privacy.version}/${receipt.privacy.locale}/${receipt.privacy.sha256}`}
             receipt={receipt}
+            googleEmail={googleEmail}
+            onGoogleRegistered={onGoogleRegistered}
           />
         </>
       )}
@@ -123,7 +131,15 @@ export function RegisterPage(): React.JSX.Element {
   )
 }
 
-function RegistrationForm({ receipt }: { readonly receipt: LegalReceipt }): React.JSX.Element {
+function RegistrationForm({
+  receipt,
+  googleEmail,
+  onGoogleRegistered,
+}: {
+  readonly receipt: LegalReceipt
+  readonly googleEmail: string | undefined
+  readonly onGoogleRegistered: (() => Promise<unknown>) | undefined
+}): React.JSX.Element {
   const navigate = useNavigate()
   const { t } = useI18n()
   const fieldError = useValidationMessage()
@@ -140,15 +156,27 @@ function RegistrationForm({ receipt }: { readonly receipt: LegalReceipt }): Reac
   }, [])
   const form = useForm<z.input<typeof registerSchema>, unknown, RegisterForm>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { email: '', password: '', acceptTerms: false, acceptPrivacy: false, confirmAdult: false },
+    defaultValues: {
+      email: googleEmail ?? '',
+      password: '',
+      acceptTerms: false,
+      acceptPrivacy: false,
+      confirmAdult: false,
+    },
   })
   const registration = usePublicMutation({
     mutationFn: (operation) => {
       if (!mounted.current) throw new Error('Registration documents changed')
-      return submitRegistration(operation, registerSchema.parse(form.getValues()), receipt)
+      return submitRegistration(operation, registerSchema.parse(form.getValues()), {
+        receipt,
+        google: googleEmail !== undefined,
+      })
     },
-    onSuccess: () => {
-      if (mounted.current) void navigate(paths.checkEmail)
+    onSuccess: async () => {
+      if (!mounted.current) return
+      form.reset()
+      if (onGoogleRegistered) await onGoogleRegistered()
+      else void navigate(paths.checkEmail)
     },
   })
   const submit = (event: React.BaseSyntheticEvent) =>
@@ -182,6 +210,7 @@ function RegistrationForm({ receipt }: { readonly receipt: LegalReceipt }): Reac
           inputMode="email"
           autoComplete="email"
           error={fieldError(errors.email?.message)}
+          readOnly={googleEmail !== undefined}
           {...form.register('email')}
         />
         <PasswordField
