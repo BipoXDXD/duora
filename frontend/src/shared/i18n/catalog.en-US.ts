@@ -168,8 +168,9 @@ export const en = {
   'mfa.receiptUncertain':
     'The action may have completed. For your safety, its result was not displayed. Verify your session before trying another action.',
   'mfa.title': 'Enable two-factor authentication',
-  'mfa.instructions':
-    'Add a TOTP account in your authenticator app using the key below, then confirm with its 6-digit code.',
+  'mfa.instructions': 'Add a TOTP account in your authenticator app, then confirm with its 6-digit code.',
+  'mfa.qrLabel': 'QR code to set up your authenticator',
+  'mfa.qrInstructions': 'Scan this QR code with your authenticator app or enter the setup key below.',
   'mfa.start': 'Set up authenticator',
   'mfa.starting': 'Preparing…',
   'mfa.key': 'Setup key:',

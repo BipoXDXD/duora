@@ -168,8 +168,9 @@ export const ptBR = {
   'mfa.receiptUncertain':
     'A ação pode ter sido concluída. Por segurança, a informação não foi exibida. Confirme sua sessão antes de tentar outra ação.',
   'mfa.title': 'Ative a autenticação em duas etapas',
-  'mfa.instructions':
-    'Adicione uma conta TOTP no aplicativo autenticador usando a chave abaixo e confirme com o código de 6 dígitos.',
+  'mfa.instructions': 'Adicione uma conta TOTP no aplicativo autenticador e confirme com o código de 6 dígitos.',
+  'mfa.qrLabel': 'QR Code para configurar o autenticador',
+  'mfa.qrInstructions': 'Leia este QR Code com seu aplicativo autenticador ou digite a chave de configuração abaixo.',
   'mfa.start': 'Configurar autenticador',
   'mfa.starting': 'Preparando…',
   'mfa.key': 'Chave de configuração:',

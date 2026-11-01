@@ -35,6 +35,18 @@ Os achados aparecem no log do job; o inventário de licenças e o changelog do c
 As ferramentas em container rodam por `docker run` com o repositório montado somente leitura, no mesmo padrão do
 Gitleaks: nenhuma action JavaScript de terceiros no job e nenhum token exposto. O job tem só `contents: read`.
 
+## QR Code do MFA (#276)
+
+- `qrcode.react` **4.2.0**, licença **ISC**: dependência de runtime para gerar QR Code em SVG localmente,
+  sem transmitir a URI TOTP. Encoder incorporado (Project Nayuki, MIT), sem dependência transitiva nova;
+  peer React compatível com React 19. Evita implementar o padrão QR no Duora. Versão exata e integridade no lockfile.
+  Fonte/licenças: [qrcode.react](https://github.com/zpao/qrcode.react/tree/v4.2.0).
+- `jsqr` **1.4.0**, licença **Apache-2.0**: apenas desenvolvimento/E2E para decodificar a imagem produzida
+  pelo navegador e verificar o conteúdo completo com um decoder independente. Não entra no bundle de produção.
+  Sem dependências transitivas. Fonte/licença: [jsQR](https://github.com/cozmo/jsQR).
+- ISC, MIT e Apache-2.0 já pertencem à allowlist; nenhuma exceção ou gate foi alterado. Ambos entram no
+  inventário existente de SBOM e na varredura de dependências, incluindo as de teste.
+
 ## Política de exceções
 
 Exceção é decisão de risco, não atalho para deixar o CI verde (AGENTS.md proíbe reduzir gate). Toda exceção passa
