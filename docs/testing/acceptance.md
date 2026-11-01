@@ -82,6 +82,21 @@ verifica axe e dimensões, saída/retorno sem reapresentação e confirmação c
 que requisições de saída, console e storage não contêm URI/chave. A avaliação manual com leitor de tela
 continua pendente em T-23; estes testes não a substituem.
 
+## Escolha de MFA do participante (#276)
+
+API-A11/API-A12/API-A15; T-13/T-21/T-23; ADR-0017 mantido. `AccountMfaSettings.test.tsx` cobre ativação
+voluntária, volta do cadastro, confirmação/cancelamento e foco, desativação só após bootstrap do mesmo titular,
+sessão renovada e MFA inativo, inclusive conta suspensa; PT-BR/EN-US, prova privada, erros, CSRF protegido,
+resposta atrasada e envio duplicado. Não expõe controles para papéis privilegiados, mistos, novos ou ausentes.
+`session-context.test.ts` mantém correlação estrita dos recibos com segredo e testa a renovação do marcador
+sem segredo, recusando outro titular, SID antigo e fase restrita.
+
+`optional-mfa.spec.ts` percorre conta → QR → confirmação → desativação, cancela confirmação pelo teclado/foco
+e verifica axe, storage e largura de 320 CSS px em PT-BR/EN-US, Chromium/WebKit/mobile. Também verifica
+`operator`, `product_admin`, `moderator` e papel misto: sem desativação e sem pular o cadastro obrigatório.
+`admin-bootstrap.spec.ts` e os testes HTTP do ADR-0017 continuam regressões obrigatórias existentes; estes
+cenários de SPA usam API simulada e não certificam backend publicado, leitor de tela humano ou produção.
+
 ## Verificações derivadas de ADRs
 
 Não são cenários T-NN da spec, mas entram no aceite do marco indicado.

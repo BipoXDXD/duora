@@ -1,4 +1,6 @@
 import { usePrivateMutation } from '@/features/session/private-mutation'
+import { useAccount } from '@/features/session/account-context'
+import { isMfaOptional } from '@/features/session/mfa-policy'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { useNavigate } from 'react-router'
@@ -13,7 +15,7 @@ import { paths } from '@/shared/paths'
 import { Alert, RequestFailureAlert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { TextField } from '@/shared/ui/form-fields'
-import { Page, SubmitButton } from '@/shared/ui/page'
+import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { confirmMfa, startMfaEnrollment } from './auth-api'
 import { totpCodeSchema } from './auth-schemas'
 import { SignInAgainButton } from './SignInAgainButton'
@@ -21,6 +23,7 @@ import { SignInAgainButton } from './SignInAgainButton'
 /** Segredo e códigos só em memória local; nunca no cache de consultas, URL ou armazenamento. */
 export function MfaEnrollmentPage(): React.JSX.Element {
   const { t } = useI18n()
+  const account = useAccount()
   const navigate = useNavigate()
   const cache = useQueryClient()
   const result = useOwnedSecurityResult()
@@ -162,6 +165,7 @@ export function MfaEnrollmentPage(): React.JSX.Element {
           </form>
         </FocusOnMount>
       )}
+      {isMfaOptional(account.roles) ? <TextLink to={paths.account}>{t('profile.backToAccount')}</TextLink> : null}
       <SignInAgainButton />
     </Page>
   )

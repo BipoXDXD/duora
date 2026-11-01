@@ -127,6 +127,11 @@ export async function startMfaEnrollment(operation: OperationHandle): Promise<Mf
   return result.data
 }
 
+/** O servidor decide a política por papel e renova a sessão; 204 não é confirmação do novo contexto da SPA. */
+export function disableMfa(operation: OperationHandle): Promise<void> {
+  return sendMutation({ operation, method: 'DELETE', path: '/api/v1/me/mfa' })
+}
+
 /** Confirma o TOTP (API-A12) e devolve os códigos de recuperação, mostrados uma vez. */
 export async function confirmMfa(
   operation: OperationHandle,

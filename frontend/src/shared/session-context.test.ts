@@ -4,6 +4,7 @@ import {
   bindPrivateRequest,
   bindPublicRequest,
   createSessionContextStore,
+  matchesSecurityResultOwner,
   type SessionContextStore,
   type ValidatedBootstrap,
 } from './session-context'
@@ -30,6 +31,34 @@ function install(store: SessionContextStore, binding = A) {
 function privateRead() {
   return new Request('https://duora.test/api/v1/me/time-zone', { headers: { 'X-XSRF-TOKEN': 'forged' } })
 }
+
+describe('confirmação sem segredo depois da renovação da sessão', () => {
+  it.each([
+    { userId: USER_A, phase: 'active' as const, want: true },
+    { userId: USER_B, phase: 'active' as const, want: false },
+    { userId: USER_A, phase: 'mfa-enrollment' as const, want: false },
+  ])('confere titular e fase: $userId/$phase', ({ userId, phase, want }) => {
+    const store = createSessionContextStore()
+    const original = install(store)
+    const ticket = store.beginExplicitRevalidation()
+    const renewed = store.acceptBootstrap(store.beginBootstrap({ kind: 'explicit', ticket }), {
+      ...A,
+      userId,
+      phase,
+      sessionId: SESSION_B,
+    })
+    expect(matchesSecurityResultOwner(store, original, { owner: renewed, allowSessionRenewal: true })).toBe(want)
+    // A exceção não pode afrouxar a correlação dos recibos que carregam segredos.
+    expect(matchesSecurityResultOwner(store, original, { owner: renewed })).toBe(false)
+  })
+  it('o aviso de renovação não aceita o SID antigo', () => {
+    const store = createSessionContextStore()
+    const original = install(store)
+    const ticket = store.beginExplicitRevalidation()
+    const unchanged = store.acceptBootstrap(store.beginBootstrap({ kind: 'explicit', ticket }), A)
+    expect(matchesSecurityResultOwner(store, original, { owner: unchanged, allowSessionRenewal: true })).toBe(false)
+  })
+})
 
 describe('contexto privado em memória', () => {
   it('não libera operações antes da barreira de desmontagem/cache', () => {
