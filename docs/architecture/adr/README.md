@@ -52,6 +52,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0041](0041-janela-de-autenticacao-recente-de-1-hora.md) | Janela de autenticação recente (step-up) de 1 h, intervalo fechado | Accepted | Abuso de sessão aberta ou step-up por passkey |
 | [0042](0042-suspensao-de-conta-por-violacao-dos-termos.md) | Suspensão de conta em `safety.moderation_actions`, uma ativa por conta por índice parcial, e sessão suspensa negada por padrão fora da allowlist | Proposed | Regras da #300, recurso de moderação ou segundo moderador |
 | [0043](0043-limite-de-reprovacoes-da-selfie.md) | Limite de reprovações da selfie: uma linha por reprovação, pausa de 1 h derivada e suspensão automática pela outbox | Proposed | Recurso de moderação, nova política da selfie ou alternativa assistida |
+| [0044](0044-inscricoes-de-contas-suspensas.md) | Retirada de inscrições por suspensão, sem restauração; promoção elegível antes do início | Proposed; política autorizada em 31/10/2026 (#305) | Readmissão no mesmo evento ou mudança da janela de check-in |
 
 ## Regras
 

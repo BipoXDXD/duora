@@ -184,6 +184,18 @@ API-E03, API-E04 e promoção da lista de espera (M2). Teste T-28.
 O `CHECK (confirmed_count BETWEEN 0 AND capacity)` e os `UNIQUE` de inscrição e de posição garantem que um bug
 no protocolo vire erro, não lotação estourada.
 
+**Suspensão de conta (#305, ADR-0044).** Inscrição e suspensão pré-selecionam todos os candidatos da espera e
+trancam suas guardas/contas antes do evento. A suspensão inclui todos os eventos com inscrições ativas e reservas
+ativas. Depois dos coordenadores, reconsulta o plano: um usuário/evento novo exige reinício integral, nunca guarda
+tardia. Até três tentativas; esgotamento ou timeout dá Busy/503 sem efeito parcial. As contas ficam sob FOR SHARE
+para revalidar elegibilidade também contra escritores legados. Todos os eventos precedem rodadas e salas.
+
+Retirar por suspensão preserva a linha e o check-in histórico, decrementa só quem ocupava vaga e promove a menor
+posição elegível apenas com `agora < starts_at`. No instante de início e em Running não promove, inclusive se o
+job está atrasado; essa regra temporal do domínio prevalece sobre a menção genérica a no-show acima. Uma inscrição
+retirada não volta depois da revogação. Inscrição nova preenche vagas com a espera elegível primeiro. Auditoria,
+proveniência e fato da promoção na outbox comitam junto; entrega de notificação é consumidor futuro.
+
 ### C6. Timeout vs ação
 
 Job de expiração e API-R01/R03 (M2). Teste T-18. Os dois trancam a `game_session` e comparam o deadline

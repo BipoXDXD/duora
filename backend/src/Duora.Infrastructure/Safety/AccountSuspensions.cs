@@ -5,6 +5,7 @@ using Duora.Core.Identity;
 using Duora.Core.Safety;
 using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Identity;
+using Duora.Infrastructure.Participation;
 using Duora.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -93,7 +94,8 @@ public abstract record SuspensionReadOutcome
 /// Suspensão de conta (issue #299, ADR-0042). A medida fica em <c>safety.moderation_actions</c> e o estado da conta
 /// muda para <c>Suspended</c> na mesma transação, pela operação do Identity. Como a sessão lê o estado da conta a cada
 /// requisição, a suspensão vale já na requisição seguinte de toda sessão aberta, e a revogação devolve o acesso do
-/// mesmo jeito. Salas convidadas ou ativas da pessoa são abortadas e as reservas liberadas, como no bloqueio.
+/// mesmo jeito. Inscrições ativas são retiradas com histórico (#305); salas convidadas ou ativas são abortadas e
+/// as reservas liberadas, como no bloqueio. A revogação não restaura inscrições.
 /// </summary>
 /// <remarks>
 /// Duas portas de entrada: a rota administrativa (<see cref="SuspendAsModeratorAsync"/>) e a interna, para o
@@ -232,14 +234,22 @@ public sealed class AccountSuspensions
         ModerationCommandKey key,
         CancellationToken cancellationToken)
     {
-        try
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            return await RecordSuspensionAsync(moderator, order, key, cancellationToken);
+            try
+            {
+                return await RecordSuspensionAsync(moderator, order, key, cancellationToken);
+            }
+            catch (RegistrationPlanChangedException)
+            {
+                // Dispose/rollback the entire old transaction before reacquiring the expanded user set.
+            }
+            catch (PostgresException error) when (IsContention(error))
+            {
+                return new SuspensionOutcome.Busy();
+            }
         }
-        catch (PostgresException error) when (IsContention(error))
-        {
-            return new SuspensionOutcome.Busy();
-        }
+        return new SuspensionOutcome.Busy();
     }
 
     private async Task<SuspensionOutcome> RecordSuspensionAsync(
@@ -258,7 +268,11 @@ public sealed class AccountSuspensions
             return new SuspensionOutcome.Forbidden();
         }
 
-        await GuardUsersAsync(moderator is { } actor ? [actor.UserId, subject] : [subject], cancellationToken);
+        var connection = (NpgsqlConnection)_db.Database.GetDbConnection();
+        var plan = await RegistrationLockPlan.ForSuspensionAsync(connection, subject, moderator?.UserId, cancellationToken);
+        await GuardUsersAsync(plan.Users, cancellationToken);
+        await ParticipationSql.Execute(connection,
+            "select 1 from identity.users where id=any($1) order by id for share", cancellationToken, plan.Users);
         if (moderator is { } session && !await IsModeratorAsync(session, requireRecentTotp: true, cancellationToken))
         {
             return new SuspensionOutcome.Forbidden();
@@ -283,6 +297,8 @@ public sealed class AccountSuspensions
                 throw new InvalidOperationException("Situação da conta desconhecida.");
         }
 
+        await plan.LockEventsAsync(connection, cancellationToken);
+        plan.RequireCovered(await RegistrationLockPlan.ForSuspensionAsync(connection, subject, moderator?.UserId, cancellationToken));
         var now = _time.GetUtcNow();
         var id = Guid.CreateVersion7(now);
         var reason = order.Reason.ToString();
@@ -303,6 +319,7 @@ public sealed class AccountSuspensions
         }
 
         await AccountSuspensionStatus.SuspendAsync(_db, subject, cancellationToken);
+        await RegistrationTransitions.WithdrawForSuspensionAsync(connection, plan, subject, id, now, cancellationToken);
         await ReleaseRoomsAsync(subject, now, cancellationToken);
         await BumpSecurityVersionAsync(subject, cancellationToken);
         await AuditAsync(moderator, AuditAction.AccountSuspended, id, version: 1, cancellationToken);
