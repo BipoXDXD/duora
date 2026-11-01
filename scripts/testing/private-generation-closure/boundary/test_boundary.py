@@ -64,7 +64,7 @@ class BoundaryTests(unittest.TestCase):
                         dict(request_overrides={"length": -1}, body_length=0),
                         dict(request_overrides={"length": 98305}, body_length=0),
                         dict(frame_length=4097, body_length=0)]
-            for field, value in (("area", "quarantine"), ("nonce", "0" * 64), ("generation", "0" * 32)):
+            for field, value in (("area", "quarantine"), ("nonce", "0" * 64), ("generation", "0" * 32), ("generation", 123)):
                 grant = copy.deepcopy(f.active)
                 grant[field] = value
                 variants.append(dict(grant=grant))
@@ -88,6 +88,21 @@ class BoundaryTests(unittest.TestCase):
             for actor in ("legacy", "client", "authority"):
                 self.assertIn(f.call(actor, dict(mode="attack", operation="overwrite", target=path))["errno"], {"EACCES", "EPERM"})
                 self.assertEqual(before, f.inspect(path))
+
+    def test_controller_authenticates_kernel_peer_even_with_a_valid_grant(self):
+        with fixture() as f:
+            request = dict(version=2, operation="close", grant=f.active, variant="thumb", length=0)
+            for actor in ("legacy", "client", "controller"):
+                reply = f.call(actor, dict(mode="rpc", socket="/state/rpc/controller/service.sock", request=request))
+                self.assertEqual("Denied", reply["status"])
+            self.assertEqual("Written", f.rpc("client", "put")["code"])
+
+    def test_truncated_and_padded_bodies_do_not_publish(self):
+        with fixture() as f:
+            for length in (2, 4):
+                self.assertEqual("RecoveryRequired", f.rpc("client", "put", body_length=length,
+                                 request_overrides={"length": 3})["code"])
+                self.assertEqual([], f.private_files())
 
     def test_missing_changed_linked_or_replaced_control_is_rejected(self):
         faults = [

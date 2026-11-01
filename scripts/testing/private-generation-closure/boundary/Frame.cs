@@ -5,7 +5,10 @@ namespace Duora.ClosureBoundary;
 
 internal static class Frame
 {
-    internal static async Task<ProbeRequest> ReadAsync(Stream stream, CancellationToken cancellationToken)
+    internal static Task<ProbeRequest> ReadAsync(Stream stream, CancellationToken cancellationToken) =>
+        ReadObjectAsync<ProbeRequest>(stream, cancellationToken);
+
+    internal static async Task<T> ReadObjectAsync<T>(Stream stream, CancellationToken cancellationToken) where T : class
     {
         var header = new byte[4];
         await stream.ReadExactlyAsync(header, cancellationToken);
@@ -17,12 +20,15 @@ internal static class Frame
 
         var bytes = new byte[length];
         await stream.ReadExactlyAsync(bytes, cancellationToken);
-        return JsonSerializer.Deserialize<ProbeRequest>(bytes, Wire.Options) ?? throw new JsonException("Empty request.");
+        return JsonSerializer.Deserialize<T>(bytes, Wire.Options) ?? throw new JsonException("Empty request.");
     }
 
-    internal static async Task WriteAsync(Stream stream, ProbeReply reply, CancellationToken cancellationToken)
+    internal static Task WriteAsync(Stream stream, ProbeReply reply, CancellationToken cancellationToken) =>
+        WriteObjectAsync(stream, reply, cancellationToken);
+
+    internal static async Task WriteObjectAsync(Stream stream, object reply, CancellationToken cancellationToken)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(reply, Wire.Options);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(reply, reply.GetType(), Wire.Options);
         var header = new byte[4];
         BinaryPrimitives.WriteUInt32BigEndian(header, (uint)bytes.Length);
         await stream.WriteAsync(header, cancellationToken);

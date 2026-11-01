@@ -32,6 +32,11 @@ internal sealed class GuidHexConverter : JsonConverter<Guid>
 {
     public override Guid Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
+        if (reader.TokenType != JsonTokenType.String)
+        {
+            throw new JsonException("Invalid identifier type.");
+        }
+
         var value = reader.GetString();
         if (!Guid.TryParseExact(value, "N", out var parsed) || parsed.ToString("N") != value)
         {

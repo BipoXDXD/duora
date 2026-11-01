@@ -129,12 +129,23 @@ class BoundaryFixture:
     def rpc(self, actor, operation, body_length=3, grant=None, variant="thumb", **overrides):
         request = dict(version=2, operation=operation, grant=grant or self.active, variant=variant, length=body_length)
         request.update(overrides.pop("request_overrides", {}))
-        command = dict(mode="rpc", socket="/state/rpc/authority/service.sock", request=request, **overrides)
+        command = dict(mode="rpc", socket="/state/rpc/authority/service.sock", request=request,
+                       body_length=body_length, **overrides)
         return self.call(actor, command)
 
-    def inspect(self, path):
+    def close(self):
+        return self.rpc("authority", "close", body_length=0)
+
+    def sweep(self):
+        return self.rpc("authority", "sweep", body_length=0)
+
+    def restart(self, role="authority", point="none", variant=0):
+        self.kill_server(role)
+        self.start_server(role, point, variant)
+
+    def inspect(self, path, actor="root"):
         script = "import hashlib,json,os,sys; p=sys.argv[1]; s=os.lstat(p); print(json.dumps({'inode':s.st_ino,'hash':hashlib.sha256(open(p,'rb').read()).hexdigest(),'mode':s.st_mode&0o777,'uid':s.st_uid,'gid':s.st_gid}))"
-        result = self.actor("root", ["python3", "-c", script, path])
+        result = self.actor(actor, ["python3", "-c", script, path])
         return json.loads(result.stdout)
 
     def file_attack(self, actor, operation, target):

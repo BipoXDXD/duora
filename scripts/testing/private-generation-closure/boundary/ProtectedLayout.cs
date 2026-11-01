@@ -8,6 +8,8 @@ namespace Duora.ClosureBoundary;
 [SupportedOSPlatform("linux")]
 internal sealed class ProtectedLayout
 {
+    private static readonly string[] ControlNames = ["domain.lock", "domain.journal"];
+    private static readonly string[] AreaNames = ["review-candidates", "derivatives"];
     internal string Root { get; }
     internal uint Group { get; }
     internal Enrollment Enrollment { get; }
@@ -26,8 +28,12 @@ internal sealed class ProtectedLayout
 
         Enrollment = LinuxBoundary.ReadJson<Enrollment>(enrollment);
         if (Enrollment.Domain == Guid.Empty || Enrollment.Epoch != 1 || Enrollment.ProtocolVersion != 2
+            || Enrollment.Root is null || Enrollment.Control is null
+            || Enrollment.Files is null || Enrollment.Data is null || Enrollment.Generations is null
+            || !ControlNames.All(k => Enrollment.Files.TryGetValue(k, out var v) && v is not null)
+            || !AreaNames.All(k => Enrollment.Data.TryGetValue(k, out var v) && v is not null)
             || Enrollment.Generations.Length is < 1 or > 32
-            || Enrollment.Generations.Any(g => g.Generation == Guid.Empty || g.Area is not ("candidate" or "promotion") || !Nonce(g.Nonce))
+            || Enrollment.Generations.Any(g => g is null || g.Generation == Guid.Empty || g.Area is not ("candidate" or "promotion") || !Nonce(g.Nonce))
             || Enrollment.Generations.Select(g => g.Generation).Distinct().Count() != Enrollment.Generations.Length)
         {
             throw new InvalidDataException("Invalid enrollment.");
@@ -42,7 +48,7 @@ internal sealed class ProtectedLayout
         LinuxBoundary.Verify(root, Enrollment.Root, 0, 0, 493, directory: true);
         using var directory = LinuxBoundary.OpenChild(root, "control", directory: true);
         LinuxBoundary.Verify(directory, Enrollment.Control, 0, Group, 488, directory: true);
-        foreach (var name in new[] { "domain.lock", "domain.journal" })
+        foreach (var name in ControlNames)
         {
             using var file = OpenControl(name);
         }
@@ -56,7 +62,7 @@ internal sealed class ProtectedLayout
                 throw new InvalidDataException("Untrusted data parent.");
             }
 
-            foreach (var area in new[] { "review-candidates", "derivatives" })
+            foreach (var area in AreaNames)
             {
                 using var areaDirectory = LinuxBoundary.OpenChild(data, area, directory: true);
                 LinuxBoundary.Verify(areaDirectory, Enrollment.Data[area], 17010, 17010, 448, directory: true);
