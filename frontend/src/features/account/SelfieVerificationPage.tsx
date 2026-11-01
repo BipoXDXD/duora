@@ -80,7 +80,12 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
   const query = useQuery({
     queryKey: ['selfie', userId],
     queryFn: ({ signal }) => privateOperation.run((operation) => currentSelfie(operation, signal)),
-    refetchInterval: (q) => (q.state.data?.nextStep === 'Wait' || q.state.data?.nextStep === 'Capture' ? 2000 : false),
+    refetchInterval: (q) => {
+      // GET só traz lockedUntil (Retry-After pertence ao POST recusado). Não derive a espera do relógio local:
+      // respostas CoolingDown idênticas continuam sendo revalidadas, sem loop, até o servidor liberar a captura.
+      if (q.state.data?.attempts?.state === 'CoolingDown') return COOLDOWN_RECHECK_MS
+      return q.state.data?.nextStep === 'Wait' || q.state.data?.nextStep === 'Capture' ? 2000 : false
+    },
   })
   const start = usePrivateMutation({
     mutationFn: (operation) => startSelfie(operation),
@@ -105,16 +110,6 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
   const status = query.data
   const attempts = status?.attempts
   const blocked = attempts?.state === 'CoolingDown' || attempts?.state === 'Exhausted'
-  const reopensAt = attempts?.state === 'CoolingDown' ? attempts.lockedUntil : null
-  const { refetch } = query
-  useEffect(() => {
-    if (reopensAt === null) return
-    // O servidor decide; no fim da pausa a tela só relê o estado para devolver a captura.
-    const timer = setTimeout(() => void refetch(), untilDelay(reopensAt))
-    return () => {
-      clearTimeout(timer)
-    }
-  }, [reopensAt, refetch])
   return (
     <Page title={copy.title}>
       <p>{copy.intro}</p>
@@ -176,12 +171,8 @@ function SelfieJourney({ userId }: { readonly userId: string }): React.JSX.Eleme
   )
 }
 
-/** Espera até o fim da pausa, no teto que o setTimeout aceita (cerca de 24,8 dias). */
-function untilDelay(instant: string): number {
-  return Math.min(Math.max(0, Date.parse(instant) - Date.now()), MAX_TIMER_DELAY_MS)
-}
-
-const MAX_TIMER_DELAY_MS = 2_147_483_647
+/** Uma leitura por minuto na pausa; o Query cancela o intervalo ao desmontar ou mudar de estado. */
+const COOLDOWN_RECHECK_MS = 60_000
 
 function isAttemptLimit(failure: Error): boolean {
   return failure instanceof ApiProblemError && SELFIE_ATTEMPT_PROBLEMS.has(failure.problem.code ?? '')
