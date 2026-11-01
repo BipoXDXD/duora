@@ -23,6 +23,7 @@ def capture(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--report-dir", type=Path, required=True)
+    parser.add_argument("--scenario", choices=("full", "alias"), default="full")
     args = parser.parse_args()
     report = args.report_dir.resolve()
     report.mkdir(parents=True, exist_ok=False)
@@ -38,6 +39,7 @@ def main():
         "base": capture(["git", "-C", str(root), "rev-parse", "HEAD"]),
         "dirty": bool(capture(["git", "-C", str(root), "status", "--porcelain"])),
         "architecture": arch,
+        "scenario": args.scenario,
         "volumes_before": before,
         "production_changed": False,
         "limits": "synthetic processes/logical rollback; not host power or provider qualification",
@@ -65,6 +67,7 @@ def main():
                 "--security-opt", "no-new-privileges:true",
                 "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
                 "-e", "TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal", tag,
+                *(["--alias-check"] if args.scenario == "alias" else []),
             ], stdout=log, stderr=subprocess.STDOUT, timeout=600)
         metadata["exit_code"] = 0
     except subprocess.CalledProcessError as error:

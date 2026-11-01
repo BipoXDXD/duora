@@ -68,12 +68,16 @@ public static partial class StorageAuthorityRuntimeChecks
             Username = businessRole,
             Password = businessPassword,
             MaxPoolSize = 8,
+            Timeout = 3,
+            CommandTimeout = 3,
         }.ConnectionString;
         var referenceConnection = new NpgsqlConnectionStringBuilder(referenceDatabase.AppConnectionString)
         {
             Username = referenceRole,
             Password = referencePassword,
             MaxPoolSize = 8,
+            Timeout = 3,
+            CommandTimeout = 3,
         }.ConnectionString;
         var root = "/duora-authority-" + suffix;
         Directory.CreateDirectory(root);
@@ -89,13 +93,12 @@ public static partial class StorageAuthorityRuntimeChecks
                 ?? throw new InvalidDataException("Missing client outcome.");
             var candidate = outcome.Candidate;
             var promotion = outcome.Promotion;
+            var rollbackTarget = outcome.OpenClosedCandidate;
             foreach (var kind in PhotoVariants.All)
             {
                 Assert.False(File.Exists(Path.Combine(root, "data", ObjectKey.ForPromotedDerivative(promotion, kind).Value)));
                 Assert.True(File.Exists(Path.Combine(root, "data", ObjectKey.ForReviewCandidate(candidate, kind).Value)));
             }
-            var binding = Assert.IsType<PrivateGenerationBinding>(await PrivateGenerationMetadata.FindAsync(
-                app, PrivateGenerationArea.Promotion, promotion, cancellationToken));
             Console.WriteLine("PASS physical observation agrees with child pipeline and SQL proof");
 
             await AssertKernelDeniedAsync(root, cancellationToken);
@@ -103,22 +106,24 @@ public static partial class StorageAuthorityRuntimeChecks
 
             // Controlled rollback of local controls/business state. Independent revocation is preserved.
             var journalBeforeRollback = await File.ReadAllBytesAsync(Path.Combine(root, "control/domain.journal"), cancellationToken);
-            // Remove this generation's closure suffix by restoring the earlier Open/Sealed prefix saved by the fixture.
+            // Restore a genuinely Open generation, so Seal cannot mask a missing external revocation check.
             var text = System.Text.Encoding.UTF8.GetString(journalBeforeRollback);
             var lines = text.Split('\n');
             var cut = Array.FindIndex(lines, line => line.Contains('\t')
                 && System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(line.Split('\t')[0]))
-                    .Contains("\"state\":\"Closing\"", StringComparison.Ordinal));
+                    .Contains("\"state\":\"Closing\"", StringComparison.Ordinal)
+                && System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(line.Split('\t')[0]))
+                    .Contains(rollbackTarget.ToString("D"), StringComparison.Ordinal));
             Assert.True(cut >= 3);
             await File.WriteAllTextAsync(Path.Combine(root, "control/domain.journal"),
                 string.Join('\n', lines[..cut]) + "\n", cancellationToken);
             await ExecuteAsync(app, """
-                update media.review_promotions set deleted_at=null,storage_proof_id=null,writer_settled_at=null,
-                  cleanup_requested_at=null,created_at=statement_timestamp(),prepare_deadline=statement_timestamp()+interval '15 seconds'
+                update media.review_candidates set deleted_at=null,storage_proof_id=null,writer_settled_at=null,
+                  cleanup_requested_at=null,created_at=statement_timestamp(),prepare_deadline=statement_timestamp()+interval '5 minutes'
                   where generation=$1
-                """, cancellationToken, promotion);
+                """, cancellationToken, rollbackTarget);
             await RunClientProcessAsync(root, "replay-denied", cancellationToken);
-            Assert.False(File.Exists(Path.Combine(root, "data", ObjectKey.ForPromotedDerivative(promotion, PhotoVariant.Thumb).Value)));
+            Assert.False(File.Exists(Path.Combine(root, "data", ObjectKey.ForReviewCandidate(rollbackTarget, PhotoVariant.Thumb).Value)));
             Console.WriteLine("PASS local Open rollback cannot erase the separately persisted revocation");
 
             await authority.StopAsync(cancellationToken);
@@ -138,14 +143,15 @@ public static partial class StorageAuthorityRuntimeChecks
             authority = await AuthorityProcess.StartAsync(root, expectReady: true, cancellationToken);
             WriteClientParameters(root, domain, database.AppConnectionString);
             await ExecuteAsync(app, """
-                update media.review_promotions set cleanup_requested_at=statement_timestamp(),
+                update media.review_candidates set cleanup_requested_at=statement_timestamp(),
                   cleanup_available_at=statement_timestamp() where generation=$1
-                """, cancellationToken, promotion);
+                """, cancellationToken, rollbackTarget);
             await RunClientProcessAsync(root, "recover-close", cancellationToken);
             Console.WriteLine("PASS admitted new epoch recovers old closure without readmitting the old writer");
 
             await RunClientProcessAsync(root, "legacy-denied", cancellationToken);
             Console.WriteLine("PASS unbound private legacy reads/deletes fail closed with original files intact");
+            await VerifyControlAndReferenceFailuresAsync(root, referenceDatabase.Name, admin, cancellationToken);
         }
         finally
         {
@@ -160,6 +166,7 @@ public static partial class StorageAuthorityRuntimeChecks
     public static async Task RunClientAsync(string path, string mode, CancellationToken cancellationToken)
     {
         Assert.Equal(17020U, PrivateGenerationLinux.CurrentUid);
+        Assert.Equal(17020U, PrivateGenerationLinux.CurrentGid);
         var parameters = JsonSerializer.Deserialize<ClientParameters>(await File.ReadAllTextAsync(path, cancellationToken))
             ?? throw new InvalidDataException("Missing client parameters.");
         var root = parameters.Root;
@@ -232,22 +239,29 @@ public static partial class StorageAuthorityRuntimeChecks
                 select count(*) from media.review_promotions where generation=$1 and deleted_at is not null
                   and writer_settled_at is null and storage_proof_id is not null
                 """, cancellationToken, promotion));
-            await File.WriteAllTextAsync(parameters.OutcomePath, JsonSerializer.Serialize(new Outcome(candidate, promotion)), cancellationToken);
             Console.WriteLine("PASS client UID17020 real candidate/promotion/collector with application credentials only");
-            await VerifyPausedAndMaximumBodiesAsync(parameters, app, store, managed, cancellationToken);
+            var openClosed = await VerifyPausedAndMaximumBodiesAsync(parameters, app, store, managed, cancellationToken);
+            await File.WriteAllTextAsync(parameters.OutcomePath,
+                JsonSerializer.Serialize(new Outcome(candidate, promotion, openClosed)), cancellationToken);
             return;
         }
         using var container = Services(root, domain).BuildServiceProvider();
         var objectStore = container.GetRequiredService<IObjectStore>();
         var privateStore = Assert.IsAssignableFrom<IPrivateGenerationStore>(objectStore);
+        if (mode is "create-open" or "write-denied" or "read-denied" or "seal-only" or "finish-open")
+        {
+            await RunControlFaultClientAsync(parameters, app, objectStore, privateStore, mode, cancellationToken);
+            return;
+        }
         var outcome = JsonSerializer.Deserialize<Outcome>(await File.ReadAllTextAsync(parameters.OutcomePath, cancellationToken))
             ?? throw new InvalidDataException("Missing client outcome.");
         var record = Assert.IsType<PrivateGenerationStorageRecord>(await new PrivateGenerationAuthorityMetadata(app)
-            .ReadAsync(PrivateGenerationArea.Promotion, outcome.Promotion, cancellationToken));
+            .ReadAsync(PrivateGenerationArea.Candidate, outcome.OpenClosedCandidate, cancellationToken));
         if (mode == "replay-denied")
         {
             await Assert.ThrowsAsync<IOException>(() => privateStore.RegisterAsync(record.Manifest, cancellationToken));
-            using var content = new MemoryStream(TestImages.WebP(64, 32), writable: false);
+            using var content = new MemoryStream(Enumerable.Repeat((byte)42,
+                checked((int)record.Manifest.Variants.Single(v => v.Kind == PhotoVariant.Thumb).Length)).ToArray(), writable: false);
             await Assert.ThrowsAsync<IOException>(() => privateStore.PutVariantAsync(record.Manifest,
                 PhotoVariant.Thumb, content, cancellationToken));
         }
@@ -255,6 +269,7 @@ public static partial class StorageAuthorityRuntimeChecks
         {
             var closed = await privateStore.CloseAsync(record.Manifest.Identity, cancellationToken);
             Assert.True(closed.Revision > 0);
+            await CollectAsync(app, objectStore, record.Manifest.Identity.Generation, cancellationToken);
             using var oldContainer = Services(root, domain with { Epoch = 1 }).BuildServiceProvider();
             var oldStore = Assert.IsAssignableFrom<IPrivateGenerationStore>(oldContainer.GetRequiredService<IObjectStore>());
             await Assert.ThrowsAsync<IOException>(() => oldStore.RegisterAsync(record.Manifest, cancellationToken));
@@ -303,7 +318,7 @@ public static partial class StorageAuthorityRuntimeChecks
 
     private sealed record ClientParameters(string Root, PrivateGenerationDomain Domain, string ConnectionString,
         string OutcomePath);
-    private sealed record Outcome(Guid Candidate, Guid Promotion);
+    private sealed record Outcome(Guid Candidate, Guid Promotion, Guid OpenClosedCandidate);
 
     private static IServiceCollection Services(string root, PrivateGenerationDomain domain) =>
         new ServiceCollection().AddLogging().AddMediaUploads(new ConfigurationBuilder().AddInMemoryCollection(
@@ -519,6 +534,12 @@ public static partial class StorageAuthorityRuntimeChecks
             }
             else
             {
+                var first = await child.Process.StandardOutput.ReadLineAsync(cancellationToken);
+                if (first == "STORAGE_AUTHORITY_READY")
+                {
+                    await child.StopAsync(CancellationToken.None);
+                    Assert.Fail("Unqualified storage configuration was admitted.");
+                }
                 await child.Process.WaitForExitAsync(cancellationToken);
                 Assert.Contains("STORAGE_AUTHORITY_STARTUP_DENIED", await child.Process.StandardError.ReadToEndAsync(cancellationToken),
                     StringComparison.Ordinal);

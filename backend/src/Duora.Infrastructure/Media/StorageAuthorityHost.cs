@@ -43,6 +43,17 @@ public static class StorageAuthorityHost
         }
         await using var business = NpgsqlDataSource.Create(businessConnection);
         await using var referenceSource = NpgsqlDataSource.Create(referenceConnection);
+        // Aliases can hide the same database behind different connection strings. Testing deliberately
+        // requires different actual database names even on independently hosted clusters with equal names.
+        await using var businessName = business.CreateCommand("select current_database()");
+        await using var referenceName = referenceSource.CreateCommand("select current_database()");
+        var actualBusiness = await businessName.ExecuteScalarAsync(cancellationToken) as string;
+        var actualReference = await referenceName.ExecuteScalarAsync(cancellationToken) as string;
+        if (string.IsNullOrEmpty(actualBusiness) || string.IsNullOrEmpty(actualReference)
+            || actualBusiness == actualReference)
+        {
+            throw new InvalidDataException("Storage reference requires a distinct actual database name.");
+        }
         var reference = new PrivateGenerationReference(referenceSource, layout.Enrollment.Domain,
             layout.Enrollment.Incarnation, Guid.NewGuid());
         new PrivateGenerationJournal(layout).Synchronize();

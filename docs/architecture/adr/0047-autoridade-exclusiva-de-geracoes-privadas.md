@@ -25,6 +25,9 @@ não integra o backup/restore da aplicação e nunca é inicializada permissivam
 Não inferimos morte de timeout, cancelamento ou lease. Um controlador/supervisor confiável só readmite
 nova época depois de retirar a família antiga e suas capacidades/I/O. Reiniciar processo na mesma
 época sem essa prova não é readmissão operacional. Falta/corrupção/estado regressivo falha fechado.
+Leitura exige concordância de identidade, estado e revisão entre journal local e referência externa;
+arquivo final correto não dispensa controles duráveis coerentes. Admissão consulta o nome real dos
+bancos antes de consumir a época, sem confiar apenas em strings de conexão ou aliases de servidor.
 
 A integração fica desligada por padrão e recusada em Production até qualificação separada. Testing
 permite desenvolver/exercitar a mesma autoridade e os métodos reais de preparo/coleta com PostgreSQL
@@ -50,7 +53,7 @@ permissões ou dados reais por consequência de merge. Rollback mantém fences/�
 cliente incompatível fica indisponível. Restore ocorre em staging sem leitura e reconcilia revogações
 atuais antes de admitir nova época. Perda de toda a referência corrente não autoriza reset.
 
-Preservar token/lease do coletor, prova anterior à última varredura, guardas de autorização, isolamento
+Preservar token/lease do coletor, fechamento anterior à última varredura, guardas de autorização, isolamento
 de assets confirmados e retenção mínima de um ano/65 dias no relógio PostgreSQL. #69 e o ledger externo
 de exclusões não são substituídos por esta referência.
 

@@ -14,9 +14,18 @@ Enrollment root-owned vincula encarnação e identidades de dispositivos/inodes.
 não são graváveis pela autoridade/clientes. Não há criação de lock/journal ausente, quebra por idade
 ou reset permissivo. Dados privados usam raiz física exclusiva, separada dos derivados legados.
 
+O corte operacional ainda exige inventariar grupos suplementares, ACLs, capabilities, mounts/aliases,
+FDs herdados/transferidos, descendentes e imagens/launchers antigos. `chown`, mudança de mount ou saída
+de um PID não revogam um FD já aberto. A raiz nova não pode ter sido entregue à família antiga.
+O supervisor deve provar retirada de toda a família e fim do I/O antes da readmissão; a fixture apenas
+observa a saída do host que ela própria criou. Nenhuma configuração desse supervisor foi instalada.
+
 A referência PostgreSQL usa banco e credencial próprios. Runtime só recebe EXECUTE nas funções de
 admissão/transição, sem DML nas tabelas. Startup não inicializa referência/época. Sessão já consumida
 não é readmitida automaticamente: nova época exige custodiante e prova de retirada da família antiga/I/O.
+Antes de consumir a época, o host consulta `current_database()` nas duas conexões e exige nomes reais
+distintos, inclusive quando Host/Port usam aliases. A regra conservadora de Testing também recusa
+dois clusters diferentes com bancos de mesmo nome; nomes distintos não provam custódia física distinta.
 
 Dois bancos no mesmo cluster são apenas ensaio de restore lógico. Não protegem contra rollback físico
 do cluster/host. Instância/custódia separadas, TLS autenticado, recuperação sem perda de ACKs e
@@ -34,6 +43,10 @@ locks de negócio. Seal congela o conjunto; não aprova uma foto.
 
 Admissão do corpo é confirmada sob o gate antes do streaming. Gate cobre EOF, cópia, dispose, rename
 e sincronização. Fila/conexões têm limite. Busy/timeout não provam encerramento.
+
+Leituras também exigem journal íntegro, entrada local presente e estado/revisão idênticos à referência,
+com sincronização antes de abrir o objeto. Prefixo válido antigo ou estado local regredido é recusa,
+mesmo que o conteúdo final exista e tenha hash correto. Não servem bytes nem fazem reparo implícito.
 
 Close revoga na referência sob a mesma exclusão, sincroniza Closing/Closed local e só então confirma
 Closed externamente. ACK sucede todo I/O admitido; ainda não é remoção. Sweep exige Close anterior,
@@ -74,8 +87,9 @@ Na raiz da cópia isolada, com dados sintéticos e janela de recursos:
 ```sh
 dotnet restore backend/Duora.slnx --locked-mode --disable-parallel
 dotnet build backend/Duora.slnx --no-restore -m:1 /p:UseSharedCompilation=false
-dotnet test --project backend/tests/Duora.IntegrationTests --no-build --no-restore -- --filter 'FullyQualifiedName~PrivateGenerationRoutingTests|FullyQualifiedName~PrivateGenerationProofPrivilegeTests'
+dotnet test --project backend/tests/Duora.IntegrationTests --no-build --no-restore -- --filter 'FullyQualifiedName~PrivateGenerationRoutingTests|FullyQualifiedName~PrivateGenerationProofPrivilegeTests|FullyQualifiedName~ManagedCollectorsRequire'
 python3 scripts/testing/storage-authority/run_linux.py --report-dir /tmp/duora-authority-evidence-novo
+python3 scripts/testing/storage-authority/run_linux.py --scenario alias --report-dir /tmp/duora-authority-alias-novo
 ```
 
 Relatório precisa de diretório novo. Runner usa Linux arm64 nativo com digest SDK10.0.402, não amd64.

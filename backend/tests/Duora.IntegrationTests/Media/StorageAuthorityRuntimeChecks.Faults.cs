@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Duora.Core.Media;
 using Duora.Infrastructure.Media;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,100 @@ namespace Duora.IntegrationTests.Media;
 
 public static partial class StorageAuthorityRuntimeChecks
 {
-    private static async Task VerifyPausedAndMaximumBodiesAsync(ClientParameters parameters, NpgsqlDataSource app,
+    private static async Task VerifyControlAndReferenceFailuresAsync(string root, string referenceDatabase,
+        NpgsqlDataSource admin, CancellationToken cancellationToken)
+    {
+        var journal = Path.Combine(root, "control/domain.journal");
+        var beforeRegistration = await File.ReadAllBytesAsync(journal, cancellationToken);
+        await RunClientProcessAsync(root, "create-open", cancellationToken);
+        var goodOpen = await File.ReadAllBytesAsync(journal, cancellationToken);
+        var savedJournal = Path.Combine(root, "control/domain.journal.saved");
+        File.Move(journal, savedJournal);
+        await RunClientProcessAsync(root, "write-denied", cancellationToken);
+        await RunClientProcessAsync(root, "read-denied", cancellationToken);
+        File.Move(savedJournal, journal);
+        await File.WriteAllBytesAsync(journal, goodOpen[..^1], cancellationToken);
+        await RunClientProcessAsync(root, "write-denied", cancellationToken);
+        // RED for journal-content bypass: same inode/mode, valid existing object, no bytes may be served.
+        await RunClientProcessAsync(root, "read-denied", cancellationToken);
+        await File.WriteAllBytesAsync(journal, beforeRegistration, cancellationToken);
+        await RunClientProcessAsync(root, "read-denied", cancellationToken);
+        await File.WriteAllBytesAsync(journal, goodOpen, cancellationToken);
+        await RunClientProcessAsync(root, "seal-only", cancellationToken);
+        var goodSealed = await File.ReadAllBytesAsync(journal, cancellationToken);
+        await File.WriteAllBytesAsync(journal, goodOpen, cancellationToken);
+        await RunClientProcessAsync(root, "read-denied", cancellationToken);
+        await File.WriteAllBytesAsync(journal, goodSealed, cancellationToken);
+        var domainLock = Path.Combine(root, "control/domain.lock");
+        var savedLock = Path.Combine(root, "control/domain.lock.saved");
+        File.Move(domainLock, savedLock);
+        File.WriteAllText(domainLock, "");
+        Mode(domainLock, 0, 17010, 432);
+        await RunClientProcessAsync(root, "read-denied", cancellationToken);
+        File.Delete(domainLock);
+        File.Move(savedLock, domainLock);
+        Console.WriteLine("PASS missing/torn/regressed journal, missing local identity and substituted regular lock inode deny reads/bytes");
+        // Reference failure must be independent of a valid journal and of the available business DB.
+        await RunClientProcessAsync(root, "create-open", cancellationToken);
+        await ExecuteAsync(admin, $"alter database {referenceDatabase} allow_connections false", cancellationToken);
+        await ExecuteAsync(admin, "select pg_terminate_backend(pid) from pg_stat_activity where datname=$1",
+            cancellationToken, referenceDatabase);
+        await RunClientProcessAsync(root, "write-denied", cancellationToken);
+        await RunClientProcessAsync(root, "read-denied", cancellationToken);
+        await ExecuteAsync(admin, $"alter database {referenceDatabase} allow_connections true", cancellationToken);
+        await RunClientProcessAsync(root, "finish-open", cancellationToken);
+        Console.WriteLine("PASS independent reference outage denies reads and writes; preserved state recovers");
+    }
+
+    private static async Task RunControlFaultClientAsync(ClientParameters parameters, NpgsqlDataSource app,
+        IObjectStore store, IPrivateGenerationStore managed, string mode, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(parameters.Root, "client-out/fault-identity.json");
+        if (mode == "create-open")
+        {
+            var (manifest, contents) = await OpenManifestAsync(parameters, store, app, [3, 3, 3], cancellationToken);
+            await managed.RegisterAsync(manifest, cancellationToken);
+            using var bytes = new MemoryStream(contents[PhotoVariant.Thumb], writable: false);
+            await managed.PutVariantAsync(manifest, PhotoVariant.Thumb, bytes, cancellationToken);
+            await using var present = await store.OpenReadAsync(manifest.Key(PhotoVariant.Thumb), cancellationToken);
+            Assert.NotNull(present);
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(manifest.Identity), cancellationToken);
+            return;
+        }
+        var identity = JsonSerializer.Deserialize<PrivateGenerationIdentity>(
+            await File.ReadAllTextAsync(path, cancellationToken))
+            ?? throw new InvalidDataException("Missing control fault identity.");
+        var record = Assert.IsType<PrivateGenerationStorageRecord>(
+            await new PrivateGenerationAuthorityMetadata(app).ReadAsync(identity.Area, identity.Generation, cancellationToken));
+        if (mode == "write-denied")
+        {
+            using var bytes = new MemoryStream([42, 42, 42]);
+            await Assert.ThrowsAsync<IOException>(() => managed.PutVariantAsync(
+                record.Manifest, PhotoVariant.Thumb, bytes, cancellationToken));
+            Assert.Equal(0L, await ScalarAsync(app,
+                "select count(*) from media.private_generation_proofs where generation=$1", cancellationToken,
+                identity.Generation));
+            return;
+        }
+        if (mode == "read-denied")
+        {
+            await Assert.ThrowsAsync<IOException>(() => store.OpenReadAsync(
+                record.Manifest.Key(PhotoVariant.Thumb), cancellationToken));
+            return;
+        }
+        foreach (var kind in PhotoVariants.All)
+        {
+            using var bytes = new MemoryStream([42, 42, 42]);
+            await managed.PutVariantAsync(record.Manifest, kind, bytes, cancellationToken);
+        }
+        await managed.SealAsync(record.Manifest, cancellationToken);
+        if (mode == "finish-open")
+        {
+            await CollectAsync(app, store, identity.Generation, cancellationToken);
+        }
+    }
+
+    private static async Task<Guid> VerifyPausedAndMaximumBodiesAsync(ClientParameters parameters, NpgsqlDataSource app,
         IObjectStore store, IPrivateGenerationStore managed, CancellationToken cancellationToken)
     {
         var (pausedManifest, pausedBytes) = await OpenManifestAsync(parameters, store, app,
@@ -74,6 +168,7 @@ public static partial class StorageAuthorityRuntimeChecks
         }
         await CollectAsync(app, store, malformed.Identity.Generation, cancellationToken);
         Console.WriteLine("PASS excess and truncated bodies cannot publish a private object");
+        return pausedManifest.Identity.Generation;
     }
 
     private static async Task CollectAsync(NpgsqlDataSource app, IObjectStore store, Guid generation,

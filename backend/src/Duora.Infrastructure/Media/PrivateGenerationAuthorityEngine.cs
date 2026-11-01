@@ -209,6 +209,12 @@ internal sealed class PrivateGenerationAuthorityEngine(
             return (new("ok"), []);
         }
         var state = await reference.TransitionAsync(record.Manifest.Identity, "Read", cancellationToken);
+        var local = _journal.Find(record.Manifest.Identity);
+        if (local is null || local.State != state.State || local.Revision != state.Revision)
+        {
+            throw new InvalidDataException("Private read requires coherent durable storage controls.");
+        }
+        _journal.Synchronize();
         if (state.State is "Closing" or "Closed")
         {
             return (new("missing"), []);
