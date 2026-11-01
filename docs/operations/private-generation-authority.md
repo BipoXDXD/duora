@@ -107,4 +107,3 @@ Sem homologação de energia/VM, hardware/filesystem-alvo, amd64, NFS/SMB ou S3/
 escritores reais, prova de launcher operacional por digest ou custódia contra restore físico do cluster.
 Rollback integral de toda a base confiável não é detectável por snapshot regressivo idêntico ao passado.
 O candidato só é exercitável em laboratório. Timeout/cancelamento/heartbeat/PID/HEAD não substituem prova.
-
