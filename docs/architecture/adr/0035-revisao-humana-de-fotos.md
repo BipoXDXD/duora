@@ -344,3 +344,12 @@ Compliance: `ASweepRemovesTheThreeKeysRecordsTheRemovalAndStaysSilent`,
 `ASweepThatOutlivesItsLeaseLogsTheLossAndKeepsThePersistedClaim` (`ReviewPromotionCollectorTests`, PostgreSQL real);
 `ReviewPromotionCleanupLogsUnreachableDatabaseAndKeepsRunning` (`WorkerHostTests`). Os testes de lease e concorrência
 do coletor em `ReviewPromotionCleanupTests` e `PhotoReviewApprovalTests` continuam valendo.
+
+### Investigação de 31/10/2026 — escritor interrompido
+
+O risco permanece aberto. A [investigação e os testes reproduzíveis](../../testing/reports/interrupted-review-writers.md)
+demonstram um PUT de arquivos que publica depois de sucessivas limpezas e a corrida de assentamento durante
+o DELETE. Leases e tokens protegem o banco; não fecham uma geração no armazenamento. Falta um fence
+durável imposto no destino ou prova de término de todos os escritores e de suas operações de I/O.
+Nenhum timeout passa a substituir `writer_settled_at`. O comportamento conservador, a retenção de tombstones,
+a janela de backup e os gates de produção permanecem.
