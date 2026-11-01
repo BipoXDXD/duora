@@ -52,7 +52,7 @@ cobertura (spec 20.3).
 | T-25 | VPS inteira perdida e reconstruída das cópias externas | Serviço seguro recuperado; RPO/RTO medidos e lacunas registradas | INV-11; spec 18 | Recuperação | M3 | não implementado |
 | T-26 | Asset apagado, reprovado ou perfil bloqueado acessado por URL antiga | Autorização atual nega; cache não reexpõe conteúdo | INV-03; API-M04, API-P04 | HTTP | M1 (inferido) | parcial: `MediaAssetReadTests` (API-M04 só do titular, `no-store`, 404 uniforme para alheio/inexistente/não aprovado/excluído, URL antiga negada logo após a exclusão), `PhotoDeletionTests` e `PhotoDeletionCleanupTests` (API-M03 lógica e física), `PhotoDeletionRecordPurgeTests` (tombstone e recibo saem só após 1 ano no relógio do banco e sem obrigação física pendente, inclusive promoção não confirmada), `PhotoDeletionReplayAfterPurgeTests` (DELETE repetido com a mesma chave após o expurgo do recibo dá 412, sem efeito). Faltam perfil bloqueado (API-P04, sem seleção de foto de perfil ainda) e o ledger externo de tombstones para restore |
 | T-27 | Replay de resposta idempotente depois de perder autorização | Autorização atual prevalece; não retorna payload privado antigo | INV-03, INV-06; `Idempotency-Key` | HTTP, Integração | M2 (inferido) | não implementado |
-| T-28 | Lista de espera, cancelamento e check-in concorrem com lotação | Capacidade preservada e promoção de vaga determinística | API-E03, API-E04, API-E05 | Integração (concorrência) | M2 (inferido) | parcial, só domínio: `RegistrationTests` (última vaga vai ao primeiro e o seguinte espera; retiradas promovem em ordem; sem promoção a partir do instante de início), `CheckInTests` e `RegistrationPropertyTests` (CsCheck, 500 iterações: confirmados nunca passam da capacidade, fila em ordem de chegada). Falta a concorrência real sobre o banco |
+| T-28 | Lista de espera, cancelamento e check-in concorrem com lotação | Capacidade preservada e promoção de vaga determinística | API-E03, API-E04, API-E05 | Integração (concorrência) | M2 (inferido) | parcial: `RegistrationTests` (última vaga vai ao primeiro e o seguinte espera; retiradas promovem em ordem; sem promoção a partir do instante de início), `CheckInTests` e `RegistrationPropertyTests` (CsCheck, 500 iterações: confirmados nunca passam da capacidade, fila em ordem de chegada). A #305 acrescenta concorrência real no PostgreSQL para suspensão/inscrição/check-in/promoção (`AccountSuspensionRegistrationConcurrencyTests`); faltam a retirada voluntária API-E04 e o ciclo completo persistido de no-show |
 | T-29 | Selfie reprovada repetidamente (#300, ADR-0043) | Cinco reprovações pausam por exatamente 1 h (429 com `Retry-After`); a décima suspende a conta uma única vez, fora da transação do resultado e com retry; reentrega não conta duas vezes; abandono, indisponibilidade e erro técnico não contam; aprovação e revogação zeram a contagem | INV-06, INV-10; API-P05, API-P06, API-A08 | Unidade, Integração (concorrência), HTTP, E2E | M1 | parcial, PR aberto: `SelfieAttemptPolicyTests`, `SelfieFailureLockoutTests`, `RekognitionSelfieProviderTests`, `SelfieAttempts.test.tsx`, `selfie-attempts.spec.ts`; falta o recurso no app (API-S06) |
 
 Notas:
@@ -63,6 +63,14 @@ Notas:
    decisão e recurso pelas rotas mínimas de moderação.
 3. T-12 é um ensaio de processo: verifica que o agente não tem caminho até segredos ou deploy, não um teste
    automatizado de código. Deve passar antes de qualquer dado real (gate de automação, spec 23.3).
+
+**#305 — inscrições de contas suspensas (T-01/T-06/T-28):**
+`AccountSuspensionRegistrationTests` cobre retirada de Confirmed/CheckedIn/Waitlisted, histórico, promoção FIFO
+elegível antes do início, evento encerrado e revogação sem readmissão. `AccountSuspensionRegistrationConcurrencyTests`
+usa conexões reais e `pg_blocking_pids` para ordenar suspensão, inscrição, mudanças de elegibilidade e promoções,
+incluindo novo recurso descoberto e múltiplos eventos. `AccountSuspensionRegistrationHistoryTests` cobre upgrade
+sem inferência, recusa de reescrita/DELETE e rollback após uma promoção já executada. O restante de T-28
+(retirada voluntária API-E04 e ciclo completo persistido de no-show) continua fora desta issue.
 
 ## Verificações derivadas de ADRs
 
