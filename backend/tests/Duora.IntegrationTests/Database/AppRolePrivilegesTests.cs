@@ -11,6 +11,14 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
 {
     private const string AppRole = "duora_app";
 
+    private static readonly string[] StorageAuthorityDefiners =
+    [
+        "media.capture_private_generation_birth()",
+        "media.guard_private_generation_binding()",
+        "media.guard_private_generation_removal()",
+        "media.record_private_generation_sweep(p_id uuid, p_generation uuid, p_area integer, p_domain uuid, p_epoch bigint, p_layout integer, p_hash text, p_token uuid, p_revision bigint)",
+    ];
+
     // Schemas do próprio PostgreSQL; todo o resto é do Duora e entra na enumeração.
     private const string ApplicationSchemaFilter =
         "n.nspname not in ('pg_catalog', 'information_schema') and n.nspname not like 'pg\\_%'";
@@ -102,8 +110,25 @@ public sealed class AppRolePrivilegesTests(PostgresFixture postgres)
             where {ApplicationSchemaFilter} and p.prosecdef
             """);
 
-        Assert.Equal(["media.purge_photo_deletion_records(p_as_of timestamp with time zone, p_limit integer)"],
+        Assert.Equal(StorageAuthorityDefiners.Append("media.purge_photo_deletion_records(p_as_of timestamp with time zone, p_limit integer)").Order(StringComparer.Ordinal),
             definers.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task AppCannotExecuteStorageAuthorityDefiners()
+    {
+        // Being a reviewed definer does not grant application access, including attaching its trigger functions
+        // to an application-owned temporary table. Only the independent verifier may record a sweep.
+        var executable = await QueryStringsAsync(
+            $"""
+            select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where {ApplicationSchemaFilter}
+              and n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' = any($1)
+              and has_function_privilege('{AppRole}', p.oid, 'EXECUTE')
+            """, StorageAuthorityDefiners);
+
+        Assert.Empty(executable);
     }
 
     [Fact]

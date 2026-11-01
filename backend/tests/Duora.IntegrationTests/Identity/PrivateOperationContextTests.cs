@@ -19,9 +19,16 @@ public sealed class PrivateOperationContextTests(PostgresFixture postgres) : IAs
     private static readonly string[] PublicAntiforgeryRoutes =
     [
         "GET /api/v1/auth/csrf",
+        "GET /api/v1/auth/google/authorize",
+        "GET /api/v1/auth/google/flow",
+        "GET /api/v1/auth/google/options",
         "GET /api/v1/legal-documents",
         "POST /api/v1/auth/confirm-email",
         "POST /api/v1/auth/email-confirmation-requests",
+        "POST /api/v1/auth/google/completions",
+        "POST /api/v1/auth/google/registration-confirmations",
+        "POST /api/v1/auth/google/registrations",
+        "POST /api/v1/auth/google/requests",
         "POST /api/v1/auth/login",
         "POST /api/v1/auth/password-reset-requests",
         "POST /api/v1/auth/password-resets",
