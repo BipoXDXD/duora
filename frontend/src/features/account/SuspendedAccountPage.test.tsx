@@ -93,10 +93,7 @@ describe('tela da conta suspensa (#299)', () => {
     const { user } = await renderApp('/account/suspended')
 
     await screen.findByRole('heading', { level: 1, name: 'Conta suspensa' })
-    expect(screen.getByRole('link', { name: 'Autenticação em duas etapas' })).toHaveAttribute(
-      'href',
-      '/account/enable-mfa',
-    )
+    expect(screen.getByRole('link', { name: 'Ativar 2FA' })).toHaveAttribute('href', '/account/enable-mfa')
     await user.click(screen.getByRole('link', { name: 'Minhas fotos' }))
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Minhas fotos' })).toBeInTheDocument()

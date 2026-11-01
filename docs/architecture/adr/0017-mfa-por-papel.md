@@ -43,6 +43,12 @@ Sessão administrativa: 15 min ociosa / 8 h absoluta, com step-up para ações c
 
 ## Compliance
 
+A interface de escolha do participante (issue #276, 01/11/2026) operacionaliza esta decisão: conta com papel
+exclusivo `participant` ativa ou desativa pelos endpoints existentes, com prova recente e confirmação;
+contas privilegiadas continuam obrigadas ao MFA e não recebem desativação. Não há mudança da decisão,
+da guarda de rollback ou do acesso administrativo. Ver [fluxo e STRIDE](../../security/auth.md#escolha-de-mfa-para-participantes-issue-276)
+e [aceite](../../testing/acceptance.md#escolha-de-mfa-do-participante-276).
+
 - Teste HTTP: moderador ou administrador sem MFA confirmado é negado nas rotas `/admin/*` (M1).
 - Teste HTTP: API-A15 recusa remover o único método de conta privilegiada (M1).
 - Teste HTTP: participante ativa e desativa TOTP pelos mesmos endpoints (M1).

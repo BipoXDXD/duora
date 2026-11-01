@@ -11,6 +11,7 @@ import type { SuspendedAccountNavigation } from '@/features/session/RequireSessi
 import { paths } from '@/shared/paths'
 import { Page, TextLink } from '@/shared/ui/page'
 import { SessionList } from './SessionList'
+import { AccountMfaSettings } from './AccountMfaSettings'
 
 const REASON_LABELS: Readonly<Record<SuspensionReason, PlainMessageKey>> = {
   TermsViolation: 'accountSuspended.reason.TermsViolation',
@@ -69,13 +70,11 @@ export function SuspendedAccountPage(): React.JSX.Element {
       <p>{t('accountSuspended.stillAvailable')}</p>
       <ul className="flex flex-col gap-1">
         <li>
-          <TextLink to={paths.mfaEnrollment}>{t('accountSuspended.mfaLink')}</TextLink>
-        </li>
-        <li>
           <TextLink to={paths.photos}>{t('photoReview.myPhotos')}</TextLink>
         </li>
       </ul>
       <Alert variant="info">{t('accountSuspended.appeal')}</Alert>
+      <AccountMfaSettings />
       <SessionList userId={account.id} />
     </Page>
   )

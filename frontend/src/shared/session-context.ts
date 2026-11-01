@@ -416,11 +416,14 @@ export function captureOperationOwner(store: SessionContextStore, operation: Ope
   return record.owner
 }
 
-/** Correlação restrita de resultado: retorna apenas sim/não, nunca prova ou SID do WeakMap. */
+/** Correlação de resultado. A renovação sem SID de recibo é exclusiva do aviso sem segredo da API-A15. */
 export function matchesSecurityResultOwner(
   store: SessionContextStore,
   source: OwnerHandle,
-  target: { readonly owner: OwnerHandle; readonly sessionId?: string },
+  target: { readonly owner: OwnerHandle } & (
+    | { readonly sessionId?: string; readonly allowSessionRenewal?: false }
+    | { readonly allowSessionRenewal: true; readonly sessionId?: never }
+  ),
 ): boolean {
   const port = ports.get(store)
   const original = port?.owner(source)?.binding
@@ -428,7 +431,11 @@ export function matchesSecurityResultOwner(
   if (original === undefined || candidate === undefined) return false
   return (
     original.userId.toLowerCase() === candidate.userId.toLowerCase() &&
-    (target.sessionId ?? original.sessionId).toLowerCase() === candidate.sessionId.toLowerCase() &&
-    (target.sessionId === undefined ? original.phase === candidate.phase : candidate.phase === 'active')
+    (target.allowSessionRenewal === true
+      ? original.phase === 'active' &&
+        candidate.phase === 'active' &&
+        original.sessionId.toLowerCase() !== candidate.sessionId.toLowerCase()
+      : (target.sessionId ?? original.sessionId).toLowerCase() === candidate.sessionId.toLowerCase() &&
+        (target.sessionId === undefined ? original.phase === candidate.phase : candidate.phase === 'active'))
   )
 }
