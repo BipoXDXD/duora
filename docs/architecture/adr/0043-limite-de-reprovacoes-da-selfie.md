@@ -176,6 +176,14 @@ produção ao agente nem autoriza uma suspensão por ele.
    `Forbidden`, `KeyReused`, `NotFound` ou `NotSuspendable` exigem investigação, não troca de identidade/chave para
    forçar a operação. `AlreadySuspended` exige reler a medida e aplicar as distinções do passo 2.
 
+   Perda de conexão ou erro sem confirmação de sucesso não prova que a transação foi revertida: a medida pode
+   ter sido confirmada no banco antes da perda da resposta. Manter o incidente pendente e repetir de forma
+   controlada com a mesma chave, conta, entrega e motivo, pelo mesmo moderador com sessão autorizada
+   (reautenticando se necessário).
+   Só concluir a revisão após conferir a medida, seu estado atual e a auditoria; não criar medida compensatória
+   nem trocar a chave por causa da incerteza. A repetição após perda da conexão antes/depois do COMMIT é coberta
+   por `SelfieSuspensionRecoveryTests.ALostCommitConnectionCanBeRetriedWithTheSameKeyWithoutDuplicatingTheHumanMeasure`.
+
    **Limite registrado pelo PR #315 e tratado pela #319:** não há CLI de suspensão. A rota HTTP comum
    `POST /api/v1/admin/accounts/{userId}/suspensions` aceita somente `TermsViolation`; não aceita esse motivo de
    selfie. A rota específica de recuperação fixa o motivo `SelfieVerificationFailed`, confirma a identidade
