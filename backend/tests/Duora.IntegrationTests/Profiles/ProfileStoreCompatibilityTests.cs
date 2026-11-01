@@ -145,18 +145,26 @@ public sealed class ProfileStoreCompatibilityTests(PostgresFixture postgres)
     /// <summary>
     /// Schema expandido, com a coluna legada: o estado que o Down do contract devolve num recuo. Num recuo real, as
     /// migrações aditivas posteriores continuam aplicadas (o Down delas é recusado); aqui entram, sem registro no
-    /// histórico, as que o fluxo de login e de GET /me já lê: <c>identity.selfie_failures</c> (issue #300).
+    /// histórico, as que o fluxo de login e de GET /me já lê: <c>identity.selfie_failures</c> (issue #300)
+    /// e o método de autenticação da sessão (Google/OIDC).
     /// </summary>
     private async Task<ScratchDatabase> CreateExpandedDatabaseAsync()
     {
         var database = await ProfileRegionContractMigrationTests.MigrateToAsync(
             postgres, ProfileRegionContractMigrationTests.MigrationBeforeContract);
         await using var context = PostgresFixture.CreateDbContext(database.MigratorConnectionString);
-        var later = new Duora.Infrastructure.Persistence.Migrations.SelfieFailures();
-        var commands = context.GetService<IMigrationsSqlGenerator>().Generate(later.UpOperations, context.Model);
-        foreach (var command in commands)
+        Microsoft.EntityFrameworkCore.Migrations.Migration[] later =
+        [
+            new Duora.Infrastructure.Persistence.Migrations.SelfieFailures(),
+            new Duora.Infrastructure.Persistence.Migrations.GoogleOidc(),
+        ];
+        foreach (var migration in later)
         {
-            await context.Database.ExecuteSqlRawAsync(command.CommandText, TestContext.Current.CancellationToken);
+            var commands = context.GetService<IMigrationsSqlGenerator>().Generate(migration.UpOperations, context.Model);
+            foreach (var command in commands)
+            {
+                await context.Database.ExecuteSqlRawAsync(command.CommandText, TestContext.Current.CancellationToken);
+            }
         }
 
         return database;
