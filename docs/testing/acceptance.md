@@ -72,6 +72,16 @@ incluindo novo recurso descoberto e múltiplos eventos. `AccountSuspensionRegist
 sem inferência, recusa de reescrita/DELETE e rollback após uma promoção já executada. O restante de T-28
 (retirada voluntária API-E04 e ciclo completo persistido de no-show) continua fora desta issue.
 
+## QR Code do cadastro de MFA (#276)
+
+API-A11/API-A12; T-21/T-23; política de papéis do ADR-0017 preservada.
+`MfaEnrollmentPage.test.tsx` cobre apresentação em PT-BR/EN-US, nome/descrição acessíveis, alternativa textual,
+foco, remoção após confirmação, descarte/navegação, ausência em caches/storage/URL/console e erros existentes.
+`admin-bootstrap.spec.ts` decodifica o SVG real em Chromium/WebKit/mobile, compara a URI completa,
+verifica axe e dimensões, saída/retorno sem reapresentação e confirmação com SID renovado; também verifica
+que requisições de saída, console e storage não contêm URI/chave. A avaliação manual com leitor de tela
+continua pendente em T-23; estes testes não a substituem.
+
 ## Verificações derivadas de ADRs
 
 Não são cenários T-NN da spec, mas entram no aceite do marco indicado.

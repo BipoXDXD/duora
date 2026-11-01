@@ -1,5 +1,6 @@
 import { usePrivateMutation } from '@/features/session/private-mutation'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOwnedSecurityResult, useSecurityResultSnapshot } from './security-result-hooks'
@@ -24,7 +25,8 @@ export function MfaEnrollmentPage(): React.JSX.Element {
   const cache = useQueryClient()
   const result = useOwnedSecurityResult()
   const resultState = useSecurityResultSnapshot()
-  const sharedKey = result?.kind === 'mfa-enrollment' ? result.sharedKey : null
+  const enrollment = result?.kind === 'mfa-enrollment' ? result : null
+  const qrInstructionsId = useId()
   const recoveryCodes = result?.kind === 'recovery-codes' ? result.codes : null
   const [code, setCode] = useState('')
   const [invalid, setInvalid] = useState(false)
@@ -103,7 +105,7 @@ export function MfaEnrollmentPage(): React.JSX.Element {
           }}
         />
       ) : null}
-      {sharedKey === null ? (
+      {enrollment === null ? (
         <Button
           aria-disabled={start.isPending}
           onClick={() => {
@@ -114,8 +116,22 @@ export function MfaEnrollmentPage(): React.JSX.Element {
         </Button>
       ) : (
         <FocusOnMount>
+          <p id={qrInstructionsId}>{t('mfa.qrInstructions')}</p>
+          {/* SVG gerado no navegador: sem serviço externo, URL de imagem ou cópia do segredo em cache. */}
+          <QRCodeSVG
+            value={enrollment.authenticatorUri}
+            role="img"
+            aria-label={t('mfa.qrLabel')}
+            aria-describedby={qrInstructionsId}
+            size={256}
+            level="M"
+            marginSize={4}
+            bgColor="#FFFFFF"
+            fgColor="#000000"
+            className="h-auto max-w-full self-start"
+          />
           <p>
-            {t('mfa.key')} <code className="break-all select-all">{sharedKey}</code>
+            {t('mfa.key')} <code className="break-all select-all">{enrollment.sharedKey}</code>
           </p>
           <form
             noValidate
