@@ -181,3 +181,14 @@ aceita só 168 h ou os 72 h legados (`CaseDeadlineIsSevenDaysOrTheSeventyTwoHour
 via HTTP local, confirmação/reset com o conteúdo capturado, concorrência, cancelamento/retomada, backoff,
 configuração inválida e falhas do provedor sem diagnóstico sensível. Ver [reprodução e limites](../operations/resend.md).
 MFA: `LoginPage.test.tsx` aguarda o foco efetivo sem enfraquecer a exigência de acessibilidade.
+
+
+**#319 — recuperação administrativa por selfie (T-06/T-08/T-10/T-29):**
+`SelfieSuspensionRecoveryTests` e os arquivos parciais `.Authentication`, `.Concurrency` e `.Effects`
+exercitam HTTP com login/MFA reais e PostgreSQL descartável. T-06: chave/corpo estáveis, divergência recusada,
+replay após retenção e revogação sem resuspensão. T-08: falhas entre efeito, recibo e revisão revertem juntos;
+resposta perdida é retomada pelo recibo; contenção permite retry. T-10: papéis, sessão/TOTP/CSRF, revalidação
+após espera e autoria humana com auditoria privada. T-29: vínculo sem payload/tentativa original, ledger atual,
+medida existente/outra medida, aprovação/exclusão concorrentes, dois moderadores e preservação dos efeitos em
+inscrições, salas e versão de segurança. Isso cobre a recuperação desta issue; não declara concluídas as
+lacunas gerais da matriz, como recurso no app ou reinício forçado de todos os workers.

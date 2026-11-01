@@ -42,7 +42,7 @@ public sealed class MigrationsTests(PostgresFixture postgres)
                 "safety.photo_review_appeal_commands", "safety.photo_review_appeal_decision_commands", "safety.photo_review_appeal_evidence_accesses", "safety.photo_review_appeals",
                 "safety.photo_review_assignments", "safety.photo_review_cases", "safety.photo_review_commands",
                 "safety.photo_review_decision_commands", "safety.photo_review_decision_variants", "safety.photo_review_decisions",
-                "safety.photo_review_evidence_accesses", "safety.photo_review_grants", "safety.user_guards",
+                "safety.photo_review_evidence_accesses", "safety.photo_review_grants", "safety.selfie_suspension_recoveries", "safety.user_guards",
             ],
             tables.Order(StringComparer.Ordinal));
     }

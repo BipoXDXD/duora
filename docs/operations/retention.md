@@ -1,7 +1,8 @@
 # Retenção operacional (#46)
 
 Políticas aprovadas pelo responsável em 21/10/2026, registradas nas issues #46, #68 e #9.
-O worker é o único executor. Não há endpoint público de expurgo ou revisão.
+O worker é o único executor de expurgo. A recuperação por selfie tem interface administrativa autenticada;
+não há endpoint público de expurgo ou revisão.
 
 ## Ativação e rollback
 
@@ -34,11 +35,35 @@ entrega. A operação só aceita `Failed` com conclusão registrada e sem revis�
 na mesma transação; não altera status para Delivered, não reenvia e não reinicia a contagem de 30 dias.
 Código de saída 0 indica alteração, 1 indica estado incompatível/já revisado e 2 argumentos inválidos.
 
-Para o consumidor `selfie-attempts-suspension`, seguir antes a
-[recuperação manual do ADR-0043](../architecture/adr/0043-limite-de-reprovacoes-da-selfie.md#recuperação-manual-de-entrega-morta-306):
-o payload terminal pode estar vazio, mas a conta pode ser localizada pelo `resource_id` do evento e pelo ledger.
-Registrar a revisão não efetiva a suspensão. Conferir o efeito e as limitações da ferramenta de moderação antes
-de marcar `resolved`; o endpoint HTTP existente aceita apenas `TermsViolation`, não o motivo da selfie.
+### Recuperação autenticada por selfie
+
+Para `selfie-attempts-suspension`, usar o fluxo HTTP do
+[ADR-0043](../architecture/adr/0043-limite-de-reprovacoes-da-selfie.md#interface-administrativa-entregue-319).
+A sessão existente precisa ser administrativa de moderador com MFA e TOTP de até 1 hora. Entrar/reautenticar
+pelos fluxos normais. O diagnóstico pode ser lido sem TOTP recente, mas a confirmação exige a prova recente.
+Não transportar cookies ou tokens para issues, logs, arquivos de comando ou agentes.
+
+No cliente administrativo autorizado, na mesma origem, após `GET /api/v1/me`, usar
+`sessionContext.requestToken` como `X-XSRF-TOKEN` tanto na leitura privada quanto no comando. A prova é ligada
+à sessão atual, não ao ID informado. O cliente normal da aplicação já gerencia contexto privado e CSRF;
+requisições HTTP manuais precisam preservar cookies, origem confiável e essa prova, sem desativar proteções.
+
+1. Ler `GET /api/v1/admin/selfie-suspension-recoveries/{deliveryId}` e conferir incidente, vínculo, standing e medida.
+2. Com a decisão humana tomada, enviar `POST` na mesma rota, header `Idempotency-Key` e corpo
+   `{ "incidentReference": "INC-EXEMPLO", "internalReason": "Justificativa privada." }`.
+3. Conferir o 200 e `disposition`/`suspensionId`. Guardar resposta e correlações no registro privado do incidente.
+   A confirmação já revisa a entrega atomicamente com autoria do moderador; não rodar o CLI de revisão de novo.
+4. Se a resposta se perder, repetir exatamente a chave/corpo na mesma identidade autorizada. `replayed=true`
+   confirma o resultado original, inclusive após retenção da outbox ou revogação humana, sem nova suspensão.
+5. `Busy` (503) permite retry controlado. Vínculo ausente, revisão anterior, chave reutilizada, perda de permissão
+   ou outra medida ativa exigem diagnóstico; não trocar identidade/chave para contornar o resultado.
+
+A entrega permanece `Failed` e sua contagem/prazos não mudam. Outra suspensão ativa mantém o incidente pendente.
+`NoLongerNeeded` e `NotSuspendable` registram desfecho sem suspensão; `ExistingSuspension` confirma a medida por
+selfie existente. `accepted-loss` não é feito por esta rota: depende da aceitação humana explícita e do CLI
+separado acima. Uma revisão terminal antiga pode sair na próxima retenção; o recibo privado imutável de
+recuperação preserva a correlação e a idempotência. A tabela nova permanece no rollback; a aplicação não pode
+reescrever, apagar ou truncar seu histórico. Não alterar payload, status, tentativas ou tabelas de negócio.
 
 ## Falha do job
 

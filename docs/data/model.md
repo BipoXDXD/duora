@@ -812,6 +812,18 @@ medidas temporárias (nunca para suspensão, spec 4.2); `supersedes_action_id` c
 recurso; demais medidas (`Warning`, `Restriction`, `PermanentBan`, `Cleared`) com as regras de autor de TM-34; FK
 `(policy_version_id, notice_reason_code)` → `policy_clauses` `RESTRICT`.
 
+### safety.selfie_suspension_recoveries
+
+Histórico privado imutável P3 da intervenção humana em entrega morta por selfie (#319, ADR-0043).
+Chave primária `delivery_id`; `command_key` (SHA-256 escopado por moderador) único e `command_intent` de 32 bytes.
+Guarda IDs de evento/tentativa/conta/medida/moderador, referência opaca ao incidente, motivo interno, instante
+finito e desfecho (`Suspended`, `ExistingSuspension`, `NoLongerNeeded`, `NotSuspendable`). Não guarda payload,
+biometria ou dados do fornecedor. Sem FK para outbox/tentativa expurgável; FKs de conta e medida preservam
+histórico como `moderation_actions`, com índices por FK. O app só insere/lê, sem UPDATE/DELETE/TRUNCATE;
+a reconciliação de privilégios valida essa restrição. Sem expurgo automático novo; permanece além da outbox e
+da limpeza do ledger/revogação, impedindo nova suspensão pelo mesmo pedido. Efeito, recibo, revisão e auditoria
+confirmam na mesma transação. Migration aditiva `20261101120000_SelfieSuspensionRecovery`, sem Down destrutivo.
+
 ### safety.appeals
 
 - **Colunas:** `id`; `moderation_action_id`; `appellant_id`; `reason text` (≤ 2000); `state text`

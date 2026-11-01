@@ -98,12 +98,12 @@ public abstract record SuspensionReadOutcome
 /// as reservas liberadas, como no bloqueio. A revogação não restaura inscrições.
 /// </summary>
 /// <remarks>
-/// Duas portas de entrada: a rota administrativa (<see cref="SuspendAsModeratorAsync"/>) e a interna, para o
+/// Duas portas de entrada: a rota administrativa (<see cref="SuspendAsModeratorAsync(ModeratorSession, SuspensionOrder, ModerationCommandKey, CancellationToken)"/>) e a interna, para o
 /// sistema (<see cref="SuspendAutomaticallyAsync"/>, a que a issue #300 chama). Cada chamada abre a própria
 /// transação READ COMMITTED; quem chama não pode ter uma aberta. Ordem de locks (spec 10.4): guardas de usuário em
 /// UUID ordenado, linha da conta, coordenadores de evento e rodada, sessões de jogo.
 /// </remarks>
-public sealed class AccountSuspensions
+public sealed partial class AccountSuspensions
 {
     private const string LockTimeout = "2s";
     private const string Suspension = "Suspension";
@@ -283,6 +283,21 @@ public sealed class AccountSuspensions
             return replay;
         }
 
+        var outcome = await RecordSuspensionEffectAsync(moderator, order, key, plan, commandKey, intent, cancellationToken);
+        if (outcome is SuspensionOutcome.Suspended)
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        return outcome;
+    }
+
+    // The caller owns the transaction and ordered user guards. Recovery uses the same effects atomically with review.
+    private async Task<SuspensionOutcome> RecordSuspensionEffectAsync(
+        ModeratorSession? moderator, SuspensionOrder order, ModerationCommandKey key,
+        RegistrationLockPlan plan, string commandKey, byte[] intent, CancellationToken cancellationToken)
+    {
+        var subject = order.SubjectUserId;
+        var connection = (NpgsqlConnection)_db.Database.GetDbConnection();
         switch (await AccountSuspensionStatus.LockAsync(_db, subject, cancellationToken))
         {
             case SuspensionStanding.NotFound:
@@ -331,7 +346,6 @@ public sealed class AccountSuspensions
                 cancellationToken);
         }
 
-        await transaction.CommitAsync(cancellationToken);
         return new SuspensionOutcome.Suspended(
             new SuspensionView(id, subject, order.Reason, order.Author is ModerationAuthor.Automated, now, 1, null),
             Replayed: false);

@@ -132,6 +132,7 @@ internal static class DuoraWebApp
         var admin = api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
         admin.MapPhotoReviewAdminEndpoints();
         admin.MapAccountSuspensionAdminEndpoints();
+        admin.MapSelfieSuspensionRecoveryEndpoints();
         api.MapPhotoEndpoints();
         api.MapPhotoReviewOwnerEndpoints();
         api.MapMediaAssetEndpoints();

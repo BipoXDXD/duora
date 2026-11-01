@@ -127,14 +127,19 @@ public readonly record struct ModerationCommandKey
     public static ModerationCommandKey ForModerator(Guid moderatorId, string key)
     {
         ArgumentOutOfRangeException.ThrowIfEqual(moderatorId, Guid.Empty);
+        ValidateModeratorKey(key);
+
+        return new ModerationCommandKey(
+            string.Create(CultureInfo.InvariantCulture, $"moderator:{moderatorId:D}:{key}"), source: null);
+    }
+
+    internal static void ValidateModeratorKey(string key)
+    {
         ArgumentNullException.ThrowIfNull(key);
         if (key.Length is 0 or > MaxKeyLength || !key.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
         {
             throw new ArgumentException("Chave fora do formato.", nameof(key));
         }
-
-        return new ModerationCommandKey(
-            string.Create(CultureInfo.InvariantCulture, $"moderator:{moderatorId:D}:{key}"), source: null);
     }
 
     /// <param name="source">
