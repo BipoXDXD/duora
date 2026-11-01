@@ -16,14 +16,14 @@ COPY .config/dotnet-tools.json .config/
 COPY backend/src/ backend/src/
 
 # --locked-mode: falha se algum packages.lock.json divergir, como no CI.
-RUN --mount=type=cache,id=duora-nuget,target=/root/.nuget/packages \
-    dotnet restore backend/src/Duora.Web/Duora.Web.csproj --locked-mode \
+# Pacotes e obj pertencem à mesma camada: cache mounts são descartáveis e podem desaparecer
+# antes do publish --no-restore (NETSDK1064). Só /out é copiado para as imagens finais.
+RUN dotnet restore backend/src/Duora.Web/Duora.Web.csproj --locked-mode \
  && dotnet restore backend/src/Duora.Worker/Duora.Worker.csproj --locked-mode
 
 FROM build AS publish-web
 # /dataprotection-keys: ponto de montagem do volume de chaves; o volume nomeado herda dono e modo na 1a montagem.
-RUN --mount=type=cache,id=duora-nuget,target=/root/.nuget/packages \
-    dotnet publish backend/src/Duora.Web/Duora.Web.csproj -c Release --no-restore -o /out \
+RUN dotnet publish backend/src/Duora.Web/Duora.Web.csproj -c Release --no-restore -o /out \
       -p:UseAppHost=false -p:ContinuousIntegrationBuild=true \
  && mkdir -p /dataprotection-keys
 
@@ -32,16 +32,14 @@ FROM build AS publish-worker
 # (docker build --secret id=sixlabors_license,env=SIXLABORS_LICENSE_KEY), montado só durante este RUN em
 # /run/secrets: não vira ARG, ENV nem arquivo de camada, e o estágio final copia só /out. required=true falha o build
 # já aqui, com o nome do secret, em vez de compilar sem licença. Custódia e rotação: docs/operations/deploy.md.
-RUN --mount=type=cache,id=duora-nuget,target=/root/.nuget/packages \
-    --mount=type=secret,id=sixlabors_license,required=true \
+RUN --mount=type=secret,id=sixlabors_license,required=true \
     dotnet publish backend/src/Duora.Worker/Duora.Worker.csproj -c Release --no-restore -o /out \
       -p:UseAppHost=false -p:ContinuousIntegrationBuild=true \
       -p:SixLaborsLicenseFile=/run/secrets/sixlabors_license
 
 FROM build AS bundle
 ARG TARGETARCH
-RUN --mount=type=cache,id=duora-nuget,target=/root/.nuget/packages \
-    case "$TARGETARCH" in \
+RUN case "$TARGETARCH" in \
       amd64) rid=linux-x64 ;; \
       arm64) rid=linux-arm64 ;; \
       *) echo "Arquitetura sem suporte: $TARGETARCH" >&2; exit 1 ;; \
