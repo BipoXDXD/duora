@@ -12,6 +12,8 @@ internal sealed class LauncherFixture : IAsyncDisposable
 {
     private readonly DirectoryInfo _root = Directory.CreateTempSubdirectory("dml-");
     private Process? _process;
+    private Task _stderrDrain = Task.CompletedTask;
+    private long _stderrCharacters;
 
     public IsolatedPhotoSanitizerOptions Options { get; private set; } = new();
 
@@ -58,9 +60,22 @@ internal sealed class LauncherFixture : IAsyncDisposable
         start.ArgumentList.Add(Path.Combine(runtime, "dotnet"));
         start.ArgumentList.Add(decoder);
         _process = Process.Start(start)!;
-        var line = await _process.StandardOutput.ReadLineAsync(cancellationToken).AsTask()
-            .WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
-        Assert.NotNull(line);
+        var stderr = _process.StandardError;
+        _stderrDrain = Task.Run(() => DrainStandardErrorAsync(stderr), CancellationToken.None);
+        string? line;
+        try
+        {
+            line = await _process.StandardOutput.ReadLineAsync(cancellationToken).AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(20), cancellationToken);
+        }
+        catch (TimeoutException error)
+        {
+            throw new TimeoutException($"Launcher fixture readiness timed out ({StartupState()}).", error);
+        }
+        if (line is null)
+        {
+            throw new InvalidOperationException($"Launcher fixture stdout ended before readiness ({StartupState()}).");
+        }
         using var ready = JsonDocument.Parse(line);
         Options = new IsolatedPhotoSanitizerOptions
         {
@@ -68,6 +83,24 @@ internal sealed class LauncherFixture : IAsyncDisposable
             LauncherUid = ready.RootElement.GetProperty("uid").GetInt32(),
             ProfileSha256 = ready.RootElement.GetProperty("digest").GetString()!,
         };
+    }
+
+    // Consume until EOF with a fixed buffer; stopping at a size cap can block the child again.
+    private async Task DrainStandardErrorAsync(StreamReader reader)
+    {
+        var buffer = new char[1024];
+        int count;
+        while ((count = await reader.ReadAsync(buffer.AsMemory()).ConfigureAwait(false)) != 0)
+        {
+            Interlocked.Add(ref _stderrCharacters, count);
+        }
+    }
+
+    private string StartupState()
+    {
+        var state = _process!.HasExited ? $"exited:{_process.ExitCode}" : "running";
+        return $"state={state}; stderrCharacters={Interlocked.Read(ref _stderrCharacters)}; "
+            + $"socketPresent={File.Exists(Path.Combine(_root.FullName, "control.sock"))}";
     }
 
     public void SetMode(string mode) => File.WriteAllText(Path.Combine(_root.FullName, "mode"), mode);
@@ -86,13 +119,20 @@ internal sealed class LauncherFixture : IAsyncDisposable
     {
         if (_process is not null)
         {
-            if (!_process.HasExited)
+            try
             {
-                _process.Kill(entireProcessTree: true);
                 using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await _process.WaitForExitAsync(cleanup.Token);
+                if (!_process.HasExited)
+                {
+                    _process.Kill(entireProcessTree: true);
+                    await _process.WaitForExitAsync(cleanup.Token);
+                }
+                await _stderrDrain.WaitAsync(cleanup.Token);
             }
-            _process.Dispose();
+            finally
+            {
+                _process.Dispose();
+            }
         }
         _root.Delete(recursive: true);
     }

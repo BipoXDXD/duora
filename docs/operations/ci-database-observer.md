@@ -169,3 +169,17 @@ Os testes portáteis verificam preservação dos três relatórios/bundles, recu
 trabalho real do worker e rejeição de morte antecipada. **Não comprovam os seis laboratórios completos.**
 O aceite da #327 depende dos resultados e artefatos reais do novo SHA em amd64 e arm64. Enquanto essa prova
 não estiver aprovada e revisada, a issue permanece aberta; a CI verde do head anterior não a substitui.
+
+## Diagnóstico separado da fixture de backend
+
+A CI do head `00b44523…` falhou aguardando prontidão de `LauncherFixture`, no backend. A investigação
+reproduziu um defeito latente: stderr redirecionado sem consumo pode encher o pipe e bloquear o filho
+antes da resposta de prontidão. A fixture passa a drená-lo continuamente com buffer fixo, sem conservar
+seu conteúdo, e informa somente estado do processo, contagem de caracteres e presença do socket nos
+erros de inicialização. O cleanup aguarda o consumidor; permanecem os limites de 20 s para prontidão
+e 5 s para limpeza. Não há retry ou relaxamento de gate.
+
+Esse mecanismo foi demonstrado em controle sintético, mas **a causa histórica da falha da CI desse
+head permanece desconhecida**, mesmo se a CI posterior passar. A nova correção exige novo SHA, CI
+integral e seis novas qualificações nativas; os resultados de `00b44523…` são históricos e não aprovam
+o candidato posterior. Não se repete uma CI para declarar a causa corrigida.
