@@ -16,9 +16,11 @@ export type SecurityResultTicket = ResultToken
 export type SecurityResult =
   | { readonly kind: 'mfa-enrollment'; readonly sharedKey: string; readonly authenticatorUri: string }
   | { readonly kind: 'recovery-codes'; readonly codes: readonly string[]; readonly resultSessionId: string }
+  | { readonly kind: 'mfa-disabled' }
 export type OwnedSecurityResult =
   | { readonly kind: 'mfa-enrollment'; readonly sharedKey: string; readonly authenticatorUri: string }
   | { readonly kind: 'recovery-codes'; readonly codes: readonly string[] }
+  | { readonly kind: 'mfa-disabled' }
 export interface SecurityResultSnapshot {
   readonly phase: 'idle' | 'pending' | 'ready' | 'failed'
 }
@@ -90,7 +92,9 @@ export function createSecurityResultStore(context: SessionContextStore): Securit
       const payload: OwnedSecurityResult =
         result.kind === 'mfa-enrollment'
           ? Object.freeze({ kind: result.kind, sharedKey: result.sharedKey, authenticatorUri: result.authenticatorUri })
-          : Object.freeze({ kind: result.kind, codes: Object.freeze([...result.codes]) })
+          : result.kind === 'recovery-codes'
+            ? Object.freeze({ kind: result.kind, codes: Object.freeze([...result.codes]) })
+            : Object.freeze({ kind: result.kind })
       current = {
         ticket,
         revalidation,
@@ -113,9 +117,14 @@ export function createSecurityResultStore(context: SessionContextStore): Securit
       if (
         (state.pendingOwner !== me.owner && state.owner !== me.owner) ||
         (record.payload.kind === 'recovery-codes' && !me.mfaEnabled) ||
+        (record.payload.kind === 'mfa-disabled' && me.mfaEnabled) ||
         !matchesSecurityResultOwner(context, record.source, {
           owner: me.owner,
-          ...(record.expectedSessionId === null ? {} : { sessionId: record.expectedSessionId }),
+          ...(record.payload.kind === 'mfa-disabled'
+            ? { allowSessionRenewal: true as const }
+            : record.expectedSessionId === null
+              ? {}
+              : { sessionId: record.expectedSessionId }),
         })
       ) {
         fail()

@@ -182,6 +182,37 @@ opcional (TOTP) para participantes, pelos mesmos endpoints.
 | Auditoria | `ops.audit_events` na mesma transação: `identity.mfa_enrollment_started`, `mfa_enabled`, `mfa_disabled`, `mfa_recovery_codes_regenerated`, `mfa_recovery_code_used`, `reauthenticated` e `password_changed` |
 | Risco residual | O key ring é ponto único de falha do TOTP (D2). O lock por conta serializa as verificações da mesma conta durante um hash; a espera acontece numa fila em memória por conta (`AccountCheckGate`), sem conexão, e só quem tem a vez abre a transação, então uma fila de verificações não esgota o pool nem o `max_connections` (antes, 25 logins paralelos seguravam 25 conexões, e o servidor respondia 53300 → `500`). A espera em memória tem teto próprio (`Identity:AccountQueueTimeout`, **30 s, hipótese**) e o bloqueio PostgreSQL mantém `Identity:AccountLockTimeout` (**5 s**); o login (A04) inteiro tem ainda um prazo total, `Identity:LoginTimeout` (**30 s, hipótese**), passado o qual o pedido é cancelado. Exceder qualquer teto responde `503` `TEMPORARILY_UNAVAILABLE` com `Retry-After`, sem executar a verificação que não conseguiu entrar. Quatro logins já ultrapassavam a fila antiga de 5 s sob carga (issue #65); não existe quantidade fixa de requisições que garanta ausência de `503`. No A04, uma fila por e-mail normalizado antecede a consulta da conta, incluindo endereços inexistentes; o piso de latência de falha é contado depois da admissão e mantido dentro dessa vez, após liberar a transação. Ver detalhes e limitações em [concorrência](../data/concurrency.md#concorrência-na-autenticação-issue-65). **Aceito pelo responsável técnico (residual do I3):** login com código de recuperação ainda libera, por até 1 h (enquanto a sessão estiver viva), o A16 e, para participante, o A15, porque esse é o caminho de quem perdeu o dispositivo; o A14 e as ações administrativas críticas continuam exigindo TOTP |
 
+### Escolha de MFA para participantes (issue #276)
+
+O ADR-0017 já torna MFA opcional para participantes e obrigatório para `operator`, `product_admin` e
+`moderator`. A SPA expõe essa escolha na conta, inclusive na tela da própria conta suspensa: mostra o estado,
+oferece ativação pelo cadastro existente e desativação com confirmação explícita. O aviso explica a perda do
+segundo fator, a invalidação dos códigos e a revogação das outras sessões. Participante pode voltar do cadastro
+sem ativá-lo; a navegação descarta chave/URI. Nenhum desses controles concede elegibilidade para participar.
+
+Só o papel exclusivo `participant` recebe controles opcionais. Papéis mistos, desconhecidos ou ausentes não
+oferecem desativação; a guarda de cadastro obrigatório e o bloqueio de API-A15 no servidor continuam intactos.
+A API continua exigindo prova privada de sessão e autenticação recente; `REAUTHENTICATION_REQUIRED` oferece
+novo login pelo logout normal, sem renovar prova ou enfraquecer a política apenas no frontend.
+
+API-A15 responde 204 e renova a sessão sem devolver SID no corpo. A SPA mantém um marcador **sem segredo**
+`mfa-disabled`, fora de caches/storage/URL, e só anuncia sucesso após bootstrap do mesmo titular, com SID
+diferente, fase ativa e `mfaEnabled: false`. Outro titular, SID antigo, MFA ainda ativo, falha de leitura ou
+resposta obsoleta protege/descarta o resultado antes de liberar a árvore. A exceção de correlação para essa
+renovação sem recibo aplica-se apenas ao marcador; chave e códigos mantêm os requisitos exatos de SID/fase.
+
+| Ameaça | Mitigação e regressão |
+|---|---|
+| Spoofing | Operação captura owner no gesto; resposta atrasada não age por outra identidade; bootstrap incorreto não anuncia sucesso (`AccountMfaSettings.test.tsx`) |
+| Tampering / elevação | Nenhum toggle otimista ou política nova no servidor; papéis privilegiados/mistos sem controles; `AdminMfaTests.APrivilegedAccountCannotDisableItsMfa` e guarda de sessão preservados |
+| Repúdio | API-A15 conserva auditoria/notificação e revogação existentes; SPA não afirma sucesso antes de confirmar o novo contexto |
+| Divulgação | Sem credenciais no formulário de desativação, sem valores no cache de mutações; cadastro mantém geração local e descarte de segredos; contexto inválido retira a árvore |
+| Negação de serviço | Sem retry da mutação, envio duplicado bloqueado enquanto pendente; erros de limite conservam orientação e `Retry-After` |
+
+Não há novo endpoint, DTO, migração, dependência, alteração de contrato ou de política do ADR. Reversão da SPA
+remove os controles por revert, sem desligar MFA de ninguém ou alterar o backend. Leitor de tela humano e
+ensaio da nova interface publicada continuam exigindo avaliação própria; os testes de navegador são sintéticos.
+
 ### QR Code no cadastro (issue #276)
 
 API-A11 fornece a URI `authenticatorUri` completa. `MfaEnrollmentPage` a passa sem reconstrução para
