@@ -43,6 +43,8 @@ internal static class ApiProblems
     public const string SelfBlock = "SELF_BLOCK";
     public const string SelfieAttemptsExhausted = "SELFIE_ATTEMPTS_EXHAUSTED";
     public const string SelfieAttemptsLocked = "SELFIE_ATTEMPTS_LOCKED";
+    public const string SelfieRecoveryUnavailable = "SELFIE_RECOVERY_UNAVAILABLE";
+    public const string SelfieRecoveryNotRequired = "SELFIE_RECOVERY_NOT_REQUIRED";
     public const string StorageUnavailable = "STORAGE_UNAVAILABLE";
     public const string TemporarilyUnavailable = "TEMPORARILY_UNAVAILABLE";
     public const string UnsupportedMediaType = "UNSUPPORTED_MEDIA_TYPE";
@@ -138,6 +140,8 @@ internal static class ApiProblems
         SelfBlock => "You cannot block your own account.",
         SelfieAttemptsExhausted => "Selfie attempts are exhausted. The account is blocked pending review.",
         SelfieAttemptsLocked => "Too many rejected selfies. Try again after the pause.",
+        SelfieRecoveryUnavailable => "This delivery is not available for selfie suspension recovery. Investigate before proceeding.",
+        SelfieRecoveryNotRequired => "Selfie attempts are no longer exhausted. No suspension was applied.",
         StorageUnavailable => "Photo storage is temporarily unavailable. Retry with the same key.",
         TemporarilyUnavailable => "Service temporarily unavailable. Try again later.",
         UnsupportedMediaType => "Unsupported media type.",

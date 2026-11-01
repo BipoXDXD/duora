@@ -39,6 +39,14 @@ capacidades explícitas `assign`, `evidence` e `decide`, sessão administrativa 
 hora, ADR-0041) na decisão. `product_admin` e `operator` não recebem essas capacidades, e não há recurso de fotos. A matriz
 de autorização por rota e papel está em [media-review.md](../api/media-review.md#matriz-de-autorização-28102026).
 
+**Recuperação de suspensão por selfie (#319, API-ADM24).** A
+[rota específica de recuperação](../api/selfie-suspension-recovery.md) reutiliza a sessão administrativa,
+o papel `moderator`, MFA, TOTP recente e a prova de contexto privado/CSRF. `product_admin` e `operator` não podem
+aplicar a medida. A permissão é revalidada na transação; IDs informados pelo cliente não autenticam o moderador.
+Os novos códigos `409 SELFIE_RECOVERY_UNAVAILABLE` e `409 SELFIE_RECOVERY_NOT_REQUIRED` indicam, respectivamente,
+ausência de uma entrega/vínculo apto ou fim do esgotamento, sem aplicar suspensão. Os demais códigos de sessão,
+step-up, papel e CSRF permanecem. A recuperação humana não amplia a porta comum de suspensão por Termos.
+
 ### Bootstrap administrativo (D4)
 
 Conta privilegiada só nasce pelo comando operacional `duora-web admin grant --email … --role … --operator …

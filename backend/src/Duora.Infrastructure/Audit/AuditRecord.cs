@@ -34,7 +34,8 @@ internal sealed record AuditAction
     public static readonly AuditAction AccountSuspensionLifted = new("safety.account_suspension_lifted");
 
     /// <summary>
-    /// Origem da suspensão automática (a evidência utilizada, spec 12.3); o alvo é o registro de origem, pelo id.
+    /// Origem da suspensão (a evidência utilizada, spec 12.3); o alvo é o registro de origem, pelo id. Na recuperação
+    /// humana de selfie, o alvo é a entrega morta e o ator é o moderador (#319).
     /// </summary>
     public static readonly AuditAction AccountSuspensionSourceRecorded = new("safety.account_suspension_source_recorded");
 
