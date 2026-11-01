@@ -163,7 +163,10 @@ describe('tentativas da selfie', () => {
   })
 
   it('quando a pausa termina, relê o estado sozinha e devolve a captura', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    })
     try {
       const until = new Date(Date.now() + 60_000).toISOString()
       let reads = 0

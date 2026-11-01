@@ -62,8 +62,13 @@ antes): `CoolingDown` → `429` `SELFIE_ATTEMPTS_LOCKED` com `Retry-After` em se
 **Estado (API-P06 e API-A08).** `attempts: { state, remaining, lastCycle, lockedUntil }` em
 `GET /me/selfie-verifications/current` e `selfieAttempts` em `GET /me` (só participante, e `selfieAttempts` só até a
 aprovação). Conta privilegiada não recebe nenhum dos dois; a regra mora no serviço. Nada do fornecedor: nem score, nem
-motivo, nem instantes das reprovações. A tela reabre a captura sozinha no fim da pausa (consulta agendada para
-`lockedUntil`).
+motivo, nem instantes das reprovações. Enquanto o estado for `CoolingDown`, a tela revalida a consulta a cada
+60 segundos, sem calcular a espera pelo relógio do dispositivo (issue #306). `lockedUntil` serve para exibir o
+horário; `Retry-After` em segundos existe no POST recusado, não no GET de estado. Só uma resposta do servidor
+liberando a tentativa devolve a captura, mesmo depois do horário exibido. Respostas idênticas mantêm a revalidação;
+o Query cancela o intervalo na desmontagem ou na saída da pausa e aborta leituras pendentes na desmontagem.
+Com a página ativa e online, a espera adicional é de até um intervalo, além da latência da consulta. Em segundo
+plano permanece a política do Query de não consultar periodicamente e revalidar ao voltar ao foco.
 
 **Permissões.** `duora_app` tem `SELECT`, `INSERT` e `DELETE` em `identity.selfie_failures`; `UPDATE` e `TRUNCATE` são
 revogados na migração e de novo no `reconcile-privileges.sql`: uma reprovação gravada nunca é reescrita.
