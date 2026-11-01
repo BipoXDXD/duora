@@ -24,4 +24,3 @@ public sealed record SelfieRecoveryRequest
     public string InternalReason { get; }
     public string IdempotencyKey { get; }
 }
-
