@@ -4,6 +4,7 @@ using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Profiles;
 using Duora.Web.Http;
 using Duora.Web.Identity;
+using Duora.Web.Security;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
@@ -20,9 +21,9 @@ internal static class PreferenceEndpoints
         api.MapPut("/me/preferences", PutPreferencesAsync).WithTags("Preferences").Produces<OwnPreferencesResponse>()
             .ProducesValidationProblem().ProducesProblem(401).ProducesProblem(403).ProducesProblem(412).ProducesProblem(428)
             .AddOpenApiOperationTransformer(DocumentConcurrency);
-        api.MapGet("/me/locale", GetLocaleAsync).WithTags("Preferences").Produces<OwnLocaleResponse>()
+        api.MapGet("/me/locale", GetLocaleAsync).RequireAccountSession().WithTags("Preferences").Produces<OwnLocaleResponse>()
             .ProducesProblem(401).ProducesProblem(403).AddOpenApiOperationTransformer(DocumentConcurrency);
-        api.MapPut("/me/locale", PutLocaleAsync).WithTags("Preferences").Produces<OwnLocaleResponse>()
+        api.MapPut("/me/locale", PutLocaleAsync).RequireAccountSession().WithTags("Preferences").Produces<OwnLocaleResponse>()
             .ProducesValidationProblem().ProducesProblem(401).ProducesProblem(403).ProducesProblem(412).ProducesProblem(428)
             .AddOpenApiOperationTransformer(DocumentConcurrency);
     }
