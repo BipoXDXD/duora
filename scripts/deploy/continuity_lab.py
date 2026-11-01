@@ -19,6 +19,7 @@ import install_executor as installer
 import reconcile_payload as payload
 import runtime_guard as guard
 import smoke_local
+from continuity_observer import DatabaseReadinessObserver, ObserverError, database_observer_command
 
 
 def validate_observations(samples: list[dict], *, start: float, end: float,
@@ -128,6 +129,7 @@ def _root_lab() -> dict:
     observer_errors: list[str] = []
     monitor = None
     app_monitor = None
+    database_observer = None
     try:
         pin_fixture = root / "pin-policy"
         pin_fixture.mkdir(mode=0o700)
@@ -311,16 +313,20 @@ def _root_lab() -> dict:
             window_start = time.time()
             events = subprocess.Popen(["docker", "events", "--since", str(window_start), "--format", "{{json .}}", "--filter", "type=container",
                 "--filter", "container=" + pg, "--filter", "container=" + backup], stdout=events_file, stderr=subprocess.DEVNULL)
+            database_observer = DatabaseReadinessObserver(database_observer_command(pg))
+            try:
+                database_observer.start()
+            except ObserverError:
+                print("[continuity-observer] " + json.dumps(database_observer.diagnostics), flush=True)
+                raise
             def sample() -> None:
                 try:
                     while not stop.is_set():
-                        at = time.time()
-                        db = subprocess.run(["docker", "exec", pg, "pg_isready", "-h", "127.0.0.1", "-U", "duora_app"],
-                                            capture_output=True, check=False, timeout=2).returncode
-                        samples.append({"at": at, "database_ready": db == 0})
+                        samples.append(database_observer.sample())
                         stop.wait(0.25)
                 except Exception as error:
-                    observer_errors.append("database:" + type(error).__name__)  # No output or credentials in proof.
+                    code = error.code if isinstance(error, ObserverError) else type(error).__name__
+                    observer_errors.append("database:" + code)  # No output or credentials in proof; still fatal.
             def sample_application() -> None:
                 try:
                     while not stop.is_set():
@@ -525,6 +531,11 @@ def _root_lab() -> dict:
             app_monitor.join(timeout=10)
             if monitor.is_alive() or app_monitor.is_alive() or not app_samples:
                 raise RuntimeError("Database readiness continuity failed")
+            try:
+                database_observer.close()
+            except ObserverError as error:
+                observer_errors.append("database:" + error.code)
+            print("[continuity-observer] " + json.dumps(database_observer.diagnostics), flush=True)
             validate_observations(samples, start=window_start, end=window_end, errors=observer_errors,
                                   events_alive=events.poll() is None)
             if query("select pg_backend_pid()") != backend_pid: raise RuntimeError("Read-only guards lost SQL session")
@@ -596,6 +607,7 @@ def _root_lab() -> dict:
                 "observationWindow": {"start": window_start, "end": window_end, "errors": observer_errors,
                     "maximumAllowedGapSeconds": 3, "startedBefore": first.release_id, "endedAfter": "compatible rollback and negative read-only guards"},
                 "staticInstallation": receipt, "manifestSha256": manifest_sha, "readiness": samples,
+                "databaseObserver": database_observer.diagnostics,
                 "applicationReadiness": app_samples,
                 "afterPositiveRuntime": after_positive, "databaseBackupEvents": event_records,
                 "rollbackAclFingerprintBefore": acl_before, "rollbackAclFingerprintAfter": acl_after,
@@ -614,6 +626,7 @@ def _root_lab() -> dict:
         stop.set()
         if monitor is not None: monitor.join(timeout=15)
         if app_monitor is not None: app_monitor.join(timeout=10)
+        if database_observer is not None: database_observer.abort()
         if session is not None:
             session.kill()
             session.wait(timeout=10)

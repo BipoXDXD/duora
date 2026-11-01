@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -24,6 +25,8 @@ from pathlib import Path
 
 import duora_deploy as deploy
 import reconcile_payload as payload
+from continuity_lab import validate_observations
+from continuity_observer import DatabaseReadinessObserver, ObserverError, database_observer_command
 
 IMAGE = os.environ.get("DUORA_POSTGRES_IMAGE", "")
 READY_TIMEOUT_SECONDS = 60
@@ -218,6 +221,56 @@ class AppRolePrivilegesTests(unittest.TestCase):
         ]:
             with self.subTest(sql=sql):
                 self.assert_denied(sql)
+
+    def test_persistent_observer_separates_controlled_exec_start_cost_from_real_database_probes(self) -> None:
+        # CPU-bound startup delay before exec models transport/scheduling cost without stopping PostgreSQL.
+        # No descendants exist before exec, so timeout kills/reaps the entire legacy reproduction process.
+        delay = [sys.executable, '-c',
+                 'import os,sys,time; end=time.monotonic()+2.1\n'
+                 'while time.monotonic()<end: pass\n'
+                 'os.execvp(sys.argv[1],sys.argv[1:])']
+        with self.assertRaises(subprocess.TimeoutExpired):
+            subprocess.run(delay + ['docker', 'exec', self.container, 'pg_isready', '-h', '127.0.0.1', '-U', 'duora_app'],
+                           capture_output=True, check=False, timeout=2)
+        start = time.time()
+        with DatabaseReadinessObserver(delay + database_observer_command(self.container)) as observer:
+            samples = []
+            for _ in range(4):
+                samples.append(observer.sample())
+                time.sleep(0.25)
+            end = time.time()
+            validate_observations(samples, start=start, end=end, errors=[], events_alive=True)
+            self.assertTrue(all(sample['database_ready'] for sample in samples))
+            self.assertGreater(observer.diagnostics['startupSeconds'], 2)
+            self.assertLess(observer.diagnostics['maximumProbeSeconds'], 2)
+            architecture = subprocess.run(['docker', 'version', '--format', '{{.Server.Arch}}'],
+                                          capture_output=True, text=True, check=True, timeout=5).stdout.strip()
+            print('[continuity-observer-controlled-start] ' + json.dumps({
+                'architecture': architecture, 'legacyTwoSecondDeadlineRejected': True,
+                'startupCpuDelaySeconds': 2.1, 'maximumAllowedGapSeconds': 3,
+                'firstSampleAfterStartSeconds': samples[0]['at'] - start,
+                'observer': observer.diagnostics}), flush=True)
+
+    def test_a_real_database_container_stop_invalidates_the_observer_instead_of_reusing_readiness(self) -> None:
+        observer = DatabaseReadinessObserver(database_observer_command(self.container))
+        try:
+            observer.start()
+            samples = [observer.sample(), observer.sample()]
+            self.assertTrue(all(sample['database_ready'] for sample in samples))
+            _run(['docker', 'stop', '--time', '5', self.container])
+            errors = []
+            try:
+                samples.append(observer.sample())
+            except ObserverError as error:
+                errors.append('database:' + error.code)
+            # A slow stop must not make this pass solely because coverage exceeded three seconds.
+            self.assertTrue(errors or not samples[-1]['database_ready'], 'Stopped PostgreSQL reused a ready result')
+            with self.assertRaises(RuntimeError):
+                validate_observations(samples, start=samples[0]['at'], end=time.time(), errors=errors, events_alive=True)
+        finally:
+            observer.abort()
+            _run(['docker', 'start', self.container])
+            self._wait_ready()
 
     def test_app_cannot_run_ddl(self) -> None:
         for sql in [
