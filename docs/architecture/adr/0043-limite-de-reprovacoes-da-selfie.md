@@ -127,6 +127,10 @@ registro das reprovações (instante, sem imagem nem resultado do fornecedor) fi
 passa pelo pipeline de documentos legais com fingerprints travados; este ADR não publica texto legal. O PR traz a
 proposta de parágrafo em PT-BR e EN-US para o dono aprovar, e a ativação em produção depende dessa publicação.
 
+As [minutas completas de 31/10/2026](../../privacy/proposals/2026-10-31-selfie-failures/README.md) detalham a
+diferença entre tentativas e registros mínimos, a suspensão e o canal atual de revisão humana. Continuam não
+aprovadas, fora do catálogo público; não alteram a versão vigente nem autorizam ativação.
+
 ### STRIDE
 
 | Ameaça | Mitigação | Teste |
