@@ -11,8 +11,41 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import reconcile_payload as payload
+
+
+def proc_is_live(state_path: Path) -> bool:
+    # Exit/reaping can remove /proc state during the read itself; other errors remain failures.
+    try:
+        return state_path.read_text().split()[2] != "Z"
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+
+
+class ProcessStateTests(unittest.TestCase):
+    def test_proc_disappearing_during_read_is_not_a_live_descendant(self) -> None:
+        for error in [FileNotFoundError(), ProcessLookupError()]:
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(Path, "exists", return_value=True), \
+                    mock.patch.object(Path, "read_text", side_effect=error):
+                self.assertFalse(proc_is_live(Path("/proc/123/stat")))
+
+    def test_live_states_are_not_treated_as_terminated(self) -> None:
+        for state in ["R", "S", "D", "T", "Z"]:
+            with self.subTest(state=state), \
+                    mock.patch.object(Path, "exists", return_value=True), \
+                    mock.patch.object(Path, "read_text", return_value=f"123 (python3) {state} 1"):
+                self.assertEqual(state != "Z", proc_is_live(Path("/proc/123/stat")))
+
+    def test_other_proc_read_errors_remain_failures(self) -> None:
+        for error in [PermissionError(), OSError(5, "injected I/O failure")]:
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(Path, "exists", return_value=True), \
+                    mock.patch.object(Path, "read_text", side_effect=error), \
+                    self.assertRaises(type(error)):
+                proc_is_live(Path("/proc/123/stat"))
 
 
 def archive(name: str, data: bytes, *, kind: bytes = tarfile.REGTYPE,
@@ -126,7 +159,7 @@ class BinaryCaptureTests(unittest.TestCase):
                     os.kill(int(parent_file.read_text()), 0)
                 state_path = Path("/proc") / descendant_file.read_text() / "stat"
                 deadline = time.monotonic() + 1
-                while state_path.exists() and state_path.read_text().split()[2] != "Z":
+                while proc_is_live(state_path):
                     if time.monotonic() >= deadline:
                         self.fail("capture left a live process-group descendant")
                     time.sleep(0.01)
