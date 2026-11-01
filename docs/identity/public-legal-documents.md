@@ -20,6 +20,8 @@ The endpoint validates the active publication and both exact receipts before rat
 
 Once approved, retain every published version and language unchanged. Text, identity, contact or translation changes require a new version and renewed explicit publication approval. Keep archived variants in the catalog so evidence links remain resolvable. Do not rewrite historical consent rows.
 
+The [selfie rejection-limit privacy proposal](../privacy/proposals/2026-10-31-selfie-failures/README.md) contains complete PT-BR and EN-US drafts aligned with PR #304, plus the retention comparison and approval/versioning checklist. They are unapproved, outside both catalogs, and do not change the active Privacy version or authorize production activation.
+
 ## Validation and scope
 
 Integration tests use an explicit **synthetic document source** with the same real publication policy, not a Testing-mode exemption. A test can select the actual embedded publication with `LegalDocuments = null`. Existing negative request bodies are not silently repaired. Browser mocks also require exact synthetic receipts.
