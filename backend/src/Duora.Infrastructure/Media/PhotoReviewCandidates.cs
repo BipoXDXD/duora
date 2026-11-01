@@ -76,15 +76,35 @@ internal sealed class PhotoReviewCandidates(
                     : new ReviewCandidateStageResult.LeaseLost();
             }
 
+            var privateManifest = PrivateGenerationMetadata.Manifest(store, PrivateGenerationArea.Candidate,
+                generation, variants.Select(v => new PrivateGenerationVariant(v.Kind, v.Content.LongLength,
+                    Convert.ToHexStringLower(v.Sha256))));
+            if (privateManifest is not null)
+            {
+                await ((IPrivateGenerationStore)store).RegisterAsync(privateManifest, budget.Token);
+            }
             foreach (var variant in variants)
             {
                 budget.Token.ThrowIfCancellationRequested();
                 writerSettled = false;
                 await using var content = new MemoryStream(variant.Content, writable: false);
-                await store.PutAsync(variant.Key, content, variant.Content.LongLength, IPhotoSanitizer.VariantContentType, budget.Token);
+                if (privateManifest is not null)
+                {
+                    await ((IPrivateGenerationStore)store).PutVariantAsync(
+                        privateManifest, variant.Kind, content, budget.Token);
+                }
+                else
+                {
+                    await store.PutAsync(variant.Key, content, variant.Content.LongLength,
+                        IPhotoSanitizer.VariantContentType, budget.Token);
+                }
                 writerSettled = true;
             }
 
+            if (privateManifest is not null)
+            {
+                await ((IPrivateGenerationStore)store).SealAsync(privateManifest, budget.Token);
+            }
             // No further PUT is issued here, including after a late successful response outlives the budget.
             await SettleWriterAsync(generation);
             budget.Token.ThrowIfCancellationRequested();
@@ -256,6 +276,9 @@ internal sealed class PhotoReviewCandidates(
                 """, cancellationToken);
         }
 
+        await PrivateGenerationMetadata.BindAsync(db, store, PrivateGenerationArea.Candidate, generation,
+            variants.Select(v => new PrivateGenerationVariant(v.Kind, v.Content.LongLength,
+                Convert.ToHexStringLower(v.Sha256))), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return true;
     }
