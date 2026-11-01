@@ -11,7 +11,7 @@ using worker::Duora.Worker;
 
 namespace Duora.IntegrationTests.Outbox;
 
-public sealed class RetentionTests(PostgresFixture postgres)
+public sealed partial class RetentionTests(PostgresFixture postgres)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
