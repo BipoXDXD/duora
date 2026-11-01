@@ -34,6 +34,12 @@ entrega. A operação só aceita `Failed` com conclusão registrada e sem revis�
 na mesma transação; não altera status para Delivered, não reenvia e não reinicia a contagem de 30 dias.
 Código de saída 0 indica alteração, 1 indica estado incompatível/já revisado e 2 argumentos inválidos.
 
+Para o consumidor `selfie-attempts-suspension`, seguir antes a
+[recuperação manual do ADR-0043](../architecture/adr/0043-limite-de-reprovacoes-da-selfie.md#recuperação-manual-de-entrega-morta-306):
+o payload terminal pode estar vazio, mas a conta pode ser localizada pelo `resource_id` do evento e pelo ledger.
+Registrar a revisão não efetiva a suspensão. Conferir o efeito e as limitações da ferramenta de moderação antes
+de marcar `resolved`; o endpoint HTTP existente aceita apenas `TermsViolation`, não o motivo da selfie.
+
 ## Falha do job
 
 O lease dura 60 segundos, o lote tem teto real de 3 segundos, statement timeout de 2 segundos e espera por

@@ -106,6 +106,97 @@ política calibrada e tem revisão humana (a revogação) como saída.
 mesma transação (operação do Identity chamada pelo Safety, como `RestoreAfterSuspension`): a conta volta ao primeiro
 ciclo. A revogação de outra suspensão não mexe na contagem.
 
+## Recuperação manual de entrega morta (#306)
+
+Uma entrega `Failed` do consumidor `selfie-attempts-suspension` exige revisão do efeito de negócio. Quando não
+resta entrega `Pending` ou `InFlight` para o evento, `OutboxDeliveryQueue.ScrubCompletedEventsAsync` substitui
+`ops.outbox_events.payload` por `{}`. O evento conserva `resource_type = 'selfie_verification'` e `resource_id`
+com o `verificationId`; `identity.selfie_failures.verification_id` permite localizar o `user_id` sem depender
+do payload nem da tentativa original, que pode ter saído na retenção de 30 dias. Não há rota de reenfileiramento.
+
+O operador autorizado faz o diagnóstico sob o procedimento de incidente; a decisão de moderação é humana.
+IDs e evidências ficam no [registro privado do incidente](../../operations/support-incidents.md#registro-do-atendimento-e-do-incidente),
+nunca numa issue pública, log de diagnóstico ou conversa com agente. Este procedimento não concede acesso de
+produção ao agente nem autoriza uma suspensão por ele.
+
+1. **Localizar a entrega e a conta.** Partir do ID da entrega no log de erro, da revisão de falhas ou da investigação
+   do sinal `duora.identity.selfie_suspension_requests.dead`. A métrica é agregada, não identifica a pessoa.
+   A consulta abaixo é parametrizada: `$1` recebe o UUID da entrega no cliente PostgreSQL; não é um comando
+   isolado para colar no `psql`. Executá-la somente com acesso de leitura autorizado para o incidente.
+
+   ```sql
+   select d.id as delivery_id, d.attempts, d.completed_at, d.reviewed_at, d.last_error,
+          e.id as event_id, e.resource_id as verification_id, f.user_id,
+          (select count(*) from identity.selfie_failures current_failures
+           where current_failures.user_id = f.user_id) as current_failures
+   from ops.outbox_deliveries d
+   join ops.outbox_events e on e.id = d.outbox_event_id
+   left join identity.selfie_failures f on f.verification_id = e.resource_id
+   where d.id = $1::uuid
+     and d.consumer = 'selfie-attempts-suspension'
+     and d.status = 'Failed' and d.completed_at is not null
+     and e.type = 'identity.selfie-attempts-exhausted' and e.schema_version = 1
+     and e.resource_type = 'selfie_verification';
+   ```
+
+   Se `reviewed_at` estiver preenchido, conferir a decisão e a auditoria existentes antes de outra intervenção;
+   o comando de revisão não sobrescreve uma revisão anterior. Sem correspondência, ou com `user_id` nulo,
+   interromper e investigar: aprovação, revogação da suspensão por selfie e exclusão da conta podem remover o
+   vínculo. Não inferir uma pessoa pelo horário nem recriar registros apagados. O `LEFT JOIN` mantém visível a
+   entrega mesmo quando o vínculo desapareceu.
+2. **Revalidar a necessidade da medida.** A consulta é um diagnóstico, não uma decisão atômica: confirmar o estado
+   atual imediatamente antes da intervenção. Só tratar como tentativas esgotadas se o ledger atual mantiver pelo
+   menos dez reprovações (`SelfieAttemptPolicy.Evaluate` → `Exhausted`). Consultar a suspensão ativa pela rota
+   `GET /api/v1/admin/accounts/{userId}/suspension`, com sessão de moderador. Se a contagem já terminou ou a conta
+   não pode ser suspensa, registrar o desfecho sem aplicar medida. Se há suspensão ativa por selfie, conferir a
+   medida existente; não criar outra. Outra suspensão ativa não resolve este pedido: manter o incidente pendente
+   para reavaliação após sua revogação, sem revogar ou substituir a medida alheia.
+3. **Aplicar pela operação de domínio, com autoria correta.** A porta de aplicação existente para uma decisão
+   humana é `AccountSuspensions.SuspendAsModeratorAsync`, com `SuspensionOrder.ByModerator` e motivo
+   `SelfieVerificationFailed`. A sessão vem da fronteira autenticada; não se monta uma sessão com IDs escolhidos
+   no terminal. O serviço confere papel, sessão administrativa e TOTP recente, abre a própria transação e aplica
+   os efeitos da suspensão e a auditoria. O contrato para uma ferramenta administrativa revisada é:
+
+   ```csharp
+   await suspensions.SuspendAsModeratorAsync(
+       moderatorSession,
+       SuspensionOrder.ByModerator(moderatorSession.UserId, userId,
+           SuspensionReason.SelfieVerificationFailed, incidentReason),
+       ModerationCommandKey.ForModerator(moderatorSession.UserId, stableIncidentKey),
+       cancellationToken);
+   ```
+
+   Manter a mesma chave e o mesmo pedido ao repetir uma intervenção cujo resultado ficou incerto; registrar a
+   referência privada ao incidente no motivo interno. `Busy` pede nova tentativa controlada com a mesma chave;
+   `Forbidden`, `KeyReused`, `NotFound` ou `NotSuspendable` exigem investigação, não troca de identidade/chave para
+   forçar a operação. `AlreadySuspended` exige reler a medida e aplicar as distinções do passo 2.
+
+   **Limite operacional atual:** o exemplo é um contrato de aplicação, não um CLI disponível. A rota HTTP
+   `POST /api/v1/admin/accounts/{userId}/suspensions` aceita somente `TermsViolation`; não aceita esse motivo de
+   selfie. Uma intervenção por `SelfieVerificationFailed` exige ferramenta administrativa revisada que use a
+   porta acima e preserve a autenticação real. Na ausência dela, escalar ao responsável e manter o caso pendente.
+   Não disfarçar a falha como violação dos Termos nem oferecer um endpoint/comando que a release não possui.
+   Essa distinção importa: só a revogação de `SelfieVerificationFailed` limpa o ledger e devolve o primeiro ciclo.
+4. **Conferir e registrar o efeito.** Verificar a medida retornada e sua leitura administrativa, motivo, autoria
+   humana e auditoria `safety.account_suspended`. Guardar no registro privado o ID da entrega, evento, tentativa,
+   conta e medida, o responsável, o instante e o desfecho. Não escrever diretamente em `identity.users`,
+   `safety.moderation_actions` ou no ledger: isso contornaria a operação que retira inscrições, encerra salas,
+   atualiza a versão de segurança e audita. Não reconstruir payload, zerar tentativas da entrega, mudar `Failed`
+   para `Pending`/`Delivered` nem reenviar o evento antigo, inclusive depois de uma revogação humana.
+5. **Concluir a revisão da entrega, não reenviá-la.** Depois de confirmar o efeito ou a perda da necessidade de
+   suspensão, seguir [Revisar falha de entrega](../../operations/retention.md#revisar-falha-de-entrega) e registrar
+   `retention review-delivery --resolution resolved` pelo operador autorizado. Isso só grava a revisão e sua
+   auditoria; não suspende a conta, não reenfileira e não muda `Failed` para `Delivered`. `accepted-loss` exige
+   aceitação humana explícita da perda, nunca é substituto silencioso da suspensão que ainda falta. Conservar
+   antes as referências mínimas do incidente: uma entrega revisada com mais de 30 dias de conclusão pode ser
+   expurgada na próxima retenção, sem ganhar novo prazo a partir da revisão.
+
+Fontes de implementação: [fila e limpeza do payload](../../../backend/src/Duora.Infrastructure/Outbox/OutboxDeliveryQueue.cs),
+[identidade do evento e consumidor](../../../backend/src/Duora.Infrastructure/Identity/SelfieAttemptsSuspensionDispatcher.cs),
+[ledger](../../../backend/src/Duora.Infrastructure/Identity/SelfieFailureLedger.cs),
+[suspensão de domínio](../../../backend/src/Duora.Infrastructure/Safety/AccountSuspensions.cs) e
+[limite da rota HTTP](../../../backend/src/Duora.Web/Safety/AccountSuspensionEndpoints.cs).
+
 ## Consequências
 
 - Uma tabela a mais em `identity`, sem dado do fornecedor. Ela fica além dos 30 dias das tentativas não aprovadas
