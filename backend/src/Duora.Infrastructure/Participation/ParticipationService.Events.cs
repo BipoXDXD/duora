@@ -1,5 +1,6 @@
 using System.Diagnostics.Metrics;
 using Duora.Core.Matching;
+using Duora.Infrastructure.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -121,13 +122,43 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
 
     public async Task<ParticipationOutcome> RegisterAsync(Guid eventId, Guid user, bool checkIn, CancellationToken ct)
     {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                return await RegisterOnceAsync(eventId, user, checkIn, ct);
+            }
+            catch (RegistrationPlanChangedException)
+            {
+                // A new waiter appeared before the event lock. Start over with all guards, in UUID order.
+            }
+        }
+        throw new AccountBusyException(TimeSpan.FromSeconds(2));
+    }
+
+    private async Task<ParticipationOutcome> RegisterOnceAsync(Guid eventId, Guid user, bool checkIn, CancellationToken ct)
+    {
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var tx = await connection.BeginTransactionAsync(ct);
-        await Guard(connection, [user], ct);
-        await Execute(connection, "select 1 from events.events where id=$1 for update", ct, eventId);
+        var plan = await RegistrationLockPlan.ForRegistrationAsync(connection, eventId, user, ct);
+        await Guard(connection, plan.Users, ct);
+        await plan.LockEventsAsync(connection, ct);
+        plan.RequireCovered(await RegistrationLockPlan.ForRegistrationAsync(connection, eventId, user, ct));
         if (!await Eligible(connection, user, ct))
         {
             return ParticipationOutcome.Unavailable;
+        }
+
+        if (!checkIn)
+        {
+            await using var existing = Command(connection,
+                "select state from events.registrations where event_id=$1 and user_id=$2", eventId, user);
+            if (await existing.ExecuteScalarAsync(ct) is string existingState
+                && existingState is not ("Confirmed" or "CheckedIn" or "Waitlisted"))
+            {
+                return ParticipationOutcome.Unavailable;
+            }
+            await RegistrationTransitions.PromoteAsync(connection, eventId, Now, ct);
         }
 
         await using var query = Command(connection, "select starts_at,capacity,confirmed_count,next_waitlist_position,state from events.events where id=$1", eventId);
@@ -162,7 +193,7 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
                 return ParticipationOutcome.Unavailable;
             }
 
-            var changed = await Execute(connection, "update events.registrations set state='CheckedIn',checked_in_at=coalesce(checked_in_at,$3) where event_id=$1 and user_id=$2 and state in ('Confirmed','CheckedIn')", ct, eventId, user, now);
+            var changed = await Execute(connection, "update events.registrations set state='CheckedIn',checked_in_at=coalesce(checked_in_at,$3),version=version+case when state='Confirmed' then 1 else 0 end where event_id=$1 and user_id=$2 and state in ('Confirmed','CheckedIn')", ct, eventId, user, now);
             if (changed == 0)
             {
                 return ParticipationOutcome.Unavailable;
@@ -171,8 +202,8 @@ public sealed partial class ParticipationService(NpgsqlDataSource source, TimePr
         else
         {
             var inserted = await Execute(connection, """
-                insert into events.registrations(event_id,user_id,state,waitlist_position,registered_at)
-                values($1,$2,$3,$4,$5) on conflict(event_id,user_id) do nothing
+                insert into events.registrations(event_id,user_id,state,waitlist_position,registered_at,confirmed_at)
+                values($1,$2,$3,$4,$5,case when $3='Confirmed' then $5 else null end) on conflict(event_id,user_id) do nothing
                 """, ct, eventId, user, count < capacity ? "Confirmed" : "Waitlisted", count < capacity ? DBNull.Value : position, now);
             if (inserted == 1)
             {

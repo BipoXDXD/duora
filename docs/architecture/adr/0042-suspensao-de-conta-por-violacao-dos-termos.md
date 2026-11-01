@@ -108,8 +108,9 @@ transação (operação do Identity), e a conta volta ao primeiro ciclo.
 - A FK `RESTRICT` de `subject_user_id` (e das colunas de autor) impede apagar fisicamente uma conta com medida de
   moderação. O expurgo da spec 12.4 terá de decidir, com a política de retenção, se anonimiza ou retém a medida
   (INV-10) antes de apagar a conta.
-- A suspensão não libera inscrições `Confirmed` ou `CheckedIn` em `events.registrations`: a vaga continua ocupada e a
-  lista de espera não é promovida. A issue #305 trata isso.
+- A limitação original de inscrições que continuavam ocupando vaga é tratada na #305 pelo
+  [ADR-0044](0044-inscricoes-de-contas-suspensas.md): retirada com histórico, sem restauração, e promoção elegível
+  somente antes do início. A política foi autorizada em 31/10/2026; a mudança depende da release correspondente.
 - Sem recurso no app: a tela diz que o pedido de revisão ainda não está disponível. Com um moderador só, a
   independência do recurso (spec 12.3) precisa de decisão própria.
 

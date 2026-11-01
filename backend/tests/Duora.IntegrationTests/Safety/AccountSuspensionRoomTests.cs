@@ -60,5 +60,11 @@ public sealed class AccountSuspensionRoomTests(PostgresFixture postgres)
         Assert.Equal(0L, await reservations.ExecuteScalarAsync(ct));
         await using var state = Command(c, "select state from experiences.game_sessions where id=$1", room);
         Assert.Equal("Aborted", await state.ExecuteScalarAsync(ct));
+        await using var registration = Command(c, """
+            select state from events.registrations where event_id=$1 and user_id=$2 and checked_in_at is not null
+            """, seed.Events[0], seed.Bob);
+        Assert.Equal("Withdrawn", await registration.ExecuteScalarAsync(ct));
+        await using var capacity = Command(c, "select confirmed_count from events.events where id=$1", seed.Events[0]);
+        Assert.Equal(1, await capacity.ExecuteScalarAsync(ct));
     }
 }

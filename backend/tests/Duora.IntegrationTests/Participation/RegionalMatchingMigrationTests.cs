@@ -22,10 +22,17 @@ public sealed class RegionalMatchingMigrationTests(PostgresFixture postgres)
         await using var source = NpgsqlDataSource.Create(database.AppConnectionString);
         var clock = new FakeTimeProvider(now);
         var service = new ParticipationService(source, clock);
-        foreach (var user in new[] { seed.Alice, seed.Bob })
+        // Seed the historical writer's shape: today's registration writer requires the #305 migration.
+        await using (var legacy = await source.OpenConnectionAsync(ct))
         {
-            await service.RegisterAsync(seed.Events[0], user, false, ct);
-            await service.RegisterAsync(seed.Events[0], user, true, ct);
+            foreach (var user in new[] { seed.Alice, seed.Bob })
+            {
+                await Execute(legacy, """
+                    insert into events.registrations(event_id,user_id,state,registered_at,checked_in_at)
+                    values($1,$2,'CheckedIn',$3,$3)
+                    """, ct, seed.Events[0], user, now);
+            }
+            await Execute(legacy, "update events.events set confirmed_count=2 where id=$1", ct, seed.Events[0]);
         }
         clock.Advance(TimeSpan.FromMinutes(5));
         await service.BuildRoundPairingsAsync(seed.Rounds[0], ct);

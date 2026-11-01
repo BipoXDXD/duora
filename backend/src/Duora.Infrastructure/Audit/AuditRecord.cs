@@ -38,6 +38,10 @@ internal sealed record AuditAction
     /// </summary>
     public static readonly AuditAction AccountSuspensionSourceRecorded = new("safety.account_suspension_source_recorded");
 
+    public static readonly AuditAction RegistrationWithdrawnBySuspension = new("events.registration_withdrawn_by_suspension");
+
+    public static readonly AuditAction RegistrationPromoted = new("events.registration_promoted");
+
     public static readonly AuditAction PhotoReviewRequested = new("safety.photo_review_requested");
 
     public static readonly AuditAction PhotoReviewAssigned = new("safety.photo_review_assigned");

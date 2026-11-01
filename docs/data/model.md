@@ -444,6 +444,13 @@ erDiagram
 - **Classe:** P2 (participação num evento de encontros pode ser sensível no contexto; nunca listada a terceiros,
   API-E02).
 
+**Implementado na #305 (ADR-0044):** o schema operacional mantém a PK `(event_id,user_id)` e acrescenta
+`confirmed_at`, `withdrawn_at`, `withdrawn_by_suspension_id` (FK RESTRICT para a medida e índice),
+`withdrawn_from_state`, `withdrawn_waitlist_position` e `version >= 1`. Valores históricos ausentes continuam
+nulos. `ix_registrations_user` atende a descoberta por conta. Trigger impede UPDATE/DELETE de uma retirada por
+suspensão. O estado anterior e a posição antiga são retidos mesmo depois de limpar `waitlist_position`.
+Revogar a medida não altera esses fatos.
+
 ### events.rounds
 
 - **Colunas:** `id`; `event_id`; `number smallint`; `state text` (`Scheduled`, `Preparing`, `Inviting`,
@@ -1385,7 +1392,8 @@ As descrições acima continuam o modelo alvo completo. Esta fatia operacional s
 bilíngue aprovado por administrador autenticado com MFA recente, eventos de três rodadas, inscrição com fila,
 check-in, reserva, aceite bilateral, ação, saída e prazos. Limites atuais são fixos (100 pessoas, rodadas de
 12 minutos, convite de 60 segundos, jogo de até 8 minutos e teto de 9 minutos desde a rodada); o módulo geral
-de `parameter_sets`, retirada/promoção de inscrições, conexões/interesse, chat e voz permanecem separados.
+de `parameter_sets`, retirada voluntária de inscrições, conexões/interesse, chat e voz permanecem separados.
+A #305 acrescenta retirada por suspensão e promoção elegível transacional, detalhadas no ADR-0044.
 Rotas Improváveis mantém regras e localização no Core, sem adaptador de persistência HTTP nesta fatia.
 
 `pairings` fixa `communication_language` e `communication_policy_version=1`; cada participante fixa
