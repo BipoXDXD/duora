@@ -46,6 +46,7 @@ internal static class WorkerHost
         builder.Services.AddParticipation();
         builder.Services.AddHostedService<ParticipationJobService>();
         builder.Services.AddHostedService<RetentionJobService>();
+        builder.Services.AddHostedService<ExternalAuthFlowRetentionService>();
         builder.Services.AddHostedService<HeartbeatService>();
         builder.Services.AddHostedService<TransactionalEmailService>();
         builder.Services.AddHostedService<SelfieVerificationProviderService>();

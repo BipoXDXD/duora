@@ -23,6 +23,13 @@ internal static class PrivateOperationContext
         "GET /api/v1/auth/csrf",
         "GET /api/v1/legal-documents",
         "GET /api/v1/me",
+        "GET /api/v1/auth/google/options",
+        "GET /api/v1/auth/google/flow",
+        "GET /api/v1/auth/google/authorize",
+        "POST /api/v1/auth/google/requests",
+        "POST /api/v1/auth/google/completions",
+        "POST /api/v1/auth/google/registrations",
+        "POST /api/v1/auth/google/registration-confirmations",
         "POST /api/v1/auth/register",
         "POST /api/v1/auth/confirm-email",
         "POST /api/v1/auth/email-confirmation-requests",
@@ -91,6 +98,12 @@ internal sealed class SessionAntiforgeryAdditionalDataProvider : IAntiforgeryAdd
     private static string? Data(HttpContext context, bool isPrivate)
     {
         var purpose = isPrivate ? "private" : "public";
+        // Public external completions need both the framework's CSRF proof and the current browser flow.
+        // This also binds refreshed /auth/csrf tokens to that flow without introducing another token scheme.
+        if (!isPrivate && !context.Items.ContainsKey(GoogleOidcAuthentication.FlowCookie) && context.Request.Cookies[GoogleOidcAuthentication.FlowCookie] is { Length: 80 } flow)
+        {
+            purpose += ":external:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(flow)));
+        }
         if (context.User.Identity?.IsAuthenticated == true)
         {
             return DuoraClaims.ReadSessionId(context.User) is { } sessionId

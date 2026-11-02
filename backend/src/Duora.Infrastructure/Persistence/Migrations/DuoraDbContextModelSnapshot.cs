@@ -221,13 +221,13 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(16)")
                         .HasColumnName("document");
 
-                    b.Property<string>("DocumentSha256")
-                        .HasColumnType("text")
-                        .HasColumnName("document_sha256");
-
                     b.Property<string>("DocumentLocale")
                         .HasColumnType("text")
                         .HasColumnName("document_locale");
+
+                    b.Property<string>("DocumentSha256")
+                        .HasColumnType("text")
+                        .HasColumnName("document_sha256");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid")
@@ -250,9 +250,9 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_consent_records_document", "document IN ('Terms', 'Privacy')");
 
-                            t.HasCheckConstraint("ck_consent_records_document_sha256", "document_sha256 ~ '^[a-f0-9]{64}$'");
-
                             t.HasCheckConstraint("ck_consent_records_document_locale", "document_locale IN ('pt-BR', 'en-US')");
+
+                            t.HasCheckConstraint("ck_consent_records_document_sha256", "document_sha256 ~ '^[a-f0-9]{64}$'");
                         });
                 });
 
@@ -386,6 +386,79 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Duora.Infrastructure.Identity.ExternalAuthFlow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<byte[]>("BrowserHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("browser_hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ExpectedStamp")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("expected_stamp");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("ProtectedProof")
+                        .HasColumnType("text")
+                        .HasColumnName("protected_proof");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("purpose");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.Property<string>("Stage")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("stage");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_auth_flows");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_external_auth_flows_expires_at");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_external_auth_flows_user_id");
+
+                    b.ToTable("external_auth_flows", "identity", t =>
+                        {
+                            t.HasCheckConstraint("ck_external_auth_flows_binding", "octet_length(browser_hash)=32 AND attempts BETWEEN 0 AND 5");
+
+                            t.HasCheckConstraint("ck_external_auth_flows_purpose", "purpose IN ('Login','Register','Link')");
+
+                            t.HasCheckConstraint("ck_external_auth_flows_stage", "stage IN ('Created','Challenged','Validated','Registration','Complete','Failed')");
+
+                            t.HasCheckConstraint("ck_external_auth_flows_window", "expires_at > created_at AND expires_at <= created_at + interval '5 minutes'");
+                        });
+                });
+
             modelBuilder.Entity("Duora.Infrastructure.Identity.LoginSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -395,6 +468,14 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("AbsoluteExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("absolute_expires_at");
+
+                    b.Property<string>("AuthenticationMethod")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasDefaultValue("LocalPassword")
+                        .HasColumnName("authentication_method");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -476,6 +557,8 @@ namespace Duora.Infrastructure.Persistence.Migrations
 
                     b.ToTable("login_sessions", "identity", t =>
                         {
+                            t.HasCheckConstraint("ck_login_sessions_authentication_method", "authentication_method IN ('LocalPassword','GoogleOidc')");
+
                             t.HasCheckConstraint("ck_login_sessions_key_hash", "octet_length(key_hash) = 32");
 
                             t.HasCheckConstraint("ck_login_sessions_policy", "policy IN ('Normal', 'Administrative')");
@@ -1776,6 +1859,11 @@ namespace Duora.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_user_logins_user_id");
 
+                    b.HasIndex("UserId", "LoginProvider")
+                        .IsUnique()
+                        .HasDatabaseName("ux_user_logins_user_id_login_provider")
+                        .HasFilter("login_provider = 'google-oidc'");
+
                     b.ToTable("user_logins", "identity");
                 });
 
@@ -1840,6 +1928,15 @@ namespace Duora.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_consent_records_users");
+                });
+
+            modelBuilder.Entity("Duora.Infrastructure.Identity.ExternalAuthFlow", b =>
+                {
+                    b.HasOne("Duora.Infrastructure.Identity.DuoraUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_external_auth_flows_users");
                 });
 
             modelBuilder.Entity("Duora.Infrastructure.Identity.LoginSession", b =>

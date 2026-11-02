@@ -1465,3 +1465,11 @@ Perda comprovada de evidência ou limite vencido permitem somente encerramento S
 `AppealCandidateCleanupDispatcher` consome exclusivamente obrigações fechadas de recurso com prova original+root+decisão/recibo/auditoria (ou System indisponível), prazo vencido, lease e token atuais. Só remove as três chaves canônicas da geração privada. Os coletores iniciais não recebem autoridade de recurso. O catálogo Approved liga aprovações de recurso ao seu recibo/root/original e mantém as mesmas verificações de manifestos finais no mesmo snapshot somente leitura. Nada disso admite restore, qualifica provedor ou prova inventário real.
 
 O novo histórico usa SELECT/INSERT de duora_app, sem UPDATE/DELETE/TRUNCATE, incluindo privilégios por coluna residuais e reconciliação no payload canônico do migrador. A raiz mutável continua sem DELETE/TRUNCATE. Nenhum grant a uma pessoa real é criado por migration ou HTTP.
+
+## Google OIDC — ADR0046
+
+Identity mantém identity.user_logins como autoridade de vínculos: login_provider=google-oidc representa exclusivamente issuerGoogle canônico; provider_key é sub opaco. PK(provider,key) garante um titular; índice único parcial(user_id,login_provider) limita um Google por conta, preservando índice geral da FK. Sem backfill por e-mail.
+
+identity.external_auth_flows: UUID interno, browser_hash SHA256 de referênciaCSPRNG256bits, purpose/stage fechados, protected_proof mínimo cifrado por Data Protection, user/session/stamp opcionais para a prova, created/expires com CHECK de prazo máximo5min, tentativas0..5, índice de expiração e FKcascade do usuário. Não contém tokens Google. Worker purga expirados sem consultar provider/configuração; início também limpa backlog sob admissão global limitada10000.
+
+identity.login_sessions.authentication_method aditivo/defaultLocalPassword para sessões existentes, GoogleOidc nas novas. É metadado operacional, nunca prova de autorização/MFA. Migração expandida sem excluir usuários, senhas, papéis, tickets ou evidências. Auditoria registra links, unlinks e entrada externa; outbox mantém aviso ao contato Duora armazenado.

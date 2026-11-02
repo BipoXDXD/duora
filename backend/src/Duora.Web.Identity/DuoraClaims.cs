@@ -16,7 +16,8 @@ public sealed record SessionGrant(
     DateTimeOffset? ReauthenticatedAt,
     DateTimeOffset? MfaVerifiedAt,
     DateTimeOffset? TotpVerifiedAt,
-    DateTimeOffset? AbsoluteExpiresAt = null);
+    DateTimeOffset? AbsoluteExpiresAt = null,
+    string AuthenticationMethod = "LocalPassword");
 
 /// <summary>
 /// Estado da sessão corrente como o banco o tem agora (lido a cada requisição pelo ticket store, nunca pelo
@@ -44,6 +45,8 @@ public sealed record SessionState(
 /// <summary>Claims do principal de sessão. Ficam só no ticket do servidor; o cookie não as carrega.</summary>
 public static class DuoraClaims
 {
+    public const string AuthenticationMethod = "duora:authentication_method";
+
     public const string SessionId = "duora:sid";
 
     public const string SecurityStamp = "duora:stamp";
@@ -104,6 +107,7 @@ public static class DuoraClaims
             new(ClaimTypes.NameIdentifier, grant.UserId.ToString("D")),
             new(SecurityStamp, grant.SecurityStamp),
             new(Policy, grant.Policy.ToString()),
+            new(AuthenticationMethod, grant.AuthenticationMethod),
         };
         AddInstant(claims, ReauthenticatedAt, grant.ReauthenticatedAt);
         AddInstant(claims, MfaVerifiedAt, grant.MfaVerifiedAt);

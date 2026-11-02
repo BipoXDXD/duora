@@ -15,6 +15,7 @@ import { Button } from '@/shared/ui/button'
 import { PasswordField, TextField } from '@/shared/ui/form-fields'
 import { Page, SubmitButton, TextLink } from '@/shared/ui/page'
 import { login } from './auth-api'
+import { GoogleAuthButton } from './GoogleAuthButton'
 import { currentPasswordSchema, emailSchema, recoveryCodeSchema, totpCodeSchema } from './auth-schemas'
 import { useValidationMessage } from './validation-message'
 
@@ -142,6 +143,7 @@ export function LoginPage(): React.JSX.Element {
         ) : null}
         <SubmitButton pending={signIn.isPending} label={t('login.submit')} pendingLabel={t('login.submitting')} />
       </form>
+      <GoogleAuthButton purpose="Login" />
       <nav aria-label={t('login.otherPaths')} className="flex flex-col items-start gap-2">
         <TextLink to={paths.forgotPassword}>{t('login.forgotPasswordLink')}</TextLink>
         <p className="text-text-muted">

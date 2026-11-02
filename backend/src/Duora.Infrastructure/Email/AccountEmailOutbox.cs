@@ -25,6 +25,8 @@ internal enum AccountEmailKind
     /// </summary>
     PasswordResetUnavailable,
     RecoveryCodeUsedNotice,
+    GoogleLinkedNotice,
+    GoogleUnlinkedNotice,
 }
 
 /// <summary>
@@ -70,6 +72,8 @@ internal static class AccountEmailOutbox
             or AccountEmailKind.RecoveryCodesRegeneratedNotice
             or AccountEmailKind.PasswordChangedNotice
             or AccountEmailKind.RecoveryCodeUsedNotice
+            or AccountEmailKind.GoogleLinkedNotice
+            or AccountEmailKind.GoogleUnlinkedNotice
             or AccountEmailKind.PasswordResetNotice => TimeSpan.FromHours(72),
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Tipo de e-mail desconhecido."),
     };
@@ -82,6 +86,8 @@ internal static class AccountEmailOutbox
         [SecurityChange.RecoveryCodesRegenerated] = AccountEmailKind.RecoveryCodesRegeneratedNotice,
         [SecurityChange.PasswordChanged] = AccountEmailKind.PasswordChangedNotice,
         [SecurityChange.RecoveryCodeUsed] = AccountEmailKind.RecoveryCodeUsedNotice,
+        [SecurityChange.GoogleLinked] = AccountEmailKind.GoogleLinkedNotice,
+        [SecurityChange.GoogleUnlinked] = AccountEmailKind.GoogleUnlinkedNotice,
         [SecurityChange.PasswordReset] = AccountEmailKind.PasswordResetNotice,
     };
 

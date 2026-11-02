@@ -615,3 +615,11 @@ com essa opção antes do rollback de aplicação. Os jobs de expiração e fech
 aditivos permanecem. Não voltar a um coordenador que ignore declarações linguísticas. A migration não oferece
 Down destrutivo. Métricas `Duora.Matching` são contadores agregados sem UUID, texto, locale ou idioma como label;
 contabilizam seleções tentadas, pares selecionados e candidatos sem par, não eventos financeiros exatos.
+
+## Google OIDC — ADR0046
+
+Rede/discovery/troca de código fora de locks de conta. Desafio e staging usam transição condicional de intenção, hash do navegador e prazo. A prova entra apenas depois da validação completa do handler. Replays não sobrescrevem uma intenção já validada.
+
+Operações Identity com alvo: lock/recarga da conta pelo protocolo existente, depois external_auth_flows FORUPDATE, vínculo user_logins, sessões, auditoria/outbox. Callback só altera sua intenção, sem esperar conta. Confirmação de cadastro usa o mesmo lock da confirmação local e exige stamp do próprio cadastro antes de inserir vínculo/confirmar e-mail no mesmo commit. Nenhuma chamada externa sob lock.
+
+Unique constraints arbitram duas contas para mesmo sub e dois sub para uma conta. Falha23505 reverte transação inteira antes da resposta neutra. Unlink/reset alteram stamp; login concorrente com stamp antigo jamais concede sessão utilizável depois do commit, mesmo se a inserção do ticket ocorrer mais tarde. FKs/cascade e estado atual impedem reaproveitar provas após exclusão/restrição. Purga usa SKIPLOCKED e lotes limitados, sem estender validade. Testes usam conexões/DbContexts independentes e barreira anterior à inserção, não sleeps.

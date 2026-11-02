@@ -201,6 +201,15 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
         .getByRole('button', { name: pt ? 'Salvar preferência regional' : 'Save regional preference', exact: true })
         .click()
       await expect.poll(() => state.mode).toBe('unrestricted')
+      await expect(
+        page.getByText(pt ? 'Preferência regional salva.' : 'Regional preference saved.', { exact: true }),
+      ).toBeVisible()
+      await expect(
+        page.getByRole('button', {
+          name: pt ? 'Salvar preferência regional' : 'Save regional preference',
+          exact: true,
+        }),
+      ).toBeEnabled()
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
       expect(
         (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze())

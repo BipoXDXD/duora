@@ -51,6 +51,8 @@ public static class InfrastructureServiceCollectionExtensions
             return NpgsqlDataSource.Create(connection.ConnectionString);
         });
         services.AddSingleton<Duora.Infrastructure.Operations.RetentionService>();
+        services.AddSingleton<Duora.Infrastructure.Identity.ExternalAuthFlowRetention>();
+        services.AddSingleton<Duora.Infrastructure.Identity.ExternalAuthenticationMetrics>();
         services.AddDbContext<DuoraDbContext>((provider, options) =>
             options.UseDuoraNpgsql(provider.GetRequiredService<NpgsqlDataSource>()));
 

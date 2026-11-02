@@ -26,6 +26,9 @@ public sealed class SuspendedAccountRoutesTests : IAsyncDisposable
     [
         "GET /api/v1/me",
         "GET /api/v1/me/sessions",
+        // ADR0046: local credential recovery only; new Google requests/links remain forbidden.
+        "GET /api/v1/me/external-logins",
+        "DELETE /api/v1/me/external-logins/google",
         "DELETE /api/v1/me/sessions/{sessionId:guid}",
         "POST /api/v1/me/mfa/enrollments",
         "POST /api/v1/me/mfa/confirmations",

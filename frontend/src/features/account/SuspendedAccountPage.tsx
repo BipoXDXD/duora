@@ -12,6 +12,7 @@ import { paths } from '@/shared/paths'
 import { Page, TextLink } from '@/shared/ui/page'
 import { SessionList } from './SessionList'
 import { AccountMfaSettings } from './AccountMfaSettings'
+import { GoogleAccountSettings } from './GoogleAccountSettings'
 
 const REASON_LABELS: Readonly<Record<SuspensionReason, PlainMessageKey>> = {
   TermsViolation: 'accountSuspended.reason.TermsViolation',
@@ -75,6 +76,7 @@ export function SuspendedAccountPage(): React.JSX.Element {
       </ul>
       <Alert variant="info">{t('accountSuspended.appeal')}</Alert>
       <AccountMfaSettings />
+      <GoogleAccountSettings />
       <SessionList userId={account.id} />
     </Page>
   )

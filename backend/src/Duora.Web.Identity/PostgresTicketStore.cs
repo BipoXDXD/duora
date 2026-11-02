@@ -79,7 +79,8 @@ internal sealed partial class PostgresTicketStore(
                 policy,
                 reauthenticatedAt,
                 mfaVerifiedAt,
-                totpVerifiedAt),
+                totpVerifiedAt,
+                principal.FindFirst(DuoraClaims.AuthenticationMethod)?.Value ?? "LocalPassword"),
             cancellationToken);
         return key;
     }

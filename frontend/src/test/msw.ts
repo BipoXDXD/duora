@@ -4,6 +4,10 @@ import { setupServer } from 'msw/node'
 
 /** Servidor MSW dos testes de componente; cada teste declara os handlers que usa com `server.use`. */
 export const server = setupServer(
+  http.get('/api/v1/me/external-logins', () => HttpResponse.json({ items: [] })),
+  http.get('/api/v1/auth/google/options', () =>
+    HttpResponse.json({ enabled: false, registrationEnabled: false, linkingEnabled: false }),
+  ),
   http.get('/api/v1/legal-documents', () => HttpResponse.json(syntheticLegalCatalog)),
   http.get('/api/v1/me/region-detection/capability', () => HttpResponse.json({ enabled: false })),
 )

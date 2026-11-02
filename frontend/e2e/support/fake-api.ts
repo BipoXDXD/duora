@@ -72,6 +72,7 @@ interface FakeProfile {
  */
 const SUSPENDED_ALLOWLIST: ReadonlySet<string> = new Set([
   'GET /me',
+  'GET /me/external-logins',
   'GET /me/sessions',
   'DELETE /me/sessions/:id',
   'POST /me/mfa/enrollments',
@@ -88,6 +89,7 @@ const SUSPENDED_ALLOWLIST: ReadonlySet<string> = new Set([
 /** Rotas sem sessão (AllowAnonymous no servidor). */
 const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   'GET /auth/csrf',
+  'GET /auth/google/options',
   'GET /legal-documents',
   'POST /auth/register',
   'POST /auth/confirm-email',
@@ -273,7 +275,7 @@ export class FakeDuoraApi {
         'POST /auth/email-confirmation-requests',
       ]).has(key) ||
       (key === 'POST /auth/logout' && this.#currentSessionId === null)
-    const bootstrap = key === 'GET /me' || key === 'GET /legal-documents'
+    const bootstrap = key === 'GET /me' || key === 'GET /legal-documents' || key === 'GET /auth/google/options'
     if (publicMutation) {
       if (
         request.headers()[ANTIFORGERY_HEADER] !== this.#antiforgeryToken ||
@@ -322,6 +324,8 @@ export class FakeDuoraApi {
       return problem(403, 'ACCOUNT_SUSPENDED')
     }
     switch (key) {
+      case 'GET /auth/google/options':
+        return json({ enabled: false, registrationEnabled: false, linkingEnabled: false })
       case 'GET /legal-documents':
         return json(syntheticLegalCatalog)
       case 'POST /auth/register':
@@ -341,6 +345,8 @@ export class FakeDuoraApi {
         return this.#me()
       case 'GET /me/sessions':
         return this.#listSessions()
+      case 'GET /me/external-logins':
+        return json({ items: [] })
       case 'GET /me/region-detection/capability':
         return this.#currentUser() === null ? problem(401, 'UNAUTHENTICATED') : json({ enabled: false })
       case 'GET /me/profile':

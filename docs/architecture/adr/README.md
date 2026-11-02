@@ -54,6 +54,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0043](0043-limite-de-reprovacoes-da-selfie.md) | Limite de reprovações da selfie: uma linha por reprovação, pausa de 1 h derivada e suspensão automática pela outbox | Proposed | Recurso de moderação, nova política da selfie ou alternativa assistida |
 | [0044](0044-inscricoes-de-contas-suspensas.md) | Retirada de inscrições por suspensão, sem restauração; promoção elegível antes do início | Accepted | Readmissão no mesmo evento, mudança da janela de check-in ou transporte de avisos |
 | [0045](0045-protecao-dos-controles-de-geracao.md) | Fronteira de capacidades e journal de gerações privadas em fixture Linux descartável | Proposed; sem fechamento terminal no runtime | Autoridade real, admissão SQL, retirada de escritores e restore |
+| [0046](0046-google-oidc-com-senha-local.md) | Google OIDC com senha local e associação explícita | Política aprovada; implementação sujeita à revisão | Conta sem senha ou outro provedor |
 
 ## Regras
 

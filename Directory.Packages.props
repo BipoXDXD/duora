@@ -11,6 +11,8 @@
     <PackageVersion Include="AWSSDK.SecurityToken" Version="4.0.101.4" />
     <PackageVersion Include="AWSSDK.S3" Version="4.0.104" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.13" />
+    <!-- Official confidential OIDC code/PKCE handler, MIT; ADR0046. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.KeyPerFile" Version="10.0.13" />

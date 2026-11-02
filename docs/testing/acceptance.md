@@ -181,3 +181,13 @@ aceita só 168 h ou os 72 h legados (`CaseDeadlineIsSevenDaysOrTheSeventyTwoHour
 via HTTP local, confirmação/reset com o conteúdo capturado, concorrência, cancelamento/retomada, backoff,
 configuração inválida e falhas do provedor sem diagnóstico sensível. Ver [reprodução e limites](../operations/resend.md).
 MFA: `LoginPage.test.tsx` aguarda o foco efetivo sem enfraquecer a exigência de acessibilidade.
+
+## Google OIDC — issue276 / ADR0046
+
+Vinculado a INV01/05/06/11/12 e T01/06/13/14/15/21. Candidato local: exigir evidência executada antes de marcar o item como resolvido/publicado. GoogleOidcTests e GoogleOidcSecurityTests exercitam PostgreSQL18.6 real e handler oficial com discovery/JWKS/token endpoint simulados e PKCE conferido pelo provedor sintético.
+
+Aceite: off sem segredo; sem auto-link por e-mail verificado; cadastro com senha+código e stamp do próprio cadastro; recadastro invalida prova; vínculo explícito/local step-up; tokens inválidos e state/cookies/nonce/replay recusados; SID/conta trocados recusados; MFA local antes de qualquer cookie de sessão; unicidade concorrente; rollback de auditoria/aviso/vínculo; unlink invalida login em voo; purga com provider off/sem novos requests. Frontend: botão oculto off, redirecionamento interno restrito, confirmação explícita, senha/código, MFA, troca de contexto e descarte de resposta tardia em PTBR/ENUS. E2E sintético não comprova configuração da console Google nem o protocolo real.
+
+As evidências concretas e testes pendentes constam no relatório do commit; este bloco não declara suite integral, restore/hub ou homologação operacional cobertos por inferência.
+
+Recuperação local (revisão do candidato): GoogleOidcRecoveryTests cobre flags off sem rede/credenciais, suspensão e os três papéis privilegiados após vínculo, mantendo CSRF e reautenticação; GoogleRecovery.test.tsx cobre os quatro caminhos de gestão local. SuspendedAccountRoutesTests enumera apenas GET da lista e DELETE do vínculo como novas rotas de segurança; os POSTs de novo vínculo continuam bloqueados à suspensão. Evidência focada: 92/92 HTTP/integração/gates e 58/58 frontend, sem substituir a integração completa.

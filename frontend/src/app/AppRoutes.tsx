@@ -15,6 +15,12 @@ const PrivacyPage = routePage(async () => (await import('@/features/legal/LegalD
 const RegisterPage = routePage(async () => (await import('@/features/auth/RegisterPage')).RegisterPage)
 const CheckEmailPage = routePage(async () => (await import('@/features/auth/CheckEmailPage')).CheckEmailPage)
 const ConfirmEmailPage = routePage(async () => (await import('@/features/auth/ConfirmEmailPage')).ConfirmEmailPage)
+const GoogleContinuePage = routePage(
+  async () => (await import('@/features/auth/GoogleContinuePage')).GoogleContinuePage,
+)
+const GoogleLinkContinuePage = routePage(
+  async () => (await import('@/features/account/GoogleAccountSettings')).GoogleLinkContinuePage,
+)
 const LoginPage = routePage(async () => (await import('@/features/auth/LoginPage')).LoginPage)
 const ForgotPasswordPage = routePage(
   async () => (await import('@/features/auth/ForgotPasswordPage')).ForgotPasswordPage,
@@ -54,6 +60,7 @@ const RequireSession = routePage(async () => {
   const [{ RequireSession: guard }] = await Promise.all([
     import('@/features/session/RequireSession'),
     AccountPage.preload(),
+    GoogleLinkContinuePage.preload(),
     SuspendedAccountPage.preload(),
     ChangePasswordPage.preload(),
     MfaEnrollmentPage.preload(),
@@ -88,6 +95,7 @@ export function AppRoutes(): React.JSX.Element {
             <Route path={paths.checkEmail} element={<CheckEmailPage />} />
             <Route path={paths.confirmEmail} element={<ConfirmEmailPage />} />
             <Route path={paths.login} element={<LoginPage />} />
+            <Route path={paths.googleContinue} element={<GoogleContinuePage />} />
             <Route path={paths.forgotPassword} element={<ForgotPasswordPage />} />
             <Route path={paths.resetPassword} element={<ResetPasswordPage />} />
           </Route>
@@ -97,6 +105,7 @@ export function AppRoutes(): React.JSX.Element {
               <Route path={paths.mfaEnrollment} element={<MfaEnrollmentPage />} />
               <Route path={paths.selfie} element={<SelfieVerificationPage />} />
               <Route path={paths.account} element={<AccountPage />} />
+              <Route path={paths.googleLinkContinue} element={<GoogleLinkContinuePage />} />
               <Route path={paths.accountSuspended} element={<SuspendedAccountPage />} />
               <Route path={paths.photos} element={<PhotoReviewOwnerIndex />} />
               <Route path={paths.profile} element={<ProfilePage />} />

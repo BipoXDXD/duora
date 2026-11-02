@@ -37,7 +37,8 @@ internal static class CurrentSession
             reauthenticatedAt,
             mfaVerifiedAt,
             totpVerifiedAt,
-            session.AbsoluteExpiresAt);
+            session.AbsoluteExpiresAt,
+            context.User.FindFirst(DuoraClaims.AuthenticationMethod)?.Value ?? "LocalPassword");
         return AuthEndpoints.StartSessionAsync(context, antiforgery, grant);
     }
 }

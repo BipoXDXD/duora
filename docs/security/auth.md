@@ -770,3 +770,17 @@ Isso não qualifica por si só as imagens ou o manifesto para produção. Entreg
 homologação operacional da configuração/versão publicada continuam pendentes. Consumidor compatível deve
 anteceder o produtor; confirme processamento e recibos por ID antes de reverter o worker. Fila vazia não
 comprova entrega.
+
+## Google OIDC — ADR0046 / issue276
+
+[ADR0046](../architecture/adr/0046-google-oidc-com-senha-local.md): senha e confirmação por código Duora mantidas; Google é credencial alternativa para participantes, por issuer+sub, sem auto-link por e-mail. Privilegiados continuam locais. Google login exige MFA Duora quando ativo e deixa reauthenticated_at nulo; A13 continua senha+TOTP. Vínculo/remover exigem prova local recente1h e contexto privado/SID, com nova chave de sessão e mesmo limite absoluto. Contas/consentimentos/selfie/suspensões permanecem autoritativos no banco.
+
+Flags GoogleOidc.Enabled/RegistrationEnabled/LinkingEnabled false por padrão; segredo somente no servidor. Callback exato /signin-google-oidc é tratado pelo handler antes da autorização/CSRF, com code/PKCE S256/state/correlação/nonce. Não cria cookie Duora. Retorno303 limpo /google/continue e POST protegido para completar. Tokens não chegam à SPA. PublicOrigin fixa redirect, não Host arbitrário; scopes openid/email apenas. Nonce, state, code e query do callback devem ser redigidos no proxy/telemetria antes da ativação.
+
+Rotas novas prefixadas /api/v1: GET/auth/google/options (flags públicas); POST/auth/google/requests {purpose:Login|Register} (CSRF→URL interna); GET/auth/google/authorize (consome intenção para desafio); GET/auth/google/flow (estado mínimo transitório do navegador); POST/auth/google/completions (MFA opcional no corpo conforme conta); POST/auth/google/registrations (senha e recibos exatos do cadastro); POST/auth/google/registration-confirmations {code,password} (confirma/vincula num commit, sem sessão automática). Rotas privadas GET/me/external-logins, POST/me/external-logins/google/requests e /confirmations, DELETE/me/external-logins/google. Vínculo indisponível409 neutro; intenção inválida400, MFA/credencial401, CSRF403, off404, limite429 e dependência503. Ver OpenAPI gerado para tipos/status.
+
+Intenção5min ligada ao navegador e ao propósito, mínimo de claims protegido por Data Protection; nenhum refresh/access/IDtoken persistido. Public antiforgery inclui hash da intenção atual quando presente; privado mantém SID/fase. Worker purga expiradas mesmo com provider off, sem depender do protetor Web. Recadastro/reset/stamp/sessão substituída invalida prova antiga. Prova Google nunca transfere conta por coincidência do e-mail; mudar o e-mail Google não muda o contato Duora.
+
+Avisos GoogleLinkedNotice/GoogleUnlinkedNotice e auditoria no commit da credencial. Reset comum mantém vínculo e MFA, revoga sessões/intents; diante de suspeita de invasão, entrar localmente, revisar/remover Google e encerrar outras sessões. Revogar no Google não encerra automaticamente tickets Duora existentes; logout/gestão de sessões continuam locais.
+
+Gestão local do vínculo: A25/A28 permanecem disponíveis com Google desligado, novos vínculos desligados, suspensão ou mudança para papel privilegiado. Só o titular com prova privada lê a lista; remoção mantém senha recente e TOTP quando ativo. Não depende de chamada externa nem de credenciais Google. A conta suspensa mostra a gestão na própria tela; nenhum novo vínculo/login privilegiado é liberado por essa exceção de recuperação.

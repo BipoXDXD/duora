@@ -57,6 +57,13 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
         var bodies = new Dictionary<string, object?>
         {
             ["POST /api/v1/admin/accounts/{userId:guid}/selfie-suspension-recoveries/{deliveryId:guid}"] = new { internalReason = "Incidente sintético." },
+            ["POST /api/v1/auth/google/requests"] = new { purpose = "Login" },
+            ["POST /api/v1/auth/google/completions"] = new { },
+            ["POST /api/v1/auth/google/registrations"] = IdentityScenario.RegistrationBody(newEmail),
+            ["POST /api/v1/auth/google/registration-confirmations"] = new { code = "12345678", password = IdentityScenario.ValidPassword },
+            ["POST /api/v1/me/external-logins/google/requests"] = new { },
+            ["POST /api/v1/me/external-logins/google/confirmations"] = new { },
+            ["DELETE /api/v1/me/external-logins/google"] = null,
             ["POST /api/v1/auth/register"] = IdentityScenario.RegistrationBody(newEmail),
             ["POST /api/v1/auth/email-confirmation-requests"] = new { email = pendingEmail, password = IdentityScenario.ValidPassword },
             ["POST /api/v1/auth/confirm-email"] = new

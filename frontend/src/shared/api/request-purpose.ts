@@ -1,4 +1,8 @@
 const PUBLIC_AUTHENTICATION_MUTATIONS = new Set([
+  '/api/v1/auth/google/requests',
+  '/api/v1/auth/google/completions',
+  '/api/v1/auth/google/registrations',
+  '/api/v1/auth/google/registration-confirmations',
   '/api/v1/auth/register',
   '/api/v1/auth/confirm-email',
   '/api/v1/auth/email-confirmation-requests',

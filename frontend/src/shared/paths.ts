@@ -12,6 +12,8 @@ export const paths = {
   checkEmail: '/check-email',
   confirmEmail: '/confirm-email',
   login: '/login',
+  googleContinue: '/google/continue',
+  googleLinkContinue: '/account/google/continue',
   forgotPassword: '/forgot-password',
   resetPassword: '/reset-password',
   changePassword: '/change-initial-password',
