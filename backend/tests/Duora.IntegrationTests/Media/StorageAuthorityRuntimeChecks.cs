@@ -48,6 +48,8 @@ public static partial class StorageAuthorityRuntimeChecks
             grant execute on function media.record_private_generation_sweep
               (uuid,uuid,integer,uuid,bigint,integer,text,uuid,bigint) to {businessRole};
             """, cancellationToken);
+        // Reconciliation must retain the independent verifier's legitimate access.
+        await postgres.ReconcilePrivilegesAsync(database.Name, cancellationToken);
         await ExecuteAsync(custodian, await File.ReadAllTextAsync(
             Path.Combine(RepositoryRoot.Find(), "scripts/storage-authority/reference.sql"), cancellationToken),
             cancellationToken);

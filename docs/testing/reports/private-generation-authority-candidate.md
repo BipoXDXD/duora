@@ -10,7 +10,7 @@ Contrato tipado no Core; cliente RPC e roteamento no Infrastructure; executável
 referência PostgreSQL externa à base restaurável; journal e controles Linux; integração dos preparadores
 reais de candidatos/promoções; cinco coletores; migration aditiva de nascimento/binding/prova e guardas SQL;
 lockfiles, testes, runner Linux, ADR e runbook. A lista exata de arquivos acompanha o patch da entrega.
-Não se alteraram workflows, políticas, Compose, permissões ou dados de produção.
+Não se alteraram workflows, políticas ou Compose, nem se executaram operações manuais em permissões ou dados de produção.
 
 A imagem descartável do ensaio inicia como UID1654 por padrão. O driver Linux
 solicita UID0 explicitamente apenas para o orquestrador da fixture: provisionar
@@ -42,6 +42,20 @@ final registra separadamente o SHA e a repetição Linux sobre a revisão congel
 ou resultados de imagens anteriores ao commit final sem conferir sua identidade.
 
 ## RED → GREEN e falhas de fixture
+
+A CI completa do PR333 na revisão4069bc0 encontrou uma omissão real na reconciliação
+canônica: após um GRANT deliberado, UPDATE de private_generation_bindings permanecia
+permitido. O total foi4571/4572, com uma falha e zero ignorados; esse resultado não é PASS.
+O payload agora reaplica a imutabilidade das três tabelas e revoga EXECUTE de PUBLIC/app
+nas quatro funções exatas, bloqueando privilégios efetivos residuais por coluna/herança.
+O INSERT legítimo do binding, a leitura e os grants independentes do verificador permanecem.
+
+Quatro regressões reais de PostgreSQL falharam antes da correção e passaram depois, com
+zero ignorados e testes C# idênticos. Elas cobrem drift de tabela, EXECUTE de app/PUBLIC e
+INSERT de coluna herdado de PUBLIC. Restore travado, build e formatação focada passaram;
+os dois avisos ImageSharp Debug continuam explícitos. O ensaio Linux completo também passou
+com nova reconciliação depois do grant do verificador, exercitando seu acesso legítimo no
+pipeline real. Esses resultados complementam, sem substituir, a CI completa do novo HEAD.
 
 Sete REDs iniciais confirmaram PUT genérico privado aceito, falta da recusa específica da configuração
 em Production e falta de prova SQL. Depois, os 15 testes de routing/privilégios passaram. Uma fixture
