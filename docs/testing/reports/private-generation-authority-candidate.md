@@ -12,6 +12,15 @@ reais de candidatos/promoções; cinco coletores; migration aditiva de nasciment
 lockfiles, testes, runner Linux, ADR e runbook. A lista exata de arquivos acompanha o patch da entrega.
 Não se alteraram workflows, políticas, Compose, permissões ou dados de produção.
 
+A imagem descartável do ensaio inicia como UID1654 por padrão. O driver Linux
+solicita UID0 explicitamente apenas para o orquestrador da fixture: provisionar
+ownership e iniciar os processos reais da autoridade como UID17010 e do cliente
+como UID17020. As asserções de UID e de negação pelo kernel permanecem integrais.
+Esse override não é configuração de serviço, exemplo de produção ou dispensa de
+scanner; o ensaio mantém o socket Docker restrito ao runner descartável autorizado.
+O orquestrador do ensaio continua root e esse socket concede controle do daemon
+local; não se alega isolamento do daemon nem execução integral sem privilégios.
+
 ## Resultados executados
 
 | Comando / evidência | Resultado |

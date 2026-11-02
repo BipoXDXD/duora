@@ -6,4 +6,7 @@ WORKDIR /src
 COPY . .
 RUN dotnet restore scripts/testing/storage-authority/RuntimeChecks.csproj --locked-mode --disable-parallel
 RUN dotnet build scripts/testing/storage-authority/RuntimeChecks.csproj --no-restore -m:1 /p:UseSharedCompilation=false
+# The image is non-root by default. Only the disposable identity fixture opts
+# into root orchestration to create and then drop to the two distinct test UIDs.
+USER 1654:1654
 ENTRYPOINT ["dotnet", "/src/scripts/testing/storage-authority/bin/Debug/net10.0/RuntimeChecks.dll"]

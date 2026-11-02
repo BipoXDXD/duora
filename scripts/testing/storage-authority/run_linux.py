@@ -3,6 +3,8 @@
 
 The local Docker socket is exposed only to this authorized Testcontainers runner.
 No operational mounts, host PID namespace, credentials or existing volumes are mounted.
+The image defaults to UID1654. Only this disposable orchestration fixture opts
+into UID0 to provision ownership and launch the actual host/client as UID17010/17020.
 """
 import argparse
 import hashlib
@@ -58,6 +60,8 @@ def main():
                      str(Path(__file__).with_name("Dockerfile")), str(root)],
                     stdout=log, stderr=subprocess.STDOUT, timeout=1200)
         metadata["image_id"] = capture(["docker", "image", "inspect", "--format", "{{.Id}}", tag])
+        metadata["image_default_user"] = capture(["docker", "image", "inspect", "--format", "{{.Config.User}}", tag])
+        metadata["fixture_orchestrator_user"] = "0:0"
         with (report / "runtime.log").open("w") as log:
             command([
                 "docker", "run", "--rm", "--cidfile", str(cidfile),
@@ -65,6 +69,7 @@ def main():
                 "--memory", "4g", "--memory-swap", "4g", "--cpus", "2", "--pids-limit", "256",
                 "--ulimit", "core=0",
                 "--security-opt", "no-new-privileges:true",
+                "--user", "0:0",
                 "--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
                 "-e", "TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal", tag,
                 *(["--alias-check"] if args.scenario == "alias" else []),
