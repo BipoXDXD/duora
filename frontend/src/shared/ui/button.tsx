@@ -6,10 +6,11 @@ import { Slot } from 'radix-ui'
 // Base do shadcn/ui (estilo new-york) adaptada aos tokens do Duora: alvo de 44 px (spec 13.4),
 // anel de foco sólido em --color-focus (3:1 medido) e as quatro ações da spec 13.3.
 // O estado desabilitado usa tokens com contraste medido em vez de opacidade.
+// Cores mudam sem interpolação: estados habilitado/desabilitado têm pares de contraste distintos.
 const buttonVariants = cva(
   [
     'inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md px-4 py-2',
-    'text-base font-semibold whitespace-nowrap transition-colors',
+    'text-base font-semibold whitespace-nowrap',
     'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
     'disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-muted disabled:text-text-muted',
     '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
