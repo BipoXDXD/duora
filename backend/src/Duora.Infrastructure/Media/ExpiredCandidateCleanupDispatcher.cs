@@ -4,7 +4,7 @@ using Npgsql;
 
 namespace Duora.Infrastructure.Media;
 
-internal sealed record ExpiredCandidateCleanupClaim(Guid Generation, Guid Token, int Attempts);
+internal sealed record ExpiredCandidateCleanupClaim(Guid Generation, Guid Token, int Attempts, Guid StorageProofId = default);
 
 /// <summary>Consumes only the private cleanup obligation committed with its immutable system expiration fact.</summary>
 public sealed partial class ExpiredCandidateCleanupDispatcher
@@ -56,10 +56,19 @@ public sealed partial class ExpiredCandidateCleanupDispatcher
         budget.CancelAfter(DeleteBudget);
         try
         {
-            foreach (var kind in PhotoVariants.All)
+            var proof = await PrivateGenerationMetadata.CloseAndSweepAsync(_source, _store,
+                PrivateGenerationArea.Candidate, claim.Generation, claim.Token, budget.Token);
+            if (proof is { } id)
             {
-                await _store.DeleteAsync(ObjectKey.ForReviewCandidate(claim.Generation, kind), budget.Token);
-                budget.Token.ThrowIfCancellationRequested();
+                claim = claim with { StorageProofId = id };
+            }
+            else
+            {
+                foreach (var kind in PhotoVariants.All)
+                {
+                    await _store.DeleteAsync(ObjectKey.ForReviewCandidate(claim.Generation, kind), budget.Token);
+                    budget.Token.ThrowIfCancellationRequested();
+                }
             }
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested && exception is not OutOfMemoryException)
@@ -115,10 +124,11 @@ public sealed partial class ExpiredCandidateCleanupDispatcher
         // deleted_at (ADR-0035, P3).
         await using var command = Command(connection, $"""
             update media.review_candidates c
-            set last_cleanup_at=statement_timestamp(),deleted_at=statement_timestamp(),cleanup_token=null,cleanup_lease_until=null
+            set last_cleanup_at=statement_timestamp(),deleted_at=statement_timestamp(),cleanup_token=null,cleanup_lease_until=null,
+              storage_proof_id=nullif($4,'00000000-0000-0000-0000-000000000000'::uuid)
             where c.generation=$1 and c.cleanup_token=$2 and c.cleanup_lease_until>$3
               and c.cleanup_requested_at<=$3 and {ExpiredObligation}
-            """, claim.Generation, claim.Token, now);
+            """, claim.Generation, claim.Token, now, claim.StorageProofId);
         command.Transaction = transaction;
         var changed = await command.ExecuteNonQueryAsync(cancellationToken) == 1;
         await transaction.CommitAsync(cancellationToken);

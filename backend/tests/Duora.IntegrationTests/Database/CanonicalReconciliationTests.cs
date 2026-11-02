@@ -5,7 +5,14 @@ namespace Duora.IntegrationTests.Database;
 
 public sealed class CanonicalReconciliationTests(PostgresFixture postgres)
 {
-    private static readonly string[] RewrittenPrivileges = ["UPDATE", "DELETE", "TRUNCATE"];
+    private static readonly string[] RewrittenPrivileges = ["INSERT", "UPDATE", "DELETE", "TRUNCATE"];
+    private static readonly string[] PrivateAuthorityFunctions =
+    [
+        "media.capture_private_generation_birth()",
+        "media.guard_private_generation_binding()",
+        "media.guard_private_generation_removal()",
+        "media.record_private_generation_sweep(uuid,uuid,integer,uuid,bigint,integer,text,uuid,bigint)",
+    ];
 
     [Fact]
     public async Task CanonicalSqlRemovesDeliberatelyGrantedPrivilegesWithoutChangingHistoryOrLegitimateAccess()
@@ -66,6 +73,57 @@ public sealed class CanonicalReconciliationTests(PostgresFixture postgres)
             Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
             await transaction.RollbackAsync(ct);
         }
+    }
+
+    [Fact]
+    public async Task CanonicalSqlRevokesPrivateAuthorityExecutionAfterVerifiedAppAndPublicGrants()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var database = await postgres.CreateMigratedScratchDatabaseAsync(ct);
+        await using var owner = new NpgsqlConnection(database.MigratorConnectionString);
+        await owner.OpenAsync(ct);
+        var historyBefore = await HistoryAsync(owner, ct);
+        foreach (var signature in PrivateAuthorityFunctions)
+        {
+            await using var grant = new NpgsqlCommand(
+                $"grant execute on function {signature} to duora_app, public", owner);
+            await grant.ExecuteNonQueryAsync(ct);
+            await using var check = new NpgsqlCommand("select has_function_privilege('duora_app', $1, 'EXECUTE')", owner);
+            check.Parameters.AddWithValue(signature);
+            Assert.True((bool)(await check.ExecuteScalarAsync(ct))!);
+        }
+
+        await postgres.ReconcilePrivilegesAsync(database.Name, ct);
+
+        foreach (var signature in PrivateAuthorityFunctions)
+        {
+            await using var check = new NpgsqlCommand("select has_function_privilege('duora_app', $1, 'EXECUTE')", owner);
+            check.Parameters.AddWithValue(signature);
+            Assert.False((bool)(await check.ExecuteScalarAsync(ct))!, $"Canonical payload left execution of {signature}");
+        }
+        Assert.Equal(historyBefore, await HistoryAsync(owner, ct));
+    }
+
+    [Theory]
+    [InlineData("media.private_generation_births")]
+    [InlineData("media.private_generation_proofs")]
+    public async Task CanonicalSqlRejectsInheritedColumnInsertOnPrivateEvidence(string table)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var database = await postgres.CreateMigratedScratchDatabaseAsync(ct);
+        await using var owner = new NpgsqlConnection(database.MigratorConnectionString);
+        await owner.OpenAsync(ct);
+        await using (var grant = new NpgsqlCommand($"grant insert (generation) on table {table} to public", owner))
+        {
+            await grant.ExecuteNonQueryAsync(ct);
+        }
+        Assert.False(await HasPrivilegeAsync(owner, table, "INSERT", ct));
+        await using var check = new NpgsqlCommand("select has_any_column_privilege('duora_app', $1, 'INSERT')", owner);
+        check.Parameters.AddWithValue(table);
+        Assert.True((bool)(await check.ExecuteScalarAsync(ct))!);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => postgres.ReconcilePrivilegesAsync(database.Name, ct));
+        Assert.Contains("private generation", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<bool> HasPrivilegeAsync(NpgsqlConnection owner, string table, string privilege,

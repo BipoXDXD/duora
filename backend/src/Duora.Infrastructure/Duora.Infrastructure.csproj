@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Required by LibraryImport's generated Linux descriptor/peer interop; no handwritten unsafe blocks. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
   <!-- Sem o framework compartilhado do ASP.NET Core: o Worker depende deste projeto e roda no runtime .NET puro.
        O que exige o runtime web (cookie, ticket store, SignInManager, Data Protection) fica no Duora.Web.Identity
        (ADR-0019, "Revisão: separação do runtime web"; verificado em Duora.ArchitectureTests). -->

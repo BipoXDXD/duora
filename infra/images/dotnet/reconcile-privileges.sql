@@ -73,6 +73,56 @@ BEGIN
   END IF;
 END $$;
 
+-- Private generation bindings are append-only; birth and sweep evidence are read-only to the app.
+-- Reapply these ACLs after migrations/restore without changing independent verifier grants.
+DO $$
+DECLARE
+  evidence_table text;
+  evidence_oid regclass;
+  signature text;
+  authority_function regprocedure;
+BEGIN
+  IF to_regclass('media.private_generation_bindings') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE, TRUNCATE ON media.private_generation_bindings FROM duora_app;
+    IF has_table_privilege('duora_app', 'media.private_generation_bindings', 'UPDATE')
+       OR has_any_column_privilege('duora_app', 'media.private_generation_bindings', 'UPDATE')
+       OR has_table_privilege('duora_app', 'media.private_generation_bindings', 'DELETE')
+       OR has_table_privilege('duora_app', 'media.private_generation_bindings', 'TRUNCATE') THEN
+      RAISE EXCEPTION 'duora_app may not rewrite private generation bindings';
+    END IF;
+  END IF;
+
+  FOREACH evidence_table IN ARRAY ARRAY['media.private_generation_births', 'media.private_generation_proofs'] LOOP
+    evidence_oid := to_regclass(evidence_table);
+    IF evidence_oid IS NOT NULL THEN
+      EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON %s FROM duora_app', evidence_oid);
+      IF has_table_privilege('duora_app', evidence_oid, 'INSERT')
+         OR has_any_column_privilege('duora_app', evidence_oid, 'INSERT')
+         OR has_table_privilege('duora_app', evidence_oid, 'UPDATE')
+         OR has_any_column_privilege('duora_app', evidence_oid, 'UPDATE')
+         OR has_table_privilege('duora_app', evidence_oid, 'DELETE')
+         OR has_table_privilege('duora_app', evidence_oid, 'TRUNCATE') THEN
+        RAISE EXCEPTION 'duora_app may not forge or rewrite private generation evidence';
+      END IF;
+    END IF;
+  END LOOP;
+
+  FOREACH signature IN ARRAY ARRAY[
+    'media.capture_private_generation_birth()',
+    'media.guard_private_generation_binding()',
+    'media.guard_private_generation_removal()',
+    'media.record_private_generation_sweep(uuid,uuid,integer,uuid,bigint,integer,text,uuid,bigint)'
+  ] LOOP
+    authority_function := to_regprocedure(signature);
+    IF authority_function IS NOT NULL THEN
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM public, duora_app', authority_function);
+      IF has_function_privilege('duora_app', authority_function, 'EXECUTE') THEN
+        RAISE EXCEPTION 'duora_app may not execute private generation authority functions';
+      END IF;
+    END IF;
+  END LOOP;
+END $$;
+
 -- Operational SMTP journal: parent deletion must not bypass the delivery evidence ACL by cascade.
 DO $$
 BEGIN
