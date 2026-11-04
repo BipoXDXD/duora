@@ -50,8 +50,8 @@ public sealed record ReconciliationPreview(
 /// <summary>
 /// Prévia estritamente sem escrita da reconciliação de inscrições legadas (issue #321, proposta seção 6): uma
 /// transação <c>REPEATABLE READ READ ONLY</c> só com SELECTs. Não chama Guard, escritores, jobs nem <c>nextval</c>, e
-/// não grava auditoria, outbox ou idempotência. Ainda não tem rota nem registro em DI: autorização, sessão sem
-/// renovação e envelope assinado são etapas separadas.
+/// não grava auditoria, outbox ou idempotência. A rota (API-ADM25) usa <see cref="ReadAsModeratorAsync"/>, que
+/// revalida a sessão de moderação dentro do mesmo snapshot; o envelope assinado é etapa separada.
 /// </summary>
 public sealed class LegacyRegistrationReconciliationPreviews
 {
@@ -79,16 +79,32 @@ public sealed class LegacyRegistrationReconciliationPreviews
         _maxItems = maxItems;
     }
 
-    public async Task<ReconciliationPreview> ReadAsync(ReconciliationCutover? cutover, ReconciliationPreviewCursor? after,
+    /// <summary>
+    /// Prévia para quem modera: no próprio snapshot, antes de ler inscrições, confere a sessão administrativa viva com
+    /// papel <c>moderator</c>, MFA provado e TOTP recente, como os comandos de suspensão. Null quando a sessão não
+    /// (ou não mais) autoriza: nenhuma linha de participante é lida.
+    /// </summary>
+    public async Task<ReconciliationPreview?> ReadAsModeratorAsync(ModeratorSession moderator,
+        ReconciliationCutover? cutover, ReconciliationPreviewCursor? after, CancellationToken ct)
+    {
+        var asOf = _clock.GetUtcNow();
+        var rows = await ReadSnapshotAsync(moderator, asOf, after, ct);
+        return rows is null ? null : Summarize(asOf, cutover, Assess(rows, cutover, asOf));
+    }
+
+    /// <summary>Prévia sem conferir quem pede; só para ensaio do seletor nos testes.</summary>
+    internal async Task<ReconciliationPreview> ReadAsync(ReconciliationCutover? cutover, ReconciliationPreviewCursor? after,
         CancellationToken ct)
     {
         var asOf = _clock.GetUtcNow();
-        var rows = await ReadSnapshotAsync(after, ct);
-        var units = rows.GroupBy(row => (row.SubjectUserId, row.OriginalMeasureId))
-            .Select(group => Assess(group.ToArray(), cutover, asOf))
-            .ToArray();
-        return Summarize(asOf, cutover, units);
+        var rows = await ReadSnapshotAsync(moderator: null, asOf, after, ct)
+            ?? throw new InvalidOperationException("Sem sessão a conferir, o snapshot sempre devolve linhas.");
+        return Summarize(asOf, cutover, Assess(rows, cutover, asOf));
     }
+
+    private UnitAssessment[] Assess(List<SnapshotRow> rows, ReconciliationCutover? cutover, DateTimeOffset asOf) =>
+        [.. rows.GroupBy(row => (row.SubjectUserId, row.OriginalMeasureId))
+            .Select(group => Assess(group.ToArray(), cutover, asOf))];
 
     private ReconciliationPreview Summarize(DateTimeOffset asOf, ReconciliationCutover? cutover, UnitAssessment[] units)
     {
@@ -153,7 +169,8 @@ public sealed class LegacyRegistrationReconciliationPreviews
             promotes ? Math.Min(available, row.EligibleWaiters) : 0);
     }
 
-    private async Task<List<SnapshotRow>> ReadSnapshotAsync(ReconciliationPreviewCursor? after, CancellationToken ct)
+    private async Task<List<SnapshotRow>?> ReadSnapshotAsync(ModeratorSession? moderator, DateTimeOffset asOf,
+        ReconciliationPreviewCursor? after, CancellationToken ct)
     {
         await using var connection = await _source.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
@@ -161,6 +178,12 @@ public sealed class LegacyRegistrationReconciliationPreviews
         await Execute(connection, "set transaction read only", ct);
         await Execute(connection, "set local statement_timeout='10s'", ct);
         await RequireReadOnlySnapshotAsync(connection, ct);
+        if (moderator is { } session && !await IsModeratorSessionAsync(connection, session, asOf, ct))
+        {
+            await transaction.CommitAsync(ct);
+            return null;
+        }
+
         await using var query = Command(connection, SnapshotSql, AccountRoles.Privileged.ToArray(),
             after?.SubjectUserId ?? (object)DBNull.Value, after?.OriginalMeasureId ?? (object)DBNull.Value);
         query.Parameters[1].NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid;
@@ -175,6 +198,42 @@ public sealed class LegacyRegistrationReconciliationPreviews
         }
         await transaction.CommitAsync(ct);
         return rows;
+    }
+
+    /// <summary>
+    /// Mesmo critério do <c>AccountSuspensions</c> para comandos de moderação (conta ativa com MFA, papel
+    /// <c>moderator</c>, sessão administrativa viva com o security stamp atual, MFA provado) e TOTP no intervalo
+    /// fechado de <see cref="RecentAuthentication.Window"/>; prova no futuro não vale.
+    /// </summary>
+    private static async Task<bool> IsModeratorSessionAsync(NpgsqlConnection connection, ModeratorSession moderator,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        if (moderator.UserId == Guid.Empty || moderator.SessionId == Guid.Empty)
+        {
+            return false;
+        }
+
+        await using var query = Command(connection, """
+            select s.totp_verified_at
+            from identity.users u join identity.login_sessions s on s.user_id=u.id
+            where u.id=$1 and s.id=$2
+              and u.status='Active' and u.email_confirmed and u.two_factor_enabled
+              and u.temporary_password_expires_at is null
+              and exists(select 1 from identity.user_roles ur join identity.roles r on r.id=ur.role_id
+                where ur.user_id=u.id and r.name=$3)
+              and s.policy='Administrative' and s.security_stamp=u.security_stamp
+              and s.revoked_at is null and s.idle_expires_at>$4 and s.absolute_expires_at>$4
+              and s.mfa_verified_at is not null and s.mfa_verified_at<=$4
+            """, moderator.UserId, moderator.SessionId, AccountRoles.Moderator, now);
+        List<DateTimeOffset?> proofs = [];
+        await using (var reader = await query.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                proofs.Add(reader.IsDBNull(0) ? null : reader.GetFieldValue<DateTimeOffset>(0));
+            }
+        }
+        return proofs is [var proof] && RecentAuthentication.IsRecent(proof, now);
     }
 
     /// <summary>A garantia "sem escrita" é do banco, não da disciplina do SQL: sem ela, a prévia não roda.</summary>

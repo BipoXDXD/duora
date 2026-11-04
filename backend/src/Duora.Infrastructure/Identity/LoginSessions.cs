@@ -25,8 +25,8 @@ public sealed record NewLoginSession(
     string AuthenticationMethod = "LocalPassword");
 
 /// <summary>
-/// Sessão válida depois do toque: o ticket e o estado que muda sem novo ticket (reautenticação, prova de MFA) ou
-/// fora da sessão (papéis da conta e senha temporária, lidos agora, não no login).
+/// Sessão válida, lida com ou sem toque: o ticket e o estado que muda sem novo ticket (reautenticação, prova de MFA)
+/// ou fora da sessão (papéis da conta e senha temporária, lidos agora, não no login).
 /// </summary>
 public sealed record TouchedSession(
     byte[] ProtectedTicket,
@@ -42,8 +42,8 @@ public sealed record TouchedSession(
 /// <summary>
 /// Persistência das sessões de login (spec 11.1). A chave opaca do cookie só é guardada como hash. Recuperar uma
 /// sessão é um único UPDATE que confere revogação, expiração ociosa e absoluta e o security stamp atual da conta,
-/// e ao mesmo tempo desliza a expiração ociosa sem passar do limite absoluto. Os instantes vêm do
-/// <see cref="TimeProvider"/> da aplicação.
+/// e ao mesmo tempo desliza a expiração ociosa sem passar do limite absoluto. A única exceção é a leitura sem toque
+/// do ADR-0048, com o mesmo critério e sem UPDATE. Os instantes vêm do <see cref="TimeProvider"/> da aplicação.
 /// </summary>
 public sealed class LoginSessions
 {
@@ -127,35 +127,88 @@ public sealed class LoginSessions
     /// </summary>
     public async Task<TouchedSession?> TouchAsync(string key, CancellationToken cancellationToken)
     {
-        await using var command = _dataSource.CreateCommand(
-            """
-            update identity.login_sessions s
-            set last_seen_at = @now,
-                idle_expires_at = least(
-                    @now + case s.policy when 'Administrative' then @administrative_idle else @normal_idle end,
-                    s.absolute_expires_at)
-            from identity.users u
-            where s.key_hash = @key_hash
-              and s.revoked_at is null
-              and s.idle_expires_at > @now
-              and s.absolute_expires_at > @now
-              and u.id = s.user_id
-              and u.security_stamp = s.security_stamp
-              and (u.temporary_password_expires_at is null or u.temporary_password_expires_at > @now)
-            returning s.ticket, s.policy, s.reauthenticated_at, s.mfa_verified_at, s.totp_verified_at,
-                s.absolute_expires_at,
-                exists (
-                    select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
-                    where ur.user_id = s.user_id and r.name = any(@privileged_roles)),
-                u.temporary_password_expires_at is not null,
-                u.status = 'Suspended'
-            """);
-        command.Parameters.AddWithValue("key_hash", HashKey(key));
-        command.Parameters.AddWithValue("now", _time.GetUtcNow());
+        await using var command = _dataSource.CreateCommand(TouchSql);
+        AddValidityParameters(command, key);
         command.Parameters.AddWithValue("normal_idle", SessionLifetime.For(SessionPolicy.Normal).Idle);
         command.Parameters.AddWithValue("administrative_idle", SessionLifetime.For(SessionPolicy.Administrative).Idle);
-        command.Parameters.AddWithValue("privileged_roles", AccountRoles.Privileged.ToArray());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await ReadStateAsync(reader, cancellationToken);
+    }
+
+    /// <summary>
+    /// As mesmas validações e o mesmo estado de <see cref="TouchAsync"/>, sem UPDATE: não registra o uso nem desliza a
+    /// expiração ociosa. Roda numa transação READ ONLY, então o banco recusa qualquer escrita. Só para a rota marcada
+    /// como leitura sem toque (ADR-0048); a sessão expira pela inatividade anterior como se a requisição não existisse.
+    /// </summary>
+    public async Task<TouchedSession?> ReadValidAsync(string key, CancellationToken cancellationToken)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using (var readOnly = new NpgsqlCommand("set transaction read only", connection, transaction))
+        {
+            await readOnly.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        TouchedSession? session;
+        await using (var command = new NpgsqlCommand(ReadValidSql, connection, transaction))
+        {
+            AddValidityParameters(command, key);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            session = await ReadStateAsync(reader, cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return session;
+    }
+
+    // Toque e leitura sem toque compartilham o critério de validade e o estado devolvido: uma regra só, para que a
+    // leitura nunca aceite uma sessão que o toque recusaria.
+    private const string ValidSessionCondition = """
+        s.key_hash = @key_hash
+          and s.revoked_at is null
+          and s.idle_expires_at > @now
+          and s.absolute_expires_at > @now
+          and u.id = s.user_id
+          and u.security_stamp = s.security_stamp
+          and (u.temporary_password_expires_at is null or u.temporary_password_expires_at > @now)
+        """;
+
+    private const string SessionStateColumns = """
+        s.ticket, s.policy, s.reauthenticated_at, s.mfa_verified_at, s.totp_verified_at,
+            s.absolute_expires_at,
+            exists (
+                select 1 from identity.user_roles ur join identity.roles r on r.id = ur.role_id
+                where ur.user_id = s.user_id and r.name = any(@privileged_roles)),
+            u.temporary_password_expires_at is not null,
+            u.status = 'Suspended'
+        """;
+
+    private const string TouchSql = $"""
+        update identity.login_sessions s
+        set last_seen_at = @now,
+            idle_expires_at = least(
+                @now + case s.policy when 'Administrative' then @administrative_idle else @normal_idle end,
+                s.absolute_expires_at)
+        from identity.users u
+        where {ValidSessionCondition}
+        returning {SessionStateColumns}
+        """;
+
+    private const string ReadValidSql = $"""
+        select {SessionStateColumns}
+        from identity.login_sessions s, identity.users u
+        where {ValidSessionCondition}
+        """;
+
+    private void AddValidityParameters(NpgsqlCommand command, string key)
+    {
+        command.Parameters.AddWithValue("key_hash", HashKey(key));
+        command.Parameters.AddWithValue("now", _time.GetUtcNow());
+        command.Parameters.AddWithValue("privileged_roles", AccountRoles.Privileged.ToArray());
+    }
+
+    private static async Task<TouchedSession?> ReadStateAsync(NpgsqlDataReader reader, CancellationToken cancellationToken)
+    {
         if (!await reader.ReadAsync(cancellationToken))
         {
             return null;

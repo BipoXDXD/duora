@@ -37,6 +37,7 @@ internal sealed partial class PostgresTicketStore(
         HttpContext? httpContext,
         CancellationToken cancellationToken)
     {
+        RefuseWritesOnReadOnlyRoute(httpContext);
         var identity = ticket.Principal.Identities.Single(identity => identity.IsAuthenticated);
         var userId = DuoraClaims.ReadUserId(ticket.Principal)
             ?? throw new InvalidOperationException("Ticket sem identificador de usuário.");
@@ -87,6 +88,12 @@ internal sealed partial class PostgresTicketStore(
 
     public Task RenewAsync(string key, AuthenticationTicket ticket) => RenewAsync(key, ticket, CancellationToken.None);
 
+    public Task RenewAsync(string key, AuthenticationTicket ticket, HttpContext httpContext, CancellationToken cancellationToken)
+    {
+        RefuseWritesOnReadOnlyRoute(httpContext);
+        return RenewAsync(key, ticket, cancellationToken);
+    }
+
     public Task RenewAsync(string key, AuthenticationTicket ticket, CancellationToken cancellationToken)
     {
         RemoveSessionState(ticket.Principal.Identities.Single(identity => identity.IsAuthenticated));
@@ -95,10 +102,22 @@ internal sealed partial class PostgresTicketStore(
 
     public Task<AuthenticationTicket?> RetrieveAsync(string key) => RetrieveAsync(key, CancellationToken.None);
 
-    public async Task<AuthenticationTicket?> RetrieveAsync(string key, CancellationToken cancellationToken)
+    public Task<AuthenticationTicket?> RetrieveAsync(string key, CancellationToken cancellationToken) =>
+        RetrieveAsync(key, httpContext: null, cancellationToken);
+
+    /// <summary>
+    /// Toda requisição toca a sessão (ADR-0019), salvo a rota marcada com <see cref="ReadOnlySessionEndpoint"/>, que
+    /// só a lê com o mesmo critério (ADR-0048). Falha de leitura propaga: a requisição não é autenticada.
+    /// </summary>
+    public async Task<AuthenticationTicket?> RetrieveAsync(
+        string key,
+        HttpContext? httpContext,
+        CancellationToken cancellationToken)
     {
-        if (await sessions.TouchAsync(key, cancellationToken) is not { } session
-            || Unprotect(session.ProtectedTicket) is not { } ticket)
+        var read = ReadOnlySessionEndpoint.Applies(httpContext)
+            ? sessions.ReadValidAsync(key, cancellationToken)
+            : sessions.TouchAsync(key, cancellationToken);
+        if (await read is not { } session || Unprotect(session.ProtectedTicket) is not { } ticket)
         {
             return null;
         }
@@ -133,6 +152,22 @@ internal sealed partial class PostgresTicketStore(
 
     public Task RemoveAsync(string key, CancellationToken cancellationToken) =>
         sessions.RevokeByKeyAsync(key, LogoutReason, cancellationToken);
+
+    /// <summary>
+    /// Na rota de leitura sem toque nada é revogado: o handler de cookie só remove aqui o ticket que ele mesmo julgou
+    /// expirado, e essa sessão já não autentica pelo banco.
+    /// </summary>
+    public Task RemoveAsync(string key, HttpContext httpContext, CancellationToken cancellationToken) =>
+        ReadOnlySessionEndpoint.Applies(httpContext) ? Task.CompletedTask : RemoveAsync(key, cancellationToken);
+
+    /// <summary>Gravar ou renovar sessão na rota de leitura sem toque é defeito de quem chamou: falha alto, sem escrever.</summary>
+    private static void RefuseWritesOnReadOnlyRoute(HttpContext? httpContext)
+    {
+        if (ReadOnlySessionEndpoint.Applies(httpContext))
+        {
+            throw new InvalidOperationException("A rota de leitura sem toque não grava nem renova sessão.");
+        }
+    }
 
     private byte[] Protect(AuthenticationTicket ticket) => _protector.Protect(TicketSerializer.Default.Serialize(ticket));
 

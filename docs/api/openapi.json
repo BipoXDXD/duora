@@ -4396,6 +4396,81 @@
         }
       }
     },
+    "/api/v1/admin/registration-reconciliations/preview": {
+      "get": {
+        "tags": [
+          "RegistrationReconciliation"
+        ],
+        "parameters": [
+          {
+            "name": "cursorSubject",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursorMeasure",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationReconciliationPreviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/photos": {
       "post": {
         "tags": [
@@ -7224,6 +7299,163 @@
         "additionalProperties": false,
         "description": "Reautenticação (API-A13): senha e, se a conta tem MFA, o código do autenticador."
       },
+      "ReconciliationIssueCountResponse": {
+        "required": [
+          "issue",
+          "registrations"
+        ],
+        "type": "object",
+        "properties": {
+          "issue": {
+            "type": "string"
+          },
+          "registrations": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Inscrições não candidatas por motivo principal (precedência do seletor), só os motivos presentes."
+      },
+      "ReconciliationPreviewCursorResponse": {
+        "required": [
+          "cursorSubject",
+          "cursorMeasure"
+        ],
+        "type": "object",
+        "properties": {
+          "cursorSubject": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cursorMeasure": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Valores para `cursorSubject` e `cursorMeasure` da próxima página."
+      },
+      "ReconciliationPreviewItemResponse": {
+        "required": [
+          "eventId",
+          "registrationVersion",
+          "state",
+          "maxReleasedSeats",
+          "maxPromotions"
+        ],
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "registrationVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "state": {
+            "type": "string"
+          },
+          "maxReleasedSeats": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxPromotions": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Inscrição candidata: versão observada, estado (Waitlisted | Confirmed | CheckedIn) e tetos condicionais de vagas\nliberadas e de promoções."
+      },
+      "ReconciliationPreviewUnitResponse": {
+        "required": [
+          "subjectUserId",
+          "originalMeasureId",
+          "measureVersion",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "subjectUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "originalMeasureId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "measureVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationPreviewItemResponse"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "description": "Conta/medida original com as inscrições candidatas e a versão observada da medida."
+      },
+      "ReconciliationUnitCountsResponse": {
+        "required": [
+          "eligible",
+          "blocked",
+          "oversized"
+        ],
+        "type": "object",
+        "properties": {
+          "eligible": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "blocked": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "oversized": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Unidades conta/medida: elegíveis, pausadas por integridade e grandes demais para aplicação automática."
+      },
       "RecoverSelfieSuspensionRequest": {
         "required": [
           "internalReason"
@@ -7372,6 +7604,83 @@
         },
         "additionalProperties": false,
         "description": "Cadastro (API-A02). `ConfirmedAdult` é a confirmação explícita \"Declaro ter 18 anos ou mais\" pedida pelos\nTermos e precisa ser `true`. Não informa idade nem data de nascimento e não é verificação etária."
+      },
+      "RegistrationReconciliationPreviewResponse": {
+        "required": [
+          "asOf",
+          "selectorVersion",
+          "evidenceId",
+          "registrationsByPrimaryIssue",
+          "actionableRegistrations",
+          "heldRegistrations",
+          "units",
+          "page",
+          "next"
+        ],
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "selectorVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "evidenceId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "registrationsByPrimaryIssue": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationIssueCountResponse"
+            }
+          },
+          "actionableRegistrations": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "heldRegistrations": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "units": {
+            "$ref": "#/components/schemas/ReconciliationUnitCountsResponse"
+          },
+          "page": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationPreviewUnitResponse"
+            }
+          },
+          "next": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReconciliationPreviewCursorResponse"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "Prévia da reconciliação de inscrições legadas (API-ADM25, issue #321), num único snapshot sem escrita. Só chaves\ne contagens: nada de nome, e-mail ou motivo interno. `AsOf` em UTC, com \"Z\". `EvidenceId` é o\ndescritor de corte configurado no servidor, ou null quando não há corte (nada é candidato). As contagens cobrem\ntoda a população do snapshot; páginas pedidas em separado têm snapshots próprios."
       },
       "ResetPasswordRequest": {
         "required": [
@@ -8332,6 +8641,9 @@
     },
     {
       "name": "AccountModeration"
+    },
+    {
+      "name": "RegistrationReconciliation"
     },
     {
       "name": "Photos"

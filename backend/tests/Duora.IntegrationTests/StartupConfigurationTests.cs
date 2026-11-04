@@ -58,6 +58,28 @@ public sealed class StartupConfigurationTests
         Assert.Equal(5, connection.Timeout);
     }
 
+    /// <summary>
+    /// Descritor do corte da reconciliação (issue #321): ausente vale (nada é candidato); presente, precisa estar
+    /// completo, com identificador fechado e instantes UTC explícitos e ordenados, ou a Web não sobe.
+    /// </summary>
+    [Theory]
+    [InlineData("--RegistrationReconciliation:Cutover:EvidenceId=deploy-1")]
+    [InlineData("--RegistrationReconciliation:Cutover:Lower=2026-10-31T12:00:00Z")]
+    [InlineData("--RegistrationReconciliation:Cutover:EvidenceId=deploy-1", "--RegistrationReconciliation:Cutover:Lower=2026-10-31T12:00:00Z")]
+    [InlineData("--RegistrationReconciliation:Cutover:EvidenceId=deploy 1", "--RegistrationReconciliation:Cutover:Lower=2026-10-31T12:00:00Z", "--RegistrationReconciliation:Cutover:Upper=2026-10-31T12:10:00Z")]
+    [InlineData("--RegistrationReconciliation:Cutover:EvidenceId=deploy-1", "--RegistrationReconciliation:Cutover:Lower=2026-10-31T09:00:00-03:00", "--RegistrationReconciliation:Cutover:Upper=2026-10-31T12:10:00Z")]
+    [InlineData("--RegistrationReconciliation:Cutover:EvidenceId=deploy-1", "--RegistrationReconciliation:Cutover:Lower=2026-10-31T12:00:00Z", "--RegistrationReconciliation:Cutover:Upper=2026-10-31T12:10:00")]
+    [InlineData("--RegistrationReconciliation:Cutover:EvidenceId=deploy-1", "--RegistrationReconciliation:Cutover:Lower=2026-10-31T12:10:00Z", "--RegistrationReconciliation:Cutover:Upper=2026-10-31T12:00:00Z")]
+    public async Task WebDoesNotStartWithAnIncompleteOrInvalidReconciliationCutover(params string[] settings)
+    {
+        await using var app = BuildWeb(settings);
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => app.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("RegistrationReconciliation:Cutover", exception.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("duora.app")]

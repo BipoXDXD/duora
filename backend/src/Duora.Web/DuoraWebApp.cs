@@ -67,6 +67,7 @@ internal static class DuoraWebApp
         builder.Services.AddDuoraProfiles();
         builder.Services.AddParticipation();
         builder.Services.AddDuoraSafety();
+        builder.Services.AddRegistrationReconciliationPreview();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
         builder.Services.AddPhotoLibrary(builder.Configuration);
         builder.Services.AddSelfieVerification();
@@ -135,6 +136,7 @@ internal static class DuoraWebApp
         var admin = api.MapAdminEndpoints(app.Services.GetServices<AdminRoutes>());
         admin.MapPhotoReviewAdminEndpoints();
         admin.MapAccountSuspensionAdminEndpoints();
+        admin.MapRegistrationReconciliationAdminEndpoints();
         api.MapPhotoEndpoints();
         api.MapPhotoReviewOwnerEndpoints();
         api.MapMediaAssetEndpoints();

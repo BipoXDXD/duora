@@ -175,3 +175,10 @@ contratos ou o protocolo da outbox. Pickup continua disponível para desenvolvim
 O [runbook](../../operations/resend.md) define configuração por segredo do worker, falha fechada para
 configuração inválida, limite de deduplicação do provedor (24 h), aceite versus entrega e rollback sem
 consumir pendências externas com pickup. A revisão humana e ativação operacional continuam separadas.
+
+## Revisão: leitura sem toque (04/11/2026)
+
+O item 2 da Decisão ganha uma exceção fechada: a rota marcada com `ReadOnlySessionEndpoint` (hoje só a prévia
+da reconciliação, API-ADM25) lê a sessão com o mesmo critério, sem UPDATE e sem gravar, renovar ou revogar. Ver
+[ADR-0048](0048-leitura-de-sessao-sem-toque-na-previa-de-reconciliacao.md). As demais rotas continuam tocando a
+sessão a cada requisição.
