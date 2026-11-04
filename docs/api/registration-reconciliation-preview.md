@@ -9,7 +9,7 @@ administrativa de leitura, sem nenhuma mutação lógica no banco. Não cria run
 
 ## Autorização
 
-Na ordem em que é verificada; de 1 a 5, antes de ler o cursor:
+Na ordem em que é verificada; de 1 a 6, antes de ler o cursor:
 
 1. Sessão por cookie (`401 UNAUTHENTICATED` sem ela). A sessão é **lida sem toque**
    ([ADR-0048](../architecture/adr/0048-leitura-de-sessao-sem-toque-na-previa-de-reconciliacao.md)): a prévia não
@@ -21,8 +21,14 @@ Na ordem em que é verificada; de 1 a 5, antes de ler o cursor:
 5. TOTP provado na última hora, intervalo fechado do ADR-0041; prova futura não vale
    (`401 REAUTHENTICATION_REQUIRED`). O step-up é a rota existente de reautenticação, que escreve e é separada da
    prévia.
-6. O leitor repete a verificação 3 e 5 dentro do snapshot `REPEATABLE READ READ ONLY` antes de ler inscrições;
+6. Limite de 6 prévias por minuto por conta moderadora (inclusive pedidos com cursor inválido):
+   `429 RATE_LIMITED` com `Retry-After`, sem ler o banco. Em memória da instância; com mais de uma réplica, cada
+   uma contaria à parte (limitação registrada no ADR-0048).
+7. O leitor repete a verificação 3 e 5 dentro do snapshot `REPEATABLE READ READ ONLY` antes de ler inscrições;
    se ela falhar ali, `403 ACCOUNT_MODERATION_FORBIDDEN`.
+
+A checagem do papel na policy (passo 3) é um SELECT em autocommit, fora do snapshot; a garantia de não escrever vem
+da revalidação no snapshot `READ ONLY` e é conferida pelo fingerprint dos testes.
 
 A identidade vem só da sessão; o cliente não informa conta nem sessão.
 
@@ -33,6 +39,12 @@ formato canônico com hífens, diferente de zero. Um só, vazio, outro formato, 
 controle: `400 VALIDATION_FAILED` com `errors.cursor = ["INVALID_FORMAT"]`, sem ecoar o valor.
 
 O cliente não envia timestamp nem evidência. O corte vem da configuração do servidor (seção abaixo).
+
+## Timeout
+
+Cada consulta do snapshot tem `statement_timeout` de 10 s. Estourado, `503 TEMPORARILY_UNAVAILABLE` com
+`Retry-After: 30`, corpo só com campos de Problem Details e nenhuma escrita. Repetir depois da espera; não
+insistir em sequência (o limite por minuto continua contando).
 
 ## Resposta `200`
 

@@ -18,6 +18,9 @@ internal static class RegistrationReconciliationEndpoints
 {
     private const string CursorField = "cursor";
 
+    /// <summary>Espera sugerida quando o snapshot passa do statement_timeout; a consulta é cara, não insistir já.</summary>
+    private static readonly TimeSpan TimeoutRetryAfter = TimeSpan.FromSeconds(30);
+
     internal static void MapRegistrationReconciliationAdminEndpoints(this RouteGroupBuilder admin)
     {
         admin.MapGroup("/registration-reconciliations").WithTags("RegistrationReconciliation")
@@ -29,6 +32,7 @@ internal static class RegistrationReconciliationEndpoints
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
     }
 
@@ -38,20 +42,37 @@ internal static class RegistrationReconciliationEndpoints
         HttpContext http,
         LegacyRegistrationReconciliationPreviews previews,
         IOptions<RegistrationReconciliationCutoverOptions> cutover,
+        ReconciliationPreviewLimiter limiter,
         CancellationToken cancellationToken)
     {
+        var (userId, sessionId) = CurrentSession.Require(http);
+        // Depois da autorização e antes do cursor: pedido inválido também conta, e o 429 não lê nada do banco.
+        if (limiter.TryConsume(userId) is { } retryAfter)
+        {
+            return ApiProblems.TooManyRequests(http, retryAfter);
+        }
+
         if (!TryReadCursor(cursorSubject, cursorMeasure, out var after))
         {
             return ApiProblems.Validation(new Dictionary<string, string[]> { [CursorField] = [RequestValidation.InvalidFormat] });
         }
 
         var evidence = cutover.Value.Evidence();
-        var (userId, sessionId) = CurrentSession.Require(http);
-        var preview = await previews.ReadAsModeratorAsync(
+        var outcome = await previews.ReadAsModeratorAsync(
             new ModeratorSession(userId, sessionId), evidence?.Cutover, after, cancellationToken);
-        return preview is null
-            ? ApiProblems.Problem(StatusCodes.Status403Forbidden, ApiProblems.AccountModerationForbidden)
-            : TypedResults.Ok(Response(preview, evidence?.Id));
+        switch (outcome)
+        {
+            case ReconciliationPreviewOutcome.Ready ready:
+                return TypedResults.Ok(Response(ready.Preview, evidence?.Id));
+            case ReconciliationPreviewOutcome.Forbidden:
+                return ApiProblems.Problem(StatusCodes.Status403Forbidden, ApiProblems.AccountModerationForbidden);
+            case ReconciliationPreviewOutcome.TimedOut:
+                // Só esta rota: o statement_timeout da prévia não passa a valer como indisponibilidade em outras.
+                ApiProblems.SetRetryAfter(http, TimeoutRetryAfter);
+                return ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable);
+            default:
+                throw new InvalidOperationException("Prévia sem resultado mapeado.");
+        }
     }
 
     /// <summary>Os dois campos juntos ou nenhum; cada um um UUID no formato canônico com hífens, diferente de zero.</summary>

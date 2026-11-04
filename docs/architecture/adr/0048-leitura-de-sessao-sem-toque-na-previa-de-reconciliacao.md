@@ -54,6 +54,24 @@ colateral antes de autorizar qualquer aplicação.
 
 ## Segurança e operação
 
+**Onde a garantia "sem escrita" mora.** A policy `account-moderator` (`AccountModeratorHandler`) consulta o papel
+ao vivo antes do handler com um SELECT em autocommit, fora de transação `READ ONLY`; a policy é global e não muda
+aqui. Essa checagem prévia só decide se a requisição prossegue. A garantia vem de duas outras peças: a leitura da
+sessão (`ReadValidAsync`) e a revalidação da moderação dentro do snapshot `REPEATABLE READ READ ONLY` do leitor,
+em que o PostgreSQL recusa qualquer escrita, e o fingerprint de todas as tabelas e sequências nos testes, que
+cobre também o SELECT em autocommit.
+
+**Limite de uso.** 6 prévias por minuto por conta moderadora (`RateLimiting:ReconciliationPreviewPerModerator`),
+contadas depois da autorização e antes do cursor; acima disso, `429 RATE_LIMITED` com `Retry-After`, sem ler o
+banco. O limite fica em memória da instância, como os demais (ADR-0009). **Limitação registrada:** a regra geral
+pede estado compartilhado entre réplicas; hoje há uma só instância web, e uma segunda réplica teria contagem
+própria até o limite ir para estado compartilhado. Não é `RequireRateLimiting` porque o middleware de rate limit
+roda antes da autenticação e não enxerga a conta.
+
+**Timeout.** O snapshot tem `statement_timeout` de 10 s. Estourado (57014 sem cancelamento do cliente), a rota
+responde `503 TEMPORARILY_UNAVAILABLE` com `Retry-After` de 30 s e corpo só de Problem Details. O mapeamento é da
+prévia; `DatabaseUnavailability` não passa a tratar 57014 nas outras rotas.
+
 Nada relaxa nas outras rotas. Na rota marcada valem sessão administrativa, MFA, papel `moderator` lido ao vivo
 pela policy, TOTP recente pelo step-up existente e prova de contexto privado (CSRF em leitura privada). O leitor
 revalida a sessão de moderação dentro do próprio snapshot `REPEATABLE READ READ ONLY`. `last_seen_at` deixa de
@@ -69,3 +87,6 @@ metadado da rota (volta a tocar) ou a rota inteira; nenhum dado é migrado.
   continuam deslizando a sessão.
 - `RegistrationReconciliationPreviewHttpTests`: 401, 403 por papel, step-up, CSRF e 400 de cursor, com corpo de
   erro sem dados.
+- `RegistrationReconciliationPreviewEffectsTests`: N+1 prévias → 429 com `Retry-After` e fingerprint igual, outro
+  moderador não afetado; timeout forçado (lock `ACCESS EXCLUSIVE` e teto menor injetado só no teste) → 503 sem
+  dados e fingerprint igual.

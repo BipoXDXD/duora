@@ -7,6 +7,7 @@ using Duora.Core.Identity;
 using Duora.Infrastructure.Safety;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Safety;
@@ -124,6 +125,66 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         Assert.Equal(before, await FingerprintAsync(s));
     }
 
+    /// <summary>Limite em memória por conta moderadora: 6 prévias por minuto (ADR-0048).</summary>
+    [Fact]
+    public async Task BeyondTheLimitPerModeratorThePreviewIsTooManyRequestsAndWritesNothing()
+    {
+        await using var s = await ScenarioAsync();
+        await SuspendBeforePolicyAsync(s, s.Seed.Alice);
+        await using var host = Host(s);
+        using var moderator = await ModeratorAsync(s, host);
+        using var other = await ModeratorAsync(s, host);
+        for (var attempt = 1; attempt <= 6; attempt++)
+        {
+            using var allowed = await moderator.GetAsync(attempt == 6 ? $"{Path}?cursorSubject=x" : Path);
+            Assert.True(allowed.StatusCode is HttpStatusCode.OK or HttpStatusCode.BadRequest, $"Prévia {attempt}: {allowed.StatusCode}.");
+        }
+        var before = await FingerprintAsync(s);
+        var cookies = CookiesOf(moderator);
+
+        using var limited = await moderator.GetAsync(Path);
+        using var otherModerator = await other.GetAsync(Path);
+
+        var body = await ProblemAssert.IsProblemAsync(limited, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
+        Assert.True(ProblemAssert.RetryAfterSeconds(limited) is > 0 and <= 60);
+        Assert.Equal(["code", "status", "title", "traceId", "type"], body.Select(p => p.Key).Order(StringComparer.Ordinal));
+        Assert.False(limited.Headers.Contains("Set-Cookie"));
+        Assert.Equal(HttpStatusCode.OK, otherModerator.StatusCode);
+        Assert.Equal(cookies, CookiesOf(moderator));
+        Assert.Equal(before, await FingerprintAsync(s));
+    }
+
+    [Fact]
+    public async Task AStatementTimeoutIsTemporarilyUnavailableWithoutDataAndWritesNothing()
+    {
+        await using var s = await ScenarioAsync();
+        await SuspendBeforePolicyAsync(s, s.Seed.Alice);
+        await using var host = Host(s, statementTimeout: TimeSpan.FromMilliseconds(200));
+        using var moderator = await ModeratorAsync(s, host);
+        var before = await FingerprintAsync(s);
+
+        HttpResponseMessage response;
+        await using (var holder = new NpgsqlConnection(s.Database.MigratorConnectionString))
+        {
+            await holder.OpenAsync(Ct);
+            await using var transaction = await holder.BeginTransactionAsync(Ct);
+            await using (var exclusive = new NpgsqlCommand("lock table events.registrations in access exclusive mode", holder, transaction))
+            {
+                await exclusive.ExecuteNonQueryAsync(Ct);
+            }
+            response = await moderator.GetAsync(Path);
+            await transaction.RollbackAsync(Ct);
+        }
+
+        using (response)
+        {
+            var body = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.ServiceUnavailable, "TEMPORARILY_UNAVAILABLE");
+            Assert.True(ProblemAssert.RetryAfterSeconds(response) > 0);
+            Assert.Equal(["code", "status", "title", "traceId", "type"], body.Select(p => p.Key).Order(StringComparer.Ordinal));
+        }
+        Assert.Equal(before, await FingerprintAsync(s));
+    }
+
     [Fact]
     public async Task ThePreviewNeverExtendsTheIdleLimitAndNeverRevokesTheExpiredSession()
     {
@@ -177,24 +238,24 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         var session = new ModeratorSession(account.UserId, await MfaScenario.ReadSessionIdAsync(browser));
         var previews = host.Services.GetRequiredService<LegacyRegistrationReconciliationPreviews>();
 
-        Assert.NotNull(await previews.ReadAsModeratorAsync(session, cutover: null, after: null, Ct));
-        Assert.Null(await previews.ReadAsModeratorAsync(session with { SessionId = Guid.NewGuid() }, null, null, Ct));
-        Assert.Null(await previews.ReadAsModeratorAsync(session with { UserId = s.Seed.Alice }, null, null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Ready>(await previews.ReadAsModeratorAsync(session, cutover: null, after: null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session with { SessionId = Guid.NewGuid() }, null, null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session with { UserId = s.Seed.Alice }, null, null, Ct));
 
         await s.ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1",
             session.SessionId, s.Clock.GetUtcNow() - RecentAuthentication.Window - TimeSpan.FromTicks(10));
-        Assert.Null(await previews.ReadAsModeratorAsync(session, null, null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session, null, null, Ct));
         await s.ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1",
             session.SessionId, s.Clock.GetUtcNow().AddMinutes(1));
-        Assert.Null(await previews.ReadAsModeratorAsync(session, null, null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session, null, null, Ct));
         await s.ExecuteAsync("update identity.login_sessions set totp_verified_at=$2 where id=$1",
             session.SessionId, s.Clock.GetUtcNow());
-        Assert.NotNull(await previews.ReadAsModeratorAsync(session, null, null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Ready>(await previews.ReadAsModeratorAsync(session, null, null, Ct));
 
         await s.ExecuteAsync(
             "delete from identity.user_roles where user_id=$1 and role_id=(select id from identity.roles where name=$2)",
             account.UserId, AccountRoles.Moderator);
-        Assert.Null(await previews.ReadAsModeratorAsync(session, null, null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session, null, null, Ct));
     }
 
     private async Task<SuspendedRegistrationScenario> ScenarioAsync()
@@ -222,16 +283,26 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
     }
 
     /// <summary>Web sobre o banco do cenário, com um descritor de corte sintético posterior às fixtures.</summary>
-    private static DuoraWebFactory Host(SuspendedRegistrationScenario s) => new(s.Database.AppConnectionString)
-    {
-        Time = s.Clock,
-        Settings = new Dictionary<string, string?>
+    private static DuoraWebFactory Host(SuspendedRegistrationScenario s, TimeSpan? statementTimeout = null) =>
+        new(s.Database.AppConnectionString)
         {
-            ["RegistrationReconciliation:Cutover:EvidenceId"] = EvidenceId,
-            ["RegistrationReconciliation:Cutover:Lower"] = Utc(s.Clock.GetUtcNow().AddMinutes(1)),
-            ["RegistrationReconciliation:Cutover:Upper"] = Utc(s.Clock.GetUtcNow().AddMinutes(2)),
-        },
-    };
+            Time = s.Clock,
+            // Só o teto do statement_timeout muda, para provocar o timeout sem esperar os 10 s de produção.
+            TestServices = statementTimeout is not { } timeout ? null : services =>
+            {
+                services.RemoveAll<LegacyRegistrationReconciliationPreviews>();
+                services.AddSingleton(provider => new LegacyRegistrationReconciliationPreviews(
+                    provider.GetRequiredService<NpgsqlDataSource>(), provider.GetRequiredService<TimeProvider>(),
+                    LegacyRegistrationReconciliationPreviews.MaxUnitsPerPage,
+                    LegacyRegistrationReconciliationPreviews.MaxItemsPerPage, timeout));
+            },
+            Settings = new Dictionary<string, string?>
+            {
+                ["RegistrationReconciliation:Cutover:EvidenceId"] = EvidenceId,
+                ["RegistrationReconciliation:Cutover:Lower"] = Utc(s.Clock.GetUtcNow().AddMinutes(1)),
+                ["RegistrationReconciliation:Cutover:Upper"] = Utc(s.Clock.GetUtcNow().AddMinutes(2)),
+            },
+        };
 
     private static string Utc(DateTimeOffset instant) =>
         instant.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);

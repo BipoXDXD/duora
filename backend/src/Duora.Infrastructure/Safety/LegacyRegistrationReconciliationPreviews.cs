@@ -47,36 +47,63 @@ public sealed record ReconciliationPreview(
     IReadOnlyList<ReconciliationPreviewUnit> Page,
     ReconciliationPreviewCursor? Next);
 
+/// <summary>Resultado da prévia pedida por quem modera.</summary>
+public abstract record ReconciliationPreviewOutcome
+{
+    private ReconciliationPreviewOutcome()
+    {
+    }
+
+    public sealed record Ready(ReconciliationPreview Preview) : ReconciliationPreviewOutcome;
+
+    /// <summary>A sessão não autoriza (ou não autoriza mais) a moderação no snapshot: nenhuma inscrição foi lida.</summary>
+    public sealed record Forbidden : ReconciliationPreviewOutcome;
+
+    /// <summary>O snapshot passou do <c>statement_timeout</c>; nada foi lido até o fim e nada foi escrito.</summary>
+    public sealed record TimedOut : ReconciliationPreviewOutcome;
+}
+
 /// <summary>
 /// Prévia estritamente sem escrita da reconciliação de inscrições legadas (issue #321, proposta seção 6): uma
 /// transação <c>REPEATABLE READ READ ONLY</c> só com SELECTs. Não chama Guard, escritores, jobs nem <c>nextval</c>, e
 /// não grava auditoria, outbox ou idempotência. A rota (API-ADM25) usa <see cref="ReadAsModeratorAsync"/>, que
-/// revalida a sessão de moderação dentro do mesmo snapshot; o envelope assinado é etapa separada.
+/// revalida a sessão de moderação dentro do mesmo snapshot e devolve o timeout como resultado próprio; o envelope
+/// assinado é etapa separada.
 /// </summary>
 public sealed class LegacyRegistrationReconciliationPreviews
 {
     public const int MaxUnitsPerPage = 10;
     public const int MaxItemsPerPage = 100;
 
+    /// <summary>Teto de cada consulta do snapshot (proposta, seção 6).</summary>
+    public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(10);
+
     private readonly NpgsqlDataSource _source;
     private readonly TimeProvider _clock;
     private readonly int _maxUnits;
     private readonly int _maxItems;
+    private readonly TimeSpan _statementTimeout;
 
     public LegacyRegistrationReconciliationPreviews(NpgsqlDataSource source, TimeProvider clock)
-        : this(source, clock, MaxUnitsPerPage, MaxItemsPerPage)
+        : this(source, clock, MaxUnitsPerPage, MaxItemsPerPage, StatementTimeout)
     {
     }
 
-    /// <summary>Tetos menores só para ensaiar paginação e unidades grandes com poucos dados sintéticos.</summary>
-    internal LegacyRegistrationReconciliationPreviews(NpgsqlDataSource source, TimeProvider clock, int maxUnits, int maxItems)
+    /// <summary>
+    /// Tetos menores só para ensaiar paginação, unidades grandes e timeout com poucos dados sintéticos.
+    /// </summary>
+    internal LegacyRegistrationReconciliationPreviews(NpgsqlDataSource source, TimeProvider clock, int maxUnits, int maxItems,
+        TimeSpan? statementTimeout = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maxUnits, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxItems, 1);
+        var timeout = statementTimeout ?? StatementTimeout;
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeout, TimeSpan.FromMilliseconds(1));
         _source = source;
         _clock = clock;
         _maxUnits = maxUnits;
         _maxItems = maxItems;
+        _statementTimeout = timeout;
     }
 
     /// <summary>
@@ -84,12 +111,25 @@ public sealed class LegacyRegistrationReconciliationPreviews
     /// papel <c>moderator</c>, MFA provado e TOTP recente, como os comandos de suspensão. Null quando a sessão não
     /// (ou não mais) autoriza: nenhuma linha de participante é lida.
     /// </summary>
-    public async Task<ReconciliationPreview?> ReadAsModeratorAsync(ModeratorSession moderator,
+    public async Task<ReconciliationPreviewOutcome> ReadAsModeratorAsync(ModeratorSession moderator,
         ReconciliationCutover? cutover, ReconciliationPreviewCursor? after, CancellationToken ct)
     {
         var asOf = _clock.GetUtcNow();
-        var rows = await ReadSnapshotAsync(moderator, asOf, after, ct);
-        return rows is null ? null : Summarize(asOf, cutover, Assess(rows, cutover, asOf));
+        List<SnapshotRow>? rows;
+        try
+        {
+            rows = await ReadSnapshotAsync(moderator, asOf, after, ct);
+        }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.QueryCanceled && !ct.IsCancellationRequested)
+        {
+            // 57014 sem cancelamento do pedido é o statement_timeout desta transação READ ONLY: indisponibilidade
+            // passageira da prévia, não defeito. O cancelamento do cliente continua propagando como antes.
+            return new ReconciliationPreviewOutcome.TimedOut();
+        }
+
+        return rows is null
+            ? new ReconciliationPreviewOutcome.Forbidden()
+            : new ReconciliationPreviewOutcome.Ready(Summarize(asOf, cutover, Assess(rows, cutover, asOf)));
     }
 
     /// <summary>Prévia sem conferir quem pede; só para ensaio do seletor nos testes.</summary>
@@ -176,7 +216,8 @@ public sealed class LegacyRegistrationReconciliationPreviews
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
         // Antes da primeira consulta: a partir daqui o PostgreSQL recusa qualquer escrita lógica nesta transação.
         await Execute(connection, "set transaction read only", ct);
-        await Execute(connection, "set local statement_timeout='10s'", ct);
+        await Execute(connection, "select set_config('statement_timeout', $1, true)", ct,
+            $"{(long)_statementTimeout.TotalMilliseconds}ms");
         await RequireReadOnlySnapshotAsync(connection, ct);
         if (moderator is { } session && !await IsModeratorSessionAsync(connection, session, asOf, ct))
         {

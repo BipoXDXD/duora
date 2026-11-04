@@ -87,6 +87,7 @@ internal static class DuoraWebApp
         builder.Services.AddSingleton<TrustedOrigins>();
         builder.Services.AddAuthRateLimiting();
         builder.Services.AddBlockRateLimiting();
+        builder.Services.AddRegistrationReconciliationRateLimiting();
         builder.Services.AddPhotoUploadRateLimiting();
         builder.Services.AddRegionDetectionRateLimiting();
         var countryDatabase = builder.Services.AddCountryDatabaseRuntime(builder.Configuration, worker: false);
