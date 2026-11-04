@@ -57,7 +57,7 @@ RUN case "$TARGETARCH" in \
 
 # --- web: ASP.NET Core em Ubuntu chiseled (sem shell, sem gerenciador de pacotes, usuário app 1654) ----------------
 # A variante -extra traz ICU e tzdata: o app não roda em modo de globalização invariante.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.13-noble-chiseled-extra@sha256:3ed6558056b54d5c9dfefb7ff473728e022ff2bf1d976cbf8ee07b05ec594374 AS web
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-chiseled-extra@sha256:9b755ea799ae649141a073e30d8b62d8095a5465af2b7694d17866e8c05131d8 AS web
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="duora-web" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \
@@ -75,7 +75,7 @@ ENTRYPOINT ["dotnet", "Duora.Web.dll"]
 # --- worker: runtime .NET puro (sem ASP.NET Core), mesmo hardening -----------------------------------------------
 # O runtimeconfig do worker não pode exigir Microsoft.AspNetCore.App (ADR-0019, "Revisão: separação do runtime
 # web"); Duora.ArchitectureTests falha no build se isso mudar, antes de a imagem quebrar no start.
-FROM mcr.microsoft.com/dotnet/runtime:10.0.13-noble-chiseled-extra@sha256:11f4c921d75b7a1f19d4eb5b7069f9e92a9d1b8412a04b3475a664b62a9b88cb AS worker
+FROM mcr.microsoft.com/dotnet/runtime:10.0.14-noble-chiseled-extra@sha256:2fbc014e87df3d50948f8710f200ddca0183388904ec35c8ad7e481ef6f8a230 AS worker
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="duora-worker" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \
@@ -87,7 +87,7 @@ ENTRYPOINT ["dotnet", "Duora.Worker.dll"]
 
 # --- migrator: bundle do EF Core, executado por job exclusivo (nunca no startup do web/worker) --------------------
 # runtime-deps não chiseled: o bundle é self-contained e o wrapper em sh lê a connection string do arquivo de segredo.
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.13-noble@sha256:da5846024d0008b48259b53a8953d39381fe5b7ec99ef1449ba4ba927f201490 AS migrator
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.14-noble@sha256:62028293921f5bd6db3d9f9119cd29cd926dfd3c2336da23b09f425e40c3c832 AS migrator
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="duora-migrator" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \
