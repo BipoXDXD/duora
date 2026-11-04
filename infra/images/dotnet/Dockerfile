@@ -6,7 +6,7 @@
 # --- Build: roda na arquitetura da máquina de build (sem emulação) ---------------------------------------------
 # A saída de web e worker é IL portátil (UseAppHost=false), igual para amd64 e arm64; só o bundle de migração tem
 # código nativo e por isso é gerado com o RID do alvo.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.402-noble@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
 WORKDIR /src
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=true \
     DOTNET_NOLOGO=true
