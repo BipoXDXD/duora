@@ -154,6 +154,70 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         Assert.Equal(before, await FingerprintAsync(s));
     }
 
+    /// <summary>A chave do limite é a conta: outra sessão da mesma pessoa moderadora não recebe cota nova.</summary>
+    [Fact]
+    public async Task AnotherSessionOfTheSameModeratorSharesTheLimit()
+    {
+        await using var s = await ScenarioAsync();
+        await using var host = Host(s);
+        var scenario = new AccountSuspensionScenario(s.Database.AppConnectionString, host, s.Clock);
+        var account = await scenario.Identity.CreatePrivilegedAccountAsync(AccountRoles.Moderator);
+        await scenario.ExecuteAsync("update identity.users set status = 'Active' where id = $1", account.UserId);
+        using var first = await scenario.Identity.SignedInBrowserAsync(account);
+        var mfa = await MfaScenario.EnableAsync(first, s.Clock);
+        using var second = new Browser(host);
+        using (var login = await MfaScenario.LoginAsync(second, account, twoFactorCode: Identity.Totp.Next(s.Clock, mfa.SharedKey)))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
+        }
+        await second.FetchPrivateContextAsync();
+        Assert.NotEqual(await MfaScenario.ReadSessionIdAsync(first), await MfaScenario.ReadSessionIdAsync(second));
+        for (var attempt = 1; attempt <= 6; attempt++)
+        {
+            using var allowed = await first.GetAsync(Path);
+            Assert.True(allowed.StatusCode == HttpStatusCode.OK, $"Prévia {attempt}: {allowed.StatusCode}.");
+        }
+
+        using var limited = await second.GetAsync(Path);
+
+        await ProblemAssert.IsProblemAsync(limited, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
+    }
+
+    /// <summary>
+    /// O limite responde sem ler o banco de negócio: com a cota esgotada e <c>events.registrations</c> travada, o pedido
+    /// seguinte é 429, não o 503 do timeout. Sessão e policies leem só tabelas de <c>identity</c>.
+    /// </summary>
+    [Fact]
+    public async Task TheLimitAnswersWithoutReadingTheSnapshot()
+    {
+        await using var s = await ScenarioAsync();
+        await using var host = Host(s, statementTimeout: TimeSpan.FromMilliseconds(200));
+        using var moderator = await ModeratorAsync(s, host);
+        for (var attempt = 1; attempt <= 6; attempt++)
+        {
+            using var allowed = await moderator.GetAsync(Path);
+            Assert.True(allowed.StatusCode == HttpStatusCode.OK, $"Prévia {attempt}: {allowed.StatusCode}.");
+        }
+
+        HttpResponseMessage response;
+        await using (var holder = new NpgsqlConnection(s.Database.MigratorConnectionString))
+        {
+            await holder.OpenAsync(Ct);
+            await using var transaction = await holder.BeginTransactionAsync(Ct);
+            await using (var exclusive = new NpgsqlCommand("lock table events.registrations in access exclusive mode", holder, transaction))
+            {
+                await exclusive.ExecuteNonQueryAsync(Ct);
+            }
+            response = await moderator.GetAsync(Path);
+            await transaction.RollbackAsync(Ct);
+        }
+
+        using (response)
+        {
+            await ProblemAssert.IsProblemAsync(response, HttpStatusCode.TooManyRequests, "RATE_LIMITED");
+        }
+    }
+
     [Fact]
     public async Task AStatementTimeoutIsTemporarilyUnavailableWithoutDataAndWritesNothing()
     {
