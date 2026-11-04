@@ -1,5 +1,5 @@
 # Debug targets remain synthetic; sanitizer-release requires a licensed trusted build.
-FROM mcr.microsoft.com/dotnet/sdk:10.0.402-noble@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa AS source
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS source
 WORKDIR /src
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=true DOTNET_NOLOGO=true
 COPY global.json nuget.config Directory.Build.props Directory.Packages.props .editorconfig ./
@@ -17,17 +17,17 @@ RUN --mount=type=secret,id=sixlabors_license,required=true \
     dotnet publish backend/src/Duora.MediaSanitizer/Duora.MediaSanitizer.csproj --no-restore -c Release -o /out \
       -p:UseAppHost=false -p:ContinuousIntegrationBuild=true \
       -p:SixLaborsLicenseFile=/run/secrets/sixlabors_license
-FROM mcr.microsoft.com/dotnet/runtime:10.0.13-noble-chiseled-extra@sha256:11f4c921d75b7a1f19d4eb5b7069f9e92a9d1b8412a04b3475a664b62a9b88cb AS sanitizer
+FROM mcr.microsoft.com/dotnet/runtime:10.0.14-noble-chiseled-extra@sha256:2fbc014e87df3d50948f8710f200ddca0183388904ec35c8ad7e481ef6f8a230 AS sanitizer
 WORKDIR /app
 COPY --from=sanitizer-build /out/ ./
 USER 1654:1654
 ENTRYPOINT ["dotnet", "Duora.MediaSanitizer.dll"]
-FROM mcr.microsoft.com/dotnet/runtime:10.0.13-noble-chiseled-extra@sha256:11f4c921d75b7a1f19d4eb5b7069f9e92a9d1b8412a04b3475a664b62a9b88cb AS sanitizer-release
+FROM mcr.microsoft.com/dotnet/runtime:10.0.14-noble-chiseled-extra@sha256:2fbc014e87df3d50948f8710f200ddca0183388904ec35c8ad7e481ef6f8a230 AS sanitizer-release
 WORKDIR /app
 COPY --from=sanitizer-release-build /out/ ./
 USER 1654:1654
 ENTRYPOINT ["dotnet", "Duora.MediaSanitizer.dll"]
-FROM mcr.microsoft.com/dotnet/runtime:10.0.13-noble-chiseled-extra@sha256:11f4c921d75b7a1f19d4eb5b7069f9e92a9d1b8412a04b3475a664b62a9b88cb AS isolation-probe
+FROM mcr.microsoft.com/dotnet/runtime:10.0.14-noble-chiseled-extra@sha256:2fbc014e87df3d50948f8710f200ddca0183388904ec35c8ad7e481ef6f8a230 AS isolation-probe
 WORKDIR /app
 COPY --from=probe-build /out/ ./
 USER 1654:1654
