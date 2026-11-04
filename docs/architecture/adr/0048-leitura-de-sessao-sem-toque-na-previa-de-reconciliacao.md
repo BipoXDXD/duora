@@ -1,7 +1,7 @@
 # ADR-0048: Leitura de sessão sem toque na prévia da reconciliação
 
-- **Status:** Proposed (04/11/2026). Decisão de escopo do dono para a fatia 2 da #321; o aceite formal vem com a
-  revisão humana do PR, exigida por tocar autenticação e autorização.
+- **Status:** Accepted (04/11/2026). Aceito pelo dono na revisão humana do
+  [#336](https://github.com/BipoXDXD/duora/pull/336), exigida por tocar autenticação e autorização.
 - **Origem:** [#321](https://github.com/BipoXDXD/duora/issues/321), proposta de reconciliação (seções 6 e 7);
   exceção pontual ao item 2 da Decisão do [ADR-0019](0019-implementacao-identidade-sessao-outbox.md).
 - **Revisar quando:** outra rota pedir leitura sem toque, a sessão administrativa mudar de janela, ou a prévia
