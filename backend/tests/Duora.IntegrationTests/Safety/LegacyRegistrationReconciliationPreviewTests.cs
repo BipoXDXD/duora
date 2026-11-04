@@ -257,6 +257,19 @@ public sealed class LegacyRegistrationReconciliationPreviewTests(PostgresFixture
     }
 
     [Fact]
+    public async Task AnInfiniteEventStartIsUntrustedInsteadOfForecastingZero()
+    {
+        await using var s = await ScenarioAsync(postgres);
+        await SuspendBeforePolicyAsync(s, s.Seed.Alice);
+        await s.ExecuteAsync("update events.events set starts_at='infinity' where id=$1", s.EventId);
+
+        var preview = await Previews(s).ReadAsync(CutoverAfterFixtures(s), after: null, s.Token);
+
+        Assert.Equal(1, preview.RegistrationsByPrimaryIssue[LegacyRegistrationIssue.TimestampUntrusted]);
+        Assert.Empty(preview.Page);
+    }
+
+    [Fact]
     public async Task AUnitAboveTheItemLimitIsOversizedNotTruncated()
     {
         await using var s = await ScenarioAsync(postgres);

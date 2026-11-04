@@ -226,6 +226,7 @@ public sealed class LegacyRegistrationReconciliationPreviews
           e.state, e.capacity, e.confirmed_count, o.occupants, e.next_waitlist_position, o.invalid_waitlist,
           case when isfinite(e.starts_at) then e.starts_at end,
           coalesce(not isfinite(r.checked_in_at),false) checked_in_untrusted,
+          not isfinite(e.starts_at) starts_at_untrusted,
           (select count(*) from events.registrations w join identity.users wu on wu.id=w.user_id
             where w.event_id=r.event_id and w.state='Waitlisted'
               and wu.status='Active' and wu.email_confirmed
@@ -278,9 +279,10 @@ public sealed class LegacyRegistrationReconciliationPreviews
                 reader.GetBoolean(17),
                 reader.GetBoolean(25));
             var @event = new LegacyEventFacts(Enum.Parse<EventState>(reader.GetString(18)), reader.GetInt32(19),
-                reader.GetInt32(20), reader.GetInt32(21), reader.GetInt64(22), reader.GetBoolean(23));
+                reader.GetInt32(20), reader.GetInt32(21), reader.GetInt64(22), reader.GetBoolean(23),
+                reader.GetBoolean(26));
             return new SnapshotRow(reader.GetGuid(0), measureId, !reader.IsDBNull(2) && reader.GetBoolean(2),
-                reader.GetGuid(10), reader.GetInt64(11), NullableInstant(reader, 24), reader.GetInt32(26),
+                reader.GetGuid(10), reader.GetInt64(11), NullableInstant(reader, 24), reader.GetInt32(27),
                 new LegacyRegistrationFacts(account, measures, registration, @event));
         }
 

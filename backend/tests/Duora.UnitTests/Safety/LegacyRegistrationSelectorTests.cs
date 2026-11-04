@@ -312,6 +312,14 @@ public sealed class LegacyRegistrationSelectorTests
     }
 
     [Fact]
+    public void AnInfiniteEventStartIsUntrusted()
+    {
+        var facts = Facts(@event: new LegacyEventFacts(EventState.Published, 2, 1, 1, 3, false, StartsAtUntrusted: true));
+
+        Assert.Equal(LegacyRegistrationIssue.TimestampUntrusted, Classify(facts).Primary);
+    }
+
+    [Fact]
     public void AnAnomalyInAClosedEventDoesNotPauseTheUnit()
     {
         var facts = Facts(

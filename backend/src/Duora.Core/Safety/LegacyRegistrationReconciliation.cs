@@ -91,14 +91,18 @@ public sealed record LegacyRegistrationRow(
     bool HasActiveReservation,
     bool CheckedInAtUntrusted = false);
 
-/// <summary>O evento da inscrição; <paramref name="OccupantCount"/> são as inscrições Confirmed/CheckedIn.</summary>
+/// <summary>
+/// O evento da inscrição; <paramref name="OccupantCount"/> são as inscrições Confirmed/CheckedIn e
+/// <paramref name="StartsAtUntrusted"/> marca <c>starts_at</c> infinito, que a promoção atual trataria como futuro.
+/// </summary>
 public sealed record LegacyEventFacts(
     EventState State,
     int Capacity,
     int ConfirmedCount,
     int OccupantCount,
     long NextWaitlistPosition,
-    bool HasInvalidWaitlist);
+    bool HasInvalidWaitlist,
+    bool StartsAtUntrusted = false);
 
 /// <summary>Tudo o que a prévia leu sobre uma inscrição, no mesmo snapshot.</summary>
 public sealed record LegacyRegistrationFacts(
@@ -147,6 +151,11 @@ public static class LegacyRegistrationSelector
         AddEventState(facts.Event, issues);
         AddMeasureAndAccount(facts.Account, facts.Measures, issues);
         AddChronology(facts.Registration, facts.Measures.Active, cutover, issues);
+        if (facts.Event.StartsAtUntrusted)
+        {
+            issues.Add(LegacyRegistrationIssue.TimestampUntrusted);
+        }
+
         AddIntegrity(facts.Registration, facts.Event, issues);
         return new LegacyRegistrationClassification(issues);
     }
