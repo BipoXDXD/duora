@@ -193,7 +193,7 @@ imutáveis nem reter original para reconstruir revisão. Jobs/campos reais serã
 | Exclusão/retenção/restore | INV-05/06/11; T-08/26 | Limites exatos de relógio, decisão/cleanup simultâneos, tombstone/hold mínimo, restore sem candidato |
 | Perfil/asset aprovado | INV-03/05/10; T-01/03/13 | Contexto de leitura revalidado, bloqueio/restrição, no-store, ausência de original/path/URL |
 
-Esta tabela exige testes futuros; não os declara implementados. #173, #174 e #69 continuam abertas; a #86 foi
+Esta tabela registra a matriz exigida; a evidência de cada célula está no parágrafo a seguir. #173, #174 e #69 continuam abertas; a #86 foi
 fechada em 29/10/2026 (janela C2 de 28/10), o que não liga o upload: isso continua na #69.
 HumanReview é admitida em Production desde 28/10/2026, mas ligar o upload continua dependendo da #69 e de homologação. Detector/filtro regional continuam fora do escopo.
 
