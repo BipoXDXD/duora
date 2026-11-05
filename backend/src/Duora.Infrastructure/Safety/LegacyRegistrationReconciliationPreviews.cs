@@ -68,7 +68,7 @@ public abstract record ReconciliationPreviewOutcome
 /// </summary>
 public sealed class LegacyRegistrationReconciliationPreviews
 {
-    public const int MaxUnitsPerPage = 10;
+    public const int MaxUnitsPerPage = ReconciliationRunOrder.MaxUnits;
     public const int MaxItemsPerPage = 100;
 
     /// <summary>Teto de cada consulta do snapshot (proposta, seção 6).</summary>
@@ -101,6 +101,9 @@ public sealed class LegacyRegistrationReconciliationPreviews
         _maxItems = maxItems;
         _statementTimeout = timeout;
     }
+
+    /// <summary>Teto de cada consulta desta instância, que a criação de um run segue no próprio snapshot.</summary>
+    internal TimeSpan QueryTimeout => _statementTimeout;
 
     /// <summary>
     /// Prévia para quem modera: no próprio snapshot, antes de ler inscrições, confere a sessão administrativa viva com

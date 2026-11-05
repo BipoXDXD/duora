@@ -3,6 +3,7 @@ using Duora.Infrastructure;
 using Duora.Infrastructure.Geolocation;
 using Duora.Infrastructure.Identity;
 using Duora.Infrastructure.Media;
+using Duora.Infrastructure.Operations;
 using Duora.Infrastructure.Participation;
 using Duora.Infrastructure.Profiles;
 using Duora.Infrastructure.Safety;
@@ -58,6 +59,7 @@ internal static class DuoraWebApp
             ProfileEndpoints.ConfigureOpenApi(options);
             RegionalPreferenceEndpoints.ConfigureOpenApi(options);
             RegionDetectionEndpoints.ConfigureOpenApi(options);
+            RegistrationReconciliationEndpoints.ConfigureOpenApi(options);
         });
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<System.Diagnostics.DistributedContextPropagator>(new InboundTraceContextDiscarded());
@@ -67,7 +69,7 @@ internal static class DuoraWebApp
         builder.Services.AddDuoraProfiles();
         builder.Services.AddParticipation();
         builder.Services.AddDuoraSafety();
-        builder.Services.AddRegistrationReconciliationPreview();
+        builder.Services.AddRegistrationReconciliation();
         builder.Services.AddMediaUploads(builder.Configuration, builder.Environment.EnvironmentName);
         builder.Services.AddPhotoLibrary(builder.Configuration);
         builder.Services.AddSelfieVerification();

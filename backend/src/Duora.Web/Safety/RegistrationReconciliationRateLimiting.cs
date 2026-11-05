@@ -5,8 +5,9 @@ using Microsoft.Extensions.Options;
 namespace Duora.Web.Safety;
 
 /// <summary>
-/// Limite da prévia da reconciliação (API-ADM25, ADR-0048) na seção <c>RateLimiting</c>: 6 prévias por minuto por
-/// conta moderadora, hipótese conservadora para uma consulta agregada de até 10 s. Em memória, como os demais
+/// Limite da prévia da reconciliação (API-ADM25, ADR-0048) na seção <c>RateLimiting</c>: 6 pedidos por minuto por
+/// conta moderadora, hipótese conservadora para uma consulta agregada de até 10 s. A criação de um run (API-ADM26)
+/// gasta a mesma cota, porque refaz a mesma classificação. Em memória, como os demais
 /// limites: vale para a única instância web (ADR-0009) e reinicia com o processo. Com mais de uma réplica, cada uma
 /// teria a própria contagem; o estado compartilhado fica pendente até existir segunda instância.
 /// </summary>
