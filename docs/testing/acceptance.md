@@ -95,8 +95,21 @@ revalidação na transação e o replay recusado depois de perder o TOTP.
 `RegistrationReconciliationRunSchemaTests` cobre, pelo papel `duora_app`, o índice parcial, os triggers de
 imutabilidade, unidades só na transação do run, as transições só a partir de `Pending`, as CHECKs do recibo, a cascata da
 retenção e o `REVOKE`/`RAISE` do `reconcile-privileges.sql` do migrador.
-`ReconciliationUnitDigestTests` fixa a serialização canônica com valor literal. `:apply`, `:close`, as corridas da
-aplicação e o gate D3 ficam para a etapa seguinte.
+`ReconciliationUnitDigestTests` fixa a serialização canônica com valor literal.
+
+**#321 — aplicação da reconciliação (T-10/T-13/T-14; API-ADM28, API-ADM29; ADR-0049):**
+`RegistrationReconciliationApplyTests` cobre, com PostgreSQL real e dados sintéticos, a retirada com a medida original, a
+promoção, o vínculo pela faixa de versões, as auditorias e o recibo num commit, inscrição fora do manifesto intacta, vários
+eventos, espera, check-in, início exato do evento, cada divergência sob lock só com recibo e auditoria, reserva ativa, tetos
+do plano antes das guardas, replay sem escritor, chave em outra unidade, run fechado, corte ou seletor diferentes e 404.
+`RegistrationReconciliationApplyConcurrencyTests`, com barreiras por `pg_blocking_pids`, cobre as corridas do ADR: duas
+aplicações da unidade, revogação da medida antes e depois da guarda, papel, sessão e TOTP antes e depois do segundo ponto,
+nova suspensão, inscrição, check-in e promoção, início do evento, encerramento e cancelamento, `:close` contra `:apply`,
+plano instável até o 503, a mesma chave em duas unidades e deadlock sem retry. `RegistrationReconciliationApplyRecoveryTests`
+cobre o crash antes do commit, o rollback com vínculos ou tetos divergentes, com a vaga liberada duas vezes ou não liberada, a retenção com o recibo intacto e o corte
+trocado. `RegistrationReconciliationApplyHttpTests` cobre 401, 403, CSRF, TOTP vencido, chave inválida, 404, 409, 412, 428,
+503 com `Retry-After`, a allowlist dos corpos e o recibo na leitura do run. `ReconciliationUnitRevalidationTests` fixa o passo 9 sem banco. O teste de
+contrato do gate D3 entra com o primeiro consumidor do fato.
 
 ## QR Code do cadastro de MFA (#276)
 

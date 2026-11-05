@@ -1218,7 +1218,9 @@ Dono: Operations (D3).
   `action varchar(64)` (catálogo fechado `AuditAction` no código: `safety.block_created`, as ações `identity.*` de
   conta, MFA, login e sessão listadas no [auth.md](../security/auth.md#auditoria-de-login-e-de-sessão), as do
   bootstrap `identity.admin_granted.<papel>` e `identity.admin_temporary_password_reissued`,
-  `ops.registration_reconciliation_run_created` (ADR-0049); próximas: `moderation.evidence_read`...);
+  `ops.registration_reconciliation_run_created` e `ops.registration_reconciliation_run_closed`,
+  `events.legacy_registration_reconciliation_applied` e `events.legacy_registration_reconciliation_skipped` (ADR-0049, alvo
+  run ou unidade; o motivo fechado fica no recibo da unidade); próximas: `moderation.evidence_read`...);
   `target_type varchar(32)`; `target_id uuid`; `target_version bigint`; `correlation_id varchar(32)` (trace id
   W3C da requisição).
 - **Colunas previstas, por migration aditiva quando o primeiro uso chegar (moderação, T-10):** `reason text`;
