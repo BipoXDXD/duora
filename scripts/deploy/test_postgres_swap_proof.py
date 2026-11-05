@@ -360,7 +360,7 @@ class DrillStageTests(unittest.TestCase):
                 self.log.write(b"[swap-proof] stuck here\n")
                 self.log.flush()
             def wait(self, timeout=None):
-                raise subprocess.TimeoutExpired("bench", timeout)
+                raise subprocess.TimeoutExpired("bench", timeout or 0)
             def terminate(self): cleanup.append("terminate")
             def kill(self): cleanup.append("kill")
         def run(command, **_):
