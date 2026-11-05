@@ -519,11 +519,28 @@ antigo como alvo. Ela gera outra release e exige reverter o lock na main; fora d
 para frente ou restore, por decisão do dono. R''→R' é rollback normal. R'→R segue recusado de propósito, porque R fixa o
 digest antigo.
 
-**O que está provado.** `continuity_lab.py` termina cada rodada trocando para o alvo de
-`scripts/deploy/fixtures/postgres-swap-target.json` pelo comando real: sentinela, troca, ressela real pelo instalador,
-forward, rollback, lock antigo recusado e troca reversa. `restore_drill.py` faz backup no digest antigo, troca, escritas e
-PITR com o digest novo, com `verify-repo` sem lacuna. `postgres_swap_bench.py --mode matrix` mata o comando com SIGKILL
-em cada fase, com filho vivo, resolve por `--resume` e por `--abort` e só aceita o desfecho depois de um deploy real.
+**O que a CI prova a cada PR.** `continuity_lab.py`, no job `images`, termina cada rodada trocando pelo comando real
+para um digest diferente do que está rodando, escolhido em `scripts/deploy/fixtures/postgres-swap-target.json`: sentinela,
+troca, ressela real pelo instalador, forward, rollback, lock antigo recusado e troca reversa. `restore_drill.py` faz backup
+no digest do lock, troca, escritas e PITR com o digest novo, com `verify-repo` sem lacuna; no Actions essa etapa não pode
+ser pulada. Com o lock já no alvo, os dois trocam de volta para a origem da fixture, e falham se ela não tiver digest
+diferente.
+
+**O que é prova manual, fora de qualquer gate.** `postgres_swap_bench.py --mode matrix` e `--mode unhealthy` não rodam em
+workflow nenhum. Última execução: 05/11/2026, commit `15893687`, arm64, em `docker:dind` isolado com o marcador de host
+descartável, sobre `feat/postgres-swap-lab`:
+
+```bash
+hostname > /etc/duora-swap-disposable-host   # só num host que existe para isso
+python3 scripts/deploy/postgres_swap_bench.py --mode unhealthy
+python3 scripts/deploy/postgres_swap_bench.py --mode matrix      # 36 min
+```
+
+A matriz mata o comando com SIGKILL em 18 pontos, com filho vivo: as 7 fases até o commit, cada uma resolvida por `--resume`
+e por `--abort`, mais `awaiting-reseal`, `closing`, `aborted-awaiting-reseal` e `aborting`. Os três de fechamento morrem
+dentro de `_swap_close` e `_swap_finish`. Cada desfecho só passa com um deploy real seguinte aceito e nada pendente. A
+bancada assume os caminhos fixos de produção: fora de runner hospedado ou de host com o marcador, ela recusa sem criar nem
+remover nada. `--mode cleanup` remove o que uma execução morta reivindicou.
 
 Em banco pequeno, sem Coolify real, a queda medida foi de 6 a 7 s no banco e cerca de 14 s na aplicação; `--abort` soma
 outro tanto. Tempo com volume real só no sombra. Continuam sem prova até a janela: observer e Coolify reais, B2, GHCR a
