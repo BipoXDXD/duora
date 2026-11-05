@@ -61,11 +61,6 @@ por revisão humana no PR que a cria.
 - Prefira corrigir: atualizar o pacote, fixar a transitiva em `Directory.Packages.props` ou usar `overrides` do
   pnpm, nessa ordem.
 
-Exceção ativa, aceita pelo dono em 2026-11-05: `CVE-2026-109518` (HIGH) em `apt`/`libapt-pkg7.0` 3.0.3 da imagem
-`duora-postgres`, válida até 2026-12-05. O ataque exige manipular o tráfego durante um `apt install`, e o `apt` só roda no
-build da imagem. É ponte, não correção: corrigir exige requalificar o componente
-([POSTGRES_COMPONENT.md](../../scripts/release/POSTGRES_COMPONENT.md)), e o PR do lock novo remove a entrada.
-
 ### Licenças: `scripts/supply-chain/license-policy.json`
 
 - `allowed`: licenças permissivas aceitas sem discussão (MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause,
