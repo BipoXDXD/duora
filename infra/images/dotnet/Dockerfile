@@ -88,6 +88,12 @@ ENTRYPOINT ["dotnet", "Duora.Worker.dll"]
 # --- migrator: bundle do EF Core, executado por job exclusivo (nunca no startup do web/worker) --------------------
 # runtime-deps não chiseled: o bundle é self-contained e o wrapper em sh lê a connection string do arquivo de segredo.
 FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.14-noble@sha256:62028293921f5bd6db3d9f9119cd29cd926dfd3c2336da23b09f425e40c3c832 AS migrator
+# apt/libapt-pkg6.0t64 corrigidos: o digest acima traz 2.8.3, com CVE-2026-109518 (HIGH, corrigível). Sem versão exata
+# porque o Ubuntu só mantém a mais nova no arquivo, e fixar quebraria o build seguinte; sai quando a base trouxer a
+# correção.
+RUN apt-get update \
+ && apt-get install -y --only-upgrade --no-install-recommends apt libapt-pkg6.0t64 \
+ && rm -rf /var/lib/apt/lists/*
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="duora-migrator" \
       org.opencontainers.image.source="https://github.com/BipoXDXD/duora" \
