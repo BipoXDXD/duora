@@ -1174,6 +1174,36 @@ o adaptador operacional de autenticação/autorização ainda não existe. Servi
 - **Índices:** `ix_webhook_receipts_received_at` (limpeza).
 - **Classe:** P2/P3 conforme o fornecedor (callback etário: P3).
 
+### ops.registration_reconciliation_runs, units e unit_facts
+
+[ADR-0049](../architecture/adr/0049-execucao-da-reconciliacao-de-inscricoes-legadas.md), issue #321. Operations é
+dono das três; Events continua dono das transições e Safety, da medida. Nenhuma guarda cookie, ticket, TOTP, nome,
+e-mail ou motivo de moderação.
+
+- **`registration_reconciliation_runs`:** `id uuid` (UUIDv7); `selector_version`; `cutover_evidence_id`,
+  `cutover_lower` e `cutover_upper`; `created_by_user_id` (FK `RESTRICT`); `justification` (até 2000) e
+  `authorization_reference` (até 200), sem caracteres de controle; `state` `Open|Closed`; `version`; `created_at`;
+  `idempotency_key` e `intent_hash`, únicos por ator. `ux_registration_reconciliation_runs_open` é o índice único
+  parcial que garante um só run `Open`.
+- **`registration_reconciliation_units`:** `id`; `run_id` (FK `RESTRICT`); `subject_user_id` e `original_measure_id`
+  (FKs `RESTRICT`), com `unique(run_id, subject_user_id, original_measure_id)`; `measure_version`; `items jsonb`, de 1 a
+  100 objetos `{eventId, registrationVersion, state, maxReleasedSeats, maxPromotions}`; `state`
+  `Pending|Applied|SkippedChanged|NeedsReview`; recibo em `receipt_reason`, `receipt_fact_ids`, `receipt_executed_by`,
+  `receipt_executed_at`, `receipt_correlation_id`, `apply_idempotency_key` e `apply_intent_hash`. `Pending` não tem
+  recibo; terminal tem todo o recibo. A chave de aplicação é única por executor: `ux_registration_reconciliation_units_apply`
+  não tem predicado, para servir também à FK do executor, e NULLs continuam distintos entre as pendentes.
+- **`registration_reconciliation_unit_facts`:** `fact_id` (PK, FK `CASCADE` para `ops.outbox_events`) e `unit_id` (FK
+  `RESTRICT`). A retenção apaga o fato e o vínculo vai junto; a unidade fica.
+- **Triggers:** `guard_registration_reconciliation_run` e `guard_registration_reconciliation_unit` recusam `DELETE`,
+  inclusive do dono, e qualquer mudança no manifesto. Um run nasce `Open` na versão 1 e só vai a `Closed`, uma vez, com a
+  versão seguinte. Uma unidade nasce `Pending`, na mesma transação do run (`xmin` do run igual à transação corrente,
+  run `Open` na versão 1, sem savepoint no fluxo), e só sai de `Pending`, uma vez: depois do commit da criação ou do
+  fechamento nenhuma unidade entra.
+- **Permissões:** `duora_app` tem `SELECT`, `INSERT` e `UPDATE` em runs e unidades (`UPDATE` também sustenta o
+  `FOR SHARE` e o `FOR UPDATE` da aplicação) e só `SELECT` e `INSERT` no vínculo. Os `REVOKE` estão na migração e o
+  `reconcile-privileges.sql` do migrador (`infra/images/dotnet`) os repete e falha o deploy se o privilégio persistir.
+  A cópia em `infra/images/postgres` faz parte do componente travado e não os repete.
+
 <a id="t-ops-audit-events"></a>
 
 ### ops.audit_events
@@ -1187,8 +1217,10 @@ Dono: Operations (D3).
   ck_audit_events_actor_label`);
   `action varchar(64)` (catálogo fechado `AuditAction` no código: `safety.block_created`, as ações `identity.*` de
   conta, MFA, login e sessão listadas no [auth.md](../security/auth.md#auditoria-de-login-e-de-sessão), as do
-  bootstrap `identity.admin_granted.<papel>` e `identity.admin_temporary_password_reissued`; próximas:
-  `moderation.evidence_read`...);
+  bootstrap `identity.admin_granted.<papel>` e `identity.admin_temporary_password_reissued`,
+  `ops.registration_reconciliation_run_created` e `ops.registration_reconciliation_run_closed`,
+  `events.legacy_registration_reconciliation_applied` e `events.legacy_registration_reconciliation_skipped` (ADR-0049, alvo
+  run ou unidade; o motivo fechado fica no recibo da unidade); próximas: `moderation.evidence_read`...);
   `target_type varchar(32)`; `target_id uuid`; `target_version bigint`; `correlation_id varchar(32)` (trace id
   W3C da requisição).
 - **Colunas previstas, por migration aditiva quando o primeiro uso chegar (moderação, T-10):** `reason text`;

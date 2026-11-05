@@ -4773,6 +4773,382 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/registration-reconciliations/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description A stable key for this exact request; a replay returns the recorded result. */
+                    "Idempotency-Key": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateRegistrationReconciliationRunRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RegistrationReconciliationRunResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Failed */
+                412: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/registration-reconciliations/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RegistrationReconciliationRunResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/registration-reconciliations/runs/{runId}/units/{unitId}:apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description A stable key for this exact request; a replay returns the recorded result. */
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    runId: string;
+                    unitId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RegistrationReconciliationUnitReceiptResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/registration-reconciliations/runs/{runId}:close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The ETag of the run; without it the API answers 428. */
+                    "If-Match": string;
+                };
+                path: {
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RegistrationReconciliationRunResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Failed */
+                412: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Precondition Required */
+                428: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/photos": {
         parameters: {
             query?: never;
@@ -5793,6 +6169,16 @@ export interface components {
         CreatePasswordResetRequest: {
             email: null | string;
         };
+        /**
+         * @description Criar um run a partir da prévia (API-ADM26, ADR-0049). `Units`: de 1 a 10 pares conta/medida com o
+         *     `UnitDigest` visto. `Justification` (até 2000 caracteres) e `AuthorizationReference` (até 200) ficam
+         *     numa linha, sem caracteres de controle, e não devem trazer dado de participante. O servidor recalcula o resto.
+         */
+        CreateRegistrationReconciliationRunRequest: {
+            units: components["schemas"]["ReconciliationRunUnitRequest"][];
+            justification: string;
+            authorizationReference: string;
+        };
         EventResponse: {
             /** Format: uuid */
             eventId: string;
@@ -6183,7 +6569,10 @@ export interface components {
             /** Format: int32 */
             maxPromotions: number | string;
         };
-        /** @description Conta/medida original com as inscrições candidatas e a versão observada da medida. */
+        /**
+         * @description Conta/medida original com as inscrições candidatas, a versão observada da medida e o `UnitDigest`: SHA-256 em
+         *     hexadecimal minúsculo que a criação de um run confere contra o recálculo do servidor.
+         */
         ReconciliationPreviewUnitResponse: {
             /** Format: uuid */
             subjectUserId: string;
@@ -6192,6 +6581,15 @@ export interface components {
             /** Format: int64 */
             measureVersion: number | string;
             items: components["schemas"]["ReconciliationPreviewItemResponse"][];
+            unitDigest: string;
+        };
+        /** @description Unidade pedida: a conta, a medida original e o digest devolvido pela prévia. */
+        ReconciliationRunUnitRequest: {
+            /** Format: uuid */
+            subjectUserId: string;
+            /** Format: uuid */
+            originalMeasureId: string;
+            unitDigest: string;
         };
         /** @description Unidades conta/medida: elegíveis, pausadas por integridade e grandes demais para aplicação automática. */
         ReconciliationUnitCountsResponse: {
@@ -6260,6 +6658,69 @@ export interface components {
             units: components["schemas"]["ReconciliationUnitCountsResponse"];
             page: components["schemas"]["ReconciliationPreviewUnitResponse"][];
             next: null | components["schemas"]["ReconciliationPreviewCursorResponse"];
+        };
+        /**
+         * @description Run de reconciliação (API-ADM26, API-ADM27 e API-ADM29). `State`: Open | Closed. `ETag` identifica esta
+         *     versão do run. Instantes em UTC, com "Z".
+         */
+        RegistrationReconciliationRunResponse: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            selectorVersion: number | string;
+            evidenceId: string;
+            /** Format: date-time */
+            cutoverLower: string;
+            /** Format: date-time */
+            cutoverUpper: string;
+            /** Format: uuid */
+            createdByUserId: string;
+            justification: string;
+            authorizationReference: string;
+            state: string;
+            /** Format: int64 */
+            version: number | string;
+            /** Format: date-time */
+            createdAt: string;
+            eTag: string;
+            units: components["schemas"]["RegistrationReconciliationRunUnitResponse"][];
+        };
+        /**
+         * @description Unidade do manifesto. `State`: Pending | Applied | SkippedChanged | NeedsReview. `Receipt`: o mesmo recibo de
+         *     API-ADM28, null enquanto a unidade está Pending.
+         */
+        RegistrationReconciliationRunUnitResponse: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            subjectUserId: string;
+            /** Format: uuid */
+            originalMeasureId: string;
+            /** Format: int64 */
+            measureVersion: number | string;
+            state: string;
+            items: components["schemas"]["ReconciliationPreviewItemResponse"][];
+            receipt: null | components["schemas"]["RegistrationReconciliationUnitReceiptResponse"];
+        };
+        /**
+         * @description Recibo de uma unidade terminal (API-ADM28), o checkpoint da aplicação: repetir o pedido devolve este mesmo recibo.
+         *     `State`: Applied | SkippedChanged | NeedsReview. `Reason`: motivo fechado, null em Applied. `FactIds`:
+         *     fatos de promoção vinculados à unidade, que ficam como evidência mesmo depois que a retenção apaga o fato.
+         *     `ExecutedAt` em UTC, com "Z".
+         */
+        RegistrationReconciliationUnitReceiptResponse: {
+            /** Format: uuid */
+            runId: string;
+            /** Format: uuid */
+            unitId: string;
+            state: string;
+            reason: null | string;
+            factIds: string[];
+            /** Format: uuid */
+            executedByUserId: string;
+            /** Format: date-time */
+            executedAt: string;
+            correlationId: string;
         };
         ResetPasswordRequest: {
             /** Format: uuid */

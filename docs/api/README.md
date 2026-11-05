@@ -281,3 +281,18 @@ no banco, nem na sessão ([ADR-0048](../architecture/adr/0048-leitura-de-sessao-
 Ver [contrato, autorização, cursor e corte configurado](registration-reconciliation-preview.md). Mudança aditiva:
 DTOs novos, nenhum existente alterado; não cria run nem aplica retirada. Requer revisão humana de autenticação e
 autorização antes do merge.
+
+## Runs da reconciliação de inscrições legadas (#321)
+
+API-ADM26 (`POST /admin/registration-reconciliations/runs`) e API-ADM27
+(`GET /admin/registration-reconciliations/runs/{runId}`) criam e leem o manifesto de um run, com a sessão normal, com
+toque ([ADR-0049](../architecture/adr/0049-execucao-da-reconciliacao-de-inscricoes-legadas.md)). Ver
+[contrato, autorização e códigos de erro](registration-reconciliation-runs.md). A prévia ganha o campo aditivo
+`page[].unitDigest`. Mudança aditiva, com o código novo `409 RUN_ALREADY_OPEN`; não aplica retirada. Requer revisão
+humana de autorização, migração e contrato antes do merge.
+
+API-ADM28 (`POST /admin/registration-reconciliations/runs/{runId}/units/{unitId}:apply`) e API-ADM29
+(`POST /admin/registration-reconciliations/runs/{runId}:close`) aplicam uma unidade por pedido e fecham o run, com a
+sessão normal, com toque. Mudança aditiva, com os códigos novos `409 RUN_CLOSED` e `409 CUTOVER_CHANGED`. Estas rotas
+retiram inscrições: uso real só pelo [runbook](../operations/registration-reconciliation.md), com autorização própria.
+Requer revisão humana de autorização e contrato antes do merge.

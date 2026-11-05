@@ -121,6 +121,9 @@ test('senha temporária → senha própria → MFA, inclusive reload e navegaç�
   const received = await mockBootstrapApi(page, context)
   await page.goto('/account/profile')
   await expect(page).toHaveURL(/change-initial-password$/)
+  // O reload faz parte do comportamento testado, mas só depois da tela pronta: goto retorna no load com o chunk lazy da
+  // rota ainda baixando, e o WebKit interrompe a navegação ("Frame load interrupted").
+  await expect(page.getByLabel('Senha temporária')).toBeVisible()
   await page.reload()
   await expect(page.getByLabel('Senha temporária')).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])

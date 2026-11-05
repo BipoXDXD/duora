@@ -43,6 +43,21 @@ internal sealed record AuditAction
 
     public static readonly AuditAction RegistrationPromoted = new("events.registration_promoted");
 
+    /// <summary>Run de reconciliação criado (ADR-0049); o alvo é o run, com a versão 1.</summary>
+    public static readonly AuditAction RegistrationReconciliationRunCreated = new("ops.registration_reconciliation_run_created");
+
+    /// <summary>Run de reconciliação fechado; o alvo é o run, com a versão resultante.</summary>
+    public static readonly AuditAction RegistrationReconciliationRunClosed = new("ops.registration_reconciliation_run_closed");
+
+    /// <summary>Unidade aplicada, na transação dos efeitos; o alvo é a unidade. Não reatribui a medida histórica.</summary>
+    public static readonly AuditAction LegacyRegistrationReconciliationApplied = new("events.legacy_registration_reconciliation_applied");
+
+    /// <summary>
+    /// Unidade encerrada sem retirada (<c>SkippedChanged</c> ou <c>NeedsReview</c>); o alvo é a unidade, cujo recibo
+    /// imutável guarda o motivo fechado.
+    /// </summary>
+    public static readonly AuditAction LegacyRegistrationReconciliationSkipped = new("events.legacy_registration_reconciliation_skipped");
+
     public static readonly AuditAction PhotoReviewRequested = new("safety.photo_review_requested");
 
     public static readonly AuditAction PhotoReviewAssigned = new("safety.photo_review_assigned");
@@ -199,6 +214,10 @@ internal static class AuditTargetTypes
     public const string Photo = "photo";
 
     public const string ModerationAction = "moderation_action";
+
+    public const string RegistrationReconciliationRun = "registration_reconciliation_run";
+
+    public const string RegistrationReconciliationUnit = "registration_reconciliation_unit";
 }
 
 /// <summary>

@@ -34,8 +34,11 @@ public sealed class LegacyRegistrationReconciliationPreviewTests(PostgresFixture
         return measure;
     }
 
-    private static ReconciliationCutover CutoverAfterFixtures(SuspendedRegistrationScenario s) =>
-        ReconciliationCutover.Between(s.Clock.GetUtcNow().AddMinutes(1), s.Clock.GetUtcNow().AddMinutes(2));
+    private static ReconciliationCutoverEvidence CutoverAfterFixtures(SuspendedRegistrationScenario s) =>
+        Evidence(ReconciliationCutover.Between(s.Clock.GetUtcNow().AddMinutes(1), s.Clock.GetUtcNow().AddMinutes(2)));
+
+    private static ReconciliationCutoverEvidence Evidence(ReconciliationCutover cutover) =>
+        ReconciliationCutoverEvidence.Of("synthetic-321", cutover);
 
     private static LegacyRegistrationReconciliationPreviews Previews(SuspendedRegistrationScenario s,
         int maxUnits = LegacyRegistrationReconciliationPreviews.MaxUnitsPerPage,
@@ -55,13 +58,15 @@ public sealed class LegacyRegistrationReconciliationPreviewTests(PostgresFixture
         Assert.Equal(before, await FingerprintAsync(s));
         Assert.Equal(s.Clock.GetUtcNow(), preview.AsOf);
         Assert.Equal(LegacyRegistrationSelector.Version, preview.SelectorVersion);
-        Assert.Equal(cutover, preview.Cutover);
+        Assert.Equal(cutover, preview.Evidence);
         Assert.Equal((1, 0), (preview.ActionableRegistrations, preview.HeldRegistrations));
         Assert.Equal(new ReconciliationUnitCounts(Eligible: 1, Blocked: 0, Oversized: 0), preview.Units);
         Assert.Empty(preview.RegistrationsByPrimaryIssue);
         var unit = Assert.Single(preview.Page);
-        Assert.Equal(new ReconciliationPreviewUnit(s.Seed.Alice, measure, 1,
-            [new ReconciliationPreviewItem(s.EventId, 1, RegistrationState.Confirmed, MaxReleasedSeats: 1, MaxPromotions: 1)]),
+        ReconciliationPreviewItem[] items =
+            [new ReconciliationPreviewItem(s.EventId, 1, RegistrationState.Confirmed, MaxReleasedSeats: 1, MaxPromotions: 1)];
+        var digest = ReconciliationUnitDigest.Compute(LegacyRegistrationSelector.Version, cutover, s.Seed.Alice, measure, 1, items);
+        Assert.Equal(new ReconciliationPreviewUnit(s.Seed.Alice, measure, 1, items, digest),
             unit, ReconciliationPreviewUnitComparer.Instance);
         Assert.Null(preview.Next);
     }
@@ -72,7 +77,7 @@ public sealed class LegacyRegistrationReconciliationPreviewTests(PostgresFixture
         await using var s = await ScenarioAsync(postgres);
         await SuspendBeforePolicyAsync(s, s.Seed.Alice);
 
-        var preview = await Previews(s).ReadAsync(cutover: null, after: null, s.Token);
+        var preview = await Previews(s).ReadAsync(evidence: null, after: null, s.Token);
 
         Assert.Equal((0, 0), (preview.ActionableRegistrations, preview.HeldRegistrations));
         Assert.Empty(preview.Page);
@@ -234,7 +239,7 @@ public sealed class LegacyRegistrationReconciliationPreviewTests(PostgresFixture
     {
         await using var s = await ScenarioAsync(postgres);
         await SuspendBeforePolicyAsync(s, s.Seed.Alice);
-        var atomic = ReconciliationCutover.Between(s.Clock.GetUtcNow(), s.Clock.GetUtcNow());
+        var atomic = Evidence(ReconciliationCutover.Between(s.Clock.GetUtcNow(), s.Clock.GetUtcNow()));
 
         var preview = await Previews(s).ReadAsync(atomic, after: null, s.Token);
 
@@ -322,7 +327,7 @@ public sealed class LegacyRegistrationReconciliationPreviewTests(PostgresFixture
         public bool Equals(ReconciliationPreviewUnit? x, ReconciliationPreviewUnit? y) =>
             x is not null && y is not null && x.SubjectUserId == y.SubjectUserId
             && x.OriginalMeasureId == y.OriginalMeasureId && x.MeasureVersion == y.MeasureVersion
-            && x.Items.SequenceEqual(y.Items);
+            && x.Items.SequenceEqual(y.Items) && x.UnitDigest == y.UnitDigest;
 
         public int GetHashCode(ReconciliationPreviewUnit obj) => HashCode.Combine(obj.SubjectUserId, obj.OriginalMeasureId);
     }

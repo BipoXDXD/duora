@@ -27,6 +27,14 @@ dono 1654): o `StateDirectory=` do systemd faria `chown` recursivo das fotos par
 de `/etc/duora/`, que é `root:root 0750` e a conta não atravessa. Os dois caminhos fazem parte do bundle da release;
 o bundle `ba5` publicado antes desta mudança não serve para ativar o launcher neste host.
 
+O diretório do socket de controle, `/run/duora-media` (`RuntimeDirectory=` da unidade), tem `RuntimeDirectoryPreserve=yes`:
+o systemd não o apaga ao parar nem ao reiniciar o launcher. Na ativação o Worker monta esse diretório (bind mount); se
+ele fosse removido e recriado, o Worker ficaria preso ao diretório antigo e nunca alcançaria o socket novo. O launcher
+já remove o socket ao encerrar e recria o arquivo ao subir, então o que persiste é só o diretório (dono do launcher,
+0750). Ele some no reboot (`/run` é tmpfs) e na desinstalação do role. Não há como provar o reinício com o Worker sem
+host real: o ensaio de ativação precisa reiniciar o launcher e confirmar que o Worker volta a falar com ele sem
+reiniciar.
+
 Não toca: `/etc/docker`, o daemon do sistema e seus containers, `/var/lib/duora-media`, `/etc/duora`, segredos,
 Caddy/Coolify e as demais contas.
 
@@ -192,7 +200,7 @@ ssh root@VPS '! id duora-media-launcher; ! grep duora-media-launcher /etc/subuid
   ls /etc/systemd/system | grep -c duora-media || true'
 ```
 
-Para o daemon e o launcher, desliga o linger, remove drop-ins, unidade, código, perfil, autoridade, conta (com o home
+Para o daemon e o launcher, desliga o linger, remove drop-ins, unidade, código, perfil, autoridade, diretório do socket (`/run/duora-media`), conta (com o home
 e o cache do SDK, que exigirá novo pull), faixa subordinada e grupo. Mantém os pacotes e as evidências.
 
 ## O que continua pendente

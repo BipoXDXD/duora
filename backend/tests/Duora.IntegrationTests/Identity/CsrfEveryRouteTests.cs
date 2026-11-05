@@ -100,6 +100,9 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
             ["DELETE /api/v1/me/photos/{photoId:guid}"] = null,
             ["POST /api/v1/admin/photo-reviews/{caseId:guid}/assignments"] = new { reviewerId = administrator.UserId },
             ["POST /api/v1/admin/photo-reviews/{caseId:guid}/decisions"] = new { decision = "reject", reasonCode = "does_not_meet_policy" },
+            ["POST /api/v1/admin/registration-reconciliations/runs"] = new { units = Array.Empty<object>(), justification = "Sintético.", authorizationReference = "SYNTHETIC-1" },
+            ["POST /api/v1/admin/registration-reconciliations/runs/{runId:guid}/units/{unitId:guid}:apply"] = null,
+            ["POST /api/v1/admin/registration-reconciliations/runs/{runId:guid}:close"] = null,
             ["POST /api/v1/admin/accounts/{userId:guid}/suspensions"] = new { reasonCode = "TermsViolation", internalReason = "Sintético." },
             ["POST /api/v1/admin/accounts/{userId:guid}/suspensions/{suspensionId:guid}/lift"] = new { internalReason = "Sintético." },
             ["POST /api/v1/me/age-verifications"] = new { },
@@ -153,9 +156,12 @@ public sealed class CsrfEveryRouteTests : IAsyncDisposable
                 .Replace("{roomId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
                 .Replace("{userId:guid}", account.UserId.ToString(), StringComparison.Ordinal)
                 .Replace("{deliveryId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
-                .Replace("{suspensionId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
+                .Replace("{suspensionId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+                .Replace("{runId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+                .Replace("{unitId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
             var headers = new MutationHeaders(SendCsrfToken: false);
-            var caller = pattern.StartsWith("/api/v1/admin/accounts/", StringComparison.Ordinal) ? moderatorBrowser
+            var caller = pattern.StartsWith("/api/v1/admin/accounts/", StringComparison.Ordinal)
+                || pattern.StartsWith("/api/v1/admin/registration-reconciliations/", StringComparison.Ordinal) ? moderatorBrowser
                 : pattern.StartsWith("/api/v1/admin/", StringComparison.Ordinal) ? adminBrowser : browser;
             using var response = method switch
             {

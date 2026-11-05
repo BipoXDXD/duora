@@ -12,8 +12,19 @@ internal static class PhotoReviewHeaders
 
     internal static ProblemHttpResult? Command(HttpContext context, string kind, Guid id, out long version, out IdempotencyKey key)
     {
-        version = 0;
         key = default;
+        if (IfMatchVersion(context, kind, id, out version) is { } refused)
+        {
+            return refused;
+        }
+        return IdempotencyKey.TryParse(context.Request.Headers["Idempotency-Key"].ToString(), out key)
+            ? null : ApiProblems.Problem(400, "IDEMPOTENCY_KEY_INVALID");
+    }
+
+    /// <summary>A versão do <c>If-Match</c> desta entidade: ausente ou <c>*</c> é 428; outra forma ou outra entidade, 412.</summary>
+    internal static ProblemHttpResult? IfMatchVersion(HttpContext context, string kind, Guid id, out long version)
+    {
+        version = 0;
         var match = context.Request.Headers.IfMatch.ToString();
         if (string.IsNullOrWhiteSpace(match) || match.Trim() == "*")
         {
@@ -27,7 +38,6 @@ internal static class PhotoReviewHeaders
         {
             return ApiProblems.Problem(412, "PRECONDITION_FAILED");
         }
-        return IdempotencyKey.TryParse(context.Request.Headers["Idempotency-Key"].ToString(), out key)
-            ? null : ApiProblems.Problem(400, "IDEMPOTENCY_KEY_INVALID");
+        return null;
     }
 }

@@ -1,6 +1,4 @@
 using Duora.Core.Safety;
-using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
 
 namespace Duora.Infrastructure.Safety;
 
@@ -30,26 +28,4 @@ public sealed class RegistrationReconciliationCutoverOptions
         IsAbsent ? null
         : ReconciliationCutoverEvidence.TryParse(EvidenceId, Lower, Upper, out var evidence) ? evidence
         : throw new InvalidOperationException($"{Section} inválido depois da validação de inicialização.");
-}
-
-public static class RegistrationReconciliationServiceCollectionExtensions
-{
-    /// <summary>
-    /// Leitor da prévia (API-ADM25) e o descritor do corte. Só a Web registra: não há executor, job nem worker da
-    /// reconciliação nesta etapa.
-    /// </summary>
-    public static IServiceCollection AddRegistrationReconciliationPreview(this IServiceCollection services)
-    {
-        services.AddOptions<RegistrationReconciliationCutoverOptions>()
-            .BindConfiguration(RegistrationReconciliationCutoverOptions.Section)
-            .Validate(
-                o => o.IsValid(),
-                $"{RegistrationReconciliationCutoverOptions.Section}: informe EvidenceId (letras, dígitos, '-', '_', '.' "
-                + "ou ':', até 128), Lower e Upper juntos, instantes UTC com sufixo Z e Upper >= Lower; ou omita a seção.")
-            .ValidateOnStart();
-        services.AddSingleton(provider => new LegacyRegistrationReconciliationPreviews(
-            provider.GetRequiredService<NpgsqlDataSource>(),
-            provider.GetRequiredService<TimeProvider>()));
-        return services;
-    }
 }
