@@ -353,3 +353,22 @@ o DELETE. Leases e tokens protegem o banco; não fecham uma geração no armazen
 durável imposto no destino ou prova de término de todos os escritores e de suas operações de I/O.
 Nenhum timeout passa a substituir `writer_settled_at`. O comportamento conservador, a retenção de tombstones,
 a janela de backup e os gates de produção permanecem.
+
+## Nota de 05/11/2026: pontos que o item 5 de 28/10/2026 deixava abertos
+
+Nota de reconciliação, sem decisão nova. O texto aceito acima não foi alterado. Estado dos pontos do item 5 de
+28/10/2026, conferido contra as decisões de 28/10 e 29/10, o código em `main` e as issues:
+
+- **Resolvidos.** Exclusão de foto durante processamento ou revisão: entregue no #280 (28/10/2026), como já marcado
+  no item 5; só `Pending` responde 409. Retenção dos registros de exclusão (tombstones e recibos): decidida em
+  29/10/2026 (P3, 1 ano) e implementada pela função `media.purge_photo_deletion_records` (migração
+  `20261029150000_PhotoDeletionRecordRetention`, seção "Expurgo dos registros de exclusão (P3)" acima).
+- **Continuam abertos.** Ledger externo de exclusões (custódia B2, #69); API-P04 (a spec não define a foto no perfil
+  ou na sala); aceite da política de privacidade pelo titular, porque a decisão P4 de 29/10/2026 manteve o texto sem
+  mudança e o próprio adendo de 29/10/2026 ainda lista o aceite como aberto, sem registrar que a decisão o encerra;
+  ativação do upload (#69).
+- **Gates do item 1.** A #86, citada no item 1 de 28/10/2026 entre os gates para ligar o upload, foi fechada em
+  29/10/2026 (janela C2 de 28/10, conforme o registro da issue). O upload continua desligado em Production e
+  depende da #69.
+- **Autorização.** Cada célula da [matriz de autorização](../../api/media-review.md#matriz-de-autorização-28102026)
+  tem teste HTTP (`PhotoReviewAuthorizationMatrixTests`). A revisão humana da autorização continua pendente na #173.

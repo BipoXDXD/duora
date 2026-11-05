@@ -193,7 +193,8 @@ imutáveis nem reter original para reconstruir revisão. Jobs/campos reais serã
 | Exclusão/retenção/restore | INV-05/06/11; T-08/26 | Limites exatos de relógio, decisão/cleanup simultâneos, tombstone/hold mínimo, restore sem candidato |
 | Perfil/asset aprovado | INV-03/05/10; T-01/03/13 | Contexto de leitura revalidado, bloqueio/restrição, no-store, ausência de original/path/URL |
 
-Esta tabela exige testes futuros; não os declara implementados. #173/#174/#86/#69 continuam abertas.
+Esta tabela exige testes futuros; não os declara implementados. #173, #174 e #69 continuam abertas; a #86 foi
+fechada em 29/10/2026 (janela C2 de 28/10), o que não liga o upload: isso continua na #69.
 HumanReview é admitida em Production desde 28/10/2026, mas ligar o upload continua dependendo da #69 e de homologação. Detector/filtro regional continuam fora do escopo.
 
 ## Preparação executável M1
@@ -263,8 +264,11 @@ Registradas no [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#de
 contrato: HumanReview admitida em Development, Testing e Production (Staging recusado); upload ainda desligado
 em Production (`duora_media_review` vazio, #69); sem recurso de fotos; um único revisor, o dono do projeto, como
 `moderator` com as capacidades `assign`, `evidence` e `decide`; a rejeição grava a limpeza do candidato em 24 h.
-Continuam abertos: ledger externo (sem custódia B2 até a #69) e retenção dos registros de exclusão, API-P04 (foto no perfil ou na sala; `GET /profiles/{userId}` não existe), aceite da política de
-privacidade pelo titular e ativação do upload (#69).
+Resolvidos depois: exclusão durante processamento e revisão (28/10/2026, #280) e retenção dos registros de
+exclusão (1 ano, decisão de 29/10/2026, abaixo). Continuam abertos: ledger externo (sem custódia B2 até a #69),
+API-P04 (foto no perfil ou na sala; `GET /profiles/{userId}` não existe), aceite da política de privacidade pelo
+titular (a decisão P4 de 29/10/2026 manteve o texto da política sem mudança, mas nenhum registro diz que isso
+encerra o aceite) e ativação do upload (#69).
 
 ### Matriz de autorização (28/10/2026)
 
