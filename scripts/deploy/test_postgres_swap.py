@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import duora_deploy as deploy
 import install_executor as installer
+import postgres_swap as swap
 import runtime_guard as guard
 from test_duora_deploy import PREFIX, valid_manifest
 from test_runtime_guard import reviewed_profile
@@ -226,18 +227,18 @@ class SwapFixture(unittest.TestCase):
                 startedAt=f"2026-11-05T10:{generation % 60:02d}:00Z")
         return {"profile": profile}
 
-    def host(self) -> deploy.SwapHost:
+    def host(self) -> swap.SwapHost:
         def require_idle(uuid: str) -> None:
             self.assertEqual(uuid, "app-1")
             if self.idle_error is not None:
                 raise self.idle_error
-        return deploy.SwapHost(image_prefix=PREFIX, releases_root=self.opt, pin_path=self.pin,
+        return swap.SwapHost(core=deploy, image_prefix=PREFIX, releases_root=self.opt, pin_path=self.pin,
                                read_protected=lambda path: path.read_bytes(), inspect_runtime=self.observe,
                                require_ingress_idle=require_idle, executor_identity=lambda: self.identity,
                                list_processes=lambda: self.processes, now=lambda: self.now, sleep=lambda _: None)
 
     def call(self, action: str, *, reviewed: str | None = None, target: str = NEW_REF, release=None) -> dict:
-        return deploy.postgres_swap_entry(release or self.release, target, self.paths, self.docker, action=action,
+        return swap.postgres_swap_entry(release or self.release, target, self.paths, self.docker, action=action,
                                           reviewed_plan_sha256=reviewed, host=self.host())
 
     def plan(self) -> str:
@@ -267,7 +268,7 @@ class SwapFixture(unittest.TestCase):
         self.assertEqual(len(list((self.state / "postgres-swap-history").iterdir())), 1)
 
     def stop_at_commit(self) -> None:
-        with patch.object(deploy, "_swap_commit", side_effect=deploy.DeployError("synthetic stop before step 7")), \
+        with patch.object(swap, "_swap_commit", side_effect=deploy.DeployError("synthetic stop before step 7")), \
                 self.assertRaises(deploy.DeployError):
             self.apply()
         self.assertEqual(self.phase(), "commit")
@@ -388,7 +389,8 @@ class HappyPathTests(SwapFixture):
         self.assertEqual(len(self.docker.holds), 2)
 
     def test_executor_stays_inside_the_bundle_member_budget(self) -> None:
-        self.assertLessEqual(Path(deploy.__file__).stat().st_size, 256 * 1024)
+        for module in (deploy, swap):
+            self.assertLessEqual(Path(module.__file__).stat().st_size, 256 * 1024)
 
 
 class TargetReleaseTests(SwapFixture):
@@ -531,7 +533,7 @@ class PreconditionTests(SwapFixture):
         broken = dataclasses.replace(self.host(), executor_identity=absent)
         for action, reviewed in (("plan", None), ("apply", "9" * 64)):
             with self.assertRaises(deploy.DeployError):
-                deploy.postgres_swap_entry(self.release, NEW_REF, self.paths, self.docker, action=action,
+                swap.postgres_swap_entry(self.release, NEW_REF, self.paths, self.docker, action=action,
                                            reviewed_plan_sha256=reviewed, host=broken)
         self.assertEqual(self.docker.mutating(), [])
 
@@ -620,7 +622,7 @@ class FenceTests(SwapFixture):
             deploy.runtime_preflight(self.release, self.paths, self.docker)
 
     def test_crash_after_journal_before_fence_is_recovered_by_explicit_command(self) -> None:
-        with patch.object(deploy, "_swap_ensure_fence", side_effect=OSError("synthetic")), \
+        with patch.object(swap, "_swap_ensure_fence", side_effect=OSError("synthetic")), \
                 self.assertRaises(OSError):
             self.apply()
         self.assertFalse(self.fence().exists())
@@ -633,7 +635,7 @@ class FenceTests(SwapFixture):
         self.apply()
         target = deploy.parse_manifest(Path(json.loads(self.pin.read_text())["manifest"]).read_text(), image_prefix=PREFIX)
         self.seal(self.observe(target, None)["profile"])
-        with patch.object(deploy, "_swap_release_fence", side_effect=OSError("synthetic")), self.assertRaises(OSError):
+        with patch.object(swap, "_swap_release_fence", side_effect=OSError("synthetic")), self.assertRaises(OSError):
             self.call("resume")
         self.assertFalse((self.state / "postgres-swap/attempt.json").exists())
         self.assertTrue(self.fence().exists())
@@ -718,7 +720,7 @@ class OrphanComposeTests(SwapFixture):
             raise OSError("no /proc")
         host = dataclasses.replace(self.host(), list_processes=unreadable)
         with self.assertRaises(OSError):
-            deploy.postgres_swap_entry(self.release, NEW_REF, self.paths, self.docker, action="resume",
+            swap.postgres_swap_entry(self.release, NEW_REF, self.paths, self.docker, action="resume",
                                        reviewed_plan_sha256=None, host=host)
 
     def test_process_table_reader_parses_nul_separated_argv(self) -> None:
@@ -727,7 +729,7 @@ class OrphanComposeTests(SwapFixture):
         (root / "10/cmdline").write_bytes(b"docker\0compose\0up\0")
         (root / "self").mkdir()
         (root / "11").mkdir()
-        self.assertEqual(deploy._swap_list_processes(root), [["docker", "compose", "up"]])
+        self.assertEqual(swap.list_processes(root), [["docker", "compose", "up"]])
 
 
 class AbortTests(SwapFixture):
@@ -855,7 +857,7 @@ class ResumeTests(SwapFixture):
                 return subprocess.CompletedProcess(command, 1, "", "B2 unavailable")
             return original(command, capture=capture, input_text=input_text)
         with self.assertRaisesRegex(deploy.DeployError, "--resume ou --abort"):
-            deploy.postgres_swap_entry(self.release, NEW_REF, self.paths, failing, action="apply",
+            swap.postgres_swap_entry(self.release, NEW_REF, self.paths, failing, action="apply",
                                        reviewed_plan_sha256=reviewed, host=self.host())
         self.assertEqual(self.phase(), "verify-runtime")
         self.assertEqual(len(calls), 1)
@@ -901,12 +903,12 @@ class ResumeTests(SwapFixture):
 
 class ChildGroupTests(unittest.TestCase):
     def test_child_runs_in_its_own_session_and_returns_output(self) -> None:
-        result = deploy.run_in_own_group([sys.executable, "-c", "import os;print(os.getsid(0))"], capture=True)
+        result = swap.run_in_own_group([sys.executable, "-c", "import os;print(os.getsid(0))"], capture=True)
         self.assertEqual(result.returncode, 0)
         self.assertNotEqual(int(result.stdout), os.getsid(0))
 
     def test_input_text_reaches_child(self) -> None:
-        result = deploy.run_in_own_group([sys.executable, "-c", "print(input())"], capture=True, input_text="payload\n")
+        result = swap.run_in_own_group([sys.executable, "-c", "print(input())"], capture=True, input_text="payload\n")
         self.assertEqual(result.stdout.strip(), "payload")
 
     def test_timeout_kills_the_whole_group(self) -> None:
@@ -916,8 +918,8 @@ class ChildGroupTests(unittest.TestCase):
         script = ("import os,subprocess,sys,time\n"
                   "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])\n"
                   f"open({str(marker)!r},'w').write(str(p.pid))\ntime.sleep(60)\n")
-        with patch.object(deploy, "COMMAND_TIMEOUT_SECONDS", 1), self.assertRaises(deploy.DeployError):
-            deploy.run_in_own_group([sys.executable, "-c", script])
+        with patch.object(swap, "COMMAND_TIMEOUT_SECONDS", 1), self.assertRaises(deploy.DeployError):
+            swap.run_in_own_group([sys.executable, "-c", script])
         pid = int(marker.read_text())
         for _ in range(100):
             try:
@@ -934,11 +936,11 @@ class ChildGroupTests(unittest.TestCase):
             def prctl(self, *arguments):
                 calls.append(arguments)
                 return 0
-        with patch.object(deploy.sys, "platform", "linux"), patch.object(deploy.ctypes, "CDLL", return_value=Libc()), \
-                patch.object(deploy.os, "getppid", return_value=123), patch.object(deploy.os, "_exit") as leave:
-            deploy._die_with_parent(123)
+        with patch.object(swap.sys, "platform", "linux"), patch.object(swap.ctypes, "CDLL", return_value=Libc()), \
+                patch.object(swap.os, "getppid", return_value=123), patch.object(deploy.os, "_exit") as leave:
+            swap._die_with_parent(123)
             leave.assert_not_called()
-            deploy._die_with_parent(999)
+            swap._die_with_parent(999)
             leave.assert_called_once()
         self.assertEqual(calls[0][:2], (1, signal.SIGKILL))
 
@@ -981,7 +983,7 @@ class CrashAtCommitTests(SwapFixture):
         if pid == 0:
             try:
                 written = 0
-                original = deploy._swap_write_atomic
+                original = swap._swap_write_atomic
                 def write(path, raw, **arguments):
                     nonlocal written
                     if path.parent == journal and written < cut:
@@ -993,7 +995,7 @@ class CrashAtCommitTests(SwapFixture):
                             return original(path, raw, **arguments)
                     written += 1
                     return original(path, raw, **arguments)
-                deploy._swap_write_atomic = write
+                swap._swap_write_atomic = write
                 self.call("resume")
             finally:
                 os._exit(91)
@@ -1051,12 +1053,12 @@ class CrashAtCommitTests(SwapFixture):
         pid = os.fork()
         if pid == 0:
             try:
-                original = deploy._swap_write_atomic
+                original = swap._swap_write_atomic
                 def write(path, raw, **arguments):
                     if path == self.pin:
                         os.kill(os.getpid(), signal.SIGKILL)
                     return original(path, raw, **arguments)
-                deploy._swap_write_atomic = write
+                swap._swap_write_atomic = write
                 self.call("abort")
             finally:
                 os._exit(91)
@@ -1096,7 +1098,7 @@ class CrashAtCommitTests(SwapFixture):
             synced.append(os.path.isdir(f"/dev/fd/{descriptor}") or os.fstat(descriptor).st_mode & 0o170000 == 0o040000)
             return real(descriptor)
         with patch.object(deploy.os, "fsync", fsync):
-            deploy._swap_write_atomic(path, b"{}\n", mode=0o600)
+            swap._swap_write_atomic(path, b"{}\n", mode=0o600)
         self.assertEqual(synced, [False, True])
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 

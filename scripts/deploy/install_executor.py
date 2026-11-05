@@ -22,7 +22,7 @@ from contextlib import ExitStack, contextmanager
 sys.dont_write_bytecode = True
 import runtime_guard as guard
 
-FILES = ("duora_deploy.py", "reconcile_payload.py", "runtime_guard.py", "install_executor.py")
+FILES = ("duora_deploy.py", "postgres_swap.py", "reconcile_payload.py", "runtime_guard.py", "install_executor.py")
 FENCE_DIRECTORY = "duora-executor-install"
 SWAP_FENCE_DIRECTORY = "duora-postgres-swap"
 SWAP_JOURNAL_DIRECTORY = "postgres-swap"
