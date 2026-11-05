@@ -523,8 +523,9 @@ digest antigo.
 para um digest diferente do que está rodando, escolhido em `scripts/deploy/fixtures/postgres-swap-target.json`: sentinela,
 troca, ressela real pelo instalador, forward, rollback, lock antigo recusado e troca reversa. `restore_drill.py` faz backup
 no digest do lock, troca, escritas e PITR com o digest novo, com `verify-repo` sem lacuna; no Actions essa etapa não pode
-ser pulada. Com o lock já no alvo, os dois trocam de volta para a origem da fixture, e falham se ela não tiver digest
-diferente.
+ser pulada. Com o lock já no alvo, o drill troca de volta para a origem da fixture, e falha se ela não tiver digest
+diferente. O lab não acompanha o lock: ele sai sempre do digest legado de `runtime_guard.py` para o alvo da fixture, então
+o PITR no sentido contrário só o drill cobre.
 
 **O que é prova manual, fora de qualquer gate.** `postgres_swap_bench.py --mode matrix` e `--mode unhealthy` não rodam em
 workflow nenhum. Última execução: 05/11/2026, commit `15893687`, arm64, em `docker:dind` isolado com o marcador de host

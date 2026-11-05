@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import re
 import socket
 import subprocess
 import sys
@@ -70,8 +71,9 @@ class AlternativeTargetTests(unittest.TestCase):
 
     def test_real_fixture_has_origin_for_both_architectures(self) -> None:
         fixture = json.loads(bench.FIXTURE.read_text())
-        lock = json.loads(bench.LOCK.read_text())
-        self.assertEqual(fixture["origin"], lock["images"])
+        self.assertEqual(fixture["origin"], {
+            "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c",
+            "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:a626e902dfc8165bf5b866ea03fd4b6c2eec739ec7b76872154504bee99dd930"})
         for architecture in ("amd64", "arm64"):
             self.assertNotEqual(fixture["origin"][architecture], fixture["images"][architecture])
 
@@ -83,6 +85,26 @@ class AlternativeTargetTests(unittest.TestCase):
 
     def test_bench_main_has_no_skip_left(self) -> None:
         self.assertNotIn("skipped", Path(bench.__file__).read_text())
+
+
+class LockAtTargetTests(AlternativeTargetTests):
+    """The lock pull request changes only the lock: nothing about the fixture may depend on what the lock says."""
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        moved = Path(directory.name) / "lock.json"
+        moved.write_text(json.dumps({"images": json.loads(bench.FIXTURE.read_text())["images"]}))
+        patcher = patch.object(bench, "LOCK", moved)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_drill_pair_is_a_real_reverse_swap(self) -> None:
+        fixture = json.loads(bench.FIXTURE.read_text())
+        for architecture in ("amd64", "arm64"):
+            source = bench.source_for(architecture)
+            self.assertEqual(source, fixture["images"][architecture])
+            self.assertEqual(bench.alternative_digest(source, architecture), fixture["origin"][architecture])
 
 
 class HostGuardTests(unittest.TestCase):
@@ -193,6 +215,38 @@ class HostGuardTests(unittest.TestCase):
         bench.FixedHost().release()
         self.assertTrue(all(file.exists() for file in files))
 
+    def bench_stopping(self, result: Any) -> Any:
+        stack = object.__new__(bench.Bench)
+        stack.compose_command = ["docker", "compose"]
+        stack.registry_name = "registry"
+        stack.root = self.base / "work"
+        stack.host = bench.FixedHost()
+        stack.host.claim(root=stack.root, registry="registry")
+        self.paths["PIN"].parent.mkdir(parents=True)
+        def run(command, **_):
+            if "down" in command:
+                if isinstance(result, Exception): raise result
+                return subprocess.CompletedProcess(command, result, "", "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        with patch.object(bench, "docker", self.docker), patch.object(bench.subprocess, "run", run):
+            stack.stop()
+        return stack
+
+    def test_failed_compose_down_keeps_the_claim_for_cleanup(self) -> None:
+        for result in (1, subprocess.TimeoutExpired("down", 180)):
+            with self.subTest(result=str(result)):
+                self.setUp()
+                with patch.object(bench, "docker", self.docker):
+                    self.bench_stopping(result)
+                self.assertTrue(self.paths["CLAIM"].exists())
+                self.assertTrue(self.paths["PIN"].parent.exists())
+
+    def test_clean_compose_down_releases_the_claim(self) -> None:
+        with patch.object(bench, "docker", self.docker):
+            self.bench_stopping(0)
+        self.assertFalse(self.paths["CLAIM"].exists())
+        self.assertFalse(self.paths["PIN"].parent.exists())
+
     def test_cleanup_needs_a_claim_and_a_disposable_host(self) -> None:
         files = self.production_files()
         self.mark_disposable()
@@ -247,6 +301,39 @@ class SpecificRefusalTests(unittest.TestCase):
         lab_object, release = self.lab(executor.DeployError("PostgreSQL swap aberto (journal ou fence): resolva"))
         with patch.object(bench, "docker", return_value=""):
             lab_object.refused_deploy(release, bench.REFUSED_BY_FENCE)
+
+    def digest_refusal(self, cause: Exception) -> Exception:
+        """The chain of the real path: GuardError, re-raised by collect_runtime, wrapped by _collect_runtime."""
+        try:
+            try:
+                try:
+                    raise cause
+                except ValueError as inner:
+                    raise guard.GuardError("Cannot establish the reviewed healthy runtime") from inner
+            except ValueError as outer:
+                raise executor.DeployError(bench.REFUSED_BY_DIGEST) from outer
+        except executor.DeployError as error:
+            return error
+
+    def test_digest_refusal_needs_the_digest_cause(self) -> None:
+        lab_object, release = self.lab(self.digest_refusal(guard.GuardError(bench.REFUSED_DIGEST_CAUSE)))
+        with patch.object(bench, "docker", return_value=""):
+            lab_object.refused_deploy(release, bench.REFUSED_BY_DIGEST, cause=bench.REFUSED_DIGEST_CAUSE)
+
+    def test_any_other_runtime_failure_under_the_same_message_fails_the_proof(self) -> None:
+        for cause in (guard.GuardError("Runtime is not stably healthy"), guard.GuardError("Unexpected data volume mount"),
+                      ValueError("SQL capture failed")):
+            lab_object, release = self.lab(self.digest_refusal(cause))
+            with self.subTest(cause=str(cause)), patch.object(bench, "docker", return_value=""), \
+                    self.assertRaisesRegex(bench.ProofFailure, str(cause)):
+                lab_object.refused_deploy(release, bench.REFUSED_BY_DIGEST, cause=bench.REFUSED_DIGEST_CAUSE)
+
+    def test_digest_cause_is_the_guards_real_message(self) -> None:
+        self.assertIn(bench.REFUSED_DIGEST_CAUSE, Path(guard.__file__).read_text())
+
+    def test_digest_call_sites_all_demand_the_cause(self) -> None:
+        source = Path(bench.__file__).read_text()
+        self.assertEqual(len(re.findall(r"REFUSED_BY_DIGEST,\s+cause=REFUSED_DIGEST_CAUSE", source)), source.count("REFUSED_BY_DIGEST") - 1)
 
     def test_expected_reasons_are_the_messages_the_executor_really_emits(self) -> None:
         source = (Path(bench.__file__).parent / "postgres_swap.py").read_text()
@@ -361,10 +448,11 @@ class DrillStageTests(unittest.TestCase):
                 self.log.flush()
             def wait(self, timeout=None):
                 raise subprocess.TimeoutExpired("bench", timeout or 0)
-            def terminate(self): cleanup.append("terminate")
-            def kill(self): cleanup.append("kill")
+            def terminate(self): raise PermissionError(1, "Operation not permitted")
+            def kill(self): raise PermissionError(1, "Operation not permitted")
         def run(command, **_):
             if "cleanup" in command: cleanup.append("cleanup")
+            if command[:3] == ["sudo", "--non-interactive", "kill"]: cleanup.append(command[3])
             return subprocess.CompletedProcess(command, 0, "", "")
         output = io.StringIO()
         report = self.report()
@@ -373,7 +461,44 @@ class DrillStageTests(unittest.TestCase):
                 contextlib.redirect_stdout(output):
             self.assertFalse(drill._swap_stage(report))
         self.assertIn("stuck here", output.getvalue())
-        self.assertEqual(cleanup, ["terminate", "kill", "cleanup"])
+        self.assertEqual(cleanup, ["-TERM", "-KILL", "cleanup"])
+
+    def stop(self, command: list[str], *, signal_result: Any = 0) -> list[str]:
+        calls = []
+        class Process:
+            pid = 4321
+            def wait(self, timeout=None): return 0
+            def terminate(self): calls.append("terminate")
+            def kill(self): calls.append("kill")
+        def run(arguments, **_):
+            if "cleanup" in arguments:
+                calls.append("cleanup")
+            else:
+                calls.append(arguments[3])
+                if isinstance(signal_result, Exception): raise signal_result
+            return subprocess.CompletedProcess(arguments, 0 if isinstance(signal_result, Exception) else signal_result, "", "")
+        with patch.object(drill.subprocess, "run", run), contextlib.redirect_stdout(io.StringIO()):
+            drill._stop_swap_proof(Process(), command)  # type: ignore[arg-type]
+        return calls
+
+    def test_direct_root_signals_its_own_child(self) -> None:
+        self.assertEqual(self.stop(["python3", "bench", "--mode", "pitr"]), ["terminate", "cleanup"])
+
+    def test_failed_sudo_kill_still_reaches_the_cleanup(self) -> None:
+        for result in (1, subprocess.TimeoutExpired("sudo", 30), OSError("no sudo")):
+            with self.subTest(result=str(result)):
+                self.assertEqual(self.stop(["sudo", "--non-interactive", "python3", "bench", "--mode", "pitr"], signal_result=result)[-1],
+                                 "cleanup")
+
+    def test_failed_cleanup_does_not_lose_the_log(self) -> None:
+        class Process:
+            pid = 1
+            def wait(self, timeout=None): return 0
+            def terminate(self): pass
+        with patch.object(drill.subprocess, "run", side_effect=subprocess.TimeoutExpired("cleanup", 180)), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            drill._stop_swap_proof(Process(), ["python3", "bench", "--mode", "pitr"])  # type: ignore[arg-type]
+        self.assertIn("cleanup", output.getvalue())
 
     def report(self):
         return drill.DrillReport(image="image")

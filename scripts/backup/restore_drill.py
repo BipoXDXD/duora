@@ -64,6 +64,7 @@ SWAP_PROOF = REPO_ROOT / "scripts" / "deploy" / "postgres_swap_bench.py"
 SWAP_RESULT_PREFIX = "SWAP_RESULT="
 SWAP_SUDO_ENVIRONMENT = "--preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,GITHUB_REPOSITORY"
 SWAP_STOP_SECONDS = 180
+SWAP_SIGNAL_SECONDS = 30
 SWAP_LOG_TAIL_CHARACTERS = 4000
 PROJECT = "duora-drill"
 BUCKET = "duora-drill"
@@ -592,14 +593,31 @@ def _host_is_disposable() -> bool:
     return postgres_swap_bench.host_is_disposable()
 
 
+def _signal_swap_proof(process: subprocess.Popen, command: list[str], name: str) -> None:
+    """Sob sudo o filho é root: o sinal direto de um usuário comum daria EPERM. Falhar aqui não pode impedir a limpeza."""
+    try:
+        if command[0] != "sudo":
+            process.terminate() if name == "TERM" else process.kill()
+            return
+        result = subprocess.run(["sudo", "--non-interactive", "kill", "-" + name, str(process.pid)],
+                                capture_output=True, check=False, timeout=SWAP_SIGNAL_SECONDS)
+        if result.returncode != 0:
+            print(f"[drill] AVISO: sudo kill -{name} falhou (código {result.returncode})", flush=True)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"[drill] AVISO: não consegui enviar {name} à prova da troca: {error}", flush=True)
+
+
 def _stop_swap_proof(process: subprocess.Popen, command: list[str]) -> None:
     """SIGTERM deixa a bancada limpar o que é dela; se ela não sair, a limpeza pelo registro cobre o resto."""
-    process.terminate()
+    _signal_swap_proof(process, command, "TERM")
     try:
         process.wait(timeout=SWAP_STOP_SECONDS)
     except subprocess.TimeoutExpired:
-        process.kill()
-    subprocess.run([*command[:-1], "cleanup"], capture_output=True, check=False, timeout=SWAP_STOP_SECONDS)
+        _signal_swap_proof(process, command, "KILL")
+    try:
+        subprocess.run([*command[:-1], "cleanup"], capture_output=True, check=False, timeout=SWAP_STOP_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"[drill] AVISO: cleanup da prova da troca não terminou: {error}", flush=True)
 
 
 def _swap_stage(report: DrillReport) -> bool:

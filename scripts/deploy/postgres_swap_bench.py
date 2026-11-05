@@ -58,6 +58,7 @@ ABORT_ONLY_STATE = "aborting"
 # The exact refusal each step expects: any other error would be a proof that proves nothing.
 REFUSED_BY_FENCE = "PostgreSQL swap aberto"
 REFUSED_BY_DIGEST = "Cannot qualify the unchanged database/backup runtime"
+REFUSED_DIGEST_CAUSE = "Runtime differs from the desired immutable component"  # The executor's message covers any failure.
 REFUSED_BY_COMPOSE = "Processo compose do projeto ainda vivo"
 REFUSED_BY_RESEAL = "rode a ressela do instalador"
 REFUSED_RESUME_OF_ABORT = "Abort interrompido só continua com --abort"
@@ -197,6 +198,15 @@ def cleanup_claimed() -> bool:
     shutil.rmtree(claim["root"], ignore_errors=True)
     CLAIM.unlink()
     return True
+
+
+def error_chain(error: BaseException) -> list[str]:
+    messages = []
+    current: BaseException | None = error
+    while current is not None:
+        messages.append(str(current))
+        current = current.__cause__
+    return messages
 
 
 def driver_environment(environment: dict | None = None) -> dict:
@@ -417,14 +427,15 @@ class SwapLab:
         self.require_idle()
         return following
 
-    def refused_deploy(self, release: executor.Release, reason: str) -> None:
+    def refused_deploy(self, release: executor.Release, reason: str, *, cause: str | None = None) -> None:
         worker = docker("ps", "--quiet", "--filter", "label=com.docker.compose.project=duora",
                         "--filter", "label=com.docker.compose.service=worker")
         try:
             self.deploy(release)
         except executor.DeployError as error:
-            if reason not in str(error):
-                raise ProofFailure("Refused for another reason: " + str(error)) from error
+            causes = error_chain(error)
+            if reason not in causes[0] or (cause is not None and not any(cause in item for item in causes)):
+                raise ProofFailure("Refused for another reason: " + " <- ".join(causes)) from error
         else:
             raise ProofFailure("Deployment that must be refused was accepted")
         if docker("ps", "--quiet", "--filter", "label=com.docker.compose.project=duora",
@@ -464,13 +475,14 @@ class SwapLab:
         sentinel = self.sql("select value from ops.swap_sentinel where id=1")
         if sentinel != "before-swap" or json.loads(self.sql(swap.SWAP_PHOTO_SQL)) != photo:
             raise ProofFailure("Swap lost the sentinel or changed the database photo")
-        self.refused_deploy(self.next_release(swapped, source.images["postgres"]), REFUSED_BY_DIGEST)  # Old lock after the swap.
+        self.refused_deploy(self.next_release(swapped, source.images["postgres"]), REFUSED_BY_DIGEST,
+                            cause=REFUSED_DIGEST_CAUSE)  # Old lock after the swap.
         forward = self.next_release(swapped)
         self.deploy(forward)
         self.deploy(swapped)  # R''->R' is an ordinary recorded rollback.
         if executor._current_release_id(self.paths.state_dir) != swapped.release_id:
             raise ProofFailure("Rollback to the swap release did not become current")
-        self.refused_deploy(source, REFUSED_BY_DIGEST)  # R'->R stays refused on purpose.
+        self.refused_deploy(source, REFUSED_BY_DIGEST, cause=REFUSED_DIGEST_CAUSE)  # R'->R stays refused on purpose.
         reversed_release = self.sealed_swap(swapped, source.images["postgres"])
         self.current = reversed_release
         if self.sql("select value from ops.swap_sentinel where id=1") != "before-swap":
@@ -754,13 +766,20 @@ class Bench:
                        target=self.target)
 
     def stop(self) -> None:
+        stopped = True
         if self.compose_command is not None:
-            subprocess.run(self.compose_command + ["--profile", "restore", "--profile", "migrate", "down", "--volumes", "--remove-orphans"],
-                           capture_output=True, check=False, timeout=180)
+            try:
+                stopped = subprocess.run(self.compose_command + ["--profile", "restore", "--profile", "migrate", "down", "--volumes", "--remove-orphans"],
+                                         capture_output=True, check=False, timeout=180).returncode == 0
+            except subprocess.TimeoutExpired:
+                stopped = False
         if self.host.claimed:
             remove_holds()
         subprocess.run(["docker", "rm", "--force", self.registry_name], capture_output=True, check=False, timeout=30)
-        self.host.release()
+        if stopped:
+            self.host.release()
+        else:
+            log("compose down failed: the claim stays so --mode cleanup can still find the stack")
         shutil.rmtree(self.root, ignore_errors=True)
 
 
