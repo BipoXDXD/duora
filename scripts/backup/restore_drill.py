@@ -29,12 +29,17 @@ backup (scripts/backup/compose.drill.yml; nunca produção), e então:
 
 RTO observado = da destruição do volume até os dados conferidos (passos 7 a 9). Dados sintéticos; tudo é
 derrubado no fim (--keep mantém para inspeção). Só biblioteca padrão; precisa de docker e openssl.
+
+Depois, com root (direto ou sudo sem senha), a troca de digest atravessando um PITR real: backup no digest do lock,
+troca pelo comando real do executor para o alvo da fixture, escritas, PITR com o digest novo e verify-repo sem lacuna
+(scripts/deploy/postgres_swap_bench.py). Fora do Actions, sem root, esse trecho é pulado e o relatório diz isso.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import shutil
 import subprocess
@@ -54,6 +59,8 @@ import duora_secrets
 COMPOSE_FILE = REPO_ROOT / "infra" / "compose" / "compose.prod.yml"
 DRILL_FILE = REPO_ROOT / "scripts" / "backup" / "compose.drill.yml"
 BACKUP_SCRIPT = REPO_ROOT / "scripts" / "deploy" / "duora_backup.py"
+SWAP_PROOF = REPO_ROOT / "scripts" / "deploy" / "postgres_swap_bench.py"
+SWAP_RESULT_PREFIX = "SWAP_RESULT="
 PROJECT = "duora-drill"
 BUCKET = "duora-drill"
 # Como a produção exige (ADR-0023): Object Lock com retenção padrão que cobre a janela de 21 dias.
@@ -91,6 +98,7 @@ class DrillReport:
     rpo_seconds: float = 0.0
     rto_seconds: float = 0.0
     timeline_after_restore: int = 0
+    swap: dict = field(default_factory=dict)
     isolation: dict[str, bool] = field(default_factory=dict)
     phases_seconds: dict[str, float] = field(default_factory=dict)
 
@@ -123,6 +131,8 @@ def main() -> int:
             drill.teardown()
             cleaned = _clean_workdir(workdir, args.image)
     if report is None or not cleaned:
+        return 1
+    if not args.keep and not _swap_stage(report):
         return 1
 
     print(f"[drill] OK: RPO observado {report.rpo_seconds:.1f} s, RTO observado {report.rto_seconds:.1f} s, "
@@ -554,6 +564,47 @@ class Drill:
         if self._prepared:
             subprocess.run(self._compose + ["--profile", "restore", "down", "--volumes", "--remove-orphans"],
                            check=False, capture_output=True)
+
+
+def swap_command(*, euid: int, can_sudo: bool, required: bool) -> list[str] | None:
+    """Como rodar a prova da troca aqui; None é pular. O executor exige root, e o Actions não pode pular."""
+    proof = [sys.executable, str(SWAP_PROOF), "--mode", "pitr"]
+    if euid == 0:
+        return proof
+    if can_sudo:
+        return ["sudo", "--non-interactive", *proof]
+    if required:
+        raise DrillFailure("a prova da troca exige root no Actions")
+    return None
+
+
+def _can_sudo() -> bool:
+    return shutil.which("sudo") is not None and subprocess.run(
+        ["sudo", "--non-interactive", "true"], capture_output=True, check=False, timeout=30).returncode == 0
+
+
+def _swap_stage(report: DrillReport) -> bool:
+    try:
+        command = swap_command(euid=os.geteuid(), can_sudo=_can_sudo(), required=os.environ.get("GITHUB_ACTIONS") == "true")
+    except DrillFailure as error:
+        print(f"[drill] FALHOU: {error}", flush=True)
+        return False
+    if command is None:
+        print("[drill] AVISO: PITR atravessando a troca NÃO provado aqui (sem root)", flush=True)
+        report.swap = {"skipped": "sem root"}
+        return True
+    print("[drill] troca de digest com PITR atravessando (comando real do executor)", flush=True)
+    result = subprocess.run(command, text=True, capture_output=True, check=False, timeout=COMMAND_TIMEOUT_SECONDS)
+    lines = [line for line in result.stdout.splitlines() if line.startswith(SWAP_RESULT_PREFIX)]
+    if result.returncode != 0 or len(lines) != 1:
+        print(f"[drill] FALHOU: prova da troca (código {result.returncode})\n{(result.stdout + result.stderr)[-4000:]}", flush=True)
+        return False
+    report.swap = json.loads(lines[0].removeprefix(SWAP_RESULT_PREFIX))
+    if "skipped" in report.swap:
+        print(f"[drill] AVISO: troca não exercitada: {report.swap['skipped']}", flush=True)
+        return True
+    print(f"[drill] OK: PITR atravessou a troca, timeline {report.swap['timeline']}, verify-repo sem lacuna", flush=True)
+    return True
 
 
 def _clean_workdir(workdir: Path, image: str) -> bool:
