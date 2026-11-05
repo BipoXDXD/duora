@@ -519,9 +519,15 @@ antigo como alvo. Ela gera outra release e exige reverter o lock na main; fora d
 para frente ou restore, por decisão do dono. R''→R' é rollback normal. R'→R segue recusado de propósito, porque R fixa o
 digest antigo.
 
-**Sem prova de laboratório nesta versão.** Os testes de protocolo usam Docker simulado. Falta exercitar `initdb`
-descartável, recriação real com `up --wait`, ressela real, PITR atravessando a troca e `docker load` do receiver sobre
-imagem já puxada. O laboratório vem em PR separado, e a primeira execução real é o ensaio no sombra.
+**O que está provado.** `continuity_lab.py` termina cada rodada trocando para o alvo de
+`scripts/deploy/fixtures/postgres-swap-target.json` pelo comando real: sentinela, troca, ressela real pelo instalador,
+forward, rollback, lock antigo recusado e troca reversa. `restore_drill.py` faz backup no digest antigo, troca, escritas e
+PITR com o digest novo, com `verify-repo` sem lacuna. `postgres_swap_bench.py --mode matrix` mata o comando com SIGKILL
+em cada fase, com filho vivo, resolve por `--resume` e por `--abort` e só aceita o desfecho depois de um deploy real.
+
+Em banco pequeno, sem Coolify real, a queda medida foi de 6 a 7 s no banco e cerca de 14 s na aplicação; `--abort` soma
+outro tanto. Tempo com volume real só no sombra. Continuam sem prova até a janela: observer e Coolify reais, B2, GHCR a
+partir da VPS, cron de prune e `docker load` do receiver sobre imagem já puxada.
 
 ### Primeira configuração do host
 

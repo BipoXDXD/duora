@@ -74,10 +74,11 @@ it. There is no separate license evaluation of the image SBOM in this workflow.
 `images` job of the lock pull request runs all three, with different reach:
 `AppRolePrivilegesTests` is the only one that exercises the locked digest,
 `MigratorPayloadImageTests` inspects only the migrator image, and the continuity
-lab still builds its releases on the frozen digests of `runtime_guard.py`. Proof
-of the lab with a new digest belongs to step 5 of the qualification design, with
-the executor operation that replaces the component. A qualification run alone
-proves nothing to a release.
+lab builds its v1 phase on the frozen digests of `runtime_guard.py`, then ends by
+swapping to the reviewed target in `scripts/deploy/fixtures/postgres-swap-target.json`
+through the real executor command. That fixture is the target because the lock
+still names the running digest when the executor change lands. A qualification
+run alone proves nothing to a release.
 
 The lock binds this path differently from a release publication. The run's
 `head_sha` is the `main` commit, so `validate_origin` requires `head_branch ==
