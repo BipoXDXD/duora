@@ -96,6 +96,11 @@ internal static class AppRoleTableAccess
             ["ops.country_database_state"] = AppTableAccess.ReadWrite,
             ["ops.outbox_deliveries"] = AppTableAccess.ReadWrite,
             ["ops.outbox_events"] = AppTableAccess.ReadWrite,
+            // Reconciliação da #321 (ADR-0049): manifesto e recibo guardados por trigger; o app nunca apaga. O vínculo
+            // é gravado uma vez, e só a retenção da outbox o remove, em cascata.
+            ["ops.registration_reconciliation_runs"] = AppTableAccess.ReadWriteWithoutDelete,
+            ["ops.registration_reconciliation_unit_facts"] = AppTableAccess.AppendOnly,
+            ["ops.registration_reconciliation_units"] = AppTableAccess.ReadWriteWithoutDelete,
             // Não é append-only: o processamento muda o estado na mesma transação e a retenção apaga em lote.
             ["ops.webhook_receipts"] = AppTableAccess.ReadWrite,
 
