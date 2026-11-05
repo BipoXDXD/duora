@@ -61,6 +61,12 @@ exige a mesma sessão administrativa, MFA, papel `moderator` lido ao vivo, TOTP 
 validações de expiração, stamp, revogação, suspensão, MFA e papel, sem atualizar `last_seen_at`/`idle_expires_at`, sem
 renovar, gravar ou revogar sessão. A permissão é revalidada no snapshot de leitura. Nenhuma outra rota muda.
 
+**Runs da reconciliação (#321, API-ADM26 e API-ADM27).** As [rotas de run](../api/registration-reconciliation-runs.md)
+têm a mesma barreira da prévia, mas com a sessão normal, **com toque**
+([ADR-0049](../architecture/adr/0049-execucao-da-reconciliacao-de-inscricoes-legadas.md), D4). A criação acrescenta
+`Idempotency-Key` única por moderador. A permissão é revalidada dentro da transação. A criação audita
+`ops.registration_reconciliation_run_created`, com ator `Moderator`, ID real e correlação.
+
 ### Bootstrap administrativo (D4)
 
 Conta privilegiada só nasce pelo comando operacional `duora-web admin grant --email … --role … --operator …

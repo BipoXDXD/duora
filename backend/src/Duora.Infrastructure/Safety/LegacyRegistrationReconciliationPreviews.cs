@@ -7,20 +7,16 @@ using static Duora.Infrastructure.Participation.ParticipationSql;
 
 namespace Duora.Infrastructure.Safety;
 
-/// <summary>Uma inscrição candidata, com a versão observada e o teto de vagas liberadas e de promoções.</summary>
-public sealed record ReconciliationPreviewItem(
-    Guid EventId,
-    long RegistrationVersion,
-    RegistrationState State,
-    int MaxReleasedSeats,
-    int MaxPromotions);
-
-/// <summary>Conta/medida original com suas inscrições candidatas, todas do mesmo snapshot.</summary>
+/// <summary>
+/// Conta/medida original com suas inscrições candidatas, todas do mesmo snapshot, e o digest que a identifica na
+/// criação de um run (ADR-0049, D1).
+/// </summary>
 public sealed record ReconciliationPreviewUnit(
     Guid SubjectUserId,
     Guid OriginalMeasureId,
     long MeasureVersion,
-    IReadOnlyList<ReconciliationPreviewItem> Items);
+    IReadOnlyList<ReconciliationPreviewItem> Items,
+    string UnitDigest);
 
 /// <summary>Última unidade de uma página, na ordem do PostgreSQL por <c>(subject_user_id, original_suspension_id)</c>.</summary>
 public readonly record struct ReconciliationPreviewCursor(Guid SubjectUserId, Guid OriginalMeasureId);
@@ -39,7 +35,7 @@ public sealed record ReconciliationUnitCounts(int Eligible, int Blocked, int Ove
 public sealed record ReconciliationPreview(
     DateTimeOffset AsOf,
     int SelectorVersion,
-    ReconciliationCutover? Cutover,
+    ReconciliationCutoverEvidence? Evidence,
     IReadOnlyDictionary<LegacyRegistrationIssue, int> RegistrationsByPrimaryIssue,
     int ActionableRegistrations,
     int HeldRegistrations,
@@ -72,7 +68,7 @@ public abstract record ReconciliationPreviewOutcome
 /// </summary>
 public sealed class LegacyRegistrationReconciliationPreviews
 {
-    public const int MaxUnitsPerPage = 10;
+    public const int MaxUnitsPerPage = ReconciliationRunOrder.MaxUnits;
     public const int MaxItemsPerPage = 100;
 
     /// <summary>Teto de cada consulta do snapshot (proposta, seção 6).</summary>
@@ -106,13 +102,16 @@ public sealed class LegacyRegistrationReconciliationPreviews
         _statementTimeout = timeout;
     }
 
+    /// <summary>Teto de cada consulta desta instância, que a criação de um run segue no próprio snapshot.</summary>
+    internal TimeSpan QueryTimeout => _statementTimeout;
+
     /// <summary>
     /// Prévia para quem modera: no próprio snapshot, antes de ler inscrições, confere a sessão administrativa viva com
     /// papel <c>moderator</c>, MFA provado e TOTP recente, como os comandos de suspensão. Null quando a sessão não
     /// (ou não mais) autoriza: nenhuma linha de participante é lida.
     /// </summary>
     public async Task<ReconciliationPreviewOutcome> ReadAsModeratorAsync(ModeratorSession moderator,
-        ReconciliationCutover? cutover, ReconciliationPreviewCursor? after, CancellationToken ct)
+        ReconciliationCutoverEvidence? evidence, ReconciliationPreviewCursor? after, CancellationToken ct)
     {
         var asOf = _clock.GetUtcNow();
         List<SnapshotRow>? rows;
@@ -129,24 +128,35 @@ public sealed class LegacyRegistrationReconciliationPreviews
 
         return rows is null
             ? new ReconciliationPreviewOutcome.Forbidden()
-            : new ReconciliationPreviewOutcome.Ready(Summarize(asOf, cutover, Assess(rows, cutover, asOf)));
+            : new ReconciliationPreviewOutcome.Ready(Summarize(asOf, evidence, Assess(rows, evidence, asOf)));
     }
 
     /// <summary>Prévia sem conferir quem pede; só para ensaio do seletor nos testes.</summary>
-    internal async Task<ReconciliationPreview> ReadAsync(ReconciliationCutover? cutover, ReconciliationPreviewCursor? after,
+    internal async Task<ReconciliationPreview> ReadAsync(ReconciliationCutoverEvidence? evidence, ReconciliationPreviewCursor? after,
         CancellationToken ct)
     {
         var asOf = _clock.GetUtcNow();
         var rows = await ReadSnapshotAsync(moderator: null, asOf, after, ct)
             ?? throw new InvalidOperationException("Sem sessão a conferir, o snapshot sempre devolve linhas.");
-        return Summarize(asOf, cutover, Assess(rows, cutover, asOf));
+        return Summarize(asOf, evidence, Assess(rows, evidence, asOf));
     }
 
-    private UnitAssessment[] Assess(List<SnapshotRow> rows, ReconciliationCutover? cutover, DateTimeOffset asOf) =>
-        [.. rows.GroupBy(row => (row.SubjectUserId, row.OriginalMeasureId))
-            .Select(group => Assess(group.ToArray(), cutover, asOf))];
+    /// <summary>
+    /// As unidades elegíveis destas contas, com a mesma classificação e o mesmo digest da prévia, no snapshot e na
+    /// transação de quem chama (ADR-0049, D1): é o recálculo da criação de um run.
+    /// </summary>
+    internal async Task<IReadOnlyList<ReconciliationPreviewUnit>> ReclassifyAsync(NpgsqlConnection connection,
+        ReconciliationCutoverEvidence? evidence, Guid[] subjects, DateTimeOffset asOf, CancellationToken ct)
+    {
+        var rows = await ReadRowsAsync(connection, after: null, subjects, ct);
+        return [.. Assess(rows, evidence, asOf).Where(unit => unit.Kind == UnitKind.Eligible).Select(unit => unit.Unit!)];
+    }
 
-    private ReconciliationPreview Summarize(DateTimeOffset asOf, ReconciliationCutover? cutover, UnitAssessment[] units)
+    private UnitAssessment[] Assess(List<SnapshotRow> rows, ReconciliationCutoverEvidence? evidence, DateTimeOffset asOf) =>
+        [.. rows.GroupBy(row => (row.SubjectUserId, row.OriginalMeasureId))
+            .Select(group => Assess(group.ToArray(), evidence, asOf))];
+
+    private ReconciliationPreview Summarize(DateTimeOffset asOf, ReconciliationCutoverEvidence? evidence, UnitAssessment[] units)
     {
         var classified = units.SelectMany(unit => unit.Classifications).ToArray();
         var byIssue = classified.Where(c => c.Primary is not null)
@@ -169,16 +179,16 @@ public sealed class LegacyRegistrationReconciliationPreviews
             ? new ReconciliationPreviewCursor(page[^1].SubjectUserId, page[^1].OriginalMeasureId)
             : (ReconciliationPreviewCursor?)null;
         var actionable = eligible.Sum(unit => unit.Unit!.Items.Count);
-        return new ReconciliationPreview(asOf, LegacyRegistrationSelector.Version, cutover, byIssue,
+        return new ReconciliationPreview(asOf, LegacyRegistrationSelector.Version, evidence, byIssue,
             actionable, classified.Count(c => c.IsCandidate) - actionable,
             new ReconciliationUnitCounts(eligible.Length, units.Count(u => u.Kind == UnitKind.Blocked),
                 units.Count(u => u.Kind == UnitKind.Oversized)),
             page, next);
     }
 
-    private UnitAssessment Assess(SnapshotRow[] rows, ReconciliationCutover? cutover, DateTimeOffset asOf)
+    private UnitAssessment Assess(SnapshotRow[] rows, ReconciliationCutoverEvidence? evidence, DateTimeOffset asOf)
     {
-        var classifications = rows.Select(row => LegacyRegistrationSelector.Classify(row.Facts, cutover)).ToArray();
+        var classifications = rows.Select(row => LegacyRegistrationSelector.Classify(row.Facts, evidence?.Cutover)).ToArray();
         var candidates = rows.Zip(classifications).Where(pair => pair.Second.IsCandidate).Select(pair => pair.First).ToArray();
         var first = rows[0];
         // Unidade sem nada que a reconciliação pudesse tocar fica fora das contagens de unidade.
@@ -188,11 +198,20 @@ public sealed class LegacyRegistrationReconciliationPreviews
             : candidates.Length == 0 ? UnitKind.None
             : candidates.Length > _maxItems ? UnitKind.Oversized
             : UnitKind.Eligible;
-        var unit = kind == UnitKind.Eligible
-            ? new ReconciliationPreviewUnit(first.SubjectUserId, first.OriginalMeasureId!.Value,
-                first.Facts.Measures.Active!.Version, [.. candidates.Select(row => Forecast(row, asOf))])
-            : null;
+        var unit = kind == UnitKind.Eligible ? EligibleUnit(first, candidates, evidence!, asOf) : null;
         return new UnitAssessment(kind, classifications, unit, first.AfterCursor);
+    }
+
+    /// <summary>Unidade elegível sempre tem corte: sem ele nenhuma inscrição é candidata.</summary>
+    private static ReconciliationPreviewUnit EligibleUnit(SnapshotRow first, SnapshotRow[] candidates,
+        ReconciliationCutoverEvidence evidence, DateTimeOffset asOf)
+    {
+        var subject = first.SubjectUserId;
+        var measure = first.OriginalMeasureId!.Value;
+        var version = first.Facts.Measures.Active!.Version;
+        ReconciliationPreviewItem[] items = [.. candidates.Select(row => Forecast(row, asOf))];
+        return new ReconciliationPreviewUnit(subject, measure, version, items, ReconciliationUnitDigest.Compute(
+            LegacyRegistrationSelector.Version, evidence, subject, measure, version, items));
     }
 
     /// <summary>
@@ -225,19 +244,26 @@ public sealed class LegacyRegistrationReconciliationPreviews
             return null;
         }
 
+        var rows = await ReadRowsAsync(connection, after, subjects: null, ct);
+        await transaction.CommitAsync(ct);
+        return rows;
+    }
+
+    private static async Task<List<SnapshotRow>> ReadRowsAsync(NpgsqlConnection connection,
+        ReconciliationPreviewCursor? after, Guid[]? subjects, CancellationToken ct)
+    {
         await using var query = Command(connection, SnapshotSql, AccountRoles.Privileged.ToArray(),
-            after?.SubjectUserId ?? (object)DBNull.Value, after?.OriginalMeasureId ?? (object)DBNull.Value);
+            after?.SubjectUserId ?? (object)DBNull.Value, after?.OriginalMeasureId ?? (object)DBNull.Value,
+            subjects ?? (object)DBNull.Value);
         query.Parameters[1].NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid;
         query.Parameters[2].NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid;
+        query.Parameters[3].NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Uuid;
         List<SnapshotRow> rows = [];
-        await using (var reader = await query.ExecuteReaderAsync(ct))
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
-            while (await reader.ReadAsync(ct))
-            {
-                rows.Add(SnapshotRow.From(reader));
-            }
+            rows.Add(SnapshotRow.From(reader));
         }
-        await transaction.CommitAsync(ct);
         return rows;
     }
 
@@ -246,7 +272,7 @@ public sealed class LegacyRegistrationReconciliationPreviews
     /// <c>moderator</c>, sessão administrativa viva com o security stamp atual, MFA provado) e TOTP no intervalo
     /// fechado de <see cref="RecentAuthentication.Window"/>; prova no futuro não vale.
     /// </summary>
-    private static async Task<bool> IsModeratorSessionAsync(NpgsqlConnection connection, ModeratorSession moderator,
+    internal static async Task<bool> IsModeratorSessionAsync(NpgsqlConnection connection, ModeratorSession moderator,
         DateTimeOffset now, CancellationToken ct)
     {
         if (moderator.UserId == Guid.Empty || moderator.SessionId == Guid.Empty)
@@ -292,10 +318,13 @@ public sealed class LegacyRegistrationReconciliationPreviews
 
     // População: contas suspensas ou com alguma suspensão registrada, e todas as suas inscrições, inclusive
     // terminais, para que ausências apareçam no diagnóstico em vez de sumirem num INNER JOIN. Infinito vira nulo.
+    // $4, quando presente, restringe as contas sem mudar a ocupação nem a fila dos eventos: é o recálculo de um run.
     private const string SnapshotSql = """
         with subjects as (
-          select id from identity.users where status='Suspended'
-          union select subject_user_id from safety.moderation_actions where measure='Suspension'),
+          select id from (
+            select id from identity.users where status='Suspended'
+            union select subject_user_id from safety.moderation_actions where measure='Suspension') s
+          where $4::uuid[] is null or id=any($4)),
         measures as (
           select s.id user_id,
             (count(m.id) filter (where m.lifted_at is null))::int active_count,

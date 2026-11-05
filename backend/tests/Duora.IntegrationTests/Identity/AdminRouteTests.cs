@@ -128,7 +128,7 @@ public sealed class AdminRouteTests : IAsyncDisposable
             if (route.Path.StartsWith(AdminPrefix + "/accounts/", StringComparison.Ordinal)
                 || route.Path.StartsWith(AdminPrefix + "/registration-reconciliations/", StringComparison.Ordinal))
             {
-                // Moderação de conta e a prévia da reconciliação (#321) exigem o papel moderator por cima da sessão
+                // Moderação de conta, a prévia e os runs da reconciliação (#321) exigem o papel moderator por cima da sessão
                 // administrativa (ADR-0042).
                 using var moderation = await SendAccountModerationAsync(browser, route);
                 await ProblemAssert.IsProblemAsync(moderation, HttpStatusCode.Forbidden, "ACCOUNT_MODERATION_FORBIDDEN");
@@ -304,7 +304,8 @@ public sealed class AdminRouteTests : IAsyncDisposable
         var path = route.Path
             .Replace("{userId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
             .Replace("{deliveryId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
-            .Replace("{suspensionId:guid}", suspensionId.ToString(), StringComparison.Ordinal);
+            .Replace("{suspensionId:guid}", suspensionId.ToString(), StringComparison.Ordinal)
+            .Replace("{runId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
         return route.Method switch
         {
             "GET" => browser.GetAsync(path),

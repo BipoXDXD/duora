@@ -39,6 +39,7 @@ public sealed class ProblemTextTests
         { "MFA_REQUIRED_BY_ROLE", "MFA is required for this account role." },
         { "REAUTHENTICATION_REQUIRED", "Confirm your credentials to continue." },
         { "RATE_LIMITED", "Too many requests. Try again later." },
+        { "RUN_ALREADY_OPEN", "A reconciliation run is already open." },
         { "SELF_BLOCK", "You cannot block your own account." },
         { "SELFIE_ATTEMPTS_EXHAUSTED", "Selfie attempts are exhausted. The account is blocked pending review." },
         { "SELFIE_ATTEMPTS_LOCKED", "Too many rejected selfies. Try again after the pause." },

@@ -21,6 +21,30 @@ public sealed class ReconciliationCutoverEvidenceTests
         Assert.Equal(new DateTimeOffset(2026, 10, 31, 12, 10, 0, 500, TimeSpan.Zero), evidence.Cutover.Upper);
     }
 
+    /// <summary>O PostgreSQL guarda microssegundos: um limite mais fino nunca voltaria igual do run gravado.</summary>
+    [Theory]
+    [InlineData("2026-10-31T12:00:00.123456Z", true)]
+    [InlineData("2026-10-31T12:00:00.1234567Z", false)]
+    public void TheBoundsStopAtMicroseconds(string lower, bool accepted) =>
+        Assert.Equal(accepted, ReconciliationCutoverEvidence.TryParse("deploy-1", lower, Upper, out _));
+
+    [Fact]
+    public void AnExistingCutoverKeepsTheClosedAlphabetOfTheId()
+    {
+        var cutover = ReconciliationCutover.Between(DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddMinutes(1));
+
+        Assert.Equal("deploy-1", ReconciliationCutoverEvidence.Of("deploy-1", cutover).Id);
+        Assert.Throws<ArgumentException>(() => ReconciliationCutoverEvidence.Of("deploy 1", cutover));
+    }
+
+    [Fact]
+    public void AnExistingCutoverCannotCarryLessThanAMicrosecond()
+    {
+        var cutover = ReconciliationCutover.Between(DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddTicks(1));
+
+        Assert.Throws<ArgumentException>(() => ReconciliationCutoverEvidence.Of("deploy-1", cutover));
+    }
+
     [Fact]
     public void AnAtomicCutoverHasEqualBounds()
     {

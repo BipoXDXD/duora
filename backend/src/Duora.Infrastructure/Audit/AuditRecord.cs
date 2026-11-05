@@ -43,6 +43,9 @@ internal sealed record AuditAction
 
     public static readonly AuditAction RegistrationPromoted = new("events.registration_promoted");
 
+    /// <summary>Run de reconciliação criado (ADR-0049); o alvo é o run, com a versão 1.</summary>
+    public static readonly AuditAction RegistrationReconciliationRunCreated = new("ops.registration_reconciliation_run_created");
+
     public static readonly AuditAction PhotoReviewRequested = new("safety.photo_review_requested");
 
     public static readonly AuditAction PhotoReviewAssigned = new("safety.photo_review_assigned");
@@ -199,6 +202,8 @@ internal static class AuditTargetTypes
     public const string Photo = "photo";
 
     public const string ModerationAction = "moderation_action";
+
+    public const string RegistrationReconciliationRun = "registration_reconciliation_run";
 }
 
 /// <summary>
