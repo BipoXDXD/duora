@@ -211,6 +211,8 @@ def _root_lab(*, trial: int = 1) -> dict:
         raise RuntimeError("Refusing to adopt an existing stack")
     if "duora_pgdata" in command(["docker", "volume", "ls", "--format", "{{.Name}}","--filter","name=^duora_pgdata$"]).split():
         raise RuntimeError("Refusing to adopt an existing data volume")
+    swap_bench.require_host_free()
+    fixed_host = swap_bench.FixedHost()
     root = Path(tempfile.mkdtemp(prefix="duora-qualified-actions-", dir="/root"))
     repo = Path(__file__).resolve().parents[2]
     compose_file = root / "compose.yml"
@@ -273,6 +275,7 @@ def _root_lab(*, trial: int = 1) -> dict:
     database_observer = None
     controlled_load = None
     try:
+        fixed_host.claim(root=root, registry=registry_name)
         if trial == 3:
             controlled_load = TrialCpuLoad(root / "controlled-load")
         trial_start = time.time()
@@ -735,7 +738,8 @@ def _root_lab(*, trial: int = 1) -> dict:
             def deploy_next(release: executor.Release) -> None:
                 active.deploy(active.parse_manifest(json.dumps(release.raw), image_prefix=""), paths, active.run_command)
             postgres_swap = swap_bench.SwapLab(paths=paths, bundle=bundle, manifest_sha256=manifest_sha, commit=source_commit,
-                install_paths=install_paths, architecture=architecture, deploy=deploy_next, current=first).cycle()
+                install_paths=install_paths, architecture=architecture, deploy=deploy_next, current=first,
+                target=swap_bench.alternative_digest(first.images["postgres"], architecture)).cycle()
             if invariant_hash != guard.digest({"compose": compose_file.read_text(), "host": host_env.read_text(),
                     "assets": [(media / a / ".duora-media-area").read_text() for a in ("quarantine", "derivatives")]}):
                 raise RuntimeError("Synthetic regional/Resend/asset invariants changed")
@@ -799,8 +803,8 @@ def _root_lab(*, trial: int = 1) -> dict:
             events.wait(timeout=10)
         if compose is not None:
             subprocess.run(compose + ["down", "--volumes", "--remove-orphans"], capture_output=True, check=False, timeout=120)
-        swap_bench.remove_holds()
-        swap_bench.remove_fixed_paths()
+        if fixed_host.claimed: swap_bench.remove_holds()
+        fixed_host.release()
         subprocess.run(["docker", "rm", "--force", registry_name], capture_output=True, check=False, timeout=30)
         shutil.rmtree(root)
 

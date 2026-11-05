@@ -4,7 +4,10 @@ Runs the installed bundle's real command against real PostgreSQL, pgBackRest and
 paths (a hosted runner or a docker:dind container). web, worker, edge and migrator are minimal stand-ins here: the
 application path with real images is continuity_lab.py, which reuses SwapLab.
 
-    postgres_swap_bench.py --mode cycle|matrix|unhealthy|pitr
+    postgres_swap_bench.py --mode cycle|matrix|unhealthy|pitr|cleanup
+
+It owns the fixed production paths while it runs, so it refuses any host that is not explicitly disposable: a hosted
+runner of this repository, or a host carrying a marker with its own hostname. Nothing is created or removed on refusal.
 """
 import argparse
 import hashlib
@@ -13,6 +16,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -34,6 +38,8 @@ INGRESS = Path("/var/lib/coolify-release")
 RELEASES = Path("/opt/duora/releases")
 PIN = Path("/etc/duora/coolify-deploy.json")
 BACKUP_COMMAND = Path("/usr/local/sbin/duora-backup")
+DISPOSABLE_MARKER = Path("/etc/duora-swap-disposable-host")
+CLAIM = Path("/run/duora-swap-bench-claim.json")
 FIXTURE = REPO / "scripts/deploy/fixtures/postgres-swap-target.json"
 LOCK = REPO / "infra/images/postgres-component-lock.json"
 RECEIVER = REPO / "scripts/release/coolify/receiver.py"
@@ -47,8 +53,14 @@ MINIO_IMAGE = "bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a7
 COMMAND_SECONDS = 900
 # Every forward state crossed by SIGKILL, each resolved both ways; then the two states with a single exit.
 KILL_STATES = ("journaled", "verify-backup", "quiesce", "swap-runtime", "verify-runtime", "reopen", "commit")
-FORWARD_ONLY_STATE = "awaiting-reseal"
+CLOSE_KILL_STATES = ("awaiting-reseal", "closing", "aborted-awaiting-reseal")
 ABORT_ONLY_STATE = "aborting"
+# The exact refusal each step expects: any other error would be a proof that proves nothing.
+REFUSED_BY_FENCE = "PostgreSQL swap aberto"
+REFUSED_BY_DIGEST = "Cannot qualify the unchanged database/backup runtime"
+REFUSED_BY_COMPOSE = "Processo compose do projeto ainda vivo"
+REFUSED_BY_RESEAL = "rode a ressela do instalador"
+REFUSED_RESUME_OF_ABORT = "Abort interrompido só continua com --abort"
 
 
 class ProofFailure(RuntimeError):
@@ -68,6 +80,15 @@ def docker(*arguments: str, timeout: int = COMMAND_SECONDS) -> str:
 
 def target_for(architecture: str) -> str:
     return json.loads(FIXTURE.read_text())["images"][architecture]
+
+
+def alternative_digest(running: str, architecture: str) -> str:
+    """Always a real swap: the qualified target, or back to its origin once the lock has moved there."""
+    fixture = json.loads(FIXTURE.read_text())
+    for candidate in (fixture["images"][architecture], fixture["origin"][architecture]):
+        if candidate != running:
+            return candidate
+    raise ProofFailure("Fixture has no digest different from " + running + "; update it instead of skipping the proof")
 
 
 def source_for(architecture: str) -> str:
@@ -108,10 +129,80 @@ def prepare_ingress() -> None:
         lock.touch(mode=0o600)
 
 
-def remove_fixed_paths() -> None:
+def host_is_disposable(environment: dict | None = None) -> bool:
+    values = os.environ if environment is None else environment
+    if (values.get("GITHUB_ACTIONS") == "true" and values.get("RUNNER_ENVIRONMENT") == "github-hosted"
+            and values.get("GITHUB_REPOSITORY") == "BipoXDXD/duora"):
+        return True
+    try:
+        return DISPOSABLE_MARKER.read_text().strip() == socket.gethostname()
+    except OSError:
+        return False
+
+
+def require_host_free() -> None:
+    """Runs before anything exists to clean: a refusal here leaves the host exactly as it was."""
+    for path in (PIN.parent, RELEASES.parent, INGRESS, BACKUP_COMMAND):
+        if path.exists() or path.is_symlink():
+            raise ProofFailure("Refusing to adopt existing host state: " + str(path))
+    if docker("ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=duora"):
+        raise ProofFailure("Refusing to adopt an existing stack")
+    if "duora_pgdata" in docker("volume", "ls", "--format", "{{.Name}}", "--filter", "name=^duora_pgdata$").split():
+        raise ProofFailure("Refusing to adopt an existing data volume")
+
+
+def _remove_fixed_paths() -> None:
     for path in (PIN.parent, RELEASES.parent, INGRESS):
         shutil.rmtree(path, ignore_errors=True)
     BACKUP_COMMAND.unlink(missing_ok=True)
+
+
+class FixedHost:
+    """Ownership of the fixed paths: only a run that found them absent may remove them."""
+
+    def __init__(self) -> None:
+        self.claimed = False
+
+    def claim(self, *, root: Path, registry: str) -> None:
+        require_host_free()
+        CLAIM.write_text(json.dumps({"root": str(root), "registry": registry}))
+        self.claimed = True
+
+    def release(self) -> None:
+        if not self.claimed:
+            return
+        _remove_fixed_paths()
+        CLAIM.unlink(missing_ok=True)
+        self.claimed = False
+
+
+def cleanup_claimed() -> bool:
+    """What a killed run left behind. Without a claim on a disposable host there is nothing of ours to remove."""
+    if not CLAIM.exists() or not host_is_disposable():
+        return False
+    claim = json.loads(CLAIM.read_text())
+    label = "label=com.docker.compose.project=duora"
+    containers = docker("ps", "--all", "--quiet", "--filter", label).split()
+    if containers:
+        docker("rm", "--force", "--volumes", *containers)
+    remove_holds()
+    subprocess.run(["docker", "rm", "--force", claim["registry"]], capture_output=True, check=False, timeout=30)
+    volumes = docker("volume", "ls", "--quiet", "--filter", label).split()
+    if volumes:
+        docker("volume", "rm", *volumes)
+    networks = docker("network", "ls", "--quiet", "--filter", label).split()
+    if networks:
+        docker("network", "rm", *networks)
+    _remove_fixed_paths()
+    shutil.rmtree(claim["root"], ignore_errors=True)
+    CLAIM.unlink()
+    return True
+
+
+def driver_environment(environment: dict | None = None) -> dict:
+    """The lab enters through sudo, but the proof is of a direct root operator, which the executor rightly demands."""
+    values = os.environ if environment is None else environment
+    return {key: value for key, value in values.items() if not key.startswith("SUDO_")}
 
 
 def outage_seconds(samples: list[tuple[float, bool]]) -> float:
@@ -213,12 +304,12 @@ class SwapLab:
 
     def __init__(self, *, paths: executor.Paths, bundle: Path, manifest_sha256: str, commit: str,
                  install_paths: installer.InstallPaths, architecture: str,
-                 deploy: Callable[[executor.Release], None], current: executor.Release, target: str | None = None) -> None:
+                 deploy: Callable[[executor.Release], None], current: executor.Release, target: str) -> None:
         self.paths, self.bundle, self.manifest_sha256, self.commit = paths, bundle, manifest_sha256, commit
         self.install_paths, self.architecture, self.deploy, self.current = install_paths, architecture, deploy, current
         self.counter = 0
         self.outages: list[dict] = []
-        self.target = target or target_for(architecture)
+        self.target = target
         self.receiver = installer._module(RECEIVER, "duora_swap_lab_receiver")
         setattr(self.receiver, "STATE", INGRESS)
 
@@ -241,7 +332,7 @@ class SwapLab:
     def swap(self, release: executor.Release, target: str, *flags: str, refused: str | None = None) -> dict:
         log("swap " + " ".join(flags) + " -> " + target[-12:])
         result = subprocess.run(self.driver(release, target, *flags), text=True, capture_output=True, check=False,
-                                timeout=COMMAND_SECONDS)
+                                timeout=COMMAND_SECONDS, env=driver_environment())
         if refused is not None:
             if result.returncode == 0 or refused not in result.stderr:
                 raise ProofFailure("Expected refusal '" + refused + "': " + (result.stdout + result.stderr)[-1500:])
@@ -253,7 +344,7 @@ class SwapLab:
     def killed(self, release: executor.Release, target: str, phase: str, *flags: str) -> None:
         log("SIGKILL at " + phase + " " + " ".join(flags))
         result = subprocess.run(self.driver(release, target, *flags, kill_at=phase), text=True, capture_output=True,
-                                check=False, timeout=COMMAND_SECONDS)
+                                check=False, timeout=COMMAND_SECONDS, env=driver_environment())
         if result.returncode != -signal.SIGKILL:
             raise ProofFailure("Parent was not killed at " + phase + ": " + (result.stdout + result.stderr)[-2000:])
 
@@ -263,9 +354,12 @@ class SwapLab:
     def compose_alive(self) -> bool:
         return any(swap._swap_is_project_compose(process, self.paths) for process in swap.list_processes())
 
+    def backup_alive(self) -> bool:
+        return any("duora_backup.py" in item for process in swap.list_processes() for item in process.argv)
+
     def wait_for_orphans(self) -> None:
         deadline = time.monotonic() + COMMAND_SECONDS
-        while self.compose_alive():
+        while self.compose_alive() or self.backup_alive():
             if time.monotonic() > deadline:
                 raise ProofFailure("Orphan compose did not finish")
             time.sleep(0.2)
@@ -323,15 +417,16 @@ class SwapLab:
         self.require_idle()
         return following
 
-    def refused_deploy(self, release: executor.Release) -> None:
+    def refused_deploy(self, release: executor.Release, reason: str) -> None:
         worker = docker("ps", "--quiet", "--filter", "label=com.docker.compose.project=duora",
                         "--filter", "label=com.docker.compose.service=worker")
         try:
             self.deploy(release)
-        except executor.DeployError:
-            pass
+        except executor.DeployError as error:
+            if reason not in str(error):
+                raise ProofFailure("Refused for another reason: " + str(error)) from error
         else:
-            raise ProofFailure("Deployment with the wrong digest was accepted")
+            raise ProofFailure("Deployment that must be refused was accepted")
         if docker("ps", "--quiet", "--filter", "label=com.docker.compose.project=duora",
                   "--filter", "label=com.docker.compose.service=worker") != worker:
             raise ProofFailure("Refused deployment touched the worker")
@@ -349,8 +444,8 @@ class SwapLab:
         if result["status"] != "awaiting-reseal":
             raise ProofFailure("Unexpected apply status " + json.dumps(result))
         swapped = self.recorded(result["releaseId"])
-        self.refused_deploy(self.next_release(swapped))  # The fence stays until the journal closes.
-        self.swap(release, target, "--resume", refused="ressela")
+        self.refused_deploy(self.next_release(swapped), REFUSED_BY_FENCE)  # The fence stays until the journal closes.
+        self.swap(release, target, "--resume", refused=REFUSED_BY_RESEAL)
         self.reseal(swapped)
         if self.swap(release, target, "--resume")["status"] != "closed":
             raise ProofFailure("Resume did not close")
@@ -369,13 +464,13 @@ class SwapLab:
         sentinel = self.sql("select value from ops.swap_sentinel where id=1")
         if sentinel != "before-swap" or json.loads(self.sql(swap.SWAP_PHOTO_SQL)) != photo:
             raise ProofFailure("Swap lost the sentinel or changed the database photo")
-        self.refused_deploy(self.next_release(swapped, source.images["postgres"]))  # Old lock after the swap.
+        self.refused_deploy(self.next_release(swapped, source.images["postgres"]), REFUSED_BY_DIGEST)  # Old lock after the swap.
         forward = self.next_release(swapped)
         self.deploy(forward)
         self.deploy(swapped)  # R''->R' is an ordinary recorded rollback.
         if executor._current_release_id(self.paths.state_dir) != swapped.release_id:
             raise ProofFailure("Rollback to the swap release did not become current")
-        self.refused_deploy(source)  # R'->R stays refused on purpose.
+        self.refused_deploy(source, REFUSED_BY_DIGEST)  # R'->R stays refused on purpose.
         reversed_release = self.sealed_swap(swapped, source.images["postgres"])
         self.current = reversed_release
         if self.sql("select value from ops.swap_sentinel where id=1") != "before-swap":
@@ -394,7 +489,7 @@ class SwapLab:
         client = subprocess.Popen(self.compose(release) + ["logs", "--follow", "--tail", "0", "backup"],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
-            self.swap(release, target, "--" + how, refused="compose")
+            self.swap(release, target, "--" + how, refused=REFUSED_BY_COMPOSE)
         finally:
             client.terminate()
             client.wait(timeout=30)
@@ -431,21 +526,46 @@ class SwapLab:
         result = self.swap(release, target, "--reviewed-plan-sha256", plan)
         swapped = self.recorded(result["releaseId"])
         self.reseal(swapped)
-        self.killed(release, target, FORWARD_ONLY_STATE, "--resume")
-        self.wait_for_orphans()
-        self.swap(release, target, "--resume")
+        self.killed_in_close(release, target, "awaiting-reseal")
         self.current = self.following_deploy(swapped)
-        outcomes.append({"phase": FORWARD_ONLY_STATE, "how": "resume"})
+        outcomes.append({"phase": "awaiting-reseal", "how": "resume"})
+        release = self.current
+        target = self.other_digest(release, first, second)
+        plan = self.swap(release, target, "--preflight-only")["planSha256"]
+        swapped = self.recorded(self.swap(release, target, "--reviewed-plan-sha256", plan)["releaseId"])
+        self.reseal(swapped)
+        self.killed_in_close(release, target, "closing")
+        self.current = self.following_deploy(swapped)
+        outcomes.append({"phase": "closing", "how": "resume"})
+        release = self.current
+        target = self.other_digest(release, first, second)
+        plan = self.swap(release, target, "--preflight-only")["planSha256"]
+        self.killed(release, target, "verify-runtime", "--reviewed-plan-sha256", plan)
+        self.wait_for_orphans()
+        if self.swap(release, target, "--abort")["status"] != "aborted-awaiting-reseal":
+            raise ProofFailure("Abort after the database was replaced must wait for a reseal")
+        self.reseal(release)
+        self.killed_in_close(release, target, "aborted-awaiting-reseal")
+        self.current = self.following_deploy(release)
+        outcomes.append({"phase": "aborted-awaiting-reseal", "how": "resume"})
         release = self.current
         target = self.other_digest(release, first, second)
         plan = self.swap(release, target, "--preflight-only")["planSha256"]
         self.killed(release, target, "verify-runtime", "--reviewed-plan-sha256", plan)
         self.wait_for_orphans()
         self.killed(release, target, ABORT_ONLY_STATE, "--abort")
-        self.swap(release, target, "--resume", refused="--abort")
+        self.swap(release, target, "--resume", refused=REFUSED_RESUME_OF_ABORT)
         self.current = self.resolve_killed(release, target, "abort")
         outcomes.append({"phase": ABORT_ONLY_STATE, "how": "abort"})
         return {"outcomes": outcomes}
+
+    def killed_in_close(self, release: executor.Release, target: str, phase: str) -> None:
+        self.killed(release, target, phase, "--resume")
+        if self.phase() != phase:
+            raise ProofFailure("Close killed at " + self.phase() + " instead of " + phase)
+        self.wait_for_orphans()
+        if self.swap(release, target, "--resume")["status"] != "closed":
+            raise ProofFailure("Resume did not close after a kill at " + phase)
 
     def unhealthy(self, bad: str) -> dict:
         release = self.current
@@ -459,7 +579,7 @@ class SwapLab:
         outage = {"applyAndAbortSeconds": round(time.monotonic() - started, 1), **probe.report()}
         if status != "aborted-awaiting-reseal" or self.sql("select 1") != "1":
             raise ProofFailure("Abort did not bring the old digest back: " + status)
-        self.refused_deploy(self.next_release(release))  # Fence kept until the reseal.
+        self.refused_deploy(self.next_release(release), REFUSED_BY_FENCE)  # Fence kept until the reseal.
         self.reseal(release)
         self.swap(release, bad, "--resume")
         self.current = self.following_deploy(release)
@@ -476,6 +596,7 @@ class Bench:
         self.registry = "localhost:5051/duora/"
         self.local_postgres = local_postgres
         self.compose_command: list[str] | None = None
+        self.host = FixedHost()
         self.commit = hashlib.sha1(self.root.name.encode()).hexdigest()
 
     def push(self, image: str, name: str) -> str:
@@ -534,14 +655,11 @@ class Bench:
         return path
 
     def start(self) -> None:
-        for path in (PIN, RELEASES, INGRESS):
-            if path.exists():
-                raise ProofFailure("Refusing to adopt existing host state")
-        if docker("ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=duora"):
-            raise ProofFailure("Refusing to adopt an existing stack")
+        self.host.claim(root=self.root, registry=self.registry_name)
         docker("run", "--detach", "--rm", "--name", self.registry_name, "--publish", "127.0.0.1:5051:5000", smoke_local.REGISTRY_IMAGE)
         log("pull data tier")
-        source, target = source_for(self.architecture), target_for(self.architecture)
+        source = source_for(self.architecture)
+        target = alternative_digest(source, self.architecture)
         docker("pull", "--quiet", source)
         docker("pull", "--quiet", target)
         if self.local_postgres:
@@ -639,9 +757,10 @@ class Bench:
         if self.compose_command is not None:
             subprocess.run(self.compose_command + ["--profile", "restore", "--profile", "migrate", "down", "--volumes", "--remove-orphans"],
                            capture_output=True, check=False, timeout=180)
-        remove_holds()
+        if self.host.claimed:
+            remove_holds()
         subprocess.run(["docker", "rm", "--force", self.registry_name], capture_output=True, check=False, timeout=30)
-        remove_fixed_paths()
+        self.host.release()
         shutil.rmtree(self.root, ignore_errors=True)
 
 
@@ -692,16 +811,20 @@ def pitr(bench: Bench, lab: SwapLab) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("cycle", "matrix", "unhealthy", "pitr"), required=True)
+    parser.add_argument("--mode", choices=("cycle", "matrix", "unhealthy", "pitr", "cleanup"), required=True)
     arguments = parser.parse_args()
     if os.geteuid() != 0:
         raise SystemExit("Disposable root host required")
-    architecture = docker("version", "--format", "{{.Server.Arch}}")
-    if source_for(architecture) == target_for(architecture):
-        # After the lock moves to this target the drill has nothing left to cross; a new fixture brings it back.
-        print("SWAP_RESULT=" + json.dumps({"skipped": "lock already at the fixture target"}), flush=True)
+    if arguments.mode == "cleanup":
+        log("claim cleaned" if cleanup_claimed() else "nothing claimed to clean")
         return 0
+    if not host_is_disposable():
+        raise ProofFailure("This host is not disposable: the proof takes over the fixed production paths")
+    require_host_free()
     bench = Bench(local_postgres=arguments.mode in ("matrix", "unhealthy"))
+    def terminated(*_: object) -> None:
+        raise SystemExit(128 + signal.SIGTERM)  # Reaches the finally below, so a stopped proof still cleans up.
+    signal.signal(signal.SIGTERM, terminated)
     started = time.monotonic()
     try:
         bench.start()

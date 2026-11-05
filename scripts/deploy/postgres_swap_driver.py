@@ -41,13 +41,22 @@ def current_phase(state: Path) -> str | None:
         return None
 
 
+def kills_at(phase: str, command: list[str]) -> bool:
+    """Where each state dies: the close phases must die inside the close, not at the operator check before it."""
+    if phase in ("awaiting-reseal", "aborted-awaiting-reseal"):
+        return command[-1] == "verify-repo"
+    if phase == "closing":
+        return command[:3] == ["docker", "container", "inspect"]
+    return True
+
+
 def arm_kill(swap, state: Path, phase: str) -> None:
     """A child in its own session, without PDEATHSIG, survives the parent: the orphan the design worries about."""
     original_run, original_write = swap.run_in_own_group, swap._swap_write_atomic
     written = 0
 
     def run(command, *, capture=False, input_text=None, timeout_seconds=None):
-        if current_phase(state) != phase:
+        if current_phase(state) != phase or not kills_at(phase, command):
             return original_run(command, capture=capture, input_text=input_text, timeout_seconds=timeout_seconds)
         subprocess.Popen(command, start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})

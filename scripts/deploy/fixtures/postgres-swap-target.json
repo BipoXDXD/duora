@@ -6,5 +6,9 @@
   "images": {
     "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e",
     "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:fa94a32e8c70257f67505bad12a9da878a4df7f33cd52ba9e6319a4c91025d4f"
+  },
+  "origin": {
+    "amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c",
+    "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:a626e902dfc8165bf5b866ea03fd4b6c2eec739ec7b76872154504bee99dd930"
   }
 }
