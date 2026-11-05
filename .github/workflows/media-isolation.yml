@@ -131,7 +131,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image='mcr.microsoft.com/dotnet/sdk:10.0.402-noble@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa'
+          image='mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b'
           host="unix:///run/user/$LAUNCHER_UID/docker.sock"
           sudo -Hu duora-sanitizer-ci docker --host "$host" pull "$image"
           sudo -Hu duora-sanitizer-ci docker --host "$host" run --rm --pull never --network none --read-only \
@@ -143,7 +143,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image='mcr.microsoft.com/dotnet/sdk:10.0.402-noble@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa'
+          image='mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b'
           host="unix:///run/user/$LAUNCHER_UID/docker.sock"
           name="duora-corpus-no-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           kit=$(mktemp -d /tmp/duora-corpus-kit.XXXXXX)
