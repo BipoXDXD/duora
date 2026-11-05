@@ -57,6 +57,7 @@ da spec. A partir do 0016, os ADRs resolvem lacunas encontradas na spec.
 | [0046](0046-google-oidc-com-senha-local.md) | Google OIDC com senha local e associação explícita | Política aprovada; implementação sujeita à revisão | Conta sem senha ou outro provedor |
 | [0047](0047-autoridade-exclusiva-de-geracoes-privadas.md) | Autoridade exclusiva, revogações externas e prova de varredura das gerações privadas | Accepted para o desenho; candidato restrito a Testing | Qualificação de custódia, encerramento de escritores, restore e ativação |
 | [0048](0048-leitura-de-sessao-sem-toque-na-previa-de-reconciliacao.md) | Leitura de sessão sem toque na prévia da reconciliação (#321) | Accepted | Outra rota sem toque, mudança da janela administrativa ou novas fatias da #321 |
+| [0049](0049-execucao-da-reconciliacao-de-inscricoes-legadas.md) | Execução da reconciliação de inscrições legadas (#321) | Accepted para o desenho; implementação com revisão humana | Prévia real com volume, consumidor da #320, retenção da outbox ou política de suspensão |
 
 ## Regras
 
