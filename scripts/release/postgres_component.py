@@ -15,7 +15,10 @@ IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:"
 LOCK_FIELDS = {"version", "profile", "fingerprint", "source_commit", "publish_run", "images"}
 QUALIFICATION_WORKFLOW = ".github/workflows/qualify-postgres.yml"
 QUALIFICATION_PUBLICATION_FIELDS = {"commit", "architecture", "publishRun", "images"}
+ANCESTOR_STATUSES = {"ahead", "identical"}
 PARSER_DIRECTIVE = re.compile(r"#\s*(?:syntax|escape|check)\s*=", re.IGNORECASE)
+OPERATION_ARGUMENTS = {"recipe": (), "publication": ("architecture", "commit", "publish_run", "image"),
+                       "verify-ancestor": ("compare_status",), "qualification-head": ("lock", "run_json")}
 RUN_URL = re.escape("https://github.com/" + REPOSITORY) + r"/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*"
 
 
@@ -130,6 +133,19 @@ def validate_qualification_run(lock: dict[str, Any], run: dict[str, Any]) -> Non
             or not isinstance(run.get("head_sha"), str)
             or not re.fullmatch(r"[0-9a-f]{40}", run["head_sha"])):
         raise ValueError("Component proof is not the exact successful main qualification attempt")
+
+
+def qualification_head(lock: dict[str, Any], run: dict[str, Any]) -> str | None:
+    if not is_qualification_run(run):
+        return None
+    validate_qualification_run(lock, run)
+    return run["head_sha"]
+
+
+def require_ancestor(status: str | None) -> None:
+    """GitHub's compare/BASE...HEAD says ahead or identical only when BASE is in the history of HEAD."""
+    if status not in ANCESTOR_STATUSES:
+        raise ValueError("Component proof is outside the reviewed commit history")
 
 
 def validate_qualification_publication(lock: dict[str, Any], publication: dict[str, Any],
@@ -296,7 +312,8 @@ def select_proof_artifact(lock: dict[str, Any], inventory: dict[str, Any], archi
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=["select", "verify-origin", "verify-image", "select-proof",
-                                              "recipe", "publication"])
+                                              "recipe", "publication", "verify-ancestor",
+                                              "qualification-head"])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--lock", type=Path)
     parser.add_argument("--architecture", choices=ARCHITECTURES)
@@ -307,12 +324,10 @@ def main() -> None:
     parser.add_argument("--commit")
     parser.add_argument("--publish-run")
     parser.add_argument("--image")
+    parser.add_argument("--compare-status")
     args = parser.parse_args()
-    if args.operation == "publication":
-        missing = None in (args.architecture, args.commit, args.publish_run, args.image)
-    else:
-        missing = args.operation != "recipe" and None in (args.lock, args.architecture)
-    if missing:
+    required = OPERATION_ARGUMENTS.get(args.operation, ("lock", "architecture"))
+    if any(getattr(args, name) is None for name in required):
         parser.error(f"{args.operation} is missing required arguments")
     try:
         if args.operation == "recipe":
@@ -322,7 +337,15 @@ def main() -> None:
             print(json.dumps(qualification_publication(args.commit, args.architecture, args.publish_run,
                                                        args.image)))
             return
+        if args.operation == "verify-ancestor":
+            require_ancestor(args.compare_status)
+            return
         lock = read_lock(args.lock)
+        if args.operation == "qualification-head":
+            head = qualification_head(lock, read_lock(args.run_json))
+            if head is not None:
+                print(head)
+            return
         if args.operation == "select":
             image = select_image(args.root, lock, args.architecture)
             run_id, attempt = run_identity(lock)

@@ -496,6 +496,24 @@ class PostgresComponentTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
 
+
+    def test_only_a_commit_inside_the_compared_history_is_accepted(self) -> None:
+        for status in ["ahead", "identical"]:
+            component.require_ancestor(status)
+        for status in ["behind", "diverged", "", "AHEAD", "ahead\n", None]:
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                component.require_ancestor(status)
+
+    def test_qualification_head_comes_only_from_the_exact_qualification_run(self) -> None:
+        lock, run, _ = self.qualification()
+        self.assertEqual(component.qualification_head(lock, run), "a" * 40)
+        with self.assertRaises(ValueError):
+            component.qualification_head(lock, dict(run, head_branch="ci/candidate"))
+
+    def test_release_runs_have_no_qualification_head_to_compare(self) -> None:
+        lock, run, _ = self.origin()
+        self.assertIsNone(component.qualification_head(lock, run))
+
     def test_dockerfile_parser_directives_are_refused(self) -> None:
         path = self.runtime / "Dockerfile"
         original = path.read_text()
@@ -509,6 +527,34 @@ class PostgresComponentTests(unittest.TestCase):
         path = self.runtime / "Dockerfile"
         path.write_text("# syntax highlighting note\n# check the escape rules\n" + path.read_text())
         component.validate_recipe(self.root)
+
+    def test_cli_exposes_the_history_decisions(self) -> None:
+        lock, run, _ = self.qualification()
+        (self.root / "lock.json").write_text(json.dumps(lock))
+        (self.root / "run.json").write_text(json.dumps(run))
+        head = self.cli("qualification-head", "--lock", str(self.root / "lock.json"),
+                        "--run-json", str(self.root / "run.json"))
+        self.assertEqual((head.returncode, head.stdout), (0, "a" * 40 + "\n"), head.stderr)
+        self.assertEqual(self.cli("verify-ancestor", "--compare-status", "ahead").returncode, 0)
+        refused = self.cli("verify-ancestor", "--compare-status", "diverged")
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual(refused.stdout, "")
+
+    def test_cli_prints_no_head_for_a_release_run(self) -> None:
+        lock, run, _ = self.origin()
+        (self.root / "lock.json").write_text(json.dumps(lock))
+        (self.root / "run.json").write_text(json.dumps(run))
+        head = self.cli("qualification-head", "--lock", str(self.root / "lock.json"),
+                        "--run-json", str(self.root / "run.json"))
+        self.assertEqual((head.returncode, head.stdout), (0, ""), head.stderr)
+
+    def test_cli_refuses_history_operations_without_their_inputs(self) -> None:
+        for arguments in [("verify-ancestor",), ("qualification-head",),
+                          ("qualification-head", "--lock", "unused.json")]:
+            result = self.cli(*arguments)
+            with self.subTest(arguments=arguments):
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
 
 
 if __name__ == "__main__":

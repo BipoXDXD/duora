@@ -1,8 +1,13 @@
 """Component qualification runs reviewed main code; the candidate contributes only inert build inputs."""
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import tempfile
 from typing import Any
 import unittest
 
@@ -10,6 +15,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/qualify-postgres.yml"
+ACTION = ROOT / ".github/actions/postgres-component/action.yml"
 CANDIDATE = ".postgres-candidate"
 PINNED_ACTION = re.compile(r"^[\w./-]+@[0-9a-f]{40}$")
 
@@ -190,6 +196,119 @@ class QualifyPostgresWorkflowTests(unittest.TestCase):
 
     def test_no_secret_reaches_the_workflow(self) -> None:
         self.assertNotIn("secrets.", WORKFLOW.read_text())
+
+
+FAKE_GH = """#!/bin/bash
+printf '%s\\n' "$*" >> "$GH_LOG"
+case "$2" in
+  *compare/*...refs/heads/main) status=$MAIN_STATUS ;;
+  *compare/*) status=$CHECKOUT_STATUS ;;
+  *artifacts*) exec cat "$GH_ARTIFACTS" ;;
+  *) exec cat "$GH_RUN" ;;
+esac
+[ "$status" != api-failure ] || exit 1
+printf '%s\\n' "$status"
+"""
+
+
+class ComponentActionHistoryTests(unittest.TestCase):
+    """Run the real step script; only gh is fake, so the old path proves it never reaches compare."""
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.repo = self.root / "repo"
+        (self.repo / "scripts/release").mkdir(parents=True)
+        (self.repo / "infra/images").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/release/postgres_component.py", self.repo / "scripts/release")
+        subprocess.run(["git", "init", "--quiet", str(self.repo)], check=True, timeout=10)
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                        "commit", "--quiet", "--allow-empty", "--message", "fixture"], check=True, timeout=10)
+        self.checkout_head = subprocess.check_output(["git", "-C", str(self.repo), "rev-parse", "HEAD"],
+                                                     text=True, timeout=10).strip()
+        self.source = "c" * 40
+        (self.repo / "infra/images/postgres-component-lock.json").write_text(json.dumps({
+            "version": 1, "profile": "postgres-embedded-reconcile-v1", "fingerprint": "sha256:" + "f" * 64,
+            "source_commit": self.source,
+            "publish_run": "https://github.com/BipoXDXD/duora/actions/runs/123/attempts/1",
+            "images": {"amd64": "ghcr.io/bipoxdxd/duora-postgres@sha256:" + "b" * 64,
+                       "arm64": "ghcr.io/bipoxdxd/duora-postgres@sha256:" + "c" * 64}}))
+        tools = self.root / "bin"
+        tools.mkdir()
+        (tools / "gh").write_text(FAKE_GH)
+        (tools / "gh").chmod(0o755)
+        self.temp = self.root / "runner"
+        (self.temp / "postgres-component").mkdir(parents=True)
+        self.output = self.root / "output"
+        self.output.write_text("")
+        self.log = self.root / "gh.log"
+        self.log.write_text("")
+        self.tools = tools
+        self.main_head = "a" * 40
+
+    def run_step(self, *, path: str, main_status: str = "ahead", checkout_status: str = "ahead"
+                 ) -> subprocess.CompletedProcess[str]:
+        qualification = path.endswith("qualify-postgres.yml")
+        head = self.main_head if qualification else self.source
+        (self.root / "run.json").write_text(json.dumps({
+            "id": 123, "run_attempt": 1, "head_sha": head, "head_branch": "main", "path": path,
+            "event": "workflow_dispatch", "status": "completed", "conclusion": "success",
+            "repository": {"full_name": "BipoXDXD/duora"},
+            "head_repository": {"full_name": "BipoXDXD/duora"}}))
+        (self.root / "artifacts.json").write_text(json.dumps({"total_count": 1, "artifacts": [{
+            "id": 77, "name": "release-amd64-1", "expired": False,
+            "workflow_run": {"id": 123, "head_sha": head}}]}))
+        action = yaml.safe_load(ACTION.read_text())
+        step = next(item for item in action["runs"]["steps"] if item.get("id") == "metadata")
+        self.assertIn("SOURCE_COMMIT", step["env"])
+        environment = {"PATH": str(self.tools) + os.pathsep + os.environ["PATH"], "HOME": str(self.root),
+                       "RUNNER_TEMP": str(self.temp), "GITHUB_OUTPUT": str(self.output),
+                       "COMPONENT_ARCH": "amd64", "SOURCE_RUN": "123", "SOURCE_ATTEMPT": "1",
+                       "SOURCE_COMMIT": self.source, "GH_LOG": str(self.log),
+                       "GH_RUN": str(self.root / "run.json"), "GH_ARTIFACTS": str(self.root / "artifacts.json"),
+                       "MAIN_STATUS": main_status, "CHECKOUT_STATUS": checkout_status}
+        return subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", step["run"]],
+                              cwd=self.repo, env=environment, capture_output=True, text=True, check=False,
+                              timeout=30)
+
+    def compares(self) -> list[str]:
+        return [line for line in self.log.read_text().splitlines() if "/compare/" in line]
+
+    def test_release_paths_never_reach_the_history_comparison(self) -> None:
+        for path in (".github/workflows/coolify.yml", ".github/workflows/publish-images.yml"):
+            result = self.run_step(path=path, main_status="diverged", checkout_status="diverged")
+            with self.subTest(path=path):
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.compares(), [])
+                self.assertIn("artifact_id=77", self.output.read_text())
+
+    def test_qualification_compares_its_head_with_the_main_branch_and_the_source_with_the_checkout(self) -> None:
+        result = self.run_step(path=".github/workflows/qualify-postgres.yml")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.compares(), [
+            f"api repos/BipoXDXD/duora/compare/{self.main_head}...refs/heads/main --jq .status",
+            f"api repos/BipoXDXD/duora/compare/{self.source}...{self.checkout_head} --jq .status"])
+        self.assertIn("artifact_id=77", self.output.read_text())
+
+    def test_identical_history_is_accepted_on_both_comparisons(self) -> None:
+        result = self.run_step(path=".github/workflows/qualify-postgres.yml", main_status="identical",
+                               checkout_status="identical")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_run_outside_the_main_branch_history_yields_no_artifact(self) -> None:
+        for status in ("behind", "diverged", "", "api-failure"):
+            result = self.run_step(path=".github/workflows/qualify-postgres.yml", main_status=status)
+            with self.subTest(status=status):
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("artifact_id", self.output.read_text())
+
+    def test_a_source_outside_the_checkout_history_yields_no_artifact(self) -> None:
+        for status in ("behind", "diverged", "", "api-failure"):
+            result = self.run_step(path=".github/workflows/qualify-postgres.yml", checkout_status=status)
+            with self.subTest(status=status):
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("artifact_id", self.output.read_text())
 
 
 if __name__ == "__main__":

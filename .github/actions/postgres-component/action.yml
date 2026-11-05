@@ -109,9 +109,22 @@ runs:
         COMPONENT_ARCH: ${{ inputs.architecture }}
         SOURCE_RUN: ${{ steps.plan.outputs.run_id }}
         SOURCE_ATTEMPT: ${{ steps.plan.outputs.attempt }}
+        SOURCE_COMMIT: ${{ steps.plan.outputs.source_commit }}
       run: |
         gh api "repos/BipoXDXD/duora/actions/runs/$SOURCE_RUN/attempts/$SOURCE_ATTEMPT" \
           > "$RUNNER_TEMP/postgres-component/source-run.json"
+        qualification_head=$(python3 scripts/release/postgres_component.py qualification-head \
+          --lock infra/images/postgres-component-lock.json \
+          --run-json "$RUNNER_TEMP/postgres-component/source-run.json")
+        if [ -n "$qualification_head" ]; then
+          # refs/heads/main: um nome curto também resolveria uma tag chamada main.
+          on_main=$(gh api "repos/BipoXDXD/duora/compare/$qualification_head...refs/heads/main" --jq .status)
+          python3 scripts/release/postgres_component.py verify-ancestor --compare-status "$on_main"
+          # Um commit fora do histórico pode ser coletado, e o lock passaria a citar insumos inacessíveis.
+          checkout_head=$(git rev-parse HEAD)
+          in_checkout=$(gh api "repos/BipoXDXD/duora/compare/$SOURCE_COMMIT...$checkout_head" --jq .status)
+          python3 scripts/release/postgres_component.py verify-ancestor --compare-status "$in_checkout"
+        fi
         gh api "repos/BipoXDXD/duora/actions/runs/$SOURCE_RUN/artifacts?per_page=100" \
           > "$RUNNER_TEMP/postgres-component/artifacts.json"
         artifact_id=$(python3 scripts/release/postgres_component.py select-proof \
