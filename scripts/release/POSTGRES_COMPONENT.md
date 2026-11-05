@@ -2,8 +2,9 @@
 
 Application releases use the reviewed native digests in
 `infra/images/postgres-component-lock.json`. They do not rebuild or republish
-PostgreSQL. Both PostgreSQL and the pgBackRest repository host use this runtime;
-changing its digest can recreate both services even when application changes are
+PostgreSQL. Both PostgreSQL and the pgBackRest repository host use this runtime.
+A release never recreates them: until the running digest changes, the executor
+refuses a release that carries another digest, even when application changes are
 limited to documentation or tests.
 
 The selector fingerprints the closed PostgreSQL Dockerfile/input tree, executable
@@ -35,6 +36,10 @@ older diagnostic baseline.
 To update a component, qualify its exact native image digests and authenticated
 source inputs first, then review a lock update with the applicable DB/pgBackRest
 compatibility, backup/WAL/restore evidence and coordinated maintenance decision.
+The running digest changes only through the administrative swap in
+`docs/operations/deploy.md` ("Troca do digest do PostgreSQL"), for the same major,
+catalog, pgBackRest and collation. Production and the lock must change in the same
+window, because each side refuses the other's digest.
 Changing runtime inputs makes application publication fail before transport;
 there is no fallback build. A cache hit is not component identity.
 
