@@ -63,6 +63,9 @@ test.describe('conta suspensa (#299)', () => {
     await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
     await page.getByRole('button', { name: 'Entrar' }).click()
     await expect(page).toHaveURL(/\/events$/)
+    // A URL muda antes de a tela da rota terminar de carregar; o reload só depois dela pronta, senão o WebKit
+    // interrompe a navegação com o chunk lazy ainda baixando ("Frame load interrupted").
+    await expect(page.getByRole('heading', { level: 1, name: 'Encontros' })).toBeVisible()
 
     api.seedSuspension('fabi@exemplo.com', '2026-10-30T12:00:00Z')
     await page.reload()

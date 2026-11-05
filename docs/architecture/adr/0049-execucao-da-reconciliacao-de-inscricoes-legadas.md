@@ -282,3 +282,24 @@ As fatias 2 e 3 só entram com PostgreSQL real, conexões independentes e dados 
   - `503` com `Retry-After`;
   - allowlist dos corpos.
 - **Gate D3:** um teste de contrato o fixa quando houver consumidor.
+
+## Adendo de 05/11/2026: decisões da implementação da fatia 3
+
+Registrado no mesmo PR da aplicação. Fecha lacunas do texto acima, sem mudar D1 a D5.
+
+- **Motivo do skip.** `ops.audit_events` não tem coluna para motivo, e um sufixo na ação estouraria os 64 caracteres. A
+  auditoria `events.legacy_registration_reconciliation_skipped` aponta para a unidade, e o motivo fechado fica no recibo
+  imutável dela (`receipt_reason`).
+- **Run de outro seletor.** O protocolo manda reclassificar com o seletor do run, mas o binário só conhece o seletor atual.
+  Run com `selector_version` diferente responde `409 CUTOVER_CHANGED`, sem efeito, com a unidade ainda `Pending`.
+- **Chave de outra unidade.** O `409 IDEMPOTENCY_KEY_REUSED` tem prioridade sobre o recibo: uma chave que já gravou outra
+  unidade é recusada mesmo com a unidade pedida terminal. Chave inédita ou a própria chave da unidade devolve o recibo.
+- **Fechamento repetido.** `If-Match` na versão atual de um run já fechado responde `409 RUN_CLOSED`, sem escrever.
+- **`:apply` e `:close` sem cota.** Não gastam a cota da prévia. Ela protege a classificação de toda a população; a aplicação
+  relê uma conta por vez, um run tem no máximo 10 unidades e, com 6 pedidos por minuto, a cota atrasaria a própria
+  operação, inclusive o `:close` de uma interrupção.
+- **Liberação exata.** O passo 11 exige a liberação igual à do manifesto, e não só abaixo do teto: o passo 9 já igualou
+  versão e estado. O teto continua valendo para as promoções, que a fila e o relógio ainda podem reduzir.
+- **Recibo na leitura (decisão do dono na revisão do PR).** `GET /runs/{runId}` passa a expor `units[].receipt`, de forma
+  aditiva, para a evidência e a recuperação de resposta incerta não dependerem de um POST. Repetir `:apply` só é replay em
+  unidade terminal.

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Duora.Core.Events;
 using Duora.Core.Identity;
+using Duora.Core.Safety;
 using Duora.Infrastructure.Safety;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,7 +48,7 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         Assert.Equal((1, 0, 0), ((int)units["eligible"]!, (int)units["blocked"]!, (int)units["oversized"]!));
         Assert.Null(body["next"]);
         var unit = Assert.Single(body["page"]!.AsArray())!.AsObject();
-        Assert.Equal(["items", "measureVersion", "originalMeasureId", "subjectUserId"],
+        Assert.Equal(["items", "measureVersion", "originalMeasureId", "subjectUserId", "unitDigest"],
             unit.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.Equal((s.Seed.Alice, measure, 1L),
             (Guid.Parse((string)unit["subjectUserId"]!), Guid.Parse((string)unit["originalMeasureId"]!), (long)unit["measureVersion"]!));
@@ -57,6 +58,7 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         Assert.Equal((s.EventId, 1L, nameof(RegistrationState.Confirmed), 1, 1),
             (Guid.Parse((string)item["eventId"]!), (long)item["registrationVersion"]!, (string?)item["state"],
                 (int)item["maxReleasedSeats"]!, (int)item["maxPromotions"]!));
+        Assert.True(ReconciliationUnitDigest.IsWellFormed((string?)unit["unitDigest"]));
         foreach (var user in new[] { s.Seed.Alice, s.Seed.Bob, s.Seed.Third })
         {
             var email = await s.TextAsync("select email from identity.users where id=$1", user);
@@ -91,6 +93,10 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         using var moderator = await ModeratorAsync(s, host);
         s.Clock.Advance(TimeSpan.FromMinutes(1));
         var before = await FingerprintAsync(s);
+        Assert.Contains("identity.login_sessions=", before, StringComparison.Ordinal);
+        Assert.Contains("ops.audit_events=", before, StringComparison.Ordinal);
+        Assert.Contains("ops.outbox_events=", before, StringComparison.Ordinal);
+        Assert.Contains("safety.user_guards=", before, StringComparison.Ordinal);
         var cookies = CookiesOf(moderator);
 
         using var response = await moderator.GetAsync(Path);
@@ -302,7 +308,7 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         var session = new ModeratorSession(account.UserId, await MfaScenario.ReadSessionIdAsync(browser));
         var previews = host.Services.GetRequiredService<LegacyRegistrationReconciliationPreviews>();
 
-        Assert.IsType<ReconciliationPreviewOutcome.Ready>(await previews.ReadAsModeratorAsync(session, cutover: null, after: null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Ready>(await previews.ReadAsModeratorAsync(session, evidence: null, after: null, Ct));
         Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session with { SessionId = Guid.NewGuid() }, null, null, Ct));
         Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session with { UserId = s.Seed.Alice }, null, null, Ct));
 
@@ -333,7 +339,7 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
     }
 
     /// <summary>Suspensão anterior à política, inserida direto: o escritor atual retiraria a inscrição na hora.</summary>
-    private static async Task<Guid> SuspendBeforePolicyAsync(SuspendedRegistrationScenario s, Guid subject)
+    internal static async Task<Guid> SuspendBeforePolicyAsync(SuspendedRegistrationScenario s, Guid subject)
     {
         var measure = Guid.NewGuid();
         await s.ExecuteAsync("""
@@ -347,8 +353,9 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
     }
 
     /// <summary>Web sobre o banco do cenário, com um descritor de corte sintético posterior às fixtures.</summary>
-    private static DuoraWebFactory Host(SuspendedRegistrationScenario s, TimeSpan? statementTimeout = null) =>
-        new(s.Database.AppConnectionString)
+    internal static DuoraWebFactory Host(SuspendedRegistrationScenario s, TimeSpan? statementTimeout = null,
+        CapturingLoggerProvider? logs = null) =>
+        new(s.Database.AppConnectionString, logs)
         {
             Time = s.Clock,
             // Só o teto do statement_timeout muda, para provocar o timeout sem esperar os 10 s de produção.
@@ -369,9 +376,9 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         };
 
     private static string Utc(DateTimeOffset instant) =>
-        instant.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);
+        instant.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
 
-    private static async Task<Browser> ModeratorAsync(SuspendedRegistrationScenario s, DuoraWebFactory host)
+    internal static async Task<Browser> ModeratorAsync(SuspendedRegistrationScenario s, DuoraWebFactory host)
     {
         var scenario = new AccountSuspensionScenario(s.Database.AppConnectionString, host, s.Clock);
         var (_, browser) = await scenario.PrivilegedBrowserAsync();
@@ -385,15 +392,16 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
     /// Toda tabela dos schemas da aplicação (contagem e digest das linhas) e o valor de toda sequência, lidos com o
     /// papel do migrador, que enxerga também as tabelas fechadas ao papel da aplicação.
     /// </summary>
-    private static async Task<string> FingerprintAsync(SuspendedRegistrationScenario s)
+    internal static async Task<string> FingerprintAsync(SuspendedRegistrationScenario s,
+        string schemas = "'identity','profiles','events','experiences','social','safety','media','ops','privacy'",
+        bool includeSequences = true)
     {
         await using var connection = new NpgsqlConnection(s.Database.MigratorConnectionString);
         await connection.OpenAsync(Ct);
         List<string> tables = [];
-        await using (var list = new NpgsqlCommand("""
+        await using (var list = new NpgsqlCommand($"""
             select format('%I.%I', table_schema, table_name) from information_schema.tables
-            where table_type='BASE TABLE'
-              and table_schema in ('identity','profiles','events','experiences','social','safety','media','ops','privacy')
+            where table_type='BASE TABLE' and table_schema in ({schemas})
             order by 1
             """, connection))
         await using (var reader = await list.ExecuteReaderAsync(Ct))
@@ -403,10 +411,6 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
                 tables.Add(reader.GetString(0));
             }
         }
-        Assert.Contains("identity.login_sessions", tables);
-        Assert.Contains("ops.audit_events", tables);
-        Assert.Contains("ops.outbox_events", tables);
-        Assert.Contains("safety.user_guards", tables);
 
         var fingerprint = new StringBuilder();
         foreach (var table in tables)
@@ -415,6 +419,11 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
                 $"select count(*)||':'||coalesce(md5(string_agg(t::text, ',' order by t::text)),'') from {table} t", connection);
             fingerprint.Append(table).Append('=').Append(await digest.ExecuteScalarAsync(Ct)).Append('\n');
         }
+        if (!includeSequences)
+        {
+            return fingerprint.ToString();
+        }
+
         await using var sequences = new NpgsqlCommand(
             "select coalesce(string_agg(format('%I.%I=%s', schemaname, sequencename, last_value), ',' order by schemaname, sequencename),'') from pg_sequences",
             connection);

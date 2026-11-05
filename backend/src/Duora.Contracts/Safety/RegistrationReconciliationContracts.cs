@@ -23,12 +23,16 @@ public sealed record ReconciliationIssueCountResponse(string Issue, int Registra
 /// <summary>Unidades conta/medida: elegíveis, pausadas por integridade e grandes demais para aplicação automática.</summary>
 public sealed record ReconciliationUnitCountsResponse(int Eligible, int Blocked, int Oversized);
 
-/// <summary>Conta/medida original com as inscrições candidatas e a versão observada da medida.</summary>
+/// <summary>
+/// Conta/medida original com as inscrições candidatas, a versão observada da medida e o <c>UnitDigest</c>: SHA-256 em
+/// hexadecimal minúsculo que a criação de um run confere contra o recálculo do servidor.
+/// </summary>
 public sealed record ReconciliationPreviewUnitResponse(
     Guid SubjectUserId,
     Guid OriginalMeasureId,
     long MeasureVersion,
-    IReadOnlyList<ReconciliationPreviewItemResponse> Items);
+    IReadOnlyList<ReconciliationPreviewItemResponse> Items,
+    string UnitDigest);
 
 /// <summary>
 /// Inscrição candidata: versão observada, estado (Waitlisted | Confirmed | CheckedIn) e tetos condicionais de vagas
@@ -43,3 +47,64 @@ public sealed record ReconciliationPreviewItemResponse(
 
 /// <summary>Valores para <c>cursorSubject</c> e <c>cursorMeasure</c> da próxima página.</summary>
 public sealed record ReconciliationPreviewCursorResponse(Guid CursorSubject, Guid CursorMeasure);
+
+/// <summary>
+/// Criar um run a partir da prévia (API-ADM26, ADR-0049). <c>Units</c>: de 1 a 10 pares conta/medida com o
+/// <c>UnitDigest</c> visto. <c>Justification</c> (até 2000 caracteres) e <c>AuthorizationReference</c> (até 200) ficam
+/// numa linha, sem caracteres de controle, e não devem trazer dado de participante. O servidor recalcula o resto.
+/// </summary>
+public sealed record CreateRegistrationReconciliationRunRequest(
+    IReadOnlyList<ReconciliationRunUnitRequest>? Units,
+    string? Justification,
+    string? AuthorizationReference);
+
+/// <summary>Unidade pedida: a conta, a medida original e o digest devolvido pela prévia.</summary>
+public sealed record ReconciliationRunUnitRequest(Guid SubjectUserId, Guid OriginalMeasureId, string? UnitDigest);
+
+/// <summary>
+/// Run de reconciliação (API-ADM26, API-ADM27 e API-ADM29). <c>State</c>: Open | Closed. <c>ETag</c> identifica esta
+/// versão do run. Instantes em UTC, com "Z".
+/// </summary>
+public sealed record RegistrationReconciliationRunResponse(
+    Guid Id,
+    int SelectorVersion,
+    string EvidenceId,
+    DateTime CutoverLower,
+    DateTime CutoverUpper,
+    Guid CreatedByUserId,
+    string Justification,
+    string AuthorizationReference,
+    string State,
+    long Version,
+    DateTime CreatedAt,
+    string ETag,
+    IReadOnlyList<RegistrationReconciliationRunUnitResponse> Units);
+
+/// <summary>
+/// Unidade do manifesto. <c>State</c>: Pending | Applied | SkippedChanged | NeedsReview. <c>Receipt</c>: o mesmo recibo de
+/// API-ADM28, null enquanto a unidade está Pending.
+/// </summary>
+public sealed record RegistrationReconciliationRunUnitResponse(
+    Guid Id,
+    Guid SubjectUserId,
+    Guid OriginalMeasureId,
+    long MeasureVersion,
+    string State,
+    IReadOnlyList<ReconciliationPreviewItemResponse> Items,
+    RegistrationReconciliationUnitReceiptResponse? Receipt);
+
+/// <summary>
+/// Recibo de uma unidade terminal (API-ADM28), o checkpoint da aplicação: repetir o pedido devolve este mesmo recibo.
+/// <c>State</c>: Applied | SkippedChanged | NeedsReview. <c>Reason</c>: motivo fechado, null em Applied. <c>FactIds</c>:
+/// fatos de promoção vinculados à unidade, que ficam como evidência mesmo depois que a retenção apaga o fato.
+/// <c>ExecutedAt</c> em UTC, com "Z".
+/// </summary>
+public sealed record RegistrationReconciliationUnitReceiptResponse(
+    Guid RunId,
+    Guid UnitId,
+    string State,
+    string? Reason,
+    IReadOnlyList<Guid> FactIds,
+    Guid ExecutedByUserId,
+    DateTime ExecutedAt,
+    string CorrelationId);

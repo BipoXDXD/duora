@@ -4,13 +4,13 @@ Contrato do ambiente local (spec 2.4 e 2.5). Atualize este arquivo quando mudar 
 
 ## Versões verificadas
 
-Inventário da máquina de desenvolvimento em 2026-10-15, lido com os comandos de diagnóstico da spec 2.5.
+Inventário da máquina de desenvolvimento em 2026-11-05, lido com os comandos de diagnóstico da spec 2.5.
 
 | Item | Versão encontrada | Fixada em |
 |---|---|---|
 | Sistema | macOS 27.0.1 (build 26A434), `arm64` nativo (sem Rosetta) | — |
-| .NET SDK | 10.0.402 | `global.json` (`rollForward: latestPatch`) |
-| Runtime .NET / ASP.NET Core | 10.0.12 | vem com o SDK |
+| .NET SDK | 10.0.403 | `global.json` (`rollForward: latestPatch`) |
+| Runtime .NET / ASP.NET Core | 10.0.14 | vem com o SDK |
 | dotnet-ef | 10.0.13 | `.config/dotnet-tools.json` |
 | Docker Engine (Docker Desktop) | 29.8.2, runtime `linux/arm64`, contexto `desktop-linux` | — |
 | Docker Compose | 5.5.1 | — |

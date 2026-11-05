@@ -206,3 +206,23 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Registration reconciliation (#321, ADR-0049): runs and units are evidence the app never deletes; a fact link is
+-- written once and only the outbox retention removes it, by cascade run by the table owner.
+DO $$
+BEGIN
+  IF to_regclass('ops.registration_reconciliation_runs') IS NOT NULL THEN
+    REVOKE DELETE, TRUNCATE ON ops.registration_reconciliation_runs, ops.registration_reconciliation_units FROM duora_app;
+    REVOKE UPDATE, DELETE, TRUNCATE ON ops.registration_reconciliation_unit_facts FROM duora_app;
+    IF has_table_privilege('duora_app', 'ops.registration_reconciliation_runs', 'DELETE')
+       OR has_table_privilege('duora_app', 'ops.registration_reconciliation_runs', 'TRUNCATE')
+       OR has_table_privilege('duora_app', 'ops.registration_reconciliation_units', 'DELETE')
+       OR has_table_privilege('duora_app', 'ops.registration_reconciliation_units', 'TRUNCATE')
+       OR has_table_privilege('duora_app', 'ops.registration_reconciliation_unit_facts', 'UPDATE')
+       OR has_any_column_privilege('duora_app', 'ops.registration_reconciliation_unit_facts', 'UPDATE')
+       OR has_table_privilege('duora_app', 'ops.registration_reconciliation_unit_facts', 'DELETE')
+       OR has_table_privilege('duora_app', 'ops.registration_reconciliation_unit_facts', 'TRUNCATE') THEN
+      RAISE EXCEPTION 'duora_app may not erase registration reconciliation evidence';
+    END IF;
+  END IF;
+END $$;

@@ -28,11 +28,29 @@ def command(arguments: list[str]) -> str:
                           timeout=5 * 60).stdout
 
 
+def sender_evidence(args: argparse.Namespace, run: dict[str, Any], publication: dict[str, Any],
+                    source_commit: str, reference: str) -> dict[str, Any]:
+    if component.is_qualification_run(run):
+        # send.requested needs all five release roles, and send.py is a release boundary: leave it unchanged.
+        if publication["images"]["postgres"] != reference:
+            raise ValueError("Component publication changed the reviewed component")
+        return {"component_publication_reference": reference, "receiver_import_verified": True,
+                "receiver_import_and_sender_selection_verified": False,
+                "sender_scope": "send.requested needs five release roles; not exercised for a component"}
+    os.environ["PUBLICATION_FILE"] = str(args.publication)
+    requested = send.requested("duora", source_commit)
+    if requested["postgres"] != reference:
+        raise ValueError("Actual sender selection changed the reviewed component")
+    return {"sender_requested_reference": requested["postgres"],
+            "receiver_import_and_sender_selection_verified": True}
+
+
 def qualify(args: argparse.Namespace) -> dict[str, Any]:
     lock = component.read_lock(args.lock)
     reference = component.select_image(ROOT, lock, args.architecture)
     publication = component.read_lock(args.publication)
-    component.validate_origin(lock, component.read_lock(args.run_json), publication, args.architecture)
+    run = component.read_lock(args.run_json)
+    component.validate_origin(lock, run, publication, args.architecture)
     if args.architecture == "amd64":
         # Match the production ingress protocol; never patch the receiver to fit an older runner daemon.
         os.environ["DOCKER_API_VERSION"] = "1.52"
@@ -99,14 +117,9 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         if (identities["postgres"] != before["Id"] or after["Id"] != before["Id"]
                 or imported_reference.split("@")[1] != expected_digest):
             raise ValueError("Actual receiver import changed the selected component")
-        os.environ["PUBLICATION_FILE"] = str(args.publication)
-        requested = send.requested("duora", lock["source_commit"])
-        if requested["postgres"] != reference:
-            raise ValueError("Actual sender selection changed the reviewed component")
         evidence.update({"receiver_imported_reference": imported_reference,
-                         "receiver_imported_image_id": after["Id"],
-                         "sender_requested_reference": requested["postgres"],
-                         "receiver_import_and_sender_selection_verified": True})
+                         "receiver_imported_image_id": after["Id"]})
+        evidence.update(sender_evidence(args, run, publication, lock["source_commit"], reference))
     else:
         evidence["receiver_import_and_sender_selection_verified"] = False
         evidence["receiver_scope"] = "Production receiver accepts AMD64 only; ARM64 native OCI verified"
