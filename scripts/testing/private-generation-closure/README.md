@@ -17,7 +17,7 @@ scripts/testing/private-generation-closure/run_linux.sh
 python3 scripts/testing/private-generation-closure/check_mutations.py
 ```
 
-O segundo comando também precisa do SDK .NET 10.0.402 no host. O build de teste instala Python 3
+O segundo comando também precisa do SDK .NET 10.0.403 no host. O build de teste instala Python 3
 (licença PSF; pacote da distribuição) somente na imagem descartável; nenhuma dependência é adicionada
 à aplicação. A base do SDK está presa ao digest arm64 usado no ensaio. Não atribuir cobertura nativa
 amd64 a esse comando. A função dos valores nativos de `open` é explícita por arquitetura; outros

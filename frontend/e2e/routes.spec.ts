@@ -174,6 +174,9 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       api.seedConfirmedUser(EMAIL, PASSWORD)
       await page.goto('/entrar?returnTo=https://evil.example')
       await expect(page).toHaveURL(/\/login\?returnTo=/)
+      // O reload faz parte do comportamento testado, mas só depois da tela pronta: goto retorna no load com o chunk lazy
+      // da rota ainda baixando, e o WebKit interrompe a navegação ("Frame load interrupted").
+      await expect(page.getByLabel(emailLabel, { exact: true })).toBeVisible()
       await page.evaluate(() => {
         history.replaceState(
           { ...(history.state as Record<string, unknown>), usr: { from: '/\t/evil.example/account' } },
