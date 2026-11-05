@@ -715,6 +715,8 @@ def _swap_close(context: _SwapContext, release: Release, actions: tuple[str, ...
     context.host.core._require_services_running(compose, context.run)
     for action in actions:
         context.backup(action)
+    # verify-repo solta o .deploy.lock por até 45 min: o que valia antes dele não vale depois.
+    _swap_require_preserved(context.paths, context.host.inspect_runtime(release, environment)["profile"])
     _swap_set_phase(context, "closing")
     return _swap_finish(context, "closed")
 
