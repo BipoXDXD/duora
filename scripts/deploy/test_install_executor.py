@@ -316,6 +316,16 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse((self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").exists())
         self.assertTrue((self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json").exists())
 
+    def test_inventory_is_the_closed_list_of_five_members(self) -> None:
+        self.assertEqual(installer.FILES, ("duora_deploy.py", "postgres_swap.py", "reconcile_payload.py",
+                                           "runtime_guard.py", "install_executor.py"))
+
+    def test_swap_exemption_refuses_a_changed_installed_bundle(self) -> None:
+        receiver = self._swap_receiver()
+        self._arm_swap()
+        (self.paths.versions / COMMIT / "postgres_swap.py").write_text("# changed after install\n")
+        with self.assertRaises(installer.InstallError): self._idle(receiver)
+
     def test_open_journal_without_fence_blocks_the_installer(self) -> None:
         receiver = self._swap_receiver()
         self._arm_swap()

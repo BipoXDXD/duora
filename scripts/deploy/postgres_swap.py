@@ -105,6 +105,7 @@ def _recovery_pin_bytes(pin: dict) -> bytes:
 
 # verify-repo espera até 30 min pelo lock de um backup em curso (LOCK_WAIT_SECONDS do duora_backup) e depois trabalha.
 SWAP_VERIFY_REPO_TIMEOUT_SECONDS = 45 * 60
+SWAP_LOCK_LOST = " Outro processo tomou o .deploy.lock enquanto ele estava solto: espere liberar e repita o comando."
 SWAP_DIRECTORY = "postgres-swap"
 SWAP_HISTORY_DIRECTORY = "postgres-swap-history"
 SWAP_FENCE_DIRECTORY = "duora-postgres-swap"
@@ -220,9 +221,22 @@ def _swap_backup(action: str, paths: Paths, run: Runner, lease: Any) -> subproce
     # é solto; host e projeto seguem presos, então nenhuma release entra na brecha.
     if lease is not None: lease.release_executor()
     try:
-        return _check(run(command, timeout_seconds=SWAP_VERIFY_REPO_TIMEOUT_SECONDS), "duora-backup " + action)
-    finally:
-        if lease is not None: lease.reacquire_executor()
+        result = _check(run(command, timeout_seconds=SWAP_VERIFY_REPO_TIMEOUT_SECONDS), "duora-backup " + action)
+    except DeployError as error:
+        # O resultado do repositório vale mais que o lock: uma lacuna de WAL não pode sumir atrás de "busy".
+        if _swap_lock_lost(lease): raise DeployError(str(error) + SWAP_LOCK_LOST) from error
+        raise
+    if _swap_lock_lost(lease): raise DeployError("duora-backup verify-repo passou." + SWAP_LOCK_LOST)
+    return result
+
+
+def _swap_lock_lost(lease: Any) -> bool:
+    if lease is None: return False
+    try:
+        lease.reacquire_executor()
+        return False
+    except DeployError:
+        return True
 
 
 def _swap_fence_path(ingress: Path) -> Path:
@@ -346,6 +360,8 @@ def _swap_plan(current: Release, reference: str, paths: Paths, run: Runner, host
         raise DeployError("Instalação do executor pendente; resolva antes da troca")
     _swap_require_target(current, reference, host)
     pin = _swap_recorded_pin(current, paths, host)
+    # Solta o .deploy.lock: tudo o que precisa continuar verdade depois da brecha vem abaixo, com o lock de volta.
+    _swap_backup("verify-repo", paths, run, lease)
     host.require_ingress_idle(pin["application_uuid"])
     executor = host.executor_identity()
     environment = paths.state_dir / RELEASES_DIR / (current.release_id + ".env")
@@ -356,7 +372,6 @@ def _swap_plan(current: Release, reference: str, paths: Paths, run: Runner, host
     facts = _swap_require_compatible(current, reference, compose, run, host)
     _swap_require_interpolated(current, reference, paths, run)
     _swap_backup("verify", paths, run, lease)
-    _swap_backup("verify-repo", paths, run, lease)
     read = lambda path: hashlib.sha256(host.read_protected(path)).hexdigest()
     return {"schema": 1, "operation": "postgres-component-swap", "sourceReleaseId": current.release_id,
             "sourceManifestSha256": _guard.digest(current.raw), "sourcePostgres": current.images["postgres"],
@@ -820,6 +835,17 @@ def _swap_load(source: Release, reference: str, paths: Paths, run: Runner, host:
     return _SwapContext(source, target, attempt, digest, record, paths, run, host, lease)
 
 
+def _swap_require_start_gates(context: _SwapContext) -> None:
+    """O banco não foi parado: seguir agora é começar a troca, com as regras de começar."""
+    try:
+        _require_swap_window(context.host.now())
+        context.host.preflight()
+    except DeployError as error:
+        if context.phase != "quiesce": raise
+        reason = re.sub(r"[:.]? *[Nn]ada foi parado\.?", "", str(error))
+        raise DeployError(reason + ". Web e worker seguem parados: use --abort para reabrir, ou repita --resume na janela") from error
+
+
 def _swap_finish_orphan_fence(paths: Paths) -> dict:
     """Journal já arquivado e fence restante: só a fence exata daquele journal é removida."""
     path = _swap_fence_path(paths.ingress)
@@ -859,9 +885,7 @@ def postgres_swap_entry(source: Release, reference: str, paths: Paths, run: Runn
         _swap_ensure_fence(context)
         if action == "abort": return _swap_abort(context)
         if context.phase in SWAP_FORWARD_PHASES[:SWAP_FORWARD_PHASES.index("swap-runtime")]:
-            # Nada foi parado no banco: seguir agora é começar a troca, com as regras de começar.
-            _require_swap_window(host.now())
-            host.preflight()
+            _swap_require_start_gates(context)
         return _swap_resume(context)
     except (_guard.GuardError, _payload.PayloadError, ValueError, KeyError, TypeError, IndexError) as error:
         raise DeployError("Troca do PostgreSQL recusada: " + str(error)) from error

@@ -3025,7 +3025,9 @@ def _swap_executor_identity(paths: Paths) -> dict:
     """A isenção do instalador compara este commit: a ressela não pode virar troca de código."""
     receipt = _guard.decode_json(_recovery_root_read(paths.state_dir / "executor-install-receipt.json"))
     own = hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
-    if receipt.get("status") != "installed" or receipt.get("executorSha256") != own:
+    sidecar = hashlib.sha256(Path(str(_swap.__file__)).resolve().read_bytes()).hexdigest()
+    if (receipt.get("status") != "installed" or receipt.get("executorSha256") != own
+            or receipt.get("files", {}).get("postgres_swap.py", {}).get("sha256") != sidecar):
         raise DeployError("Executor em execução não é o instalado pelo recibo")
     return {name: receipt[name] for name in ("sourceCommit", "manifestSha256", "executorSha256")}
 

@@ -94,6 +94,11 @@ class FakeDocker:
             service = [item for item in command if item.startswith("label=com.docker.compose.service=")]
             role = service[0].rsplit("=", 1)[1] if service else ""
             return "\n".join("%064x" % (index + 1) for index in range(self.counts.get(role, 0)))
+        if command[:2] == ["docker", "inspect"]:
+            return json.dumps([{"Id": identifier, "Config": {"Labels": {"com.docker.compose.project": "duora",
+                "com.docker.compose.service": "migrator", "com.docker.compose.oneoff": "True"}},
+                "State": {"Status": "running", "Running": True, "Paused": False, "Restarting": False, "Pid": 7}}
+                for identifier in command[2:]])
         if command[:2] == ["docker", "top"]:
             return "PID COMMAND\n1 postgres\n"
         if command[:2] == ["docker", "create"]:
@@ -1189,6 +1194,45 @@ class RepositoryVerifyLockTests(SwapFixture):
         self.assertTrue(self.lease.held)
         self.assertTrue(self.locked())
 
+    def stolen_lock(self, script: str) -> None:
+        """A real competitor takes .deploy.lock inside the released window and keeps it past the child's exit."""
+        self.paths.backup_command.write_text("#!" + sys.executable + "\n" + textwrap.dedent(f"""
+            import fcntl, os, sys
+            if sys.argv[1] == "verify": raise SystemExit(0)
+            holder = os.fork()
+            if holder == 0:
+                os.setsid()
+                lock = os.open({str(self.state / ".deploy.lock")!r}, os.O_RDONLY)
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                open({str(self.root / "holding")!r}, "w").close()
+                os.close(1); os.close(2)
+                import time; time.sleep(30)
+                os._exit(0)
+            while not os.path.exists({str(self.root / "holding")!r}): pass
+            {script}
+            """))
+        self.addCleanup(self.release_competitor)
+
+    def release_competitor(self) -> None:
+        subprocess.run(["pkill", "-f", str(self.paths.backup_command)], check=False)
+
+    def test_failed_verify_repo_keeps_its_own_error_when_the_lock_is_stolen(self) -> None:
+        self.stolen_lock('print("lacuna de WAL", file=sys.stderr); raise SystemExit(1)')
+        self.docker.commands.clear()
+        with self.assertRaises(deploy.DeployError) as refused:
+            self.entry("plan")
+        message = str(refused.exception)
+        self.assertIn("duora-backup verify-repo falhou", message)
+        self.assertNotIn("do not repeat", message)
+        self.assertIn(".deploy.lock", message)
+
+    def test_passed_verify_repo_with_stolen_lock_has_its_own_message(self) -> None:
+        self.stolen_lock("raise SystemExit(0)")
+        with self.assertRaises(deploy.DeployError) as refused:
+            self.entry("plan")
+        self.assertIn(".deploy.lock", str(refused.exception))
+        self.assertNotIn("do not repeat", str(refused.exception))
+
     def test_verify_repo_has_its_own_ceiling_beyond_the_command_one(self) -> None:
         self.call("plan")
         self.assertGreater(swap.SWAP_VERIFY_REPO_TIMEOUT_SECONDS, deploy.COMMAND_TIMEOUT_SECONDS)
@@ -1297,6 +1341,26 @@ class ResumeGateTests(SwapFixture):
                 with self.assertRaisesRegex(deploy.DeployError, "espaço"):
                     self.call("resume")
 
+    def test_gate_at_quiesce_says_the_application_is_stopped_and_points_to_abort(self) -> None:
+        self.stopped_at("quiesce")
+        self.now = datetime(2026, 11, 11, 3, 0, tzinfo=timezone.utc)
+        with self.assertRaises(deploy.DeployError) as refused:
+            self.call("resume")
+        self.assertIn("--abort", str(refused.exception))
+        self.assertNotIn("ada foi parado", str(refused.exception))
+        self.now = WINDOW
+        self.preflight_error = deploy.DeployError("área de fotos sem o marcador. Nada foi parado.")
+        with self.assertRaises(deploy.DeployError) as refused:
+            self.call("resume")
+        self.assertIn("--abort", str(refused.exception))
+        self.assertNotIn("ada foi parado", str(refused.exception))
+
+    def test_gate_before_quiesce_keeps_saying_nothing_was_stopped(self) -> None:
+        self.stopped_at("verify-backup")
+        self.now = datetime(2026, 11, 11, 3, 0, tzinfo=timezone.utc)
+        with self.assertRaisesRegex(deploy.DeployError, "nada foi parado"):
+            self.call("resume")
+
     def test_resume_after_stopping_the_database_ignores_window_and_space(self) -> None:
         self.docker.fail_on = {"--no-deps postgres"}
         with self.assertRaises(deploy.DeployError):
@@ -1401,6 +1465,28 @@ class StrengthenedProtocolTests(SwapFixture):
         self.assertEqual(self.phase(), "commit")
         self.assertEqual(self.snapshot(), self.before)
 
+    def test_plan_verifies_the_repository_before_the_checks_that_must_stay_true(self) -> None:
+        order: list[str] = []
+        real_run, real_inspect = self.docker, self.observe
+        def run(command, *, capture=False, input_text=None, timeout_seconds=None):
+            if command[-1] == "verify-repo":
+                order.append("verify-repo")
+            return real_run(command, capture=capture, input_text=input_text, timeout_seconds=timeout_seconds)
+        def inspect(release, environment):
+            order.append("preserved")
+            return real_inspect(release, environment)
+        host = dataclasses.replace(self.host(), inspect_runtime=inspect,
+                                   require_ingress_idle=lambda _uuid: order.append("idle"))
+        swap.postgres_swap_entry(self.release, NEW_REF, self.paths, run, action="plan", reviewed_plan_sha256=None, host=host)
+        self.assertEqual(order, ["verify-repo", "idle", "preserved"])
+
+    def test_live_migrator_stops_the_swap_before_the_database(self) -> None:
+        self.docker.counts["migrator"] = 1
+        with self.assertRaises(deploy.DeployError):
+            self.apply()
+        self.assertEqual(self.phase(), "quiesce")
+        self.assertFalse([c for c in self.docker.commands if "stop postgres" in c])
+
     def test_commit_out_of_order_is_refused(self) -> None:
         self.stop_at_commit()
         attempt = json.loads((self.state / "postgres-swap/attempt.json").read_text())
@@ -1462,13 +1548,16 @@ class ProductionWiringTests(unittest.TestCase):
 
     def test_executor_identity_requires_the_installed_receipt_of_this_exact_file(self) -> None:
         own = hashlib.sha256(Path(deploy.__file__).resolve().read_bytes()).hexdigest()
-        receipt = {"status": "installed", "sourceCommit": COMMIT, "manifestSha256": "e" * 64, "executorSha256": own, "extra": 1}
+        sidecar = hashlib.sha256(Path(str(swap.__file__)).resolve().read_bytes()).hexdigest()
+        receipt = {"status": "installed", "sourceCommit": COMMIT, "manifestSha256": "e" * 64, "executorSha256": own,
+                   "files": {"postgres_swap.py": {"sha256": sidecar, "mode": 384}}, "extra": 1}
         def read(value):
             return patch.object(deploy, "_recovery_root_read", return_value=json.dumps(value).encode())
         with read(receipt):
             self.assertEqual(deploy._swap_executor_identity(self.paths),
                              {"sourceCommit": COMMIT, "manifestSha256": "e" * 64, "executorSha256": own})
-        for changed in (dict(receipt, status="preflight"), dict(receipt, executorSha256="0" * 64)):
+        for changed in (dict(receipt, status="preflight"), dict(receipt, executorSha256="0" * 64),
+                        dict(receipt, files={"postgres_swap.py": {"sha256": "0" * 64, "mode": 384}}), dict(receipt, files={})):
             with read(changed), self.assertRaises(deploy.DeployError):
                 deploy._swap_executor_identity(self.paths)
 
@@ -1528,6 +1617,9 @@ class ProductionWiringTests(unittest.TestCase):
                                 "--swap-postgres-component", "--target-postgres", NEW_REF, "--resume"])
         self.assertEqual(code, 0)
         self.assertIs(captured["run"], swap.run_in_own_group)
+        with patch.object(deploy, "preflight") as check:
+            captured["host"].preflight()
+        check.assert_called_once()
         self.assertEqual(captured["lease"], "the-lease")
         self.assertEqual(captured["action"], "resume")
 
