@@ -4,7 +4,7 @@ Contrato do ambiente local (spec 2.4 e 2.5). Atualize este arquivo quando mudar 
 
 ## Versões verificadas
 
-Inventário da máquina de desenvolvimento em 2026-10-15, lido com os comandos de diagnóstico da spec 2.5.
+Inventário da máquina de desenvolvimento em 2026-11-05, lido com os comandos de diagnóstico da spec 2.5.
 
 | Item | Versão encontrada | Fixada em |
 |---|---|---|
