@@ -24,6 +24,9 @@ import runtime_guard as guard
 
 FILES = ("duora_deploy.py", "reconcile_payload.py", "runtime_guard.py", "install_executor.py")
 FENCE_DIRECTORY = "duora-executor-install"
+SWAP_FENCE_DIRECTORY = "duora-postgres-swap"
+SWAP_JOURNAL_DIRECTORY = "postgres-swap"
+SWAP_RESEAL_PHASES = {"awaiting-reseal", "aborted-awaiting-reseal"}
 RECEIVER_PATH = Path("/opt/coolify-release/receiver.py")
 RECEIVER_SHA256 = "e9af03f08162ecf2bda094d38511b44b810043863d3104f60ea1046ae687f3b3"
 LEGACY_RECEIVER_SHA256 = "1ccd1ada4777c80081c4f9bb2a64a500b1e221f794406319504d9e66cbb975cb"
@@ -460,12 +463,59 @@ def _optional(path: Path) -> bytes | None:
     return _protected_bytes(path) if path.exists() or path.is_symlink() else None
 
 
-def require_ingress_idle(receiver, paths: InstallPaths, *, expected_commit: str, manifest_sha256: str) -> None:
-    """Receiver-compatible durable fence; exempt only a fully verified own static-install intent."""
-    fence_dir = paths.ingress / FENCE_DIRECTORY
+def _private_directory(path: Path) -> None:
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        raise InstallError("Unowned private directory")
+
+
+def _resealing_swap_fence(paths: InstallPaths, *, expected_commit: str, manifest_sha256: str) -> Path | None:
+    """The swap's own fence, exempt only so the operation can be resealed, never to change code or run early."""
+    fence_dir = paths.ingress / SWAP_FENCE_DIRECTORY
     fence = fence_dir / "pending.json"
     if not fence.exists() and not fence.is_symlink():
-        receiver.require_host_idle()
+        return None
+    try:
+        _private_directory(fence_dir)
+        journal = paths.state / SWAP_JOURNAL_DIRECTORY
+        _private_directory(journal)
+        pending = guard.decode_json(_protected_bytes(fence))
+        raw = _protected_bytes(journal / "attempt.json")
+        checksum = hashlib.sha256(raw).hexdigest()
+        attempt = guard.decode_json(raw)
+        record = guard.decode_json(_protected_bytes(journal / "phase.json"))
+        if (pending != {"schema": 1, "project": "duora", "kind": "postgres-swap", "swapId": attempt["swapId"],
+                        "attemptSha256": checksum}
+                or record["attemptSha256"] != checksum or record["phase"] not in SWAP_RESEAL_PHASES):
+            raise InstallError("PostgreSQL swap is not resealable in this journal or phase")
+        executor = attempt["executor"]
+        version = paths.versions / expected_commit
+        if (executor["sourceCommit"] != expected_commit or executor["manifestSha256"] != manifest_sha256
+                or not paths.entry.is_symlink() or os.readlink(paths.entry) != str(version / "duora_deploy.py")
+                or _sha(paths.entry) != executor["executorSha256"]):
+            raise InstallError("Reseal must keep the exact executor that opened the swap")
+        validate_bundle(version, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
+        return fence_dir
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise InstallError("Ingress is fenced by a PostgreSQL swap that cannot be resealed now") from error
+
+
+def _require_other_ingress_idle(receiver, paths: InstallPaths, own: set[Path]) -> None:
+    # Never remove or ignore a global or another project's intent, including unknown project directories.
+    receiver.require_no_pending(paths.ingress)
+    for directory in paths.ingress.iterdir():
+        if directory.is_dir() and directory not in own: receiver.require_no_pending(directory)
+
+
+def require_ingress_idle(receiver, paths: InstallPaths, *, expected_commit: str, manifest_sha256: str) -> None:
+    """Receiver-compatible durable fence; exempt only a fully verified own static-install or resealing swap intent."""
+    fence_dir = paths.ingress / FENCE_DIRECTORY
+    fence = fence_dir / "pending.json"
+    swap_fence = _resealing_swap_fence(paths, expected_commit=expected_commit, manifest_sha256=manifest_sha256)
+    exempt = set() if swap_fence is None else {swap_fence}
+    if not fence.exists() and not fence.is_symlink():
+        if swap_fence is None: receiver.require_host_idle()
+        else: _require_other_ingress_idle(receiver, paths, exempt)
         return
     try:
         info = fence_dir.lstat()
@@ -490,10 +540,7 @@ def require_ingress_idle(receiver, paths: InstallPaths, *, expected_commit: str,
         private_pending = _optional(paths.state / "executor-install-pending.json")
         if private_pending is not None and guard.decode_json(private_pending) != pending:
             raise InstallError("Private pending disagrees with the own fence")
-        # Never remove or ignore a global or another project's intent, including unknown project directories.
-        receiver.require_no_pending(paths.ingress)
-        for directory in paths.ingress.iterdir():
-            if directory.is_dir() and directory != fence_dir: receiver.require_no_pending(directory)
+        _require_other_ingress_idle(receiver, paths, exempt | {fence_dir})
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise InstallError("Ingress is active or the own fence cannot be authenticated") from error
 
