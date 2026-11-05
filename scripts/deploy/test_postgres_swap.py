@@ -1,7 +1,10 @@
 """Synthetic protocol tests for the PostgreSQL digest swap: real files, fake Docker. No lab, host or PITR proof."""
 import copy
+import contextlib
 import dataclasses
+import fcntl
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -9,6 +12,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +48,9 @@ class FakeDocker:
 
     def __init__(self) -> None:
         self.commands: list[str] = []
-        self.containers = {role: {"image": OLD_REF, "generation": 1, "running": True}
+        self.timeouts: dict[str, int | None] = {}
+        # generation is the container id (recreation); starts is startedAt (any start, same id after a restart).
+        self.containers = {role: {"image": OLD_REF, "generation": 1, "starts": 1, "running": True}
                            for role in ("postgres", "backup")}
         self.applications = {"web": True, "worker": True, "edge": True}
         self.fail_on: set[str] = set()
@@ -66,9 +72,10 @@ class FakeDocker:
         self.counts = {"postgres": 1, "backup": 1}
         self.holds: set[str] = set()
 
-    def __call__(self, command: list[str], *, capture: bool = False,
-                 input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    def __call__(self, command: list[str], *, capture: bool = False, input_text: str | None = None,
+                 timeout_seconds: int | None = None) -> subprocess.CompletedProcess[str]:
         joined = " ".join(command)
+        self.timeouts[command[-1]] = timeout_seconds
         self.commands.append(joined)
         absent = ((command[:3] == ["docker", "image", "inspect"] and command[-1] not in self.local)
                   or (command[:3] == ["docker", "container", "inspect"] and command[-1] not in self.holds))
@@ -123,15 +130,16 @@ class FakeDocker:
             for role in command[command.index("stop") + 1:]:
                 if role in self.containers:
                     self.containers[role]["running"] = False
-                    self.containers[role]["generation"] += 1
                 else:
                     self.applications[role] = False
         if " up " in joined:
             for role in command[command.index("--no-deps") + 1:]:
                 if role in self.containers:
                     item = self.containers[role]
-                    if item["image"] != image or not item["running"]:
-                        item.update(image=image, running=True, generation=item["generation"] + 1)
+                    if item["image"] != image:
+                        item.update(image=image, running=True, generation=item["generation"] + 1, starts=item["starts"] + 1)
+                    elif not item["running"]:
+                        item.update(running=True, starts=item["starts"] + 1)
                 else:
                     self.applications[role] = True
         if " ps " in joined:
@@ -152,6 +160,11 @@ class FakeDocker:
         if " pgbackrest version" in joined:
             return self.live_pgbackrest + "\n"
         return ""
+
+    def restart(self) -> None:
+        """Reboot or OOM: same container id, new startedAt."""
+        for item in self.containers.values():
+            item["starts"] += 1
 
     def mutating(self) -> list[str]:
         # The disposable probe script mentions "stop" but never reaches the project containers.
@@ -183,6 +196,7 @@ class SwapFixture(unittest.TestCase):
         self.seal(self.observe(self.release, None)["profile"])
         self.processes: list[list[str]] = []
         self.idle_error: Exception | None = None
+        self.preflight_error: Exception | None = None
         self.now = WINDOW
         self.identity = {"sourceCommit": COMMIT, "manifestSha256": "e" * 64, "executorSha256": "f" * 64}
         self.before = self.snapshot()
@@ -221,10 +235,9 @@ class SwapFixture(unittest.TestCase):
         for role, item in self.docker.containers.items():
             if item["image"] != wanted or not item["running"]:
                 raise deploy.DeployError("synthetic runtime differs")
-            generation = item["generation"]
             profile["services"][role].update(
-                id="%064x" % (generation * 2 + (role == "backup")), imageId="sha256:" + item["image"][-64:],
-                startedAt=f"2026-11-05T10:{generation % 60:02d}:00Z")
+                id="%064x" % (item["generation"] * 2 + (role == "backup")), imageId="sha256:" + item["image"][-64:],
+                startedAt=f"2026-11-05T10:{item['starts'] % 60:02d}:00Z")
         return {"profile": profile}
 
     def host(self) -> swap.SwapHost:
@@ -235,7 +248,13 @@ class SwapFixture(unittest.TestCase):
         return swap.SwapHost(core=deploy, image_prefix=PREFIX, releases_root=self.opt, pin_path=self.pin,
                                read_protected=lambda path: path.read_bytes(), inspect_runtime=self.observe,
                                require_ingress_idle=require_idle, executor_identity=lambda: self.identity,
-                               list_processes=lambda: self.processes, now=lambda: self.now, sleep=lambda _: None)
+                               list_processes=lambda: [item if isinstance(item, swap.ProcessInfo) else swap.ProcessInfo(item)
+                                                       for item in self.processes],
+                               now=lambda: self.now, sleep=lambda _: None, preflight=self.require_preflight)
+
+    def require_preflight(self) -> None:
+        if self.preflight_error is not None:
+            raise self.preflight_error
 
     def call(self, action: str, *, reviewed: str | None = None, target: str = NEW_REF, release=None) -> dict:
         return swap.postgres_swap_entry(release or self.release, target, self.paths, self.docker, action=action,
@@ -390,7 +409,7 @@ class HappyPathTests(SwapFixture):
 
     def test_executor_stays_inside_the_bundle_member_budget(self) -> None:
         for module in (deploy, swap):
-            self.assertLessEqual(Path(module.__file__).stat().st_size, 256 * 1024)
+            self.assertLessEqual(Path(str(module.__file__)).stat().st_size, 256 * 1024)
 
 
 class TargetReleaseTests(SwapFixture):
@@ -729,7 +748,7 @@ class OrphanComposeTests(SwapFixture):
         (root / "10/cmdline").write_bytes(b"docker\0compose\0up\0")
         (root / "self").mkdir()
         (root / "11").mkdir()
-        self.assertEqual(swap.list_processes(root), [["docker", "compose", "up"]])
+        self.assertEqual([item.argv for item in swap.list_processes(root)], [["docker", "compose", "up"]])
 
 
 class AbortTests(SwapFixture):
@@ -851,11 +870,11 @@ class ResumeTests(SwapFixture):
         reviewed = self.plan()
         calls = []
         original = self.docker.__call__
-        def failing(command, *, capture=False, input_text=None):
+        def failing(command, *, capture=False, input_text=None, timeout_seconds=None):
             if command[-1:] == ["verify"] and self.docker.containers["postgres"]["image"] == NEW_REF:
                 calls.append(command)
                 return subprocess.CompletedProcess(command, 1, "", "B2 unavailable")
-            return original(command, capture=capture, input_text=input_text)
+            return original(command, capture=capture, input_text=input_text, timeout_seconds=timeout_seconds)
         with self.assertRaisesRegex(deploy.DeployError, "--resume ou --abort"):
             swap.postgres_swap_entry(self.release, NEW_REF, self.paths, failing, action="apply",
                                        reviewed_plan_sha256=reviewed, host=self.host())
@@ -1101,6 +1120,416 @@ class CrashAtCommitTests(SwapFixture):
             swap._swap_write_atomic(path, b"{}\n", mode=0o600)
         self.assertEqual(synced, [False, True])
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+
+class RepositoryVerifyLockTests(SwapFixture):
+    """Real flock and a real child that runs duora_backup's own locking; nothing here is mocked."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        lock = self.state / ".deploy.lock"
+        lock.touch(mode=0o600)
+        self.descriptor = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        self.addCleanup(os.close, self.descriptor)
+        fcntl.flock(self.descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.lease = deploy.RecoveryAdministrativeLease(self.descriptor)
+        script = self.root / "duora-backup"
+        script.write_text("#!" + sys.executable + "\n" + textwrap.dedent(f"""
+            import subprocess, sys
+            from pathlib import Path
+            sys.path.insert(0, {str(Path(__file__).resolve().parent)!r})
+            import duora_backup as backup
+            if sys.argv[1] == "verify": raise SystemExit(0)
+            def run(command, **arguments):
+                return subprocess.CompletedProcess(command, 0, "", "")
+            backup._find_backup = lambda *_: "container"
+            backup._verify_repository = lambda *_, **__: None
+            backup.run_action(sys.argv[1], run, project="duora", state_dir=Path({str(self.state)!r}), egress_env=None,
+                              lock_wait_seconds=2)
+            """))
+        script.chmod(0o755)
+        self.paths = dataclasses.replace(self.paths, backup_command=script)
+
+    def runner(self, command, *, capture=False, input_text=None, timeout_seconds=None):
+        if command[0] == str(self.paths.backup_command):
+            return swap.run_in_own_group(command, capture=capture, input_text=input_text, timeout_seconds=timeout_seconds)
+        return self.docker(command, capture=capture, input_text=input_text, timeout_seconds=timeout_seconds)
+
+    def entry(self, action: str, reviewed: str | None = None) -> dict:
+        return swap.postgres_swap_entry(self.release, NEW_REF, self.paths, self.runner, action=action,
+                                        reviewed_plan_sha256=reviewed, host=self.host(), lease=self.lease)
+
+    def locked(self) -> bool:
+        other = os.open(self.state / ".deploy.lock", os.O_RDONLY)
+        try:
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return False
+        except BlockingIOError:
+            return True
+        finally:
+            os.close(other)
+
+    def test_verify_repo_child_passes_and_only_the_deploy_lock_was_released(self) -> None:
+        self.assertEqual(self.entry("plan")["status"], "plan")
+        self.assertTrue(self.lease.held)
+        self.assertTrue(self.locked())
+
+    def test_closing_a_swap_verifies_the_repository_under_the_same_rule(self) -> None:
+        plan = self.entry("plan")["planSha256"]
+        self.entry("apply", plan)
+        target = deploy.parse_manifest(Path(json.loads(self.pin.read_text())["manifest"]).read_text(), image_prefix=PREFIX)
+        self.seal(self.observe(target, None)["profile"])
+        self.assertEqual(self.entry("resume")["status"], "closed")
+        self.assertTrue(self.locked())
+
+    def test_failed_verify_repo_takes_the_lock_back(self) -> None:
+        self.paths.backup_command.write_text("#!/bin/sh\n[ \"$1\" = verify ]\n")
+        with self.assertRaises(deploy.DeployError):
+            self.entry("plan")
+        self.assertTrue(self.lease.held)
+        self.assertTrue(self.locked())
+
+    def test_verify_repo_has_its_own_ceiling_beyond_the_command_one(self) -> None:
+        self.call("plan")
+        self.assertGreater(swap.SWAP_VERIFY_REPO_TIMEOUT_SECONDS, deploy.COMMAND_TIMEOUT_SECONDS)
+        self.assertEqual(self.docker.timeouts["verify-repo"], swap.SWAP_VERIFY_REPO_TIMEOUT_SECONDS)
+        self.assertIsNone(self.docker.timeouts["verify"])
+
+    def test_group_runner_honours_the_explicit_ceiling(self) -> None:
+        with patch.object(swap, "COMMAND_TIMEOUT_SECONDS", 0.01):
+            result = swap.run_in_own_group([sys.executable, "-c", "import time;time.sleep(0.3)"], timeout_seconds=30)
+        self.assertEqual(result.returncode, 0)
+
+
+class RestartAfterEarlyPhaseTests(SwapFixture):
+    def stopped_at(self, phase: str) -> None:
+        steps = dict(swap._SWAP_STEPS)
+        def stop(_context):
+            raise deploy.DeployError("synthetic stop")
+        steps[phase] = stop
+        with patch.object(swap, "_SWAP_STEPS", steps), self.assertRaises(deploy.DeployError):
+            self.apply()
+        self.assertEqual(self.phase(), phase)
+
+    def test_abort_after_restart_waits_reseal_instead_of_dead_ending(self) -> None:
+        for phase in ("journaled", "verify-backup", "quiesce"):
+            with self.subTest(phase=phase):
+                self.setUp()
+                self.stopped_at(phase)
+                self.docker.restart()
+                self.assertEqual(self.call("abort")["status"], "aborted-awaiting-reseal")
+                self.assertEqual(self.phase(), "aborted-awaiting-reseal")
+                self.assertTrue(self.fence().exists())
+                self.seal(self.observe(self.release, None)["profile"])
+                self.assertEqual(self.call("resume")["status"], "closed")
+                self.assert_closed()
+
+    def test_installer_can_reseal_the_aborted_phase_a_restart_leaves(self) -> None:
+        version = self.root / "versions" / COMMIT
+        version.mkdir(parents=True)
+        (version / "duora_deploy.py").write_text("# installed\n")
+        entry = self.root / "duora-deploy"
+        entry.symlink_to(version / "duora_deploy.py")
+        self.identity["executorSha256"] = hashlib.sha256(b"# installed\n").hexdigest()
+        paths = installer.InstallPaths(entry, self.root / "versions", self.root / "preimages", self.state, self.ingress)
+        self.stopped_at("quiesce")
+        self.docker.restart()
+        self.call("abort")
+        with patch.object(installer, "validate_bundle"):
+            exempt = installer._resealing_swap_fence(paths, expected_commit=COMMIT, manifest_sha256="e" * 64)
+        self.assertEqual(exempt, self.fence().parent)
+
+    def test_abort_without_restart_still_closes_alone(self) -> None:
+        self.stopped_at("verify-backup")
+        self.assertEqual(self.call("abort")["status"], "aborted")
+
+    def test_abort_never_recreates_the_database_for_an_early_restart(self) -> None:
+        self.stopped_at("verify-backup")
+        self.docker.restart()
+        self.docker.commands.clear()
+        self.call("abort")
+        self.assertFalse([c for c in self.docker.commands if "stop postgres" in c or "--no-deps postgres" in c])
+
+    def test_unhealthy_runtime_is_not_mistaken_for_a_restart(self) -> None:
+        self.stopped_at("verify-backup")
+        self.docker.containers["postgres"]["running"] = False
+        with self.assertRaises(deploy.DeployError):
+            self.call("abort")
+        self.assertEqual(self.phase(), "aborting")
+
+
+class RestartAfterCommitTests(CrashAtCommitTests):
+    def test_restart_after_current_rename_reaches_reseal(self) -> None:
+        self.stop_at_commit()
+        self.killed_resume(cut=COMMIT_ARTIFACTS)
+        self.docker.restart()
+        self.assertEqual(self.call("resume")["status"], "awaiting-reseal")
+        target = deploy.parse_manifest(Path(json.loads(self.pin.read_text())["manifest"]).read_text(), image_prefix=PREFIX)
+        self.seal(self.observe(target, None)["profile"])
+        self.assertEqual(self.call("resume")["status"], "closed")
+
+    def test_restart_before_current_rename_still_refuses_to_publish(self) -> None:
+        self.stop_at_commit()
+        self.killed_resume(cut=3)
+        self.docker.restart()
+        with self.assertRaisesRegex(deploy.DeployError, "nada será publicado"):
+            self.call("resume")
+        self.assertEqual((self.state / "current.json").read_bytes(), self.before[str(self.state / "current.json")])
+
+
+class ResumeGateTests(SwapFixture):
+    stopped_at = RestartAfterEarlyPhaseTests.stopped_at
+
+    def test_resume_before_stopping_the_database_requires_window_and_space(self) -> None:
+        for phase in ("journaled", "verify-backup", "quiesce"):
+            with self.subTest(phase=phase, gate="window"):
+                self.setUp()
+                self.stopped_at(phase)
+                self.now = datetime(2026, 11, 11, 3, 0, tzinfo=timezone.utc)
+                self.docker.commands.clear()
+                with self.assertRaisesRegex(deploy.DeployError, "janela"):
+                    self.call("resume")
+                self.assertEqual(self.docker.mutating(), [])
+            with self.subTest(phase=phase, gate="space"):
+                self.setUp()
+                self.stopped_at(phase)
+                self.preflight_error = deploy.DeployError("espaço em disco insuficiente")
+                with self.assertRaisesRegex(deploy.DeployError, "espaço"):
+                    self.call("resume")
+
+    def test_resume_after_stopping_the_database_ignores_window_and_space(self) -> None:
+        self.docker.fail_on = {"--no-deps postgres"}
+        with self.assertRaises(deploy.DeployError):
+            self.apply()
+        self.docker.fail_on = set()
+        self.now = datetime(2026, 11, 11, 3, 0, tzinfo=timezone.utc)
+        self.preflight_error = deploy.DeployError("espaço em disco insuficiente")
+        self.assertEqual(self.call("resume")["status"], "awaiting-reseal")
+
+    def test_abort_never_requires_window_or_space(self) -> None:
+        self.stopped_at("verify-backup")
+        self.now = datetime(2026, 11, 11, 3, 0, tzinfo=timezone.utc)
+        self.preflight_error = deploy.DeployError("espaço em disco insuficiente")
+        self.assertEqual(self.call("abort")["status"], "aborted")
+
+    def test_close_refuses_while_an_installation_is_pending(self) -> None:
+        self.apply()
+        target = deploy.parse_manifest(Path(json.loads(self.pin.read_text())["manifest"]).read_text(), image_prefix=PREFIX)
+        self.seal(self.observe(target, None)["profile"])
+        pending = self.state / "executor-install-pending.json"
+        pending.write_text("{}")
+        with self.assertRaisesRegex(deploy.DeployError, "[Ii]nstalação"):
+            self.call("resume")
+        self.assertEqual(self.phase(), "awaiting-reseal")
+        pending.unlink()
+        self.assertEqual(self.call("resume")["status"], "closed")
+
+
+class OrphanDetectorTests(unittest.TestCase):
+    paths = deploy.Paths(Path("/opt/duora/compose.coolify.json"), Path("/etc/duora/duora.env"), Path("/var/lib/duora"))
+
+    def detected(self, argv, cwd="/root", environ=None) -> bool:
+        return swap._swap_is_project_compose(swap.ProcessInfo(argv, cwd, environ or {}), self.paths)
+
+    def test_project_clients_that_name_nothing_on_the_command_line(self) -> None:
+        self.assertTrue(self.detected(["docker", "compose", "up", "-d"], cwd="/opt/duora"))
+        self.assertTrue(self.detected(["docker", "compose", "-f", "compose.coolify.json", "up"], cwd="/opt/duora"))
+        self.assertTrue(self.detected(["docker", "compose", "-pduora", "up"]))
+        self.assertTrue(self.detected(["docker", "compose", "up"], environ={"COMPOSE_PROJECT_NAME": "duora"}))
+        self.assertTrue(self.detected(["docker", "compose", "up"], environ={"COMPOSE_FILE": "/opt/duora/compose.coolify.json"}))
+
+    def test_other_projects_and_non_compose_processes_pass(self) -> None:
+        self.assertFalse(self.detected(["docker", "compose", "up"], cwd="/opt/stillon"))
+        self.assertFalse(self.detected(["docker", "compose", "up"], environ={"COMPOSE_PROJECT_NAME": "stillon"}))
+        self.assertFalse(self.detected(["vim", "/opt/duora/compose.coolify.json"], cwd="/opt/duora"))
+
+    def test_reader_returns_cwd_and_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            entry = Path(directory) / "12"
+            entry.mkdir()
+            (entry / "cmdline").write_bytes(b"docker\0compose\0up\0")
+            (entry / "environ").write_bytes(b"COMPOSE_PROJECT_NAME=duora\0OTHER\0")
+            (entry / "cwd").symlink_to("/opt/duora")
+            process = swap.list_processes(Path(directory))[0]
+        self.assertEqual((process.cwd, process.environ), ("/opt/duora", {"COMPOSE_PROJECT_NAME": "duora"}))
+
+
+class StrengthenedProtocolTests(SwapFixture):
+    def sealed_target(self) -> None:
+        self.apply()
+        target = deploy.parse_manifest(Path(json.loads(self.pin.read_text())["manifest"]).read_text(), image_prefix=PREFIX)
+        self.seal(self.observe(target, None)["profile"])
+
+    def test_every_recreation_waits_for_health(self) -> None:
+        self.apply()
+        ups = [c for c in self.docker.commands if " up " in c]
+        self.assertGreaterEqual(len(ups), 3)
+        self.assertTrue(all("up --detach --wait --no-deps" in c for c in ups))
+
+    def test_hold_removal_also_removes_anonymous_volumes(self) -> None:
+        self.sealed_target()
+        self.call("resume")
+        removals = [c for c in self.docker.commands if c.startswith("docker rm")]
+        self.assertEqual(len(removals), 2)
+        self.assertTrue(all(c.startswith("docker rm --force --volumes ") for c in removals))
+
+    def test_close_waits_for_real_readiness(self) -> None:
+        self.sealed_target()
+        self.docker.fail_on = {"wget"}
+        with self.assertRaises(deploy.DeployError):
+            self.call("resume")
+        self.assertEqual(self.phase(), "awaiting-reseal")
+
+    def test_reopen_refuses_a_database_recreated_during_the_smoke(self) -> None:
+        real = swap._swap_open_application
+        def recreated(*arguments):
+            real(*arguments)
+            self.docker.containers["postgres"]["generation"] += 1
+        with patch.object(swap, "_swap_open_application", recreated), \
+                self.assertRaisesRegex(deploy.DeployError, "nada será publicado"):
+            self.apply()
+        self.assertEqual(self.phase(), "reopen")
+
+    def test_commit_refuses_a_database_recreated_after_reopen(self) -> None:
+        real = swap._swap_step_reopen
+        def recreated(context):
+            real(context)
+            self.docker.containers["postgres"]["generation"] += 1
+        steps = dict(swap._SWAP_STEPS, reopen=recreated)
+        with patch.object(swap, "_SWAP_STEPS", steps), self.assertRaisesRegex(deploy.DeployError, "nada será publicado"):
+            self.apply()
+        self.assertEqual(self.phase(), "commit")
+        self.assertEqual(self.snapshot(), self.before)
+
+    def test_commit_out_of_order_is_refused(self) -> None:
+        self.stop_at_commit()
+        attempt = json.loads((self.state / "postgres-swap/attempt.json").read_text())
+        artifact = next(item for item in attempt["commit"]["artifacts"] if item["name"] == "release-environment")
+        target = deploy.parse_manifest(json.dumps(attempt["target"]), image_prefix=PREFIX)
+        Path(artifact["path"]).write_text(deploy._release_env_text(target))
+        with self.assertRaisesRegex(deploy.DeployError, "fora de ordem"):
+            self.call("resume")
+
+    def test_commit_preserves_each_file_mode(self) -> None:
+        self.pin.chmod(0o640)
+        (self.state / "current.json").chmod(0o644)
+        self.apply()
+        self.assertEqual(self.pin.stat().st_mode & 0o777, 0o640)
+        self.assertEqual((self.state / "current.json").stat().st_mode & 0o777, 0o644)
+        self.assertEqual((self.state / "previous.json").stat().st_mode & 0o777, 0o644)
+
+    def test_every_directory_change_of_undo_and_close_is_synced(self) -> None:
+        self.stop_at_commit()
+        CrashAtCommitTests.killed_resume(self, cut=3)  # type: ignore[arg-type]
+        synced: list[Path] = []
+        real = swap._swap_sync_directory
+        def sync(path):
+            synced.append(path)
+            real(path)
+        with patch.object(swap, "_swap_sync_directory", sync):
+            self.call("abort")
+        self.assertIn(self.state / "releases", synced)
+        self.assertIn(self.opt, synced)
+        self.seal(self.observe(self.release, None)["profile"])
+        synced.clear()
+        with patch.object(swap, "_swap_sync_directory", sync):
+            self.call("resume")
+        self.assertIn(self.state / "postgres-swap-history", synced)
+        self.assertIn(self.state, synced)
+        self.assertIn(self.fence().parent, synced)
+
+    def test_orphan_fence_needs_the_exact_archived_hash(self) -> None:
+        self.sealed_target()
+        with patch.object(swap, "_swap_release_fence", side_effect=OSError("synthetic")), self.assertRaises(OSError):
+            self.call("resume")
+        history = next((self.state / "postgres-swap-history").iterdir())
+        (history / "attempt.json").write_text("{}\n")
+        with self.assertRaisesRegex(deploy.DeployError, "Fence desconhecida"):
+            self.call("resume")
+        self.assertTrue(self.fence().exists())
+
+    def test_same_prefix_other_repository_is_refused_by_the_repository_rule(self) -> None:
+        with self.assertRaisesRegex(deploy.DeployError, "mesmo repositório"):
+            self.call("plan", target=PREFIX + "web@" + NEW_DIGEST)
+
+
+class ProductionWiringTests(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.state = Path(directory.name)
+        self.paths = deploy.Paths(self.state / "compose.yml", self.state / "duora.env", self.state)
+
+    def test_executor_identity_requires_the_installed_receipt_of_this_exact_file(self) -> None:
+        own = hashlib.sha256(Path(deploy.__file__).resolve().read_bytes()).hexdigest()
+        receipt = {"status": "installed", "sourceCommit": COMMIT, "manifestSha256": "e" * 64, "executorSha256": own, "extra": 1}
+        def read(value):
+            return patch.object(deploy, "_recovery_root_read", return_value=json.dumps(value).encode())
+        with read(receipt):
+            self.assertEqual(deploy._swap_executor_identity(self.paths),
+                             {"sourceCommit": COMMIT, "manifestSha256": "e" * 64, "executorSha256": own})
+        for changed in (dict(receipt, status="preflight"), dict(receipt, executorSha256="0" * 64)):
+            with read(changed), self.assertRaises(deploy.DeployError):
+                deploy._swap_executor_identity(self.paths)
+
+    def test_ingress_gate_is_the_host_scan_and_the_coolify_queue(self) -> None:
+        calls = []
+        class Receiver:
+            def require_host_idle(self): calls.append("host")
+            def require_idle(self, uuid): calls.append(uuid)
+        with patch.object(deploy, "_recovery_verified_receiver", return_value=Receiver()):
+            deploy._swap_require_ingress_idle("app-1")
+        self.assertEqual(calls, ["host", "app-1"])
+
+    def main(self, *arguments: str) -> tuple[int, str]:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
+            code = deploy.main(["--manifest", "/nonexistent", "--swap-postgres-component", "--target-postgres", NEW_REF, *arguments])
+        return code, stderr.getvalue()
+
+    def test_only_direct_root_reaches_the_locks(self) -> None:
+        reached = []
+        @contextlib.contextmanager
+        def locks(_paths):
+            reached.append(True)
+            raise deploy.DeployError("reached the locks")
+            yield
+        pin = patch.object(deploy, "_recovery_root_read", return_value=b'{"compose":"/x"}')
+        cases = [(1000, 1000, {}, False), (0, 0, {"SUDO_UID": "1000"}, False), (0, 0, {"SSH_ORIGINAL_COMMAND": "x"}, False),
+                 (0, 1000, {}, False), (0, 0, {}, True)]
+        for uid, euid, environment, allowed in cases:
+            with self.subTest(uid=uid, euid=euid, environment=environment):
+                reached.clear()
+                clean = {k: v for k, v in os.environ.items() if k not in ("SUDO_UID", "SSH_ORIGINAL_COMMAND")}
+                with patch.object(deploy.os, "getuid", return_value=uid), patch.object(deploy.os, "geteuid", return_value=euid), \
+                        patch.dict(os.environ, {**clean, **environment}, clear=True), pin, \
+                        patch.object(deploy, "recovery_administrative_locks", locks):
+                    code, stderr = self.main("--preflight-only")
+                self.assertEqual(code, 1)
+                self.assertEqual(bool(reached), allowed)
+                if not allowed:
+                    self.assertIn("Direct administrative root", stderr)
+
+    def test_main_runs_the_swap_in_own_group_with_the_administrative_lease(self) -> None:
+        manifest = self.state / "manifest.json"
+        manifest.write_text(json.dumps(source_manifest()))
+        self.paths.host_env.write_text("DUORA_IMAGE_PREFIX=" + PREFIX + "\n")
+        captured = {}
+        @contextlib.contextmanager
+        def locks(_paths):
+            yield "the-lease"
+        def entry(release, reference, paths, run, **arguments):
+            captured.update(run=run, reference=reference, **arguments)
+            return {"status": "plan"}
+        with patch.object(deploy, "_require_recovery_administrator"), patch.object(deploy, "recovery_administrative_locks", locks), \
+                patch.object(swap, "postgres_swap_entry", entry), contextlib.redirect_stdout(io.StringIO()):
+            code = deploy.main(["--manifest", str(manifest), "--compose-file", str(self.paths.compose_file),
+                                "--host-env", str(self.paths.host_env), "--state-dir", str(self.state),
+                                "--swap-postgres-component", "--target-postgres", NEW_REF, "--resume"])
+        self.assertEqual(code, 0)
+        self.assertIs(captured["run"], swap.run_in_own_group)
+        self.assertEqual(captured["lease"], "the-lease")
+        self.assertEqual(captured["action"], "resume")
 
 
 if __name__ == "__main__":

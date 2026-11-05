@@ -7,7 +7,7 @@ por SwapHost.core. Manual: docs/operations/deploy.md, "Troca do digest do Postgr
 from __future__ import annotations
 
 import ctypes
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -21,19 +21,28 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 import reconcile_payload as _payload
 import runtime_guard as _guard
 
 if TYPE_CHECKING:
-    from duora_deploy import Paths, Release, Runner
+    from duora_deploy import Paths, Release
 
 RELEASES_DIR = "releases"
 STAGING_DIR = "staging"
 # Teto de qualquer comando (o migrador é o mais longo); estourou, o deploy para.
 COMMAND_TIMEOUT_SECONDS = 15 * 60
 PR_SET_PDEATHSIG = 1  # prctl(2) no Linux
+
+
+class QueryRunner(Protocol):
+    def __call__(self, command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]: ...
+
+
+class Runner(Protocol):
+    def __call__(self, command: list[str], *, capture: bool = False, input_text: str | None = None,
+                 timeout_seconds: int | None = None) -> subprocess.CompletedProcess[str]: ...
 
 
 class DeployError(Exception):
@@ -53,7 +62,7 @@ def _check(result: subprocess.CompletedProcess[str], what: str) -> subprocess.Co
     return result
 
 
-def _query(compose: list[str], run: Runner, sql: str, what: str = "leitura do histórico de migrations") -> str:
+def _query(compose: list[str], run: QueryRunner, sql: str, what: str = "leitura do histórico de migrations") -> str:
     result = _check(
         run(compose + ["exec", "--no-TTY", "postgres", "psql", "--no-psqlrc", "--quiet", "--tuples-only",
                        "--no-align", "--username", "postgres", "--dbname", "duora", "--command", sql],
@@ -94,6 +103,8 @@ def _recovery_pin_bytes(pin: dict) -> bytes:
 # journal é write-ahead, cada escrita é temp + fsync + rename e o commit é o rename de current.json. Nenhuma falha
 # reverte sozinha; quem decide é o operador, com --resume ou --abort.
 
+# verify-repo espera até 30 min pelo lock de um backup em curso (LOCK_WAIT_SECONDS do duora_backup) e depois trabalha.
+SWAP_VERIFY_REPO_TIMEOUT_SECONDS = 45 * 60
 SWAP_DIRECTORY = "postgres-swap"
 SWAP_HISTORY_DIRECTORY = "postgres-swap-history"
 SWAP_FENCE_DIRECTORY = "duora-postgres-swap"
@@ -141,6 +152,13 @@ SWAP_PROBE_SCRIPT = (
 
 
 @dataclass(frozen=True)
+class ProcessInfo:
+    argv: list[str]
+    cwd: str = ""
+    environ: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class SwapHost:
     """Fronteiras do host, injetáveis nos testes de protocolo; produção usa duora_deploy._production_swap_host."""
     core: Any  # O módulo do executor que está rodando, seja qual for o nome com que foi carregado.
@@ -149,9 +167,10 @@ class SwapHost:
     inspect_runtime: Callable[[Release, Path], dict]
     require_ingress_idle: Callable[[str], None]
     executor_identity: Callable[[], dict]
-    list_processes: Callable[[], list[list[str]]]
+    list_processes: Callable[[], list[ProcessInfo]]
     now: Callable[[], datetime]
     sleep: Callable[[float], None] = time.sleep
+    preflight: Callable[[], None] = lambda: None
     releases_root: Path = Path("/opt/duora/releases")
     pin_path: Path = Path("/etc/duora/coolify-deploy.json")
     architecture: str = "amd64"
@@ -167,6 +186,7 @@ class _SwapContext:
     paths: Paths
     run: Runner
     host: SwapHost
+    lease: Any = None
 
     @property
     def phase(self) -> str:
@@ -184,13 +204,25 @@ class _SwapContext:
         return _compose_command(self.paths, environment)
 
     def backup(self, action: str) -> subprocess.CompletedProcess[str]:
-        return _check(self.run([str(self.paths.backup_command), action]), "duora-backup " + action)
+        return _swap_backup(action, self.paths, self.run, self.lease)
 
 
 def require_no_open_swap(paths: Paths) -> None:
     if (paths.state_dir / SWAP_DIRECTORY / "attempt.json").exists() or _swap_fence_path(paths.ingress).is_symlink() \
             or _swap_fence_path(paths.ingress).exists():
         raise DeployError("PostgreSQL swap aberto (journal ou fence): resolva com --resume ou --abort antes de qualquer release")
+
+
+def _swap_backup(action: str, paths: Paths, run: Runner, lease: Any) -> subprocess.CompletedProcess[str]:
+    command = [str(paths.backup_command), action]
+    if action != "verify-repo": return _check(run(command), "duora-backup " + action)
+    # verify-repo toma o .deploy.lock em outro processo: segurá-lo aqui faria a ação esperar até desistir. Só esse lock
+    # é solto; host e projeto seguem presos, então nenhuma release entra na brecha.
+    if lease is not None: lease.release_executor()
+    try:
+        return _check(run(command, timeout_seconds=SWAP_VERIFY_REPO_TIMEOUT_SECONDS), "duora-backup " + action)
+    finally:
+        if lease is not None: lease.reacquire_executor()
 
 
 def _swap_fence_path(ingress: Path) -> Path:
@@ -305,7 +337,7 @@ def _swap_require_interpolated(current: Release, reference: str, paths: Paths, r
     if after != before: raise DeployError("Trocar a imagem mudaria outro campo do Compose")
 
 
-def _swap_plan(current: Release, reference: str, paths: Paths, run: Runner, host: SwapHost) -> dict:
+def _swap_plan(current: Release, reference: str, paths: Paths, run: Runner, host: SwapHost, lease: Any) -> dict:
     """Passo 0. Só leitura, fora o pull por digest; determinístico para o hash revisado valer no apply."""
     _require_swap_window(host.now())
     require_no_open_swap(paths)
@@ -323,8 +355,8 @@ def _swap_plan(current: Release, reference: str, paths: Paths, run: Runner, host
     compose = _compose_command(paths, environment)
     facts = _swap_require_compatible(current, reference, compose, run, host)
     _swap_require_interpolated(current, reference, paths, run)
-    for action in ("verify", "verify-repo"):
-        _check(run([str(paths.backup_command), action]), "duora-backup " + action)
+    _swap_backup("verify", paths, run, lease)
+    _swap_backup("verify-repo", paths, run, lease)
     read = lambda path: hashlib.sha256(host.read_protected(path)).hexdigest()
     return {"schema": 1, "operation": "postgres-component-swap", "sourceReleaseId": current.release_id,
             "sourceManifestSha256": _guard.digest(current.raw), "sourcePostgres": current.images["postgres"],
@@ -334,11 +366,15 @@ def _swap_plan(current: Release, reference: str, paths: Paths, run: Runner, host
                             "hostEnvironment": read(paths.host_env)}}
 
 
+class _SwapBaselineDiffers(DeployError):
+    """Runtime saudável, mas diferente do selado; não é a mesma coisa que runtime quebrado."""
+
+
 def _swap_require_preserved(paths: Paths, profile: dict) -> None:
     try:
         _guard.require_preserved(_private_json(paths.state_dir / _guard.BASELINE_NAME), profile)
     except (_guard.GuardError, OSError) as error:
-        raise DeployError("Runtime difere do baseline selado: rode a ressela do instalador antes de fechar") from error
+        raise _SwapBaselineDiffers("Runtime difere do baseline selado: rode a ressela do instalador antes de fechar") from error
 
 
 def _swap_manifest_bytes(release: Release) -> bytes:
@@ -618,7 +654,8 @@ def _swap_undo_commit(context: _SwapContext) -> None:
 
 
 def _swap_step_commit(context: _SwapContext) -> None:
-    _swap_require_same_services(context)
+    # Depois do rename de current.json não há volta: um restart aqui muda startedAt, e a ressela e o fechamento revalidam.
+    if _swap_artifact_states(context)[-1][2] != "after": _swap_require_same_services(context)
     _swap_commit(context)
 
 
@@ -640,7 +677,7 @@ def _swap_forward(context: _SwapContext) -> dict:
 def _swap_finish(context: _SwapContext, status: str) -> dict:
     for name in _swap_hold_names(context.attempt):
         if _swap_hold_exists(name, context.run):
-            _check(context.run(["docker", "rm", "--force", name], capture=True), "remoção da referência " + name)
+            _check(context.run(["docker", "rm", "--force", "--volumes", name], capture=True), "remoção da referência " + name)
     for suffix in (".env", ".json"):
         (context.paths.state_dir / STAGING_DIR / (context.target.release_id + suffix)).unlink(missing_ok=True)
     history = context.paths.state_dir / SWAP_HISTORY_DIRECTORY
@@ -654,6 +691,8 @@ def _swap_finish(context: _SwapContext, status: str) -> dict:
 
 
 def _swap_close(context: _SwapContext, release: Release, actions: tuple[str, ...]) -> dict:
+    if (context.paths.state_dir / "executor-install-pending.json").exists():
+        raise DeployError("Instalação do executor pendente: resolva a ressela interrompida antes de fechar")
     environment = context.environment(release)
     _swap_require_preserved(context.paths, context.host.inspect_runtime(release, environment)["profile"])
     compose = _compose_command(context.paths, environment)
@@ -674,6 +713,12 @@ def _swap_resume(context: _SwapContext) -> dict:
     return _swap_forward(context)
 
 
+def _swap_await_source_reseal(context: _SwapContext) -> dict:
+    _swap_set_phase(context, "aborted-awaiting-reseal")
+    return {"status": "aborted-awaiting-reseal", "releaseId": context.source.release_id,
+            "swapId": context.attempt["swapId"]}
+
+
 def _swap_abort(context: _SwapContext) -> dict:
     if context.phase == "closing": return _swap_finish(context, "closed")
     if context.phase == "awaiting-reseal":
@@ -692,20 +737,22 @@ def _swap_abort(context: _SwapContext) -> dict:
         _swap_require_runtime(context, context.source, context.environment(context.source))
         _swap_open_application(context, context.source)
         # stop muda startedAt, que o baseline fixa: sem ressela a próxima release seria recusada e travaria o host.
-        _swap_set_phase(context, "aborted-awaiting-reseal")
-        return {"status": "aborted-awaiting-reseal", "releaseId": context.source.release_id,
-                "swapId": context.attempt["swapId"]}
+        return _swap_await_source_reseal(context)
     if reached >= SWAP_FORWARD_PHASES.index("quiesce"): _swap_open_application(context, context.source)
     environment = context.environment(context.source)
-    _swap_require_preserved(context.paths, context.host.inspect_runtime(context.source, environment)["profile"])
+    try:
+        _swap_require_preserved(context.paths, context.host.inspect_runtime(context.source, environment)["profile"])
+    except _SwapBaselineDiffers:
+        # Reboot ou OOM no meio: mesmo id, startedAt novo. Só a ressela contra a origem resolve, como no passo 4.
+        return _swap_await_source_reseal(context)
     _swap_set_phase(context, "closing")
     return _swap_finish(context, "aborted")
 
 
 def _swap_require_sole_operator(paths: Paths, run: Runner, host: SwapHost) -> None:
     """Cliente morto não prova job parado: dois containers sobre duora_pgdata é o pior caso, mesmo parados."""
-    for argv in host.list_processes():
-        if _swap_is_project_compose(argv, paths):
+    for process in host.list_processes():
+        if _swap_is_project_compose(process, paths):
             raise DeployError("Processo compose do projeto ainda vivo; espere terminar antes de --resume ou --abort")
     for role in ("postgres", "backup"):
         result = _check(run(["docker", "ps", "--all", "--no-trunc", "--quiet", "--filter", "label=com.docker.compose.project=duora",
@@ -714,13 +761,31 @@ def _swap_require_sole_operator(paths: Paths, run: Runner, host: SwapHost) -> No
             raise DeployError("Mais de um container " + role + " do projeto; resolva à mão antes de --resume ou --abort")
 
 
-def _swap_is_project_compose(argv: list[str], paths: Paths) -> bool:
+def _swap_is_project_compose(process: ProcessInfo, paths: Paths) -> bool:
+    argv = process.argv
     if not any(Path(item).name in {"compose", "docker-compose"} for item in argv): return False
-    if any(str(paths.compose_file) in item for item in argv) or "--project-name=duora" in argv: return True
-    return any(item in {"-p", "--project-name"} and value == "duora" for item, value in zip(argv, argv[1:]))
+    compose_file = str(paths.compose_file)
+    if (any(compose_file in item for item in argv) or {"--project-name=duora", "-pduora"} & set(argv)
+            or process.environ.get("COMPOSE_PROJECT_NAME") == "duora"
+            or compose_file in process.environ.get("COMPOSE_FILE", "")):
+        return True
+    if any(item in {"-p", "--project-name"} and value == "duora" for item, value in zip(argv, argv[1:])): return True
+    return process.cwd == str(paths.compose_file.parent)  # Sem -p e sem caminho absoluto, vale o diretório do processo.
 
 
-def list_processes(root: Path = Path("/proc")) -> list[list[str]]:
+def _swap_process_cwd(entry: Path) -> str:
+    try: return os.readlink(entry / "cwd")
+    except (FileNotFoundError, ProcessLookupError): return ""
+
+
+def _swap_process_environment(entry: Path) -> dict[str, str]:
+    try: raw = (entry / "environ").read_bytes()
+    except (FileNotFoundError, ProcessLookupError): return {}
+    pairs = (item.decode("utf-8", "replace").partition("=") for item in raw.split(b"\0"))
+    return {key: value for key, separator, value in pairs if separator}
+
+
+def list_processes(root: Path = Path("/proc")) -> list[ProcessInfo]:
     processes = []
     for entry in root.iterdir():
         if not entry.name.isdigit(): continue
@@ -728,11 +793,12 @@ def list_processes(root: Path = Path("/proc")) -> list[list[str]]:
             raw = (entry / "cmdline").read_bytes()
         except (FileNotFoundError, ProcessLookupError):
             continue  # O processo terminou durante a leitura.
-        processes.append([item.decode("utf-8", "replace") for item in raw.split(b"\0") if item])
+        argv = [item.decode("utf-8", "replace") for item in raw.split(b"\0") if item]
+        processes.append(ProcessInfo(argv, _swap_process_cwd(entry), _swap_process_environment(entry)))
     return processes
 
 
-def _swap_load(source: Release, reference: str, paths: Paths, run: Runner, host: SwapHost) -> _SwapContext | None:
+def _swap_load(source: Release, reference: str, paths: Paths, run: Runner, host: SwapHost, lease: Any) -> _SwapContext | None:
     store = host.core.RecoveryStore(_swap_journal(paths))
     if not (store.directory / "attempt.json").exists(): return None
     with store._directory() as directory:
@@ -751,7 +817,7 @@ def _swap_load(source: Release, reference: str, paths: Paths, run: Runner, host:
         raise DeployError("--manifest e --target-postgres precisam ser os do journal aberto")
     if attempt["executor"] != host.executor_identity():
         raise DeployError("Executor diferente do que abriu a troca")
-    return _SwapContext(source, target, attempt, digest, record, paths, run, host)
+    return _SwapContext(source, target, attempt, digest, record, paths, run, host, lease)
 
 
 def _swap_finish_orphan_fence(paths: Paths) -> dict:
@@ -770,11 +836,11 @@ def _swap_finish_orphan_fence(paths: Paths) -> dict:
 
 
 def postgres_swap_entry(source: Release, reference: str, paths: Paths, run: Runner, *, action: str,
-                        reviewed_plan_sha256: str | None, host: SwapHost) -> dict:
+                        reviewed_plan_sha256: str | None, host: SwapHost, lease: Any = None) -> dict:
     """Modo administrativo: main já exigiu root direto e tomou os três locks."""
     try:
         if action == "plan" or action == "apply":
-            plan = _swap_plan(source, reference, paths, run, host)
+            plan = _swap_plan(source, reference, paths, run, host, lease)
             digest = _guard.digest(plan)
             if action == "plan": return {"status": "plan", "planSha256": digest, "plan": plan}
             if digest != reviewed_plan_sha256: raise DeployError("Plano difere do revisado; nada foi alterado")
@@ -783,15 +849,20 @@ def postgres_swap_entry(source: Release, reference: str, paths: Paths, run: Runn
             store = host.core.RecoveryStore(_swap_journal(paths))
             with store._directory(create=True): pass
             _swap_write_atomic(store.directory / "attempt.json", raw, mode=0o600)
-            context = _swap_load(source, reference, paths, run, host)
+            context = _swap_load(source, reference, paths, run, host, lease)
             assert context is not None  # O journal acabou de ser gravado sob os três locks.
             _swap_ensure_fence(context)
             return _swap_forward(context)
-        context = _swap_load(source, reference, paths, run, host)
+        context = _swap_load(source, reference, paths, run, host, lease)
         if context is None: return _swap_finish_orphan_fence(paths)
         _swap_require_sole_operator(paths, run, host)
         _swap_ensure_fence(context)
-        return _swap_resume(context) if action == "resume" else _swap_abort(context)
+        if action == "abort": return _swap_abort(context)
+        if context.phase in SWAP_FORWARD_PHASES[:SWAP_FORWARD_PHASES.index("swap-runtime")]:
+            # Nada foi parado no banco: seguir agora é começar a troca, com as regras de começar.
+            _require_swap_window(host.now())
+            host.preflight()
+        return _swap_resume(context)
     except (_guard.GuardError, _payload.PayloadError, ValueError, KeyError, TypeError, IndexError) as error:
         raise DeployError("Troca do PostgreSQL recusada: " + str(error)) from error
 
@@ -809,8 +880,8 @@ def _kill_group(process: subprocess.Popen) -> None:
     process.wait()
 
 
-def run_in_own_group(command: list[str], *, capture: bool = False,
-                     input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+def run_in_own_group(command: list[str], *, capture: bool = False, input_text: str | None = None,
+                     timeout_seconds: int | None = None) -> subprocess.CompletedProcess[str]:
     """Como run_command, mas com filho em sessão própria, teto que mata o grupo inteiro e PDEATHSIG."""
     environment = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"} if command and command[0] == "docker" else None
     parent = os.getpid()
@@ -819,10 +890,10 @@ def run_in_own_group(command: list[str], *, capture: bool = False,
         stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE if capture else None,
         preexec_fn=lambda: _die_with_parent(parent))
     try:
-        stdout, stderr = process.communicate(input_text, timeout=COMMAND_TIMEOUT_SECONDS)
+        stdout, stderr = process.communicate(input_text, timeout=timeout_seconds or COMMAND_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired as error:
         _kill_group(process)
-        raise DeployError(f"comando excedeu {COMMAND_TIMEOUT_SECONDS} s: {' '.join(command[:6])} ...") from error
+        raise DeployError(f"comando excedeu {timeout_seconds or COMMAND_TIMEOUT_SECONDS} s: {' '.join(command[:6])} ...") from error
     except BaseException:
         _kill_group(process)
         raise

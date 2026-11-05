@@ -3030,11 +3030,11 @@ def _swap_executor_identity(paths: Paths) -> dict:
     return {name: receipt[name] for name in ("sourceCommit", "manifestSha256", "executorSha256")}
 
 
-def _production_swap_host(image_prefix: str, paths: Paths) -> _swap.SwapHost:
+def _production_swap_host(image_prefix: str, paths: Paths, check_host: Callable[[], None]) -> _swap.SwapHost:
     return _swap.SwapHost(sys.modules[__name__], image_prefix, _recovery_root_read,
                           lambda release, environment: _collect_runtime(release, environment, paths),
                           _swap_require_ingress_idle, lambda: _swap_executor_identity(paths), _swap.list_processes,
-                          lambda: datetime.now(timezone.utc))
+                          lambda: datetime.now(timezone.utc), preflight=check_host)
 
 
 # --- CLI ------------------------------------------------------------------------------------------------------------
@@ -3155,7 +3155,8 @@ def main(argv: list[str] | None = None) -> int:
                 action = ("resume" if args.resume else "abort" if args.abort
                           else "plan" if args.preflight_only else "apply")
                 result = _swap.postgres_swap_entry(release, args.target_postgres, paths, _swap.run_in_own_group, action=action,
-                    reviewed_plan_sha256=args.reviewed_plan_sha256, host=_production_swap_host(host.image_prefix, paths))
+                    reviewed_plan_sha256=args.reviewed_plan_sha256, lease=lease,
+                    host=_production_swap_host(host.image_prefix, paths, lambda: preflight(release, host)))
                 print(json.dumps(result, sort_keys=True))
                 return 0
             if mode:

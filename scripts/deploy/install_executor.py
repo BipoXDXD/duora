@@ -469,11 +469,18 @@ def _private_directory(path: Path) -> None:
         raise InstallError("Unowned private directory")
 
 
+def _swap_journal_open(paths: InstallPaths) -> bool:
+    attempt = paths.state / SWAP_JOURNAL_DIRECTORY / "attempt.json"
+    return attempt.exists() or attempt.is_symlink()
+
+
 def _resealing_swap_fence(paths: InstallPaths, *, expected_commit: str, manifest_sha256: str) -> Path | None:
     """The swap's own fence, exempt only so the operation can be resealed, never to change code or run early."""
     fence_dir = paths.ingress / SWAP_FENCE_DIRECTORY
     fence = fence_dir / "pending.json"
     if not fence.exists() and not fence.is_symlink():
+        if _swap_journal_open(paths):
+            raise InstallError("PostgreSQL swap journal is open without its fence; resolve it with the swap command")
         return None
     try:
         _private_directory(fence_dir)
@@ -662,6 +669,9 @@ def install_bundle(source: Path, *, expected_commit: str, manifest_sha256: str,
             fence = fence_dir / "pending.json"
             if ((paths.state / "executor-install-pending.json").exists() or fence.exists() or fence.is_symlink()):
                 raise InstallError("Resolve the outstanding interrupted installation explicitly first")
+            swap_fence = paths.ingress / SWAP_FENCE_DIRECTORY / "pending.json"
+            if _cohort_receiver_source is not None and (swap_fence.exists() or swap_fence.is_symlink() or _swap_journal_open(paths)):
+                raise InstallError("PostgreSQL swap is open; a cohort transition would change the receiver under it")
             cohort = (_cohort_plan(_cohort_receiver_source, manifest, paths, expected_executor_sha256)
                       if _cohort_receiver_source is not None else None)
             if cohort is None and reviewed_cohort_sha256 is not None:

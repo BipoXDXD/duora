@@ -316,6 +316,24 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse((self.paths.ingress / installer.FENCE_DIRECTORY / "pending.json").exists())
         self.assertTrue((self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json").exists())
 
+    def test_open_journal_without_fence_blocks_the_installer(self) -> None:
+        receiver = self._swap_receiver()
+        self._arm_swap()
+        (self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json").unlink()
+        with self.assertRaises(installer.InstallError): self._idle(receiver)
+
+    def test_cohort_transition_refuses_any_open_swap_before_touching_anything(self) -> None:
+        self._arm_swap()
+        def transition() -> None:
+            installer.install_bundle(self.source, expected_commit=COMMIT, manifest_sha256=self.manifest_hash,
+                reviewed_inventory_sha256=None, expected_executor_sha256=self.old_hash, paths=self.paths,
+                inspect_runtime=lambda: self.inventory, require_idle=lambda: None, _cohort_receiver_source=self.root / "receiver.py")
+        with self.assertRaises(installer.InstallError) as refused: transition()
+        self.assertIn("PostgreSQL swap", str(refused.exception.__cause__))
+        (self.paths.ingress / installer.SWAP_FENCE_DIRECTORY / "pending.json").unlink()
+        with self.assertRaises(installer.InstallError) as refused: transition()
+        self.assertIn("PostgreSQL swap", str(refused.exception.__cause__))
+
     def test_reseal_in_wrong_phase_refuses_before_any_write(self) -> None:
         receiver = self._swap_receiver()
         self._arm_swap("verify-runtime")
