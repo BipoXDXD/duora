@@ -1437,6 +1437,32 @@ class StrengthenedProtocolTests(SwapFixture):
         self.assertEqual(len(removals), 2)
         self.assertTrue(all(c.startswith("docker rm --force --volumes ") for c in removals))
 
+    def close_with_restart_during(self, action: str, status_phase: str) -> None:
+        real = self.docker
+        def run(command, *, capture=False, input_text=None, timeout_seconds=None):
+            result = real(command, capture=capture, input_text=input_text, timeout_seconds=timeout_seconds)
+            if command[-1] == action:
+                real.restart()
+            return result
+        with self.assertRaisesRegex(deploy.DeployError, "ressela"):
+            swap.postgres_swap_entry(self.release, NEW_REF, self.paths, run, action="resume",
+                                     reviewed_plan_sha256=None, host=self.host())
+        self.assertEqual(self.phase(), status_phase)
+        self.assertTrue(self.fence().exists())
+
+    def test_restart_during_verify_repo_does_not_close_with_a_divergent_baseline(self) -> None:
+        self.sealed_target()
+        self.close_with_restart_during("verify-repo", "awaiting-reseal")
+
+    def test_restart_during_verify_repo_of_an_aborted_swap_keeps_it_open(self) -> None:
+        self.docker.fail_on = {"--no-deps postgres"}
+        with self.assertRaises(deploy.DeployError):
+            self.apply()
+        self.docker.fail_on = set()
+        self.call("abort")
+        self.seal(self.observe(self.release, None)["profile"])
+        self.close_with_restart_during("verify-repo", "aborted-awaiting-reseal")
+
     def test_close_waits_for_real_readiness(self) -> None:
         self.sealed_target()
         self.docker.fail_on = {"wget"}
