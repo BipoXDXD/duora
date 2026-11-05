@@ -63,6 +63,8 @@
     - "{{ media_sanitizer_code_dir }}"
     - /usr/local/sbin/duora-media-subid-range
     - "{{ media_sanitizer_authority_dir }}"
+    # RuntimeDirectoryPreserve=yes deixa o diretório do socket de pé depois de parar a unidade.
+    - "{{ media_sanitizer_control_socket | dirname }}"
   notify: Recarregar systemd
 
 - name: Remover os drop-ins de slice e delegação da conta

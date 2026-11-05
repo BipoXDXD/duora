@@ -388,3 +388,26 @@ class HostLayoutTests(unittest.TestCase):
         # app_dirs keeps duora_config_dir root:root 0750; the launcher account cannot traverse it.
         self.assertFalse(profile.is_relative_to(Path(self.host_variables()["duora_config_dir"])))
         self.assertEqual(Path("/etc/duora-media-launcher.json"), profile)
+
+    def unit_settings(self, key):
+        return [line.split("=", 1)[1] for line in self.unit() if line.startswith(key + "=")]
+
+    def test_unit_runtime_directory_survives_launcher_stop_and_restart(self):
+        # The Worker bind-mounts this directory at activation. If systemd removed and recreated it, the Worker
+        # would keep the deleted directory's socket and never reach the new one (#174).
+        self.assertEqual(["duora-media"], self.unit_settings("RuntimeDirectory"))
+        self.assertEqual(["yes"], self.unit_settings("RuntimeDirectoryPreserve"))
+
+    def test_role_control_socket_lives_in_the_unit_runtime_directory(self):
+        defaults = (self.ROOT / "infra/ansible/roles/media_sanitizer/defaults/main.yml").read_text()
+        socket = [line.split(":", 1)[1].strip() for line in defaults.splitlines()
+                  if line.startswith("media_sanitizer_control_socket:")]
+        self.assertEqual(1, len(socket))
+        self.assertEqual(Path("/run") / self.unit_settings("RuntimeDirectory")[0], Path(socket[0]).parent)
+
+    def test_uninstall_removes_the_preserved_runtime_directory(self):
+        # RuntimeDirectoryPreserve keeps /run/duora-media after the unit stops; removing the role must not leave
+        # it behind owned by a deleted account.
+        uninstall = (self.ROOT / "infra/ansible/roles/media_sanitizer/tasks/uninstall.yml").read_text()
+        removal = uninstall.split("- name: Remover perfil, unidade, código", 1)[1].split("\n- name:", 1)[0]
+        self.assertIn('"{{ media_sanitizer_control_socket | dirname }}"', removal)

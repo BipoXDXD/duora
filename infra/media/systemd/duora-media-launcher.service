@@ -10,6 +10,8 @@ Group=duora-media-client
 ExecStart=/usr/bin/python3 /opt/duora/media/run_launcher.py /etc/duora-media-launcher.json
 RuntimeDirectory=duora-media
 RuntimeDirectoryMode=0750
+# The Worker bind-mounts this directory; removing it on stop/restart would strand the Worker on the old inode.
+RuntimeDirectoryPreserve=yes
 StateDirectory=duora-media-launcher
 StateDirectoryMode=0700
 UMask=0077
