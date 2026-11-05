@@ -15,6 +15,7 @@ IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:"
 LOCK_FIELDS = {"version", "profile", "fingerprint", "source_commit", "publish_run", "images"}
 QUALIFICATION_WORKFLOW = ".github/workflows/qualify-postgres.yml"
 QUALIFICATION_PUBLICATION_FIELDS = {"commit", "architecture", "publishRun", "images"}
+PARSER_DIRECTIVE = re.compile(r"#\s*(?:syntax|escape|check)\s*=", re.IGNORECASE)
 RUN_URL = re.escape("https://github.com/" + REPOSITORY) + r"/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*"
 
 
@@ -222,6 +223,8 @@ def validate_recipe(root: Path) -> None:
     pending = ""
     for raw in (root / "infra/images/postgres/Dockerfile").read_text().splitlines():
         line = raw.strip()
+        if PARSER_DIRECTIVE.match(line):
+            raise ValueError("PostgreSQL recipe must not carry a parser directive")
         if not line or line.startswith("#"):
             continue
         continuation = line.endswith("\\")

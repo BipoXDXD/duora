@@ -496,6 +496,20 @@ class PostgresComponentTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
 
+    def test_dockerfile_parser_directives_are_refused(self) -> None:
+        path = self.runtime / "Dockerfile"
+        original = path.read_text()
+        for directive in ["# syntax=docker/dockerfile:1", "#syntax=attacker/frontend", "# SYNTAX = x",
+                          "# escape=`", "#\tEscape = `", "# check=skip=all", "#   ChEcK=error=true"]:
+            path.write_text(directive + "\n" + original)
+            with self.subTest(directive=directive), self.assertRaisesRegex(ValueError, "parser directive"):
+                component.validate_recipe(self.root)
+
+    def test_ordinary_comments_mentioning_the_same_words_are_accepted(self) -> None:
+        path = self.runtime / "Dockerfile"
+        path.write_text("# syntax highlighting note\n# check the escape rules\n" + path.read_text())
+        component.validate_recipe(self.root)
+
 
 if __name__ == "__main__":
     unittest.main()
