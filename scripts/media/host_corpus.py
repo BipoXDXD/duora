@@ -38,8 +38,8 @@ from docker_runtime import validate_runtime_security
 from launcher import Profile
 
 # Same pinned SDK image as the "Media isolation" workflow (guarded by a test).
-SDK_IMAGE = ("mcr.microsoft.com/dotnet/sdk:10.0.402-noble"
-             "@sha256:0d99ebf1ccad15037b5c98c9fe8979d6b8dbac23812feae2277a0b277b5c5ffa")
+SDK_IMAGE = ("mcr.microsoft.com/dotnet/sdk:10.0.403-noble"
+             "@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b")
 ARCHITECTURES = {"x86_64": "amd64", "aarch64": "arm64"}
 CORPUS_ASSEMBLY = "backend/tests/Duora.MediaCorpusTests/bin/Debug/net10.0/Duora.MediaCorpusTests.dll"
 REQUIRED_KIT_FILES = frozenset({
