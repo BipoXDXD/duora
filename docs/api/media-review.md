@@ -293,9 +293,21 @@ inexistentes), `PhotoReviewOwnerPhotoListTests` (lista só do titular, 401), `Ph
 `MediaAssetReadTests` (404 uniforme, 401), `AdminRouteTests` (401 anônimo, 403 participante, 503 com upload
 desligado, 401 `REAUTHENTICATION_REQUIRED` sem MFA recente numa ação crítica), `SecondFactorHardeningTests`
 (403 da conta privilegiada em API-M01/M02) e `PhotoReviewAccessTests` (capacidades explícitas; `operator`, `product_admin` e `participant` não
-recebem grant). As células de `product_admin`/`operator` com upload ligado e as 403 da conta privilegiada em
-histórico, lista, DELETE e `/media` vêm do código (política padrão e recusa do serviço), sem teste HTTP próprio
-para cada célula.
+recebem grant). As células que só tinham o código como evidência (política padrão e recusa do serviço) têm agora
+teste HTTP em `PhotoReviewAuthorizationMatrixTests`, com o upload ligado, PostgreSQL real e dados sintéticos; cada
+teste afirma o status, o código do problema e que o corpo não traz identificador alheio, e confere que banco e
+armazenamento não mudaram: as 403 de `moderator`, `product_admin` e `operator` em lista, histórico, DELETE e
+`/media` (`PrivilegedAccountsAreForbiddenOnTheOwnerPhotoRoutesAndNothingOfTheOwnerLeaks`); as 403 de titular e outro
+participante nas seis rotas administrativas, enumeradas das rotas registradas
+(`ParticipantsAreForbiddenOnEveryReviewAdminRouteIncludingTheOwnerOfTheCase`); `product_admin` e `operator` com
+upload ligado, 403 `PHOTO_REVIEW_FORBIDDEN` e 401 `REAUTHENTICATION_REQUIRED` na decisão sem MFA recente
+(`ProductAdminAndOperatorHaveNoReviewCapabilityAndTheDecisionAsksForRecentMfaFirst`); do moderador, capacidades, fila
+só com o atribuído, 404 uniforme de caso alheio, não atribuído e inexistente, evidência (404 de caso não atribuído e
+de variante desconhecida, 200 auditada)
+(`ModeratorSeesOnlyTheCasesAssignedToThemAndEveryOtherCaseAnswersLikeAMissingOne`), 404, 428, 412 e os dois 409 da
+atribuição (`ModeratorAssignmentRefusalsAreNotFoundPreconditionAndConflictOverHttp`) e 401 na decisão sem MFA recente
+(`ModeratorDecisionWithoutARecentSecondFactorIsReauthenticationRequiredAndDecidesNothing`). Isso não substitui a
+revisão humana da autorização, que continua pendente na #173.
 
 ## Decisões de 29/10/2026
 
