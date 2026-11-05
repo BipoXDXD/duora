@@ -38,17 +38,59 @@ compatibility, backup/WAL/restore evidence and coordinated maintenance decision.
 Changing runtime inputs makes application publication fail before transport;
 there is no fallback build. A cache hit is not component identity.
 
+## Qualification workflow
+
+`.github/workflows/qualify-postgres.yml` is the only workflow that builds this
+component. It accepts only `workflow_dispatch` from `main`, with the full SHA in
+`candidate_commit` and `mode` set to `qualify` or `renew`. Workflow code, scripts
+and the compose file come from `main`. The candidate contributes a credential-free
+sparse checkout of `/.dockerignore` and `/infra/images/postgres/`, and only its
+Dockerfile runs, inside `docker buildx build`.
+
+- `qualify` validates the candidate recipe, builds with `--provenance=false
+  --sbom=false`, because an attestation would produce an index that the transport
+  refuses, and pushes one native manifest under a `qualify-*` tag. The digest is
+  referenced through the lock only; failed runs can leave an unusable tag behind.
+- `renew` never builds. It requires `candidate_commit` to equal the lock's
+  `source_commit`, then pulls and verifies the locked digest.
+- Both modes run `pgbackrest version`, `DatabaseObserverImageTests`, the restore
+  drill, Trivy and the SBOM, then retain `release-<arch>-<attempt>` for 90 days.
+  `candidate-recipe.json` holds the fingerprint for the lock update.
+
+Trivy runs without `--ignorefile`, so a `.trivyignore` exception on `main` cannot
+hide a candidate finding. The same applies to `renew`: a digest with a fixable
+HIGH or CRITICAL finding cannot be renewed here. There is no separate license
+evaluation of the image SBOM in this workflow.
+
+`AppRolePrivilegesTests`, `MigratorPayloadImageTests` and
+`RuntimeContinuityLabTests` need application images, so they do not run here. The
+`images` job of the lock pull request runs them against the published digest, and
+that job is the gate that admits the digest. A qualification run alone proves
+nothing to a release.
+
+The lock binds this path differently from a release publication. The run's
+`head_sha` is the `main` commit, so `validate_origin` requires `head_branch ==
+main` and `workflow_dispatch`, and binds through `publication.commit`. The
+publication holds only `postgres`, has no `ciRun`, and `select-proof` receives
+`--run-json` to compare the artifact with the authenticated run. On AMD64 the
+transport still exercises the receiver import, but `send.requested` needs five
+roles and stays out: the evidence records
+`receiver_import_and_sender_selection_verified: false` with `sender_scope`.
+
+Re-run all jobs, never only the failed ones. The lock names one attempt, so a
+partial re-run leaves one architecture without its artifact and fails closed.
+
 ## Retained proof expiry
 
 Native publication artifacts have 90-day retention. The selector refuses missing,
 expired, duplicate or incomplete source proof even if GHCR still holds the image.
 This keeps production unchanged but blocks a new publication. Review the source
 artifact expiry before planned releases and qualify renewal at least 14 days
-before expiry. Renewal must again bind source commit, runtime fingerprint, native
-digest/platform, scans, SBOM/licenses and restore/PITR evidence. It does not permit
-an unreviewed digest change or an automatic runtime replacement. Record renewed
-source/run/artifact identities in the reviewed lock; do not bypass expiry or
-silently select the latest successful workflow.
+before expiry. Renewal uses `mode: renew` above and must again bind source commit,
+runtime fingerprint, native digest/platform, scans, SBOM and restore/PITR evidence.
+It does not permit an unreviewed digest change or an automatic runtime replacement.
+Record renewed source/run/artifact identities in the reviewed lock; do not bypass
+expiry or silently select the latest successful workflow.
 
 ## Limits and pending executor work
 

@@ -9,9 +9,10 @@ em `commit`. O commit precisa pertencer ao histórico da `main`; seu último run
 `push` na `main`, na tentativa atual, deve estar concluído com os nove jobs aprovados. Check ausente,
 duplicado, pulado, cancelado ou falho impede a publicação. O teste do verificador também roda no PR.
 
-Cada runner nativo (amd64 e arm64) constrói as cinco imagens dos Dockerfiles desse commit, confere o segredo
-da licença, executa os binários, os testes de privilégios e o drill de restore, e varre HIGH/CRITICAL
-corrigíveis com Trivy. Só então gera SBOMs CycloneDX e publica **essas mesmas imagens locais**, sem novo build.
+Cada runner nativo (amd64 e arm64) constrói web, worker, migrator e edge dos Dockerfiles desse commit, reutiliza
+o digest revisado do PostgreSQL, confere o segredo da licença, executa os binários, os testes de privilégios e o
+drill de restore, e varre HIGH/CRITICAL corrigíveis com Trivy. Só então gera SBOMs CycloneDX e publica **essas
+mesmas imagens locais**, sem novo build.
 A licença Six Labors permanece no secret do Actions e no mount temporário do BuildKit; nenhuma chave de
 registro persistente é necessária: o job usa `GITHUB_TOKEN` com `packages: write` e encerra o login ao terminar.
 
@@ -36,6 +37,20 @@ antes dos 90 dias de retenção. `publication.json` é evidência de publicaçã
 pelo `duora-deploy`: complete o manifesto de [deploy.md](deploy.md) com migrations, compatibilidade de schema,
 referências de SBOM e rollback revisados. Backup e smoke continuam necessários antes de liberar produção.
 
+## Componente PostgreSQL
+
+A release não constrói o PostgreSQL: ela reutiliza os digests de `infra/images/postgres-component-lock.json`.
+Quem constrói esse componente é `Qualify PostgreSQL component` (`.github/workflows/qualify-postgres.yml`), disparado
+só pela `main`, com o SHA completo em `candidate_commit` e `mode` igual a `qualify` ou `renew`. O disparo publica no
+GHCR com `mode: qualify`, por isso exige autorização própria. Ele não altera o lock nem a produção; o digest só entra
+em uso por um PR do lock, cujo job `images` repete os gates.
+
+O artefato `release-<arquitetura>-<tentativa>` desse workflow contém `publication.json` só com `postgres`,
+`candidate-recipe.json` com o fingerprint, `restore-drill.txt` e `sbom-postgres.cdx.json`. Requisitos, limites e
+Trivy sem `.trivyignore` estão em [POSTGRES_COMPONENT.md](../../scripts/release/POSTGRES_COMPONENT.md).
+
+## Rollback
+
 Rollback usa os digests da release anterior elegível, preservando o banco conforme o runbook; publicar uma
 imagem não troca serviços. Desabilitar este workflow interrompe novas publicações sem afetar imagens existentes.
 
@@ -43,6 +58,6 @@ Validação local do fluxo, sem segredos nem publicação:
 
 ```sh
 python3 -m unittest discover -s scripts/release -v
-actionlint .github/workflows/publish-images.yml
+actionlint .github/workflows/publish-images.yml .github/workflows/qualify-postgres.yml
 git diff --check
 ```
