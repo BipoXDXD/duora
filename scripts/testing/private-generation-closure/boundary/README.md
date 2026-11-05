@@ -22,7 +22,7 @@ imutável da imagem. Também é possível construir com o Dockerfile desta pasta
 python3 -m unittest discover -s scripts/testing/private-generation-closure/boundary -p 'test_*.py' -v
 ```
 
-O SDK 10.0.402 está preso a digest **arm64**; não considerar isso cobertura amd64. Python 3 (PSF),
+O SDK 10.0.403 está preso a digest **arm64**; não considerar isso cobertura amd64. Python 3 (PSF),
 instalado somente na imagem de ensaio, usa a biblioteca padrão. Não há pacote novo na aplicação.
 
 Cada fixture cria volumes nomeados exclusivos e remove somente seus próprios recursos em `finally`.
