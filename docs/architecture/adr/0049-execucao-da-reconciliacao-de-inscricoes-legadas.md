@@ -302,4 +302,4 @@ Registrado no mesmo PR da aplicação. Fecha lacunas do texto acima, sem mudar D
   versão e estado. O teto continua valendo para as promoções, que a fila e o relógio ainda podem reduzir.
 - **Recibo na leitura (decisão do dono na revisão do PR).** `GET /runs/{runId}` passa a expor `units[].receipt`, de forma
   aditiva, para a evidência e a recuperação de resposta incerta não dependerem de um POST. Repetir `:apply` só é replay em
-  unidade terminal. Se o dono recusar, retira-se o campo antes do merge e o runbook volta a usar o replay.
+  unidade terminal.
