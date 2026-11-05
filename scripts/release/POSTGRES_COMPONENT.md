@@ -44,8 +44,9 @@ there is no fallback build. A cache hit is not component identity.
 component. It accepts only `workflow_dispatch` from `main`, with the full SHA in
 `candidate_commit` and `mode` set to `qualify` or `renew`. Workflow code, scripts
 and the compose file come from `main`. The candidate contributes a credential-free
-sparse checkout of `/.dockerignore` and `/infra/images/postgres/`, and only its
-Dockerfile runs, inside `docker buildx build`.
+sparse checkout of `/.dockerignore` and `/infra/images/postgres/`. Candidate code
+runs in two ways only: its Dockerfile inside `docker buildx build`, and the
+resulting image, which the gates start as containers.
 
 - `qualify` validates the candidate recipe, builds with `--provenance=false
   --sbom=false`, because an attestation would produce an index that the transport
@@ -57,22 +58,31 @@ Dockerfile runs, inside `docker buildx build`.
   drill, Trivy and the SBOM, then retain `release-<arch>-<attempt>` for 90 days.
   `candidate-recipe.json` holds the fingerprint for the lock update.
 
-Trivy runs without `--ignorefile`, so a `.trivyignore` exception on `main` cannot
-hide a candidate finding. The same applies to `renew`: a digest with a fixable
-HIGH or CRITICAL finding cannot be renewed here. There is no separate license
-evaluation of the image SBOM in this workflow.
+In `qualify`, Trivy runs without `--ignorefile`, so a `.trivyignore` exception on
+`main` cannot hide a finding in a new image. In `renew`, Trivy reads the reviewed
+`.trivyignore` of the `main` checkout, never a file from the candidate, so a
+running digest can be renewed under a valid exception, as a release would accept
+it. There is no separate license evaluation of the image SBOM in this workflow.
 
 `AppRolePrivilegesTests`, `MigratorPayloadImageTests` and
 `RuntimeContinuityLabTests` need application images, so they do not run here. The
-`images` job of the lock pull request runs them against the published digest, and
-that job is the gate that admits the digest. A qualification run alone proves
-nothing to a release.
+`images` job of the lock pull request runs all three, with different reach:
+`AppRolePrivilegesTests` is the only one that exercises the locked digest,
+`MigratorPayloadImageTests` inspects only the migrator image, and the continuity
+lab still builds its releases on the frozen digests of `runtime_guard.py`. Proof
+of the lab with a new digest belongs to step 5 of the qualification design, with
+the executor operation that replaces the component. A qualification run alone
+proves nothing to a release.
 
 The lock binds this path differently from a release publication. The run's
 `head_sha` is the `main` commit, so `validate_origin` requires `head_branch ==
 main` and `workflow_dispatch`, and binds through `publication.commit`. The
 publication holds only `postgres`, has no `ciRun`, and `select-proof` receives
-`--run-json` to compare the artifact with the authenticated run. On AMD64 the
+`--run-json` to compare the artifact with the authenticated run. On this path
+only, the composite action also asks GitHub whether the run's `head_sha` is in the
+history of `refs/heads/main`, because `head_branch` alone cannot tell a tag named
+`main` from the branch, and whether `source_commit` is in the history of the
+checkout, so the lock never depends on a commit that can be collected. On AMD64 the
 transport still exercises the receiver import, but `send.requested` needs five
 roles and stays out: the evidence records
 `receiver_import_and_sender_selection_verified: false` with `sender_scope`.

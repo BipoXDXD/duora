@@ -42,12 +42,13 @@ referências de SBOM e rollback revisados. Backup e smoke continuam necessários
 A release não constrói o PostgreSQL: ela reutiliza os digests de `infra/images/postgres-component-lock.json`.
 Quem constrói esse componente é `Qualify PostgreSQL component` (`.github/workflows/qualify-postgres.yml`), disparado
 só pela `main`, com o SHA completo em `candidate_commit` e `mode` igual a `qualify` ou `renew`. O disparo publica no
-GHCR com `mode: qualify`, por isso exige autorização própria. Ele não altera o lock nem a produção; o digest só entra
-em uso por um PR do lock, cujo job `images` repete os gates.
+GHCR com `mode: qualify`. Pedir a autorização do responsável técnico antes disso é convenção do processo: nem o
+workflow nem a regra da `main` a impõem. O workflow não altera o lock nem a produção; o digest só entra em uso por
+um PR do lock, cujo job `images` roda os gates de release sobre ele.
 
 O artefato `release-<arquitetura>-<tentativa>` desse workflow contém `publication.json` só com `postgres`,
-`candidate-recipe.json` com o fingerprint, `restore-drill.txt` e `sbom-postgres.cdx.json`. Requisitos, limites e
-Trivy sem `.trivyignore` estão em [POSTGRES_COMPONENT.md](../../scripts/release/POSTGRES_COMPONENT.md).
+`candidate-recipe.json` com o fingerprint, `restore-drill.txt` e `sbom-postgres.cdx.json`. Requisitos, limites e a
+política do Trivy em cada modo estão em [POSTGRES_COMPONENT.md](../../scripts/release/POSTGRES_COMPONENT.md).
 
 ## Rollback
 
