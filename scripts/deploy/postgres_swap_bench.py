@@ -17,6 +17,7 @@ from pathlib import Path
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -152,6 +153,48 @@ def require_host_free() -> None:
         raise ProofFailure("Refusing to adopt an existing data volume")
 
 
+def unprotected_ancestors(targets: list[Path]) -> list[dict]:
+    """Existing directories the executor's protected reader would refuse, with what it takes to put them back.
+
+    It is the reader's own rule. Hosted runner images run chmod -R 777 /opt, which no production host does.
+    """
+    found: dict[str, dict] = {}
+    for target in targets:
+        for item in reversed((target, *target.parents)):
+            if item == item.parent:
+                continue
+            try:
+                info = os.lstat(item)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISLNK(info.st_mode):
+                raise ProofFailure("Symlink in the ancestry of a protected read: " + str(item))
+            if info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022:
+                found[str(item)] = {"path": str(item), "mode": stat.S_IMODE(info.st_mode), "uid": info.st_uid, "gid": info.st_gid}
+    return list(found.values())
+
+
+def protect_ancestors(entries: list[dict]) -> None:
+    for entry in entries:
+        log("protecting %s during the proof (was %o, %d:%d)" % (entry["path"], entry["mode"], entry["uid"], entry["gid"]))
+        os.chown(entry["path"], 0, 0)
+        os.chmod(entry["path"], entry["mode"] & ~0o022)
+
+
+def restore_ancestors(entries: list[dict]) -> None:
+    for entry in reversed(entries):
+        os.chown(entry["path"], entry["uid"], entry["gid"])
+        os.chmod(entry["path"], entry["mode"])
+
+
+def protected_reads(paths: executor.Paths, release: executor.Release) -> list[Path]:
+    """Everything the swap entry reads through the executor's protected reader, from the locks to the plan."""
+    state, name = paths.state_dir, release.release_id
+    return [PIN, INGRESS / "host.lock", INGRESS / "duora/release.lock", state / ".deploy.lock", state / "current.json",
+            state / "executor-install-receipt.json", state / guard.BASELINE_NAME, state / "releases" / (name + ".json"),
+            state / "releases" / (name + ".env"), RELEASES / (name + ".json"), paths.compose_file, paths.host_env]
+
+
 def _remove_fixed_paths() -> None:
     for path in (PIN.parent, RELEASES.parent, INGRESS):
         shutil.rmtree(path, ignore_errors=True)
@@ -163,16 +206,20 @@ class FixedHost:
 
     def __init__(self) -> None:
         self.claimed = False
+        self.ancestors: list[dict] = []
 
     def claim(self, *, root: Path, registry: str) -> None:
         require_host_free()
-        CLAIM.write_text(json.dumps({"root": str(root), "registry": registry}))
+        self.ancestors = unprotected_ancestors([PIN.parent, RELEASES, INGRESS, root])
+        CLAIM.write_text(json.dumps({"root": str(root), "registry": registry, "ancestors": self.ancestors}))
         self.claimed = True
+        protect_ancestors(self.ancestors)
 
     def release(self) -> None:
         if not self.claimed:
             return
         _remove_fixed_paths()
+        restore_ancestors(self.ancestors)
         CLAIM.unlink(missing_ok=True)
         self.claimed = False
 
@@ -195,6 +242,7 @@ def cleanup_claimed() -> bool:
     if networks:
         docker("network", "rm", *networks)
     _remove_fixed_paths()
+    restore_ancestors(claim["ancestors"])
     shutil.rmtree(claim["root"], ignore_errors=True)
     CLAIM.unlink()
     return True
@@ -442,8 +490,17 @@ class SwapLab:
                   "--filter", "label=com.docker.compose.service=worker") != worker:
             raise ProofFailure("Refused deployment touched the worker")
 
+    def require_protected_reads(self, release: executor.Release) -> None:
+        """The executor says only that an ancestry is unsafe; a proof that fails has to say where."""
+        for path in protected_reads(self.paths, release):
+            try:
+                executor._recovery_root_read(path)
+            except executor.DeployError as error:
+                raise ProofFailure("Protected read refused for " + str(path) + ": " + str(error)) from error
+
     def sealed_swap(self, release: executor.Release, target: str) -> executor.Release:
         """Plan, apply, reseal and close through the real command."""
+        self.require_protected_reads(release)
         plan = self.swap(release, target, "--preflight-only")
         facts = plan["plan"]["facts"]
         log("plan " + json.dumps({key: facts[key] for key in ("postgres", "pgbackrest", "compatibility", "collationVersion")}))

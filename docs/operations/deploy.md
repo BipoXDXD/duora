@@ -541,7 +541,9 @@ A matriz mata o comando com SIGKILL em 18 pontos, com filho vivo: as 7 fases at�
 e por `--abort`, mais `awaiting-reseal`, `closing`, `aborted-awaiting-reseal` e `aborting`. Os três de fechamento morrem
 dentro de `_swap_close` e `_swap_finish`. Cada desfecho só passa com um deploy real seguinte aceito e nada pendente. A
 bancada assume os caminhos fixos de produção: fora de runner hospedado ou de host com o marcador, ela recusa sem criar nem
-remover nada. `--mode cleanup` remove o que uma execução morta reivindicou.
+remover nada. `--mode cleanup` remove o que uma execução morta reivindicou. A imagem do runner hospedado traz `/opt` em
+0777, que o leitor protegido do executor recusa: a bancada tira a escrita de grupo e de outros dos ancestrais só durante a
+prova, restaura no fim e, antes da primeira troca, confere cada caminho com o próprio leitor, nomeando o que falhar.
 
 Em banco pequeno, sem Coolify real, a queda medida foi de 6 a 7 s no banco e cerca de 14 s na aplicação; `--abort` soma
 outro tanto. Tempo com volume real só no sombra. Continuam sem prova até a janela: observer e Coolify reais, B2, GHCR a

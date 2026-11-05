@@ -1,14 +1,17 @@
 """Pure parts of the real-Docker swap proof; the proof itself runs in postgres_swap_bench.py and continuity_lab.py."""
 import contextlib
+import dataclasses
 import importlib.util
 import io
 import json
 from pathlib import Path
 import re
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 from typing import Any
 import unittest
 from unittest.mock import patch
@@ -19,7 +22,7 @@ import postgres_swap as swap
 import postgres_swap_bench as bench
 import postgres_swap_driver as driver
 import runtime_guard as guard
-from test_postgres_swap import source_manifest as manifest
+from test_postgres_swap import NEW_REF as swap_target, SwapFixture, source_manifest as manifest
 
 REPO = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("restore_drill_under_test", REPO / "scripts/backup/restore_drill.py")
@@ -121,6 +124,9 @@ class HostGuardTests(unittest.TestCase):
             patcher = patch.object(bench, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        ancestors = patch.object(bench, "unprotected_ancestors", return_value=[])
+        ancestors.start()
+        self.addCleanup(ancestors.stop)
         self.docker_calls: list[tuple] = []
         self.volumes = ""
 
@@ -253,6 +259,174 @@ class HostGuardTests(unittest.TestCase):
         with patch.object(bench, "docker", self.docker):
             self.assertFalse(bench.cleanup_claimed())
         self.assertTrue(all(file.exists() for file in files))
+
+
+def directory(mode: int, uid: int = 0, gid: int = 0) -> Any:
+    return SimpleNamespace(st_mode=stat.S_IFDIR | mode, st_uid=uid, st_gid=gid)
+
+
+class ProtectedAncestorTests(unittest.TestCase):
+    """The hosted image runs chmod -R 777 /opt; the executor rightly refuses to read under that."""
+    RUNNER = {"/opt": directory(0o777), "/etc": directory(0o755), "/etc/duora": None, "/var": directory(0o755),
+              "/var/lib": directory(0o755), "/root": directory(0o700)}
+
+    def lstat(self, tree: dict) -> Any:
+        def read(path):
+            value = tree.get(str(path))
+            if value is None:
+                raise FileNotFoundError(path)
+            return value
+        return read
+
+    def found(self, tree: dict, targets: list[Path]) -> list[dict]:
+        with patch.object(bench.os, "lstat", self.lstat(tree)):
+            return bench.unprotected_ancestors(targets)
+
+    def test_the_runner_image_needs_only_opt_changed(self) -> None:
+        targets = [Path("/etc/duora"), Path("/opt/duora/releases"), Path("/var/lib/coolify-release"), Path("/root/work")]
+        self.assertEqual(self.found(self.RUNNER, targets), [{"path": "/opt", "mode": 0o777, "uid": 0, "gid": 0}])
+
+    def test_group_owner_and_group_or_world_write_all_count(self) -> None:
+        for name, entry in (("group", directory(0o755, gid=1001)), ("owner", directory(0o755, uid=1001)),
+                            ("group-write", directory(0o775)), ("world-write", directory(0o757))):
+            with self.subTest(name):
+                self.assertEqual(len(self.found({"/data": entry}, [Path("/data/x")])), 1)
+
+    def test_protected_directories_and_absent_ones_are_left_alone(self) -> None:
+        self.assertEqual(self.found({"/data": directory(0o755)}, [Path("/data/x/y")]), [])
+
+    def test_a_directory_is_listed_once_and_the_root_is_not_inspected(self) -> None:
+        tree = {"/opt": directory(0o777), "/": directory(0o777)}
+        self.assertEqual(len(self.found(tree, [Path("/opt/a"), Path("/opt/b")])), 1)
+
+    def test_symlink_in_the_ancestry_is_refused_not_followed(self) -> None:
+        with self.assertRaises(bench.ProofFailure):
+            self.found({"/link": SimpleNamespace(st_mode=stat.S_IFLNK | 0o777, st_uid=0, st_gid=0)}, [Path("/link/x")])
+
+    def changes(self) -> tuple[list, Any, Any]:
+        calls: list = []
+        return (calls, lambda path, uid, gid: calls.append(("chown", path, uid, gid)),
+                lambda path, mode: calls.append(("chmod", path, mode)))
+
+    def test_protection_removes_only_group_and_world_write_and_restores_exactly(self) -> None:
+        entry = {"path": "/opt", "mode": 0o1777, "uid": 1001, "gid": 1001}
+        calls, chown, chmod = self.changes()
+        with patch.object(bench.os, "chown", chown), patch.object(bench.os, "chmod", chmod):
+            bench.protect_ancestors([entry])
+            bench.restore_ancestors([entry])
+        self.assertEqual(calls, [("chown", "/opt", 0, 0), ("chmod", "/opt", 0o1755),
+                                 ("chown", "/opt", 1001, 1001), ("chmod", "/opt", 0o1777)])
+
+    def test_claim_protects_and_release_restores_with_the_recorded_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            entry = {"path": "/opt", "mode": 0o777, "uid": 0, "gid": 0}
+            with patch.object(bench, "CLAIM", base / "claim"), patch.object(bench, "require_host_free"), \
+                    patch.object(bench, "unprotected_ancestors", return_value=[entry]), \
+                    patch.object(bench, "protect_ancestors") as protect, patch.object(bench, "restore_ancestors") as restore, \
+                    patch.object(bench, "_remove_fixed_paths"):
+                host = bench.FixedHost()
+                host.claim(root=base / "work", registry="registry")
+                protect.assert_called_once_with([entry])
+                self.assertEqual(json.loads((base / "claim").read_text())["ancestors"], [entry])
+                host.release()
+                restore.assert_called_once_with([entry])
+
+    def test_claim_on_the_runner_image_protects_opt_through_the_real_fixed_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch.object(bench, "CLAIM", Path(temporary) / "claim"), \
+                patch.object(bench, "require_host_free"), patch.object(bench, "protect_ancestors") as protect, \
+                patch.object(bench.os, "lstat", self.lstat(self.RUNNER)):
+            bench.FixedHost().claim(root=Path("/root/work"), registry="registry")
+        protect.assert_called_once_with([{"path": "/opt", "mode": 0o777, "uid": 0, "gid": 0}])
+
+    def test_cleanup_of_a_killed_run_restores_the_recorded_ancestors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            claim = Path(temporary) / "claim"
+            entry = {"path": "/opt", "mode": 0o777, "uid": 0, "gid": 0}
+            claim.write_text(json.dumps({"root": temporary + "/none", "registry": "r", "ancestors": [entry]}))
+            with patch.object(bench, "CLAIM", claim), patch.object(bench, "host_is_disposable", return_value=True), \
+                    patch.object(bench, "docker", return_value=""), patch.object(bench, "remove_holds"), \
+                    patch.object(bench, "_remove_fixed_paths"), patch.object(bench.subprocess, "run"), \
+                    patch.object(bench, "restore_ancestors") as restore:
+                self.assertTrue(bench.cleanup_claimed())
+            restore.assert_called_once_with([entry])
+
+
+class RunnerReproductionTests(unittest.TestCase):
+    """The executor's real reader over a simulated runner filesystem; the executor itself stays untouched."""
+
+    def read(self, opt_mode: int) -> str:
+        tree = {"opt": directory(opt_mode), "duora": directory(0o755), "releases": directory(0o755)}
+        descriptors: dict[int, str] = {3: "/"}
+        def fake_open(name, flags, mode=0o777, *, dir_fd=None):
+            if name == "/":
+                return 3
+            if name not in tree:
+                raise FileNotFoundError(name)
+            descriptors[len(descriptors) + 3] = name
+            return len(descriptors) + 2
+        with patch.object(executor.os, "open", fake_open), patch.object(executor.os, "close"), \
+                patch.object(executor.os, "fstat", lambda descriptor: tree[descriptors[descriptor]]):
+            with self.assertRaises(executor.DeployError) as refused:
+                executor._recovery_root_read(Path("/opt/duora/releases/release.json"))
+        return str(refused.exception)
+
+    def test_opt_as_the_runner_image_ships_it_reproduces_the_ci_refusal(self) -> None:
+        self.assertEqual(self.read(0o777), "Recovery ancestry is not protected root state")
+
+    def test_opt_after_the_proof_protects_it_passes_the_ancestry(self) -> None:
+        self.assertNotIn("ancestry", self.read(0o777 & ~0o022))
+
+
+class ProtectedReadAuditTests(SwapFixture):
+    def lab_object(self) -> Any:
+        lab_object = object.__new__(bench.SwapLab)
+        lab_object.paths = self.paths
+        return lab_object
+
+    def patched(self):
+        return patch.multiple(bench, PIN=self.pin, RELEASES=self.opt, INGRESS=self.ingress)
+
+    def test_audit_names_the_exact_path_the_executor_would_refuse(self) -> None:
+        def read(path):
+            if path == self.opt / (self.release.release_id + ".json"):
+                raise executor.DeployError("Recovery ancestry is not protected root state")
+            return b""
+        with self.patched(), patch.object(bench.executor, "_recovery_root_read", read), \
+                self.assertRaisesRegex(bench.ProofFailure, str(self.opt)):
+            self.lab_object().require_protected_reads(self.release)
+
+    def test_audit_uses_the_executors_own_reader(self) -> None:
+        seen = []
+        with self.patched(), patch.object(bench.executor, "_recovery_root_read", side_effect=lambda path: seen.append(path) or b""):
+            self.lab_object().require_protected_reads(self.release)
+        self.assertIn(self.pin, seen)
+
+    def test_audit_covers_every_path_the_real_plan_reads(self) -> None:
+        reads: list[Path] = []
+        def recording(path: Path) -> bytes:
+            reads.append(path)
+            return path.read_bytes()
+        (self.state / "executor-install-receipt.json").write_text("{}")
+        host = dataclasses.replace(self.host(), read_protected=recording)
+        swap.postgres_swap_entry(self.release, swap_target, self.paths, self.docker, action="plan",
+                                 reviewed_plan_sha256=None, host=host)
+        self.assertTrue(reads)
+        with self.patched():
+            audited = bench.protected_reads(self.paths, self.release)
+        self.assertEqual(set(reads) - set(audited), set())
+
+    def test_audit_covers_locks_pin_and_receipt_the_entry_reads_before_the_plan(self) -> None:
+        with self.patched():
+            audited = bench.protected_reads(self.paths, self.release)
+        for path in (self.ingress / "host.lock", self.ingress / "duora/release.lock", self.state / ".deploy.lock",
+                     self.state / "executor-install-receipt.json", self.pin):
+            self.assertIn(path, audited)
+
+    def test_every_swap_through_the_lab_is_audited_first(self) -> None:
+        source = Path(bench.__file__).read_text()
+        body = source[source.index("    def sealed_swap"):source.index('plan = self.swap(release, target, "--preflight-only")\n        facts')]
+        self.assertIn("self.require_protected_reads(release)", body)
 
 
 class DriverEnvironmentTests(unittest.TestCase):
