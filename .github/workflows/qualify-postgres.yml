@@ -1,0 +1,191 @@
+# Qualifica o componente PostgreSQL sem depender de CI verde na main (scripts/release/POSTGRES_COMPONENT.md).
+# Workflow e scripts vêm da main; do commit candidato só entram os insumos inertes do build. O digest publicado aqui
+# só vale depois de um PR do lock, que repete os gates no job images. Reexecute sempre todos os jobs, nunca só os que
+# falharam: a prova exige as duas arquiteturas na mesma tentativa.
+name: Qualify PostgreSQL component
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_commit:
+        description: Full SHA providing the PostgreSQL inputs (in renew mode, the source_commit of the lock)
+        required: true
+        type: string
+      mode:
+        description: qualify builds the candidate; renew repeats the gates on the locked digest
+        required: true
+        type: choice
+        options:
+          - qualify
+          - renew
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualify-postgres-${{ inputs.candidate_commit }}
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+  COMPONENT_LOCK: infra/images/postgres-component-lock.json
+  TRIVY_IMAGE: ghcr.io/aquasecurity/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+  # Prefer the official DB; Trivy does not fall back for every mirror HTTP 404.
+  TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2,mirror.gcr.io/aquasec/trivy-db:2
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require main and a full candidate SHA
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$CANDIDATE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Test release gate
+        run: python3 -m unittest discover -s scripts/release -v
+
+  component:
+    needs: verify
+    name: component (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      ARCH: ${{ matrix.arch }}
+      PLATFORM: linux/${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read only the PostgreSQL inputs of the candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: BipoXDXD/duora
+          ref: ${{ inputs.candidate_commit }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: .postgres-candidate
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.dockerignore
+            /infra/images/postgres/
+
+      - name: Validate the candidate recipe and record its fingerprint
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          python3 scripts/release/postgres_component.py recipe --root .postgres-candidate \
+            > "$RUNNER_TEMP/release/candidate-recipe.json"
+
+      # Sem proveniência nem SBOM do BuildKit: eles virariam um índice OCI, que o transporte recusa.
+      - name: Build the candidate natively
+        if: ${{ inputs.mode == 'qualify' }}
+        working-directory: .postgres-candidate
+        run: |
+          docker buildx build --file infra/images/postgres/Dockerfile --platform "$PLATFORM" \
+            --provenance=false --sbom=false --tag duora-postgres:ci --load .
+
+      - name: Push the exact local image by digest
+        id: candidate
+        if: ${{ inputs.mode == 'qualify' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/registry-auth"
+          mkdir -m 700 "$DOCKER_CONFIG"
+          trap 'docker logout ghcr.io >/dev/null 2>&1; rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          repository="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/duora-postgres"
+          reference="$repository:qualify-$CANDIDATE_COMMIT-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH"
+          docker tag duora-postgres:ci "$reference"
+          docker push "$reference"
+          image=$(docker image inspect --format '{{json .RepoDigests}}' "$reference" \
+            | jq -er --arg prefix "$repository@" '.[] | select(startswith($prefix))')
+          docker buildx imagetools inspect --raw "$image" | jq -e 'has("manifests") | not'
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      # A renovação nunca troca o digest: só vale para o commit e os insumos que o lock revisado já cita.
+      - name: Pull the locked digest of the commit under renewal
+        id: locked
+        if: ${{ inputs.mode == 'renew' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release/postgres_component.py select --root .postgres-candidate \
+            --lock "$COMPONENT_LOCK" --architecture "$ARCH" > "$RUNNER_TEMP/locked-plan.json"
+          test "$(jq -er .source_commit "$RUNNER_TEMP/locked-plan.json")" = "$CANDIDATE_COMMIT"
+          image=$(jq -er .image "$RUNNER_TEMP/locked-plan.json")
+          export DOCKER_CONFIG="$RUNNER_TEMP/registry-auth"
+          mkdir -m 700 "$DOCKER_CONFIG"
+          trap 'docker logout ghcr.io >/dev/null 2>&1; rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull --platform "$PLATFORM" "$image"
+          docker tag "$image" duora-postgres:ci
+          docker image inspect duora-postgres:ci --format '{{json .}}' > "$RUNNER_TEMP/locked-image.json"
+          python3 scripts/release/postgres_component.py verify-image \
+            --lock "$COMPONENT_LOCK" --architecture "$ARCH" --image-json "$RUNNER_TEMP/locked-image.json"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      # AppRolePrivilegesTests exige duora-migrator:ci e fica para o job images do PR do lock.
+      - name: Verify pgBackRest and the application-independent runtime tests
+        env:
+          DUORA_POSTGRES_IMAGE: duora-postgres:ci
+          PYTHONPATH: scripts/deploy
+        run: |
+          docker run --rm duora-postgres:ci pgbackrest version
+          python3 -m unittest -v test_db_privileges.DatabaseObserverImageTests
+
+      - name: Restore drill (pgBackRest + test MinIO)
+        shell: bash
+        run: |
+          python3 scripts/backup/restore_drill.py --image duora-postgres:ci | tee "$RUNNER_TEMP/drill.log"
+          grep '^\[drill\] OK' "$RUNNER_TEMP/drill.log" | tee "$RUNNER_TEMP/release/restore-drill.txt" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      # Sem --ignorefile e sem montar o .trivyignore: uma exceção vigente na main não pode mascarar o candidato.
+      - name: Trivy without exceptions (fixable HIGH and CRITICAL block)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v duora-trivy-cache:/root/.cache \
+            -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" image \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 duora-postgres:ci
+
+      - name: Generate the image SBOM
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            -v duora-trivy-cache:/root/.cache -e TRIVY_DB_REPOSITORY "$TRIVY_IMAGE" image \
+            --format cyclonedx --quiet duora-postgres:ci > "$RUNNER_TEMP/release/sbom-postgres.cdx.json"
+
+      - name: Record the publication of the qualified digest
+        env:
+          COMPONENT_IMAGE: ${{ steps.candidate.outputs.image || steps.locked.outputs.image }}
+        run: |
+          python3 scripts/release/postgres_component.py publication --architecture "$ARCH" \
+            --commit "$CANDIDATE_COMMIT" --image "$COMPONENT_IMAGE" \
+            --publish-run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/release/publication.json"
+          cat "$RUNNER_TEMP/release/publication.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the retained proof
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 90

@@ -1,0 +1,196 @@
+"""Component qualification runs reviewed main code; the candidate contributes only inert build inputs."""
+from __future__ import annotations
+
+from pathlib import Path
+import re
+from typing import Any
+import unittest
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW = ROOT / ".github/workflows/qualify-postgres.yml"
+CANDIDATE = ".postgres-candidate"
+PINNED_ACTION = re.compile(r"^[\w./-]+@[0-9a-f]{40}$")
+
+
+class QualifyPostgresWorkflowTests(unittest.TestCase):
+    workflow: dict[Any, Any]
+    job: dict[str, Any]
+    steps: list[dict[str, Any]]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.workflow = yaml.safe_load(WORKFLOW.read_text())
+        cls.job = cls.workflow["jobs"]["component"]
+        cls.steps = cls.job["steps"]
+
+    def step(self, needle: str) -> dict[str, Any]:
+        found = [step for step in self.steps if needle in step.get("run", "")]
+        self.assertEqual(len(found), 1, needle)
+        return found[0]
+
+    def index(self, needle: str) -> int:
+        return self.steps.index(self.step(needle))
+
+    def scripts(self) -> list[str]:
+        return [step["run"] for job in self.workflow["jobs"].values() for step in job["steps"] if "run" in step]
+
+    def test_only_manual_dispatch_with_the_two_reviewed_inputs_starts_it(self) -> None:
+        triggers = self.workflow[True]
+        self.assertEqual(set(triggers), {"workflow_dispatch"})
+        inputs = triggers["workflow_dispatch"]["inputs"]
+        self.assertEqual(set(inputs), {"candidate_commit", "mode"})
+        self.assertTrue(inputs["candidate_commit"]["required"])
+        self.assertEqual(inputs["mode"]["type"], "choice")
+        self.assertEqual(inputs["mode"]["options"], ["qualify", "renew"])
+
+    def test_dispatch_outside_main_or_without_a_full_sha_fails_before_any_build(self) -> None:
+        guard = "\n".join(step.get("run", "") for step in self.workflow["jobs"]["verify"]["steps"])
+        self.assertIn('test "$GITHUB_REF" = refs/heads/main', guard)
+        self.assertIn('[[ "$CANDIDATE_COMMIT" =~ ^[0-9a-f]{40}$ ]]', guard)
+        self.assertEqual(self.job["needs"], "verify")
+        self.assertNotIn("if", self.job, "a skipped job would still leave the run successful")
+
+    def test_only_the_publishing_job_can_write_packages(self) -> None:
+        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+        self.assertNotIn("permissions", self.workflow["jobs"]["verify"])
+        self.assertEqual(self.job["permissions"],
+                         {"contents": "read", "actions": "read", "packages": "write"})
+
+    def test_native_matrix_matches_the_release_runners(self) -> None:
+        publish = yaml.safe_load((ROOT / ".github/workflows/publish-images.yml").read_text())
+        self.assertEqual(self.job["strategy"]["matrix"]["include"],
+                         publish["jobs"]["images"]["strategy"]["matrix"]["include"])
+        self.assertIs(self.job["strategy"]["fail-fast"], False)
+
+    def test_every_action_is_pinned_by_full_commit_sha(self) -> None:
+        uses = [step["uses"] for job in self.workflow["jobs"].values() for step in job["steps"] if "uses" in step]
+        self.assertTrue(uses)
+        for action in uses:
+            with self.subTest(action=action):
+                self.assertRegex(action, PINNED_ACTION)
+
+    def test_candidate_checkout_is_sparse_exact_and_keeps_no_credential(self) -> None:
+        candidate = [step for step in self.steps if step.get("with", {}).get("path") == CANDIDATE]
+        self.assertEqual(len(candidate), 1)
+        options = candidate[0]["with"]
+        self.assertEqual(options["ref"], "${{ inputs.candidate_commit }}")
+        self.assertIs(options["persist-credentials"], False)
+        self.assertIs(options["sparse-checkout-cone-mode"], False)
+        self.assertEqual(options["sparse-checkout"].split(), ["/.dockerignore", "/infra/images/postgres/"])
+        self.assertEqual(options["fetch-depth"], 1)
+
+    def test_main_checkout_comes_first_and_keeps_no_credential(self) -> None:
+        checkout = self.steps[0]
+        self.assertIn("actions/checkout", checkout["uses"])
+        self.assertEqual(checkout["with"], {"persist-credentials": False})
+
+    def test_nothing_from_the_candidate_runs_outside_the_docker_build(self) -> None:
+        for script in self.scripts():
+            self.assertNotRegex(script, rf"(?:^|\s)(?:\./|bash |sh |python3? ){re.escape(CANDIDATE)}")
+            self.assertNotIn("source " + CANDIDATE, script)
+        for step in self.steps:
+            self.assertFalse(step.get("uses", "").startswith("./" + CANDIDATE))
+            if step.get("working-directory") == CANDIDATE:
+                self.assertIn("docker buildx build", step["run"])
+
+    def test_dispatch_inputs_never_reach_a_shell_as_text(self) -> None:
+        for script in self.scripts():
+            self.assertNotIn("${{", script)
+
+    def test_build_avoids_the_index_the_transport_refuses(self) -> None:
+        build = self.step("docker buildx build")
+        self.assertEqual(build["if"], "${{ inputs.mode == 'qualify' }}")
+        self.assertEqual(build["working-directory"], CANDIDATE)
+        for flag in ("--provenance=false", "--sbom=false", "--load", "--tag duora-postgres:ci"):
+            self.assertIn(flag, build["run"])
+
+    def test_token_is_not_visible_to_the_build(self) -> None:
+        self.assertNotIn("env", self.step("docker buildx build"))
+        self.assertNotIn("GH_TOKEN", self.job.get("env", {}))
+        self.assertNotIn("GH_TOKEN", self.workflow.get("env", {}))
+
+    def test_recipe_is_validated_before_the_build_and_renewal_pull(self) -> None:
+        recipe = self.index("postgres_component.py recipe --root " + CANDIDATE)
+        self.assertLess(recipe, self.index("docker buildx build"))
+        self.assertLess(recipe, self.index("docker pull"))
+
+    def test_qualify_pushes_one_manifest_and_never_a_mutable_or_index_reference(self) -> None:
+        push = self.step("docker push")
+        self.assertEqual(push["if"], "${{ inputs.mode == 'qualify' }}")
+        self.assertIn('qualify-$CANDIDATE_COMMIT-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH', push["run"])
+        self.assertIn('has("manifests") | not', push["run"])
+        self.assertLess(self.index("docker buildx build"), self.steps.index(push))
+        self.assertNotIn("latest", push["run"])
+
+    def test_renewal_only_pulls_the_locked_digest_of_the_locked_commit(self) -> None:
+        pull = self.step("docker pull")
+        self.assertEqual(pull["if"], "${{ inputs.mode == 'renew' }}")
+        script = pull["run"]
+        self.assertIn("postgres_component.py select --root " + CANDIDATE, script)
+        self.assertIn('test "$(jq -er .source_commit', script)
+        self.assertIn("postgres_component.py verify-image", script)
+        self.assertNotIn("docker push", script)
+        self.assertNotIn("buildx", script)
+
+    def test_registry_login_ends_with_each_step_that_needs_it(self) -> None:
+        for needle in ("docker push", "docker pull"):
+            script = self.step(needle)["run"]
+            self.assertIn('trap \'docker logout ghcr.io', script)
+            self.assertIn('--password-stdin', script)
+
+    def test_every_gate_runs_in_both_modes_on_the_selected_image(self) -> None:
+        for needle in ("pgbackrest version", "restore_drill.py --image duora-postgres:ci",
+                       "--exit-code 1", "--format cyclonedx", "postgres_component.py publication"):
+            with self.subTest(gate=needle):
+                self.assertNotIn("if", self.step(needle))
+
+    def test_gates_run_after_the_image_exists_and_before_the_publication(self) -> None:
+        order = [self.index(needle) for needle in (
+            "docker push", "pgbackrest version", "restore_drill.py --image", "--exit-code 1",
+            "--format cyclonedx", "postgres_component.py publication")]
+        self.assertEqual(order, sorted(order))
+        upload = next(step for step in self.steps if "upload-artifact" in step.get("uses", ""))
+        self.assertLess(order[-1], self.steps.index(upload))
+
+    def test_privilege_selection_is_only_the_class_without_application_images(self) -> None:
+        step = self.step("pgbackrest version")
+        self.assertEqual(step["env"]["DUORA_POSTGRES_IMAGE"], "duora-postgres:ci")
+        selected = re.findall(r"test_db_privileges\.(\w+)", step["run"])
+        self.assertEqual(selected, ["DatabaseObserverImageTests"])
+        self.assertNotIn("discover", step["run"])
+        tests = (ROOT / "scripts/deploy/test_db_privileges.py").read_text()
+        body = tests.split("class DatabaseObserverImageTests", 1)[1].split("\n@unittest", 1)[0]
+        self.assertNotIn("apply_candidate_sql", body)
+        self.assertNotIn("duora-migrator:ci", body)
+
+    def test_scanner_gate_cannot_see_the_exception_file(self) -> None:
+        gate = self.step("--exit-code 1")
+        for required in ("--severity HIGH,CRITICAL", "--ignore-unfixed", "duora-postgres:ci"):
+            self.assertIn(required, gate["run"])
+        self.assertNotIn("continue-on-error", gate)
+        for script in self.scripts():
+            self.assertNotIn("trivyignore", script)
+            self.assertNotIn("--ignorefile", script)
+
+    def test_publication_binds_the_candidate_commit_and_this_exact_attempt(self) -> None:
+        step = self.step("postgres_component.py publication")
+        self.assertIn('--commit "$CANDIDATE_COMMIT"', step["run"])
+        self.assertIn("runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT", step["run"])
+        self.assertEqual(step["env"]["COMPONENT_IMAGE"],
+                         "${{ steps.candidate.outputs.image || steps.locked.outputs.image }}")
+
+    def test_retained_artifact_has_the_name_the_selector_requires(self) -> None:
+        upload = next(step for step in self.steps if "upload-artifact" in step.get("uses", ""))
+        self.assertEqual(upload["with"]["name"], "release-${{ matrix.arch }}-${{ github.run_attempt }}")
+        self.assertEqual(upload["with"]["retention-days"], 90)
+        self.assertEqual(upload["with"]["if-no-files-found"], "error")
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/release/")
+
+    def test_no_secret_reaches_the_workflow(self) -> None:
+        self.assertNotIn("secrets.", WORKFLOW.read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()
