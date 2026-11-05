@@ -353,8 +353,9 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
     }
 
     /// <summary>Web sobre o banco do cenário, com um descritor de corte sintético posterior às fixtures.</summary>
-    internal static DuoraWebFactory Host(SuspendedRegistrationScenario s, TimeSpan? statementTimeout = null) =>
-        new(s.Database.AppConnectionString)
+    internal static DuoraWebFactory Host(SuspendedRegistrationScenario s, TimeSpan? statementTimeout = null,
+        CapturingLoggerProvider? logs = null) =>
+        new(s.Database.AppConnectionString, logs)
         {
             Time = s.Clock,
             // Só o teto do statement_timeout muda, para provocar o timeout sem esperar os 10 s de produção.

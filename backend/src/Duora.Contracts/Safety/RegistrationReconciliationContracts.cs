@@ -62,8 +62,8 @@ public sealed record CreateRegistrationReconciliationRunRequest(
 public sealed record ReconciliationRunUnitRequest(Guid SubjectUserId, Guid OriginalMeasureId, string? UnitDigest);
 
 /// <summary>
-/// Run de reconciliação (API-ADM26 e API-ADM27). <c>State</c>: Open | Closed. <c>ETag</c> identifica esta versão do
-/// run. Instantes em UTC, com "Z". Sem recibo nesta etapa: nenhuma unidade é aplicada por estas rotas.
+/// Run de reconciliação (API-ADM26, API-ADM27 e API-ADM29). <c>State</c>: Open | Closed. <c>ETag</c> identifica esta
+/// versão do run. Instantes em UTC, com "Z".
 /// </summary>
 public sealed record RegistrationReconciliationRunResponse(
     Guid Id,
@@ -80,11 +80,31 @@ public sealed record RegistrationReconciliationRunResponse(
     string ETag,
     IReadOnlyList<RegistrationReconciliationRunUnitResponse> Units);
 
-/// <summary>Unidade do manifesto. <c>State</c>: Pending | Applied | SkippedChanged | NeedsReview.</summary>
+/// <summary>
+/// Unidade do manifesto. <c>State</c>: Pending | Applied | SkippedChanged | NeedsReview. <c>Receipt</c>: o mesmo recibo de
+/// API-ADM28, null enquanto a unidade está Pending.
+/// </summary>
 public sealed record RegistrationReconciliationRunUnitResponse(
     Guid Id,
     Guid SubjectUserId,
     Guid OriginalMeasureId,
     long MeasureVersion,
     string State,
-    IReadOnlyList<ReconciliationPreviewItemResponse> Items);
+    IReadOnlyList<ReconciliationPreviewItemResponse> Items,
+    RegistrationReconciliationUnitReceiptResponse? Receipt);
+
+/// <summary>
+/// Recibo de uma unidade terminal (API-ADM28), o checkpoint da aplicação: repetir o pedido devolve este mesmo recibo.
+/// <c>State</c>: Applied | SkippedChanged | NeedsReview. <c>Reason</c>: motivo fechado, null em Applied. <c>FactIds</c>:
+/// fatos de promoção vinculados à unidade, que ficam como evidência mesmo depois que a retenção apaga o fato.
+/// <c>ExecutedAt</c> em UTC, com "Z".
+/// </summary>
+public sealed record RegistrationReconciliationUnitReceiptResponse(
+    Guid RunId,
+    Guid UnitId,
+    string State,
+    string? Reason,
+    IReadOnlyList<Guid> FactIds,
+    Guid ExecutedByUserId,
+    DateTime ExecutedAt,
+    string CorrelationId);

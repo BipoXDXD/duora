@@ -61,11 +61,17 @@ exige a mesma sessão administrativa, MFA, papel `moderator` lido ao vivo, TOTP 
 validações de expiração, stamp, revogação, suspensão, MFA e papel, sem atualizar `last_seen_at`/`idle_expires_at`, sem
 renovar, gravar ou revogar sessão. A permissão é revalidada no snapshot de leitura. Nenhuma outra rota muda.
 
-**Runs da reconciliação (#321, API-ADM26 e API-ADM27).** As [rotas de run](../api/registration-reconciliation-runs.md)
+**Runs da reconciliação (#321, API-ADM26 a API-ADM29).** As [rotas de run](../api/registration-reconciliation-runs.md)
 têm a mesma barreira da prévia, mas com a sessão normal, **com toque**
 ([ADR-0049](../architecture/adr/0049-execucao-da-reconciliacao-de-inscricoes-legadas.md), D4). A criação acrescenta
 `Idempotency-Key` única por moderador. A permissão é revalidada dentro da transação. A criação audita
-`ops.registration_reconciliation_run_created`, com ator `Moderator`, ID real e correlação.
+`ops.registration_reconciliation_run_created`, com ator `Moderator`, ID real e correlação. A aplicação de uma unidade também
+exige `Idempotency-Key` e revalida a autorização em dois pontos da transação: antes de qualquer replay e depois das guardas
+e das contas, já antes das transições. Revogar papel, sessão ou MFA depois do segundo ponto deixa a unidade em curso
+confirmar e nega a próxima. O fechamento exige `If-Match`. As ações auditadas são
+`events.legacy_registration_reconciliation_applied`, `events.legacy_registration_reconciliation_skipped` e
+`ops.registration_reconciliation_run_closed`, com o mesmo ator. Uso real só pelo
+[runbook](../operations/registration-reconciliation.md).
 
 ### Bootstrap administrativo (D4)
 

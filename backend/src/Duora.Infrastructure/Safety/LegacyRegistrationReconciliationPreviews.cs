@@ -152,6 +152,19 @@ public sealed class LegacyRegistrationReconciliationPreviews
         return [.. Assess(rows, evidence, asOf).Where(unit => unit.Kind == UnitKind.Eligible).Select(unit => unit.Unit!)];
     }
 
+    /// <summary>
+    /// A medida ativa e todas as inscrições da conta, com a classificação e os tetos de agora, na transação de quem chama
+    /// (ADR-0049, protocolo, passo 9). Sob os locks da aplicação, é a releitura que se compara com o manifesto.
+    /// </summary>
+    internal static async Task<ReconciliationCurrentUnit> ReassessAsync(NpgsqlConnection connection,
+        ReconciliationCutoverEvidence evidence, Guid subject, DateTimeOffset asOf, CancellationToken ct)
+    {
+        var rows = await ReadRowsAsync(connection, after: null, [subject], ct);
+        return new ReconciliationCurrentUnit(rows.FirstOrDefault()?.Facts.Measures.Active,
+            [.. rows.Select(row => new ReconciliationCurrentItem(
+                Forecast(row, asOf), LegacyRegistrationSelector.Classify(row.Facts, evidence.Cutover)))]);
+    }
+
     private UnitAssessment[] Assess(List<SnapshotRow> rows, ReconciliationCutoverEvidence? evidence, DateTimeOffset asOf) =>
         [.. rows.GroupBy(row => (row.SubjectUserId, row.OriginalMeasureId))
             .Select(group => Assess(group.ToArray(), evidence, asOf))];

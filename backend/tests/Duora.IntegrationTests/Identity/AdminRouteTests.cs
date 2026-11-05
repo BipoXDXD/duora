@@ -305,7 +305,8 @@ public sealed class AdminRouteTests : IAsyncDisposable
             .Replace("{userId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
             .Replace("{deliveryId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
             .Replace("{suspensionId:guid}", suspensionId.ToString(), StringComparison.Ordinal)
-            .Replace("{runId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
+            .Replace("{runId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal)
+            .Replace("{unitId:guid}", Guid.NewGuid().ToString(), StringComparison.Ordinal);
         return route.Method switch
         {
             "GET" => browser.GetAsync(path),

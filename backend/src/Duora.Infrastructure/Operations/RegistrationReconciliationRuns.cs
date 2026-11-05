@@ -1,5 +1,4 @@
 using System.Data;
-using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7,6 +6,7 @@ using Duora.Core.Media;
 using Duora.Core.Safety;
 using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Safety;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using static Duora.Infrastructure.Participation.ParticipationSql;
 
@@ -19,9 +19,10 @@ public sealed record ReconciliationRunUnitView(
     Guid OriginalMeasureId,
     long MeasureVersion,
     string State,
-    IReadOnlyList<ReconciliationPreviewItem> Items);
+    IReadOnlyList<ReconciliationPreviewItem> Items,
+    ReconciliationUnitReceipt? Receipt);
 
-/// <summary>Run de reconciliação com suas unidades, sem recibo nem nada que identifique além dos ids.</summary>
+/// <summary>Run de reconciliação com suas unidades e recibos, sem nada que identifique além dos ids.</summary>
 public sealed record ReconciliationRunView(
     Guid Id,
     int SelectorVersion,
@@ -65,6 +66,33 @@ public abstract record ReconciliationRunOutcome
     public sealed record TimedOut : ReconciliationRunOutcome;
 }
 
+/// <summary>Resultado do encerramento de um run.</summary>
+public abstract record ReconciliationRunCloseOutcome
+{
+    private ReconciliationRunCloseOutcome()
+    {
+    }
+
+    public sealed record Closed(ReconciliationRunView View) : ReconciliationRunCloseOutcome;
+
+    public sealed record NotFound : ReconciliationRunCloseOutcome;
+
+    /// <summary>A versão esperada não é a atual; nada foi gravado.</summary>
+    public sealed record PreconditionFailed : ReconciliationRunCloseOutcome;
+
+    /// <summary>A versão esperada é a atual, mas o run já está fechado; nada foi gravado.</summary>
+    public sealed record AlreadyClosed : ReconciliationRunCloseOutcome;
+
+    /// <summary>A sessão não autoriza (ou não autoriza mais) a moderação na transação.</summary>
+    public sealed record Forbidden : ReconciliationRunCloseOutcome;
+
+    /// <summary>Unidades em curso ou outro encerramento seguram o run; repetir depois.</summary>
+    public sealed record Busy : ReconciliationRunCloseOutcome;
+
+    /// <summary>O encerramento passou do <c>statement_timeout</c>; a repetição deve esperar mais.</summary>
+    public sealed record TimedOut : ReconciliationRunCloseOutcome;
+}
+
 /// <summary>Resultado da leitura de um run.</summary>
 public abstract record ReconciliationRunReadOutcome
 {
@@ -89,13 +117,18 @@ public abstract record ReconciliationRunReadOutcome
 /// <summary>
 /// Manifesto da reconciliação de inscrições legadas (issue #321, ADR-0049, D1). Operations é dono das tabelas; a
 /// classificação é a do leitor da prévia, no snapshot desta transação. Criar um run só grava o run, as unidades
-/// <c>Pending</c> e a auditoria: não toca Events nem Safety. Aplicação e encerramento são outra etapa.
+/// <c>Pending</c> e a auditoria: não toca Events nem Safety. Quem aplica uma unidade é o
+/// <see cref="RegistrationReconciliationCoordinator"/>; fechar o run espera as unidades em curso e barra as seguintes.
 /// </summary>
-public sealed class RegistrationReconciliationRuns(
+public sealed partial class RegistrationReconciliationRuns(
     NpgsqlDataSource source,
     TimeProvider clock,
-    LegacyRegistrationReconciliationPreviews previews)
+    LegacyRegistrationReconciliationPreviews previews,
+    ILogger<RegistrationReconciliationRuns> logger)
 {
+    /// <summary>Colunas do recibo, na ordem que <see cref="ReadReceipt"/> espera logo depois do estado.</summary>
+    internal const string ReceiptColumns = "receipt_reason,receipt_fact_ids,receipt_executed_by,receipt_executed_at,receipt_correlation_id";
+
     private const string OpenRunIndex = "ux_registration_reconciliation_runs_open";
     private const string CommandConstraint = "ux_registration_reconciliation_runs_command";
 
@@ -103,6 +136,7 @@ public sealed class RegistrationReconciliationRuns(
     private const int MaxAttempts = 2;
 
     private const string LockTimeout = "2s";
+    private const string RunClosed = "Closed";
 
     private static readonly JsonSerializerOptions ItemFormat = new(JsonSerializerDefaults.Web)
     {
@@ -140,13 +174,69 @@ public sealed class RegistrationReconciliationRuns(
         return new ReconciliationRunOutcome.Busy();
     }
 
+    /// <summary>
+    /// Fecha o run (ADR-0049, D2). O <c>FOR UPDATE</c> espera as unidades em curso, que trancam o run <c>FOR SHARE</c>, e
+    /// as seguintes já o veem <c>Closed</c>; ao estourar o <c>lock_timeout</c>, o runbook manda repetir.
+    /// </summary>
+    public async Task<ReconciliationRunCloseOutcome> CloseAsModeratorAsync(ModeratorSession moderator, Guid runId, long expectedVersion,
+        CancellationToken ct)
+    {
+        try
+        {
+            await using var connection = await source.OpenConnectionAsync(ct);
+            await using var transaction = await BeginAsync(connection, IsolationLevel.ReadCommitted, ct);
+            if (await LockRunStateAsync(connection, runId, ct) is not { } run)
+            {
+                return new ReconciliationRunCloseOutcome.NotFound();
+            }
+
+            var now = clock.GetUtcNow();
+            if (!await LegacyRegistrationReconciliationPreviews.IsModeratorSessionAsync(connection, moderator, now, ct))
+            {
+                return new ReconciliationRunCloseOutcome.Forbidden();
+            }
+
+            if (run.Version != expectedVersion)
+            {
+                return new ReconciliationRunCloseOutcome.PreconditionFailed();
+            }
+
+            if (run.State == RunClosed)
+            {
+                return new ReconciliationRunCloseOutcome.AlreadyClosed();
+            }
+
+            await Execute(connection, "update ops.registration_reconciliation_runs set state='Closed',version=version+1 where id=$1", ct, runId);
+            await ReconciliationAudit.AppendAsync(connection, new AuditRecord(AuditActorKind.Moderator, moderator.UserId,
+                AuditAction.RegistrationReconciliationRunClosed, AuditTargetTypes.RegistrationReconciliationRun, runId, run.Version + 1),
+                now, ReconciliationAudit.Correlation(now), ct);
+            var view = await ReadViewAsync(connection, runId, ct)
+                ?? throw new InvalidOperationException("O run trancado nesta transação tem de ser legível.");
+            await transaction.CommitAsync(ct);
+            return new ReconciliationRunCloseOutcome.Closed(view);
+        }
+        catch (PostgresException error) when (IsTimeout(error, ct))
+        {
+            return new ReconciliationRunCloseOutcome.TimedOut();
+        }
+        catch (PostgresException error) when (IsContention(error))
+        {
+            if (error.SqlState == PostgresErrorCodes.DeadlockDetected)
+            {
+                LogCloseDeadlock(logger);
+            }
+
+            return new ReconciliationRunCloseOutcome.Busy();
+        }
+    }
+
     /// <summary>Lê o run num único snapshot, depois de revalidar a moderação dentro dele.</summary>
     public async Task<ReconciliationRunReadOutcome> ReadAsModeratorAsync(ModeratorSession moderator, Guid runId, CancellationToken ct)
     {
         try
         {
             await using var connection = await source.OpenConnectionAsync(ct);
-            await using var transaction = await BeginAsync(connection, ct);
+            await using var transaction = await BeginAsync(connection, IsolationLevel.RepeatableRead, ct);
             if (!await LegacyRegistrationReconciliationPreviews.IsModeratorSessionAsync(connection, moderator, clock.GetUtcNow(), ct))
             {
                 return new ReconciliationRunReadOutcome.Forbidden();
@@ -170,7 +260,7 @@ public sealed class RegistrationReconciliationRuns(
         ReconciliationCutoverEvidence? evidence, IdempotencyKey key, CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
-        await using var transaction = await BeginAsync(connection, ct);
+        await using var transaction = await BeginAsync(connection, IsolationLevel.RepeatableRead, ct);
         var now = clock.GetUtcNow();
         if (!await LegacyRegistrationReconciliationPreviews.IsModeratorSessionAsync(connection, moderator, now, ct))
         {
@@ -207,20 +297,34 @@ public sealed class RegistrationReconciliationRuns(
             await InsertUnitAsync(connection, run, unit, now, ct);
         }
 
-        await AuditAsync(connection, moderator.UserId, run, now, ct);
+        await ReconciliationAudit.AppendAsync(connection, new AuditRecord(AuditActorKind.Moderator, moderator.UserId,
+            AuditAction.RegistrationReconciliationRunCreated, AuditTargetTypes.RegistrationReconciliationRun, run, targetVersion: 1),
+            now, ReconciliationAudit.Correlation(now), ct);
         var view = await ReadViewAsync(connection, run, ct)
             ?? throw new InvalidOperationException("O run gravado nesta transação tem de ser legível.");
         await transaction.CommitAsync(ct);
         return new ReconciliationRunOutcome.Created(view);
     }
 
-    private async Task<NpgsqlTransaction> BeginAsync(NpgsqlConnection connection, CancellationToken ct)
+    private Task<NpgsqlTransaction> BeginAsync(NpgsqlConnection connection, IsolationLevel isolation, CancellationToken ct) =>
+        BeginAsync(connection, isolation, previews.QueryTimeout, ct);
+
+    /// <summary>Transação com o <c>lock_timeout</c> de 2 s e o teto de cada comando dos runs e das unidades (ADR-0049).</summary>
+    internal static async Task<NpgsqlTransaction> BeginAsync(NpgsqlConnection connection, IsolationLevel isolation,
+        TimeSpan statementTimeout, CancellationToken ct)
     {
-        var transaction = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
+        var transaction = await connection.BeginTransactionAsync(isolation, ct);
         await Execute(connection, "select set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true)", ct,
             LockTimeout,
-            FormattableString.Invariant($"{(long)previews.QueryTimeout.TotalMilliseconds}ms"));
+            FormattableString.Invariant($"{(long)statementTimeout.TotalMilliseconds}ms"));
         return transaction;
+    }
+
+    private static async Task<(string State, long Version)?> LockRunStateAsync(NpgsqlConnection connection, Guid run, CancellationToken ct)
+    {
+        await using var query = Command(connection, "select state,version from ops.registration_reconciliation_runs where id=$1 for update", run);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? (reader.GetString(0), reader.GetInt64(1)) : null;
     }
 
     private static async Task<ReconciliationRunOutcome?> ReplayAsync(NpgsqlConnection connection, Guid actor, IdempotencyKey key,
@@ -293,22 +397,11 @@ public sealed class RegistrationReconciliationRuns(
             """, ct, Guid.CreateVersion7(now), run, unit.SubjectUserId, unit.OriginalMeasureId, unit.MeasureVersion,
             JsonSerializer.Serialize(unit.Items, ItemFormat));
 
-    private static Task<int> AuditAsync(NpgsqlConnection connection, Guid actor, Guid run, DateTimeOffset now, CancellationToken ct)
-    {
-        var record = new AuditRecord(AuditActorKind.Moderator, actor, AuditAction.RegistrationReconciliationRunCreated,
-            AuditTargetTypes.RegistrationReconciliationRun, run, targetVersion: 1);
-        return Execute(connection, """
-            insert into ops.audit_events(occurred_at,actor_kind,actor_id,action,target_type,target_id,target_version,correlation_id)
-            values($1,$2,$3,$4,$5,$6,$7,nullif($8,''))
-            """, ct, now, record.ActorKind.ToString(), actor, record.Action.Code, record.TargetType, record.TargetId, 1L,
-            Activity.Current?.TraceId.ToHexString() ?? string.Empty);
-    }
-
     private static async Task<ReconciliationRunView?> ReadViewAsync(NpgsqlConnection connection, Guid run, CancellationToken ct)
     {
         List<ReconciliationRunUnitView> units = [];
-        await using (var query = Command(connection, """
-            select id,subject_user_id,original_measure_id,measure_version,state,items::text
+        await using (var query = Command(connection, $"""
+            select id,subject_user_id,original_measure_id,measure_version,items::text,state,{ReceiptColumns}
             from ops.registration_reconciliation_units where run_id=$1 order by subject_user_id,original_measure_id
             """, run))
         await using (var reader = await query.ExecuteReaderAsync(ct))
@@ -316,7 +409,7 @@ public sealed class RegistrationReconciliationRuns(
             while (await reader.ReadAsync(ct))
             {
                 units.Add(new ReconciliationRunUnitView(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetInt64(3),
-                    reader.GetString(4), ReadItems(reader.GetString(5))));
+                    reader.GetString(5), ReadItems(reader.GetString(4)), ReadReceipt(reader, run, reader.GetGuid(0), stateColumn: 5)));
             }
         }
 
@@ -336,7 +429,17 @@ public sealed class RegistrationReconciliationRuns(
             row.GetFieldValue<DateTimeOffset>(10), units);
     }
 
-    private static ReconciliationPreviewItem[] ReadItems(string json) =>
+    /// <summary>O recibo da linha, com <see cref="ReceiptColumns"/> logo depois do estado; nulo em unidade <c>Pending</c>.</summary>
+    internal static ReconciliationUnitReceipt? ReadReceipt(NpgsqlDataReader reader, Guid run, Guid unit, int stateColumn)
+    {
+        var state = Enum.Parse<ReconciliationUnitState>(reader.GetString(stateColumn));
+        return state == ReconciliationUnitState.Pending ? null : new ReconciliationUnitReceipt(run, unit, state,
+            reader.IsDBNull(stateColumn + 1) ? null : reader.GetString(stateColumn + 1),
+            reader.GetFieldValue<Guid[]>(stateColumn + 2), reader.GetGuid(stateColumn + 3),
+            reader.GetFieldValue<DateTimeOffset>(stateColumn + 4), reader.GetString(stateColumn + 5));
+    }
+
+    internal static ReconciliationPreviewItem[] ReadItems(string json) =>
         JsonSerializer.Deserialize<ReconciliationPreviewItem[]>(json, ItemFormat)
         ?? throw new InvalidOperationException("Unidade gravada sem itens.");
 
@@ -344,11 +447,14 @@ public sealed class RegistrationReconciliationRuns(
         error is { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: OpenRunIndex or CommandConstraint };
 
     /// <summary>Lock ocupado, deadlock ou conflito de serialização do snapshot: a transação voltou atrás inteira.</summary>
-    private static bool IsContention(PostgresException error) =>
+    internal static bool IsContention(PostgresException error) =>
         error.SqlState is PostgresErrorCodes.LockNotAvailable or PostgresErrorCodes.DeadlockDetected
             or PostgresErrorCodes.SerializationFailure;
 
     /// <summary>57014 sem cancelamento do pedido é o <c>statement_timeout</c>; o do cliente continua propagando.</summary>
-    private static bool IsTimeout(PostgresException error, CancellationToken ct) =>
+    internal static bool IsTimeout(PostgresException error, CancellationToken ct) =>
         error.SqlState == PostgresErrorCodes.QueryCanceled && !ct.IsCancellationRequested;
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Deadlock ao fechar um run da reconciliação: defeito a investigar, sem retry.")]
+    private static partial void LogCloseDeadlock(ILogger logger);
 }

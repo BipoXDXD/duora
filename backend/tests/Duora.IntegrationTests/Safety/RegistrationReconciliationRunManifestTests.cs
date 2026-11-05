@@ -128,7 +128,7 @@ public sealed class RegistrationReconciliationRunManifestTests(PostgresFixture p
         Assert.EndsWith("Z", (string)body["cutoverLower"]!, StringComparison.Ordinal);
         Assert.EndsWith("Z", (string)body["createdAt"]!, StringComparison.Ordinal);
         var created = Assert.Single(body["units"]!.AsArray())!.AsObject();
-        Assert.Equal(["id", "items", "measureVersion", "originalMeasureId", "state", "subjectUserId"],
+        Assert.Equal(["id", "items", "measureVersion", "originalMeasureId", "receipt", "state", "subjectUserId"],
             created.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.Equal((s.Seed.Alice, measure, 1L, "Pending"),
             (Guid.Parse((string)created["subjectUserId"]!), Guid.Parse((string)created["originalMeasureId"]!),

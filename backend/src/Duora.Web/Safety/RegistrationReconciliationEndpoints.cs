@@ -17,8 +17,8 @@ namespace Duora.Web.Safety;
 /// <summary>
 /// Reconciliação de inscrições legadas (issue #321). Sessão administrativa do grupo <c>/admin</c>, papel
 /// <c>moderator</c> lido ao vivo pela policy (antes de qualquer parâmetro) e TOTP recente. Na prévia (API-ADM25) a
-/// sessão é lida sem toque (ADR-0048) e o leitor revalida a moderação no próprio snapshot READ ONLY; os runs (API-ADM26
-/// e API-ADM27, ADR-0049) usam a sessão normal, com toque. O corte vem só da configuração do servidor.
+/// sessão é lida sem toque (ADR-0048) e o leitor revalida a moderação no próprio snapshot READ ONLY; os runs e as
+/// unidades (API-ADM26 a API-ADM29, ADR-0049) usam a sessão normal, com toque. O corte vem só da configuração do servidor.
 /// </summary>
 internal static class RegistrationReconciliationEndpoints
 {
@@ -122,6 +122,27 @@ internal static class RegistrationReconciliationEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        reconciliations.MapPost("/runs/{runId:guid}/units/{unitId:guid}:apply", ApplyUnitAsync)
+            .RequireRecentMfa()
+            .Produces<RegistrationReconciliationUnitReceiptResponse>()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .AddOpenApiOperationTransformer(DocumentIdempotencyKey);
+        reconciliations.MapPost("/runs/{runId:guid}:close", CloseRunAsync)
+            .RequireRecentMfa()
+            .Produces<RegistrationReconciliationRunResponse>()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status412PreconditionFailed)
+            .ProducesProblem(StatusCodes.Status428PreconditionRequired)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .AddOpenApiOperationTransformer(DocumentIfMatch);
     }
 
     private static async Task<IResult> PreviewAsync(
@@ -249,6 +270,83 @@ internal static class RegistrationReconciliationEndpoints
         }
     }
 
+    /// <summary>
+    /// Aplica uma unidade (ADR-0049, D2): o corpo é vazio e o corte vem só da configuração. Unidade terminal devolve o
+    /// recibo, que é a idempotência; a <c>Idempotency-Key</c> só detecta intento divergente.
+    /// </summary>
+    private static async Task<IResult> ApplyUnitAsync(
+        Guid runId,
+        Guid unitId,
+        HttpContext http,
+        RegistrationReconciliationCoordinator coordinator,
+        IOptions<RegistrationReconciliationCutoverOptions> cutover,
+        CancellationToken cancellationToken)
+    {
+        if (!IdempotencyKey.TryParse(http.Request.Headers["Idempotency-Key"].ToString(), out var key))
+        {
+            return ApiProblems.Problem(StatusCodes.Status400BadRequest, "IDEMPOTENCY_KEY_INVALID");
+        }
+
+        var outcome = await coordinator.ApplyAsModeratorAsync(Moderator(http), runId, unitId, cutover.Value.Evidence(), key, cancellationToken);
+        switch (outcome)
+        {
+            case ReconciliationApplyOutcome.Receipt receipt:
+                return TypedResults.Ok(Response(receipt.Value));
+            case ReconciliationApplyOutcome.NotFound:
+                return ApiProblems.Problem(StatusCodes.Status404NotFound, "NOT_FOUND");
+            case ReconciliationApplyOutcome.Forbidden:
+                return Forbidden();
+            case ReconciliationApplyOutcome.RunClosed:
+                return ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.RunClosed);
+            case ReconciliationApplyOutcome.CutoverChanged:
+                return ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.CutoverChanged);
+            case ReconciliationApplyOutcome.KeyReused:
+                return ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.IdempotencyKeyReused);
+            case ReconciliationApplyOutcome.Busy:
+                return Busy(http);
+            case ReconciliationApplyOutcome.TimedOut:
+                return TimedOut(http);
+            default:
+                throw new InvalidOperationException("Aplicação de unidade sem resultado mapeado.");
+        }
+    }
+
+    /// <summary>Fecha o run na versão do <c>If-Match</c> (ADR-0049, D2); depois disso nenhuma unidade nova começa.</summary>
+    private static async Task<IResult> CloseRunAsync(
+        Guid runId,
+        HttpContext http,
+        RegistrationReconciliationRuns runs,
+        CancellationToken cancellationToken)
+    {
+        if (PhotoReviewHeaders.IfMatchVersion(http, RunTagKind, runId, out var version) is { } refused)
+        {
+            return refused;
+        }
+
+        var outcome = await runs.CloseAsModeratorAsync(Moderator(http), runId, version, cancellationToken);
+        switch (outcome)
+        {
+            case ReconciliationRunCloseOutcome.Closed closed:
+                var body = Response(closed.View);
+                http.Response.Headers.ETag = body.ETag;
+                return TypedResults.Ok(body);
+            case ReconciliationRunCloseOutcome.NotFound:
+                return ApiProblems.Problem(StatusCodes.Status404NotFound, "NOT_FOUND");
+            case ReconciliationRunCloseOutcome.PreconditionFailed:
+                return ApiProblems.Problem(StatusCodes.Status412PreconditionFailed, ApiProblems.PreconditionFailed);
+            case ReconciliationRunCloseOutcome.AlreadyClosed:
+                return ApiProblems.Problem(StatusCodes.Status409Conflict, ApiProblems.RunClosed);
+            case ReconciliationRunCloseOutcome.Forbidden:
+                return Forbidden();
+            case ReconciliationRunCloseOutcome.Busy:
+                return Busy(http);
+            case ReconciliationRunCloseOutcome.TimedOut:
+                return TimedOut(http);
+            default:
+                throw new InvalidOperationException("Encerramento de run sem resultado mapeado.");
+        }
+    }
+
     private static ReconciliationRunUnitRef UnitRef(ReconciliationRunUnitRequest? unit) =>
         new(unit?.SubjectUserId ?? Guid.Empty, unit?.OriginalMeasureId ?? Guid.Empty, unit?.UnitDigest ?? string.Empty);
 
@@ -274,6 +372,23 @@ internal static class RegistrationReconciliationEndpoints
         return ApiProblems.Problem(StatusCodes.Status503ServiceUnavailable, ApiProblems.TemporarilyUnavailable);
     }
 
+    private static Task DocumentIfMatch(
+        OpenApiOperation operation,
+        OpenApiOperationTransformerContext context,
+        CancellationToken cancellationToken)
+    {
+        operation.Parameters ??= [];
+        operation.Parameters.Add(new OpenApiParameter
+        {
+            Name = "If-Match",
+            In = ParameterLocation.Header,
+            Required = true,
+            Description = "The ETag of the run; without it the API answers 428.",
+            Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+        });
+        return Task.CompletedTask;
+    }
+
     private static Task DocumentIdempotencyKey(
         OpenApiOperation operation,
         OpenApiOperationTransformerContext context,
@@ -285,7 +400,7 @@ internal static class RegistrationReconciliationEndpoints
             Name = "Idempotency-Key",
             In = ParameterLocation.Header,
             Required = true,
-            Description = "A stable key for this exact request; a replay returns the same run.",
+            Description = "A stable key for this exact request; a replay returns the recorded result.",
             Schema = new OpenApiSchema { Type = JsonSchemaType.String, MinLength = 1, MaxLength = 64, Pattern = "^[A-Za-z0-9_-]+$" },
         });
         return Task.CompletedTask;
@@ -351,5 +466,16 @@ internal static class RegistrationReconciliationEndpoints
             unit.OriginalMeasureId,
             unit.MeasureVersion,
             unit.State,
-            [.. unit.Items.Select(Response)]))]);
+            [.. unit.Items.Select(Response)],
+            unit.Receipt is { } receipt ? Response(receipt) : null))]);
+
+    private static RegistrationReconciliationUnitReceiptResponse Response(ReconciliationUnitReceipt receipt) => new(
+        receipt.RunId,
+        receipt.UnitId,
+        receipt.State.ToString(),
+        receipt.Reason,
+        receipt.FactIds,
+        receipt.ExecutedByUserId,
+        receipt.ExecutedAt.UtcDateTime,
+        receipt.CorrelationId);
 }

@@ -290,3 +290,9 @@ toque ([ADR-0049](../architecture/adr/0049-execucao-da-reconciliacao-de-inscrico
 [contrato, autorização e códigos de erro](registration-reconciliation-runs.md). A prévia ganha o campo aditivo
 `page[].unitDigest`. Mudança aditiva, com o código novo `409 RUN_ALREADY_OPEN`; não aplica retirada. Requer revisão
 humana de autorização, migração e contrato antes do merge.
+
+API-ADM28 (`POST /admin/registration-reconciliations/runs/{runId}/units/{unitId}:apply`) e API-ADM29
+(`POST /admin/registration-reconciliations/runs/{runId}:close`) aplicam uma unidade por pedido e fecham o run, com a
+sessão normal, com toque. Mudança aditiva, com os códigos novos `409 RUN_CLOSED` e `409 CUTOVER_CHANGED`. Estas rotas
+retiram inscrições: uso real só pelo [runbook](../operations/registration-reconciliation.md), com autorização própria.
+Requer revisão humana de autorização e contrato antes do merge.
