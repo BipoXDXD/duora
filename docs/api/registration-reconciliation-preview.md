@@ -21,7 +21,8 @@ Na ordem em que é verificada; de 1 a 6, antes de ler o cursor:
 5. TOTP provado na última hora, intervalo fechado do ADR-0041; prova futura não vale
    (`401 REAUTHENTICATION_REQUIRED`). O step-up é a rota existente de reautenticação, que escreve e é separada da
    prévia.
-6. Limite de 6 prévias por minuto por conta moderadora (inclusive pedidos com cursor inválido):
+6. Limite de 6 pedidos por minuto por conta moderadora, somando prévias e criações de run
+   ([API-ADM26](registration-reconciliation-runs.md)), inclusive pedidos com cursor inválido:
    `429 RATE_LIMITED` com `Retry-After`, sem ler o banco. Em memória da instância; com mais de uma réplica, cada
    uma contaria à parte (limitação registrada no ADR-0048).
 7. O leitor repete a verificação 3 e 5 dentro do snapshot `REPEATABLE READ READ ONLY` antes de ler inscrições;
