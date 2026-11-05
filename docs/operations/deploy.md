@@ -203,7 +203,8 @@ solta o lock se o processo morrer).
    (digests) e `<releaseId>.json` em `/var/lib/duora/staging/`. Nada em `staging/` decide coisa alguma; os arquivos
    só vão para `releases/` depois do smoke (passo 10).
 4. `pull` de todas as imagens por digest e conferência da arquitetura de cada uma.
-5. Garante o PostgreSQL e o `backup` (repository host do pgBackRest) saudáveis (`up --wait postgres backup`) e
+5. Preserva o PostgreSQL e o `backup` (repository host do pgBackRest), sem criá-los nem reiniciá-los: eles já precisam
+   estar saudáveis e no digest da release, ou o `runtime_preflight` recusa antes de qualquer mutação. Depois
    roda `/usr/local/sbin/duora-backup verify`: filtro de saída do `backup` no iptables, bucket com versionamento +
    Object Lock (ADR-0023), `pgbackrest check` (o segmento atual chega ao repositório),
    `pgbackrest info` sem erro, último WAL confirmado há no máximo 300 s (RPO), arquivamento sem falha pendente e
