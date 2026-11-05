@@ -130,7 +130,7 @@ internal static class RegistrationReconciliationEndpoints
         HttpContext http,
         LegacyRegistrationReconciliationPreviews previews,
         IOptions<RegistrationReconciliationCutoverOptions> cutover,
-        ReconciliationPreviewLimiter limiter,
+        ReconciliationRequestLimiter limiter,
         CancellationToken cancellationToken)
     {
         var moderator = Moderator(http);
@@ -169,11 +169,11 @@ internal static class RegistrationReconciliationEndpoints
         HttpContext http,
         RegistrationReconciliationRuns runs,
         IOptions<RegistrationReconciliationCutoverOptions> cutover,
-        ReconciliationPreviewLimiter limiter,
+        ReconciliationRequestLimiter limiter,
         CancellationToken cancellationToken)
     {
         var moderator = Moderator(http);
-        // Mesma cota da prévia e no mesmo ponto: depois da autorização, e pedido inválido também conta.
+        // Mesma cota da prévia e no mesmo ponto: depois da autorização e do binding, e chave ou campo inválido contam.
         if (limiter.TryConsume(moderator.UserId) is { } retryAfter)
         {
             return ApiProblems.TooManyRequests(http, retryAfter);

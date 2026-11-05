@@ -143,8 +143,10 @@ public sealed class RegistrationReconciliationManifest : Migration
               raise exception 'A reconciliation unit is born Pending' using errcode = '23514';
             end if;
             -- O manifesto fecha com o commit da criação; o run nasce nesta mesma transação, sem savepoint no fluxo.
+            -- Estado e versão contam porque o UPDATE do fechamento também grava uma tupla com o xmin atual.
             if not exists (select 1 from ops.registration_reconciliation_runs r
-                           where r.id = new.run_id and r.xmin = pg_current_xact_id()::xid) then
+                           where r.id = new.run_id and r.xmin = pg_current_xact_id()::xid
+                             and r.state = 'Open' and r.version = 1) then
               raise exception 'A reconciliation unit is born in the transaction of its run' using errcode = '23514';
             end if;
             return new;

@@ -383,6 +383,23 @@ public sealed class RegistrationReconciliationRunSchemaTests(PostgresFixture pos
         Assert.Equal(Immutable, error.SqlState);
     }
 
+    /// <summary>O UPDATE do fechamento grava uma tupla com o xmin desta transação: só o xmin não bastaria.</summary>
+    [Fact]
+    public async Task NoUnitJoinsARunClosedInTheSameTransaction()
+    {
+        await using var f = await FixtureAsync();
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => InRunTransactionAsync(f, async (connection, run) =>
+        {
+            await ParticipationSql.Execute(connection,
+                "update ops.registration_reconciliation_runs set state='Closed',version=2 where id=$1", f.S.Token, run);
+            await InsertUnitAsync(connection, f, run);
+        }));
+
+        Assert.Equal(Immutable, error.SqlState);
+        Assert.Equal(0, await f.S.CountAsync("select count(*) from ops.registration_reconciliation_runs"));
+    }
+
     [Theory]
     [InlineData("'{}'::jsonb")]
     [InlineData("'[]'::jsonb")]

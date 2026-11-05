@@ -1197,7 +1197,8 @@ e-mail ou motivo de moderação.
 - **Triggers:** `guard_registration_reconciliation_run` e `guard_registration_reconciliation_unit` recusam `DELETE`,
   inclusive do dono, e qualquer mudança no manifesto. Um run nasce `Open` na versão 1 e só vai a `Closed`, uma vez, com a
   versão seguinte. Uma unidade nasce `Pending`, na mesma transação do run (`xmin` do run igual à transação corrente,
-  sem savepoint no fluxo), e só sai de `Pending`, uma vez: depois do commit da criação nenhuma unidade entra.
+  run `Open` na versão 1, sem savepoint no fluxo), e só sai de `Pending`, uma vez: depois do commit da criação ou do
+  fechamento nenhuma unidade entra.
 - **Permissões:** `duora_app` tem `SELECT`, `INSERT` e `UPDATE` em runs e unidades (`UPDATE` também sustenta o
   `FOR SHARE` e o `FOR UPDATE` da aplicação) e só `SELECT` e `INSERT` no vínculo. Os `REVOKE` estão na migração e o
   `reconcile-privileges.sql` do migrador (`infra/images/dotnet`) os repete e falha o deploy se o privilégio persistir.

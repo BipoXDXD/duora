@@ -7,7 +7,8 @@ namespace Duora.Web.Safety;
 /// <summary>
 /// Limite da prévia da reconciliação (API-ADM25, ADR-0048) na seção <c>RateLimiting</c>: 6 pedidos por minuto por
 /// conta moderadora, hipótese conservadora para uma consulta agregada de até 10 s. A criação de um run (API-ADM26)
-/// gasta a mesma cota, porque refaz a mesma classificação. Em memória, como os demais
+/// gasta a mesma cota, porque refaz a mesma classificação. A chave de configuração
+/// <c>ReconciliationPreviewPerModerator</c> mantém o nome: ela é pública e renomeá-la exigiria mudar a implantação. Em memória, como os demais
 /// limites: vale para a única instância web (ADR-0009) e reinicia com o processo. Com mais de uma réplica, cada uma
 /// teria a própria contagem; o estado compartilhado fica pendente até existir segunda instância.
 /// </summary>
@@ -24,11 +25,11 @@ internal sealed class RegistrationReconciliationRateLimitOptions
 /// e não enxerga quem é a pessoa. A chave é o id da conta, então trocar de sessão ou de IP não reinicia a contagem.
 /// Só conta em memória; nada é gravado no banco.
 /// </summary>
-internal sealed class ReconciliationPreviewLimiter : IDisposable
+internal sealed class ReconciliationRequestLimiter : IDisposable
 {
     private readonly PartitionedRateLimiter<Guid> _limiter;
 
-    public ReconciliationPreviewLimiter(IOptions<RegistrationReconciliationRateLimitOptions> options)
+    public ReconciliationRequestLimiter(IOptions<RegistrationReconciliationRateLimitOptions> options)
     {
         var limit = options.Value.ReconciliationPreviewPerModerator;
         _limiter = PartitionedRateLimiter.Create<Guid, Guid>(account =>
@@ -59,7 +60,7 @@ internal static class RegistrationReconciliationRateLimitingServiceCollectionExt
             .Validate(o => o.ReconciliationPreviewPerModerator.IsValid(),
                 "RateLimiting:ReconciliationPreviewPerModerator precisa de PermitLimit >= 1 e janela positiva.")
             .ValidateOnStart();
-        services.AddSingleton<ReconciliationPreviewLimiter>();
+        services.AddSingleton<ReconciliationRequestLimiter>();
         return services;
     }
 }

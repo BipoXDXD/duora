@@ -46,17 +46,28 @@ public sealed class ReconciliationUnitDigestTests
     public void TheItemOrderIsCanonicalAndNotTheOrderOfTheRead() =>
         Assert.Equal(Expected, Digest(items: [Waitlisted, Confirmed]));
 
+    /// <summary>
+    /// A assinatura aceita negativo e a cultura muda só o sinal dele: é o único caso em que a formatação sem cultura
+    /// fixa divergiria. Versão real é positiva; o caso negativo existe para prender a serialização invariante.
+    /// </summary>
     [Theory]
+    [InlineData("sv-SE")]
     [InlineData("ar-SA")]
     [InlineData("fa-IR")]
-    [InlineData("tr-TR")]
-    public void TheCurrentCultureDoesNotChangeTheDigest(string culture)
+    public void TheCurrentCultureDoesNotChangeTheDigest(string name)
     {
+        var culture = CultureInfo.GetCultureInfo(name);
+        Assert.NotEqual(CultureInfo.InvariantCulture.NumberFormat.NegativeSign, culture.NumberFormat.NegativeSign);
         var previous = CultureInfo.CurrentCulture;
-        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
         try
         {
+            CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+            var invariantNegative = Digest(selectorVersion: -1, measureVersion: -3);
+
+            CultureInfo.CurrentCulture = culture;
+
             Assert.Equal(Expected, Digest());
+            Assert.Equal(invariantNegative, Digest(selectorVersion: -1, measureVersion: -3));
         }
         finally
         {

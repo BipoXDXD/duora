@@ -19,8 +19,10 @@ As duas rotas usam a sessão normal, **com toque**; o regime sem toque do ADR-00
 4. Prova de contexto privado em `X-XSRF-TOKEN` e origem (`403 CSRF_VALIDATION_FAILED`).
 5. TOTP provado na última hora (`401 REAUTHENTICATION_REQUIRED`).
 6. Só na criação: a cota da prévia, 6 pedidos por minuto por conta moderadora, somando prévias e criações, inclusive
-   pedidos inválidos e replays (`429 RATE_LIMITED` com `Retry-After`, sem ler o banco). Em memória da instância, com a
-   limitação registrada no ADR-0048. A leitura de um run não gasta essa cota.
+   replays e pedidos com chave ou campo inválido (`429 RATE_LIMITED` com `Retry-After`, sem ler o banco). JSON malformado
+   e campo desconhecido são recusados antes, no binding, e não gastam cota. Em memória da instância, com a limitação
+   registrada no ADR-0048. A chave de configuração continua `RateLimiting:ReconciliationPreviewPerModerator`. A leitura
+   de um run não gasta essa cota.
 7. O serviço repete 3 e 5 dentro da transação, antes de qualquer replay (`403 ACCOUNT_MODERATION_FORBIDDEN`).
 
 Só a criação exige `Idempotency-Key`: de 1 a 64 caracteres `[A-Za-z0-9_-]`, senão `400 IDEMPOTENCY_KEY_INVALID`.

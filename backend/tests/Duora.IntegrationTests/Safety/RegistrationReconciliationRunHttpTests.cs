@@ -296,6 +296,25 @@ public sealed class RegistrationReconciliationRunHttpTests : IAsyncDisposable
         Assert.Equal(0, await RunsOfAsync(moderator.UserId));
     }
 
+    /// <summary>JSON malformado e campo desconhecido caem no binding, antes do handler que gasta a cota.</summary>
+    [Theory]
+    [InlineData("{")]
+    [InlineData("{\"units\":[],\"justification\":\"a\",\"authorizationReference\":\"b\",\"state\":\"Closed\"}")]
+    public async Task ABodyThatFailsTheBindingSpendsNoQuota(string json)
+    {
+        var (_, browser) = await _scenario.PrivilegedBrowserAsync();
+        using var _ = browser;
+        for (var attempt = 1; attempt <= 7; attempt++)
+        {
+            using var refused = await browser.PostRawJsonAsync(Path, json, Keyed());
+            await AssertBareProblemAsync(refused, HttpStatusCode.BadRequest, "INVALID_REQUEST");
+        }
+
+        using var preview = await browser.GetAsync(RegistrationReconciliationPreviewHttpTests.Path);
+
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+    }
+
     [Fact]
     public async Task ThePreviewsSpendTheQuotaOfTheCreationButNotOfTheRead()
     {
