@@ -8,7 +8,9 @@ import {
   type Locale,
 } from './support/problem-canary.ts'
 
-async function setup(page: Page, locale: Locale) {
+// Rotas extras entram antes da primeira navegação: um reload logo depois do goto corre com os chunks lazy da rota
+// ainda carregando, e o WebKit interrompe a navegação ("Frame load interrupted").
+async function setup(page: Page, locale: Locale, routeBeforeNavigation?: () => Promise<void>) {
   await authenticatedPage(page, locale)
   await page.route('**/api/v1/me/preferences', (route) =>
     route.fulfill({
@@ -49,6 +51,7 @@ async function setup(page: Page, locale: Locale) {
       json: { mode: state.mode, countryCodes: state.countryCodes, version: String(state.version) },
     })
   })
+  await routeBeforeNavigation?.()
   await page.goto('/account/preferences')
   return state
 }
@@ -158,10 +161,6 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
     test.use({ locale })
     const pt = locale === 'pt-BR'
     test('suggestion requires explicit save and a manual edit wins while it is pending', async ({ page }) => {
-      const state = await setup(page, locale)
-      await page.route('**/api/v1/me/region-detection/capability', (route) =>
-        route.fulfill({ json: { enabled: true } }),
-      )
       let finish!: () => void
       let started!: () => void
       const began = new Promise<void>((resolve) => {
@@ -170,15 +169,19 @@ for (const locale of ['pt-BR', 'en-US'] as const) {
       const pending = new Promise<void>((resolve) => {
         finish = resolve
       })
-      await page.route('**/api/v1/me/region-detection', async (route) => {
-        expect(route.request().method()).toBe('POST')
-        expect(route.request().postData()).toBeNull()
-        expect(route.request().headers()['x-xsrf-token']).toBe('synthetic')
-        started()
-        await pending
-        await route.fulfill({ json: { status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' } })
+      const state = await setup(page, locale, async () => {
+        await page.route('**/api/v1/me/region-detection/capability', (route) =>
+          route.fulfill({ json: { enabled: true } }),
+        )
+        await page.route('**/api/v1/me/region-detection', async (route) => {
+          expect(route.request().method()).toBe('POST')
+          expect(route.request().postData()).toBeNull()
+          expect(route.request().headers()['x-xsrf-token']).toBe('synthetic')
+          started()
+          await pending
+          await route.fulfill({ json: { status: 'detected', countryCode: 'BR', observedAt: '2026-10-21T12:00:00Z' } })
+        })
       })
-      await page.reload()
       await page
         .getByRole('button', {
           name: pt ? 'Sugerir país pela conexão' : 'Suggest country from connection',
