@@ -116,6 +116,7 @@ runs:
           > "$RUNNER_TEMP/postgres-component/artifacts.json"
         artifact_id=$(python3 scripts/release/postgres_component.py select-proof \
           --lock infra/images/postgres-component-lock.json --architecture "$COMPONENT_ARCH" \
+          --run-json "$RUNNER_TEMP/postgres-component/source-run.json" \
           --inventory-json "$RUNNER_TEMP/postgres-component/artifacts.json")
         echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
 

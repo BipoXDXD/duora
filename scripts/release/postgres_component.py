@@ -13,6 +13,9 @@ ARCHITECTURES = ("amd64", "arm64")
 PROFILE = "postgres-embedded-reconcile-v1"
 IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:"
 LOCK_FIELDS = {"version", "profile", "fingerprint", "source_commit", "publish_run", "images"}
+QUALIFICATION_WORKFLOW = ".github/workflows/qualify-postgres.yml"
+QUALIFICATION_PUBLICATION_FIELDS = {"commit", "architecture", "publishRun", "images"}
+RUN_URL = re.escape("https://github.com/" + REPOSITORY) + r"/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*"
 
 
 def fingerprint_inputs(root: Path) -> str:
@@ -82,8 +85,7 @@ def validate_lock(lock: dict[str, Any]) -> None:
     if (not isinstance(lock["source_commit"], str)
             or not re.fullmatch(r"[0-9a-f]{40}", lock["source_commit"])
             or not isinstance(lock["publish_run"], str)
-            or not re.fullmatch(re.escape("https://github.com/" + REPOSITORY)
-                                + r"/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*", lock["publish_run"])
+            or not re.fullmatch(RUN_URL, lock["publish_run"])
             or not isinstance(lock["fingerprint"], str)
             or not re.fullmatch(r"sha256:[0-9a-f]{64}", lock["fingerprint"])):
         raise ValueError("Component provenance or fingerprint is malformed")
@@ -105,22 +107,65 @@ def select_image(root: Path, lock: dict[str, Any], architecture: str) -> str:
     return lock["images"][architecture]
 
 
+def is_qualification_run(run: dict[str, Any]) -> bool:
+    return run.get("path") == QUALIFICATION_WORKFLOW
+
+
+def is_exact_successful_run(run: dict[str, Any], lock: dict[str, Any]) -> bool:
+    run_id, attempt = run_identity(lock)
+    return (type(run.get("id")) is int and run["id"] == run_id
+            and type(run.get("run_attempt")) is int and run["run_attempt"] == attempt
+            and run.get("status") == "completed" and run.get("conclusion") == "success"
+            and isinstance(run.get("repository"), dict)
+            and run["repository"].get("full_name") == REPOSITORY
+            and isinstance(run.get("head_repository"), dict)
+            and run["head_repository"].get("full_name") == REPOSITORY)
+
+
+def validate_qualification_run(lock: dict[str, Any], run: dict[str, Any]) -> None:
+    """The workflow runs from main, so head_sha never names the candidate; publication.commit does."""
+    if (not is_exact_successful_run(run, lock) or not is_qualification_run(run)
+            or run.get("event") != "workflow_dispatch" or run.get("head_branch") != "main"
+            or not isinstance(run.get("head_sha"), str)
+            or not re.fullmatch(r"[0-9a-f]{40}", run["head_sha"])):
+        raise ValueError("Component proof is not the exact successful main qualification attempt")
+
+
+def validate_qualification_publication(lock: dict[str, Any], publication: dict[str, Any],
+                                       architecture: str) -> None:
+    images = publication.get("images")
+    if (set(publication) != QUALIFICATION_PUBLICATION_FIELDS
+            or publication["commit"] != lock["source_commit"]
+            or publication["architecture"] != architecture
+            or publication["publishRun"] != lock["publish_run"]
+            or not isinstance(images, dict) or set(images) != {"postgres"}):
+        raise ValueError("Native component publication identity differs from the reviewed lock")
+    if images["postgres"] != lock["images"][architecture]:
+        raise ValueError("Native PostgreSQL digest differs from the reviewed lock")
+
+
+def qualification_publication(commit: str, architecture: str, publish_run: str, image: str) -> dict[str, Any]:
+    if (not re.fullmatch(r"[0-9a-f]{40}", commit) or architecture not in ARCHITECTURES
+            or not re.fullmatch(RUN_URL, publish_run)
+            or not re.fullmatch(re.escape(IMAGE) + r"[0-9a-f]{64}", image)):
+        raise ValueError("Component publication identity is malformed")
+    return {"commit": commit, "architecture": architecture, "publishRun": publish_run,
+            "images": {"postgres": image}}
+
+
 def validate_origin(lock: dict[str, Any], run: dict[str, Any], publication: dict[str, Any],
                     architecture: str) -> None:
     validate_lock(lock)
-    run_id, attempt = run_identity(lock)
     if architecture not in ARCHITECTURES:
         raise ValueError("Unsupported native PostgreSQL architecture")
-    if (type(run.get("id")) is not int or run["id"] != run_id
-            or type(run.get("run_attempt")) is not int or run["run_attempt"] != attempt
+    if is_qualification_run(run):
+        validate_qualification_run(lock, run)
+        validate_qualification_publication(lock, publication, architecture)
+        return
+    if (not is_exact_successful_run(run, lock)
             or run.get("head_sha") != lock["source_commit"]
             or run.get("path") not in {".github/workflows/coolify.yml", ".github/workflows/publish-images.yml"}
-            or run.get("event") not in {"workflow_run", "workflow_dispatch"}
-            or run.get("status") != "completed" or run.get("conclusion") != "success"
-            or not isinstance(run.get("repository"), dict)
-            or run["repository"].get("full_name") != REPOSITORY
-            or not isinstance(run.get("head_repository"), dict)
-            or run["head_repository"].get("full_name") != REPOSITORY):
+            or run.get("event") not in {"workflow_run", "workflow_dispatch"}):
         raise ValueError("Component proof is not the exact successful trusted workflow attempt")
     images = publication.get("images")
     ci_run = publication.get("ciRun")
@@ -128,8 +173,7 @@ def validate_origin(lock: dict[str, Any], run: dict[str, Any], publication: dict
             or publication.get("architecture") != architecture
             or publication.get("publishRun") != lock["publish_run"]
             or not isinstance(ci_run, str)
-            or not re.fullmatch(re.escape("https://github.com/" + REPOSITORY)
-                                + r"/actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*", ci_run)
+            or not re.fullmatch(RUN_URL, ci_run)
             or not isinstance(images, dict)
             or set(images) != {"web", "worker", "migrator", "edge", "postgres"}):
         raise ValueError("Native component publication identity differs from the reviewed lock")
@@ -165,6 +209,11 @@ def run_identity(lock: dict[str, Any]) -> tuple[int, int]:
     validate_lock(lock)
     parts = lock["publish_run"].split("/")
     return int(parts[-3]), int(parts[-1])
+
+
+def inspect_recipe(root: Path) -> str:
+    validate_recipe(root)
+    return fingerprint_inputs(root)
 
 
 def validate_recipe(root: Path) -> None:
@@ -212,10 +261,15 @@ def validate_recipe(root: Path) -> None:
         raise ValueError("PostgreSQL base must be the reviewed immutable single-stage platform image")
 
 
-def select_proof_artifact(lock: dict[str, Any], inventory: dict[str, Any], architecture: str) -> int:
+def select_proof_artifact(lock: dict[str, Any], inventory: dict[str, Any], architecture: str,
+                          run: dict[str, Any] | None = None) -> int:
     validate_lock(lock)
     if architecture not in ARCHITECTURES:
         raise ValueError("Unsupported native PostgreSQL architecture")
+    source_head = lock["source_commit"]
+    if run is not None and is_qualification_run(run):
+        validate_qualification_run(lock, run)
+        source_head = run["head_sha"]
     artifacts = inventory.get("artifacts")
     if (not isinstance(artifacts, list) or type(inventory.get("total_count")) is not int
             or inventory["total_count"] != len(artifacts) or len(artifacts) > 100
@@ -231,23 +285,40 @@ def select_proof_artifact(lock: dict[str, Any], inventory: dict[str, Any], archi
     artifact_id = artifact.get("id")
     if (type(artifact_id) is not int or artifact_id <= 0 or not isinstance(source, dict)
             or type(source.get("id")) is not int or source["id"] != run_id
-            or source.get("head_sha") != lock["source_commit"]):
+            or source.get("head_sha") != source_head):
         raise ValueError("PostgreSQL proof artifact is not from the reviewed source run")
     return artifact_id
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["select", "verify-origin", "verify-image", "select-proof"])
+    parser.add_argument("operation", choices=["select", "verify-origin", "verify-image", "select-proof",
+                                              "recipe", "publication"])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--lock", type=Path, required=True)
-    parser.add_argument("--architecture", required=True, choices=ARCHITECTURES)
+    parser.add_argument("--lock", type=Path)
+    parser.add_argument("--architecture", choices=ARCHITECTURES)
     parser.add_argument("--run-json", type=Path)
     parser.add_argument("--publication-json", type=Path)
     parser.add_argument("--image-json", type=Path)
     parser.add_argument("--inventory-json", type=Path)
+    parser.add_argument("--commit")
+    parser.add_argument("--publish-run")
+    parser.add_argument("--image")
     args = parser.parse_args()
+    if args.operation == "publication":
+        missing = None in (args.architecture, args.commit, args.publish_run, args.image)
+    else:
+        missing = args.operation != "recipe" and None in (args.lock, args.architecture)
+    if missing:
+        parser.error(f"{args.operation} is missing required arguments")
     try:
+        if args.operation == "recipe":
+            print(json.dumps({"fingerprint": inspect_recipe(args.root)}))
+            return
+        if args.operation == "publication":
+            print(json.dumps(qualification_publication(args.commit, args.architecture, args.publish_run,
+                                                       args.image)))
+            return
         lock = read_lock(args.lock)
         if args.operation == "select":
             image = select_image(args.root, lock, args.architecture)
@@ -268,7 +339,8 @@ def main() -> None:
         else:
             if args.inventory_json is None:
                 raise ValueError("Authenticated component artifact inventory is required")
-            print(select_proof_artifact(lock, read_lock(args.inventory_json), args.architecture))
+            run = None if args.run_json is None else read_lock(args.run_json)
+            print(select_proof_artifact(lock, read_lock(args.inventory_json), args.architecture, run))
     except (ValueError, OSError) as error:
         parser.exit(1, f"PostgreSQL component refused: {error}\n")
 

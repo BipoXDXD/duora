@@ -324,5 +324,178 @@ class PostgresComponentTests(unittest.TestCase):
                 component.select_proof_artifact(self.lock(), inventory, "amd64")
 
 
+    def qualification(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        lock = self.lock()
+        run: dict[str, Any] = {
+            "id": 39880434067, "run_attempt": 1, "head_sha": "a" * 40, "head_branch": "main",
+            "path": ".github/workflows/qualify-postgres.yml",
+            "event": "workflow_dispatch", "status": "completed", "conclusion": "success",
+            "repository": {"full_name": "BipoXDXD/duora"},
+            "head_repository": {"full_name": "BipoXDXD/duora"},
+        }
+        publication: dict[str, Any] = {
+            "commit": lock["source_commit"], "architecture": "amd64",
+            "publishRun": lock["publish_run"], "images": {"postgres": lock["images"]["amd64"]},
+        }
+        return lock, run, publication
+
+    def test_main_qualification_binds_the_lock_through_the_publication_commit(self) -> None:
+        lock, run, publication = self.qualification()
+        self.assertNotEqual(run["head_sha"], lock["source_commit"])
+        component.validate_origin(lock, run, publication, "amd64")
+
+    def test_qualification_renewal_of_the_same_commit_is_accepted(self) -> None:
+        lock, run, publication = self.qualification()
+        run["head_sha"] = lock["source_commit"]
+        component.validate_origin(lock, run, publication, "amd64")
+
+    def test_qualification_outside_a_successful_main_dispatch_is_refused(self) -> None:
+        lock, run, publication = self.qualification()
+        for field, value in [("head_branch", "ci/candidate"), ("head_branch", None),
+                             ("event", "workflow_run"), ("event", "push"),
+                             ("head_sha", "main"), ("head_sha", None),
+                             ("id", 1), ("run_attempt", 2), ("status", "in_progress"),
+                             ("conclusion", "failure"),
+                             ("repository", {"full_name": "attacker/duora"}),
+                             ("head_repository", {"full_name": "attacker/duora"})]:
+            changed = copy.deepcopy(run)
+            changed[field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                component.validate_origin(lock, changed, publication, "amd64")
+
+    def test_qualification_publication_holds_only_the_exact_postgres_digest(self) -> None:
+        lock, run, publication = self.qualification()
+        other = "ghcr.io/bipoxdxd/duora-postgres@sha256:" + "d" * 64
+        web = {"web": "ghcr.io/bipoxdxd/duora-web@sha256:" + "d" * 64}
+        for field, value in [("commit", "a" * 40), ("architecture", "arm64"),
+                             ("publishRun", lock["publish_run"].replace("attempts/1", "attempts/2")),
+                             ("images", {"postgres": other}), ("images", {}),
+                             ("images", publication["images"] | web), ("images", ["postgres"]),
+                             ("ciRun", "https://github.com/BipoXDXD/duora/actions/runs/1/attempts/1")]:
+            changed = copy.deepcopy(publication)
+            changed[field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                component.validate_origin(lock, run, changed, "amd64")
+
+    def test_release_contract_still_requires_commit_identity_and_all_five_roles(self) -> None:
+        lock, run, _ = self.origin()
+        _, _, component_publication = self.qualification()
+        with self.assertRaises(ValueError):
+            component.validate_origin(lock, run, component_publication, "amd64")
+        moved = dict(run, head_sha="a" * 40, head_branch="main",
+                     path=".github/workflows/publish-images.yml", event="workflow_dispatch")
+        with self.assertRaises(ValueError):
+            component.validate_origin(lock, moved, self.origin()[2], "amd64")
+
+    def test_qualification_run_cannot_carry_a_full_release_publication(self) -> None:
+        lock, run, _ = self.qualification()
+        with self.assertRaises(ValueError):
+            component.validate_origin(lock, run, self.origin()[2], "amd64")
+
+    def qualification_artifacts(self) -> dict[str, Any]:
+        inventory = self.artifacts()
+        inventory["artifacts"][0]["workflow_run"]["head_sha"] = "a" * 40
+        return inventory
+
+    def test_proof_from_main_qualification_is_selected_with_authenticated_run(self) -> None:
+        lock, run, _ = self.qualification()
+        self.assertEqual(component.select_proof_artifact(lock, self.qualification_artifacts(), "amd64", run),
+                         12470357181)
+
+    def test_proof_from_main_qualification_needs_the_authenticated_run(self) -> None:
+        with self.assertRaises(ValueError):
+            component.select_proof_artifact(self.lock(), self.qualification_artifacts(), "amd64")
+
+    def test_proof_head_must_match_the_run_that_authenticated_it(self) -> None:
+        lock, run, _ = self.qualification()
+        for head in ["b" * 40, None]:
+            inventory = self.qualification_artifacts()
+            inventory["artifacts"][0]["workflow_run"]["head_sha"] = head
+            with self.subTest(head=head), self.assertRaises(ValueError):
+                component.select_proof_artifact(lock, inventory, "amd64", run)
+
+    def test_run_metadata_cannot_relax_the_proof_of_a_foreign_or_unsuccessful_run(self) -> None:
+        lock, run, _ = self.qualification()
+        for field, value in [("id", 1), ("run_attempt", 2), ("head_branch", "ci/candidate"),
+                             ("event", "push"), ("conclusion", "failure"), ("head_sha", None)]:
+            changed = copy.deepcopy(run)
+            changed[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                component.select_proof_artifact(lock, self.qualification_artifacts(), "amd64", changed)
+
+    def test_release_run_metadata_keeps_the_source_commit_comparison(self) -> None:
+        lock, run, _ = self.origin()
+        self.assertEqual(component.select_proof_artifact(lock, self.artifacts(), "amd64", run), 12470357181)
+        with self.assertRaises(ValueError):
+            component.select_proof_artifact(lock, self.qualification_artifacts(), "amd64",
+                                            dict(run, head_sha="a" * 40))
+
+    def test_recipe_reports_the_fingerprint_of_valid_candidate_inputs(self) -> None:
+        self.assertEqual(component.inspect_recipe(self.root), component.fingerprint_inputs(self.root))
+
+    def test_recipe_refuses_inputs_outside_the_reviewed_contract(self) -> None:
+        with (self.runtime / "Dockerfile").open("a") as handle:
+            handle.write("\nARG UNREVIEWED_CONTENT\n")
+        with self.assertRaises(ValueError):
+            component.inspect_recipe(self.root)
+
+    def test_written_publication_satisfies_the_origin_contract(self) -> None:
+        lock, run, _ = self.qualification()
+        publication = component.qualification_publication(
+            lock["source_commit"], "amd64", lock["publish_run"], lock["images"]["amd64"])
+        component.validate_origin(lock, run, publication, "amd64")
+
+    def test_malformed_publication_is_never_written(self) -> None:
+        lock, _, _ = self.qualification()
+        valid = (lock["source_commit"], "amd64", lock["publish_run"], lock["images"]["amd64"])
+        for position, value in [(0, "main"), (0, "B" * 40), (1, "x86_64"),
+                                (2, "https://github.com/attacker/repo/actions/runs/1/attempts/1"),
+                                (3, "ghcr.io/bipoxdxd/duora-postgres:latest"),
+                                (3, "ghcr.io/bipoxdxd/duora-web@sha256:" + "b" * 64)]:
+            arguments = list(valid)
+            arguments[position] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                component.qualification_publication(*arguments)
+
+    def test_cli_verifies_the_qualification_contract_from_authenticated_documents(self) -> None:
+        lock, run, publication = self.qualification()
+        for name, document in [("lock", lock), ("run", run), ("publication", publication),
+                               ("inventory", self.qualification_artifacts())]:
+            (self.root / (name + ".json")).write_text(json.dumps(document))
+        origin = self.cli("verify-origin", "--lock", str(self.root / "lock.json"),
+                          "--run-json", str(self.root / "run.json"),
+                          "--publication-json", str(self.root / "publication.json"),
+                          "--architecture", "amd64")
+        self.assertEqual((origin.returncode, origin.stdout), (0, "verified\n"), origin.stderr)
+        proof = ["select-proof", "--lock", str(self.root / "lock.json"), "--architecture", "amd64",
+                 "--inventory-json", str(self.root / "inventory.json")]
+        self.assertNotEqual(self.cli(*proof).returncode, 0)
+        selected = self.cli(*proof, "--run-json", str(self.root / "run.json"))
+        self.assertEqual((selected.returncode, selected.stdout), (0, "12470357181\n"), selected.stderr)
+
+    def test_cli_reports_recipe_without_a_lock(self) -> None:
+        result = self.cli("recipe", "--root", str(self.root))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout),
+                         {"fingerprint": component.fingerprint_inputs(self.root)})
+
+    def test_cli_writes_publication_without_a_lock(self) -> None:
+        lock, run, _ = self.qualification()
+        result = self.cli("publication", "--architecture", "amd64", "--commit", lock["source_commit"],
+                          "--publish-run", lock["publish_run"], "--image", lock["images"]["amd64"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        component.validate_origin(lock, run, json.loads(result.stdout), "amd64")
+
+    def test_cli_refuses_incomplete_arguments_for_each_operation(self) -> None:
+        for arguments in [("select",), ("select", "--lock", "unused.json"),
+                          ("select", "--architecture", "amd64"),
+                          ("publication", "--architecture", "amd64"),
+                          ("publication", "--commit", "a" * 40)]:
+            result = self.cli(*arguments)
+            with self.subTest(arguments=arguments):
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+
+
 if __name__ == "__main__":
     unittest.main()
