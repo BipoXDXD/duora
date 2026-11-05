@@ -23,12 +23,16 @@ public sealed record ReconciliationIssueCountResponse(string Issue, int Registra
 /// <summary>Unidades conta/medida: elegíveis, pausadas por integridade e grandes demais para aplicação automática.</summary>
 public sealed record ReconciliationUnitCountsResponse(int Eligible, int Blocked, int Oversized);
 
-/// <summary>Conta/medida original com as inscrições candidatas e a versão observada da medida.</summary>
+/// <summary>
+/// Conta/medida original com as inscrições candidatas, a versão observada da medida e o <c>UnitDigest</c>: SHA-256 em
+/// hexadecimal minúsculo que a criação de um run confere contra o recálculo do servidor.
+/// </summary>
 public sealed record ReconciliationPreviewUnitResponse(
     Guid SubjectUserId,
     Guid OriginalMeasureId,
     long MeasureVersion,
-    IReadOnlyList<ReconciliationPreviewItemResponse> Items);
+    IReadOnlyList<ReconciliationPreviewItemResponse> Items,
+    string UnitDigest);
 
 /// <summary>
 /// Inscrição candidata: versão observada, estado (Waitlisted | Confirmed | CheckedIn) e tetos condicionais de vagas

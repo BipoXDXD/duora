@@ -1,8 +1,8 @@
 # Prévia da reconciliação de inscrições legadas (API-ADM25)
 
 Fatia 2 da [#321](https://github.com/BipoXDXD/duora/issues/321): expõe o leitor da fatia 1 numa rota
-administrativa de leitura, sem nenhuma mutação lógica no banco. Não cria run, não aplica lote, não assina envelope
-(fatia 3) e não autoriza uso com dados reais; isso continua exigindo autorização operacional própria
+administrativa de leitura, sem nenhuma mutação lógica no banco. Não cria run, não aplica nada e não autoriza uso com
+dados reais; isso continua exigindo autorização operacional própria
 ([ADR-0044](../architecture/adr/0044-inscricoes-de-contas-suspensas.md) e seção 14 da proposta da #321).
 
 `GET /api/v1/admin/registration-reconciliations/preview?cursorSubject={uuid}&cursorMeasure={uuid}`
@@ -59,17 +59,40 @@ insistir em sequência (o limite por minuto continua contando).
 | `actionableRegistrations` | Candidatas em unidades elegíveis |
 | `heldRegistrations` | Candidatas em unidades pausadas ou grandes demais |
 | `units` | `{eligible, blocked, oversized}` |
-| `page[]` | Até 10 unidades / 100 inscrições: `{subjectUserId, originalMeasureId, measureVersion, items[]}` |
+| `page[]` | Até 10 unidades / 100 inscrições: `{subjectUserId, originalMeasureId, measureVersion, items[], unitDigest}` |
 | `page[].items[]` | `{eventId, registrationVersion, state, maxReleasedSeats, maxPromotions}` |
+| `page[].unitDigest` | SHA-256 da unidade em hexadecimal minúsculo (64 caracteres), a informar na criação de um run ([API-ADM26](registration-reconciliation-runs.md)) |
 | `next` | `{cursorSubject, cursorMeasure}` da próxima página, ou `null` |
 
 As contagens cobrem toda a população num snapshot; cada página tem `asOf` próprio, e contagens de páginas
 diferentes são indicativas. `maxPromotions` é teto condicional: fila, horários e elegibilidade podem mudar.
 
+### `unitDigest`
+
+SHA-256 do texto canônico v1 em UTF-8, com uma linha terminada em `\n` para cada campo, nesta ordem:
+
+```text
+duora.registration-reconciliation.unit-digest.v1
+selectorVersion={versão do seletor}
+evidenceId={id do descritor de corte}
+lower={limite inferior, yyyy-MM-ddTHH:mm:ss.ffffffZ}
+upper={limite superior, mesmo formato}
+subjectUserId={uuid}
+originalMeasureId={uuid}
+measureVersion={versão da medida}
+item={eventId};{registrationVersion};{state};{maxReleasedSeats};{maxPromotions}
+```
+
+Há uma linha `item` por inscrição, em ordem ordinal do `eventId`. UUIDs em minúsculas, com hífens. O digest prova
+que o moderador viu a mesma unidade que o servidor recalcula; não é segredo nem assinatura
+([ADR-0049](../architecture/adr/0049-execucao-da-reconciliacao-de-inscricoes-legadas.md), D1). Como inclui
+`maxPromotions`, mudanças na fila de terceiros ou o início do evento também mudam o digest. Mudar a serialização
+exige outra versão na primeira linha. `ReconciliationUnitDigestTests` fixa o valor literal.
+
 ## Corte configurado
 
 Seção `RegistrationReconciliation:Cutover`, com `EvidenceId` (letras e dígitos ASCII, `-`, `_`, `.`, `:`; até
-128), `Lower` e `Upper` (instantes UTC com sufixo `Z`, `Upper >= Lower`). Ausente por padrão: tudo sai como
+128), `Lower` e `Upper` (instantes UTC com sufixo `Z`, até seis casas decimais, `Upper >= Lower`). Ausente por padrão: tudo sai como
 `MissingDeploymentEvidence` e nada é candidato. Presente e incompleta ou inválida: a Web não sobe
 (`ValidateOnStart`). Nenhum corte real está cadastrado; preenchê-lo exige o descritor de implantação revisado da
 seção 4 da proposta, nunca a data da migração.

@@ -7400,7 +7400,8 @@
           "subjectUserId",
           "originalMeasureId",
           "measureVersion",
-          "items"
+          "items",
+          "unitDigest"
         ],
         "type": "object",
         "properties": {
@@ -7425,10 +7426,13 @@
             "items": {
               "$ref": "#/components/schemas/ReconciliationPreviewItemResponse"
             }
+          },
+          "unitDigest": {
+            "type": "string"
           }
         },
         "additionalProperties": false,
-        "description": "Conta/medida original com as inscrições candidatas e a versão observada da medida."
+        "description": "Conta/medida original com as inscrições candidatas, a versão observada da medida e o `UnitDigest`: SHA-256 em\nhexadecimal minúsculo que a criação de um run confere contra o recálculo do servidor."
       },
       "ReconciliationUnitCountsResponse": {
         "required": [

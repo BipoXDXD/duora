@@ -1,4 +1,5 @@
 using Duora.Contracts.Safety;
+using Duora.Core.Safety;
 using Duora.Infrastructure.Safety;
 using Duora.Web.Accounts;
 using Duora.Web.Http;
@@ -59,11 +60,11 @@ internal static class RegistrationReconciliationEndpoints
 
         var evidence = cutover.Value.Evidence();
         var outcome = await previews.ReadAsModeratorAsync(
-            new ModeratorSession(userId, sessionId), evidence?.Cutover, after, cancellationToken);
+            new ModeratorSession(userId, sessionId), evidence, after, cancellationToken);
         switch (outcome)
         {
             case ReconciliationPreviewOutcome.Ready ready:
-                return TypedResults.Ok(Response(ready.Preview, evidence?.Id));
+                return TypedResults.Ok(Response(ready.Preview));
             case ReconciliationPreviewOutcome.Forbidden:
                 return ApiProblems.Problem(StatusCodes.Status403Forbidden, ApiProblems.AccountModerationForbidden);
             case ReconciliationPreviewOutcome.TimedOut:
@@ -96,10 +97,10 @@ internal static class RegistrationReconciliationEndpoints
     private static bool TryReadId(string? value, out Guid id) =>
         Guid.TryParseExact(value, "D", out id) && id != Guid.Empty;
 
-    private static RegistrationReconciliationPreviewResponse Response(ReconciliationPreview preview, string? evidenceId) => new(
+    private static RegistrationReconciliationPreviewResponse Response(ReconciliationPreview preview) => new(
         preview.AsOf.UtcDateTime,
         preview.SelectorVersion,
-        evidenceId,
+        preview.Evidence?.Id,
         [.. preview.RegistrationsByPrimaryIssue.OrderBy(entry => entry.Key)
             .Select(entry => new ReconciliationIssueCountResponse(entry.Key.ToString(), entry.Value))],
         preview.ActionableRegistrations,
@@ -109,7 +110,10 @@ internal static class RegistrationReconciliationEndpoints
             unit.SubjectUserId,
             unit.OriginalMeasureId,
             unit.MeasureVersion,
-            [.. unit.Items.Select(item => new ReconciliationPreviewItemResponse(
-                item.EventId, item.RegistrationVersion, item.State.ToString(), item.MaxReleasedSeats, item.MaxPromotions))]))],
+            [.. unit.Items.Select(Response)],
+            unit.UnitDigest))],
         preview.Next is { } next ? new ReconciliationPreviewCursorResponse(next.SubjectUserId, next.OriginalMeasureId) : null);
+
+    private static ReconciliationPreviewItemResponse Response(ReconciliationPreviewItem item) => new(
+        item.EventId, item.RegistrationVersion, item.State.ToString(), item.MaxReleasedSeats, item.MaxPromotions);
 }

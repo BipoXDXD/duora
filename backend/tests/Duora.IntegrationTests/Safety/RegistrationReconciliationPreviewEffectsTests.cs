@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Duora.Core.Events;
 using Duora.Core.Identity;
+using Duora.Core.Safety;
 using Duora.Infrastructure.Safety;
 using Duora.IntegrationTests.Identity;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,7 +48,7 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         Assert.Equal((1, 0, 0), ((int)units["eligible"]!, (int)units["blocked"]!, (int)units["oversized"]!));
         Assert.Null(body["next"]);
         var unit = Assert.Single(body["page"]!.AsArray())!.AsObject();
-        Assert.Equal(["items", "measureVersion", "originalMeasureId", "subjectUserId"],
+        Assert.Equal(["items", "measureVersion", "originalMeasureId", "subjectUserId", "unitDigest"],
             unit.Select(p => p.Key).Order(StringComparer.Ordinal));
         Assert.Equal((s.Seed.Alice, measure, 1L),
             (Guid.Parse((string)unit["subjectUserId"]!), Guid.Parse((string)unit["originalMeasureId"]!), (long)unit["measureVersion"]!));
@@ -57,6 +58,7 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         Assert.Equal((s.EventId, 1L, nameof(RegistrationState.Confirmed), 1, 1),
             (Guid.Parse((string)item["eventId"]!), (long)item["registrationVersion"]!, (string?)item["state"],
                 (int)item["maxReleasedSeats"]!, (int)item["maxPromotions"]!));
+        Assert.True(ReconciliationUnitDigest.IsWellFormed((string?)unit["unitDigest"]));
         foreach (var user in new[] { s.Seed.Alice, s.Seed.Bob, s.Seed.Third })
         {
             var email = await s.TextAsync("select email from identity.users where id=$1", user);
@@ -302,7 +304,7 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         var session = new ModeratorSession(account.UserId, await MfaScenario.ReadSessionIdAsync(browser));
         var previews = host.Services.GetRequiredService<LegacyRegistrationReconciliationPreviews>();
 
-        Assert.IsType<ReconciliationPreviewOutcome.Ready>(await previews.ReadAsModeratorAsync(session, cutover: null, after: null, Ct));
+        Assert.IsType<ReconciliationPreviewOutcome.Ready>(await previews.ReadAsModeratorAsync(session, evidence: null, after: null, Ct));
         Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session with { SessionId = Guid.NewGuid() }, null, null, Ct));
         Assert.IsType<ReconciliationPreviewOutcome.Forbidden>(await previews.ReadAsModeratorAsync(session with { UserId = s.Seed.Alice }, null, null, Ct));
 
@@ -369,7 +371,7 @@ public sealed class RegistrationReconciliationPreviewEffectsTests(PostgresFixtur
         };
 
     private static string Utc(DateTimeOffset instant) =>
-        instant.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);
+        instant.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
 
     private static async Task<Browser> ModeratorAsync(SuspendedRegistrationScenario s, DuoraWebFactory host)
     {

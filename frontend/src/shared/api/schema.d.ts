@@ -6183,7 +6183,10 @@ export interface components {
             /** Format: int32 */
             maxPromotions: number | string;
         };
-        /** @description Conta/medida original com as inscrições candidatas e a versão observada da medida. */
+        /**
+         * @description Conta/medida original com as inscrições candidatas, a versão observada da medida e o `UnitDigest`: SHA-256 em
+         *     hexadecimal minúsculo que a criação de um run confere contra o recálculo do servidor.
+         */
         ReconciliationPreviewUnitResponse: {
             /** Format: uuid */
             subjectUserId: string;
@@ -6192,6 +6195,7 @@ export interface components {
             /** Format: int64 */
             measureVersion: number | string;
             items: components["schemas"]["ReconciliationPreviewItemResponse"][];
+            unitDigest: string;
         };
         /** @description Unidades conta/medida: elegíveis, pausadas por integridade e grandes demais para aplicação automática. */
         ReconciliationUnitCountsResponse: {
