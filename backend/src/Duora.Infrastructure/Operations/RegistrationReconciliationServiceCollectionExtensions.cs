@@ -7,8 +7,8 @@ namespace Duora.Infrastructure.Operations;
 public static class RegistrationReconciliationServiceCollectionExtensions
 {
     /// <summary>
-    /// Prévia (API-ADM25), runs (API-ADM26 e API-ADM27) e o descritor do corte. Só a Web registra: não há executor, job
-    /// nem worker da reconciliação nesta etapa.
+    /// Prévia (API-ADM25), runs e unidades (API-ADM26 a API-ADM29) e o descritor do corte. Só a Web registra: a aplicação
+    /// é por pedido do moderador, sem job nem worker.
     /// </summary>
     public static IServiceCollection AddRegistrationReconciliation(this IServiceCollection services)
     {
@@ -24,6 +24,7 @@ public static class RegistrationReconciliationServiceCollectionExtensions
             provider.GetRequiredService<NpgsqlDataSource>(),
             provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<RegistrationReconciliationRuns>();
+        services.AddSingleton<RegistrationReconciliationCoordinator>();
         return services;
     }
 }

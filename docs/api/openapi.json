@@ -4490,7 +4490,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "description": "A stable key for this exact request; a replay returns the same run.",
+            "description": "A stable key for this exact request; a replay returns the recorded result.",
             "required": true,
             "schema": {
               "maxLength": 64,
@@ -4643,6 +4643,226 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/registration-reconciliations/runs/{runId}/units/{unitId}:apply": {
+      "post": {
+        "tags": [
+          "RegistrationReconciliation"
+        ],
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "unitId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "A stable key for this exact request; a replay returns the recorded result.",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationReconciliationUnitReceiptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/registration-reconciliations/runs/{runId}:close": {
+      "post": {
+        "tags": [
+          "RegistrationReconciliation"
+        ],
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "The ETag of the run; without it the API answers 428.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationReconciliationRunResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Precondition Failed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Precondition Required",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -8017,7 +8237,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Run de reconciliação (API-ADM26 e API-ADM27). `State`: Open | Closed. `ETag` identifica esta versão do\nrun. Instantes em UTC, com \"Z\". Sem recibo nesta etapa: nenhuma unidade é aplicada por estas rotas."
+        "description": "Run de reconciliação (API-ADM26, API-ADM27 e API-ADM29). `State`: Open | Closed. `ETag` identifica esta\nversão do run. Instantes em UTC, com \"Z\"."
       },
       "RegistrationReconciliationRunUnitResponse": {
         "required": [
@@ -8026,7 +8246,8 @@
           "originalMeasureId",
           "measureVersion",
           "state",
-          "items"
+          "items",
+          "receipt"
         ],
         "type": "object",
         "properties": {
@@ -8058,10 +8279,72 @@
             "items": {
               "$ref": "#/components/schemas/ReconciliationPreviewItemResponse"
             }
+          },
+          "receipt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RegistrationReconciliationUnitReceiptResponse"
+              }
+            ]
           }
         },
         "additionalProperties": false,
-        "description": "Unidade do manifesto. `State`: Pending | Applied | SkippedChanged | NeedsReview."
+        "description": "Unidade do manifesto. `State`: Pending | Applied | SkippedChanged | NeedsReview. `Receipt`: o mesmo recibo de\nAPI-ADM28, null enquanto a unidade está Pending."
+      },
+      "RegistrationReconciliationUnitReceiptResponse": {
+        "required": [
+          "runId",
+          "unitId",
+          "state",
+          "reason",
+          "factIds",
+          "executedByUserId",
+          "executedAt",
+          "correlationId"
+        ],
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "unitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "factIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "executedByUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "executedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "correlationId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Recibo de uma unidade terminal (API-ADM28), o checkpoint da aplicação: repetir o pedido devolve este mesmo recibo.\n`State`: Applied | SkippedChanged | NeedsReview. `Reason`: motivo fechado, null em Applied. `FactIds`:\nfatos de promoção vinculados à unidade, que ficam como evidência mesmo depois que a retenção apaga o fato.\n`ExecutedAt` em UTC, com \"Z\"."
       },
       "ResetPasswordRequest": {
         "required": [

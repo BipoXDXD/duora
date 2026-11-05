@@ -41,6 +41,8 @@ internal static class ApiProblems
     public const string ReauthenticationRequired = "REAUTHENTICATION_REQUIRED";
     public const string RateLimited = "RATE_LIMITED";
     public const string RunAlreadyOpen = "RUN_ALREADY_OPEN";
+    public const string RunClosed = "RUN_CLOSED";
+    public const string CutoverChanged = "CUTOVER_CHANGED";
     public const string SelfBlock = "SELF_BLOCK";
     public const string SelfieAttemptsExhausted = "SELFIE_ATTEMPTS_EXHAUSTED";
     public const string SelfieAttemptsLocked = "SELFIE_ATTEMPTS_LOCKED";
@@ -139,6 +141,8 @@ internal static class ApiProblems
         ReauthenticationRequired => "Confirm your credentials to continue.",
         RateLimited => "Too many requests. Try again later.",
         RunAlreadyOpen => "A reconciliation run is already open.",
+        RunClosed => "This reconciliation run is closed.",
+        CutoverChanged => "The configured cutover is not the one of this run.",
         SelfBlock => "You cannot block your own account.",
         SelfieAttemptsExhausted => "Selfie attempts are exhausted. The account is blocked pending review.",
         SelfieAttemptsLocked => "Too many rejected selfies. Try again after the pause.",

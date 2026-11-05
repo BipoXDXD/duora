@@ -9,6 +9,8 @@ namespace Duora.Infrastructure.Participation;
 /// <summary>Events-owned writes on the caller's transaction, after all user/account and event locks.</summary>
 internal static class RegistrationTransitions
 {
+    private const string PromotionFact = "events.waitlisted_registration_promoted";
+
     public static async Task WithdrawForSuspensionAsync(NpgsqlConnection connection, RegistrationLockPlan plan,
         Guid subject, Guid suspensionId, DateTimeOffset now, CancellationToken ct)
     {
@@ -81,12 +83,34 @@ internal static class RegistrationTransitions
             await AuditAsync(connection, AuditAction.RegistrationPromoted, eventId, now, ct);
             // Durable fact for notification consumers; no external effect while holding business locks.
             var payload = JsonSerializer.Serialize(new { eventId, userId = user });
-            await Execute(connection, """
+            await Execute(connection, $"""
                 insert into ops.outbox_events(id,type,schema_version,resource_type,resource_id,resource_version,payload,occurred_at)
-                select $1,'events.waitlisted_registration_promoted',1,'event',id,version,$3::jsonb,$4
+                select $1,'{PromotionFact}',1,'event',id,version,$3::jsonb,$4
                   from events.events where id=$2
                 """, ct, Guid.CreateVersion7(now), eventId, payload, now);
         }
+    }
+
+    /// <summary>
+    /// Promotion facts of the event in <c>(afterVersion, upToVersion]</c>, oldest first. The caller holds the event
+    /// lock across the whole range, so no version from another transaction can fall inside it.
+    /// </summary>
+    public static async Task<Guid[]> PromotionFactsAsync(NpgsqlConnection connection, Guid eventId, long afterVersion,
+        long upToVersion, CancellationToken ct)
+    {
+        await using var query = Command(connection, $"""
+            select id from ops.outbox_events
+            where type='{PromotionFact}' and resource_type='event' and resource_id=$1
+              and resource_version>$2 and resource_version<=$3
+            order by resource_version
+            """, eventId, afterVersion, upToVersion);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        List<Guid> facts = [];
+        while (await reader.ReadAsync(ct))
+        {
+            facts.Add(reader.GetGuid(0));
+        }
+        return [.. facts];
     }
 
     private static Task<int> AuditAsync(NpgsqlConnection connection, AuditAction action, Guid eventId,

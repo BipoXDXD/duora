@@ -40,6 +40,8 @@ public sealed class ProblemTextTests
         { "REAUTHENTICATION_REQUIRED", "Confirm your credentials to continue." },
         { "RATE_LIMITED", "Too many requests. Try again later." },
         { "RUN_ALREADY_OPEN", "A reconciliation run is already open." },
+        { "RUN_CLOSED", "This reconciliation run is closed." },
+        { "CUTOVER_CHANGED", "The configured cutover is not the one of this run." },
         { "SELF_BLOCK", "You cannot block your own account." },
         { "SELFIE_ATTEMPTS_EXHAUSTED", "Selfie attempts are exhausted. The account is blocked pending review." },
         { "SELFIE_ATTEMPTS_LOCKED", "Too many rejected selfies. Try again after the pause." },
