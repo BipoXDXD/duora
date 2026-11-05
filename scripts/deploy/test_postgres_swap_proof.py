@@ -4,6 +4,7 @@ import dataclasses
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import re
 import socket
@@ -352,6 +353,119 @@ class ProtectedAncestorTests(unittest.TestCase):
             restore.assert_called_once_with([entry])
 
 
+class ExplicitDirectoryTests(unittest.TestCase):
+    """Created by the proof with an explicit mode at every level, whatever the umask or the parent's ACL says."""
+
+    def setUp(self) -> None:
+        directory_object = tempfile.TemporaryDirectory()
+        self.addCleanup(directory_object.cleanup)
+        self.base = Path(directory_object.name)
+        previous = os.umask(0)
+        self.addCleanup(os.umask, previous)
+        chown = patch.object(bench.os, "chown")
+        self.chown = chown.start()
+        self.addCleanup(chown.stop)
+
+    def mode(self, path: Path) -> int:
+        return stat.S_IMODE(path.stat().st_mode)
+
+    def test_every_new_level_gets_the_mode_with_umask_zero(self) -> None:
+        target = self.base / "a/b/c"
+        bench.ensure_root_directory(target)
+        for level in (self.base / "a", self.base / "a/b", target):
+            self.assertEqual(self.mode(level), 0o755)
+            self.chown.assert_any_call(level, 0, 0)
+
+    def test_an_existing_level_is_not_touched(self) -> None:
+        existing = self.base / "a"
+        existing.mkdir()
+        existing.chmod(0o777)
+        bench.ensure_root_directory(existing / "b")
+        self.assertEqual(self.mode(existing), 0o777)
+        self.assertEqual(self.mode(existing / "b"), 0o755)
+
+    def test_write_root_creates_parents_with_explicit_mode(self) -> None:
+        bench.write_root(self.base / "x/y/file", b"data", mode=0o644)
+        self.assertEqual(self.mode(self.base / "x"), 0o755)
+        self.assertEqual(self.mode(self.base / "x/y"), 0o755)
+        self.assertEqual(self.mode(self.base / "x/y/file"), 0o644)
+
+    def test_ingress_has_no_group_or_world_write_with_umask_zero(self) -> None:
+        with patch.object(bench, "INGRESS", self.base / "lib/ingress"):
+            bench.prepare_ingress()
+        for path, expected in ((self.base / "lib", 0o755), (self.base / "lib/ingress", 0o755), (self.base / "lib/ingress/duora", 0o700)):
+            self.assertEqual(self.mode(path), expected)
+        for lock in (self.base / "lib/ingress/host.lock", self.base / "lib/ingress/duora/release.lock"):
+            self.assertEqual(self.mode(lock), 0o600)
+
+    def test_claim_closes_the_umask_for_the_proof_and_release_restores_it(self) -> None:
+        with patch.object(bench, "CLAIM", self.base / "claim"), patch.object(bench, "require_host_free"), \
+                patch.object(bench, "unprotected_ancestors", return_value=[]), patch.object(bench, "_remove_fixed_paths"):
+            host = bench.FixedHost()
+            host.claim(root=self.base / "work", registry="registry")
+            self.assertEqual(os.umask(0o022), 0o022)
+            host.release()
+            self.assertEqual(os.umask(0), 0)
+
+
+class ReauditAfterCreationTests(SwapFixture):
+    def test_what_appears_after_the_claim_is_protected_by_prepare_fixed_paths(self) -> None:
+        late = {"path": "/opt/duora", "mode": 0o775, "uid": 0, "gid": 0}
+        with patch.multiple(bench, PIN=self.root / "fixed/pin.json", RELEASES=self.root / "fixed/releases",
+                            INGRESS=self.ingress), patch.object(bench.os, "chown"), \
+                patch.object(bench, "unprotected_ancestors", return_value=[late]) as found, \
+                patch.object(bench, "protect_ancestors") as protect:
+            bench.prepare_fixed_paths(self.release, self.paths)
+            audited = found.call_args.args[0]
+            protect.assert_called_once_with([late])
+            self.assertIn(self.root / "fixed/releases" / (self.release.release_id + ".json"), audited)
+            self.assertIn(self.paths.compose_file, audited)
+            self.assertIn(self.paths.host_env, audited)
+
+    def test_real_reaudit_sees_an_open_directory_created_after_the_claim(self) -> None:
+        tree = {"/opt": directory(0o755), "/opt/duora": directory(0o777), "/opt/duora/releases": directory(0o755)}
+        def lstat(path):
+            if str(path) not in tree:
+                raise FileNotFoundError(path)
+            return tree[str(path)]
+        with patch.object(bench.os, "lstat", lstat):
+            found = bench.unprotected_ancestors([Path("/opt/duora/releases/release.json")])
+        self.assertEqual([entry["path"] for entry in found], ["/opt/duora"])
+
+    def test_a_file_target_with_open_mode_is_found_too(self) -> None:
+        tree = {"/root": directory(0o700), "/root/compose.yml": SimpleNamespace(st_mode=stat.S_IFREG | 0o666, st_uid=0, st_gid=0)}
+        def lstat(path):
+            if str(path) not in tree:
+                raise FileNotFoundError(path)
+            return tree[str(path)]
+        with patch.object(bench.os, "lstat", lstat):
+            found = bench.unprotected_ancestors([Path("/root/compose.yml")])
+        self.assertEqual(found, [{"path": "/root/compose.yml", "mode": 0o666, "uid": 0, "gid": 0}])
+
+
+class AncestryReportTests(unittest.TestCase):
+    TREE = {"/opt": directory(0o777), "/opt/duora": directory(0o775, gid=1001), "/opt/duora/releases": directory(0o755)}
+
+    def report(self) -> str:
+        def lstat(path):
+            if str(path) not in self.TREE:
+                raise FileNotFoundError(path)
+            return self.TREE[str(path)]
+        with patch.object(bench.os, "lstat", lstat), patch.object(bench.os, "listxattr", lambda *_a, **_k: ["system.posix_acl_default"], create=True):
+            return bench.ancestry_report(Path("/opt/duora/releases/release.json"))
+
+    def test_report_gives_mode_owner_and_acl_of_each_ancestor(self) -> None:
+        report = self.report()
+        self.assertIn("/opt drwxrwxrwx 0:0", report)
+        self.assertIn("/opt/duora drwxrwxr-x 0:1001", report)
+        self.assertIn("/opt/duora/releases drwxr-xr-x 0:0", report)
+        self.assertIn("system.posix_acl_default", report)
+
+    def test_report_survives_a_missing_level(self) -> None:
+        with patch.object(bench.os, "lstat", side_effect=FileNotFoundError):
+            self.assertIn("/opt missing", bench.ancestry_report(Path("/opt/file")))
+
+
 class RunnerReproductionTests(unittest.TestCase):
     """The executor's real reader over a simulated runner filesystem; the executor itself stays untouched."""
 
@@ -395,6 +509,35 @@ class ProtectedReadAuditTests(SwapFixture):
         with self.patched(), patch.object(bench.executor, "_recovery_root_read", read), \
                 self.assertRaisesRegex(bench.ProofFailure, str(self.opt)):
             self.lab_object().require_protected_reads(self.release)
+
+    def test_refusal_carries_each_ancestor_in_the_exception_and_in_a_last_stderr_line(self) -> None:
+        def read(_path):
+            raise executor.DeployError("Recovery ancestry is not protected root state")
+        stderr = io.StringIO()
+        with self.patched(), patch.object(bench.executor, "_recovery_root_read", read), \
+                patch.object(bench, "ancestry_report", return_value="/opt drwxrwxrwx 0:0"), \
+                contextlib.redirect_stderr(stderr), self.assertRaises(bench.ProofFailure) as refused:
+            self.lab_object().require_protected_reads(self.release)
+        self.assertIn("/opt drwxrwxrwx 0:0", str(refused.exception))
+        self.assertIn("/opt drwxrwxrwx 0:0", stderr.getvalue())
+
+    def test_every_refused_path_is_named_not_only_the_first(self) -> None:
+        refused_paths = {self.opt / (self.release.release_id + ".json"), self.paths.compose_file}
+        def read(path):
+            if path in refused_paths:
+                raise executor.DeployError("refused")
+            return b""
+        with self.patched(), patch.object(bench.executor, "_recovery_root_read", read), contextlib.redirect_stderr(io.StringIO()), \
+                self.assertRaises(bench.ProofFailure) as refused:
+            self.lab_object().require_protected_reads(self.release)
+        for path in refused_paths:
+            self.assertIn(str(path), str(refused.exception))
+
+    def test_matrix_and_unhealthy_are_audited_before_the_first_command(self) -> None:
+        source = Path(bench.__file__).read_text()
+        for start in ("    def matrix(self", "    def unhealthy(self"):
+            body = source[source.index(start):]
+            self.assertLess(body.index("self.require_protected_reads("), body.index("self.swap("))
 
     def test_audit_uses_the_executors_own_reader(self) -> None:
         seen = []

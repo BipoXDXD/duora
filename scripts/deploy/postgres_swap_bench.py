@@ -97,8 +97,17 @@ def source_for(architecture: str) -> str:
     return json.loads(LOCK.read_text())["images"][architecture]
 
 
+def ensure_root_directory(path: Path, mode: int = 0o755) -> None:
+    """Every missing level, not only the last: mkdir(parents=True) leaves the others to the umask and the parent's ACL."""
+    for level in (*reversed(path.parents), path):
+        if not level.exists():
+            os.mkdir(level)
+            os.chown(level, 0, 0)
+            os.chmod(level, mode)
+
+
 def write_root(path: Path, raw: bytes, *, mode: int = 0o600) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    ensure_root_directory(path.parent)
     path.write_bytes(raw)
     path.chmod(mode)
 
@@ -123,12 +132,16 @@ def prepare_fixed_paths(current: executor.Release, paths: executor.Paths) -> Non
            "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
            "observer_environment": {"DUORA_OBSERVER_IMAGE": current.images["edge"]}}
     write_root(PIN, executor._recovery_pin_bytes(pin))
+    # Reaudit: what the proof created, and whatever appeared after the claim, must also pass the executor's reader.
+    protect_ancestors(unprotected_ancestors(protected_reads(paths, current)))
 
 
 def prepare_ingress() -> None:
-    (INGRESS / "duora").mkdir(parents=True, mode=0o700, exist_ok=True)
+    ensure_root_directory(INGRESS)
+    ensure_root_directory(INGRESS / "duora", 0o700)
     for lock in (INGRESS / "host.lock", INGRESS / "duora/release.lock"):
         lock.touch(mode=0o600)
+        lock.chmod(0o600)
 
 
 def host_is_disposable(environment: dict | None = None) -> bool:
@@ -187,6 +200,26 @@ def restore_ancestors(entries: list[dict]) -> None:
         os.chmod(entry["path"], entry["mode"])
 
 
+def ancestry_report(path: Path) -> str:
+    """What the executor's message leaves out: mode, owner and extended attributes of each ancestor."""
+    rows = []
+    for item in reversed(path.parents):
+        if item == item.parent:
+            continue
+        try:
+            info = os.lstat(item)
+        except OSError as error:
+            rows.append(f"{item} missing ({type(error).__name__})")
+            continue
+        list_attributes = getattr(os, "listxattr", None)  # Linux only; a default ACL would show up here.
+        try:
+            attributes = list_attributes(item, follow_symlinks=False) if list_attributes else []
+        except OSError:
+            attributes = []
+        rows.append(f"{item} {stat.filemode(info.st_mode)} {info.st_uid}:{info.st_gid}" + (" " + ",".join(attributes) if attributes else ""))
+    return "; ".join(rows)
+
+
 def protected_reads(paths: executor.Paths, release: executor.Release) -> list[Path]:
     """Everything the swap entry reads through the executor's protected reader, from the locks to the plan."""
     state, name = paths.state_dir, release.release_id
@@ -207,12 +240,14 @@ class FixedHost:
     def __init__(self) -> None:
         self.claimed = False
         self.ancestors: list[dict] = []
+        self.umask = 0o022
 
     def claim(self, *, root: Path, registry: str) -> None:
         require_host_free()
         self.ancestors = unprotected_ancestors([PIN.parent, RELEASES, INGRESS, root])
         CLAIM.write_text(json.dumps({"root": str(root), "registry": registry, "ancestors": self.ancestors}))
         self.claimed = True
+        self.umask = os.umask(0o022)
         protect_ancestors(self.ancestors)
 
     def release(self) -> None:
@@ -221,6 +256,7 @@ class FixedHost:
         _remove_fixed_paths()
         restore_ancestors(self.ancestors)
         CLAIM.unlink(missing_ok=True)
+        os.umask(self.umask)
         self.claimed = False
 
 
@@ -492,11 +528,16 @@ class SwapLab:
 
     def require_protected_reads(self, release: executor.Release) -> None:
         """The executor says only that an ancestry is unsafe; a proof that fails has to say where."""
+        refused = []
         for path in protected_reads(self.paths, release):
             try:
                 executor._recovery_root_read(path)
             except executor.DeployError as error:
-                raise ProofFailure("Protected read refused for " + str(path) + ": " + str(error)) from error
+                refused.append(str(path) + ": " + str(error) + " [" + ancestry_report(path) + "]")
+        if refused:
+            # Close to the end of the output: the lab keeps only the last 6000 characters of what it captures.
+            print("[swap-proof] protected reads refused: " + " | ".join(refused), file=sys.stderr, flush=True)
+            raise ProofFailure("Protected read refused for " + " | ".join(refused))
 
     def sealed_swap(self, release: executor.Release, target: str) -> executor.Release:
         """Plan, apply, reseal and close through the real command."""
@@ -575,6 +616,7 @@ class SwapLab:
         return self.following_deploy(closed)
 
     def matrix(self, first: str, second: str) -> dict:
+        self.require_protected_reads(self.current)
         outcomes = []
         for phase in KILL_STATES:
             for how in ("resume", "abort"):
@@ -637,6 +679,7 @@ class SwapLab:
             raise ProofFailure("Resume did not close after a kill at " + phase)
 
     def unhealthy(self, bad: str) -> dict:
+        self.require_protected_reads(self.current)
         release = self.current
         plan = self.swap(release, bad, "--preflight-only")["planSha256"]
         with OutageProbe() as probe:
