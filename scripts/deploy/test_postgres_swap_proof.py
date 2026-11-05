@@ -164,6 +164,21 @@ class HostGuardTests(unittest.TestCase):
             self.assertEqual(file.read_text(), "production\n")
         self.assertFalse(self.paths["CLAIM"].exists())
 
+    def test_a_claim_left_by_a_killed_run_refuses_and_asks_for_cleanup(self) -> None:
+        self.mark_disposable()
+        original = '{"root": "/root/old", "registry": "r", "ancestors": [{"path": "/opt", "mode": 511, "uid": 0, "gid": 0}]}'
+        self.paths["CLAIM"].write_text(original)
+        with self.assertRaisesRegex(bench.ProofFailure, "--mode cleanup"):
+            self.run_main()
+        self.assertEqual(self.paths["CLAIM"].read_text(), original)
+        self.assertEqual(self.docker_calls, [])
+
+    def test_a_second_claim_in_a_race_never_overwrites_the_first(self) -> None:
+        self.paths["CLAIM"].write_text("{}")
+        with patch.object(bench, "require_host_free"), self.assertRaises(FileExistsError):
+            bench.FixedHost().claim(root=self.base / "work", registry="registry")
+        self.assertEqual(self.paths["CLAIM"].read_text(), "{}")
+
     def test_each_fixed_location_alone_refuses(self) -> None:
         self.mark_disposable()
         for path in (self.paths["PIN"].parent, self.paths["RELEASES"].parent, self.paths["INGRESS"]):

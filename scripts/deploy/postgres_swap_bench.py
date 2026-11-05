@@ -157,6 +157,9 @@ def host_is_disposable(environment: dict | None = None) -> bool:
 
 def require_host_free() -> None:
     """Runs before anything exists to clean: a refusal here leaves the host exactly as it was."""
+    if CLAIM.exists():
+        # It holds the original modes of the ancestors: a new claim would record the protected ones as original.
+        raise ProofFailure("A previous proof left its claim at " + str(CLAIM) + ": run --mode cleanup first")
     for path in (PIN.parent, RELEASES.parent, INGRESS, BACKUP_COMMAND):
         if path.exists() or path.is_symlink():
             raise ProofFailure("Refusing to adopt existing host state: " + str(path))
@@ -245,7 +248,8 @@ class FixedHost:
     def claim(self, *, root: Path, registry: str) -> None:
         require_host_free()
         self.ancestors = unprotected_ancestors([PIN.parent, RELEASES, INGRESS, root])
-        CLAIM.write_text(json.dumps({"root": str(root), "registry": registry, "ancestors": self.ancestors}))
+        with CLAIM.open("x") as claim:
+            json.dump({"root": str(root), "registry": registry, "ancestors": self.ancestors}, claim)
         self.claimed = True
         self.umask = os.umask(0o022)
         protect_ancestors(self.ancestors)
