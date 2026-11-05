@@ -1,4 +1,4 @@
-# Test tool only, Linux arm64 SDK 10.0.403 already used for the experiment.
+# Test tool only, Linux arm64 SDK 10.0.403 pinned by digest; the recorded experiments ran on 10.0.402.
 FROM mcr.microsoft.com/dotnet/sdk@sha256:f34803987e201bd321984712d40a4bed1f797d4756b9b21eb5b6ddd2b178d2ef
 RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
