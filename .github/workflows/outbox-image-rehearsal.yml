@@ -53,7 +53,7 @@ jobs:
           cp scripts/testing/mail-outbox/current/Probe.csproj .mail-lab/validation/current/Probe.csproj
           cp .mail-lab/source/global.json .mail-lab/global.json
           printf '<Project><Import Project="source/Directory.Packages.props" /></Project>\n' > .mail-lab/Directory.Packages.props
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: .mail-lab/global.json
       - name: Build current Infrastructure probe only
