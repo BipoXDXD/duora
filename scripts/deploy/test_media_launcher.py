@@ -410,4 +410,5 @@ class HostLayoutTests(unittest.TestCase):
         # it behind owned by a deleted account.
         uninstall = (self.ROOT / "infra/ansible/roles/media_sanitizer/tasks/uninstall.yml").read_text()
         removal = uninstall.split("- name: Remover perfil, unidade, código", 1)[1].split("\n- name:", 1)[0]
-        self.assertIn('"{{ media_sanitizer_control_socket | dirname }}"', removal)
+        self.assertIn("    - /run/duora-media\n", removal)
+        self.assertNotIn("dirname", removal)
