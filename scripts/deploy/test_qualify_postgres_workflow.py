@@ -61,8 +61,7 @@ class QualifyPostgresWorkflowTests(unittest.TestCase):
     def test_only_the_publishing_job_can_write_packages(self) -> None:
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         self.assertNotIn("permissions", self.workflow["jobs"]["verify"])
-        self.assertEqual(self.job["permissions"],
-                         {"contents": "read", "actions": "read", "packages": "write"})
+        self.assertEqual(self.job["permissions"], {"contents": "read", "packages": "write"})
 
     def test_native_matrix_matches_the_release_runners(self) -> None:
         publish = yaml.safe_load((ROOT / ".github/workflows/publish-images.yml").read_text())
@@ -92,7 +91,7 @@ class QualifyPostgresWorkflowTests(unittest.TestCase):
         self.assertIn("actions/checkout", checkout["uses"])
         self.assertEqual(checkout["with"], {"persist-credentials": False})
 
-    def test_nothing_from_the_candidate_runs_outside_the_docker_build(self) -> None:
+    def test_candidate_files_run_only_through_the_build_and_its_image(self) -> None:
         for script in self.scripts():
             self.assertNotRegex(script, rf"(?:^|\s)(?:\./|bash |sh |python3? ){re.escape(CANDIDATE)}")
             self.assertNotIn("source " + CANDIDATE, script)
@@ -140,22 +139,28 @@ class QualifyPostgresWorkflowTests(unittest.TestCase):
         self.assertNotIn("docker push", script)
         self.assertNotIn("buildx", script)
 
-    def test_registry_login_ends_with_each_step_that_needs_it(self) -> None:
-        for needle in ("docker push", "docker pull"):
-            script = self.step(needle)["run"]
-            self.assertIn('trap \'docker logout ghcr.io', script)
-            self.assertIn('--password-stdin', script)
+    def test_registry_login_ends_with_the_push(self) -> None:
+        script = self.step("docker push")["run"]
+        self.assertIn('trap \'docker logout ghcr.io', script)
+        self.assertIn('--password-stdin', script)
+
+    def test_renewal_pulls_the_public_digest_without_a_credential(self) -> None:
+        pull = self.step("docker pull")
+        self.assertNotIn("env", pull)
+        self.assertNotIn("docker login", pull["run"])
+        self.assertNotIn("GH_TOKEN", pull["run"])
 
     def test_every_gate_runs_in_both_modes_on_the_selected_image(self) -> None:
         for needle in ("pgbackrest version", "restore_drill.py --image duora-postgres:ci",
-                       "--exit-code 1", "--format cyclonedx", "postgres_component.py publication"):
+                       "--format cyclonedx", "postgres_component.py publication"):
             with self.subTest(gate=needle):
                 self.assertNotIn("if", self.step(needle))
 
     def test_gates_run_after_the_image_exists_and_before_the_publication(self) -> None:
         order = [self.index(needle) for needle in (
-            "docker push", "pgbackrest version", "restore_drill.py --image", "--exit-code 1",
-            "--format cyclonedx", "postgres_component.py publication")]
+            "docker push", "pgbackrest version", "restore_drill.py --image")]
+        order += [self.steps.index(step) for step in self.gates()]
+        order += [self.index(needle) for needle in ("--format cyclonedx", "postgres_component.py publication")]
         self.assertEqual(order, sorted(order))
         upload = next(step for step in self.steps if "upload-artifact" in step.get("uses", ""))
         self.assertLess(order[-1], self.steps.index(upload))
@@ -171,14 +176,32 @@ class QualifyPostgresWorkflowTests(unittest.TestCase):
         self.assertNotIn("apply_candidate_sql", body)
         self.assertNotIn("duora-migrator:ci", body)
 
-    def test_scanner_gate_cannot_see_the_exception_file(self) -> None:
-        gate = self.step("--exit-code 1")
-        for required in ("--severity HIGH,CRITICAL", "--ignore-unfixed", "duora-postgres:ci"):
-            self.assertIn(required, gate["run"])
-        self.assertNotIn("continue-on-error", gate)
+    def gates(self) -> list[dict[str, Any]]:
+        return [step for step in self.steps if "--exit-code 1" in step.get("run", "")]
+
+    def test_each_mode_has_exactly_one_blocking_scanner_gate(self) -> None:
+        gates = self.gates()
+        self.assertEqual([gate["if"] for gate in gates],
+                         ["${{ inputs.mode == 'qualify' }}", "${{ inputs.mode == 'renew' }}"])
+        for gate in gates:
+            for required in ("--severity HIGH,CRITICAL", "--ignore-unfixed", "duora-postgres:ci"):
+                self.assertIn(required, gate["run"])
+            self.assertNotIn("continue-on-error", gate)
+
+    def test_qualification_scan_cannot_see_any_exception_file(self) -> None:
+        qualify = self.gates()[0]["run"]
+        self.assertNotIn("trivyignore", qualify)
+        self.assertNotIn("--ignorefile", qualify)
+
+    def test_renewal_reads_exceptions_only_from_the_reviewed_main_checkout(self) -> None:
+        renew = self.gates()[1]["run"]
+        self.assertIn('-v "$GITHUB_WORKSPACE/.trivyignore:/trivyignore:ro"', renew)
+        self.assertIn("--ignorefile /trivyignore", renew)
+        self.assertEqual(len(re.findall(r"\.trivyignore:", renew)), 1)
+        mentions = [script for script in self.scripts() if "trivyignore" in script]
+        self.assertEqual(mentions, [self.gates()[1]["run"]])
         for script in self.scripts():
-            self.assertNotIn("trivyignore", script)
-            self.assertNotIn("--ignorefile", script)
+            self.assertNotRegex(script, re.escape(CANDIDATE) + r"\S*trivyignore")
 
     def test_publication_binds_the_candidate_commit_and_this_exact_attempt(self) -> None:
         step = self.step("postgres_component.py publication")

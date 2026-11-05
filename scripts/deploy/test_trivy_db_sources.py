@@ -11,8 +11,8 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOWS = {"ci.yml": 4, "publish-images.yml": 3, "qualify-postgres.yml": 2}
-IGNORE_FREE_WORKFLOWS = {"qualify-postgres.yml"}
+WORKFLOWS = {"ci.yml": 4, "publish-images.yml": 3, "qualify-postgres.yml": 3}
+MODE_SPLIT_WORKFLOWS = {"qualify-postgres.yml"}
 IMAGE = "ghcr.io/aquasecurity/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa"
 REPOSITORIES = ("ghcr.io/aquasecurity/trivy-db:2", "mirror.gcr.io/aquasec/trivy-db:2")
 INVOCATION = re.compile(r'\bdocker\s+run\b(?P<options>.*?)"\$TRIVY_IMAGE"\s+(?:image|fs)\b', re.S)
@@ -54,12 +54,12 @@ class TrivyDatabaseSourcesTests(unittest.TestCase):
         for name, count in WORKFLOWS.items():
             yield name, count, yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
 
-    def test_all_nine_launch_sites_receive_primary_official_source_and_mirror(self):
+    def test_all_ten_launch_sites_receive_primary_official_source_and_mirror(self):
         total = 0
         for name, count, workflow in self.workflows():
             with self.subTest(workflow=name):
                 total += checked_invocations(workflow, count)
-        self.assertEqual(9, total)
+        self.assertEqual(10, total)
 
     def test_regression_unconfigured_default_policy_is_rejected(self):
         for name, count, workflow in self.workflows():
@@ -98,27 +98,29 @@ class TrivyDatabaseSourcesTests(unittest.TestCase):
             with self.subTest(workflow=name, scope="step override"), self.assertRaisesRegex(AssertionError, "source priority"):
                 checked_invocations(broken, count)
 
-    def test_component_qualification_gate_fails_closed_without_the_exception_file(self):
+    def test_component_gates_fail_closed_and_only_renewal_reads_the_exception_file(self):
         for name, count, workflow in self.workflows():
-            if name not in IGNORE_FREE_WORKFLOWS:
+            if name not in MODE_SPLIT_WORKFLOWS:
                 continue
-            steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])
-                     if "--exit-code 1" in step.get("run", "")]
-            self.assertEqual(1, len(steps))
-            self.assertFalse(steps[0].get("continue-on-error", False))
-            self.assertNotIn("--ignorefile", steps[0]["run"])
-            self.assertNotIn("trivyignore", steps[0]["run"])
+            gates = {step["if"]: step for job in workflow["jobs"].values() for step in job.get("steps", [])
+                     if "--exit-code 1" in step.get("run", "")}
+            self.assertEqual(set(gates), {"${{ inputs.mode == 'qualify' }}", "${{ inputs.mode == 'renew' }}"})
+            for step in gates.values():
+                self.assertFalse(step.get("continue-on-error", False))
+            self.assertNotIn("ignorefile", gates["${{ inputs.mode == 'qualify' }}"]["run"])
+            self.assertNotIn("trivyignore", gates["${{ inputs.mode == 'qualify' }}"]["run"])
+            self.assertIn("--ignorefile /trivyignore", gates["${{ inputs.mode == 'renew' }}"]["run"])
             broken = copy.deepcopy(workflow)
             for job in broken["jobs"].values():
                 for candidate in job.get("steps", []):
-                    if candidate.get("run") == steps[0]["run"]:
+                    if "--exit-code 1" in candidate.get("run", ""):
                         candidate["run"] += "\n# disallowed mutation\n--skip-db-update\n"
             with self.assertRaisesRegex(AssertionError, "bypass"):
                 checked_invocations(broken, count)
 
     def test_vulnerability_gate_still_fails_closed_without_skipping_database(self):
         for name, count, workflow in self.workflows():
-            if name in IGNORE_FREE_WORKFLOWS:
+            if name in MODE_SPLIT_WORKFLOWS:
                 continue
             steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])
                      if step.get("name") == "Trivy nas imagens (HIGH e CRITICAL corrigíveis bloqueiam)"]
