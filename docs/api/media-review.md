@@ -193,7 +193,8 @@ imutáveis nem reter original para reconstruir revisão. Jobs/campos reais serã
 | Exclusão/retenção/restore | INV-05/06/11; T-08/26 | Limites exatos de relógio, decisão/cleanup simultâneos, tombstone/hold mínimo, restore sem candidato |
 | Perfil/asset aprovado | INV-03/05/10; T-01/03/13 | Contexto de leitura revalidado, bloqueio/restrição, no-store, ausência de original/path/URL |
 
-Esta tabela exige testes futuros; não os declara implementados. #173/#174/#86/#69 continuam abertas.
+Esta tabela registra a matriz exigida; a evidência de cada célula está no parágrafo a seguir. #173, #174 e #69 continuam abertas; a #86 foi
+fechada em 29/10/2026 (janela C2 de 28/10), o que não liga o upload: isso continua na #69.
 HumanReview é admitida em Production desde 28/10/2026, mas ligar o upload continua dependendo da #69 e de homologação. Detector/filtro regional continuam fora do escopo.
 
 ## Preparação executável M1
@@ -263,8 +264,11 @@ Registradas no [ADR-0035](../architecture/adr/0035-revisao-humana-de-fotos.md#de
 contrato: HumanReview admitida em Development, Testing e Production (Staging recusado); upload ainda desligado
 em Production (`duora_media_review` vazio, #69); sem recurso de fotos; um único revisor, o dono do projeto, como
 `moderator` com as capacidades `assign`, `evidence` e `decide`; a rejeição grava a limpeza do candidato em 24 h.
-Continuam abertos: ledger externo (sem custódia B2 até a #69) e retenção dos registros de exclusão, API-P04 (foto no perfil ou na sala; `GET /profiles/{userId}` não existe), aceite da política de
-privacidade pelo titular e ativação do upload (#69).
+Resolvidos depois: exclusão durante processamento e revisão (28/10/2026, #280) e retenção dos registros de
+exclusão (1 ano, decisão de 29/10/2026, abaixo). Continuam abertos: ledger externo (sem custódia B2 até a #69),
+API-P04 (foto no perfil ou na sala; `GET /profiles/{userId}` não existe), aceite da política de privacidade pelo
+titular (a decisão P4 de 29/10/2026 manteve o texto da política sem mudança, mas nenhum registro diz que isso
+encerra o aceite) e ativação do upload (#69).
 
 ### Matriz de autorização (28/10/2026)
 
@@ -293,9 +297,21 @@ inexistentes), `PhotoReviewOwnerPhotoListTests` (lista só do titular, 401), `Ph
 `MediaAssetReadTests` (404 uniforme, 401), `AdminRouteTests` (401 anônimo, 403 participante, 503 com upload
 desligado, 401 `REAUTHENTICATION_REQUIRED` sem MFA recente numa ação crítica), `SecondFactorHardeningTests`
 (403 da conta privilegiada em API-M01/M02) e `PhotoReviewAccessTests` (capacidades explícitas; `operator`, `product_admin` e `participant` não
-recebem grant). As células de `product_admin`/`operator` com upload ligado e as 403 da conta privilegiada em
-histórico, lista, DELETE e `/media` vêm do código (política padrão e recusa do serviço), sem teste HTTP próprio
-para cada célula.
+recebem grant). As células que só tinham o código como evidência (política padrão e recusa do serviço) têm agora
+teste HTTP em `PhotoReviewAuthorizationMatrixTests`, com o upload ligado, PostgreSQL real e dados sintéticos; cada
+teste afirma o status, o código do problema e que o corpo não traz identificador alheio, e confere que banco e
+armazenamento não mudaram: as 403 de `moderator`, `product_admin` e `operator` em lista, histórico, DELETE e
+`/media` (`PrivilegedAccountsAreForbiddenOnTheOwnerPhotoRoutesAndNothingOfTheOwnerLeaks`); as 403 de titular e outro
+participante nas seis rotas administrativas, enumeradas das rotas registradas
+(`ParticipantsAreForbiddenOnEveryReviewAdminRouteIncludingTheOwnerOfTheCase`); `product_admin` e `operator` com
+upload ligado, 403 `PHOTO_REVIEW_FORBIDDEN` e 401 `REAUTHENTICATION_REQUIRED` na decisão sem MFA recente
+(`ProductAdminAndOperatorHaveNoReviewCapabilityAndTheDecisionAsksForRecentMfaFirst`); do moderador, capacidades, fila
+só com o atribuído, 404 uniforme de caso alheio, não atribuído e inexistente, evidência (404 de caso não atribuído e
+de variante desconhecida, 200 auditada)
+(`ModeratorSeesOnlyTheCasesAssignedToThemAndEveryOtherCaseAnswersLikeAMissingOne`), 404, 428, 412 e os dois 409 da
+atribuição (`ModeratorAssignmentRefusalsAreNotFoundPreconditionAndConflictOverHttp`) e 401 na decisão sem MFA recente
+(`ModeratorDecisionWithoutARecentSecondFactorIsReauthenticationRequiredAndDecidesNothing`). Isso não substitui a
+revisão humana da autorização, que continua pendente na #173.
 
 ## Decisões de 29/10/2026
 
