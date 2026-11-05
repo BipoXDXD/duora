@@ -482,6 +482,8 @@ Compose interpolando a imagem, labels, `postgres --version`, `pgbackrest version
 colação conferidos num `initdb` descartável do alvo sem rede, `verify`, `verify-repo` e espaço em disco.
 
 Nada reverte sozinho. Com journal ou fence, nenhuma release age, e um reboot não retoma: só comando explícito.
+`verify-repo` toma o `.deploy.lock` em outro processo, então a troca solta só esse lock em volta dele, com teto próprio de
+45 min; os locks de host e projeto ficam presos, e nenhuma release entra na brecha.
 
 ```bash
 troca --resume    # continua da fase gravada
@@ -490,16 +492,23 @@ troca --abort     # desfaz até o rename de current.json
 
 Os dois recusam enquanto houver processo compose vivo do projeto ou mais de um container `postgres` ou `backup`, mesmo
 parado: um cliente órfão recriando o serviço enquanto você age põe dois containers sobre `duora_pgdata`. Espere terminar
-ou resolva à mão antes de repetir, e confira `docker ps --all`.
+ou resolva à mão antes de repetir, e confira `docker ps --all`. O detector lê `/proc`: linha de comando, `cwd` e
+`COMPOSE_PROJECT_NAME`/`COMPOSE_FILE`. Ele não vê cliente em outro namespace de PID, cliente remoto nem chamada direta à
+API do Docker; a contagem de containers cobre o efeito, não a intenção.
+
+`--resume` antes do passo 4 ainda não parou o banco, então segue as regras de começar: exige a janela e o espaço em disco.
+Do passo 4 em diante, e em todo `--abort`, nenhuma das duas barra a recuperação.
 
 **Ressela.** Com a fase em `awaiting-reseal`, o baseline ainda descreve os containers antigos. Use o procedimento da
 ressela da [selfie](#selfie-de-presença-no-coolify-93): inspeção, revisão e `--apply`. No `profile` só podem mudar
 `services.*` e `configHashes`; host, Docker, volume e `composeSha256` iguais. O instalador só isenta a fence da troca
 nas fases `awaiting-reseal` e `aborted-awaiting-reseal`, com o hash do journal conferido e o `sourceCommit` igual ao do
-executor ativo. Depois feche com `troca --resume`, que confere o baseline contra o runtime, roda `verify-repo`, arquiva
+executor ativo. Com journal aberto sem fence, ou numa transição de coorte do receiver, o instalador recusa. Depois feche
+com `troca --resume`, que recusa com instalação pendente, confere o baseline contra o runtime, roda `verify-repo`, arquiva
 o journal em `/var/lib/duora/postgres-swap-history/<swapId>/` e remove a fence. Só então uma release volta a andar.
 
-**Abort.** Dos passos 1 a 3 fecha sozinho. A partir do passo 4 ele recria o digest antigo, compara a foto e reabre a
+**Abort.** Dos passos 1 a 3 fecha sozinho, salvo se um reboot ou OOM mudou o `startedAt`: aí o banco não é tocado e o
+abort termina em `aborted-awaiting-reseal`. A partir do passo 4 ele recria o digest antigo, compara a foto e reabre a
 aplicação, mas termina em `aborted-awaiting-reseal`, com a fence mantida: basta o `stop` para mudar o `startedAt` selado,
 e sem ressela a próxima release seria recusada e travaria o host. Sele contra R e feche com `troca --resume`, que também
 roda `verify`. Abort interrompido só continua com `--abort`. No passo 6 a aplicação pode ter escrito; o abort preserva
