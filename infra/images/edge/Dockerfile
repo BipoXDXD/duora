@@ -23,7 +23,8 @@ RUN for attempt in 1 2 3; do \
       sleep $((attempt * 10)); \
     done; \
     exit 1
-COPY frontend/pnpm-lock.yaml ./
+# O pnpm-workspace.yaml leva as overrides: sem ele o install travado falha (ERR_PNPM_LOCKFILE_CONFIG_MISMATCH).
+COPY frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=duora-pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 COPY frontend/ ./

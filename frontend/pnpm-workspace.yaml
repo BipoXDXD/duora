@@ -1,0 +1,8 @@
+# Sobrescritas de dependências transitivas. No pnpm 12 elas vivem aqui, não no package.json.
+overrides:
+  # GHSA-g3hv-75wg-m249 / CVE-2026-118764 (alerta Dependabot 1): DoS por amplificação de globparts em
+  # minimatch >= 7.0.0 < 11.0.1, só com optimizationLevel >= 2. ESLint e typescript-eslint ainda declaram
+  # minimatch ^10 e não há versão deles que aceite a corrigida. A faixa cobre só o minimatch 10.x; o 5.1.9
+  # (via openapi-typescript) está fora da faixa vulnerável e fica como está. Remover quando o eslint e o
+  # typescript-estree passarem a depender de minimatch >= 11.0.1.
+  'minimatch@>=7.0.0 <11.0.1': 11.0.1
