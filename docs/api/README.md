@@ -273,3 +273,11 @@ não são negociação de errors do ADR-0034. Upload permanece desligado.
 API-ADM24 acrescenta uma rota administrativa específica para recuperar o efeito de uma entrega morta, sem alterar
 a rota comum de suspensão por violação dos Termos. Ver [contrato, autorização e códigos de erro](selfie-suspension-recovery.md).
 A adição não altera DTOs nem respostas existentes; requer revisão humana de bloqueio antes do merge.
+
+## Prévia da reconciliação de inscrições legadas (#321)
+
+API-ADM25 acrescenta `GET /admin/registration-reconciliations/preview`, leitura administrativa sem mutação lógica
+no banco, nem na sessão ([ADR-0048](../architecture/adr/0048-leitura-de-sessao-sem-toque-na-previa-de-reconciliacao.md)).
+Ver [contrato, autorização, cursor e corte configurado](registration-reconciliation-preview.md). Mudança aditiva:
+DTOs novos, nenhum existente alterado; não cria run nem aplica retirada. Requer revisão humana de autenticação e
+autorização antes do merge.

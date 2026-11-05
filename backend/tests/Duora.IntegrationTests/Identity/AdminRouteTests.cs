@@ -125,9 +125,11 @@ public sealed class AdminRouteTests : IAsyncDisposable
 
         foreach (var route in AdminRoutesOf(_factory))
         {
-            if (route.Path.StartsWith(AdminPrefix + "/accounts/", StringComparison.Ordinal))
+            if (route.Path.StartsWith(AdminPrefix + "/accounts/", StringComparison.Ordinal)
+                || route.Path.StartsWith(AdminPrefix + "/registration-reconciliations/", StringComparison.Ordinal))
             {
-                // Moderação de conta exige o papel moderator por cima da sessão administrativa (ADR-0042).
+                // Moderação de conta e a prévia da reconciliação (#321) exigem o papel moderator por cima da sessão
+                // administrativa (ADR-0042).
                 using var moderation = await SendAccountModerationAsync(browser, route);
                 await ProblemAssert.IsProblemAsync(moderation, HttpStatusCode.Forbidden, "ACCOUNT_MODERATION_FORBIDDEN");
                 continue;

@@ -54,6 +54,13 @@ Os novos códigos `409 SELFIE_RECOVERY_UNAVAILABLE` e `409 SELFIE_RECOVERY_NOT_R
 ausência de uma entrega/vínculo apto ou fim do esgotamento, sem aplicar suspensão. Os demais códigos de sessão,
 step-up, papel e CSRF permanecem. A recuperação humana não amplia a porta comum de suspensão por Termos.
 
+**Prévia da reconciliação de inscrições (#321, API-ADM25).** A [rota de prévia](../api/registration-reconciliation-preview.md)
+exige a mesma sessão administrativa, MFA, papel `moderator` lido ao vivo, TOTP recente e prova de contexto privado;
+`product_admin` e `operator` sozinhos recebem `403 ACCOUNT_MODERATION_FORBIDDEN`. É a única rota que lê a sessão
+**sem toque** ([ADR-0048](../architecture/adr/0048-leitura-de-sessao-sem-toque-na-previa-de-reconciliacao.md)): mesmas
+validações de expiração, stamp, revogação, suspensão, MFA e papel, sem atualizar `last_seen_at`/`idle_expires_at`, sem
+renovar, gravar ou revogar sessão. A permissão é revalidada no snapshot de leitura. Nenhuma outra rota muda.
+
 ### Bootstrap administrativo (D4)
 
 Conta privilegiada só nasce pelo comando operacional `duora-web admin grant --email … --role … --operator …

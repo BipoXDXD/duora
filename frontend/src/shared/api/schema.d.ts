@@ -4690,6 +4690,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/registration-reconciliations/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    cursorSubject?: string;
+                    cursorMeasure?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RegistrationReconciliationPreviewResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["HttpValidationProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/photos": {
         parameters: {
             query?: never;
@@ -6072,6 +6155,53 @@ export interface components {
             password: null | string;
             twoFactorCode?: null | string;
         };
+        /** @description Inscrições não candidatas por motivo principal (precedência do seletor), só os motivos presentes. */
+        ReconciliationIssueCountResponse: {
+            issue: string;
+            /** Format: int32 */
+            registrations: number | string;
+        };
+        /** @description Valores para `cursorSubject` e `cursorMeasure` da próxima página. */
+        ReconciliationPreviewCursorResponse: {
+            /** Format: uuid */
+            cursorSubject: string;
+            /** Format: uuid */
+            cursorMeasure: string;
+        };
+        /**
+         * @description Inscrição candidata: versão observada, estado (Waitlisted | Confirmed | CheckedIn) e tetos condicionais de vagas
+         *     liberadas e de promoções.
+         */
+        ReconciliationPreviewItemResponse: {
+            /** Format: uuid */
+            eventId: string;
+            /** Format: int64 */
+            registrationVersion: number | string;
+            state: string;
+            /** Format: int32 */
+            maxReleasedSeats: number | string;
+            /** Format: int32 */
+            maxPromotions: number | string;
+        };
+        /** @description Conta/medida original com as inscrições candidatas e a versão observada da medida. */
+        ReconciliationPreviewUnitResponse: {
+            /** Format: uuid */
+            subjectUserId: string;
+            /** Format: uuid */
+            originalMeasureId: string;
+            /** Format: int64 */
+            measureVersion: number | string;
+            items: components["schemas"]["ReconciliationPreviewItemResponse"][];
+        };
+        /** @description Unidades conta/medida: elegíveis, pausadas por integridade e grandes demais para aplicação automática. */
+        ReconciliationUnitCountsResponse: {
+            /** Format: int32 */
+            eligible: number | string;
+            /** Format: int32 */
+            blocked: number | string;
+            /** Format: int32 */
+            oversized: number | string;
+        };
         /** @description Recuperação humana de entrega morta da selfie; motivo interno do incidente, de 1 a 2000 caracteres. */
         RecoverSelfieSuspensionRequest: {
             internalReason: null | string;
@@ -6109,6 +6239,27 @@ export interface components {
             acceptedPrivacyLocale?: null | string;
             acceptedTermsSha256?: null | string;
             acceptedPrivacySha256?: null | string;
+        };
+        /**
+         * @description Prévia da reconciliação de inscrições legadas (API-ADM25, issue #321), num único snapshot sem escrita. Só chaves
+         *     e contagens: nada de nome, e-mail ou motivo interno. `AsOf` em UTC, com "Z". `EvidenceId` é o
+         *     descritor de corte configurado no servidor, ou null quando não há corte (nada é candidato). As contagens cobrem
+         *     toda a população do snapshot; páginas pedidas em separado têm snapshots próprios.
+         */
+        RegistrationReconciliationPreviewResponse: {
+            /** Format: date-time */
+            asOf: string;
+            /** Format: int32 */
+            selectorVersion: number | string;
+            evidenceId: null | string;
+            registrationsByPrimaryIssue: components["schemas"]["ReconciliationIssueCountResponse"][];
+            /** Format: int32 */
+            actionableRegistrations: number | string;
+            /** Format: int32 */
+            heldRegistrations: number | string;
+            units: components["schemas"]["ReconciliationUnitCountsResponse"];
+            page: components["schemas"]["ReconciliationPreviewUnitResponse"][];
+            next: null | components["schemas"]["ReconciliationPreviewCursorResponse"];
         };
         ResetPasswordRequest: {
             /** Format: uuid */

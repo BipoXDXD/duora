@@ -33,14 +33,24 @@ public sealed record ReconciliationCutover
         return new ReconciliationCutover(lower, upper);
     }
 
+    /// <summary>Como <see cref="Between"/>, para a fronteira que lê configuração: limite inválido não vira corte.</summary>
+    public static bool TryBetween(DateTimeOffset lower, DateTimeOffset upper, out ReconciliationCutover? cutover)
+    {
+        cutover = IsFiniteUtc(lower) && IsFiniteUtc(upper) && lower <= upper ? new ReconciliationCutover(lower, upper) : null;
+        return cutover is not null;
+    }
+
     private static void RequireFiniteUtc(DateTimeOffset value, string name)
     {
-        // MinValue/MaxValue são como o Npgsql materializa -infinity/infinity: nunca valem como limite comprovado.
-        if (value.Offset != TimeSpan.Zero || value == DateTimeOffset.MinValue || value == DateTimeOffset.MaxValue)
+        if (!IsFiniteUtc(value))
         {
             throw new ArgumentOutOfRangeException(name, value, "O corte exige um instante UTC finito.");
         }
     }
+
+    // MinValue/MaxValue são como o Npgsql materializa -infinity/infinity: nunca valem como limite comprovado.
+    private static bool IsFiniteUtc(DateTimeOffset value) =>
+        value.Offset == TimeSpan.Zero && value != DateTimeOffset.MinValue && value != DateTimeOffset.MaxValue;
 }
 
 /// <summary>
