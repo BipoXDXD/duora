@@ -87,6 +87,12 @@ transport still exercises the receiver import, but `send.requested` needs five
 roles and stays out: the evidence records
 `receiver_import_and_sender_selection_verified: false` with `sender_scope`.
 
+Merge the lock PR with a merge commit, never by squash or rebase. The candidate
+commit lives only on the PR branch, so either of those drops it from the history
+of `main`. The PR stays green, because its merge ref still contains the commit,
+and every `images` job on `main` then fails closed. `main-protegida` allows all
+three methods, so this depends on the person merging.
+
 Re-run all jobs, never only the failed ones. The lock names one attempt, so a
 partial re-run leaves one architecture without its artifact and fails closed.
 
