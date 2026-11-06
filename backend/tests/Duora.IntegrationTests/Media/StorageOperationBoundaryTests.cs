@@ -116,7 +116,7 @@ public sealed class StorageOperationBoundaryTests
         await StorageOperationBoundary.RunAsync(stream, errors, budget =>
         {
             budget.ThrowIfCancellationRequested();
-            return Task.CompletedTask;
+            return Task.FromResult(Confirmed([]));
         }, stop.Token);
 
         Assert.Equal($"STORAGE_OPERATION_DENIED OperationCanceledException{Environment.NewLine}", errors.ToString());
@@ -124,15 +124,18 @@ public sealed class StorageOperationBoundaryTests
     }
 
     [Fact]
-    public async Task ACompletedOperationLeavesNoLineAndNoReply()
+    public async Task ACompletedOperationSendsItsReplyAndBodyAndLeavesNoLine()
     {
         using var stream = new MemoryStream();
         using var errors = new StringWriter();
 
-        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.CompletedTask, Ct);
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed([1, 2, 3])), Ct);
 
         Assert.Empty(errors.ToString());
-        Assert.Equal(0, stream.Length);
+        stream.Position = 0;
+        var (reply, body) = await PrivateGenerationWire.ReadResponseAsync(stream, Ct);
+        Assert.Equal("ok", reply.Status);
+        Assert.Equal([1, 2, 3], body);
     }
 
     private static async Task<string> ReplyAsync(MemoryStream stream)
@@ -144,11 +147,15 @@ public sealed class StorageOperationBoundaryTests
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static async Task FailInsideTheOperationAsync(Exception failure)
+    private static async Task<(PrivateGenerationReply Reply, byte[] Body)> FailInsideTheOperationAsync(
+        Exception failure)
     {
         await Task.Yield();
         throw failure;
     }
+
+    private static (PrivateGenerationReply Reply, byte[] Body) Confirmed(byte[] body) =>
+        (new PrivateGenerationReply("ok", Length: body.Length), body);
 
     private sealed class BrokenWriter(Type failure) : StringWriter
     {

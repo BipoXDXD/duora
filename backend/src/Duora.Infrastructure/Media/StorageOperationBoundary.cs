@@ -14,14 +14,17 @@ internal static class StorageOperationBoundary
     /// A failed operation ends here: the accept loop discards finished tasks, so nothing it raises may escape. The
     /// client is denied before the log is written, because a broken log must not cost it the reply.
     /// </summary>
-    internal static async Task RunAsync(Stream stream, TextWriter errors, Func<CancellationToken, Task> operation,
+    internal static async Task RunAsync(Stream stream, TextWriter errors,
+        Func<CancellationToken, Task<(PrivateGenerationReply Reply, byte[] Body)>> operation,
         CancellationToken cancellationToken)
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(OperationBudget);
         try
         {
-            await operation(budget.Token);
+            var (reply, body) = await operation(budget.Token);
+            await PrivateGenerationWire.WriteAsync(stream, reply, budget.Token);
+            await stream.WriteAsync(body, budget.Token);
         }
         catch (Exception error)
         {

@@ -93,17 +93,6 @@ internal sealed class PrivateGenerationClient(PrivateGenerationOptions options) 
             await exact.CopyToAsync(stream, cancellationToken);
         }
         socket.Shutdown(SocketShutdown.Send);
-        var reply = await PrivateGenerationWire.ReadAsync<PrivateGenerationReply>(stream, cancellationToken);
-        if (reply.Status is not ("ok" or "missing") || reply.Length is < 0 or > 16_777_216)
-        {
-            throw new IOException("Private storage did not confirm the operation.");
-        }
-        var bytes = new byte[checked((int)reply.Length)];
-        await stream.ReadExactlyAsync(bytes, cancellationToken);
-        if (await stream.ReadAsync(new byte[1], cancellationToken) != 0)
-        {
-            throw new InvalidDataException("Unexpected storage response bytes.");
-        }
-        return (reply, bytes);
+        return await PrivateGenerationWire.ReadResponseAsync(stream, cancellationToken);
     }
 }
