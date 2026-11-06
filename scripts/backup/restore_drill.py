@@ -593,13 +593,24 @@ def _host_is_disposable() -> bool:
     return postgres_swap_bench.host_is_disposable()
 
 
+def _swap_proof_pattern(command: list[str]) -> str:
+    """Casa a prova e o sudo à frente dela, nunca `--mode cleanup`; o colchete impede o pkill de casar o próprio sudo."""
+    line = " ".join(command[-3:])
+    return "[" + line[0] + "]" + line[1:]
+
+
 def _signal_swap_proof(process: subprocess.Popen, command: list[str], name: str) -> None:
-    """Sob sudo o filho é root: o sinal direto de um usuário comum daria EPERM. Falhar aqui não pode impedir a limpeza."""
+    """Sob sudo o filho é root: o sinal direto de um usuário comum daria EPERM. Falhar aqui não pode impedir a limpeza.
+
+    TERM o sudo repassa; KILL não, e a prova sobreviveria a ele com o claim vivo. Por isso o KILL vai por padrão.
+    """
     try:
         if command[0] != "sudo":
             process.terminate() if name == "TERM" else process.kill()
             return
-        result = subprocess.run(["sudo", "--non-interactive", "kill", "-" + name, str(process.pid)],
+        signal_command = (["kill", "-TERM", str(process.pid)] if name == "TERM"
+                          else ["pkill", "-KILL", "-f", _swap_proof_pattern(command)])
+        result = subprocess.run(["sudo", "--non-interactive", *signal_command],
                                 capture_output=True, check=False, timeout=SWAP_SIGNAL_SECONDS)
         if result.returncode != 0:
             print(f"[drill] AVISO: sudo kill -{name} falhou (código {result.returncode})", flush=True)
@@ -614,8 +625,16 @@ def _stop_swap_proof(process: subprocess.Popen, command: list[str]) -> None:
         process.wait(timeout=SWAP_STOP_SECONDS)
     except subprocess.TimeoutExpired:
         _signal_swap_proof(process, command, "KILL")
+        try:
+            process.wait(timeout=SWAP_SIGNAL_SECONDS)  # Sem colher o filho, o zumbi conta como prova viva e a limpeza recusa.
+        except subprocess.TimeoutExpired:
+            print("[drill] AVISO: a prova da troca não saiu depois do KILL", flush=True)
     try:
-        subprocess.run([*command[:-1], "cleanup"], capture_output=True, check=False, timeout=SWAP_STOP_SECONDS)
+        result = subprocess.run([*command[:-1], "cleanup"], capture_output=True, text=True, errors="replace", check=False,
+                                timeout=SWAP_STOP_SECONDS)
+        if result.returncode != 0:
+            reason = (result.stdout + result.stderr).strip()[-SWAP_LOG_TAIL_CHARACTERS:]
+            print(f"[drill] AVISO: cleanup da prova da troca falhou (código {result.returncode}): {reason}", flush=True)
     except (OSError, subprocess.TimeoutExpired) as error:
         print(f"[drill] AVISO: cleanup da prova da troca não terminou: {error}", flush=True)
 
