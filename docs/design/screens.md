@@ -44,8 +44,9 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 
 ## Cadastro
 
-- **Propósito:** criar uma conta com o mínimo de dados; a idade é verificada depois, pelo fornecedor
-  (spec 12.2).
+- **Propósito:** criar uma conta com o mínimo de dados. A idade não é coletada nem verificada: o cadastro só
+  pede a declaração de 18 anos ou mais ([decisões de 29/10/2026](../product/decisions-2026-10-29.md), item 1), e a
+  confirmação de e-mail e a selfie de presença vêm depois (spec 12.2).
 - **Conteúdo:** e-mail, senha (com regras visíveis antes de digitar), aceite das versões dos termos com links.
 - **Ações:** primária "Criar conta"; neutra "Já tenho conta ›".
 - **Regras:** `autocomplete="email"` e `"new-password"`; colar e gerenciador de senhas permitidos; mostrar/ocultar
@@ -76,8 +77,8 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 │ Já tenho conta ›                     │
 │                                      │
 │ Depois do cadastro, confirmamos seu  │
-│ e-mail e sua idade. Ninguém vê seu   │
-│ e-mail.                              │
+│ e-mail e pedimos uma selfie de       │
+│ presença. Ninguém vê seu e-mail.     │
 └──────────────────────────────────────┘
 ```
 
@@ -148,7 +149,7 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
 ## Perfil próprio
 
 - **Propósito:** editar o que outras pessoas veem e as preferências que só o sistema usa.
-- **Conteúdo:** nome de exibição, faixa etária pública, região aproximada, descrição curta, até 6 fotos
+- **Conteúdo:** nome de exibição, região aproximada, descrição curta, até 6 fotos
   aprovadas, preferências privadas. Cada bloco com rótulo "Visível para pares" ou "Só você e o sistema".
 - **Ações:** primária "Salvar alterações"; secundária "Adicionar foto"; seção Conta com e-mail, senha e MFA.
 - **Estados:** rascunho (alterações não salvas indicadas em texto; nada íntimo salvo localmente); upload
