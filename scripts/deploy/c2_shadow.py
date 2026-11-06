@@ -24,6 +24,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -471,13 +472,17 @@ SWAP_ARCHIVE_POLL_SECONDS = 2
 SWAP_MIN_AVAILABLE_MIB = 1024
 SWAP_MEMORY_FLOOR_MIB = 512
 SWAP_MAX_DISK_PERCENT = 85
-# PSI: memória e IO têm teto absoluto, porque em repouso a VPS fica em 0,00 e qualquer valor alto é disputa real. A CPU
-# não: em 06/11, com load 1,0 em 2 vCPU e processos a menos de 3%, o `some` estava em 26/36/38 (avg10/60/300), e um teto
-# fixo de 40 pararia o ensaio sem motivo. O `full` não ajuda: no nível do sistema o kernel o publica sempre zerado. Por
-# isso a CPU compara com a linha de base do próprio início, o maior dos três avg, mais uma margem.
+# PSI: memória e IO têm teto absoluto, porque em repouso a VPS fica em 0,00 e qualquer valor alto é disputa real.
+# O PSI de CPU global não mede dano à produção: no ensaio de 06/11 ele bateu 71,79 por causa de cgroups do OpenClaw presos
+# na própria cota, com CPU 91% ociosa, enquanto `duora-web-1` marcava 0,83 e o `ready` respondia em 10 ms. A decisão olha o
+# `cpu.pressure` de cada container fora do sombra, com o teto de OTHER_APPS_PSI (c2_harness.Limits.other_cpu_psi_max).
+# O global fica como rede de segurança, num teto alto: quem não é container (sshd, receiver, gateway, systemd) só aparece
+# nele, e 90 significa o host quase todo sem CPU. Abaixo disso, é só informação no JSON.
 SWAP_MAX_STALL_PRESSURE = 40.0
-SWAP_MAX_CPU_BASELINE = 60.0
-SWAP_CPU_PRESSURE_MARGIN = 25.0
+SWAP_MAX_CONTAINER_CPU_PRESSURE = 40.0
+SWAP_MAX_HOST_CPU_PRESSURE = 90.0
+SWAP_PRODUCTION_CONTAINERS = ("duora-web-1", "duora-worker-1", "duora-postgres-1")
+SWAP_CONTAINER_ID = re.compile(r"[0-9a-f]{64}")
 SWAP_LOOPBACK = ("127.0.0.1", "::1")
 SWAP_CONTAINERS = (f"{PROJECT}-postgres-1", f"{PROJECT}-backup-1")
 SWAP_FAILURES = (ShadowError, c2_probe.CommandRefused, subprocess.TimeoutExpired, OSError, ValueError, KeyError)
@@ -506,29 +511,33 @@ def _device(path: Path) -> int:
 
 @dataclass(frozen=True)
 class HostPressure:
-    """`some`, em %: `cpu`, `memory` e `io` são o avg10; `cpu_baseline`, o maior entre avg10, avg60 e avg300 da CPU."""
+    """`some avg10` do host, em %."""
 
     cpu: float
-    cpu_baseline: float
     memory: float
     io: float
 
 
 def _host_pressure(directory: Path = Path("/proc/pressure")) -> HostPressure:
-    cpu = _some_averages(directory / "cpu")
-    return HostPressure(cpu["avg10"], max(cpu.values()), _some_averages(directory / "memory")["avg10"],
-                        _some_averages(directory / "io")["avg10"])
+    cpu, memory, io = (_some_averages(directory / name)["avg10"] for name in ("cpu", "memory", "io"))
+    return HostPressure(cpu, memory, io)
+
+
+def _container_cpu_pressure(identifier: str, root: Path = Path(c2_probe.CGROUP_ROOT)) -> float:
+    """Só leitura. Mesmo caminho de c2_probe.Sampler: driver systemd, cgroup v2."""
+    return _some_averages(root / "system.slice" / f"docker-{identifier}.scope" / "cpu.pressure")["avg10"]
 
 
 @dataclass(frozen=True)
 class SwapResources:
     available_mib: Callable[[], int]
     pressure: Callable[[], HostPressure]
+    container_pressure: Callable[[str], float]
     disk_mib: Callable[[Path], tuple[int, int]]
     device: Callable[[Path], int]
 
 
-HOST_RESOURCES = SwapResources(_memory_available_mib, _host_pressure, _disk_mib, _device)
+HOST_RESOURCES = SwapResources(_memory_available_mib, _host_pressure, _container_cpu_pressure, _disk_mib, _device)
 
 
 def _swap_write(path: Path, content: dict) -> None:
@@ -614,8 +623,28 @@ def _swap_require_running(run: Runner, image: str) -> None:
                           "depois de um ensaio morto, rode swap-abort")
 
 
-def _swap_require_resources(resources: SwapResources, path: Path, *, memory_mib: int, disk_needed_mib: int,
-                            cpu_ceiling: float) -> None:
+def _swap_container_pressures(run: Runner, resources: SwapResources) -> dict[str, float]:
+    """Todo container fora do sombra. Falha fechada: sem a leitura de um deles, não há como afirmar que ele vai bem."""
+    pressures: dict[str, float] = {}
+    for row in run(list(c2_probe.PS_COMMAND)).splitlines():
+        identifier, name, project = row.split("\t")
+        if project == PROJECT:
+            continue  # O próprio preenchimento pressiona o sombra de propósito.
+        if not SWAP_CONTAINER_ID.fullmatch(identifier):
+            raise ShadowError(f"cgroup de {name}: id de container fora do formato")
+        try:
+            pressures[name] = resources.container_pressure(identifier)
+        except (OSError, ValueError, KeyError, IndexError) as error:
+            raise ShadowError(f"cgroup de {name} ilegível, recuso seguir: {error!r}") from error
+    missing = sorted(set(SWAP_PRODUCTION_CONTAINERS) - pressures.keys())
+    if missing:
+        raise ShadowError(f"containers de produção sem leitura: {missing}")
+    return pressures
+
+
+def _swap_require_resources(resources: SwapResources, path: Path, run: Runner, *, memory_mib: int,
+                            disk_needed_mib: int) -> dict[str, float]:
+    """Levanta se um limite foi passado; senão, devolve os PSI de CPU lidos, para o JSON."""
     available = resources.available_mib()
     if available < memory_mib:
         raise ShadowError(f"memória disponível: {available} MiB, abaixo de {memory_mib} MiB")
@@ -625,22 +654,27 @@ def _swap_require_resources(resources: SwapResources, path: Path, *, memory_mib:
     pressure = resources.pressure()
     if max(pressure.memory, pressure.io) > SWAP_MAX_STALL_PRESSURE:
         raise ShadowError(f"PSI de memória {pressure.memory} ou IO {pressure.io} acima de {SWAP_MAX_STALL_PRESSURE}")
-    if pressure.cpu > cpu_ceiling:
-        raise ShadowError(f"PSI de CPU {pressure.cpu} acima de {cpu_ceiling} (linha de base mais margem)")
+    if pressure.cpu > SWAP_MAX_HOST_CPU_PRESSURE:
+        raise ShadowError(f"PSI de CPU do host {pressure.cpu} acima da rede de segurança {SWAP_MAX_HOST_CPU_PRESSURE}")
+    containers = _swap_container_pressures(run, resources)
+    name, worst = max(containers.items(), key=lambda item: item[1])
+    if worst > SWAP_MAX_CONTAINER_CPU_PRESSURE:
+        raise ShadowError(f"PSI de CPU de {name} em {worst}, acima de {SWAP_MAX_CONTAINER_CPU_PRESSURE}")
+    return {"hostCpuPressureMax": pressure.cpu, "containerCpuPressureMax": worst}
 
 
-def _swap_preflight(layout: Layout, fill_mib: int, run: Runner, resources: SwapResources) -> tuple[Path, float]:
-    """Devolve o diretório do Docker e a linha de base de PSI de CPU deste início."""
+def _swap_note_pressure(result: dict, reading: dict[str, float]) -> None:
+    for key, value in reading.items():
+        result[key] = max(value, result.get(key, value))
+
+
+def _swap_preflight(layout: Layout, fill_mib: int, run: Runner, resources: SwapResources) -> tuple[Path, dict[str, float]]:
     docker_root = Path(run(["docker", "info", "--format", "{{.DockerRootDir}}"]).strip())
     if resources.device(layout.root) != resources.device(docker_root):
         raise ShadowError(f"{docker_root} e {layout.root} em filesystems diferentes: a conta de disco não valeria")
-    baseline = resources.pressure().cpu_baseline
-    if baseline > SWAP_MAX_CPU_BASELINE:
-        raise ShadowError(f"PSI de CPU em {baseline}, acima de {SWAP_MAX_CPU_BASELINE}: o host não está calmo para o ensaio")
-    _swap_require_resources(resources, docker_root, memory_mib=SWAP_MIN_AVAILABLE_MIB,
-                            disk_needed_mib=fill_mib * SWAP_DISK_FACTOR + SWAP_DISK_MARGIN_MIB,
-                            cpu_ceiling=baseline + SWAP_CPU_PRESSURE_MARGIN)
-    return docker_root, baseline
+    reading = _swap_require_resources(resources, docker_root, run, memory_mib=SWAP_MIN_AVAILABLE_MIB,
+                                      disk_needed_mib=fill_mib * SWAP_DISK_FACTOR + SWAP_DISK_MARGIN_MIB)
+    return docker_root, reading
 
 
 def _swap_compose(layout: Layout, image: str) -> list[str]:
@@ -808,15 +842,15 @@ def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = 
         raise ShadowError("alvo fora da allowlist do ensaio")
     if not 0 <= fill_mib <= SWAP_MAX_FILL_MIB:
         raise ShadowError(f"--fill-mib fora de 0..{SWAP_MAX_FILL_MIB}")
-    docker_root, cpu_baseline = _swap_preflight(layout, fill_mib, run, resources)
+    docker_root, reading = _swap_preflight(layout, fill_mib, run, resources)
     _swap_require_running(run, SWAP_SOURCE_IMAGE)
     (layout.state / "swap-baseline.json").unlink(missing_ok=True)
 
     def calm() -> None:
-        _swap_require_resources(resources, docker_root, memory_mib=SWAP_MEMORY_FLOOR_MIB, disk_needed_mib=0,
-                                cpu_ceiling=cpu_baseline + SWAP_CPU_PRESSURE_MARGIN)
+        _swap_note_pressure(result, _swap_require_resources(resources, docker_root, run, memory_mib=SWAP_MEMORY_FLOOR_MIB,
+                                                            disk_needed_mib=0))
 
-    result: dict = {"source": SWAP_SOURCE_IMAGE, "target": target, "cpuPressureBaseline": cpu_baseline}
+    result: dict = {"source": SWAP_SOURCE_IMAGE, "target": target, **reading}
     evidence = layout.state / "swap-rehearsal.json"
     try:
         _swap_prepare(compose, target, fill_mib, result, run, clock, sleep, calm)

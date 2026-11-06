@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
+import c2_harness
 import c2_probe
 import c2_shadow as shadow
 
@@ -337,10 +338,14 @@ class ShadowSecretsTests(unittest.TestCase):
 
 
 SOURCE, TARGET = shadow.SWAP_SOURCE_IMAGE, shadow.SWAP_TARGET_IMAGE
-CALM = shadow.HostPressure(cpu=1.0, cpu_baseline=1.0, memory=0.0, io=0.0)
-# Lido na VPS às 01:13 UTC de 06/11, com load 1,0 em 2 vCPU e processos a menos de 3% de CPU.
-VPS_AT_REST = shadow.HostPressure(cpu=26.0, cpu_baseline=38.0, memory=0.0, io=0.0)
-HEALTHY = shadow.SwapResources(available_mib=lambda: 4000, pressure=lambda: CALM, disk_mib=lambda _path: (100_000, 60_000),
+CALM = shadow.HostPressure(cpu=1.0, memory=0.0, io=0.0)
+# Ensaio real de 06/11, 16:13 UTC: o PSI global 71,79 vinha de cgroups do OpenClaw presos na própria cota, com CPU 91%
+# ociosa, enquanto o `duora-web-1` marcava no máximo 0,83 e o `ready` respondia em 10 ms.
+VPS_AT_THE_REAL_STOP = shadow.HostPressure(cpu=71.79, memory=0.09, io=0.02)
+WEB_ID, WORKER_ID, POSTGRES_ID, NEIGHBOR_ID, SHADOW_ID = ("a" * 64, "b" * 64, "c" * 64, "d" * 64, "e" * 64)
+PRODUCTION_ROWS = [(WEB_ID, "duora-web-1", "duora"), (WORKER_ID, "duora-worker-1", "duora"), (POSTGRES_ID, "duora-postgres-1", "duora"),
+                   (NEIGHBOR_ID, "stillon-api-1", "stillon"), (SHADOW_ID, "duora-c2-postgres-1", "duora-c2")]
+HEALTHY = shadow.SwapResources(available_mib=lambda: 4000, pressure=lambda: CALM, container_pressure=lambda _identifier: 0.83, disk_mib=lambda _path: (100_000, 60_000),
                                device=lambda _path: 7)
 PHOTO = {"systemIdentifier": "7000", "catalogVersion": 202506291, "controlVersion": 1800, "timeline": 1,
          "head": "20261105120000_RegistrationReconciliationManifest", "acl": "d41d8",
@@ -366,6 +371,7 @@ class SwapDocker:
         self.running_images: tuple[str, str] | None = None
         self.ballast = "0:"
         self.updates: list[str] = []
+        self.rows = list(PRODUCTION_ROWS)
         self.archived = "000000010000000000000005"
         self.volume_created = "2026-11-06T00:00:00Z"
         self.compatibility = {"serverVersionNum": "180006", "controlVersion": 1800, "catalogVersion": 202506291, "encoding": "UTF8",
@@ -397,6 +403,8 @@ class SwapDocker:
         if argv[:2] == ["docker", "update"]:
             self.updates.append(joined)
             return ""
+        if argv[:2] == ["docker", "ps"]:
+            return "".join("\t".join(row) + "\n" for row in self.rows)
         if argv[:2] == ["docker", "info"]:
             return "/var/lib/docker\n"
         if argv[:2] == ["docker", "inspect"]:
@@ -601,9 +609,39 @@ class SwapRehearsalGuardTests(SwapRehearsalFixture):
                 high = dataclasses.replace(CALM, **{field: shadow.SWAP_MAX_STALL_PRESSURE + 1})
                 self.refused(resources=dataclasses.replace(HEALTHY, pressure=lambda: high))
 
-    def test_cpu_baseline_too_high_at_the_start_refuses(self) -> None:
-        high = dataclasses.replace(CALM, cpu_baseline=shadow.SWAP_MAX_CPU_BASELINE + 1)
+    def test_host_cpu_above_the_safety_net_refuses(self) -> None:
+        high = dataclasses.replace(CALM, cpu=shadow.SWAP_MAX_HOST_CPU_PRESSURE + 0.1)
         self.refused(resources=dataclasses.replace(HEALTHY, pressure=lambda: high))
+
+    def test_production_container_above_the_ceiling_refuses(self) -> None:
+        for identifier in (WEB_ID, WORKER_ID, POSTGRES_ID, NEIGHBOR_ID):
+            with self.subTest(identifier=identifier[0]):
+                self.setUp()
+                pressed = lambda seen, hot=identifier: 40.1 if seen == hot else 0.0  # noqa: E731
+                self.refused(resources=dataclasses.replace(HEALTHY, container_pressure=pressed))
+
+    def test_missing_production_container_refuses(self) -> None:
+        for row in PRODUCTION_ROWS[:3]:
+            with self.subTest(name=row[1]):
+                self.setUp()
+                self.docker.rows.remove(row)
+                self.refused()
+
+    def test_unreadable_cgroup_refuses(self) -> None:
+        for error in (FileNotFoundError("sem cgroup"), PermissionError("negado"), ValueError("lixo"), KeyError("avg10"), IndexError("vazio")):
+            with self.subTest(error=type(error).__name__):
+                self.setUp()
+                def unreadable(_identifier: str, failure: Exception = error) -> float:
+                    raise failure
+                with self.assertRaisesRegex(shadow.ShadowError, "cgroup de duora-web-1"):
+                    self.rehearse(resources=dataclasses.replace(HEALTHY, container_pressure=unreadable))
+                self.assertEqual(self.stops(), [])
+
+    def test_malformed_container_id_never_becomes_a_path(self) -> None:
+        self.docker.rows[0] = ("../../etc", "duora-web-1", "duora")
+        seen: list[str] = []
+        self.refused(resources=dataclasses.replace(HEALTHY, container_pressure=lambda identifier: seen.append(identifier) or 0.0))
+        self.assertNotIn("../../etc", seen)
 
     def test_running_outside_the_origin_refuses_a_repeat(self) -> None:
         self.docker.image = TARGET
@@ -666,18 +704,57 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
                     self.rehearse(fill_mib=256, resources=dataclasses.replace(HEALTHY, pressure=lambda: next(readings, hot)))
                 self.assertEqual(self.stops(), [])
 
-    def test_the_cpu_floor_of_the_vps_does_not_stop_the_rehearsal(self) -> None:
-        spike = dataclasses.replace(VPS_AT_REST, cpu=VPS_AT_REST.cpu_baseline + shadow.SWAP_CPU_PRESSURE_MARGIN)
-        readings = iter([VPS_AT_REST, VPS_AT_REST])
-        result = self.rehearse(fill_mib=128, resources=dataclasses.replace(HEALTHY, pressure=lambda: next(readings, spike)))
+    def test_the_real_stop_of_06_11_no_longer_stops_the_rehearsal(self) -> None:
+        resources = dataclasses.replace(HEALTHY, pressure=lambda: VPS_AT_THE_REAL_STOP)
+        result = self.rehearse(fill_mib=128, resources=resources)
         self.assertTrue(result["photoStable"])
-        self.assertEqual(result["cpuPressureBaseline"], 38.0)
+        self.assertEqual(result["hostCpuPressureMax"], 71.79)
+        self.assertEqual(result["containerCpuPressureMax"], 0.83)
 
-    def test_cpu_pressure_above_baseline_plus_margin_stops(self) -> None:
-        hot = dataclasses.replace(VPS_AT_REST, cpu=VPS_AT_REST.cpu_baseline + shadow.SWAP_CPU_PRESSURE_MARGIN + 0.1)
-        readings = iter([VPS_AT_REST, VPS_AT_REST, VPS_AT_REST])
+    def test_json_keeps_the_worst_pressure_seen_not_the_first(self) -> None:
+        hosts = iter([10.0, 70.0, 20.0, 5.0])
+        containers = iter([1.0, 2.0, 30.0, 4.0])
+        resources = dataclasses.replace(HEALTHY, pressure=lambda: dataclasses.replace(CALM, cpu=next(hosts, 1.0)),
+                                        container_pressure=lambda identifier: next(containers, 0.0) if identifier == WEB_ID else 0.0)
+        result = self.rehearse(resources=resources)
+        self.assertEqual((result["hostCpuPressureMax"], result["containerCpuPressureMax"]), (70.0, 30.0))
+
+    def test_container_at_the_ceiling_still_passes(self) -> None:
+        resources = dataclasses.replace(HEALTHY, container_pressure=lambda _identifier: shadow.SWAP_MAX_CONTAINER_CPU_PRESSURE)
+        self.assertTrue(self.rehearse(resources=resources)["photoStable"])
+
+    def test_pressed_container_between_batches_stops_before_any_service_stops(self) -> None:
+        readings = iter([0.83, 0.83])
+        resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: next(readings, 41.0) if identifier == WEB_ID else 0.0)
+        with self.assertRaisesRegex(shadow.ShadowError, "PSI de CPU de duora-web-1"):
+            self.rehearse(fill_mib=256, resources=resources)
+        self.assertEqual(self.stops(), [])
+
+    def test_pressed_container_during_the_swap_returns_to_the_origin(self) -> None:
+        resources = dataclasses.replace(HEALTHY, container_pressure=lambda _identifier: 41.0 if self.docker.image == TARGET else 0.0)
         with self.assertRaisesRegex(shadow.ShadowError, "PSI de CPU"):
-            self.rehearse(fill_mib=256, resources=dataclasses.replace(HEALTHY, pressure=lambda: next(readings, hot)))
+            self.rehearse(resources=resources)
+        self.assertEqual(self.docker.image, SOURCE)
+
+    def test_the_shadow_itself_is_not_watched(self) -> None:
+        seen: list[str] = []
+        resources = dataclasses.replace(HEALTHY, container_pressure=lambda identifier: seen.append(identifier) or (99.0 if identifier == SHADOW_ID else 0.0))
+        self.assertTrue(self.rehearse(resources=resources)["photoStable"])
+        self.assertNotIn(SHADOW_ID, seen)
+
+    def test_ceiling_matches_the_window_guard_of_the_harness(self) -> None:
+        self.assertEqual(shadow.SWAP_MAX_CONTAINER_CPU_PRESSURE, c2_harness.Limits().other_cpu_psi_max)
+
+    def test_container_reader_parses_the_real_file_only_by_reading(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            scope = Path(directory) / "system.slice" / f"docker-{WEB_ID}.scope"
+            scope.mkdir(parents=True)
+            (scope / "cpu.pressure").write_text("some avg10=0.83 avg60=0.10 avg300=0.02 total=1\nfull avg10=0.40 avg60=0.00 avg300=0.00 total=1\n")
+            before = (scope / "cpu.pressure").stat().st_mtime_ns
+            self.assertEqual(shadow._container_cpu_pressure(WEB_ID, Path(directory)), 0.83)
+            self.assertEqual((scope / "cpu.pressure").stat().st_mtime_ns, before)
+            with self.assertRaises(FileNotFoundError):
+                shadow._container_cpu_pressure(POSTGRES_ID, Path(directory))
 
     def test_fill_runs_throttled_and_gives_the_cpu_back_even_on_failure(self) -> None:
         readings = iter([4000, 4000, 400])
@@ -706,7 +783,7 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
             for name, averages in (("cpu", "26.00 avg60=36.00 avg300=38.00"), ("memory", "1.50 avg60=0.00 avg300=0.00"),
                                    ("io", "2.50 avg60=9.00 avg300=9.00")):
                 (base / name).write_text(f"some avg10={averages} total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=1\n")
-            self.assertEqual(shadow._host_pressure(base), shadow.HostPressure(cpu=26.0, cpu_baseline=38.0, memory=1.5, io=2.5))
+            self.assertEqual(shadow._host_pressure(base), shadow.HostPressure(cpu=26.0, memory=1.5, io=2.5))
 
     def test_minio_has_cpu_and_memory_limits_in_the_overlay(self) -> None:
         overlay = shadow.OVERLAY_FILE.read_text(encoding="utf-8")

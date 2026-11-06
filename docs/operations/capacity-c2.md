@@ -217,16 +217,36 @@ porta em loopback. Os containers precisam estar de fato na origem, conferidos pe
 mínimo, sem herdar `DUORA_*`, `DOCKER_HOST`, `DOCKER_CONTEXT` nem `COMPOSE_*` do root, e um lock em `/var/lib/.duora-c2.lock`,
 ao lado da raiz para o `down` não depender de `state/`, faz os subcomandos se excluírem. O comando não usa o executor, o receiver, `/etc/duora` nem `/var/lib/duora`.
 
-**Recursos.** O início exige ao menos 1 GiB de `MemAvailable`, PSI `some avg10` de memória e de IO até 40, linha de base de PSI
-de CPU até 60 e uso de disco abaixo de 85% contando a reserva, com o `DockerRootDir` no mesmo filesystem da raiz. Entre lotes e
+**Recursos.** O início exige ao menos 1 GiB de `MemAvailable`, PSI `some avg10` de memória e de IO até 40, PSI de CPU de cada
+container até 40 e uso de disco abaixo de 85% contando a reserva, com o `DockerRootDir` no mesmo filesystem da raiz. Entre lotes e
 antes de cada sentido, ele repete a conta com piso de 512 MiB e, se passar de um limite, para sem parar serviços ou volta à
 origem.
 
-A CPU não tem teto fixo. Em 06/11, às 01:13 UTC, com load 1,0 em 2 vCPU e processos a menos de 3% de CPU, a VPS marcava PSI de CPU
-`some` 26/36/38 (avg10/60/300), com memória e IO em 0,00. Um teto de 40 pararia o ensaio sem motivo, e o `full` da CPU fica zerado
-no nível do sistema. A linha de base é o maior dos três avg no início, gravada em `cpuPressureBaseline`, e o ensaio para se o
-`avg10` passar dela mais 25; com esses valores, 63. São leituras pontuais do host, diferentes do guarda `OTHER_APPS_PSI`, que olha
-cada container por 60 s.
+A decisão de CPU lê o `cpu.pressure` de todo container fora do sombra, em
+`/sys/fs/cgroup/system.slice/docker-<id>.scope`, só leitura, com o teto 40 do `OTHER_APPS_PSI`. `duora-web-1`, `duora-worker-1` e
+`duora-postgres-1` são obrigatórios: sem o container, sem o cgroup ou com o arquivo ilegível, o ensaio recusa. Isso vale também
+para um vizinho que suma entre o `docker ps` e a leitura. O sombra fica de fora, porque o preenchimento o pressiona de propósito.
+
+O PSI de CPU global saiu da decisão. No ensaio de 06/11 às 16:13 UTC, ele foi a 71,79 por causa de cgroups do OpenClaw presos na
+própria cota, com a CPU 91% ociosa, enquanto `duora-web-1` marcava no máximo 0,83 e o `ready` respondia em 10 ms. Ele fica no JSON,
+em `hostCpuPressureMax`, ao lado de `containerCpuPressureMax`, e só decide acima de 90. Esse teto é a rede de segurança para o que
+não é container (sshd, receiver, gateway, systemd), que nenhuma leitura por container alcança. Ele pode parar o ensaio sem dano à
+produção: na medição abaixo, um único cgroup preso na própria cota levou o global a 92,79 com o alvo em 0,00. Nesse caso, a parada
+é limpa.
+
+Medição local em Docker Desktop, kernel `7.0.14-linuxkit`, 10 CPUs, cgroup v2, com `_swap_require_resources` real lendo arquivos
+reais, por 40 s cada:
+
+| Cenário | `cpu.pressure` do alvo | PSI de CPU global | Guarda |
+| --- | --- | --- | --- |
+| Alvo com `--cpus 0.1` e 4 loops | 31,81 a 95,12 | 37,75 a 94,31 | Passa aos 5 s, para aos 10 s (59,42) e não volta a passar |
+| Outro cgroup com `--cpus 0.1` e 4 loops, alvo leve | 0,00 | 61,86 a 92,79 | Passa até 89,97, depois para pela rede de 90 |
+| Outro cgroup sem cota com 30 loops, alvo leve | 0,00 a 0,35 | 57,47 a 83,41 | Passa |
+| Outro cgroup sem cota com 30 loops, alvo com 4 loops | 2,18 a 9,68 | 45,47 a 65,79 | Passa |
+
+Isso prova que o guarda para com o container sem CPU e que ruído em outro cgroup não dispara o guarda por container. Não prova que
+um vizinho causando dano ao alvo passe de 40: nas duas últimas linhas, o alvo seguiu com CPU e o valor ficou baixo. O PSI também não
+mede latência HTTP, então o `ready` continua sendo do operador. É Docker Desktop, não a VPS, e a VPS tem 2 vCPU.
 
 O preenchimento roda com `--cpus 0.5` e `--cpu-shares 256`, com um intervalo de 1 s entre lotes, e devolve os limites definidos no
 Compose ao terminar. O MinIO tem teto de 768 MiB e meia CPU no overlay.
