@@ -24,6 +24,8 @@ public sealed class SecondFactorHardeningTests : IAsyncDisposable
         _factory = new DuoraWebFactory(postgres.ConnectionString)
         {
             Time = _time,
+            // Custo real: a verificação do hash fica dentro da janela da corrida, e um hash rápido a estreitaria.
+            RealPasswordHashCost = true,
             // Os testes de concorrência mandam mais tentativas do que os limites por conta e por IP deixariam.
             Settings = new Dictionary<string, string?>
             {

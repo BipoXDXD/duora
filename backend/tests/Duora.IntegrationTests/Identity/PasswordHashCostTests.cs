@@ -1,16 +1,20 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Net;
 using Duora.Infrastructure.Identity;
 using Duora.IntegrationTests.Participation;
+using Duora.Web;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Duora.IntegrationTests.Identity;
 
 /// <summary>
-/// Os hosts de teste derivam senhas com o custo mínimo do mesmo PBKDF2. Estes testes prendem as duas pontas: a composição
-/// de produção segue com o custo real, e nenhum outro atalho entrou junto.
+/// Os hosts de teste derivam senhas com o custo mínimo do mesmo PBKDF2. Estes testes prendem as duas pontas: o ambiente
+/// Production segue com o custo real, inclusive na isca, e nenhum outro atalho entrou junto.
 /// </summary>
 public sealed class PasswordHashCostTests(PostgresFixture postgres)
 {
@@ -20,8 +24,53 @@ public sealed class PasswordHashCostTests(PostgresFixture postgres)
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>
+    /// Composição do ambiente Production, sem subir o servidor: o boot exige um volume montado, que só existe no container.
+    /// </summary>
     [Fact]
-    public async Task TheProductionCompositionStoresPasswordsAtTheRealCost()
+    public async Task TheProductionEnvironmentHashesPasswordsAndTheDecoyAtTheRealCost()
+    {
+        await using var app = DuoraWebApp.Build(
+        [
+            "--environment=Production",
+            "--urls=http://127.0.0.1:0",
+            "--ConnectionStrings:Duora=Host=127.0.0.1;Port=1;Database=duora;Username=duora;Password=x",
+            $"--Duora:PublicOrigin={DuoraWebFactory.PublicOrigin}",
+            $"--DataProtection:KeysDirectory={Path.Combine(Path.GetTempPath(), "duora-keys-unused")}",
+            $"--DataProtection:Certificate={TestCertificates.Create("custo-do-hash").Pem}",
+        ]);
+        await using var scope = app.Services.CreateAsyncScope();
+        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<DuoraUser>>();
+        var capture = new CapturingHasher();
+
+        scope.ServiceProvider.GetRequiredService<DecoyPasswordHash>().Verify(capture, IdentityScenario.ValidPassword);
+
+        Assert.True(app.Environment.IsProduction());
+        Assert.Equal((HmacSha512, ProductionIterations), Parameters(hasher.HashPassword(null!, IdentityScenario.ValidPassword)));
+        Assert.Equal((HmacSha512, ProductionIterations), Parameters(Assert.Single(capture.Verified)));
+    }
+
+    [Theory]
+    [InlineData(true, ProductionIterations)]
+    [InlineData(false, FastIterations)]
+    public async Task TheDecoyOfALoginWithoutAccountCostsTheSameAsAStoredPassword(bool realCost, int iterations)
+    {
+        var capture = new CapturingHasher();
+        await using var factory = new DuoraWebFactory(postgres.ConnectionString)
+        {
+            RealPasswordHashCost = realCost,
+            TestServices = services => services.AddSingleton<IPasswordHasher<DuoraUser>>(capture),
+        };
+        using var browser = new Browser(factory);
+
+        using var response = await IdentityScenario.LoginAsync(browser, IdentityScenario.NewEmail(), IdentityScenario.ValidPassword);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal((HmacSha512, iterations), Parameters(Assert.Single(capture.Verified)));
+    }
+
+    [Fact]
+    public async Task TheCompositionWithoutTheTestOverrideStoresPasswordsAtTheRealCost()
     {
         await using var factory = new DuoraWebFactory(postgres.ConnectionString) { RealPasswordHashCost = true };
         var scenario = new IdentityScenario(postgres, factory);
@@ -89,6 +138,22 @@ public sealed class PasswordHashCostTests(PostgresFixture postgres)
         var files = configuration.Providers.OfType<JsonConfigurationProvider>().ToList();
         Assert.NotEmpty(files);
         Assert.All(files, file => Assert.False(file.Source.ReloadOnChange));
+    }
+
+    /// <summary>Guarda o hash que cada verificação recebeu: é o único jeito de ver a isca, que não sai do serviço.</summary>
+    private sealed class CapturingHasher : IPasswordHasher<DuoraUser>
+    {
+        private readonly PasswordHasher<DuoraUser> _inner = new();
+
+        public ConcurrentQueue<string> Verified { get; } = new();
+
+        public string HashPassword(DuoraUser user, string password) => _inner.HashPassword(user, password);
+
+        public PasswordVerificationResult VerifyHashedPassword(DuoraUser user, string hashedPassword, string providedPassword)
+        {
+            Verified.Enqueue(hashedPassword);
+            return _inner.VerifyHashedPassword(user, hashedPassword, providedPassword);
+        }
     }
 
     private static Task<string> StoredHashAsync(IdentityScenario scenario, TestAccount account) =>

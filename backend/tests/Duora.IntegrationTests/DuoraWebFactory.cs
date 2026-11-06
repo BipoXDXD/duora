@@ -53,7 +53,10 @@ public sealed class DuoraWebFactory(string connectionString, ILoggerProvider? lo
 
     public string EnvironmentName { get; init; } = "Testing";
 
-    /// <summary>Mantém o custo de produção do PBKDF2, para o teste que afirma justamente esse custo.</summary>
+    /// <summary>
+    /// Mantém o custo de produção do PBKDF2: para quem afirma esse custo e para as corridas com o hash dentro da janela
+    /// crítica, que um hash rápido estreitaria a ponto de não pegar um lost update.
+    /// </summary>
     public bool RealPasswordHashCost { get; init; }
 
     /// <summary>Troca pontual de serviços (contadores, interceptadores); nunca de banco ou de regra.</summary>
