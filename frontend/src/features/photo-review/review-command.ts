@@ -31,14 +31,18 @@ export function useReviewCommand<Intent>(options: {
   readonly send: (operation: OperationHandle, intent: Intent, signal: AbortSignal) => Promise<unknown>
   readonly onConfirmed: () => void
   readonly onFailure: (error: unknown) => void
-  /** Classifies the failure of a command whose refusals differ from the review ones. */
-  readonly isUncertain?: (error: unknown) => boolean
+  /**
+   * Classifies the failure of a command whose refusals differ from the review ones. `repeating` says an earlier
+   * attempt of this same intent stayed uncertain, so a refusal may say nothing about that attempt.
+   */
+  readonly isUncertain?: (error: unknown, repeating: boolean) => boolean
 }): ReviewCommand<Intent> {
   const privateOperation = usePrivateOperation()
   const [intent, setIntent] = useState<Intent | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [confirmed, setConfirmed] = useState(false)
+  const [repeating, setRepeating] = useState(false)
   const lifetime = useRef<AbortController | null>(null)
   const inFlight = useRef(false)
   useEffect(() => {
@@ -49,7 +53,7 @@ export function useReviewCommand<Intent>(options: {
       lifetime.current = null
     }
   }, [])
-  const uncertain = error !== null && (options.isUncertain ?? hasUnknownOutcome)(error)
+  const uncertain = error !== null && (options.isUncertain ?? hasUnknownOutcome)(error, repeating)
 
   async function send(next: Intent): Promise<void> {
     const controller = lifetime.current
@@ -91,13 +95,17 @@ export function useReviewCommand<Intent>(options: {
       if (intent === null && !confirmed) void send(next)
     },
     retry: (): void => {
-      if (intent !== null && error !== null) void send(intent)
+      if (intent !== null && error !== null) {
+        setRepeating(true)
+        void send(intent)
+      }
     },
     reset: (): void => {
       if (!uncertain && !inFlight.current) {
         setIntent(null)
         setError(null)
         setConfirmed(false)
+        setRepeating(false)
       }
     },
   }

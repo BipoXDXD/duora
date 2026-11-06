@@ -168,8 +168,16 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   (API-M03), que primeiro lê estado e ETag em API-M02 e pede confirmação sobre esse estado; "Ler estado atual".
 - **Estados:** carregando; indisponível; erro com "Ler estado atual"; vazio; em análise ("Em análise; ainda não aparece
   para ninguém"); rejeição (mensagem pública de [media-review.md](../api/media-review.md) e novo envio, sem pedido de
-  revisão); conta que não envia (Restricted, Suspended e demais: aviso, sem formulário, mas ainda exclui); resultado
-  incerto ("Repetir o mesmo pedido", com a mesma chave e os mesmos bytes); versão vencida (reler e confirmar de novo).
+  revisão); resultado incerto ("Repetir o mesmo pedido", com a mesma chave e os mesmos bytes, até uma resposta
+  conclusiva dessa chave); versão vencida (reler e confirmar de novo).
+- **Quem faz o quê:** `Active` e `PendingEligibility` enviam e excluem. `Restricted` e `Suspended` não enviam, mas
+  excluem (`PhotoUploadPolicy`, `PhotoOwnerAccess`). `PendingEmail` e `DeletionPending` não enviam nem excluem: a guarda
+  responde 403 no DELETE, e a tela não oferece o botão.
+- **Exclusão:** o painel fica fora da lista, uma exclusão por vez, para a intenção sobreviver a releitura e paginação.
+- **Foco:** quando o controle focado some, o foco vai ao painel da exclusão, ao título "Suas fotos" ou ao aviso de
+  indisponível.
+- **Saída da página:** com envio em curso ou resultado incerto, o navegador pede confirmação (`beforeunload`). A
+  intenção fica só em memória: navegar dentro da SPA ou confirmar a saída a descarta.
 - **Limitação:** o envio mostra "Enviando…", sem porcentagem: o cliente HTTP usa `fetch`, que não informa o progresso.
 
 ## Eventos

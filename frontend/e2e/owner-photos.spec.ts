@@ -110,7 +110,7 @@ test.describe('fotos do titular (#173)', () => {
     expect(uploads[0]?.proof).toBeTruthy()
     expect(uploads[0]?.bytes?.equals(PHOTO_BYTES)).toBe(true)
 
-    await page.getByRole('button', { name: `Excluir a foto ${PHOTO}` }).click()
+    await page.getByRole('button', { name: `Excluir foto ${PHOTO}` }).click()
     await expect(page.getByText('Estado atual: Aguardando revisão')).toBeVisible()
     await expectNoAxeViolations(page)
     await page.getByRole('button', { name: 'Confirmar exclusão' }).click()

@@ -4,12 +4,26 @@ import { reviewHttpStatus } from './review-command'
 
 const UPLOADS_DISABLED = 'MEDIA_UPLOADS_DISABLED'
 const REQUEST_IN_PROGRESS = 'IDEMPOTENCY_REQUEST_IN_PROGRESS'
+const KEY_REUSED = 'IDEMPOTENCY_KEY_REUSED'
 
 /** Recusas em que o servidor garante que nada mudou: a pessoa pode decidir de novo, com chave nova. */
 const DEFINITIVE_STATUSES: ReadonlySet<number> = new Set([400, 401, 403, 404, 409, 411, 412, 413, 415, 428, 429])
 
+/**
+ * Respostas produzidas depois de o servidor consultar a chave: só elas dizem algo sobre a tentativa incerta anterior.
+ * Gate, autorização, rate limit e validação de headers vêm antes da consulta e não provam nada sobre ela.
+ */
+const CONCLUSIVE_ON_REPEAT: ReadonlySet<string> = new Set([
+  KEY_REUSED,
+  'PHOTO_DELETE_STATE_CONFLICT',
+  'PRECONDITION_FAILED',
+  'UPLOAD_INCOMPLETE',
+  'UPLOAD_PENDING_LIMIT',
+])
+
 const PROBLEM_MESSAGES: Readonly<Record<string, PlainMessageKey>> = {
   ACCOUNT_RESTRICTED: 'photoOwner.accountCannotUpload',
+  [KEY_REUSED]: 'photoOwner.keyReused',
   LENGTH_REQUIRED: 'photoOwner.uploadInterrupted',
   MEDIA_QUEUE_FULL: 'photoOwner.queueFull',
   PAYLOAD_TOO_LARGE: 'photoOwner.fileTooLarge',
@@ -36,13 +50,14 @@ export function isUploadsDisabled(error: unknown): boolean {
 }
 
 /** Rede, 5xx e resposta fora do contrato podem ter produzido efeito; só a mesma chave pode repetir o pedido. */
-export function isOwnerPhotoOutcomeUncertain(error: unknown): boolean {
+export function isOwnerPhotoOutcomeUncertain(error: unknown, repeating: boolean): boolean {
   const code = problemCode(error)
   if (code === REQUEST_IN_PROGRESS) return true
+  if (repeating) return reviewHttpStatus(error) !== 404 && !CONCLUSIVE_ON_REPEAT.has(code ?? '')
   return code !== UPLOADS_DISABLED && !DEFINITIVE_STATUSES.has(reviewHttpStatus(error) ?? 0)
 }
 
-/** A foto saiu (404) ou o gate fechou: a lista em tela deixou de valer. */
+/** A foto saiu (404), o gate fechou ou a chave já tem outro desfecho: a lista em tela deixou de valer. */
 export function invalidatesOwnerPhotoList(error: unknown): boolean {
-  return reviewHttpStatus(error) === 404 || isUploadsDisabled(error)
+  return reviewHttpStatus(error) === 404 || isUploadsDisabled(error) || problemCode(error) === KEY_REUSED
 }

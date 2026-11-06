@@ -1,6 +1,6 @@
 import { usePrivateOperation } from '@/features/session/private-operation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAccount } from '@/features/session/account-context'
 import { meQueryKey } from '@/features/session/query-keys'
 import type { AccountStatus } from '@/features/session/session-api'
@@ -11,7 +11,9 @@ import { Alert } from '@/shared/ui/alert'
 import { Button } from '@/shared/ui/button'
 import { Page } from '@/shared/ui/page'
 import { invalidatesOwnerPhotoList, isUploadsDisabled } from './owner-photo-failure'
-import { OwnerPhotoItem } from './OwnerPhotoItem'
+import { canAccountDeletePhotos } from './owner-photo-presentation'
+import { OwnerPhotoDeletion } from './OwnerPhotoDeletion'
+import { OwnerPhotoItem, type OwnerPhotoDeletionEntry } from './OwnerPhotoItem'
 import { OwnerPhotoUpload } from './OwnerPhotoUpload'
 import { fetchOwnerPhotoPage } from './photo-review-api'
 import { reviewHttpStatus } from './review-command'
@@ -37,10 +39,15 @@ function OwnerPhotos({
   const { t } = useI18n()
   const client = useQueryClient()
   const privateOperation = usePrivateOperation()
+  const listTitle = useRef<HTMLHeadingElement>(null)
+  const triggers = useRef(new Map<string, HTMLButtonElement>())
   const [cursor, setCursor] = useState<string | null>(null)
   const [epoch, setEpoch] = useState(0)
   const [uploads, setUploads] = useState(0)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [opened, setOpened] = useState(false)
+  const [closed, setClosed] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const photos = useQuery({
     queryKey: ['photo-review-owner-index', userId, cursor, epoch],
     queryFn: ({ signal }) => privateOperation.run((operation) => fetchOwnerPhotoPage(operation, cursor, signal)),
@@ -50,6 +57,13 @@ function OwnerPhotos({
   useEffect(() => {
     if (reviewHttpStatus(photos.error) === 401) void client.invalidateQueries({ queryKey: meQueryKey })
   }, [photos.error, client])
+  // Só resposta do servidor muda o gate: uma releitura em curso, ou que falhe por outro motivo, não desmonta nada.
+  if (photos.isSuccess && (!opened || closed)) {
+    setOpened(true)
+    setClosed(false)
+  } else if (photos.isError && isUploadsDisabled(photos.error) && !closed) setClosed(true)
+  const data = photos.isError ? undefined : photos.data
+
   const reread = useCallback(() => {
     setEpoch((value) => value + 1)
   }, [])
@@ -70,10 +84,39 @@ function OwnerPhotos({
   }, [reread])
   const onDeleted = useCallback(() => {
     setNotice('photoOwner.deleted')
+    setDeleting(null)
     reread()
   }, [reread])
-  const data = photos.isError ? undefined : photos.data
-  const closed = photos.isError && isUploadsDisabled(photos.error)
+  const onDeletionGone = useCallback(() => {
+    setDeleting(null)
+    listTitle.current?.focus()
+    reread()
+  }, [reread])
+  const onKeep = useCallback(() => {
+    const trigger = deleting === null ? undefined : triggers.current.get(deleting)
+    ;(trigger ?? listTitle.current)?.focus()
+    setDeleting(null)
+  }, [deleting])
+  const deletion = useMemo<OwnerPhotoDeletionEntry>(
+    () => ({
+      disabled: deleting !== null,
+      ask: (photoId) => {
+        setDeleting((open) => open ?? photoId)
+      },
+      triggerRef: (photoId) => (button) => {
+        if (button !== null) triggers.current.set(photoId, button)
+        return () => {
+          triggers.current.delete(photoId)
+        }
+      },
+    }),
+    [deleting],
+  )
+  function goTo(next: string | null): void {
+    setCursor(next)
+    listTitle.current?.focus()
+  }
+
   return (
     <Page
       width="wide"
@@ -85,70 +128,83 @@ function OwnerPhotos({
           {t(notice)}
         </Alert>
       )}
-      {closed ? <Alert variant="info">{t('photoOwner.disabled')}</Alert> : null}
-      {photos.isPending ? <p role="status">{t('photoOwner.loading')}</p> : null}
+      {closed ? (
+        <Alert variant="info" focusOnMount={opened}>
+          {t('photoOwner.disabled')}
+        </Alert>
+      ) : null}
+      {photos.isPending && !opened ? <p role="status">{t('photoOwner.loading')}</p> : null}
+      {opened && UPLOADING_STATUSES.has(status) ? (
+        <OwnerPhotoUpload key={uploads} closed={closed} onUploaded={onUploaded} onFailure={reactToFailure} />
+      ) : null}
+      {opened && !closed && !UPLOADING_STATUSES.has(status) ? <p>{t('photoOwner.accountCannotUpload')}</p> : null}
+      {deleting === null ? null : (
+        <OwnerPhotoDeletion
+          key={deleting}
+          userId={userId}
+          photoId={deleting}
+          closed={closed}
+          onDeleted={onDeleted}
+          onGone={onDeletionGone}
+          onFailure={reactToFailure}
+          onKeep={onKeep}
+        />
+      )}
+      {opened && !closed ? (
+        <h2 ref={listTitle} tabIndex={-1} className="text-xl font-semibold">
+          {t('photoOwner.listTitle')}
+        </h2>
+      ) : null}
+      {photos.isPending && opened ? <p role="status">{t('photoOwner.loading')}</p> : null}
       {photos.isError && !closed ? (
         <>
           <ReviewFailure error={photos.error} />
           {reviewHttpStatus(photos.error) === 400 ? (
             <Alert variant="info">{t('photoReview.pageUnavailable')}</Alert>
           ) : null}
-          <Button variant="secondary" onClick={reread}>
-            {t('photoReview.readCurrent')}
-          </Button>
         </>
       ) : null}
-      {data === undefined ? null : (
-        <>
-          {UPLOADING_STATUSES.has(status) ? (
-            <OwnerPhotoUpload key={uploads} onUploaded={onUploaded} onFailure={reactToFailure} />
-          ) : (
-            <p>{t('photoOwner.accountCannotUpload')}</p>
-          )}
-          {data.items.length === 0 ? (
-            <p>{t('photoReview.noPhotos')}</p>
-          ) : (
-            <ul className="flex flex-col gap-6">
-              {data.items.map((photo) => (
-                <OwnerPhotoItem
-                  key={photo.photoId}
-                  photo={photo}
-                  userId={userId}
-                  // A conta suspensa não alcança o histórico de revisão (ADR-0042).
-                  showHistory={status !== 'Suspended'}
-                  onDeleted={onDeleted}
-                  onGone={reread}
-                  onFailure={reactToFailure}
-                />
-              ))}
-            </ul>
-          )}
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setNotice(null)
-              reread()
-            }}
-          >
-            {t('photoReview.readCurrent')}
-          </Button>
-          {data.nextCursor === null ? null : (
-            <Button
-              aria-disabled={photos.isFetching}
-              onClick={() => {
-                if (!photos.isFetching) setCursor(data.nextCursor)
-              }}
-            >
-              {t('photoReview.nextPage')}
-            </Button>
-          )}
-        </>
+      {data === undefined ? null : data.items.length === 0 ? (
+        <p>{t('photoReview.noPhotos')}</p>
+      ) : (
+        <ul className="flex flex-col gap-6">
+          {data.items.map((photo) => (
+            <OwnerPhotoItem
+              key={photo.photoId}
+              photo={photo}
+              // A conta suspensa não alcança o histórico de revisão (ADR-0042).
+              showHistory={status !== 'Suspended'}
+              deletion={canAccountDeletePhotos(status) ? deletion : null}
+            />
+          ))}
+        </ul>
       )}
-      {cursor === null ? null : (
+      {!closed && (opened || photos.isError) ? (
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setNotice(null)
+            reread()
+          }}
+        >
+          {t('photoReview.readCurrent')}
+        </Button>
+      ) : null}
+      {data?.nextCursor === null || data === undefined ? null : (
+        <Button
+          aria-disabled={photos.isFetching}
+          onClick={() => {
+            if (!photos.isFetching) goTo(data.nextCursor)
+          }}
+        >
+          {t('photoReview.nextPage')}
+        </Button>
+      )}
+      {cursor === null || closed ? null : (
         <Button
           variant="neutral"
           onClick={() => {
-            setCursor(null)
+            goTo(null)
           }}
         >
           {t('photoReview.firstPage')}

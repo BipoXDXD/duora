@@ -651,6 +651,8 @@ export const en = {
   'photoOwner.reasonCorruptImage': 'This image could not be read. Upload another photo.',
   'photoOwner.reasonProcessingLimit': 'This image could not be processed. Upload another photo.',
   'photoOwner.deleteFor': 'Delete photo {id}',
+  'photoOwner.listTitle': 'Your photos',
+  'photoOwner.keyReused': 'This request cannot be repeated. Check the list before trying again.',
   'photoOwner.delete': 'Delete photo',
   'photoOwner.readingState': 'Reading the current state…',
   'photoOwner.confirmDeletion': 'Delete this photo? This cannot be undone.',

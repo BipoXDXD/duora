@@ -1,11 +1,11 @@
 import { PrivateOperationProvider } from '@/features/session/PrivateOperationProvider'
 import { installTestMe } from '@/test/private-context'
-import { QueryClientProvider } from '@tanstack/react-query'
+import { focusManager, QueryClientProvider } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { delay, http, HttpResponse } from 'msw'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountContext } from '@/features/session/account-context'
 import type { AccountStatus } from '@/features/session/session-api'
 import { meQueryKey } from '@/features/session/query-keys'
@@ -116,7 +116,7 @@ interface SentDeletion {
   readonly key: string | null
 }
 
-function useDeletes(...answers: readonly (() => Response)[]): SentDeletion[] {
+function useDeletes(...answers: readonly (() => Response | Promise<Response>)[]): SentDeletion[] {
   const sent: SentDeletion[] = []
   server.use(
     http.delete(`${PHOTOS}/${PHOTO}`, ({ request }) => {
@@ -132,7 +132,7 @@ function useDeletes(...answers: readonly (() => Response)[]): SentDeletion[] {
 const deleted = (): Response => new HttpResponse(null, { status: 204, headers: { ETag: TAG_V2 } })
 
 async function askToDelete(): Promise<void> {
-  await userEvent.click(await screen.findByRole('button', { name: `Excluir a foto ${PHOTO}` }))
+  await userEvent.click(await screen.findByRole('button', { name: `Excluir foto ${PHOTO}` }))
 }
 
 async function confirmDeletion(): Promise<void> {
@@ -206,15 +206,25 @@ describe('quem pode enviar', () => {
     expect(await screen.findByLabelText('Foto')).toBeVisible()
   })
 
-  it.each(['Suspended', 'Restricted', 'PendingEmail', 'DeletionPending', 'Unknown'] as const)(
-    'conta %s não envia, mas ainda vê e pode excluir as próprias fotos',
+  it.each(['Suspended', 'Restricted'] as const)('conta %s não envia, mas exclui as próprias fotos', async (status) => {
+    useList(stored)
+    mount({ status })
+
+    expect(await screen.findByRole('button', { name: `Excluir foto ${PHOTO}` })).toBeVisible()
+    expect(screen.getByText('Esta conta não pode enviar fotos agora.')).toBeVisible()
+    expect(screen.queryByLabelText('Foto')).not.toBeInTheDocument()
+  })
+
+  // PhotoOwnerAccess só aceita PendingEligibility, Active, Restricted e Suspended: as demais recebem 403 no DELETE.
+  it.each(['PendingEmail', 'DeletionPending', 'Unknown'] as const)(
+    'conta %s não envia nem oferece excluir',
     async (status) => {
       useList(stored)
       mount({ status })
 
-      expect(await screen.findByRole('button', { name: `Excluir a foto ${PHOTO}` })).toBeVisible()
-      expect(screen.getByText('Esta conta não pode enviar fotos agora.')).toBeVisible()
+      expect(await screen.findByText('Esta conta não pode enviar fotos agora.')).toBeVisible()
       expect(screen.queryByLabelText('Foto')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Excluir foto/ })).not.toBeInTheDocument()
     },
   )
 })
@@ -481,7 +491,7 @@ describe('exclusão', () => {
       useList({ ...stored, status })
       mount()
 
-      expect(await screen.findByRole('button', { name: `Excluir a foto ${PHOTO}` })).toBeVisible()
+      expect(await screen.findByRole('button', { name: `Excluir foto ${PHOTO}` })).toBeVisible()
     },
   )
 
@@ -490,7 +500,7 @@ describe('exclusão', () => {
     mount()
 
     await screen.findByText('Pendente')
-    expect(screen.queryByRole('button', { name: `Excluir a foto ${PHOTO}` })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: `Excluir foto ${PHOTO}` })).not.toBeInTheDocument()
   })
 
   it('só exclui depois de confirmar o estado atual, na versão lida em API-M02', async () => {
@@ -529,7 +539,7 @@ describe('exclusão', () => {
     await askToDelete()
     await userEvent.click(await screen.findByRole('button', { name: 'Manter foto' }))
 
-    expect(await screen.findByRole('button', { name: `Excluir a foto ${PHOTO}` })).toHaveFocus()
+    expect(await screen.findByRole('button', { name: `Excluir foto ${PHOTO}` })).toHaveFocus()
     expect(deletes).toEqual([])
   })
 
@@ -662,5 +672,562 @@ describe('exclusão', () => {
     await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
     expect(deletes).toHaveLength(1)
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+})
+
+const OTHER_PHOTO = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+const other = { ...stored, photoId: OTHER_PHOTO, status: 'Approved' }
+const repeatButton = (): Promise<HTMLElement> => screen.findByRole('button', { name: 'Repetir o mesmo pedido' })
+const serverError = (): Response => new HttpResponse(null, { status: 500 })
+
+function deferred(): { readonly wait: Promise<void>; readonly release: () => void } {
+  let release = (): void => undefined
+  const wait = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return { wait, release }
+}
+
+function leavingIsWarned(): boolean {
+  const event = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(event)
+  return event.defaultPrevented
+}
+
+async function repeatAndExpectSameUpload(posts: readonly SentUpload[], total = 2): Promise<void> {
+  await userEvent.click(await repeatButton())
+  await screen.findByText('Foto recebida e enviada para análise.')
+  expect(posts).toHaveLength(total)
+  expect(posts.every((sent) => sent.key === posts[0]?.key)).toBe(true)
+}
+
+afterEach(() => {
+  focusManager.setFocused(undefined)
+})
+
+describe('o resultado incerto sobrevive às releituras da lista', () => {
+  it('"Ler estado atual" não troca a chave do envio', async () => {
+    useList(stored)
+    const posts = usePosts(serverError, accepted)
+    mount()
+
+    await sendFile()
+    await repeatButton()
+    await userEvent.click(screen.getByRole('button', { name: 'Ler estado atual' }))
+
+    await repeatAndExpectSameUpload(posts)
+  })
+
+  it('"Ler estado atual" não aborta um envio em curso', async () => {
+    useList(stored)
+    const gate = deferred()
+    const posts = usePosts(async () => {
+      await gate.wait
+      return accepted()
+    })
+    mount()
+
+    await sendFile()
+    await waitFor(() => {
+      expect(posts).toHaveLength(1)
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Ler estado atual' }))
+    gate.release()
+
+    expect(await screen.findByText('Foto recebida e enviada para análise.')).toBeVisible()
+  })
+
+  it('a paginação não troca a chave do envio', async () => {
+    server.use(
+      http.get(PHOTOS, ({ request }) =>
+        new URL(request.url).searchParams.has('cursor')
+          ? listing(other)
+          : HttpResponse.json({ items: [stored], nextCursor: 'next' }),
+      ),
+    )
+    const posts = usePosts(serverError, accepted)
+    mount()
+
+    await sendFile()
+    await repeatButton()
+    await userEvent.click(screen.getByRole('button', { name: 'Próxima página' }))
+    await screen.findByRole('heading', { name: `Foto ${OTHER_PHOTO}` })
+
+    await repeatAndExpectSameUpload(posts)
+  })
+
+  it('a releitura ao voltar à janela, mesmo falhando, não descarta o incerto', async () => {
+    let reads = 0
+    server.use(
+      http.get(PHOTOS, () => {
+        reads += 1
+        return reads === 1 ? listing(stored) : serverError()
+      }),
+    )
+    const posts = usePosts(serverError, accepted)
+    mount()
+
+    await sendFile()
+    await repeatButton()
+    focusManager.setFocused(false)
+    focusManager.setFocused(true)
+    await waitFor(() => {
+      expect(reads).toBeGreaterThan(1)
+    })
+
+    await repeatAndExpectSameUpload(posts)
+  })
+
+  it('a exclusão concluída em outra foto não troca a chave do envio', async () => {
+    useList(stored, other)
+    useStatus()
+    useDeletes(deleted)
+    const posts = usePosts(serverError, accepted)
+    mount()
+
+    await sendFile()
+    await repeatButton()
+    await askToDelete()
+    await confirmDeletion()
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+
+    await repeatAndExpectSameUpload(posts)
+  })
+
+  it('a exclusão incerta sobrevive à paginação, com a mesma chave e o mesmo ETag', async () => {
+    server.use(
+      http.get(PHOTOS, ({ request }) =>
+        new URL(request.url).searchParams.has('cursor')
+          ? listing(other)
+          : HttpResponse.json({ items: [stored], nextCursor: 'next' }),
+      ),
+    )
+    useStatus()
+    const deletes = useDeletes(serverError, deleted)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await repeatButton()
+    await userEvent.click(screen.getByRole('button', { name: 'Próxima página' }))
+    await screen.findByRole('heading', { name: `Foto ${OTHER_PHOTO}` })
+    await userEvent.click(await repeatButton())
+
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes).toHaveLength(2)
+    expect(deletes[1]).toEqual(deletes[0])
+  })
+
+  it('só uma exclusão fica aberta por vez', async () => {
+    useList(stored, other)
+    useStatus()
+    mount()
+
+    await askToDelete()
+    await screen.findByRole('button', { name: 'Confirmar exclusão' })
+
+    expect(screen.getByRole('button', { name: `Excluir foto ${OTHER_PHOTO}` })).toHaveAttribute('aria-disabled', 'true')
+  })
+})
+
+describe('recusa na repetição', () => {
+  it.each([
+    ['rate limit', () => problem(429, 'TOO_MANY_REQUESTS', { 'Retry-After': '30' })],
+    ['conta restrita', () => problem(403, 'ACCOUNT_RESTRICTED')],
+    ['gate fechado', () => problem(503, 'MEDIA_UPLOADS_DISABLED')],
+    ['corpo recusado na borda', () => problem(413, 'PAYLOAD_TOO_LARGE')],
+  ])('%s vem antes da consulta da chave: o envio continua incerto', async (_name, refusal) => {
+    useList()
+    const posts = usePosts(serverError, refusal, accepted)
+    mount()
+
+    await sendFile()
+    await userEvent.click(await repeatButton())
+    await waitFor(() => {
+      expect(posts).toHaveLength(2)
+    })
+
+    await repeatAndExpectSameUpload(posts, 3)
+  })
+
+  it.each([
+    [
+      'limite de pendentes',
+      () => problem(429, 'UPLOAD_PENDING_LIMIT'),
+      'Você atingiu o limite de fotos em análise. Aguarde o resultado ou exclua uma foto.',
+    ],
+    [
+      'envio interrompido',
+      () => problem(400, 'UPLOAD_INCOMPLETE'),
+      'O envio foi interrompido. Escolha a foto e tente de novo.',
+    ],
+  ])('%s passou pela chave: encerra a intenção', async (_name, refusal, message) => {
+    useList()
+    const posts = usePosts(serverError, refusal, accepted)
+    mount()
+
+    await sendFile()
+    await userEvent.click(await repeatButton())
+
+    expect(await screen.findByText(message)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
+    await sendFile()
+    await screen.findByText('Foto recebida e enviada para análise.')
+    expect(posts[2]?.key).not.toBe(posts[0]?.key)
+  })
+
+  it.each([
+    ['rate limit', () => problem(429, 'TOO_MANY_REQUESTS', { 'Retry-After': '30' })],
+    ['conta sem permissão', () => problem(403, 'FORBIDDEN')],
+    ['gate fechado', () => problem(503, 'MEDIA_UPLOADS_DISABLED')],
+  ])('exclusão: %s não encerra a incerteza', async (_name, refusal) => {
+    useList(stored)
+    useStatus()
+    const deletes = useDeletes(serverError, refusal, deleted)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await userEvent.click(await repeatButton())
+    await waitFor(() => {
+      expect(deletes).toHaveLength(2)
+    })
+    await userEvent.click(await repeatButton())
+
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes).toHaveLength(3)
+    expect(deletes[2]).toEqual(deletes[0])
+  })
+
+  it('exclusão: 412 na repetição prova que nada foi feito e pede nova confirmação', async () => {
+    useList(stored)
+    useStatus()
+    const deletes = useDeletes(serverError, () => problem(412, 'PRECONDITION_FAILED'))
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await userEvent.click(await repeatButton())
+
+    expect(await screen.findByRole('button', { name: 'Ler estado atual da foto' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
+    expect(deletes).toHaveLength(2)
+  })
+})
+
+describe('IDEMPOTENCY_KEY_REUSED', () => {
+  const reused = (): Response => problem(409, 'IDEMPOTENCY_KEY_REUSED')
+  const MESSAGE = 'Este pedido não pode ser repetido. Confira a lista antes de tentar de novo.'
+
+  function countingList(...items: readonly object[]): { readonly reads: () => number } {
+    let reads = 0
+    server.use(
+      http.get(PHOTOS, () => {
+        reads += 1
+        return listing(...items)
+      }),
+    )
+    return { reads: () => reads }
+  }
+
+  it.each([
+    ['na primeira tentativa', [reused]],
+    ['na repetição', [serverError, reused]],
+  ])('envio %s encerra a intenção e relê a lista', async (_name, answers) => {
+    const list = countingList()
+    usePosts(...answers)
+    mount()
+
+    await sendFile()
+    if (answers.length > 1) await userEvent.click(await repeatButton())
+
+    expect(await screen.findByText(MESSAGE)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(list.reads()).toBeGreaterThan(1)
+    })
+  })
+
+  it('exclusão encerra a intenção e relê a lista', async () => {
+    const list = countingList(stored)
+    useStatus()
+    useDeletes(reused)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+
+    expect(await screen.findByText(MESSAGE)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(list.reads()).toBeGreaterThan(1)
+    })
+  })
+})
+
+describe('gate fechado durante a exclusão', () => {
+  function closingList(): { readonly close: () => void } {
+    let open = true
+    server.use(http.get(PHOTOS, () => (open ? listing(stored) : problem(503, 'MEDIA_UPLOADS_DISABLED'))))
+    return {
+      close: () => {
+        open = false
+      },
+    }
+  }
+
+  it('503 do gate em API-M02 fecha a tela e não pergunta', async () => {
+    const list = closingList()
+    server.use(
+      http.get(`${PHOTOS}/${PHOTO}/status`, () => {
+        list.close()
+        return problem(503, 'MEDIA_UPLOADS_DISABLED')
+      }),
+    )
+    const deletes = useDeletes(deleted)
+    mount()
+
+    await askToDelete()
+
+    expect(await screen.findByText('As fotos ainda não estão disponíveis no Duora.')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Confirmar exclusão' })).not.toBeInTheDocument()
+    expect(deletes).toEqual([])
+  })
+
+  it('503 do gate em API-M03 fecha a tela sem oferecer repetição', async () => {
+    const list = closingList()
+    useStatus()
+    useDeletes(() => {
+      list.close()
+      return problem(503, 'MEDIA_UPLOADS_DISABLED')
+    })
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+
+    expect(await screen.findByText('As fotos ainda não estão disponíveis no Duora.')).toBeVisible()
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
+  })
+
+  it('com exclusão incerta, o gate fechado mantém a repetição disponível', async () => {
+    const list = closingList()
+    useStatus()
+    const deletes = useDeletes(
+      serverError,
+      () => {
+        list.close()
+        return problem(503, 'MEDIA_UPLOADS_DISABLED')
+      },
+      deleted,
+    )
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await userEvent.click(await repeatButton())
+
+    await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
+    await userEvent.click(await repeatButton())
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+    expect(deletes[2]).toEqual(deletes[0])
+  })
+})
+
+describe('aviso ao sair da página', () => {
+  it('não avisa sem nada pendente', async () => {
+    useList()
+    mount()
+
+    await screen.findByLabelText('Foto')
+    expect(leavingIsWarned()).toBe(false)
+  })
+
+  it('avisa durante o envio e para quando ele é confirmado', async () => {
+    useList()
+    const gate = deferred()
+    const posts = usePosts(async () => {
+      await gate.wait
+      return accepted()
+    })
+    mount()
+
+    await sendFile()
+    await waitFor(() => {
+      expect(posts).toHaveLength(1)
+    })
+    expect(leavingIsWarned()).toBe(true)
+    gate.release()
+    await screen.findByText('Foto recebida e enviada para análise.')
+    expect(leavingIsWarned()).toBe(false)
+  })
+
+  it('avisa com envio incerto', async () => {
+    useList()
+    usePosts(serverError)
+    mount()
+
+    await sendFile()
+    await repeatButton()
+
+    expect(leavingIsWarned()).toBe(true)
+  })
+
+  it('não avisa depois de uma recusa definitiva', async () => {
+    useList()
+    usePosts(() => problem(403, 'ACCOUNT_RESTRICTED'))
+    mount()
+
+    await sendFile()
+    await screen.findByRole('alert')
+
+    expect(leavingIsWarned()).toBe(false)
+  })
+
+  it('avisa com exclusão incerta', async () => {
+    useList(stored)
+    useStatus()
+    useDeletes(serverError)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await repeatButton()
+
+    expect(leavingIsWarned()).toBe(true)
+  })
+})
+
+describe('foco quando o controle focado some', () => {
+  it('repetir o envio mantém o foco no botão, que muda de texto', async () => {
+    useList()
+    const gate = deferred()
+    usePosts(serverError, async () => {
+      await gate.wait
+      return accepted()
+    })
+    mount()
+
+    await sendFile()
+    await userEvent.click(await repeatButton())
+
+    const sending = await screen.findByRole('button', { name: 'Enviando…' })
+    expect(sending).toHaveFocus()
+    gate.release()
+    await screen.findByText('Foto recebida e enviada para análise.')
+  })
+
+  it('recusa da exclusão leva o foco ao painel de confirmação', async () => {
+    useList(stored)
+    useStatus()
+    useDeletes(() => problem(409, 'PHOTO_DELETE_STATE_CONFLICT'))
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+
+    await screen.findByText('Esta foto ainda está sendo recebida. Tente excluir daqui a pouco.')
+    expect(screen.getByRole('group', { name: 'Excluir esta foto? Não dá para desfazer.' })).toHaveFocus()
+  })
+
+  it('repetir a exclusão deixa o foco no painel', async () => {
+    useList(stored)
+    useStatus()
+    const gate = deferred()
+    useDeletes(serverError, async () => {
+      await gate.wait
+      return deleted()
+    })
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await userEvent.click(await repeatButton())
+
+    expect(screen.getByRole('group', { name: 'Excluir esta foto? Não dá para desfazer.' })).toHaveFocus()
+    gate.release()
+    await screen.findByText('Foto excluída. A remoção dos arquivos termina em seguida.')
+  })
+
+  it('trocar de página leva o foco ao título da lista', async () => {
+    server.use(
+      http.get(PHOTOS, ({ request }) =>
+        new URL(request.url).searchParams.has('cursor')
+          ? listing(other)
+          : HttpResponse.json({ items: [stored], nextCursor: 'next' }),
+      ),
+    )
+    mount()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Próxima página' }))
+    await screen.findByRole('heading', { name: `Foto ${OTHER_PHOTO}` })
+    expect(screen.getByRole('heading', { name: 'Suas fotos' })).toHaveFocus()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Primeira página' }))
+    await screen.findByRole('heading', { name: `Foto ${PHOTO}` })
+    expect(screen.getByRole('heading', { name: 'Suas fotos' })).toHaveFocus()
+  })
+
+  it('"Ler estado atual" mantém o foco no botão mesmo quando a leitura falha', async () => {
+    let reads = 0
+    server.use(
+      http.get(PHOTOS, () => {
+        reads += 1
+        return reads === 1 ? listing(stored) : serverError()
+      }),
+    )
+    mount()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Ler estado atual' }))
+
+    await screen.findByRole('alert')
+    expect(screen.getByRole('button', { name: 'Ler estado atual' })).toHaveFocus()
+  })
+
+  it('gate fechado leva o foco ao aviso de indisponível', async () => {
+    let open = true
+    server.use(http.get(PHOTOS, () => (open ? listing() : problem(503, 'MEDIA_UPLOADS_DISABLED'))))
+    usePosts(() => {
+      open = false
+      return problem(503, 'MEDIA_UPLOADS_DISABLED')
+    })
+    mount()
+
+    await sendFile()
+
+    const notice = await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
+    expect(notice.closest('[role="status"]')).toHaveFocus()
+  })
+
+  it('manter a foto leva o foco ao título da lista quando o botão de origem sumiu', async () => {
+    let reads = 0
+    server.use(
+      http.get(PHOTOS, () => {
+        reads += 1
+        return reads === 1 ? listing(stored) : listing()
+      }),
+    )
+    useStatus()
+    mount()
+
+    await askToDelete()
+    await screen.findByRole('button', { name: 'Confirmar exclusão' })
+    await userEvent.click(screen.getByRole('button', { name: 'Ler estado atual' }))
+    await screen.findByText('Nenhuma foto disponível nesta lista.')
+    await userEvent.click(screen.getByRole('button', { name: 'Manter foto' }))
+
+    expect(screen.getByRole('heading', { name: 'Suas fotos' })).toHaveFocus()
+  })
+})
+
+describe('nome acessível', () => {
+  it('o botão de excluir contém o texto visível', async () => {
+    useList(stored)
+    mount()
+
+    const button = await screen.findByRole('button', { name: `Excluir foto ${PHOTO}` })
+    expect(button).toHaveTextContent('Excluir foto')
+    expect(button).toHaveAccessibleName(expect.stringContaining('Excluir foto'))
   })
 })

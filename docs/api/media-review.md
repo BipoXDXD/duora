@@ -203,7 +203,8 @@ A entrega M1 prepara leitura/status/replay de AwaitingReview e dos três resulta
 índice/cotas e raiz SQL do caso Safety. Nenhum escritor HumanReview existe nessa etapa. As afirmações de
 M0 acima continuam delimitando o contrato futuro: assetId, ETag e rotas administrativas são posteriores.
 DTOs/OpenAPI/tipos atuais conservam strings e o formato existente; o gate contract regenera/compara os artefatos.
-A SPA tem transporte genérico testado, ainda sem tela consumidora de status.
+Nessa entrega a SPA só tinha transporte genérico testado. Hoje `/account/photos` consome API-M02 ao excluir uma foto,
+sempre atrás do mesmo gate do upload.
 [Relatório M1 e gate de rollback antes dos escritores](../testing/reports/media-review-readers.md).
 
 ## Entrega API-M03/M04 — recorte executável (#173)

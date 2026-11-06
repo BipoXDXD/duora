@@ -1,3 +1,4 @@
+import type { AccountStatus } from '@/features/session/session-api'
 import type { PlainMessageKey } from '@/shared/i18n/catalog'
 
 const PHOTO_STATES: Readonly<Record<string, PlainMessageKey>> = {
@@ -39,6 +40,18 @@ export function rejectionMessage(code: string | null): PlainMessageKey {
 
 export function isInReview(status: string): boolean {
   return IN_REVIEW.has(status)
+}
+
+/** Espelha `PhotoOwnerAccess`: as demais contas recebem 403 no DELETE. */
+const DELETING_STATUSES: ReadonlySet<AccountStatus> = new Set([
+  'Active',
+  'PendingEligibility',
+  'Restricted',
+  'Suspended',
+])
+
+export function canAccountDeletePhotos(status: AccountStatus): boolean {
+  return DELETING_STATUSES.has(status)
 }
 
 /** `Pending` é o original ainda chegando: o servidor recusa a exclusão com 409. */

@@ -1,28 +1,31 @@
+import type { Ref } from 'react'
 import { useI18n } from '@/shared/i18n/i18n-context'
+import { Button } from '@/shared/ui/button'
 import { canDeletePhoto, isInReview, photoStateMessage, rejectionMessage } from './owner-photo-presentation'
-import { OwnerPhotoDeletion } from './OwnerPhotoDeletion'
 import type { OwnerPhoto } from './photo-review-api'
 import { PhotoReviewHistoryLink } from './PhotoReviewHistoryLink'
 
+/** Quem pode excluir e como: a pergunta em si fica no painel da página, fora da lista. */
+export interface OwnerPhotoDeletionEntry {
+  readonly disabled: boolean
+  readonly ask: (photoId: string) => void
+  readonly triggerRef: (photoId: string) => Ref<HTMLButtonElement>
+}
+
 export function OwnerPhotoItem({
   photo,
-  userId,
   showHistory,
-  onDeleted,
-  onGone,
-  onFailure,
+  deletion,
 }: {
   readonly photo: OwnerPhoto
-  readonly userId: string
   readonly showHistory: boolean
-  readonly onDeleted: () => void
-  readonly onGone: () => void
-  readonly onFailure: (error: unknown) => void
+  /** null: esta conta não exclui fotos. */
+  readonly deletion: OwnerPhotoDeletionEntry | null
 }): React.JSX.Element {
   const { t, formatDateTime } = useI18n()
   return (
     <li className="flex flex-col items-start gap-2 rounded-md border border-border p-4">
-      <h2 className="font-semibold break-all">{t('photoReview.photoIdentifier', { id: photo.photoId })}</h2>
+      <h3 className="font-semibold break-all">{t('photoReview.photoIdentifier', { id: photo.photoId })}</h3>
       <p>{t(photoStateMessage(photo.status))}</p>
       {isInReview(photo.status) ? <p className="text-text-muted">{t('photoOwner.inReview')}</p> : null}
       {photo.status === 'Rejected' ? <p>{t(rejectionMessage(photo.rejectionCode))}</p> : null}
@@ -33,14 +36,18 @@ export function OwnerPhotoItem({
           accessibleName={t('photoReview.historyFor', { id: photo.photoId })}
         />
       ) : null}
-      {canDeletePhoto(photo.status) ? (
-        <OwnerPhotoDeletion
-          userId={userId}
-          photoId={photo.photoId}
-          onDeleted={onDeleted}
-          onGone={onGone}
-          onFailure={onFailure}
-        />
+      {deletion !== null && canDeletePhoto(photo.status) ? (
+        <Button
+          ref={deletion.triggerRef(photo.photoId)}
+          variant="secondary"
+          aria-label={t('photoOwner.deleteFor', { id: photo.photoId })}
+          aria-disabled={deletion.disabled}
+          onClick={() => {
+            deletion.ask(photo.photoId)
+          }}
+        >
+          {t('photoOwner.delete')}
+        </Button>
       ) : null}
     </li>
   )
