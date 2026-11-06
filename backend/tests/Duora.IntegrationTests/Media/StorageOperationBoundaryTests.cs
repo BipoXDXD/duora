@@ -138,6 +138,56 @@ public sealed class StorageOperationBoundaryTests
         Assert.Equal([1, 2, 3], body);
     }
 
+    [Fact]
+    public async Task ABodyCutWhereADenialWouldCompleteItIsNeverAcceptedAsConfirmed()
+    {
+        const int Delivered = 8;
+        var body = new byte[Delivered + FrameLength(new PrivateGenerationReply("denied"))];
+        Array.Fill(body, (byte)42);
+        await using var stream = new CutOffStream(FrameLength(Confirmed(body).Reply) + Delivered, new IOException());
+        using var errors = new StringWriter();
+
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed(body)), Ct);
+
+        stream.Position = 0;
+        await Assert.ThrowsAsync<EndOfStreamException>(() => PrivateGenerationWire.ReadResponseAsync(stream, Ct));
+        Assert.Equal(FrameLength(Confirmed(body).Reply) + Delivered, stream.Length);
+        Assert.Equal($"STORAGE_REPLY_INTERRUPTED IOException{Environment.NewLine}", errors.ToString());
+    }
+
+    [Theory]
+    [InlineData(0, typeof(IOException), "IOException")]
+    [InlineData(2, typeof(OperationCanceledException), "OperationCanceledException")]
+    [InlineData(6, typeof(NotSupportedException), "NotSupportedException")]
+    [InlineData(150, typeof(SocketException), "SocketException")]
+    public async Task AReplyCutAtAnyPointReachesTheClientAsEof(int delivered, Type type, string name)
+    {
+        var failure = (Exception)Activator.CreateInstance(type)!;
+        await using var stream = new CutOffStream(delivered, failure);
+        using var errors = new StringWriter();
+
+        await StorageOperationBoundary.RunAsync(
+            stream, errors, _ => Task.FromResult(Confirmed(new byte[1024])), Ct);
+
+        stream.Position = 0;
+        await Assert.ThrowsAsync<EndOfStreamException>(() => PrivateGenerationWire.ReadResponseAsync(stream, Ct));
+        Assert.Equal($"STORAGE_REPLY_INTERRUPTED {name}{Environment.NewLine}", errors.ToString());
+    }
+
+    [Fact]
+    public async Task ABrokenLogDuringACutReplyEndsTheConnectionQuietly()
+    {
+        await using var stream = new CutOffStream(2, new IOException());
+        await using var errors = new BrokenWriter(typeof(IOException));
+
+        await StorageOperationBoundary.RunAsync(stream, errors, _ => Task.FromResult(Confirmed([1, 2, 3])), Ct);
+
+        Assert.Equal(2, stream.Length);
+    }
+
+    private static int FrameLength(PrivateGenerationReply reply) =>
+        sizeof(int) + JsonSerializer.SerializeToUtf8Bytes(reply, PrivateGenerationWire.Json).Length;
+
     private static async Task<string> ReplyAsync(MemoryStream stream)
     {
         stream.Position = 0;
@@ -156,6 +206,25 @@ public sealed class StorageOperationBoundaryTests
 
     private static (PrivateGenerationReply Reply, byte[] Body) Confirmed(byte[] body) =>
         (new PrivateGenerationReply("ok", Length: body.Length), body);
+
+    /// <summary>Fails once at a byte position and accepts later writes, as a socket with room left would.</summary>
+    private sealed class CutOffStream(int capacity, Exception failure) : MemoryStream
+    {
+        private bool _cut;
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_cut || Length + buffer.Length <= capacity)
+            {
+                await base.WriteAsync(buffer, cancellationToken);
+                return;
+            }
+            await base.WriteAsync(buffer[..(capacity - (int)Length)], cancellationToken);
+            _cut = true;
+            throw failure;
+        }
+    }
 
     private sealed class BrokenWriter(Type failure) : StringWriter
     {

@@ -20,16 +20,42 @@ internal static class StorageOperationBoundary
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(OperationBudget);
+        (PrivateGenerationReply Reply, byte[] Body) outcome;
         try
         {
-            var (reply, body) = await operation(budget.Token);
-            await PrivateGenerationWire.WriteAsync(stream, reply, budget.Token);
-            await stream.WriteAsync(body, budget.Token);
+            outcome = await operation(budget.Token);
         }
         catch (Exception error)
         {
             var replyError = await SendDenialAsync(stream);
-            Record(errors, error, replyError);
+            Record(errors, log =>
+            {
+                log.WriteLine(Describe(error));
+                if (replyError is not null)
+                {
+                    log.WriteLine($"STORAGE_REPLY_LOST {replyError.GetType().Name}");
+                }
+            });
+            return;
+        }
+        await SendReplyAsync(stream, errors, outcome, budget.Token);
+    }
+
+    /// <summary>
+    /// Once a reply has started, a denial frame would be read as the rest of its body. Closing the connection
+    /// leaves the client at EOF, which it never takes for a confirmation.
+    /// </summary>
+    private static async Task SendReplyAsync(Stream stream, TextWriter errors,
+        (PrivateGenerationReply Reply, byte[] Body) outcome, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await PrivateGenerationWire.WriteAsync(stream, outcome.Reply, cancellationToken);
+            await stream.WriteAsync(outcome.Body, cancellationToken);
+        }
+        catch (Exception error)
+        {
+            Record(errors, log => log.WriteLine($"STORAGE_REPLY_INTERRUPTED {error.GetType().Name}"));
         }
     }
 
@@ -55,15 +81,11 @@ internal static class StorageOperationBoundary
         }
     }
 
-    private static void Record(TextWriter errors, Exception error, Exception? replyError)
+    private static void Record(TextWriter errors, Action<TextWriter> write)
     {
         try
         {
-            errors.WriteLine(Describe(error));
-            if (replyError is not null)
-            {
-                errors.WriteLine($"STORAGE_REPLY_LOST {replyError.GetType().Name}");
-            }
+            write(errors);
         }
         catch (Exception)
         {
