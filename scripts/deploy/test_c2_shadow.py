@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import errno
 import hashlib
 import io
 import json
@@ -336,7 +337,10 @@ class ShadowSecretsTests(unittest.TestCase):
 
 
 SOURCE, TARGET = shadow.SWAP_SOURCE_IMAGE, shadow.SWAP_TARGET_IMAGE
-HEALTHY = shadow.SwapResources(available_mib=lambda: 4000, pressure=lambda: 1.0, disk_mib=lambda _path: (100_000, 60_000),
+CALM = shadow.HostPressure(cpu=1.0, cpu_baseline=1.0, memory=0.0, io=0.0)
+# Lido na VPS às 01:13 UTC de 06/11, com load 1,0 em 2 vCPU e processos a menos de 3% de CPU.
+VPS_AT_REST = shadow.HostPressure(cpu=26.0, cpu_baseline=38.0, memory=0.0, io=0.0)
+HEALTHY = shadow.SwapResources(available_mib=lambda: 4000, pressure=lambda: CALM, disk_mib=lambda _path: (100_000, 60_000),
                                device=lambda _path: 7)
 PHOTO = {"systemIdentifier": "7000", "catalogVersion": 202506291, "controlVersion": 1800, "timeline": 1,
          "head": "20261105120000_RegistrationReconciliationManifest", "acl": "d41d8",
@@ -384,7 +388,7 @@ class SwapDocker:
             root = self.config_root
             bind = self.config_bind or root + "/conf/pg_hba.conf"
             return json.dumps({"name": self.config_project, "volumes": {"pgdata": {"name": self.config_volume}},
-                "services": {"postgres": {"image": self.config_image, "volumes": [{"type": "bind", "source": bind}, {"type": "volume", "source": "pgdata"}]},
+                "services": {"postgres": {"image": self.config_image, "cpu_shares": 2048, "deploy": {"resources": {"limits": {"cpus": 1.5}}}, "volumes": [{"type": "bind", "source": bind}, {"type": "volume", "source": "pgdata"}]},
                              "backup": {"image": self.config_image, "volumes": [{"type": "bind", "source": root + "/certs/public.crt"}]},
                              "edge": {"image": "edge", "ports": [{"host_ip": self.config_port_ip, "published": "18443", "target": 443}]}},
                 "secrets": {"db": {"file": self.config_secret or root + "/secrets/db"}}})
@@ -397,7 +401,7 @@ class SwapDocker:
             return "/var/lib/docker\n"
         if argv[:2] == ["docker", "inspect"]:
             if "HostConfig" in joined:
-                return "1500000000 2048\n"
+                raise AssertionError("o limite original vem do Compose, não do container")
             images = self.running_images or (self.image, self.image)
             return "".join(f"{item} sha256:{item[-64:]}\n" for item in images)
         if argv[:3] == ["docker", "volume", "inspect"]:
@@ -590,8 +594,16 @@ class SwapRehearsalGuardTests(SwapRehearsalFixture):
         devices = {str(self.layout.root): 7, "/var/lib/docker": 8}
         self.refused(resources=dataclasses.replace(HEALTHY, device=lambda path: devices.get(str(path), 7)))
 
-    def test_pressure_at_the_start_refuses(self) -> None:
-        self.refused(resources=dataclasses.replace(HEALTHY, pressure=lambda: shadow.SWAP_MAX_PRESSURE + 1))
+    def test_memory_or_io_pressure_at_the_start_refuses(self) -> None:
+        for field in ("memory", "io"):
+            with self.subTest(field=field):
+                self.setUp()
+                high = dataclasses.replace(CALM, **{field: shadow.SWAP_MAX_STALL_PRESSURE + 1})
+                self.refused(resources=dataclasses.replace(HEALTHY, pressure=lambda: high))
+
+    def test_cpu_baseline_too_high_at_the_start_refuses(self) -> None:
+        high = dataclasses.replace(CALM, cpu_baseline=shadow.SWAP_MAX_CPU_BASELINE + 1)
+        self.refused(resources=dataclasses.replace(HEALTHY, pressure=lambda: high))
 
     def test_running_outside_the_origin_refuses_a_repeat(self) -> None:
         self.docker.image = TARGET
@@ -644,10 +656,28 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
         self.assertLess(sum("insert into c2.swap_ballast" in c for c in self.docker.commands), 4)
         self.assertTrue(json.loads((self.layout.state / "swap-rehearsal.json").read_text())["aborted"])
 
-    def test_pressure_between_batches_stops_too(self) -> None:
-        readings = iter([1.0, 1.0, 90.0])
-        with self.assertRaisesRegex(shadow.ShadowError, "PSI"):
-            self.rehearse(fill_mib=256, resources=dataclasses.replace(HEALTHY, pressure=lambda: next(readings, 90.0)))
+    def test_memory_or_io_pressure_between_batches_stops_too(self) -> None:
+        for field in ("memory", "io"):
+            with self.subTest(field=field):
+                self.setUp()
+                hot = dataclasses.replace(CALM, **{field: 90.0})
+                readings = iter([CALM, CALM, CALM])
+                with self.assertRaisesRegex(shadow.ShadowError, "PSI"):
+                    self.rehearse(fill_mib=256, resources=dataclasses.replace(HEALTHY, pressure=lambda: next(readings, hot)))
+                self.assertEqual(self.stops(), [])
+
+    def test_the_cpu_floor_of_the_vps_does_not_stop_the_rehearsal(self) -> None:
+        spike = dataclasses.replace(VPS_AT_REST, cpu=VPS_AT_REST.cpu_baseline + shadow.SWAP_CPU_PRESSURE_MARGIN)
+        readings = iter([VPS_AT_REST, VPS_AT_REST])
+        result = self.rehearse(fill_mib=128, resources=dataclasses.replace(HEALTHY, pressure=lambda: next(readings, spike)))
+        self.assertTrue(result["photoStable"])
+        self.assertEqual(result["cpuPressureBaseline"], 38.0)
+
+    def test_cpu_pressure_above_baseline_plus_margin_stops(self) -> None:
+        hot = dataclasses.replace(VPS_AT_REST, cpu=VPS_AT_REST.cpu_baseline + shadow.SWAP_CPU_PRESSURE_MARGIN + 0.1)
+        readings = iter([VPS_AT_REST, VPS_AT_REST, VPS_AT_REST])
+        with self.assertRaisesRegex(shadow.ShadowError, "PSI de CPU"):
+            self.rehearse(fill_mib=256, resources=dataclasses.replace(HEALTHY, pressure=lambda: next(readings, hot)))
 
     def test_fill_runs_throttled_and_gives_the_cpu_back_even_on_failure(self) -> None:
         readings = iter([4000, 4000, 400])
@@ -655,6 +685,7 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
             self.rehearse(fill_mib=256, resources=dataclasses.replace(HEALTHY, available_mib=lambda: next(readings, 400)))
         self.assertIn("--cpus 0.5", self.docker.updates[0])
         self.assertIn("--cpu-shares 256", self.docker.updates[0])
+        self.assertTrue(self.docker.updates[0].endswith("duora-c2-postgres-1"))
         self.assertIn("--cpus 1.5", self.docker.updates[-1])
         self.assertIn("--cpu-shares 2048", self.docker.updates[-1])
 
@@ -672,9 +703,10 @@ class SwapRehearsalResourceTests(SwapRehearsalFixture):
             base = Path(directory)
             (base / "meminfo").write_text("MemTotal: 8000000 kB\nMemAvailable:  2097152 kB\n")
             self.assertEqual(shadow._memory_available_mib(base / "meminfo"), 2048)
-            for name, value in (("cpu", "3.50"), ("memory", "41.25"), ("io", "0.00")):
-                (base / name).write_text(f"some avg10={value} avg60=0.00 avg300=0.00 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=1\n")
-            self.assertEqual(shadow._pressure_avg10(base), 41.25)
+            for name, averages in (("cpu", "26.00 avg60=36.00 avg300=38.00"), ("memory", "1.50 avg60=0.00 avg300=0.00"),
+                                   ("io", "2.50 avg60=9.00 avg300=9.00")):
+                (base / name).write_text(f"some avg10={averages} total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=1\n")
+            self.assertEqual(shadow._host_pressure(base), shadow.HostPressure(cpu=26.0, cpu_baseline=38.0, memory=1.5, io=2.5))
 
     def test_minio_has_cpu_and_memory_limits_in_the_overlay(self) -> None:
         overlay = shadow.OVERLAY_FILE.read_text(encoding="utf-8")
@@ -712,6 +744,11 @@ class SwapGuardRealRenderTests(unittest.TestCase):
         with self.assertRaisesRegex(shadow.ShadowError, "fora de"):
             shadow._swap_guard(self.layout, inherited)
 
+    def test_original_postgres_limits_come_from_the_real_render(self) -> None:
+        result = subprocess.run([*shadow.compose_command(self.layout), "config", "--format", "json"], capture_output=True,
+                                text=True, timeout=60, check=True)
+        self.assertEqual(shadow._swap_postgres_limits(json.loads(result.stdout)), ("1.5", "2048"))
+
     def test_minio_limits_reach_the_rendered_service(self) -> None:
         result = subprocess.run([*shadow.compose_command(self.layout), "config", "--format", "json"], capture_output=True,
                                 text=True, timeout=60, check=True)
@@ -721,7 +758,19 @@ class SwapGuardRealRenderTests(unittest.TestCase):
         self.assertEqual(s3["deploy"]["resources"]["limits"]["cpus"], 0.5)
 
 
+class DeadTerminal(io.StringIO):
+    """stdout de uma sessão SSH que caiu: toda escrita devolve EIO."""
+
+    def write(self, text: str) -> int:
+        raise OSError(errno.EIO, "Input/output error")
+
+
 class DefaultRunnerEnvironmentTests(unittest.TestCase):
+    def test_dead_terminal_does_not_interrupt_a_command(self) -> None:
+        completed = subprocess.CompletedProcess(["docker"], 0, "ok", "")
+        with mock.patch.object(shadow.sys, "stdout", DeadTerminal()), mock.patch.object(shadow.subprocess, "run", return_value=completed):
+            self.assertEqual(shadow.default_runner(["docker", "ps"]), "ok")
+
     def test_commands_never_inherit_the_callers_environment(self) -> None:
         seen = {}
         def run(argv, **arguments):
@@ -846,6 +895,16 @@ class SwapRehearsalAbortTests(SwapRehearsalFixture):
             shadow.swap_abort(self.layout, run=self.docker)
         self.assertFalse(any("--no-deps web worker edge" in c for c in self.docker.commands))
 
+    def test_successful_rehearsal_leaves_no_baseline_behind(self) -> None:
+        self.rehearse()
+        self.assertFalse((self.layout.state / "swap-baseline.json").exists())
+
+    def test_failed_rehearsal_keeps_the_baseline_for_a_later_abort(self) -> None:
+        self.docker.photo_after_swap = dict(PHOTO, timeline=2)
+        with self.assertRaises(shadow.ShadowError):
+            self.rehearse()
+        self.assertTrue((self.layout.state / "swap-baseline.json").exists())
+
     def test_a_new_rehearsal_discards_the_baseline_of_the_previous_one(self) -> None:
         baseline = self.layout.state / "swap-baseline.json"
         baseline.write_text("{}")
@@ -924,6 +983,29 @@ class SwapRehearsalCliTests(unittest.TestCase):
             shield()
             os.kill(os.getpid(), signal.SIGTERM)
             time.sleep(0.05)
+
+    def test_dead_terminal_does_not_turn_a_finished_abort_into_a_failure(self) -> None:
+        with mock.patch.object(shadow, "swap_abort", return_value={"digest": SOURCE}), mock.patch.object(shadow.os, "geteuid", return_value=0), \
+                mock.patch.object(shadow.sys, "stdout", DeadTerminal()):
+            self.assertEqual(shadow.main(["--root", str(self.root), "swap-abort"]), 0)
+
+    def test_dead_terminal_does_not_hide_the_failure_of_an_abort(self) -> None:
+        with mock.patch.object(shadow, "swap_abort", side_effect=shadow.ShadowError("x")), mock.patch.object(shadow.os, "geteuid", return_value=0), \
+                mock.patch.object(shadow.sys, "stdout", DeadTerminal()), mock.patch.object(shadow.sys, "stderr", DeadTerminal()):
+            self.assertEqual(shadow.main(["--root", str(self.root), "swap-abort"]), 1)
+
+    def test_down_works_without_the_state_directory(self) -> None:
+        shutil.rmtree(self.root / "state")
+        with mock.patch.object(shadow, "down") as down:
+            self.assertEqual(self.main("down"), 0)
+        down.assert_called_once()
+        self.assertFalse((self.root / "state").exists())
+
+    def test_the_lock_survives_the_removal_of_the_root(self) -> None:
+        with shadow._swap_lock(shadow.Layout(self.root)):
+            shutil.rmtree(self.root)
+            with self.assertRaisesRegex(shadow.ShadowError, "em execução"), shadow._swap_lock(shadow.Layout(self.root)):
+                self.fail("dois subcomandos ao mesmo tempo")
 
     def test_refused_host_failures_exit_with_a_message_not_a_traceback(self) -> None:
         for error in (subprocess.TimeoutExpired("docker", 1), KeyError("services")):

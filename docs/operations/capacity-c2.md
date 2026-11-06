@@ -167,14 +167,21 @@ sudo systemd-run --unit=duora-c2-swap --collect --service-type=exec --working-di
   --property=KillMode=mixed --property=TimeoutStopSec=900 \
   python3 scripts/deploy/c2_shadow.py swap-rehearsal \
   --target ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e \
-  --fill-mib 1024
+  --fill-mib 256
 sudo journalctl --unit=duora-c2-swap --follow
 sudo systemctl stop duora-c2-swap                       # interrompe e volta sozinho à origem
-sudo python3 scripts/deploy/c2_shadow.py swap-abort     # só se o processo tiver morrido sem voltar
+
+# só se o processo tiver morrido sem voltar
+sudo systemd-run --unit=duora-c2-swap-abort --collect --service-type=exec --working-directory="$PWD" \
+  --property=KillMode=mixed --property=TimeoutStopSec=900 \
+  python3 scripts/deploy/c2_shadow.py swap-abort
+sudo journalctl --unit=duora-c2-swap-abort --follow
+
 sudo python3 scripts/deploy/c2_shadow.py down           # ao fim da janela, depois de copiar as evidências
 ```
 
-O `systemd-run` desliga o ensaio da sessão SSH: uma queda do túnel não interrompe a troca no meio. O digest alvo é o amd64 da
+O `systemd-run` desliga o ensaio e o abort da sessão SSH: uma queda do túnel não interrompe a troca nem a volta, e por isso o
+abort também vai por ele. Sem ele, um terminal morto só perde o log, e o resultado segue nos JSON de `state/`. O digest alvo é o amd64 da
 imagem construída na run 42073873377 do GitHub Actions. O `TimeoutStopSec` dá 15 min para a volta depois de um `stop`.
 
 Em ordem: pull do alvo, dados sintéticos em `c2.swap_ballast`, espera do arquivamento, parada de worker e web, foto e
@@ -207,28 +214,36 @@ recusado com o pedido de `swap-abort`. Nunca há `down` nem remoção de volume 
 projeto validado por `c2_probe.validate_project`, raiz com nome `duora-c2`. O `docker compose config` precisa resolver para o
 projeto e o volume do sombra, com a imagem de origem em postgres e backup, todo bind mount e todo segredo dentro da raiz e toda
 porta em loopback. Os containers precisam estar de fato na origem, conferidos pelo id da imagem. Os comandos rodam com ambiente
-mínimo, sem herdar `DUORA_*`, `DOCKER_HOST`, `DOCKER_CONTEXT` nem `COMPOSE_*` do root, e um lock em `state/.swap.lock` faz
-os subcomandos se excluírem. O comando não usa o executor, o receiver, `/etc/duora` nem `/var/lib/duora`.
+mínimo, sem herdar `DUORA_*`, `DOCKER_HOST`, `DOCKER_CONTEXT` nem `COMPOSE_*` do root, e um lock em `/var/lib/.duora-c2.lock`,
+ao lado da raiz para o `down` não depender de `state/`, faz os subcomandos se excluírem. O comando não usa o executor, o receiver, `/etc/duora` nem `/var/lib/duora`.
 
-**Recursos.** O início exige ao menos 1 GiB de `MemAvailable`, PSI `some avg10` de até 40 em CPU, memória e IO, e que o uso de
-disco fique abaixo de 85% contando a reserva, com o `DockerRootDir` no mesmo filesystem da raiz. Entre lotes e antes de cada
-sentido, ele repete a conta com piso de 512 MiB e, se passar de um limite, para sem parar serviços ou volta à origem. O PSI é
-uma leitura pontual de 10 s, mais rígida que os 60 s do guarda da janela. O preenchimento roda com `--cpus 0.5` e
-`--cpu-shares 256`, com um intervalo de 1 s entre lotes, e devolve os limites ao terminar. O MinIO tem teto de 768 MiB e meia
-CPU no overlay.
+**Recursos.** O início exige ao menos 1 GiB de `MemAvailable`, PSI `some avg10` de memória e de IO até 40, linha de base de PSI
+de CPU até 60 e uso de disco abaixo de 85% contando a reserva, com o `DockerRootDir` no mesmo filesystem da raiz. Entre lotes e
+antes de cada sentido, ele repete a conta com piso de 512 MiB e, se passar de um limite, para sem parar serviços ou volta à
+origem.
+
+A CPU não tem teto fixo. Em 06/11, às 01:13 UTC, com load 1,0 em 2 vCPU e processos a menos de 3% de CPU, a VPS marcava PSI de CPU
+`some` 26/36/38 (avg10/60/300), com memória e IO em 0,00. Um teto de 40 pararia o ensaio sem motivo, e o `full` da CPU fica zerado
+no nível do sistema. A linha de base é o maior dos três avg no início, gravada em `cpuPressureBaseline`, e o ensaio para se o
+`avg10` passar dela mais 25; com esses valores, 63. São leituras pontuais do host, diferentes do guarda `OTHER_APPS_PSI`, que olha
+cada container por 60 s.
+
+O preenchimento roda com `--cpus 0.5` e `--cpu-shares 256`, com um intervalo de 1 s entre lotes, e devolve os limites definidos no
+Compose ao terminar. O MinIO tem teto de 768 MiB e meia CPU no overlay.
 
 **Dados.** O banco sombra nasce pequeno, e copiar a produção é proibido. `--fill-mib` grava dados sintéticos sem compressão
 até 2048 MiB, em lotes de 64 MiB, reservando três vezes esse tamanho mais 4 GiB, e troca o lastro de um ensaio anterior. O
-resultado traz o tamanho real em `databaseSizeMib`. Em 28/10 a produção tinha 11 MB.
+resultado traz o tamanho real em `databaseSizeMib`. O recomendado é `--fill-mib 256`: em 06/11 a produção tinha 117 MB em
+`/var/lib/postgresql`.
 
-**Reserva (estimativa, não medida).** Fora o `prepare` e o `up`, de 10 a 15 min: pull de 1 a 3, preenchimento de 1 GiB de 2 a
-4, arquivamento até 10 no pior caso, cada sentido de 1 a 2, e `down`. Reserve 45 min. Com a CPU reduzida, o preenchimento pode
+**Reserva (estimativa, não medida).** Fora o `prepare` e o `up`, de 10 a 15 min: pull de 1 a 3, preenchimento de 256 MiB de 1 a
+2, arquivamento até 10 no pior caso, cada sentido de 1 a 2, e `down`. Reserve 45 min. Com a CPU reduzida, o preenchimento pode
 passar disso. Para fazer também o `restore-rehearsal` na mesma janela, rode um `full` antes dele: o ensaio da troca não grava
 backup.
 
 **Memória e disco.** Os limites do sombra somam 5,1 GiB (postgres 2 GiB, web 1,5, worker 1, backup 0,5, edge 0,1), mais 0,75 do
 MinIO. Worker e web ficam parados durante a troca, com uso esperado de 2 a 3 GiB, mas o pico é no preenchimento, com tudo de pé.
-Disco: 7 GiB para `--fill-mib 1024`, mais a imagem alvo, de que boa parte das camadas já está no host. Vale a regra de um comando
+Disco: 4,8 GiB reservados para `--fill-mib 256`, com a imagem alvo, de que boa parte das camadas já está no host. Vale a regra de um comando
 pesado por vez da janela. Os demais guardas da janela C2 (por exemplo os alertas externos) continuam sendo acompanhados pelo
 responsável: este comando só aplica os de memória, disco e PSI listados acima.
 
