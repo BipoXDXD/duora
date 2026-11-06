@@ -655,8 +655,8 @@ export const ptBR = {
   'photoOwner.giveUp': 'Desistir',
   'photoOwner.abandoned': 'Envio descartado. Confira a lista antes de enviar de novo: a foto pode já ter chegado.',
   'photoOwner.rulesTitle': 'Regras de fotos',
-  // Marcador: a redação das regras depende de aprovação do dono antes de ligar o upload (#69).
-  'photoOwner.rulesPending': 'Redação pendente de aprovação do dono do Duora antes de o envio de fotos ser ligado.',
+  // Marcador neutro: a redação real precisa de aprovação antes de ligar o upload (#69, screens.md).
+  'photoOwner.rulesPending': 'Regras de fotos em preparação.',
   'photoOwner.showRules': 'Ver regras de fotos',
   'photoOwner.rejectedGeneric': 'A foto não foi aprovada. Envie outra foto.',
   'photoOwner.reasonUnsupportedFormat': 'Este formato de imagem não é aceito. Envie outra foto.',

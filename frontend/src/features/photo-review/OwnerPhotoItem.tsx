@@ -28,7 +28,8 @@ export function OwnerPhotoItem({
   readonly showHistory: boolean
   /** null: esta conta não exclui fotos. */
   readonly deletion: OwnerPhotoDeletionEntry | null
-  readonly onShowRules: () => void
+  /** null: esta conta não vê a seção de regras. */
+  readonly onShowRules: (() => void) | null
 }): React.JSX.Element {
   const { t, formatDateTime } = useI18n()
   return (
@@ -37,7 +38,7 @@ export function OwnerPhotoItem({
       <p>{t(photoStateMessage(photo.status))}</p>
       {isInReview(photo.status) ? <p className="text-text-muted">{t('photoOwner.inReview')}</p> : null}
       {photo.status === 'Rejected' ? <p>{t(rejectionMessage(photo.rejectionCode))}</p> : null}
-      {photo.status === 'Rejected' && citesPhotoRules(photo.rejectionCode) ? (
+      {onShowRules !== null && photo.status === 'Rejected' && citesPhotoRules(photo.rejectionCode) ? (
         <Button variant="neutral" onClick={onShowRules}>
           {t('photoOwner.showRules')}
         </Button>

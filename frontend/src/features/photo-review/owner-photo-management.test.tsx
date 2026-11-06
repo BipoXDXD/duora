@@ -1348,6 +1348,48 @@ describe('saída segura da exclusão incerta', () => {
     expect(deletes[1]).toEqual(deletes[0])
   })
 
+  it('com o gate fechado, reler sem Deleted encerra a incerteza e fecha o painel, sem novo DELETE', async () => {
+    let open = true
+    server.use(http.get(PHOTOS, () => (open ? listing(stored) : problem(503, 'MEDIA_UPLOADS_DISABLED'))))
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1))
+    const deletes = useDeletes(serverError, () => {
+      open = false
+      return problem(503, 'MEDIA_UPLOADS_DISABLED')
+    })
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await userEvent.click(await repeatButton())
+    await screen.findByText('As fotos ainda não estão disponíveis no Duora.')
+    await userEvent.click(await screen.findByRole('button', { name: REREAD }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: 'Repetir o mesmo pedido' })).not.toBeInTheDocument()
+    expect(deletes).toHaveLength(2)
+    expect(leavingIsWarned()).toBe(false)
+  })
+
+  it('depois de reler sem Deleted, "Manter foto" fecha o painel sem novo DELETE e devolve o foco', async () => {
+    useList(stored)
+    useStatusSequence(statusOf('AwaitingReview', TAG_V1))
+    const deletes = useDeletes(serverError)
+    mount()
+
+    await askToDelete()
+    await confirmDeletion()
+    await repeatButton()
+    await userEvent.click(screen.getByRole('button', { name: REREAD }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Manter foto' }))
+
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: `Excluir foto ${PHOTO}` })).toHaveFocus()
+    expect(deletes).toHaveLength(1)
+    expect(leavingIsWarned()).toBe(false)
+  })
+
   it('a saída também funciona com o gate fechado', async () => {
     let open = true
     server.use(http.get(PHOTOS, () => (open ? listing(stored) : problem(503, 'MEDIA_UPLOADS_DISABLED'))))
@@ -1529,7 +1571,7 @@ describe('desistir do envio incerto', () => {
 })
 
 describe('regras de fotos', () => {
-  const PLACEHOLDER = 'Redação pendente de aprovação do dono do Duora antes de o envio de fotos ser ligado.'
+  const PLACEHOLDER = 'Regras de fotos em preparação.'
   const rejected = { ...stored, status: 'Rejected', rejectionCode: 'PHOTO_REVIEW_REJECTED' }
 
   it('mostra o marcador pendente, sem texto de regra inventado, com o gate aberto', async () => {
@@ -1545,9 +1587,7 @@ describe('regras de fotos', () => {
     mount({ locale: 'en-US' })
 
     expect(await screen.findByRole('heading', { name: 'Photo rules' })).toBeVisible()
-    expect(
-      screen.getByText('Wording pending approval by the Duora owner before photo uploads are turned on.'),
-    ).toBeVisible()
+    expect(screen.getByText('Photo rules are being prepared.')).toBeVisible()
   })
 
   it('não aparece com o upload desligado', async () => {
@@ -1574,6 +1614,19 @@ describe('regras de fotos', () => {
     expect(screen.queryByRole('heading', { name: 'Regras de fotos' })).not.toBeInTheDocument()
     expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
   })
+
+  it.each(['Restricted', 'Suspended'] as const)(
+    'conta %s, que não envia, não vê o marcador nem o atalho',
+    async (status) => {
+      useList(rejected)
+      mount({ status })
+
+      await screen.findByRole('heading', { name: `Foto ${PHOTO}` })
+      expect(screen.queryByRole('heading', { name: 'Regras de fotos' })).not.toBeInTheDocument()
+      expect(screen.queryByText(PLACEHOLDER)).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Ver regras de fotos' })).not.toBeInTheDocument()
+    },
+  )
 
   it('"Consulte as regras" leva às regras na mesma tela', async () => {
     useList(rejected)

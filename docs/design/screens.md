@@ -152,8 +152,8 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   aprovadas, preferências privadas. Cada bloco com rótulo "Visível para pares" ou "Só você e o sistema".
 - **Ações:** primária "Salvar alterações"; secundária "Adicionar foto"; seção Conta com e-mail, senha e MFA.
 - **Estados:** rascunho (alterações não salvas indicadas em texto; nada íntimo salvo localmente); upload
-  (progresso em texto, sem porcentagem: o cliente HTTP usa `fetch`, que não informa o envio);
-  quarentena/processamento ("Em análise; ainda não aparece para outros participantes");
+  (progresso em texto e porcentagem); quarentena/processamento
+  ("Em análise; ainda não aparece para outros participantes");
   rejeição (motivo comunicável e "Enviar outra"; não há recurso de fotos, e o histórico de revisão da foto é só
   leitura, sem botão de pedir revisão da decisão); conflito de edição ("Este perfil mudou em outro dispositivo"
   com "Ver versão atual" e "Reaplicar minhas alterações", spec 13.5); salvo (confirmação em `role="status"`).
@@ -185,14 +185,17 @@ em [system.md](system.md); critérios de acessibilidade, em [accessibility.md](a
   pede nova confirmação, com chave nova.
 - **Envio incerto:** além de "Repetir o mesmo pedido", há "Desistir", que descarta chave e bytes e avisa para conferir
   a lista antes de enviar de novo (decisão do dono, 06/11/2026).
-- **Regras de fotos:** seção nesta tela, destino de "Consulte as regras", visível só com o gate aberto. Hoje é um
-  marcador: a redação depende de aprovação do dono **antes de ligar o upload** (#69). Não há texto de regra.
+- **Regras de fotos:** seção nesta tela, destino de "Consulte as regras", visível só com o gate aberto e para quem
+  envia. Hoje mostra só o marcador "Regras de fotos em preparação."; não há texto de regra. A redação precisa de
+  aprovação do dono **antes de ligar o upload** (#69).
 - **Foco:** quando o controle focado some, o foco vai ao painel da exclusão, ao título "Suas fotos" ou ao aviso de
   indisponível.
 - **Saída da página:** com envio em curso ou resultado incerto, o navegador pede confirmação (`beforeunload`).
 - **Limite aceito pelo dono (06/11/2026):** a intenção fica só em memória. Navegar dentro da SPA, confirmar a saída ou a
   aba cair descarta chave e bytes, e o próximo envio pode duplicar a foto. O custo é uma vaga de cota, recuperável
   excluindo a duplicata.
+- **Limitação:** o envio mostra "Enviando…", sem a porcentagem pedida no Perfil próprio: o cliente HTTP usa `fetch`, que
+  não informa o progresso. Pendência da #370; dispensar a porcentagem exige decisão do dono.
 
 ## Eventos
 

@@ -16,8 +16,8 @@ import { useLeaveWarning } from './use-leave-warning'
  * A lista não traz ETag: a versão vem de API-M02 antes de perguntar, para que a confirmação valha para o estado que
  * a pessoa leu. Se a foto mudar depois disso, o DELETE responde 412 e nada acontece.
  *
- * A exclusão incerta tem saída: reler M02. `Deleted` prova que ela aconteceu; qualquer outro estado prova que não, e
- * a pessoa confirma de novo. Se o pedido antigo ainda chegar ao servidor, a versão avança e a confirmação nova dá 412.
+ * A exclusão incerta tem saída: reler M02. `Deleted` prova que ela aconteceu. Qualquer outro estado prova só até a
+ * leitura, e a pessoa confirma de novo: se o pedido antigo ainda chegar ao servidor, a confirmação nova dá 412.
  */
 export function OwnerPhotoDeletion({
   userId,

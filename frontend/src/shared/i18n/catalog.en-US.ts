@@ -646,8 +646,8 @@ export const en = {
   'photoOwner.giveUp': 'Give up',
   'photoOwner.abandoned': 'Upload discarded. Check the list before uploading again: the photo may have arrived.',
   'photoOwner.rulesTitle': 'Photo rules',
-  // Placeholder: the rules wording needs the owner's approval before uploads are turned on (#69).
-  'photoOwner.rulesPending': 'Wording pending approval by the Duora owner before photo uploads are turned on.',
+  // Neutral placeholder: the real wording needs approval before uploads are turned on (#69, screens.md).
+  'photoOwner.rulesPending': 'Photo rules are being prepared.',
   'photoOwner.showRules': 'See photo rules',
   'photoOwner.rejectedGeneric': 'This photo was not approved. Upload another photo.',
   'photoOwner.reasonUnsupportedFormat': 'This image format is not accepted. Upload another photo.',

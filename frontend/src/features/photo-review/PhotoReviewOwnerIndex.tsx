@@ -64,6 +64,7 @@ function OwnerPhotos({
     setClosed(false)
   } else if (photos.isError && isUploadsDisabled(photos.error) && !closed) setClosed(true)
   const data = photos.isError ? undefined : photos.data
+  const uploader = UPLOADING_STATUSES.has(status)
 
   const reread = useCallback(() => {
     setEpoch((value) => value + 1)
@@ -151,14 +152,14 @@ function OwnerPhotos({
       {opened ? (
         <OwnerPhotoUpload
           key={uploads}
-          available={!closed && UPLOADING_STATUSES.has(status)}
+          available={!closed && uploader}
           onUploaded={onUploaded}
           onAbandoned={onAbandoned}
           onFailure={reactToFailure}
         />
       ) : null}
-      {opened && !closed && !UPLOADING_STATUSES.has(status) ? <p>{t('photoOwner.accountCannotUpload')}</p> : null}
-      {opened && !closed ? (
+      {opened && !closed && !uploader ? <p>{t('photoOwner.accountCannotUpload')}</p> : null}
+      {opened && !closed && uploader ? (
         <section className="flex flex-col gap-2">
           <h2 ref={rulesTitle} tabIndex={-1} className="text-xl font-semibold">
             {t('photoOwner.rulesTitle')}
@@ -203,7 +204,7 @@ function OwnerPhotos({
               // A conta suspensa não alcança o histórico de revisão (ADR-0042).
               showHistory={status !== 'Suspended'}
               deletion={canAccountDeletePhotos(status) ? deletion : null}
-              onShowRules={showRules}
+              onShowRules={uploader ? showRules : null}
             />
           ))}
         </ul>
