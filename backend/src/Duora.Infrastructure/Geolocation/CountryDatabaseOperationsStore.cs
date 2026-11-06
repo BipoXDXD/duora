@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Duora.Infrastructure.Audit;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
 namespace Duora.Infrastructure.Geolocation;
@@ -8,8 +10,11 @@ namespace Duora.Infrastructure.Geolocation;
 /// Operations metadata only. Destructive retention needs a separately authorized maintenance data source;
 /// duora_app retains SELECT/INSERT-only access to manifests, approvals and tombstones.
 /// </summary>
-public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, TimeProvider time)
+public sealed partial class CountryDatabaseOperationsStore(NpgsqlDataSource source, TimeProvider time,
+    ILogger<CountryDatabaseOperationsStore>? logger = null)
 {
+    private readonly ILogger _logger = logger ?? NullLogger<CountryDatabaseOperationsStore>.Instance;
+
     internal DateTimeOffset UtcNow => time.GetUtcNow();
     internal Task<CountryDatabaseFileLock> LockFilesAsync(CancellationToken ct) => CountryDatabaseFileLock.AcquireAsync(source, ct);
 
@@ -143,13 +148,18 @@ public sealed class CountryDatabaseOperationsStore(NpgsqlDataSource source, Time
                 await Execute(c, "update ops.country_database_notifications set delivered_at=$2 where id=$1", ct, notification.Id, UtcNow);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (Exception)
+            catch (Exception exception)
             {
-                // No transport exceptions, payloads or addresses are persisted/logged. Retry no sooner than 15 min.
+                // No transport exceptions, payloads or addresses are persisted/logged, only the type: an alert that
+                // never leaves must not fail in silence. Retry no sooner than 15 min.
+                LogAlertNotSent(_logger, notification.Code, exception.GetType().Name);
                 return;
             }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Country database alert {Code} was not sent ({Cause}); it is retried in 15 minutes.")]
+    private static partial void LogAlertNotSent(ILogger logger, string code, string cause);
 
     public async Task RecordBackupFailureAsync(bool failed, CancellationToken ct)
     {

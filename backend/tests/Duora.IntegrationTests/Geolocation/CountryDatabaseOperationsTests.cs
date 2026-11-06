@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Duora.Infrastructure.Audit;
 using Duora.Infrastructure.Geolocation;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Duora.IntegrationTests.Geolocation;
@@ -555,6 +556,26 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
     private static Task<long> Generation(NpgsqlDataSource source) =>
         Count(source, "select active_fencing_token from ops.country_database_state where singleton");
 
+    [Fact]
+    public async Task AnAlertThatCannotBeSentLeavesATraceWithoutTheTransportText()
+    {
+        await using var h = await Prepared();
+        var logs = new CapturingLoggerProvider();
+        using var loggers = LoggerFactory.Create(builder => builder.AddProvider(logs));
+        var store = new CountryDatabaseOperationsStore(h.Source, h.Time, loggers.CreateLogger<CountryDatabaseOperationsStore>());
+        await store.RecordBackupFailureAsync(true, Ct);
+
+        await new CountryDatabaseHealthService(store, h.Validator, h.Root, new Notices { Fail = true }, enabled: true).RunOnceAsync(Ct);
+
+        var warning = Assert.Single(logs.Entries, entry => entry.Category == typeof(CountryDatabaseOperationsStore).FullName);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Contains(nameof(IOException), warning.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(TransportText, warning.Text, StringComparison.Ordinal);
+        Assert.Null(warning.Exception);
+    }
+
+    private const string TransportText = "Synthetic transport failure; never persist exception text.";
+
     private sealed class Notices : ICountryDatabaseNotifier
     {
         public List<CountryDatabaseNotification> Items { get; } = [];
@@ -563,7 +584,7 @@ public sealed class CountryDatabaseOperationsTests(PostgresFixture postgres)
         {
             if (Fail)
             {
-                throw new IOException("Synthetic transport failure; never persist exception text.");
+                throw new IOException(TransportText);
             }
             lock (Items)
             {

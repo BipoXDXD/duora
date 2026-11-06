@@ -41,6 +41,7 @@ public sealed class WorkerLoopResilienceTests(PostgresFixture postgres)
     [InlineData(typeof(MediaProcessingService))]
     [InlineData(typeof(ExternalAuthFlowRetentionService))]
     [InlineData(typeof(ParticipationJobService))]
+    [InlineData(typeof(RetentionJobService))]
     [InlineData(typeof(HeartbeatService))]
     public async Task AnUnexpectedErrorIsLoggedWithItsFramesAndTheLoopRunsAgain(Type loopType)
     {
@@ -67,6 +68,7 @@ public sealed class WorkerLoopResilienceTests(PostgresFixture postgres)
     [InlineData(typeof(MediaProcessingService))]
     [InlineData(typeof(ExternalAuthFlowRetentionService))]
     [InlineData(typeof(ParticipationJobService))]
+    [InlineData(typeof(RetentionJobService))]
     [InlineData(typeof(HeartbeatService))]
     public async Task ACancellationFromTheWorkerStopIsNotLoggedAsAnError(Type loopType)
     {
@@ -224,6 +226,7 @@ public sealed class WorkerLoopResilienceTests(PostgresFixture postgres)
             "--environment", "Testing",
             $"--ConnectionStrings:Duora={connectionString ?? postgres.ConnectionString}",
             "--Duora:PublicOrigin=https://duora.test",
+            "--Retention:Enabled=true",
             $"--Email:PickupDirectory={Path.Combine(Path.GetTempPath(), "duora-mail-unused")}",
             .. MediaTestArguments,
             .. SelfieArguments,
