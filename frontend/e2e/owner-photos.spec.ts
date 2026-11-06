@@ -21,7 +21,9 @@ async function signIn(page: Page): Promise<void> {
   await page.getByLabel('E-mail', { exact: true }).fill('ana@exemplo.com')
   await page.getByLabel('Senha', { exact: true }).fill(PASSWORD)
   await page.getByRole('button', { name: 'Entrar' }).click()
-  await expect(page).not.toHaveURL(/\/login$/)
+  // O login navega por conta própria depois de confirmar a sessão. Só com a tela de destino pronta é seguro navegar:
+  // antes disso, a navegação do login interrompe o `page.goto` seguinte.
+  await expect(page.getByRole('heading', { level: 1, name: 'Sua conta' })).toBeVisible()
 }
 
 function json(route: Route, status: number, body: object): Promise<void> {
