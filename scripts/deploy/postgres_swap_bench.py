@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import socket
@@ -41,6 +42,8 @@ PIN = Path("/etc/duora/coolify-deploy.json")
 BACKUP_COMMAND = Path("/usr/local/sbin/duora-backup")
 DISPOSABLE_MARKER = Path("/etc/duora-swap-disposable-host")
 CLAIM = Path("/run/duora-swap-bench-claim.json")
+CLAIM_FIELDS = {"root", "registry", "ancestors"}
+PID_CEILING = 2 ** 31  # pid_t is a signed 32-bit integer: os.kill overflows at this value.
 FIXTURE = REPO / "scripts/deploy/fixtures/postgres-swap-target.json"
 LOCK = REPO / "infra/images/postgres-component-lock.json"
 RECEIVER = REPO / "scripts/release/coolify/receiver.py"
@@ -157,7 +160,11 @@ def host_is_disposable(environment: dict | None = None) -> bool:
 
 def require_host_free() -> None:
     """Runs before anything exists to clean: a refusal here leaves the host exactly as it was."""
-    if CLAIM.exists():
+    raw = claim_bytes()
+    if raw is not None:
+        claim = parse_claim(raw)
+        if claim is not None and "pid" in claim and process_alive(claim["pid"]):
+            raise ProofFailure(running_proof(claim["pid"]))
         # It holds the original modes of the ancestors: a new claim would record the protected ones as original.
         raise ProofFailure("A previous proof left its claim at " + str(CLAIM) + ": run --mode cleanup first")
     for path in (PIN.parent, RELEASES.parent, INGRESS, BACKUP_COMMAND):
@@ -231,6 +238,71 @@ def protected_reads(paths: executor.Paths, release: executor.Release) -> list[Pa
             state / "releases" / (name + ".env"), RELEASES / (name + ".json"), paths.compose_file, paths.host_env]
 
 
+def process_alive(pid: int) -> bool:
+    """A reused PID or an unreaped zombie reads as alive: the error refuses a cleanup, never allows one."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass  # It exists and belongs to another user.
+    return True
+
+
+def running_proof(pid: int) -> str:
+    return ("Proof PID %d is still running with its claim at %s: wait for it or stop it. A reused PID clears when that "
+            "process ends; deleting the claim by hand loses the record of the ancestors' original modes" % (pid, CLAIM))
+
+
+def literal_cut(literal: bytes, then: bytes) -> bytes:
+    """A pattern for any prefix of the literal, reaching then only once the literal is whole."""
+    pattern = then
+    for byte in reversed(literal):
+        pattern = b"(?:" + re.escape(bytes([byte])) + pattern + b")?"
+    return pattern
+
+
+# Every prefix of what json.dump writes, in its key order and default separators.
+CUT_CLAIM = re.compile(literal_cut(b'{"root": "', rb'[^"]*(?:"' + literal_cut(b', "registry": "', rb'[^"]*(?:"' + literal_cut(
+    b', "ancestors": [', rb'[\[\]{}",: \w/.-]*') + rb')?') + rb')?'))
+
+
+def claim_bytes() -> bytes | None:
+    """None when there is no claim, including one its proof released right now."""
+    try:
+        return CLAIM.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def parse_claim(raw: bytes) -> dict | None:
+    """None is a claim cut by a kill, which only the former writer left: it dies before claiming anything."""
+    try:
+        claim = json.loads(raw)
+    except json.JSONDecodeError as error:
+        if CUT_CLAIM.fullmatch(raw):
+            return None
+        raise ProofFailure("Unknown claim at " + str(CLAIM)) from error
+    except ValueError as error:  # Not UTF-8, or an integer past the interpreter's digit limit.
+        raise ProofFailure("Unknown claim at " + str(CLAIM)) from error
+    if not isinstance(claim, dict) or not CLAIM_FIELDS <= set(claim) <= CLAIM_FIELDS | {"pid"}:
+        raise ProofFailure("Unknown claim at " + str(CLAIM))
+    if "pid" in claim and (type(claim["pid"]) is not int or not 0 < claim["pid"] < PID_CEILING):
+        raise ProofFailure("Unknown claim at " + str(CLAIM))
+    return claim
+
+
+def publish_claim(claim: dict) -> None:
+    """Complete before it is visible, so a kill cannot leave a partial claim; link, unlike rename, refuses an existing one."""
+    descriptor, temporary = tempfile.mkstemp(dir=CLAIM.parent, prefix=CLAIM.name + ".")
+    try:
+        with os.fdopen(descriptor, "w") as file:
+            json.dump(claim, file)
+        os.link(temporary, CLAIM)
+    finally:
+        os.unlink(temporary)
+
+
 def _remove_fixed_paths() -> None:
     for path in (PIN.parent, RELEASES.parent, INGRESS):
         shutil.rmtree(path, ignore_errors=True)
@@ -248,8 +320,7 @@ class FixedHost:
     def claim(self, *, root: Path, registry: str) -> None:
         require_host_free()
         self.ancestors = unprotected_ancestors([PIN.parent, RELEASES, INGRESS, root])
-        with CLAIM.open("x") as claim:
-            json.dump({"root": str(root), "registry": registry, "ancestors": self.ancestors}, claim)
+        publish_claim({"root": str(root), "registry": registry, "ancestors": self.ancestors, "pid": os.getpid()})
         self.claimed = True
         self.umask = os.umask(0o022)
         protect_ancestors(self.ancestors)
@@ -266,9 +337,18 @@ class FixedHost:
 
 def cleanup_claimed() -> bool:
     """What a killed run left behind. Without a claim on a disposable host there is nothing of ours to remove."""
-    if not CLAIM.exists() or not host_is_disposable():
+    raw = claim_bytes() if host_is_disposable() else None
+    if raw is None:
         return False
-    claim = json.loads(CLAIM.read_text())
+    claim = parse_claim(raw)
+    if claim is None:
+        CLAIM.unlink()
+        log("truncated claim removed: its run died before claiming anything, and its work directory is not named here")
+        return True
+    if "pid" not in claim:
+        raise ProofFailure("Claim at " + str(CLAIM) + " has no owner PID: run --mode cleanup from the version that wrote it")
+    if process_alive(claim["pid"]):
+        raise ProofFailure(running_proof(claim["pid"]))
     label = "label=com.docker.compose.project=duora"
     containers = docker("ps", "--all", "--quiet", "--filter", label).split()
     if containers:
@@ -939,7 +1019,11 @@ def main() -> int:
     if os.geteuid() != 0:
         raise SystemExit("Disposable root host required")
     if arguments.mode == "cleanup":
-        log("claim cleaned" if cleanup_claimed() else "nothing claimed to clean")
+        try:
+            log("claim cleaned" if cleanup_claimed() else "nothing claimed to clean")
+        except ProofFailure as error:
+            log("REFUSED: " + str(error))
+            return 1
         return 0
     if not host_is_disposable():
         raise ProofFailure("This host is not disposable: the proof takes over the fixed production paths")
