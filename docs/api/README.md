@@ -77,6 +77,7 @@ para a SPA tratá-los:
 |---|---|---|---|
 | `PASSWORD_CHANGE_REQUIRED` | `403` | toda rota com sessão, menos A16 | A conta entrou com a senha temporária do bootstrap administrativo e só pode trocá-la ([auth.md](../security/auth.md#bootstrap-administrativo-d4)) |
 | `SAME_AS_TEMPORARY_PASSWORD` | `400` (`VALIDATION_FAILED`, em `errors.newPassword`) | A16 | A senha nova repete a temporária |
+| `AGE_VERIFICATION_RETIRED` | `410` | `POST /api/v1/me/age-verifications`, `GET /api/v1/me/age-verifications/current` | Verificação etária retirada (ADR-0029): nenhuma operação etária é executada |
 
 ## Localização do perfil (expansão da issue #78)
 
