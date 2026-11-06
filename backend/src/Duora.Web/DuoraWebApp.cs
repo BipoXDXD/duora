@@ -29,6 +29,10 @@ internal static class DuoraWebApp
 
     private const int MaxJsonDepth = 16;
 
+    // Abaixo dos 30 s do stop_grace_period do web no Compose: o padrão do HostOptions também é 30 s, e com prazos
+    // iguais o SIGKILL chega no instante em que o host desiste de esperar, sem margem para ele encerrar sozinho.
+    private const int ShutdownTimeoutSeconds = 25;
+
     public static WebApplication Build(string[] args)
     {
         var builder = WebApplication.CreateBuilder(BuildTimeOpenApi.BuilderOptions(args));
@@ -41,6 +45,7 @@ internal static class DuoraWebApp
             options.ValidateOnBuild = true;
         });
         builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = MaxRequestBodyBytes);
+        builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(ShutdownTimeoutSeconds));
 
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = ApiProblems.AddDefaultCode);
         builder.Services.AddExceptionHandler<AccountBusyExceptionHandler>();
