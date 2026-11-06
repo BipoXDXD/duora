@@ -86,6 +86,10 @@ class ShadowError(RuntimeError):
     pass
 
 
+class SwapInterrupted(ShadowError):
+    """Um sinal, não uma falha do que estava rodando: nenhum tratamento de sonda pode absorvê-lo."""
+
+
 Runner = Callable[..., str]
 
 
@@ -595,7 +599,7 @@ def _swap_lock(layout: Layout) -> Iterator[None]:
 def _swap_signals() -> Iterator[Callable[[], None]]:
     """SIGHUP, SIGTERM e SIGINT viram erro para o ensaio voltar à origem; o rollback chama a blindagem devolvida."""
     def interrupt(number: int, _frame: object) -> None:
-        raise ShadowError(f"interrompido pelo sinal {signal.Signals(number).name}")
+        raise SwapInterrupted(f"interrompido pelo sinal {signal.Signals(number).name}")
 
     numbers = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
     previous = {number: signal.signal(number, interrupt) for number in numbers}
@@ -677,6 +681,8 @@ class SwapGuard:
         self._required |= self._container_pressures().keys()
         try:
             samples = sorted(self._ready_ms() for _ in range(SWAP_READY_BASELINE_SAMPLES))
+        except SwapInterrupted:
+            raise
         except (ShadowError, subprocess.TimeoutExpired, OSError) as error:
             raise ShadowError(f"ready falhou na linha de base: {error}") from error
         baseline = samples[len(samples) // 2]
@@ -748,6 +754,8 @@ class SwapGuard:
     def _require_ready(self) -> None:
         try:
             elapsed = self._ready_ms()
+        except SwapInterrupted:
+            raise
         except (ShadowError, subprocess.TimeoutExpired, OSError) as error:
             self._count_bad_ready(f"ready falhou: {error}")
             return

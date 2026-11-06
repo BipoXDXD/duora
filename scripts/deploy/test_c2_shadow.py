@@ -14,6 +14,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -390,7 +391,7 @@ class SwapDocker:
         self.ps_calls = 0
         self.ps_timeouts: list[int] = []
         self.ready_calls = 0
-        self.ready_plan: dict[int, float | None] = {}
+        self.ready_plan: dict[int, Any] = {}
         self.archived = "000000010000000000000005"
         self.volume_created = "2026-11-06T00:00:00Z"
         self.compatibility = {"serverVersionNum": "180006", "controlVersion": 1800, "catalogVersion": 202506291, "encoding": "UTF8",
@@ -430,6 +431,11 @@ class SwapDocker:
         if "health/ready" in joined:
             self.ready_calls += 1
             planned = self.ready_plan.get(self.ready_calls, 0.0)
+            if planned == "sigterm":
+                # A sonda em andamento é um filho real; o sinal chega ao processo enquanto ele espera.
+                threading.Timer(0.05, os.kill, (os.getpid(), signal.SIGTERM)).start()
+                subprocess.run(["sleep", "3"], check=True, timeout=10)
+                return ""
             if planned is None:
                 raise shadow.ShadowError("wget terminou com código 1")
             self.now += planned
@@ -926,6 +932,44 @@ class SwapGuardReadyTests(SwapRehearsalFixture):
         with self.assertRaisesRegex(shadow.ShadowError, "ready"):
             self.rehearse()
         self.assertEqual(self.docker.image, SOURCE)
+
+
+class SwapGuardSignalTests(SwapRehearsalFixture):
+    """SIGTERM real com a sonda em andamento: é interrupção, nunca leitura ruim."""
+
+    def rehearse_under_signals(self, **arguments: Any) -> None:
+        with shadow._swap_signals() as shield, self.assertRaisesRegex(shadow.ShadowError, "SIGTERM"):
+            self.rehearse(shield=shield, **arguments)
+
+    def test_sigterm_during_the_probe_with_services_stopped_returns_to_the_origin(self) -> None:
+        self.docker.ready_plan = {7: "sigterm"}
+        started = time.monotonic()
+        self.rehearse_under_signals()
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(self.docker.ready_calls, 7)
+        self.assertEqual(self.docker.image, SOURCE)
+        self.assertTrue(any("--no-deps web worker edge" in c for c in self.docker.commands))
+        saved = json.loads((self.layout.state / "swap-rehearsal.json").read_text())
+        self.assertTrue(saved["aborted"])
+        self.assertIn("SIGTERM", saved["error"])
+        self.assertEqual(saved["abort"]["digest"], SOURCE)
+
+    def test_sigterm_during_a_probe_of_the_fill_stops_before_any_service_stops(self) -> None:
+        self.docker.ready_plan = {7: "sigterm"}
+        self.rehearse_under_signals(fill_mib=256)
+        self.assertEqual(self.docker.ready_calls, 7)
+        self.assertEqual(self.stops(), [])
+
+    def test_sigterm_during_the_baseline_is_not_a_failed_probe(self) -> None:
+        self.docker.ready_plan = {3: "sigterm"}
+        with shadow._swap_signals() as shield, self.assertRaises(shadow.SwapInterrupted):
+            self.rehearse(shield=shield)
+        self.assertEqual(self.docker.ready_calls, 3)
+        self.assertEqual(self.stops(), [])
+
+    def test_a_failed_probe_is_still_only_a_bad_reading(self) -> None:
+        self.docker.ready_plan = {7: None}
+        self.assertTrue(self.rehearse()["photoStable"])
 
 
 class SwapGuardHostTests(SwapRehearsalFixture):
