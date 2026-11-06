@@ -141,18 +141,28 @@ public sealed partial class CountryDatabaseOperationsStore(NpgsqlDataSource sour
                 { return; }
                 notification = new(r.GetInt64(0), r.GetString(1), r.GetInt32(2), r.GetBoolean(3), r.GetFieldValue<DateTimeOffset>(4));
             }
+            // No transport exceptions, payloads or addresses are persisted/logged, only the type: an alert that never
+            // leaves must not fail in silence. Either way the reservation retries no sooner than 15 min.
             try
             {
                 await notifier.SendAsync(notification, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception exception)
+            {
+                LogAlertNotSent(_logger, notification.Code, exception.GetType().Name);
+                return;
+            }
+
+            try
+            {
                 await using var c = await source.OpenConnectionAsync(ct);
                 await Execute(c, "update ops.country_database_notifications set delivered_at=$2 where id=$1", ct, notification.Id, UtcNow);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception exception)
             {
-                // No transport exceptions, payloads or addresses are persisted/logged, only the type: an alert that
-                // never leaves must not fail in silence. Retry no sooner than 15 min.
-                LogAlertNotSent(_logger, notification.Code, exception.GetType().Name);
+                LogAlertNotRecorded(_logger, notification.Code, exception.GetType().Name);
                 return;
             }
         }
@@ -160,6 +170,9 @@ public sealed partial class CountryDatabaseOperationsStore(NpgsqlDataSource sour
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Country database alert {Code} was not sent ({Cause}); it is retried in 15 minutes.")]
     private static partial void LogAlertNotSent(ILogger logger, string code, string cause);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Country database alert {Code} was sent but not recorded ({Cause}); delivery is attempted again in 15 minutes.")]
+    private static partial void LogAlertNotRecorded(ILogger logger, string code, string cause);
 
     public async Task RecordBackupFailureAsync(bool failed, CancellationToken ct)
     {
