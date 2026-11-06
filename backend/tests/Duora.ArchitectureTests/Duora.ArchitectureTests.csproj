@@ -13,4 +13,8 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../Duora.IntegrationTests/RepositoryRoot.cs" Link="RepositoryRoot.cs" />
+  </ItemGroup>
 </Project>
