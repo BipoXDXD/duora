@@ -529,8 +529,8 @@ o PITR no sentido contrário só o drill cobre.
 
 **O que é prova manual, fora de qualquer gate.** `postgres_swap_bench.py --mode matrix` e `--mode unhealthy` não rodam em
 workflow nenhum. Última execução em arm64, em `docker:dind` isolado com o marcador de host descartável, sobre
-`feat/postgres-swap-lab`: `matrix` em 06/11/2026, commit `df2e343f`, 18 de 18; `unhealthy` em 05/11/2026, commit `15893687`,
-sem rodada depois disso:
+`feat/postgres-swap-lab`: `matrix` em 06/11/2026, commit `df2e343f`, 18 de 18; `unhealthy` em 06/11/2026, commit `5ac88df1`,
+exit 0, com o `--abort` de volta ao digest antigo e deploy seguinte aceito:
 
 ```bash
 hostname > /etc/duora-swap-disposable-host   # só num host que existe para isso
