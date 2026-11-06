@@ -13,6 +13,7 @@ import unittest
 from contextlib import redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import c2_probe
@@ -327,6 +328,287 @@ class ShadowSecretsTests(unittest.TestCase):
         mounted = set(re.findall(r"\}/(selfie-[a-z0-9-]+)", compose))
         self.assertTrue(mounted)
         self.assertEqual(mounted, set(shadow.SYNTHETIC_SELFIE_SECRETS))
+
+
+SOURCE, TARGET = shadow.SWAP_SOURCE_IMAGE, shadow.SWAP_TARGET_IMAGE
+PHOTO = {"systemIdentifier": "7000", "catalogVersion": 202506291, "controlVersion": 1800, "timeline": 1,
+         "head": "20261105120000_RegistrationReconciliationManifest", "acl": "d41d8",
+         "collation": {"provider": "c", "collate": "en_US.utf8", "ctype": "en_US.utf8", "version": "2.41"}}
+
+
+class SwapDocker:
+    """Runner double: answers like Docker for the shadow, tracks the digest and advances a clock per command."""
+
+    def __init__(self) -> None:
+        self.commands: list[str] = []
+        self.image = SOURCE
+        self.now = 1000.0
+        self.fail_on: str | None = None
+        self.photo_after_swap: dict | None = None
+        self.config_project = "duora-c2"
+        self.config_volume = "duora-c2_pgdata"
+        self.archived = "000000010000000000000005"
+        self.volume_created = "2026-11-06T00:00:00Z"
+
+    def clock(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+    def __call__(self, argv, *, stdin=None, check=True, timeout=0) -> str:
+        joined = " ".join(argv)
+        self.commands.append(joined)
+        self.now += 1
+        if self.fail_on and self.fail_on in joined:
+            raise shadow.ShadowError("falha simulada: " + self.fail_on)
+        if "config --format json" in joined:
+            return json.dumps({"name": self.config_project, "volumes": {"pgdata": {"name": self.config_volume}}})
+        if argv[:2] == ["docker", "inspect"]:
+            return self.image + "\n"
+        if argv[:3] == ["docker", "volume", "inspect"]:
+            return self.volume_created + "\n"
+        if " up " in joined and "--no-deps postgres" in joined:
+            self.image = dict(line.split("=", 1) for line in Path(argv[argv.index("--env-file", argv.index("--env-file") + 1) + 1]).read_text().splitlines())["DUORA_POSTGRES_IMAGE"]
+        if "'systemIdentifier'" in joined:
+            changed = self.photo_after_swap is not None and self.image == TARGET
+            return json.dumps(self.photo_after_swap if changed else PHOTO) + "\n"
+        if "pg_switch_wal" in joined:
+            return "000000010000000000000005\n"
+        if "last_archived_wal" in joined:
+            return self.archived + "\n"
+        if "pg_database_size" in joined:
+            return "1100\n"
+        return ""
+
+
+class SwapRehearsalFixture(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.layout = shadow.Layout(Path(directory.name) / "duora-c2")
+        self.layout.state.mkdir(parents=True)
+        self.layout.env_file.write_text("DUORA_POSTGRES_IMAGE=" + SOURCE + "\nDUORA_WEB_IMAGE=web@sha256:" + "c" * 64 + "\n")
+        self.docker = SwapDocker()
+
+    def rehearse(self, *, target: str = TARGET, fill_mib: int = 0, free_mib: int = 100_000) -> dict:
+        return shadow.swap_rehearsal(self.layout, target, fill_mib=fill_mib, run=self.docker, clock=self.docker.clock,
+                                     sleep=self.docker.sleep, free_mib=lambda _path: free_mib)
+
+    def position(self, text: str, start: int = 0) -> int:
+        return next(i for i in range(start, len(self.docker.commands)) if text in self.docker.commands[i])
+
+    def stops(self) -> list[str]:
+        return [c for c in self.docker.commands if " stop " in c or " up " in c]
+
+
+class SwapRehearsalTests(SwapRehearsalFixture):
+    def test_swaps_to_the_target_and_back_with_the_same_photo(self) -> None:
+        result = self.rehearse()
+        self.assertEqual(self.docker.image, SOURCE)
+        self.assertTrue(result["photoStable"])
+        self.assertEqual((result["source"], result["target"]), (SOURCE, TARGET))
+        saved = json.loads((self.layout.state / "swap-rehearsal.json").read_text())
+        self.assertEqual(saved, result)
+
+    def test_order_stops_application_then_postgres_then_backup_and_raises_backup_first(self) -> None:
+        self.rehearse()
+        pull = self.position("docker pull")
+        worker = self.position(" stop worker")
+        web = self.position(" stop web")
+        photo = next(i for i, c in enumerate(self.docker.commands) if "'systemIdentifier'" in c)
+        check = self.position("pgbackrest --stanza=duora check")
+        postgres = self.position(" stop postgres")
+        backup = self.position(" stop backup")
+        up_backup = self.position("--no-deps backup")
+        up_postgres = self.position("--no-deps postgres")
+        self.assertEqual(sorted((pull, worker, web, photo, check, postgres, backup, up_backup, up_postgres)),
+                         [pull, worker, web, photo, check, postgres, backup, up_backup, up_postgres])
+        self.assertIn("--wait", self.docker.commands[up_postgres])
+        self.assertTrue(self.docker.commands[-1].endswith("web worker edge") or "--no-deps web worker edge" in " ".join(self.docker.commands))
+
+    def test_each_direction_runs_the_check_and_is_timed(self) -> None:
+        result = self.rehearse()
+        self.assertEqual(sum("pgbackrest --stanza=duora check" in c for c in self.docker.commands), 3)
+        for direction in ("forward", "back"):
+            timing = result[direction]
+            self.assertEqual(set(timing), {"stopPostgresSeconds", "stopBackupSeconds", "upBackupSeconds",
+                                           "upPostgresSeconds", "databaseDownSeconds", "checkSeconds"})
+            self.assertGreater(timing["databaseDownSeconds"], 0)
+        self.assertGreaterEqual(result["pullSeconds"], 1)
+
+    def test_reports_the_data_volume_it_really_had(self) -> None:
+        self.assertEqual(self.rehearse()["databaseSizeMib"], 1100)
+
+    def test_never_reaches_production_paths_or_project(self) -> None:
+        self.rehearse()
+        joined = "\n".join(self.docker.commands)
+        for forbidden in ("duora_pgdata", "/etc/duora", "/var/lib/duora/", "--project-name duora ", "coolify", " down", " rm "):
+            self.assertNotIn(forbidden, joined)
+        self.assertNotIn("duora-deploy", joined)
+
+    def test_postgres_runs_the_same_photo_sql_as_the_executor(self) -> None:
+        self.rehearse()
+        import postgres_swap
+        self.assertIn(postgres_swap.SWAP_PHOTO_SQL, "\n".join(self.docker.commands))
+
+
+class SwapRehearsalGuardTests(SwapRehearsalFixture):
+    def refused(self, **arguments: Any) -> None:
+        with self.assertRaises(shadow.ShadowError):
+            self.rehearse(**arguments)
+        self.assertEqual(self.stops(), [])
+        self.assertFalse(any("docker pull" in c for c in self.docker.commands))
+
+    def test_only_the_allowlisted_target(self) -> None:
+        for target in (SOURCE, "ghcr.io/bipoxdxd/duora-postgres@sha256:" + "b" * 64, "postgres:18", ""):
+            with self.subTest(target=target):
+                self.refused(target=target)
+
+    def test_digests_are_the_reviewed_ones(self) -> None:
+        self.assertEqual(TARGET, "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e")
+        self.assertEqual(SOURCE, "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c")
+
+    def test_shadow_on_another_digest_is_refused(self) -> None:
+        self.layout.env_file.write_text("DUORA_POSTGRES_IMAGE=ghcr.io/x/y@sha256:" + "a" * 64 + "\n")
+        self.refused()
+
+    def test_compose_that_resolves_to_production_is_refused(self) -> None:
+        self.docker.config_volume = "duora_pgdata"
+        self.refused()
+        self.docker.config_volume, self.docker.config_project = "duora-c2_pgdata", "duora"
+        self.refused()
+
+    def test_root_outside_the_shadow_is_refused(self) -> None:
+        for root in (Path("/var/lib/duora"), Path("/etc/duora"), Path("/tmp/other")):
+            with self.subTest(root=root), self.assertRaises(shadow.ShadowError):
+                shadow.swap_rehearsal(shadow.Layout(root), TARGET, fill_mib=0, run=self.docker, clock=self.docker.clock,
+                                      sleep=self.docker.sleep, free_mib=lambda _path: 100_000)
+        self.assertEqual(self.docker.commands, [])
+
+    def test_project_goes_through_the_probe_validation(self) -> None:
+        with mock.patch.object(shadow.c2_probe, "validate_project", side_effect=c2_probe.CommandRefused("x")) as validate, \
+                self.assertRaises(c2_probe.CommandRefused):
+            self.rehearse()
+        validate.assert_called()
+
+    def test_fill_is_bounded_and_needs_disk(self) -> None:
+        self.refused(fill_mib=shadow.SWAP_MAX_FILL_MIB + 1)
+        self.refused(fill_mib=-1)
+        self.refused(fill_mib=1024, free_mib=1024)
+
+    def test_pull_failure_stops_nothing(self) -> None:
+        self.docker.fail_on = "docker pull"
+        with self.assertRaises(shadow.ShadowError):
+            self.rehearse()
+        self.assertEqual(self.stops(), [])
+
+    def test_archive_backlog_stops_nothing(self) -> None:
+        self.docker.archived = "000000010000000000000001"
+        with self.assertRaisesRegex(shadow.ShadowError, "arquiv"):
+            self.rehearse()
+        self.assertEqual(self.stops(), [])
+
+
+class SwapRehearsalFillTests(SwapRehearsalFixture):
+    def test_fill_goes_in_bounded_batches_of_synthetic_data_only(self) -> None:
+        self.rehearse(fill_mib=256)
+        batches = [c for c in self.docker.commands if "insert into c2.swap_ballast" in c]
+        self.assertEqual(len(batches), 4)
+        self.assertTrue(any("set storage external" in c for c in self.docker.commands))
+
+    def test_fill_happens_before_anything_stops(self) -> None:
+        self.rehearse(fill_mib=64)
+        self.assertLess(self.position("insert into c2.swap_ballast"), self.position(" stop worker"))
+
+
+class SwapRehearsalAbortTests(SwapRehearsalFixture):
+    def assert_back_on_source(self) -> None:
+        self.assertEqual(self.docker.image, SOURCE)
+        self.assertTrue(any("--no-deps web worker edge" in c for c in self.docker.commands))
+
+    def test_unhealthy_target_returns_to_the_old_digest(self) -> None:
+        real = self.docker.__call__
+        calls = {"up": 0}
+        def failing(argv, **arguments):
+            if "--no-deps postgres" in " ".join(argv):
+                calls["up"] += 1
+                if calls["up"] == 1:
+                    self.docker.commands.append(" ".join(argv))
+                    raise shadow.ShadowError("container unhealthy")
+            return real(argv, **arguments)
+        with self.assertRaisesRegex(shadow.ShadowError, "unhealthy"):
+            shadow.swap_rehearsal(self.layout, TARGET, fill_mib=0, run=failing, clock=self.docker.clock,
+                                  sleep=self.docker.sleep, free_mib=lambda _path: 100_000)
+        self.assert_back_on_source()
+        saved = json.loads((self.layout.state / "swap-rehearsal.json").read_text())
+        self.assertTrue(saved["aborted"])
+        self.assertIn("unhealthy", saved["error"])
+
+    def test_failed_check_with_the_application_stopped_reopens_it(self) -> None:
+        self.docker.fail_on = "pgbackrest --stanza=duora check"
+        real = self.docker.__call__
+        def once(argv, **arguments):
+            try:
+                return real(argv, **arguments)
+            except shadow.ShadowError:
+                self.docker.fail_on = None
+                raise
+        with self.assertRaisesRegex(shadow.ShadowError, "abortado"):
+            shadow.swap_rehearsal(self.layout, TARGET, fill_mib=0, run=once, clock=self.docker.clock,
+                                  sleep=self.docker.sleep, free_mib=lambda _path: 100_000)
+        self.assert_back_on_source()
+
+    def test_changed_photo_returns_to_the_old_digest(self) -> None:
+        self.docker.photo_after_swap = dict(PHOTO, timeline=2)
+        with self.assertRaisesRegex(shadow.ShadowError, "foto"):
+            self.rehearse()
+        self.assert_back_on_source()
+
+    def test_wrong_image_after_up_returns_to_the_old_digest(self) -> None:
+        real = self.docker.__call__
+        def lying(argv, **arguments):
+            if argv[:2] == ["docker", "inspect"] and self.docker.image == TARGET:
+                self.docker.commands.append(" ".join(argv))
+                return SOURCE + "\n"
+            return real(argv, **arguments)
+        with self.assertRaisesRegex(shadow.ShadowError, "digest"):
+            shadow.swap_rehearsal(self.layout, TARGET, fill_mib=0, run=lying, clock=self.docker.clock,
+                                  sleep=self.docker.sleep, free_mib=lambda _path: 100_000)
+        self.assertEqual(self.docker.image, SOURCE)
+
+    def test_volume_identity_change_is_a_failure(self) -> None:
+        real = self.docker.__call__
+        def replaced(argv, **arguments):
+            if argv[:3] == ["docker", "volume", "inspect"] and self.docker.image == TARGET:
+                self.docker.volume_created = "2026-11-07T00:00:00Z"
+            return real(argv, **arguments)
+        with self.assertRaisesRegex(shadow.ShadowError, "volume"):
+            shadow.swap_rehearsal(self.layout, TARGET, fill_mib=0, run=replaced, clock=self.docker.clock,
+                                  sleep=self.docker.sleep, free_mib=lambda _path: 100_000)
+
+    def test_explicit_abort_returns_a_killed_rehearsal_to_the_old_digest(self) -> None:
+        self.docker.image = TARGET
+        shadow.swap_abort(self.layout, run=self.docker)
+        self.assert_back_on_source()
+        self.assertFalse(any(" down" in c or " rm " in c for c in self.docker.commands))
+
+    def test_abort_keeps_the_guards(self) -> None:
+        with self.assertRaises(shadow.ShadowError):
+            shadow.swap_abort(shadow.Layout(Path("/var/lib/duora")), run=self.docker)
+        self.assertEqual(self.docker.commands, [])
+
+
+class SwapRehearsalCliTests(unittest.TestCase):
+    def test_main_exposes_the_rehearsal_and_the_abort(self) -> None:
+        with mock.patch.object(shadow.os, "geteuid", return_value=0), mock.patch.object(shadow, "swap_rehearsal", return_value={"ok": True}) as rehearsal, \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(shadow.main(["swap-rehearsal", "--target", TARGET, "--fill-mib", "1024"]), 0)
+        self.assertEqual(rehearsal.call_args.args[1], TARGET)
+        self.assertEqual(rehearsal.call_args.kwargs["fill_mib"], 1024)
+        with mock.patch.object(shadow.os, "geteuid", return_value=0), mock.patch.object(shadow, "swap_abort") as abort:
+            self.assertEqual(shadow.main(["swap-abort"]), 0)
+        abort.assert_called_once()
 
 
 if __name__ == "__main__":

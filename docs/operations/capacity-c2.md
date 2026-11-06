@@ -154,3 +154,49 @@ Reportar na #86: commit, digests da release, `c1-before`/`c1-after` sanitizados,
 
 Mensagens/SignalR (não existem), saturação acima de 100 e reinício de processos durante carga (capacity.md exige
 host isolado), upload real ao B2, corpus18 do sanitizador e a qualificação do Worker/launcher da #174.
+
+## Ensaio da troca de digest do PostgreSQL
+
+`c2_shadow.py swap-rehearsal` responde só duas perguntas: quanto dura, com volume de dados, parar e recriar o PostgreSQL no
+digest alvo e voltar ao de origem, e se a imagem puxa do GHCR a partir da VPS. **Nada aqui é resultado medido.** Executar
+só em janela autorizada pelo responsável, com `prepare` e `up` feitos como no roteiro acima.
+
+```sh
+cd /opt/duora-c2/src
+sudo python3 scripts/deploy/c2_shadow.py swap-rehearsal \
+  --target ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e \
+  --fill-mib 1024
+sudo python3 scripts/deploy/c2_shadow.py swap-abort   # só se o comando acima morrer no meio
+```
+
+Em ordem: pull do alvo, dados sintéticos em `c2.swap_ballast`, espera do arquivamento, parada de worker e web, foto
+(`SWAP_PHOTO_SQL`, a mesma do executor) e `pgbackrest check`. Depois recria com o alvo, confere digest, foto, volume e
+`check`, repete de volta para o digest de origem e religa a aplicação. O resultado fica em
+`/var/lib/duora-c2/state/swap-rehearsal.json`, com os tempos de cada etapa nos dois sentidos. `databaseDownSeconds` é o
+número que substitui a estimativa.
+
+Falha depois do pull volta sozinha ao digest de origem, no mesmo volume, e registra `aborted` e o erro. Um processo morto
+por SIGKILL não volta sozinho: rode `swap-abort`. Nunca há `down` nem remoção de volume.
+
+**Guardas, antes de qualquer efeito.** Só o digest alvo revisado no código, só com o sombra no digest de origem (`d32f8c44`),
+projeto validado por `c2_probe.validate_project`, raiz com nome `duora-c2`, e o Compose precisa resolver para o projeto e o
+volume do sombra. O comando não usa o executor, o receiver, `/etc/duora` nem `/var/lib/duora`.
+
+**Dados.** O banco sombra nasce pequeno, e copiar a produção é proibido. `--fill-mib` grava dados sintéticos sem compressão
+até 8192 MiB, em lotes de 64 MiB, pedindo três vezes esse tamanho mais 4 GiB livres. O resultado traz o tamanho real em
+`databaseSizeMib`. Ajuste o valor ao tamanho da produção na hora da janela.
+
+**Reserva (estimativa, não medida).** Fora o `prepare` e o `up`, de 10 a 15 min: pull de 1 a 3, preenchimento de 1 GiB de 2 a
+4, arquivamento até 10 no pior caso, cada sentido de 1 a 2, e `down`. Reserve 45 min. Para fazer também o `restore-rehearsal`
+na mesma janela, rode um `full` antes dele: o ensaio da troca não grava backup.
+
+**Memória e disco.** Os limites do sombra somam 5,3 GiB (postgres 2 GiB, web 1,5, worker 1, backup 0,5, edge 0,1) mais o
+MinIO, sem limite. Worker e web ficam parados durante a troca, e o uso esperado é de 2 a 3 GiB. Disco: 7 GiB livres para
+`--fill-mib 1024`, mais a imagem alvo, de que boa parte das camadas já está no host. Fora o que este ensaio exige, valem
+os guardas e a regra de um comando pesado por vez da janela.
+
+**O que não prova.** O protocolo do executor (journal, fence, commit, ressela e `--resume`), que o laboratório cobre; o
+receiver, Coolify e observer; o B2, porque o repositório é o MinIO local; a aplicação rodando no digest alvo, já que web e
+worker ficam parados entre os dois sentidos; o `docker load` do receiver sobre a imagem puxada; o cron de prune. O dado é
+sintético e sem carga: a parada mede o checkpoint desse volume, não o da produção sob tráfego. O PITR atravessando a troca
+também não, que é do `restore_drill.py`.

@@ -10,6 +10,8 @@ túnel SSH. Imagens: só as chaves DUORA_*_IMAGE do env da release corrente são
     python3 c2_shadow.py up
     python3 c2_shadow.py media-fixture --mib 2048
     python3 c2_shadow.py restore-rehearsal [--no-final-full]
+    python3 c2_shadow.py swap-rehearsal --target <digest revisado> --fill-mib 1024
+    python3 c2_shadow.py swap-abort
     python3 c2_shadow.py down
 """
 from __future__ import annotations
@@ -32,6 +34,7 @@ from pathlib import Path
 
 import c2_probe
 import duora_secrets
+from postgres_swap import SWAP_PHOTO_SQL
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO_ROOT / "infra" / "compose" / "compose.prod.yml"
@@ -426,6 +429,161 @@ def down(layout: Layout, run: Runner = default_runner) -> None:
         raise ShadowError(f"não removo {layout.root}: fora do padrão duora-c2")
 
 
+# ---------------------------------------------------------------- ensaio da troca de digest do PostgreSQL
+# Repete no sombra só os passos 3 a 5 da troca (docs/operations/deploy.md) para medir a queda com volume de dados e o
+# pull a partir da VPS. Não usa o executor: ele fixa o projeto `duora`, e aqui nada pode alcançar a produção.
+
+SWAP_SOURCE_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:d32f8c4408e804bf8b57583c6fdfb8935380e6326bcc7ccb7397b1f386ada06c"
+SWAP_TARGET_IMAGE = "ghcr.io/bipoxdxd/duora-postgres@sha256:b5103bfd8ac7832915eed8170ffd0bcb94d9bca834cbd659114fa25606f0434e"
+SWAP_MAX_FILL_MIB = 8192
+SWAP_FILL_BATCH_MIB = 64
+# Cada linha são 100 md5 (3,2 KiB) com storage external: sem compressão, o tamanho pedido é o tamanho no disco.
+SWAP_FILL_ROWS = 20971
+SWAP_FILL_MD5_PER_ROW = 100
+# Tabela, WAL no pg_wal e a cópia cifrada no MinIO, mais a imagem alvo e folga.
+SWAP_DISK_FACTOR = 3
+SWAP_DISK_MARGIN_MIB = 4096
+SWAP_ARCHIVE_POLL_SECONDS = 2
+
+
+def _free_mib(path: Path) -> int:
+    return shutil.disk_usage(path).free // (1024 * 1024)
+
+
+def _swap_guard(layout: Layout, run: Runner) -> list[str]:
+    """Antes de qualquer efeito: só o sombra, no digest esperado, com o Compose resolvendo para os nomes do sombra."""
+    if not layout.root.resolve().name.startswith(PROJECT):
+        raise ShadowError(f"não ensaio em {layout.root}: fora do padrão {PROJECT}")
+    compose = compose_command(layout)
+    images = dict(line.split("=", 1) for line in layout.env_file.read_text(encoding="utf-8").splitlines() if "=" in line)
+    if images.get("DUORA_POSTGRES_IMAGE") != SWAP_SOURCE_IMAGE:
+        raise ShadowError("o sombra não está no digest de origem do ensaio")
+    config = json.loads(run([*compose, "config", "--format", "json"]))
+    if config["name"] != PROJECT or config["volumes"]["pgdata"]["name"] != PROJECT + "_pgdata":
+        raise ShadowError("o Compose não resolve para o projeto e o volume do sombra")
+    return compose
+
+
+def _swap_compose(layout: Layout, image: str) -> list[str]:
+    """O env do sombra mais um arquivo só com a imagem: a segunda --env-file vence, como no executor."""
+    path = layout.state / "swap-image.env"
+    path.write_text(f"DUORA_POSTGRES_IMAGE={image}\n", encoding="utf-8")
+    path.chmod(0o600)
+    return [*compose_command(layout), "--env-file", str(path)]
+
+
+def _swap_fill(run: Runner, compose: list[str], fill_mib: int) -> None:
+    _sql(run, compose, "create table if not exists c2.swap_ballast(id bigserial primary key, payload text not null); "
+                       "alter table c2.swap_ballast alter column payload set storage external")
+    row = (f"(select string_agg(md5(random()::text||g::text||i::text),'') from generate_series(1,{SWAP_FILL_MD5_PER_ROW}) i)")
+    for _ in range(-(-fill_mib // SWAP_FILL_BATCH_MIB)):
+        _sql(run, compose, f"insert into c2.swap_ballast(payload) select {row} from generate_series(1,{SWAP_FILL_ROWS}) g")
+
+
+def _swap_wait_archived(run: Runner, compose: list[str], clock: Callable[[], float], sleep: Callable[[float], None]) -> None:
+    """O check espera o WAL corrente por pouco tempo: a fila do preenchimento precisa escoar antes de parar algo."""
+    segment = _sql(run, compose, "select pg_walfile_name(pg_switch_wal())")
+    deadline = clock() + WAIT_SECONDS
+    while _sql(run, compose, "select coalesce(last_archived_wal,'') from pg_stat_archiver") < segment:
+        if clock() > deadline:
+            raise ShadowError(f"WAL não arquivado em {WAIT_SECONDS} s; nada foi parado")
+        sleep(SWAP_ARCHIVE_POLL_SECONDS)
+
+
+def _swap_check(run: Runner, compose: list[str]) -> None:
+    run([*compose, "exec", "--no-TTY", "backup", "pgbackrest", "--stanza=duora", "check"])
+
+
+def _swap_recreate(layout: Layout, image: str, run: Runner, clock: Callable[[], float]) -> dict[str, float]:
+    # Mesma ordem da operação real: o backup recebe o WAL, para depois do postgres e sobe antes dele.
+    compose = _swap_compose(layout, image)
+    moments = [clock()]
+    for command in (["stop", "postgres"], ["stop", "backup"], ["up", "--detach", "--wait", "--no-deps", "backup"],
+                    ["up", "--detach", "--wait", "--no-deps", "postgres"]):
+        run([*compose, *command])
+        moments.append(clock())
+    return {"stopPostgresSeconds": round(moments[1] - moments[0], 1), "stopBackupSeconds": round(moments[2] - moments[1], 1),
+            "upBackupSeconds": round(moments[3] - moments[2], 1), "upPostgresSeconds": round(moments[4] - moments[3], 1),
+            "databaseDownSeconds": round(moments[4] - moments[0], 1)}
+
+
+def _swap_photo(run: Runner, compose: list[str]) -> dict:
+    return json.loads(_sql(run, compose, SWAP_PHOTO_SQL))
+
+
+def _swap_volume(run: Runner) -> str:
+    return run(["docker", "volume", "inspect", "--format", "{{.CreatedAt}}", PROJECT + "_pgdata"]).strip()
+
+
+def _swap_direction(layout: Layout, image: str, photo: dict, volume: str, run: Runner, clock: Callable[[], float]) -> dict[str, float]:
+    timing = _swap_recreate(layout, image, run, clock)
+    compose = _swap_compose(layout, image)
+    running = set(run(["docker", "inspect", "--format", "{{.Config.Image}}", f"{PROJECT}-postgres-1",
+                       f"{PROJECT}-backup-1"]).split())
+    if running != {image}:
+        raise ShadowError(f"digest errado depois de recriar: {sorted(running)}")
+    if _swap_photo(run, compose) != photo:
+        raise ShadowError("foto do banco mudou: identidade, timeline, head, ACL ou colação")
+    if _swap_volume(run) != volume:
+        raise ShadowError("volume de dados mudou de identidade")
+    started = clock()
+    _swap_check(run, compose)
+    timing["checkSeconds"] = round(clock() - started, 1)
+    return timing
+
+
+def swap_abort(layout: Layout, run: Runner = default_runner) -> None:
+    """Volta ao digest de origem no mesmo volume e religa a aplicação; serve também depois de um ensaio morto."""
+    _swap_guard(layout, run)
+    compose = _swap_compose(layout, SWAP_SOURCE_IMAGE)
+    run([*compose, "stop", "worker"])
+    run([*compose, "stop", "web"])
+    _swap_recreate(layout, SWAP_SOURCE_IMAGE, run, time.monotonic)
+    run([*compose, "up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"])
+
+
+def swap_rehearsal(layout: Layout, target: str, *, fill_mib: int, run: Runner = default_runner,
+                   clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
+                   free_mib: Callable[[Path], int] = _free_mib) -> dict:
+    compose = _swap_guard(layout, run)
+    if target != SWAP_TARGET_IMAGE:
+        raise ShadowError("alvo fora da allowlist do ensaio")
+    if not 0 <= fill_mib <= SWAP_MAX_FILL_MIB:
+        raise ShadowError(f"--fill-mib fora de 0..{SWAP_MAX_FILL_MIB}")
+    needed = fill_mib * SWAP_DISK_FACTOR + SWAP_DISK_MARGIN_MIB
+    if free_mib(layout.root) < needed:
+        raise ShadowError(f"disco insuficiente: o ensaio pede {needed} MiB livres")
+    started = clock()
+    run(["docker", "pull", "--quiet", target])
+    result: dict = {"source": SWAP_SOURCE_IMAGE, "target": target, "pullSeconds": round(clock() - started, 1)}
+    if fill_mib:
+        started = clock()
+        _swap_fill(run, compose, fill_mib)
+        result["fillSeconds"] = round(clock() - started, 1)
+    result["databaseSizeMib"] = int(_sql(run, compose, "select pg_database_size(current_database())/1048576"))
+    started = clock()
+    _swap_wait_archived(run, compose, clock, sleep)
+    result["archiveWaitSeconds"] = round(clock() - started, 1)
+    evidence = layout.state / "swap-rehearsal.json"
+    try:
+        run([*compose, "stop", "worker"])
+        run([*compose, "stop", "web"])
+        photo = _swap_photo(run, compose)
+        volume = _swap_volume(run)
+        _swap_check(run, compose)
+        result["forward"] = _swap_direction(layout, target, photo, volume, run, clock)
+        result["back"] = _swap_direction(layout, SWAP_SOURCE_IMAGE, photo, volume, run, clock)
+        run([*compose, "up", "--detach", "--wait", "--no-deps", "web", "worker", "edge"])
+    except (ShadowError, subprocess.TimeoutExpired, ValueError) as error:
+        result.update(aborted=True, error=str(error))
+        evidence.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+        swap_abort(layout, run)
+        raise ShadowError(f"ensaio abortado, de volta ao digest de origem: {error}") from error
+    result["photoStable"] = True
+    evidence.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="projeto sombra duora-c2 (issue #86)")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
@@ -440,6 +598,10 @@ def main(argv: list[str] | None = None) -> int:
     rehearsal = commands.add_parser("restore-rehearsal")
     rehearsal.add_argument("--no-final-full", dest="final_full", action="store_false",
                            help="não refaz o FULL depois do restore (sombra derrubado em seguida)")
+    swap_parser = commands.add_parser("swap-rehearsal")
+    swap_parser.add_argument("--target", required=True, help="digest alvo; só o revisado no código é aceito")
+    swap_parser.add_argument("--fill-mib", type=int, default=0, help="dados sintéticos gravados antes da troca")
+    commands.add_parser("swap-abort")
     commands.add_parser("down")
     args = parser.parse_args(argv)
     layout = Layout(args.root)
@@ -457,9 +619,13 @@ def main(argv: list[str] | None = None) -> int:
             print(restic_backup_command(layout))
         elif args.command == "restore-rehearsal":
             print(json.dumps(restore_rehearsal(layout, final_full=args.final_full), indent=2))
+        elif args.command == "swap-rehearsal":
+            print(json.dumps(swap_rehearsal(layout, args.target, fill_mib=args.fill_mib), indent=2))
+        elif args.command == "swap-abort":
+            swap_abort(layout)
         else:
             down(layout)
-    except (ShadowError, OSError, ValueError) as error:
+    except (ShadowError, c2_probe.CommandRefused, OSError, ValueError) as error:
         print(f"c2-shadow: {error}", file=sys.stderr)
         return 1
     return 0
