@@ -77,49 +77,47 @@ public sealed partial class TransactionalEmailDispatcher
         IReadOnlyCollection<ClaimedDelivery> waiting,
         CancellationToken cancellationToken)
     {
+        var step = DeliveryStep.Settlement;
         try
         {
-            await DeliverAsync(delivery, waiting, cancellationToken);
+            if (_time.GetUtcNow() >= delivery.DeadlineAt)
+            {
+                LogExpired(_logger, delivery.Id);
+                await SettleAsync(delivery, OutboxDeliveryStatus.Expired, error: null, cancellationToken);
+                return;
+            }
+
+            step = DeliveryStep.Composition;
+            if (!TryCompose(delivery, out var email))
+            {
+                step = DeliveryStep.Settlement;
+                LogInvalidPayload(_logger, delivery.Id);
+                await SettleAsync(delivery, OutboxDeliveryStatus.Failed, InvalidPayloadError, cancellationToken);
+                return;
+            }
+
+            // Heartbeat: renova o lease desta entrega e das que ainda esperam no lote, para um lote lento não perder
+            // as últimas para outro worker. Se esta já não foi renovada (pausa longa, outro worker a assumiu), não
+            // envia; o próximo claim a recupera.
+            step = DeliveryStep.LeaseRenewal;
+            var renewed = await _queue.RenewLeasesAsync([delivery, .. waiting], _options.LeaseDuration, _time, cancellationToken);
+            if (!renewed.Contains(delivery.Id))
+            {
+                LogSkippedWithoutOwnership(_logger, delivery.Id);
+                return;
+            }
+
+            step = DeliveryStep.Send;
+            await SendWithTimeoutAsync(email, delivery, cancellationToken);
+            step = DeliveryStep.Settlement;
+            await SettleAsync(delivery, OutboxDeliveryStatus.Delivered, error: null, cancellationToken);
         }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (exception is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
             // Inclui o timeout do envio. O parar do worker (token cancelado) propaga: a entrega fica em voo e
             // outro worker a retoma quando o lease vencer. Com o banco fora, reagendar também falha e aborta o lote.
-            await RetryOrFailAsync(delivery, exception, cancellationToken);
+            await RetryOrFailAsync(delivery, step, exception, cancellationToken);
         }
-    }
-
-    private async Task DeliverAsync(
-        ClaimedDelivery delivery,
-        IReadOnlyCollection<ClaimedDelivery> waiting,
-        CancellationToken cancellationToken)
-    {
-        if (_time.GetUtcNow() >= delivery.DeadlineAt)
-        {
-            LogExpired(_logger, delivery.Id);
-            await SettleAsync(delivery, OutboxDeliveryStatus.Expired, error: null, cancellationToken);
-            return;
-        }
-
-        if (!TryCompose(delivery, out var email))
-        {
-            LogInvalidPayload(_logger, delivery.Id);
-            await SettleAsync(delivery, OutboxDeliveryStatus.Failed, InvalidPayloadError, cancellationToken);
-            return;
-        }
-
-        // Heartbeat: renova o lease desta entrega e das que ainda esperam no lote, para um lote lento não perder
-        // as últimas para outro worker. Se esta já não foi renovada (pausa longa, outro worker a assumiu), não
-        // envia; o próximo claim a recupera.
-        var renewed = await _queue.RenewLeasesAsync([delivery, .. waiting], _options.LeaseDuration, _time, cancellationToken);
-        if (!renewed.Contains(delivery.Id))
-        {
-            LogSkippedWithoutOwnership(_logger, delivery.Id);
-            return;
-        }
-
-        await SendWithTimeoutAsync(email, delivery, cancellationToken);
-        await SettleAsync(delivery, OutboxDeliveryStatus.Delivered, error: null, cancellationToken);
     }
 
     private void LogExhausted(ExhaustedDelivery exhausted)
@@ -176,20 +174,25 @@ public sealed partial class TransactionalEmailDispatcher
         await _sender.SendAsync(email, delivery.Id.ToString("N"), linked.Token);
     }
 
-    private async Task RetryOrFailAsync(ClaimedDelivery delivery, Exception exception, CancellationToken cancellationToken)
+    private async Task RetryOrFailAsync(
+        ClaimedDelivery delivery,
+        DeliveryStep step,
+        Exception exception,
+        CancellationToken cancellationToken)
     {
-        // Só a categoria: a mensagem de um provedor pode trazer o destinatário ou o corpo (spec 19.2).
+        // Só a categoria e os frames: a mensagem de um provedor pode trazer o destinatário ou o corpo (spec 19.2).
         var cause = exception.GetType().Name;
+        var frames = ExceptionFrames.Describe(exception);
         if (delivery.Attempts >= _options.MaxAttempts)
         {
-            LogGaveUp(_logger, delivery.Id, delivery.Attempts, cause);
+            LogGaveUp(_logger, delivery.Id, step, delivery.Attempts, cause, frames);
             await SettleAsync(delivery, OutboxDeliveryStatus.Failed, cause, cancellationToken);
             return;
         }
 
         var now = _time.GetUtcNow();
         var retryAt = now + _options.Backoff.DelayAfter(delivery.Attempts, Random.Shared.NextDouble());
-        LogWillRetry(_logger, delivery.Id, delivery.Attempts, cause, retryAt);
+        LogWillRetry(_logger, delivery.Id, step, delivery.Attempts, cause, retryAt, frames);
         if (!await _queue.RescheduleAsync(delivery, retryAt, cause, now, cancellationToken))
         {
             LogLeaseLost(_logger, delivery.Id);
@@ -222,13 +225,14 @@ public sealed partial class TransactionalEmailDispatcher
 
     [LoggerMessage(
         Level = LogLevel.Warning,
-        Message = "Envio da entrega {DeliveryId} falhou na tentativa {Attempt} ({Cause}); nova tentativa em {RetryAt}")]
-    private static partial void LogWillRetry(ILogger logger, Guid deliveryId, int attempt, string cause, DateTimeOffset retryAt);
+        Message = "Entrega {DeliveryId} falhou em {Step} na tentativa {Attempt} ({Cause}); nova tentativa em {RetryAt}. Frames: {Frames}")]
+    private static partial void LogWillRetry(
+        ILogger logger, Guid deliveryId, DeliveryStep step, int attempt, string cause, DateTimeOffset retryAt, string frames);
 
     [LoggerMessage(
         Level = LogLevel.Error,
-        Message = "Envio da entrega {DeliveryId} falhou na tentativa {Attempt} ({Cause}); sem novas tentativas, vai para revisão")]
-    private static partial void LogGaveUp(ILogger logger, Guid deliveryId, int attempt, string cause);
+        Message = "Entrega {DeliveryId} falhou em {Step} na tentativa {Attempt} ({Cause}); sem novas tentativas, vai para revisão. Frames: {Frames}")]
+    private static partial void LogGaveUp(ILogger logger, Guid deliveryId, DeliveryStep step, int attempt, string cause, string frames);
 
     [LoggerMessage(
         Level = LogLevel.Error,
@@ -244,4 +248,13 @@ public sealed partial class TransactionalEmailDispatcher
         Level = LogLevel.Warning,
         Message = "Entrega {DeliveryId} não foi encerrada por este worker: o lease venceu ou outro worker a assumiu")]
     private static partial void LogLeaseLost(ILogger logger, Guid deliveryId);
+
+    /// <summary>Em que ponto da entrega a falha aconteceu: diz ao log se o e-mail pode ter saído.</summary>
+    private enum DeliveryStep
+    {
+        Composition,
+        LeaseRenewal,
+        Send,
+        Settlement,
+    }
 }

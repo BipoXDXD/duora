@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using Duora.Core;
 using Duora.Core.Identity;
@@ -247,6 +248,83 @@ public sealed class TransactionalEmailDispatchTests(PostgresFixture postgres)
         Assert.Equal(("Failed", 2, nameof(ArgumentNullException)), (delivery.Status, delivery.Attempts, delivery.LastError));
         await AssertDeliveredOnTheirFirstAttemptAsync(harness, neighbours);
         Assert.DoesNotContain(logs.Entries, entry => entry.Text.Contains(token, StringComparison.Ordinal));
+        var failures = FailuresOf(logs);
+        Assert.Equal([LogLevel.Warning, LogLevel.Error], failures.Select(entry => entry.Level));
+        Assert.All(failures, entry => AssertNamesTheStepAndTheFrames(entry, "Composition", nameof(PublicOrigin)));
+    }
+
+    [Fact]
+    public async Task AFailedSendNamesTheStepAndTheFramesButNotTheProviderMessage()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "tok-1", Ct);
+        var logs = new CapturingLoggerProvider();
+        var dispatcher = harness.StartWorker(logs: logs, decorateSender: _ => new SenderThatFails(new IOException(ProviderCanary)));
+
+        await dispatcher.DispatchBatchAsync(Ct);
+
+        var failure = Assert.Single(FailuresOf(logs));
+        AssertNamesTheStepAndTheFrames(failure, "Send", nameof(SenderThatFails));
+        Assert.DoesNotContain(ProviderCanary, failure.Text, StringComparison.Ordinal);
+    }
+
+    /// <summary>Leituras do relógio numa entrega com o envio bem-sucedido: o claim, o deadline, a renovação e o Settle.</summary>
+    [Theory]
+    [InlineData(3, "LeaseRenewal", 0)]
+    [InlineData(4, "Settlement", 1)]
+    public async Task AFailureAroundTheSendNamesItsStep(int explodingRead, string step, int mailFiles)
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var deliveryId = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "tok-1", Ct);
+        var clock = new ScriptedClock(harness.Time);
+        var logs = new CapturingLoggerProvider();
+        var dispatcher = harness.StartWorker(logs: logs, configureServices: services => services.AddSingleton<TimeProvider>(clock));
+        clock.ExplodeOnRead(explodingRead);
+
+        await dispatcher.DispatchBatchAsync(Ct);
+
+        var delivery = await harness.ReadDeliveryAsync(deliveryId, Ct);
+        Assert.Equal(("Pending", 1, nameof(ScriptedClockException)), (delivery.Status, delivery.Attempts, delivery.LastError));
+        Assert.Equal(mailFiles, harness.MailFiles().Length);
+        var failure = Assert.Single(FailuresOf(logs));
+        AssertNamesTheStepAndTheFrames(failure, step, nameof(ScriptedClock));
+        Assert.DoesNotContain(ScriptedClock.MessageCanary, failure.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [SuppressMessage("Usage", "CA2201:Do not raise reserved exception types", Justification = "O comportamento testado é justamente o desse tipo reservado.")]
+    public async Task OutOfMemoryIsNotTreatedAsAFailureOfTheDelivery()
+    {
+        await using var harness = await EmailOutboxHarness.CreateAsync(postgres, Ct);
+        var deliveryId = await harness.EnqueueAsync(AccountEmailKind.EmailConfirmation, "tok-1", Ct);
+        var dispatcher = harness.StartWorker(decorateSender: _ => new SenderThatFails(new OutOfMemoryException()));
+
+        await Assert.ThrowsAsync<OutOfMemoryException>(() => dispatcher.DispatchBatchAsync(Ct));
+
+        var delivery = await harness.ReadDeliveryAsync(deliveryId, Ct);
+        Assert.Equal(("InFlight", 1, (string?)null), (delivery.Status, delivery.Attempts, delivery.LastError));
+    }
+
+    private const string ProviderCanary = "CANARY-mensagem-do-provedor";
+
+    private static CapturedLog[] FailuresOf(CapturingLoggerProvider logs) =>
+    [
+        .. logs.Entries.Where(entry => entry.Category == typeof(TransactionalEmailDispatcher).FullName && entry.Level >= LogLevel.Warning),
+    ];
+
+    private static void AssertNamesTheStepAndTheFrames(CapturedLog entry, string step, string frame)
+    {
+        Assert.Contains($"em {step} ", entry.Text, StringComparison.Ordinal);
+        Assert.Contains("Frames: ", entry.Text, StringComparison.Ordinal);
+        Assert.Contains(frame, entry.Text[entry.Text.IndexOf("Frames: ", StringComparison.Ordinal)..], StringComparison.Ordinal);
+        Assert.DoesNotContain(".cs", entry.Text, StringComparison.Ordinal);
+        Assert.Null(entry.Exception);
+    }
+
+    private sealed class SenderThatFails(Exception failure) : ITransactionalEmailSender
+    {
+        public Task SendAsync(TransactionalEmail email, string idempotencyKey, CancellationToken cancellationToken) =>
+            throw failure;
     }
 
     [Fact]

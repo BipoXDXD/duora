@@ -1,13 +1,13 @@
 using System.Diagnostics;
 using System.Globalization;
 
-namespace Duora.Worker;
+namespace Duora.Infrastructure;
 
 /// <summary>
 /// Localiza um defeito no log sem expor conteúdo (spec 19.2): só tipo, método e linha. A mensagem da exceção e o
 /// caminho do arquivo ficam de fora, porque mensagem de fornecedor ou banco pode carregar dado.
 /// </summary>
-internal static class ExceptionFrames
+public static class ExceptionFrames
 {
     /// <summary>O loop repete o erro a cada volta: o limite mantém cada linha de log pequena.</summary>
     private const int MaximumFrames = 8;
