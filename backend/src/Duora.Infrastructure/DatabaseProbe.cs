@@ -1,4 +1,3 @@
-using System.Data.Common;
 using Npgsql;
 
 namespace Duora.Infrastructure;
@@ -33,9 +32,10 @@ public sealed class DatabaseProbe
             await connection.OpenAsync(cancellationToken);
             return DatabaseStatus.Reachable;
         }
-        catch (DbException exception)
+        catch (Exception exception) when (exception is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
         {
-            // Inclui recusa de conexão e o NpgsqlException que embrulha TimeoutException.
+            // Além de recusa de conexão e do NpgsqlException que embrulha TimeoutException, inclui o que o driver lança
+            // fora de DbException, como ArgumentNullException de configuração incompleta: quem pergunta não espera exceção.
             return DatabaseStatus.Unreachable(exception);
         }
     }
